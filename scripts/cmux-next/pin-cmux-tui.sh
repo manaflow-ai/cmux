@@ -21,7 +21,8 @@
 #   back to another binary. To publish the tree of an unmerged branch:
 #     git push origin HEAD:refs/heads/cmux-tui-pin-<short-sha>
 #     gh workflow run cmux-tui-artifacts.yml --ref cmux-tui-pin-<short-sha>
-#   (the push alone starts a run only when its tip commit changes cmux-tui).
+#   (dispatch only when the push started no run: a push starts one only when
+#   commits new to the repository change cmux-tui, ghostty or the workflow).
 #   Uncommitted changes under cmux-tui/ (or a ghostty checkout that differs
 #   from the gitlink) are not in the published binary, so `fetch` refuses
 #   them unless CMUX_NEXT_TUI_ALLOW_DIRTY=1. CMUX_NEXT_TUI_BIN=<path> bundles a
@@ -136,7 +137,7 @@ wait_for_tree() {
         echo "  on a pushed commit of feat-cmux-next, feat-cmux-next-acpmux or cmux-tui-pin-*."
         echo "  Check its runs: https://github.com/manaflow-ai/cmux/actions/workflows/cmux-tui-artifacts.yml"
         echo "  For an unmerged branch: git push origin HEAD:refs/heads/cmux-tui-pin-$(git -C "$repo_root" rev-parse --short=12 HEAD),"
-        echo "  then gh workflow run cmux-tui-artifacts.yml --ref cmux-tui-pin-$(git -C "$repo_root" rev-parse --short=12 HEAD) if the push starts no run"
+        echo "  then gh workflow run cmux-tui-artifacts.yml --ref cmux-tui-pin-$(git -C "$repo_root" rev-parse --short=12 HEAD) only if the push started no run"
         echo "  (a pull request checks its merge with the base: merge the base into the branch first)."
         echo "  When the last run for this tree failed, rerun it: gh workflow run cmux-tui-artifacts.yml --ref <that branch>."
         echo "  Or bundle a local build: CMUX_NEXT_TUI_BIN=<path>. No older binary is used instead."
