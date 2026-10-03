@@ -19,8 +19,13 @@ final class CloudTreeMachineReorderLift: NSObject {
         let sourceID: String
         let layout: CloudTreeReorderLiftLayout
         let sourceRows: Range<Int>
-        /// The pointer's y, in the collapsed outline, that leaves the row at rest.
+        /// Where the press landed. Only the pointer's travel from here picks
+        /// the slot; closing the machines above must not count as a move.
         let grabY: CGFloat
+        /// How far closing the machines above moved the held row up. The row
+        /// starts there, under the hand, and glides into its closed slot.
+        let closeShift: CGFloat
+        let startTime: CFTimeInterval
         /// Machines closed for the drag, opened again when it ends.
         let collapsedIDs: [String]
         var placement: CloudTreeReorderLiftLayout.Placement
@@ -34,6 +39,11 @@ final class CloudTreeMachineReorderLift: NSObject {
     /// Row views this drag has moved or styled, reset when it ends.
     private let touched = NSHashTable<NSTableRowView>.weakObjects()
     private var isFinishing = false
+    /// When the mouse button was first seen up during the drag; a drag whose
+    /// end AppKit never reported is cancelled after a short grace.
+    private var buttonUpSince: CFTimeInterval?
+    /// Ends a drag whose end was never reported (set by the coordinator).
+    var onDragLost: (() -> Void)?
 
     private static let shiftKey = "cmux.machineLift.shift"
     private static let liftZ: CGFloat = 10
@@ -92,16 +102,17 @@ final class CloudTreeMachineReorderLift: NSObject {
             ghosts.forEach { $0.layer.removeFromSuperlayer() }
             return
         }
-        // Closing machines above the source moves its row up; the grab point
-        // moves with it, so the row stays under the pointer.
         let newTop = frames[sourceRows.lowerBound].minY
         let oldTop = before[source.id] ?? newTop
-        let grabY = (pressY ?? outline.lastMouseDownPoint?.y ?? pointerY() ?? newTop) - (oldTop - newTop)
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         session = Session(
             sequence: sequence, sourceID: source.id, layout: layout, sourceRows: sourceRows,
-            grabY: grabY, collapsedIDs: closing.map(\.id),
+            grabY: pressY ?? outline.lastMouseDownPoint?.y ?? pointerY() ?? newTop,
+            closeShift: reduceMotion ? 0 : oldTop - newTop, startTime: CACurrentMediaTime(),
+            collapsedIDs: closing.map(\.id),
             placement: layout.placement(dragOffset: 0)
         )
+        buttonUpSince = nil
         animateGhosts(ghosts, before: before)
         land(from: before, excluding: source.id, fadingIn: false)
         if let pointer = pointerY() { update(pointerY: pointer) }
@@ -116,7 +127,27 @@ final class CloudTreeMachineReorderLift: NSObject {
 
     @objc private func tick() {
         guard session != nil, let pointer = pointerY() else { return }
+        if NSEvent.pressedMouseButtons & 1 == 0 {
+            let now = CACurrentMediaTime()
+            if let since = buttonUpSince, now - since > 0.3 {
+                onDragLost?()
+                return
+            }
+            buttonUpSince = buttonUpSince ?? now
+        } else {
+            buttonUpSince = nil
+        }
         update(pointerY: pointer)
+    }
+
+    /// The part of the close shift the held row still carries: a critically
+    /// damped glide from under the hand into its closed slot.
+    private static func remainingCloseShift(_ session: Session) -> CGFloat {
+        guard session.closeShift != 0 else { return 0 }
+        let omega = 17.0
+        let t = max(0, CACurrentMediaTime() - session.startTime)
+        let remaining = exp(-omega * t) * (1 + omega * t)
+        return remaining < 0.002 ? 0 : session.closeShift * CGFloat(remaining)
     }
 
     /// Moves the lifted row to the pointer and returns the slot it shows.
@@ -132,7 +163,7 @@ final class CloudTreeMachineReorderLift: NSObject {
             if session.sourceRows.contains(row) {
                 // Direct manipulation: never smoothed, or the row lags the hand.
                 layer.removeAnimation(forKey: Self.shiftKey)
-                Self.setShift(placement.sourceOffset, on: layer)
+                Self.setShift(placement.sourceOffset + Self.remainingCloseShift(session), on: layer)
                 layer.zPosition = Self.liftZ
                 CloudTreeMachineLiftStyle.apply(to: rowView, animated: true)
                 return
@@ -177,6 +208,8 @@ final class CloudTreeMachineReorderLift: NSObject {
         isFinishing = true
         let result = mutate?() ?? false
         reopen(session.collapsedIDs)
+        // Row views exist only after layout; landing before it would snap.
+        outline?.layoutSubtreeIfNeeded()
         isFinishing = false
         land(from: before, excluding: nil, fadingIn: true, liftedID: session.sourceID)
         return result

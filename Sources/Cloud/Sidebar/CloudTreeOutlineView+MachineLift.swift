@@ -18,6 +18,7 @@ extension CloudTreeOutlineView.Coordinator {
     ) {
         guard node.canReorderMachine,
               let scope = CloudMachineReorderScope(machineNodeID: node.id, roots: nodes) else { return }
+        outline.machineLift.onDragLost = { [weak self] in self?.finishMachineLift() }
         outline.machineLift.begin(
             sequence: session.draggingSequenceNumber, source: node, siblings: scope.siblings, pressY: pressY
         ) { machines in

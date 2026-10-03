@@ -96,16 +96,43 @@ struct CloudMachineOrderingTests {
         let start = outline.rect(ofRow: outline.row(forItem: source))
         let c = outline.rect(ofRow: outline.row(forItem: try fixture.root("c")))
         drag.info.draggingLocation = outline.convert(NSPoint(x: start.midX, y: c.maxY - 2), to: nil)
-        // AppKit's own proposal is ignored while the lift owns the drag.
+        // AppKit's own proposal (on b, which alone would drop a after b) is
+        // ignored while the lift owns the drag.
         #expect(coordinator.outlineView(outline, validateDrop: drag.info,
-            proposedItem: try fixture.root("d"), proposedChildIndex: NSOutlineViewDropOnItemIndex) == .move)
+            proposedItem: try fixture.root("b"), proposedChildIndex: NSOutlineViewDropOnItemIndex) == .move)
         expectNoReorderIndicator(outline)
         #expect(outline.machineLift.slot == 2)
-        #expect(coordinator.outlineView(outline, acceptDrop: drag.info, item: fixture.section, childIndex: 0))
+        #expect(coordinator.outlineView(outline, acceptDrop: drag.info, item: try fixture.root("b"),
+            childIndex: NSOutlineViewDropOnItemIndex))
         #expect(fixture.order == ["b", "c", "a", "d"])
         #expect(!outline.machineLift.isActive(sequence: drag.session.draggingSequenceNumber))
         #expect(outline.isItemExpanded(try fixture.root("b")), "open machines come back open")
         try fixture.end(drag)
+    }
+
+    @Test("Closing open machines above the held one is not a move")
+    func liftedDragBelowOpenMachines() throws {
+        let fixture = CloudMachineOrderingFixture(sectioned: true)
+        defer { fixture.close() }
+        let coordinator = fixture.coordinator
+        let outline = try #require(coordinator.outlineView)
+        outline.expandItem(try #require(fixture.section))
+        outline.expandItem(try fixture.root("a"), expandChildren: true)
+        outline.expandItem(try fixture.root("b"), expandChildren: true)
+        let source = try fixture.root("c")
+        let drag = try fixture.begin("c")
+        let press = outline.rect(ofRow: outline.row(forItem: source)).midY
+        coordinator.beginMachineLift(drag.session, node: source, in: outline, pressY: press)
+        #expect(!outline.isItemExpanded(try fixture.root("a")) && !outline.isItemExpanded(try fixture.root("b")))
+        // A small nudge from the press point: c's row moved up as a and b
+        // closed, but only the pointer's travel counts.
+        drag.info.draggingLocation = outline.convert(NSPoint(x: 10, y: press + 3), to: nil)
+        #expect(coordinator.outlineView(outline, validateDrop: drag.info,
+            proposedItem: nil, proposedChildIndex: 0).isEmpty)
+        #expect(outline.machineLift.slot == 2, "c keeps its place among a, b and d")
+        try fixture.end(drag)
+        #expect(fixture.order == ["a", "b", "c", "d"])
+        #expect(outline.isItemExpanded(try fixture.root("a")) && outline.isItemExpanded(try fixture.root("b")))
     }
 
     @Test("A lifted drag released on its own slot moves nothing and reopens machines")
