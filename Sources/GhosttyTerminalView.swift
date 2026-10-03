@@ -6842,6 +6842,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if result, shouldApplySurfaceFocus {
             terminalSurface?.recordExternalFocusState(true)
             terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
+            terminalSurface?.hostedView.terminalSizeBoundsOverlayView.sizingFocusGained()
         }
         if result, shouldApplySurfaceFocus, let surface = ensureSurfaceReadyForInput(reassertInputFocus: false) {
             let now = CACurrentMediaTime()
@@ -6899,6 +6900,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             cancelKeyboardCopyMode()
             terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
             terminalSurface?.recordExternalFocusState(false)
+            terminalSurface?.hostedView.terminalSizeBoundsOverlayView.sizingFocusLost()
         }
         if result, let surface = surface {
             let now = CACurrentMediaTime()
@@ -11469,16 +11471,16 @@ final class GhosttySurfaceScrollView: NSView {
         super.viewDidMoveToWindow()
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.removeAll()
+        terminalSizeBoundsOverlayView.sizingSurfaceVisibilityChanged(window != nil && surfaceView.isVisibleInUI)
         guard let window else { return }
         windowObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
             object: window,
             queue: .main
         ) { [weak self] _ in
-            // Registered with `queue: .main`, so the @MainActor `searchState`
-            // reads below are in fact main-isolated.
             MainActor.assumeIsolated {
                 guard let self, self.isActive, self.surfaceView.isVisibleInUI, let tabId = self.surfaceView.tabId, let surfaceId = self.surfaceView.terminalSurface?.id, self.matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: surfaceId) else { return }
+                self.terminalSizeBoundsOverlayView.sizingFocusGained()
 #if DEBUG
                 cmuxDebugLog("find.window.didBecomeKey surface=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") searchActive=\(self.surfaceView.terminalSurface?.searchState != nil) focusTarget=\(self.searchFocusTarget) firstResponder=\(String(describing: self.window?.firstResponder))")
 #endif
@@ -11490,13 +11492,10 @@ final class GhosttySurfaceScrollView: NSView {
             object: window,
             queue: .main
         ) { [weak self] _ in
-            // Registered with `queue: .main`, so the @MainActor `searchState`
-            // read below is in fact main-isolated.
             MainActor.assumeIsolated {
                 guard let self, let window = self.window else { return }
+                self.terminalSizeBoundsOverlayView.sizingFocusLost()
                 let searchActive = self.surfaceView.terminalSurface?.searchState != nil
-                // Losing key window does not always trigger first-responder resignation, so force
-                // the focused terminal view to yield responder to keep Ghostty cursor/focus state in sync.
                 if let fr = window.firstResponder as? NSView,
                    fr === self.surfaceView || fr.isDescendant(of: self.surfaceView) {
 #if DEBUG
@@ -11535,8 +11534,7 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
         surfaceView.onFocus = { [weak self] in
-            // When the terminal surface gains focus (click, tab, etc.), update the
-            // search focus target so window reactivation restores terminal focus.
+            self?.terminalSizeBoundsOverlayView.sizingFocusGained()
             if self?.surfaceView.terminalSurface?.searchState != nil {
                 self?.searchFocusTarget = .terminal
             }
@@ -12243,6 +12241,7 @@ final class GhosttySurfaceScrollView: NSView {
         // Make the portal presentable before asking Ghostty to realize its drawable.
         surfaceView.setVisibleInUI(visible)
         isHidden = !visible
+        terminalSizeBoundsOverlayView.sizingSurfaceVisibilityChanged(visible)
         surfaceView.terminalSurface?.setRendererPortalVisible(visible)
         synchronizeCloudTerminalReconnectOverlay()
         if wasVisible != visible, lastRequestedPortalOcclusionVisible != visible {
@@ -12318,6 +12317,7 @@ final class GhosttySurfaceScrollView: NSView {
             surfaceView.cancelKeyboardCopyMode()
         }
         isActive = active
+        terminalSizeBoundsOverlayView.sizingFocusChanged(active)
 #if DEBUG
         if wasActive != active {
             let transition = "\(wasActive ? 1 : 0)->\(active ? 1 : 0)"
