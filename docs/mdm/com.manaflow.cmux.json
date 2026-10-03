@@ -875,7 +875,7 @@
       "type" : "string"
     },
     "window.rail" : {
-      "default" : "off",
+      "default" : "leading",
       "description" : "Shows the sidebar's pinned sections as a column of icons beside it.",
       "enum" : [
         "off",

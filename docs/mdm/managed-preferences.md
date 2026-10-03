@@ -12,7 +12,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | --- | --- | --- | --- | --- |
 | `history.terminalCommands` | boolean | `false` |  | Record Terminal Commands. Lists finished shell commands in History. Command lines can contain secrets. |
 | `window.titlebar` | string | `"minimal"` | `minimal`, `standard` | Titlebar. Minimal has no titlebar strip; the top row moves the window. |
-| `window.rail` | string | `"off"` | `off`, `leading`, `afterSidebar` | Action Rail. Shows the sidebar's pinned sections as a column of icons beside it. |
+| `window.rail` | string | `"leading"` | `off`, `leading`, `afterSidebar` | Action Rail. Shows the sidebar's pinned sections as a column of icons beside it. |
 | `tabs.newTabKind` | string | `"same-kind"` | `same-kind`, `terminal`, `browser`, `agent`, `page`, `auto` | New Tab Opens. What Cmd-T and the + button open. Auto picks the kind you last opened in that folder. |
 | `app.quitBehavior` | string | `"ask"` | `ask`, `keep`, `end-keep-layout`, `end-everything` | When Quitting. Terminals run in cmux-tui and keep running after cmux quits unless you end them. |
 | `layout.defaultColumnWidth` | real | `0.5` | 0.1 to 1 | Fixed Column Width. A share of the window width, for Fixed Width new columns. |

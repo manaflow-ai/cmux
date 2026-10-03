@@ -82,8 +82,9 @@ public final class DesignSettings {
     public var effectiveInactiveTabStyle: InactiveTabStyle { FocusIndicatorTunables.inactiveTabStyle.override ?? inactiveTabStyle }
     /// `window.titlebar`: minimal (no titlebar strip) or standard.
     public var titlebar: TitlebarStyle = .minimal
-    /// `window.rail`: the window's icon rail, off by default.
-    public var rail: WindowRailPlacement = .off
+    /// `window.rail`: the window's icon rail, at the leading edge by
+    /// default (`WindowRailSetting.fallback`).
+    public var rail: WindowRailPlacement = .leading
 
     public init() {}
 

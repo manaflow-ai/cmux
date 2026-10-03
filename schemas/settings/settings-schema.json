@@ -130,7 +130,7 @@
           "value" : "afterSidebar"
         }
       ],
-      "default" : "off",
+      "default" : "leading",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.window",
@@ -5273,7 +5273,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "b807282e04c420031ea45ae1fd7308b700725dc477f1f8f282be96e782699321",
+  "schema_hash" : "dcdf064da4bb0bec715df805657f877a6ef202e4dd290095fa5dacd54fe23558",
   "sections" : [
     {
       "id" : "general",
