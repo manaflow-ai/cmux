@@ -19,7 +19,7 @@ describe("team admin ops are personal-team only until roles exist", () => {
   it("a shared-team member cannot change the integration policy or automation settings", () => {
     const pol = connectionsDomain.reduce(connectionsDomain.initial(), "integration.policy.set", { github: { scope: "installation" } }, ctx(sharedMember))
     expect(pol).toMatchObject({ ok: false, code: "team.roles_required" })
-    const set = schedulerDomain.reduce(schedulerDomain.initial(), "automation.settings.set", { agent_run_default_seconds: 600 }, ctx(sharedMember))
+    const set = schedulerDomain.reduce(({ ...schedulerDomain.initial(), run_policy: { version: 0, runs_allowed: true } }), "automation.settings.set", { agent_run_default_seconds: 600 }, ctx(sharedMember))
     expect(set).toMatchObject({ ok: false, code: "team.roles_required" })
     expect(connectionsDomain.reduce(connectionsDomain.initial(), "integration.policy.set", { github: { scope: "installation" } }, ctx(personal)).ok).toBe(true)
   })
@@ -27,7 +27,7 @@ describe("team admin ops are personal-team only until roles exist", () => {
 
 describe("agent run limit: built-in 24 h, team default, automation override", () => {
   it("applies the team default to agent runs and lets an automation budget override it", () => {
-    let s: SchedulerState = schedulerDomain.initial()
+    let s: SchedulerState = ({ ...schedulerDomain.initial(), run_policy: { version: 0, runs_allowed: true } })
     const apply = (op: string, params: unknown) => {
       const r = schedulerDomain.reduce(s, op, params, ctx(personal))
       if (!r.ok) throw new Error(r.message)
