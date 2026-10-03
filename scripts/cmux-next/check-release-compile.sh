@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compile the cmux-next package (scheme CmuxNext: CmuxNextApp and everything
+# Compile the cmux-next package (scheme CmuxNextApp and everything
 # it links) in the Release configuration with the Xcode the nightly uses, the
 # way the nightly app build compiles it: xcodebuild, -O, whole-module.
 #
@@ -47,7 +47,7 @@ fi
 echo "check-release-compile: $(xcodebuild -version | tr '\n' ' ')"
 cd "$repo_root/Packages/macOS/CmuxNext"
 exec "$repo_root/scripts/ci/run-xcodebuild-with-diagnostics.sh" -- \
-  xcodebuild -scheme CmuxNext -configuration Release \
+  xcodebuild -scheme CmuxNextApp -configuration Release \
   -destination 'generic/platform=macOS' \
   -derivedDataPath "$derived_data" \
   ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
