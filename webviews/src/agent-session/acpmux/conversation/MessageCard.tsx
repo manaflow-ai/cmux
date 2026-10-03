@@ -1,7 +1,7 @@
 // A message to another agent (tell-coordinator, cmux send, a mailbox write, SendMessage) as a
 // card: sender to recipient and how it went, the message's first line, and the whole message
 // once opened.
-import { useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import { t } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import type { AgentMessage } from "./agentMessages";
@@ -13,9 +13,22 @@ export function MessageCard({ item, message }: { item: AcpmuxActivity; message: 
   const tool = item.tool!;
   const from = message.from ?? t("message.self");
   const to = message.to ?? t("message.unknown");
-  // Two lines show closed; a longer message gets Show more. Lines are a guess without layout:
-  // a break or ~140 characters (two lines of the card at the column's width) counts as more.
-  const long = message.text.split("\n").length > 2 || message.text.length > 140;
+  // Two lines show closed; a message that overflows them gets Show more. The first paint guesses
+  // (a third line, or ~140 characters); once laid out, the clamped body measures itself, again
+  // whenever its width changes. Open, the toggle stays for Show less.
+  const [long, setLong] = useState(() => message.text.split("\n").length > 2 || message.text.length > 140);
+  const body = useRef<HTMLDivElement>(null);
+  const bodyId = useId();
+  useLayoutEffect(() => {
+    const node = body.current;
+    if (!node || open) return;
+    const measure = () => setLong(node.scrollHeight > node.clientHeight + 1);
+    measure();
+    if (typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [open, message.text]);
   const failed = isFailed(tool);
   // What the send printed (a delivery receipt, or why it failed), under the opened message.
   const output = tool.output?.replace(/\n$/, "");
@@ -44,9 +57,17 @@ export function MessageCard({ item, message }: { item: AcpmuxActivity; message: 
           />
         </span>
       </button>
-      <div className={`cv-message__body${open ? "" : " is-clamped"}`}>{message.text || t("message.noText")}</div>
+      <div ref={body} id={bodyId} className={`cv-message__body${open ? "" : " is-clamped"}`}>
+        {message.text || t("message.noText")}
+      </div>
       {long && (
-        <button type="button" className="cv-message__more" onClick={() => setOpen((value) => !value)}>
+        <button
+          type="button"
+          className="cv-message__more"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          onClick={() => setOpen((value) => !value)}
+        >
           {t(open ? "message.less" : "message.more")}
           <ChevronDown size={12} className={`cv-rotor${open ? " is-flipped" : ""}`} />
         </button>

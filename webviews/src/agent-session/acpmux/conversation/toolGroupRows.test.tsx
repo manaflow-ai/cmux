@@ -43,7 +43,7 @@ describe("grouped tool rows", () => {
     expect(html).toContain('aria-label="Message from cc-pane-transcript to cc-next-ci"');
     expect(html).toContain("Coordinator");
     // Two lines show until the card opens; a two-line message needs no Show more.
-    expect(html).toContain('<div class="cv-message__body is-clamped">Landed #17079\nNext: items 4+5</div>');
+    expect(html).toMatch(/<div id="[^"]+" class="cv-message__body is-clamped">Landed #17079\nNext: items 4\+5<\/div>/);
     expect(html).not.toContain("Show more");
     const long = `tell-coordinator "${"word ".repeat(40)}"`;
     expect(

@@ -739,8 +739,9 @@
 }
 /* The message, two lines until opened (the Codex app's "Sent by … / Show more" bubble). */
 .cv-message__body {
-  margin: 0 10px 0 32.5px;
-  padding-bottom: 7px;
+  /* A margin, not padding: a clamped box clips at its padding edge, so padding would show a
+     sliver of the third line. */
+  margin: 0 10px 7px 32.5px;
   max-height: 240px;
   overflow: auto;
   color: var(--cv-text-muted);
@@ -762,7 +763,7 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  margin: -3px 0 7px 32.5px;
+  margin: -6px 0 7px 32.5px;
   color: var(--cv-text-dim);
   font-size: 12px;
   line-height: 18px;
