@@ -1,4 +1,4 @@
-使用方法: cmux wg hub --config パス --socket パス [--control パス] [--probes]
+使用方法: cmux wg hub --config パス --socket パス [--control パス] [--probes] [--send-buffer バイト]
 
 プロセス内 WireGuard トンネルを 1 つ所有し、所有者のみ読める Unix ソケットで
 他の cmux プロセスに SOCKS5 CONNECT を提供します。WireGuard 鍵は 1 つの
@@ -12,6 +12,8 @@
                   ポートを優先度クラス interactive、media、bulk 付きで パス.d/ 内の Unix
                   データグラムソケットに提供）、`datagram.stats`
   --probes        プローブで経路を測定します。プローブに応答するピアにのみ使います
+  --send-buffer バイト  UDP 送信バッファ（既定値かつ最小値 16384）。小さいとキューが
+                       ハブ内にでき、media が bulk を追い越せます
 
 待ち受け開始時に JSON 1 行 `{"event":"hub-ready","socket":...,"routes":[...]}` を出力します
 （--control 指定時は `"control"` も含みます）。

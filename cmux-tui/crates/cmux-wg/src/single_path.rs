@@ -10,8 +10,16 @@ use crate::probe_schedule::ProbeConfig;
 use crate::underlay::{SocketPath, UdpUnderlay};
 use crate::{WgConfig, WgError, WgNet};
 
-/// A fresh UDP socket aimed at the configured endpoint, in its family.
-pub(crate) async fn new_socket_path(config: &WgConfig) -> Result<UdpUnderlay, WgError> {
+/// The smallest send buffer [`WgNet::start_single_path`] sets: on macOS a
+/// UDP socket's send buffer also caps the datagram size.
+pub const MIN_SEND_BUFFER: usize = 16 * 1024;
+
+/// A fresh UDP socket aimed at the configured endpoint, in its family, with
+/// the kernel's default send buffer or `send_buffer` bytes.
+pub(crate) async fn new_socket_path(
+    config: &WgConfig,
+    send_buffer: Option<usize>,
+) -> Result<UdpUnderlay, WgError> {
     let endpoint = config
         .endpoint
         .as_ref()
@@ -22,7 +30,62 @@ pub(crate) async fn new_socket_path(config: &WgConfig) -> Result<UdpUnderlay, Wg
         *candidates.first().ok_or_else(|| WgError::EndpointUnresolved(endpoint.host.clone()))?;
     let bind = if peer.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" };
     let socket = UdpSocket::bind(bind).await?;
+    #[cfg(unix)]
+    if let Some(bytes) = send_buffer {
+        set_send_buffer(&socket, bytes)?;
+    }
+    // Elsewhere the kernel's default stays.
+    #[cfg(not(unix))]
+    let _ = send_buffer;
     Ok(SocketPath::new(socket, Some(peer)))
+}
+
+/// Set the socket's send buffer to `bytes` (at least [`MIN_SEND_BUFFER`]).
+/// A small one keeps the kernel's queue short, so a backlog forms in the
+/// driver's priority queues, where media still overtakes bulk: a full buffer
+/// answers `WouldBlock`, the underlay keeps the datagram, and the driver
+/// sends nothing more until the socket is writable again.
+#[cfg(unix)]
+fn set_send_buffer(socket: &UdpSocket, bytes: usize) -> std::io::Result<()> {
+    use std::os::fd::AsRawFd;
+    let size = libc::c_int::try_from(bytes.max(MIN_SEND_BUFFER)).unwrap_or(libc::c_int::MAX);
+    // SAFETY: the descriptor is open for the borrow of `socket`, and the
+    // option value points at a live `c_int` of the length passed.
+    let result = unsafe {
+        libc::setsockopt(
+            socket.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_SNDBUF,
+            (&raw const size).cast(),
+            size_of_val(&size) as libc::socklen_t,
+        )
+    };
+    if result == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+}
+
+/// The socket's send buffer as the kernel reports it (Linux reports twice
+/// the requested size, for its bookkeeping).
+#[cfg(all(unix, test))]
+fn send_buffer(socket: &UdpSocket) -> std::io::Result<usize> {
+    use std::os::fd::AsRawFd;
+    let mut size: libc::c_int = 0;
+    let mut len = size_of_val(&size) as libc::socklen_t;
+    // SAFETY: the descriptor is open for the borrow of `socket`, and the
+    // option buffer is a live `c_int` whose length `len` holds.
+    let result = unsafe {
+        libc::getsockopt(
+            socket.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_SNDBUF,
+            (&raw mut size).cast(),
+            &raw mut len,
+        )
+    };
+    if result == 0 {
+        Ok(usize::try_from(size).unwrap_or(0))
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
 }
 
 impl WgNet {
@@ -36,12 +99,18 @@ impl WgNet {
     /// path is never measured and events report no current path, only
     /// `max_datagram`. When the socket fails for good, the session ends, as
     /// with a plain socket.
+    ///
+    /// `send_buffer` sets the socket's send buffer in bytes (at least
+    /// [`MIN_SEND_BUFFER`]); `None` keeps the kernel's default. A small one
+    /// moves the backlog of a saturated uplink out of the kernel and into
+    /// the driver's priority queues.
     pub async fn start_single_path(
         config: WgConfig,
         kind: PathKind,
         probes: Option<ProbeConfig>,
+        send_buffer: Option<usize>,
     ) -> Result<(Self, MultipathControl), WgError> {
-        let path = new_socket_path(&config).await?;
+        let path = new_socket_path(&config, send_buffer).await?;
         Self::start_single_path_on(config, kind, probes, path)
     }
 

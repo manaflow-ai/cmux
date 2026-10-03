@@ -132,7 +132,7 @@ impl WgNet {
     /// Start the tunnel on a fresh unbound-port UDP socket whose family matches
     /// the resolved endpoint. Requires a configured endpoint.
     pub async fn start_with_new_socket(config: WgConfig) -> Result<Self, WgError> {
-        let path = crate::single_path::new_socket_path(&config).await?;
+        let path = crate::single_path::new_socket_path(&config, None).await?;
         Self::start_with_underlay(config, path)
     }
 
