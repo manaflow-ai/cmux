@@ -67,13 +67,11 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
             // instead of the default hard cutoff with a separator line.
             do {
                 let top = NSSplitViewItemAccessoryViewController()
-                let nameView = MacTitleNameAccessoryView(label: titleNameLabel)
-                nameView.translatesAutoresizingMaskIntoConstraints = false
-                // Measured: Messages' name baseline sits 10.5 pt higher than a
-                // 22 pt strip would put it, tucked against the toolbar.
-                nameView.heightAnchor.constraint(equalToConstant: 12).isActive = true
-                nameView.labelOffset = -12.5
-                top.view = nameView
+                // An empty strip: it only turns the toolbar's native edge soft.
+                let strip = MacFlippedView()
+                strip.translatesAutoresizingMaskIntoConstraints = false
+                strip.heightAnchor.constraint(equalToConstant: 1).isActive = true
+                top.view = strip
                 if #available(macOS 26.1, *) { top.preferredScrollEdgeEffectStyle = .soft }
                 contentItem.addTopAlignedAccessoryViewController(top)
             }
@@ -153,6 +151,25 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
     /// Measured: Messages' toolbar glyphs are ~15 pt wide.
     private static let toolbarSymbol = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
 
+    /// Measured: Messages' compose and call controls are 36 pt Liquid Glass
+    /// circles (the default toolbar glass is a capsule).
+    private static func circleButton(_ symbol: String, label: String) -> NSView {
+        let button = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: label)?
+            .withSymbolConfiguration(.init(pointSize: 15, weight: .medium)) ?? NSImage(), target: nil, action: nil)
+        if #available(macOS 26.0, *) {
+            button.bezelStyle = .glass
+            button.borderShape = .circle
+        } else {
+            button.isBordered = false
+        }
+        button.controlSize = .large
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.widthAnchor.constraint(equalToConstant: 36).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        button.setAccessibilityLabel(label)
+        return button
+    }
+
     func makeToolbar() -> NSToolbar {
         let toolbar = NSToolbar(identifier: "cmux.conversation")
         toolbar.delegate = self
@@ -180,13 +197,11 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
             item.label = String(localized: "conversation.toolbar.filter", defaultValue: "Filter", bundle: .module)
             item.isBordered = true
         case Self.composeItem:
-            item.image = NSImage(systemSymbolName: "square.and.pencil", accessibilityDescription: nil)?.withSymbolConfiguration(Self.toolbarSymbol)
             item.label = String(localized: "conversation.toolbar.compose", defaultValue: "New Message", bundle: .module)
-            item.isBordered = true
+            item.view = Self.circleButton("square.and.pencil", label: item.label)
         case Self.videoItem:
-            item.image = NSImage(systemSymbolName: "video", accessibilityDescription: nil)?.withSymbolConfiguration(Self.toolbarSymbol)
             item.label = String(localized: "conversation.header.action", defaultValue: "Call", bundle: .module)
-            item.isBordered = true
+            item.view = Self.circleButton("video", label: item.label)
         case Self.titleItem:
             item.view = titleView
             item.label = ""
@@ -225,6 +240,7 @@ final class MacConversationContainerController: NSViewController {
 /// accessory, exactly as Messages stacks them.
 final class MacToolbarTitleView: MacFlippedView {
     private let disc = MacFlippedView()
+    static let drop: CGFloat = 0
     private var avatars: [MacAvatarView] = []
     let nameLabel = makeMacLabel()
 
@@ -272,17 +288,17 @@ final class MacToolbarTitleView: MacFlippedView {
         let cx = bounds.midX
         // Measured against Messages: a barely visible ~36 pt dark disc behind
         // avatars of 19, 14.5 and 11.5 pt.
-        disc.frame = CGRect(x: cx - 17.5, y: 4, width: 36, height: 36)
+        disc.frame = CGRect(x: cx - 17.5, y: 4 + Self.drop, width: 36, height: 36)
         disc.layer?.cornerRadius = 18
         disc.layer?.backgroundColor = effectiveAppearance.isDarkMac ? NSColor.black.withAlphaComponent(0.12).cgColor : NSColor.black.withAlphaComponent(0.04).cgColor
         disc.isHidden = avatars.count < 2
         switch avatars.count {
         case 0: break
-        case 1: avatars[0].frame = CGRect(x: cx - 17, y: 3, width: 34, height: 34)
+        case 1: avatars[0].frame = CGRect(x: cx - 17, y: 3 + Self.drop, width: 34, height: 34)
         default:
-            avatars[0].frame = CGRect(x: cx - 14.25, y: 6.25, width: 19, height: 19)
-            avatars[1].frame = CGRect(x: cx + 3, y: 17.5, width: 14.5, height: 14.5)
-            if avatars.count > 2 { avatars[2].frame = CGRect(x: cx - 8, y: 26, width: 11.5, height: 11.5) }
+            avatars[0].frame = CGRect(x: cx - 14.25, y: 6.25 + Self.drop, width: 19, height: 19)
+            avatars[1].frame = CGRect(x: cx + 3, y: 17.5 + Self.drop, width: 14.5, height: 14.5)
+            if avatars.count > 2 { avatars[2].frame = CGRect(x: cx - 8, y: 26 + Self.drop, width: 11.5, height: 11.5) }
         }
     }
 }
@@ -290,11 +306,26 @@ final class MacToolbarTitleView: MacFlippedView {
 /// The title-bar accessory below the toolbar that carries the name.
 final class MacTitleNameAccessoryView: MacFlippedView {
     let label: NSTextField
-    var labelOffset: CGFloat = -2
+    /// Measured: Messages sets the name in a 26 pt Liquid Glass capsule with
+    /// 12 pt of padding on each side of the text, under the avatar cluster.
+    private let capsule: NSView = {
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView()
+            glass.cornerRadius = 13
+            return glass
+        }
+        return NSView()
+    }()
+    /// Messages centers the capsule 55 pt below the window top; a titlebar
+    /// accessory starts under the 52 pt toolbar and clips glass above it, so
+    /// the capsule sits whole just below (about 5 pt lower).
+    static let height: CGFloat = 27
+    static let lift: CGFloat = 0
 
     init(label: NSTextField) {
         self.label = label
-        super.init(frame: NSRect(x: 0, y: 0, width: 400, height: 22))
+        super.init(frame: NSRect(x: 0, y: 0, width: 400, height: Self.height))
+        addSubview(capsule)
         addSubview(label)
     }
 
@@ -303,7 +334,10 @@ final class MacTitleNameAccessoryView: MacFlippedView {
 
     override func layout() {
         super.layout()
-        label.frame = CGRect(x: 0, y: labelOffset, width: bounds.width, height: 17)
+        let textWidth = ceil(label.attributedStringValue.size().width)
+        let width = textWidth + 24
+        capsule.frame = CGRect(x: (bounds.width - width) / 2, y: Self.lift, width: width, height: 26)
+        label.frame = CGRect(x: 0, y: Self.lift + (26 - 17) / 2, width: bounds.width, height: 17)
     }
 }
 
@@ -648,11 +682,11 @@ public enum MacConversationLab {
         window.title = String(localized: "conversation.lab.title", defaultValue: "Conversation", bundle: .module)
         window.contentViewController = split
         window.toolbar = split.makeToolbar()
-        if #unavailable(macOS 26.0) {
+        do {
             let nameAccessory = NSTitlebarAccessoryViewController()
             nameAccessory.layoutAttribute = .bottom
             nameAccessory.view = MacTitleNameAccessoryView(label: split.titleNameLabel)
-            nameAccessory.view.frame.size.height = 22
+            nameAccessory.view.frame.size.height = MacTitleNameAccessoryView.height
             window.addTitlebarAccessoryViewController(nameAccessory)
         }
         window.minSize = NSSize(width: 640, height: 420)
