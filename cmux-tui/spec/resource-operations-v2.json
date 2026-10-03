@@ -3274,12 +3274,53 @@
             "kind": "ref",
             "name": "LayoutNode"
           }
+        },
+        "sticky": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "LayoutColumnSticky"
+            }
+          }
         }
       },
       "extra": false,
       "constraints": [
         "column_id is stable for the lifetime of the viewport column.",
-        "width is finite and greater than or equal to 0.1 and less than or equal to 1."
+        "width is finite and greater than or equal to 0.1 and less than or equal to 1.",
+        "sticky is omitted from a document the daemon returns while the column scrolls. In workspace.layout.apply, null clears the flag, an object sets it, and an omitted sticky keeps the flag of the column with the same column_id.",
+        "When any column in workspace.layout.apply sets sticky, at most one column is sticky per edge and at least one column scrolls."
+      ]
+    },
+    "LayoutColumnSticky": {
+      "kind": "object",
+      "fields": {
+        "edge": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "left",
+              "right"
+            ]
+          }
+        },
+        "mode": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "docked",
+              "overlay"
+            ]
+          }
+        }
+      },
+      "extra": false,
+      "constraints": [
+        "docked takes the column width out of the scrolling area; overlay floats above the scrolling columns."
       ]
     },
     "LayoutViewport": {
