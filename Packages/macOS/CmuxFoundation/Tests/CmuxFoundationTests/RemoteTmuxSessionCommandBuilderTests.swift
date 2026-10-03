@@ -193,8 +193,60 @@ struct RemoteTmuxSessionCommandBuilderTests {
         }
     }
 
+    @Test("existing session refreshes a stale cmux-managed default command")
+    func existingSessionRefreshesManagedDefaultCommand() throws {
+        try withFakeTmux(sessionExists: true) { directory, environment in
+            let shellCommand = #"exec "$CMUX_PERSISTENT_PTY_EXEC_HELPER" --internal-persistent-pty-exec "$SHELL" "$SHELL" --rcfile "$CMUX_SHELL_INTEGRATION_DIR/.bashrc" -i"#
+            let builder = RemoteTmuxSessionCommandBuilder(
+                sessionName: "existing-managed",
+                shellCommand: shellCommand
+            )
+            let result = try run(
+                builder.remoteShellCommand,
+                environment: environment.merging([
+                    "CMUX_TMUX_DEFAULT_COMMAND": "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --rcfile \"$HOME/.cmux/relay/old.shell/.bashrc\" -i",
+                ]) { _, current in current }
+            )
+
+            #expect(result.status == 0)
+            #expect(result.stderr.isEmpty)
+            let calls = try invocations(in: directory)
+            let setOption = try #require(calls.first { $0.first == "set-option" })
+            #expect(setOption == ["set-option", "-t", "=existing-managed:", "default-command", shellCommand])
+            let attachIndex = try #require(calls.firstIndex(of: ["attach-session", "-t", "=existing-managed"]))
+            #expect(calls.firstIndex(of: setOption)! < attachIndex)
+        }
+    }
+
+    /// A failed managed refresh must stop reconnect before it attaches, without
+    /// exposing the remote tmux diagnostic directly to the caller.
+    @Test("existing session stops before attach when managed default refresh fails")
+    func existingSessionStopsWhenManagedDefaultRefreshFails() throws {
+        try withFakeTmux(sessionExists: true, setOptionStatus: 23) { directory, environment in
+            let shellCommand = "exec integrated-shell"
+            let builder = RemoteTmuxSessionCommandBuilder(
+                sessionName: "existing-managed",
+                shellCommand: shellCommand
+            )
+            let result = try run(
+                builder.remoteShellCommand,
+                environment: environment.merging([
+                    "CMUX_TMUX_DEFAULT_COMMAND": "managed CMUX_PERSISTENT_PTY_EXEC_HELPER command",
+                ]) { _, current in current }
+            )
+
+            #expect(result.status == 23)
+            #expect(result.stderr.isEmpty)
+            let calls = try invocations(in: directory)
+            #expect(calls.contains(["set-option", "-t", "=existing-managed:", "default-command", shellCommand]))
+            #expect(!calls.contains { $0.first == "attach-session" })
+        }
+    }
+
+    /// Runs a builder command against a disposable fake tmux executable.
     private func withFakeTmux(
         sessionExists: Bool,
+        setOptionStatus: Int = 0,
         operation: (URL, [String: String]) throws -> Void
     ) throws {
         let directory = FileManager.default.temporaryDirectory
@@ -212,8 +264,17 @@ struct RemoteTmuxSessionCommandBuilderTests {
           has-session)
             [ -f "$CMUX_TMUX_SESSION_STATE" ]
             ;;
+          show-options)
+            printf '%s\\n' "${CMUX_TMUX_DEFAULT_COMMAND:-}"
+            ;;
           new-session)
             : > "$CMUX_TMUX_SESSION_STATE"
+            ;;
+          set-option)
+            if [ "${CMUX_TMUX_SET_OPTION_STATUS:-0}" -ne 0 ]; then
+              printf '%s\n' 'tmux: private session diagnostic' >&2
+            fi
+            exit "${CMUX_TMUX_SET_OPTION_STATUS:-0}"
             ;;
         esac
         """.write(to: executable, atomically: true, encoding: .utf8)
@@ -230,6 +291,7 @@ struct RemoteTmuxSessionCommandBuilderTests {
             "PATH": "/usr/bin:/bin",
             "CMUX_TMUX_LOG": directory.appendingPathComponent("tmux.log").path,
             "CMUX_TMUX_SESSION_STATE": statePath,
+            "CMUX_TMUX_SET_OPTION_STATUS": String(setOptionStatus),
         ])
     }
 
