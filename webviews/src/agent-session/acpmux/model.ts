@@ -30,6 +30,8 @@ export type AcpmuxRow = {
   previous?: number;
   /// The last turn's footer carries its prompt, for Retry (conversation/turns.ts).
   prompt?: string;
+  /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
+  ended?: boolean;
 };
 
 export type AcpmuxActivity = {

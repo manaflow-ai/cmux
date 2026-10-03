@@ -1,11 +1,12 @@
 // The card that closes a turn which edited files: "Edited App.tsx +12 -3" (or "Edited 4 files"
 // over the first three), then Undo and View changes. Undo asks the agent to revert every hunk of
 // the turn through the changes view's hunk review, so the view shows them as requested too.
+// A turn still running shows its edits without Undo.
 import { useContext, useMemo, useState } from "react";
 import { turnFiles, undoPrompt, type TurnFile } from "../diff";
 import { ChevronDown, DiffFile } from "../changeIcons";
 import { Counts } from "../changes/Counts";
-import { undoableHunks } from "../changes/hunkReview";
+import { turnHunkKeys, undoableHunks } from "../changes/hunkReview";
 import { t } from "../i18n";
 import { plainEditLabels, type AcpmuxRow } from "../model";
 import { Undo } from "./icons";
@@ -38,9 +39,13 @@ export function EditedFilesCard({
   const shown = single ? [] : showAll ? entries : entries.slice(0, EDITED_FILES_SHOWN);
   const more = single ? 0 : total - shown.length;
   const reviewable = onOpenDiff && files.length > 0;
-  // Undo offers once the turn has hunks to revert; after it asks, it says so until the agent's
-  // next edit gives the turn new hunks.
-  const undoable = review && files.length > 0 ? undoableHunks(files, review.decisions) : undefined;
+  // Undo shows once the turn has ended. After it asks, it reads "Undo requested" for the rest of
+  // the session (the agent reverts in a later turn); a hunk the changes view already sent is
+  // left out. Patches are built only when sent.
+  const unasked =
+    review && row.ended && files.length > 0
+      ? turnHunkKeys(files).filter((key) => review.decisions.get(key) !== "requested").length
+      : undefined;
   const title = single
     ? t("tools.edited.file", { file: single.path.split("/").pop() ?? single.path })
     : total === 1
@@ -56,22 +61,22 @@ export function EditedFilesCard({
           <div>{title}</div>
           {files.length > 0 && <Counts additions={additions} deletions={deletions} />}
         </div>
-        {review && undoable && (
+        {review && unasked !== undefined && (
           <button
             type="button"
             className="acpmux-edited-undo"
-            disabled={undoable.length === 0}
-            aria-label={undoable.length ? t("edited.undoLabel") : t("edited.undoRequested")}
-            title={undoable.length ? t("edited.undoLabel") : undefined}
-            onClick={() =>
+            disabled={unasked === 0}
+            title={unasked ? t("edited.undoLabel") : undefined}
+            onClick={() => {
+              const hunks = undoableHunks(files, review.decisions);
               review.requestRevert(
-                undoable.map((hunk) => hunk.key),
-                undoPrompt(undoable.map((hunk) => hunk.patch)),
-              )
-            }
+                hunks.map((hunk) => hunk.key),
+                undoPrompt(hunks.map((hunk) => hunk.patch)),
+              );
+            }}
           >
-            {undoable.length ? t("edited.undo") : t("edited.undoRequested")}
-            {undoable.length > 0 && <Undo size={14} />}
+            {unasked ? t("edited.undo") : t("edited.undoRequested")}
+            {unasked > 0 && <Undo size={14} />}
           </button>
         )}
         {reviewable && (

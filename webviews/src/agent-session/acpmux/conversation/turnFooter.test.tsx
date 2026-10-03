@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
-import type { HunkDecision, HunkReview } from "../changes/hunkReview";
+import { restoredDecisions, type HunkDecision, type HunkReview } from "../changes/hunkReview";
 import type { AcpmuxRow } from "../model";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -31,6 +31,7 @@ const edited: AcpmuxRow = {
   version: 1,
   at: 0,
   kind: "activity",
+  ended: true,
   items: [
     {
       kind: "tool",
@@ -125,6 +126,15 @@ describe("edited-files card", () => {
     await second.unmount();
   });
 
+  test("a turn still running shows its edits without Undo", async () => {
+    const { container, unmount } = await render(createElement(EditedFilesCard, { row: { ...edited, ended: false } }), {
+      review: review(new Map(), []),
+    });
+    expect(container.querySelector(".acpmux-edited-title")!.textContent).toBe("Edited summarize_run.py+2-1");
+    expect(container.querySelector(".acpmux-edited-undo")).toBeNull();
+    await unmount();
+  });
+
   test("without the hunk review there is no Undo", async () => {
     const { container, unmount } = await render(
       createElement(EditedFilesCard, { row: edited, onOpenDiff: () => {} }),
@@ -143,8 +153,8 @@ describe("turn footer", () => {
     const { container, unmount } = await render(createElement(TurnFooter, { row: { ...summary, prompt: "fix it" } }), {
       retry: (prompt) => sent.push(prompt),
     });
-    const retry = container.querySelector<HTMLButtonElement>('button[aria-label="Send this prompt again"]')!;
-    expect(retry.title).toBe("Retry");
+    const retry = container.querySelector<HTMLButtonElement>('button[aria-label="Retry"]')!;
+    expect(retry.title).toBe("Send this prompt again");
     await act(async () => retry.click());
     expect(sent).toEqual(["fix it"]);
     await unmount();
@@ -152,10 +162,29 @@ describe("turn footer", () => {
 
   test("no Retry on an earlier turn, or while acpmux is unreachable", async () => {
     const earlier = await render(createElement(TurnFooter, { row: summary }), { retry: () => {} });
-    expect(earlier.container.querySelector('button[aria-label="Send this prompt again"]')).toBeNull();
+    expect(earlier.container.querySelector('button[aria-label="Retry"]')).toBeNull();
     await earlier.unmount();
     const offline = await render(createElement(TurnFooter, { row: { ...summary, prompt: "fix it" } }), {});
-    expect(offline.container.querySelector('button[aria-label="Send this prompt again"]')).toBeNull();
+    expect(offline.container.querySelector('button[aria-label="Retry"]')).toBeNull();
     await offline.unmount();
+  });
+});
+
+describe("a failed revert send", () => {
+  test("puts back what the reader had decided, and leaves hunks decided since alone", () => {
+    const current = new Map<string, HunkDecision>([
+      ["rejected-before", "requested"],
+      ["undecided-before", "requested"],
+      ["accepted-since", "accepted"],
+    ]);
+    const restored = restoredDecisions(current, [
+      ["rejected-before", "rejected"],
+      ["undecided-before", undefined],
+      ["accepted-since", undefined],
+    ]);
+    expect([...restored]).toEqual([
+      ["rejected-before", "rejected"],
+      ["accepted-since", "accepted"],
+    ]);
   });
 });

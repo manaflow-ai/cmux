@@ -39,7 +39,7 @@ import { t } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
-import type { HunkDecision, HunkReview } from "./changes/hunkReview";
+import { restoredDecisions, type HunkDecision, type HunkReview } from "./changes/hunkReview";
 import { configureDictation, deliverDictation, useDictation } from "./dictation";
 import type { DictationUpdate } from "./dictationText";
 import { DictationButton } from "./DictationButton";
@@ -764,9 +764,11 @@ function AcpmuxPane() {
           return next;
         }),
       requestRevert: (keys, prompt) => {
+        const previous = keys.map((key) => [key, hunkDecisions.get(key)] as const);
         mark(keys, "requested");
-        // A failed send leaves the hunks rejected, so the reader can send them again.
-        callNative("chat.send", { text: prompt }).catch(() => mark(keys, "rejected", "requested"));
+        callNative("chat.send", { text: prompt }).catch(() =>
+          setHunkDecisions((current) => restoredDecisions(current, previous)),
+        );
       },
     };
   }, [hunkDecisions]);

@@ -166,6 +166,24 @@ describe("turn view", () => {
     expect(footer(next, "s").version).not.toBe(footer(turn, "s").version);
   });
 
+  test("no Retry while a later prompt waits to be accepted", () => {
+    const queued = row("local-1", "user", 90_000, { text: "also this", pending: true });
+    expect(turnView([...turn, queued], new Set()).find((entry) => entry.id === "s")!.prompt).toBeUndefined();
+  });
+
+  test("an ended turn's card holds every edit, after the answer too, and offers Undo", () => {
+    const late = row("e2", "activity", 20_000, { items: [{ ...edit, tool: { ...edit.tool, id: "e2" } }] });
+    const ended = [...turn.slice(0, -1), late, turn.at(-1)!];
+    const card = turnView(ended, new Set()).find((entry) => entry.id === "e")!;
+    expect(card.ended).toBe(true);
+    expect(card.items!.map((item) => item.tool!.id)).toEqual(["e", "e2"]);
+    expect(ids(turnView(ended, new Set()))).not.toContain("e2");
+    // The live edit row and the card it becomes differ in version, so the card redraws with Undo.
+    const live = turnView(turn.slice(0, -1), new Set(), { working: true }).find((entry) => entry.id === "e")!;
+    expect(live.ended).toBeUndefined();
+    expect(turnView(turn, new Set()).find((entry) => entry.id === "e")!.version).not.toBe(live.version);
+  });
+
   test("durations read as short units", () => {
     expect([0, 999, 15_000, 76_000, 3_780_000].map(formatDuration)).toEqual(["0s", "0s", "15s", "1m 16s", "1h 3m"]);
   });

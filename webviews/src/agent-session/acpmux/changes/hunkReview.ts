@@ -50,3 +50,26 @@ export function rejectedHunks(files: TurnFile[], decisions: ReadonlyMap<string, 
 export function undoableHunks(files: TurnFile[], decisions: ReadonlyMap<string, HunkDecision>) {
   return turnHunks(files).filter((hunk) => decisions.get(hunk.key) !== "requested");
 }
+
+/// The keys alone, for drawing: a card builds patches only when it sends them.
+export function turnHunkKeys(files: TurnFile[]): string[] {
+  return files.flatMap((file) =>
+    file.edits.flatMap((edit, editIndex) => edit.hunks.map((_, hunkIndex) => hunkKey(file, editIndex, hunkIndex))),
+  );
+}
+
+/// After a revert send failed: each hunk still marked requested goes back to what the reader had
+/// decided before the send (a rejected hunk stays rejected, so it can be sent again; an Undo's
+/// undecided hunk goes back to undecided).
+export function restoredDecisions(
+  current: ReadonlyMap<string, HunkDecision>,
+  previous: readonly (readonly [string, HunkDecision | undefined])[],
+): Map<string, HunkDecision> {
+  const next = new Map(current);
+  for (const [key, decision] of previous) {
+    if (next.get(key) !== "requested") continue;
+    if (decision) next.set(key, decision);
+    else next.delete(key);
+  }
+  return next;
+}
