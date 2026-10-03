@@ -59,34 +59,49 @@ export function mailboxRecipient(path: string): string | undefined {
   return /(?:^|\/)coordinator-inbox\/([\w-]+)\.jsonl$/.exec(path)?.[1];
 }
 
-/// A shell command line's message: its first step that sends one.
+/// Steps that only set up the shell (`cd x && tell-coordinator …`). Any other step does work of
+/// its own, whose command line and output the transcript keeps.
+const SETUP = new Set(["cd", "pushd", "export", "set", "true", ":", "wait"]);
+/// Steps that feed the message when piped into it (`echo hi | tell-coordinator -`).
+const FEEDS = new Set(["echo", "printf", "cat"]);
+
+/// A shell command line's message: a command that does nothing but send one. A command that
+/// also builds, pushes or tests (`git push && tell-coordinator "pushed"`) stays a command row,
+/// so its output stays reachable.
 export function commandMessage(command: string): AgentMessage | undefined {
   const heredoc = heredocBody(command);
-  const steps = shellSteps(withoutHeredoc(command)).map(parseStep);
-  for (const [index, step] of steps.entries()) {
+  const steps = shellStepParts(withoutHeredoc(command)).map(({ text, pipesNext }) => {
+    const { words, redirects } = parseStep(text);
     // `CMUX_TAG=x scripts/cmux-debug-cli.sh send …`: assignments before the program are not it.
-    const words = step.words.slice(
-      Math.max(
-        0,
-        step.words.findIndex((word) => !/^\w+=/.test(word)),
-      ),
-    );
-    const redirects = step.redirects;
-    const program = words[0]?.split("/").pop();
-    if (program === "tell-coordinator") return coordinatorMessage(words.slice(1), heredoc);
-    if ((program === "cmux" || program === "cmux-debug-cli.sh") && words[1] === "send")
-      return sendMessage(words.slice(2));
-    // `… >> inbox/leo/note` or `… | tee -a inbox/leo/note`: the text is the here-document's,
-    // or what this step or the one piped into it echoes.
-    const targets = program === "tee" ? words.slice(1).filter((word) => !word.startsWith("-")) : redirects;
-    const to = targets.map(mailboxRecipient).find(Boolean);
-    if (to) {
-      const text =
-        heredoc ?? echoedText(words) ?? (program === "tee" ? echoedText(steps[index - 1]?.words) : undefined);
-      return { channel: "mailbox", to, text: oneMessage(text ?? "") };
-    }
+    const program = words.findIndex((word) => !/^\w+=/.test(word));
+    return { words: program < 0 ? [] : words.slice(program), redirects, pipesNext };
+  });
+  for (const [index, step] of steps.entries()) {
+    const fed = steps[index - 1]?.pipesNext ? echoedText(steps[index - 1]!.words) : undefined;
+    const message = stepMessage(step.words, step.redirects, heredoc ?? fed);
+    if (!message) continue;
+    const alone = steps.every((other, at) => {
+      if (at === index) return true;
+      const program = other.words[0]?.split("/").pop() ?? "";
+      return SETUP.has(program) || (FEEDS.has(program) && at === index - 1 && other.pipesNext);
+    });
+    return alone ? message : undefined;
   }
   return undefined;
+}
+
+/// One step's message, with `input` the text a here-document or piped echo gives it.
+function stepMessage(words: string[], redirects: string[], input: string | undefined): AgentMessage | undefined {
+  const program = words[0]?.split("/").pop();
+  if (program === "tell-coordinator") return coordinatorMessage(words.slice(1), input);
+  if ((program === "cmux" || program === "cmux-debug-cli.sh") && words[1] === "send")
+    return sendMessage(words.slice(2));
+  // `echo … >> coordinator-inbox/leo.jsonl` or `… | tee -a coordinator-inbox/leo.jsonl`. A write
+  // with no text (`: > …`, which empties the mailbox) sends nothing.
+  const targets = program === "tee" ? words.slice(1).filter((word) => !word.startsWith("-")) : redirects;
+  const to = targets.map(mailboxRecipient).find(Boolean);
+  const text = oneMessage(input ?? echoedText(words) ?? "");
+  return to && text ? { channel: "mailbox", to, text } : undefined;
 }
 
 /// `--name value` or `--name=value`: the value and how many words it took, or nil for another word.
@@ -100,7 +115,7 @@ function option(args: readonly string[], index: number, name: string): [string |
 /// `tell-coordinator [--to NAME] [--re ID] [--from CLAIM] TEXT|-`, read as the script reads it:
 /// options until the first other word, which starts the text. Without `--to` it goes to the
 /// coordinator; `-h` or `--help` among the options sends nothing.
-function coordinatorMessage(args: string[], heredoc: string | undefined): AgentMessage | undefined {
+function coordinatorMessage(args: string[], input: string | undefined): AgentMessage | undefined {
   const message: AgentMessage = { channel: "coordinator", to: "coordinator", text: "" };
   let index = 0;
   for (; index < args.length; index += 2) {
@@ -111,7 +126,7 @@ function coordinatorMessage(args: string[], heredoc: string | undefined): AgentM
     else if (word !== "--re") break;
   }
   const text = args.slice(index).join(" ");
-  message.text = oneMessage(text === "-" || !text ? (heredoc ?? "") : text);
+  message.text = oneMessage(text === "-" || !text ? (input ?? "") : text);
   return message;
 }
 
@@ -155,7 +170,12 @@ function withoutHeredoc(command: string): string {
 /// A command line's steps, split at `&&`, `||`, `|`, `&`, `;` and line breaks outside quotes.
 /// An `&` in a redirect (`2>&1`, `&>`) is part of its step.
 export function shellSteps(command: string): string[] {
-  const steps: string[] = [];
+  return shellStepParts(command).map((step) => step.text);
+}
+
+/// The steps, each with whether it pipes into the next (`|`, not `||`).
+function shellStepParts(command: string): { text: string; pipesNext: boolean }[] {
+  const steps: { text: string; pipesNext: boolean }[] = [];
   let step = "";
   let quote: "'" | '"' | undefined;
   for (let index = 0; index < command.length; index++) {
@@ -173,15 +193,16 @@ export function shellSteps(command: string): string[] {
     if (char === "'" || char === '"') quote = char;
     const redirect = char === "&" && (command[index - 1] === ">" || command[index + 1] === ">");
     if (char === ";" || char === "\n" || char === "|" || (char === "&" && !redirect)) {
-      if (command[index + 1] === char) index++;
-      steps.push(step.trim());
+      const doubled = command[index + 1] === char;
+      if (doubled) index++;
+      steps.push({ text: step.trim(), pipesNext: char === "|" && !doubled });
       step = "";
       continue;
     }
     step += char;
   }
-  steps.push(step.trim());
-  return steps.filter(Boolean);
+  steps.push({ text: step.trim(), pipesNext: false });
+  return steps.filter((part) => part.text);
 }
 
 /// What `echo` or `printf` prints, when the step is one.
