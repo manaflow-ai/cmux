@@ -12,6 +12,7 @@ private final class ScratchPasteboard {
     let pasteboard: NSPasteboard
 
     init() {
+        _ = NSApplication.shared
         pasteboard = NSPasteboard(name: .init("cmux-tests-\(UUID().uuidString)"))
         pasteboard.clearContents()
     }

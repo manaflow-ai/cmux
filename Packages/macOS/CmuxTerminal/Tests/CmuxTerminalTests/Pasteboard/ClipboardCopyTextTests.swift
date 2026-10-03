@@ -36,6 +36,7 @@ struct ClipboardCopyTextTests {
 @MainActor
 struct TerminalCopyClipboardWriteTests {
     private func makeService() -> (TerminalPasteboardService, NSPasteboard, NSPasteboard) {
+        _ = NSApplication.shared
         let standard = NSPasteboard(name: .init("cmux-copy-action-\(UUID().uuidString)"))
         let selection = NSPasteboard(name: .init("cmux-copy-action-selection-\(UUID().uuidString)"))
         let service = TerminalPasteboardService(
