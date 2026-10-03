@@ -1,4 +1,4 @@
-import React, { createContext, memo, useContext, useMemo, useState } from "react";
+import React, { createContext, memo, useContext, useEffect, useMemo, useState } from "react";
 import {
   groupMark,
   sessionMark,
@@ -71,8 +71,11 @@ export function SessionSidebar({
   preview?: boolean;
 }) {
   const [picked, setView] = useState<SidebarView>("sessions");
-  // Pull requests turned off while shown falls back to the session list.
+  // Pull requests turned off while shown falls back to the session list, and stays there.
   const view = picked === "pulls" && !preview ? "sessions" : picked;
+  useEffect(() => {
+    if (!preview) setView((current) => (current === "pulls" ? "sessions" : current));
+  }, [preview]);
   // Kept here so expanded projects and a search survive a trip to another rail view.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
