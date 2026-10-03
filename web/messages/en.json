@@ -800,7 +800,11 @@
             "Priority support"
           ]
         },
-        "billedAnnually": "billed annually"
+        "billedAnnually": "billed annually",
+        "badgeEndsOn": "{plan} · ends {date}",
+        "badgeCancelled": "{plan} · canceled",
+        "badgePastDue": "{plan} · payment failed",
+        "resubscribe": "Resubscribe to {plan}"
       },
       "change": {
         "title": "Switch to {plan}?",
@@ -843,6 +847,13 @@
         "title": "Billed through the App Store",
         "body": "Your plan was purchased in the cmux iPhone app and is billed by Apple. Change or cancel it in your App Store subscriptions.",
         "manage": "Manage in the App Store"
+      },
+      "notice": {
+        "cancelledTitle": "Your {plan} plan is canceled",
+        "cancelledBody": "You keep {plan} until {date}. After that, your account moves to Free and you lose:",
+        "cancelledBodyNoDate": "You keep {plan} until the end of this billing period. After that, your account moves to Free and you lose:",
+        "endedBody": "Your {plan} plan ended on {date}. You are on Free now. Resubscribe below to get {plan} back.",
+        "endedBodyNoDate": "Your {plan} plan has ended. You are on Free now. Resubscribe below to get {plan} back."
       }
     },
     "testflight": {
@@ -2025,7 +2036,13 @@
     },
     "priceMonthlyNote": "${amount}/mo when billed monthly",
     "priceMonthlyPerUserNote": "${amount}/user/mo when billed monthly",
-    "manageInAppStore": "Manage in the App Store"
+    "manageInAppStore": "Manage in the App Store",
+    "cancelled": {
+      "badge": "Canceled",
+      "endsOn": "Ends on {date}",
+      "endsSoon": "Ends at the end of this billing period",
+      "resubscribe": "Resubscribe"
+    }
   },
   "home": {
     "taglinePrefix": "The terminal built for ",

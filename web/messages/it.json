@@ -504,7 +504,11 @@
             "Supporto prioritario"
           ]
         },
-        "billedAnnually": "fatturato annualmente"
+        "billedAnnually": "fatturato annualmente",
+        "badgeEndsOn": "{plan} · termina il {date}",
+        "badgeCancelled": "{plan} · annullato",
+        "badgePastDue": "{plan} · pagamento non riuscito",
+        "resubscribe": "Riabbonati a {plan}"
       },
       "change": {
         "title": "Passare a {plan}?",
@@ -547,6 +551,13 @@
         "title": "Fatturato tramite l’App Store",
         "body": "Il tuo piano è stato acquistato nell’app cmux per iPhone ed è fatturato da Apple. Modificalo o annullalo nei tuoi abbonamenti dell’App Store.",
         "manage": "Gestisci nell’App Store"
+      },
+      "notice": {
+        "cancelledTitle": "Il tuo piano {plan} è annullato",
+        "cancelledBody": "Mantieni {plan} fino al {date}. Dopo, il tuo account passa a Free e perdi:",
+        "cancelledBodyNoDate": "Mantieni {plan} fino alla fine di questo periodo di fatturazione. Dopo, il tuo account passa a Free e perdi:",
+        "endedBody": "Il tuo piano {plan} è terminato il {date}. Ora sei su Free. Riabbonati qui sotto per riavere {plan}.",
+        "endedBodyNoDate": "Il tuo piano {plan} è terminato. Ora sei su Free. Riabbonati qui sotto per riavere {plan}."
       }
     },
     "mobileDevices": {

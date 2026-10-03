@@ -12,19 +12,39 @@ import { signOutOfDashboard } from "../lib/sign-out";
 import { useThemeToggle } from "@/app/[locale]/theme";
 import { Badge } from "../components/settings-ui";
 import { planQuery } from "../queries/billing";
+import { formatBillingDate } from "../screens/billing/billing-format";
+import { planStanding } from "../screens/billing/plan-status";
 import { useDashboardTeamScope, type DashboardCatalogTeam } from "./dashboard-team-scope";
 
 const menuItemClass =
   "flex min-h-9 w-full cursor-default select-none items-center gap-2 px-2.5 py-2 text-left text-sm text-foreground no-underline outline-none data-[highlighted]:bg-code-bg";
 
-/** The personal plan under the viewer's name; nothing until it loads. */
+/**
+ * The personal plan under the viewer's name; nothing until it loads. A
+ * cancelled plan says when it ends, so it does not read as renewing.
+ */
 function AccountPlanLine() {
   const billing = useTranslations("dashboard.billing.picker");
+  const locale = useLocale();
   const plan = useQuery(planQuery);
   if (!plan.data) return null;
+  const name = billing(`names.${plan.data.planId}`);
+  const standing = planStanding({
+    isPro: plan.data.isPro,
+    cancelScheduled: plan.data.endsAt !== null,
+    endsAt: plan.data.endsAt,
+    paymentPastDue: plan.data.paymentPastDue,
+  });
+  const date = standing.kind === "cancelling" ? formatBillingDate(standing.endsAt, locale) : null;
   return (
-    <div className="mt-1.5" data-testid="account-plan">
-      <Badge tone={plan.data.isPro ? "default" : "outline"}>{billing(`names.${plan.data.planId}`)}</Badge>
+    <div className="mt-1.5" data-testid="account-plan" data-standing={standing.kind}>
+      {standing.kind === "cancelling" ? (
+        <Badge tone="outline">{date ? billing("badgeEndsOn", { plan: name, date }) : billing("badgeCancelled", { plan: name })}</Badge>
+      ) : standing.kind === "pastDue" ? (
+        <Badge tone="danger">{billing("badgePastDue", { plan: name })}</Badge>
+      ) : (
+        <Badge tone={plan.data.isPro ? "default" : "outline"}>{name}</Badge>
+      )}
     </div>
   );
 }

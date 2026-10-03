@@ -504,7 +504,11 @@
             "Support prioritaire"
           ]
         },
-        "billedAnnually": "facturé annuellement"
+        "billedAnnually": "facturé annuellement",
+        "badgeEndsOn": "{plan} · se termine le {date}",
+        "badgeCancelled": "{plan} · résilié",
+        "badgePastDue": "{plan} · paiement échoué",
+        "resubscribe": "Se réabonner à {plan}"
       },
       "change": {
         "title": "Basculer vers {plan} ?",
@@ -547,6 +551,13 @@
         "title": "Facturé via l’App Store",
         "body": "Votre forfait a été acheté dans l’app cmux pour iPhone et est facturé par Apple. Modifiez-le ou résiliez-le dans vos abonnements App Store.",
         "manage": "Gérer dans l’App Store"
+      },
+      "notice": {
+        "cancelledTitle": "Votre forfait {plan} est résilié",
+        "cancelledBody": "Vous gardez {plan} jusqu’au {date}. Ensuite, votre compte passe à Free et vous perdez :",
+        "cancelledBodyNoDate": "Vous gardez {plan} jusqu’à la fin de cette période de facturation. Ensuite, votre compte passe à Free et vous perdez :",
+        "endedBody": "Votre forfait {plan} a pris fin le {date}. Vous êtes maintenant sur Free. Réabonnez-vous ci-dessous pour retrouver {plan}.",
+        "endedBodyNoDate": "Votre forfait {plan} a pris fin. Vous êtes maintenant sur Free. Réabonnez-vous ci-dessous pour retrouver {plan}."
       }
     },
     "mobileDevices": {

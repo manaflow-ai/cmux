@@ -5,6 +5,7 @@ import {
   PlanChangeError,
   previewPersonalPlanChange,
 } from "@/services/billing/planChange";
+import { optionalActiveStripeSubscription } from "@/services/billing/dashboardBilling";
 import { resolveProPlanStatus } from "@/services/billing/pro";
 import { claimPendingProBilling, type ProBillingClaimUser } from "@/services/billing/purchase";
 import { isStripeBillingConfigured } from "@/services/billing/stripe";
@@ -23,10 +24,22 @@ const current = authed
     planId: z.enum(["free", "go", "pro", "max"]),
     isPro: z.boolean(),
     billingManagement: z.enum(["stripe", "external", "none"]),
+    /** ISO moment a cancelled plan's access ends, from Stripe; null while it renews. */
+    endsAt: z.string().nullable(),
+    paymentPastDue: z.boolean(),
   }))
   .handler(async ({ context }) => {
-    const status = await resolveProPlanStatus(context.user);
-    return { planId: status.planId, isPro: status.isPro, billingManagement: status.billingManagement };
+    const [status, subscription] = await Promise.all([
+      resolveProPlanStatus(context.user),
+      optionalActiveStripeSubscription(context.user.id),
+    ]);
+    return {
+      planId: status.planId,
+      isPro: status.isPro,
+      billingManagement: status.billingManagement,
+      endsAt: subscription?.endsAt ?? null,
+      paymentPastDue: subscription?.status === "past_due",
+    };
   });
 
 const previewSchema = z.object({

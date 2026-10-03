@@ -1,4 +1,5 @@
 import { requirePersonalPlanIdForSubscription } from "./subscriptionPlan";
+import { stripeCancelScheduled } from "./cancellation";
 export { personalPlanIdForSubscription } from "./subscriptionPlan";
 import { findIdentitySnapshotUserIdsByEmail } from "../auth/identitySnapshot";
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
@@ -2648,7 +2649,8 @@ function stripeSubscriptionValues(input: StripeSubscriptionValuesInput) {
     seats: input.scope === "team" ? subscriptionSeats(subscription) : null,
     scope: input.scope,
     currentPeriodEnd: subscriptionCurrentPeriodEnd(subscription),
-    cancelAtPeriodEnd: Boolean(subscription.cancel_at_period_end),
+    // Either Stripe signal: a Billing Portal cancel sets only `cancel_at`.
+    cancelAtPeriodEnd: stripeCancelScheduled(subscription),
     raw: JSON.parse(JSON.stringify(subscription)) as Record<string, unknown>,
   };
 }
