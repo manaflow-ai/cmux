@@ -524,8 +524,8 @@ export class Core {
    * - same session: `cursor_reset` (acpmux refused the saved cursor) or a known
    *   identity that differs from host.json's `acpmuxLog` (a host.json without
    *   one, from before it existed, adopts the identity with no reset); the epoch becomes
-   *   max(identity, else now; previous epoch + 1), so a repeated import of the
-   *   same bundle still gets a new epoch;
+   *   max(identity + 1, else now; previous epoch + 1), so a repeated import of the
+   *   same bundle still gets a new epoch, and no epoch an older core used repeats;
    * - a session host.json does not know (a lost or replaced host.json) with a
    *   non-empty log, unless the shell created it on this connect (`created`:
    *   a new log, whose only event is acpmux's created event): earlier epochs
@@ -569,7 +569,8 @@ export class Core {
     ) {
       reset = true;
       this.state.acpmuxSeq = 0;
-      const candidate = identity ?? this.now;
+      // identity + 1: an older core used the identity itself as the first epoch (downgrade-safe).
+      const candidate = identity !== undefined ? identity + 1 : this.now;
       const previous = this.state.acpmuxEpoch;
       this.state.acpmuxEpoch = previous === undefined ? candidate : Math.max(candidate, previous + 1);
       this.dirty = true;
