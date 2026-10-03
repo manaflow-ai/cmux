@@ -6,7 +6,7 @@
 //! viewer.
 
 /// The class of a principal (identity-and-permissions.md section 4a).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PrincipalClass {
     /// A person from one of their clients.
     User,
@@ -115,12 +115,12 @@ pub enum Admission {
 /// The checks that do not depend on the console: hosting, class and grant.
 /// Returns the grant that allows `mode` (`None` for the owner's own access)
 /// and whether that grant waives consent.
-fn standing(
-    policy: &HostPolicy,
+fn standing<'a>(
+    policy: &'a HostPolicy,
     principal: &Principal,
     mode: Mode,
     now_ms: u64,
-) -> Result<(Option<&Grant>, bool), Deny> {
+) -> Result<(Option<&'a Grant>, bool), Deny> {
     if !policy.enabled {
         return Err(Deny::HostingDisabled);
     }
