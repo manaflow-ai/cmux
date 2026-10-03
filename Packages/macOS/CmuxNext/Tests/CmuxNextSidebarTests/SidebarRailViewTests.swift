@@ -106,8 +106,8 @@ import Testing
     }
 
     /// An icon button with unread items shows a small dot at its top
-    /// trailing corner (no count: the tooltip and VoiceOver carry it), like
-    /// the Codex rail; none without unread items.
+    /// trailing corner (no count: VoiceOver carries it), like the Codex
+    /// rail; none without unread items.
     @Test func unreadItemsShowADotOnTheirIcon() throws {
         let notifications = LayoutItemID("itm_notifications")
         let view = SidebarRailView()
@@ -128,6 +128,18 @@ import Testing
                           toolTips: [:], metrics: m))
         view.layoutSubtreeIfNeeded()
         #expect(view.itemView(notifications)?.isBadgeShown == false)
+    }
+
+    /// Only the rail dots unread items: the sidebar's own tile and inline
+    /// icon looks keep hiding them, as they did before the rail.
+    @Test func theSidebarsIconLooksStillHideUnreadItems() {
+        for style in [SidebarItemRowView.Style.tile, .icon] {
+            let view = SidebarItemRowView()
+            view.frame = NSRect(x: 0, y: 0, width: 40, height: 40)
+            view.configure(SidebarItemInfo(title: "Notifications", symbol: "bell", badge: 3), style: style)
+            view.layoutSubtreeIfNeeded()
+            #expect(!view.isBadgeShown, "\(style)")
+        }
     }
 
     @Test func eachSectionLineIsALayer() {

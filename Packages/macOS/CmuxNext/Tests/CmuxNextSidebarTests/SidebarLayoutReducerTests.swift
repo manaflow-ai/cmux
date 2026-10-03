@@ -268,7 +268,7 @@ import Testing
     @Test func plannerRemove() throws {
         let op = try #require(SidebarLayoutPlanner.remove(.builtIn(.home), in: defaults))
         #expect(op == .itemRemoveRef(.builtIn(.home)))
-        #expect(SidebarLayoutPlanner.remove(.builtIn(.history), in: defaults) == nil)
+        #expect(SidebarLayoutPlanner.remove(.builtIn(.bookmarks), in: defaults) == nil)
     }
 
     // MARK: Idempotency

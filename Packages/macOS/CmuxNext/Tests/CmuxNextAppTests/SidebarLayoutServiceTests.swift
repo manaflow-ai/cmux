@@ -118,7 +118,7 @@ import Testing
     @Test func aStoredPreRailLayoutMigratesThroughTheOwner() async throws {
         let owner = FakeOwner()
         owner.stored = SidebarLayoutDocument(revision: 3, sections: SidebarLayoutDocument.preRailDefaults.sections)
-        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false })
+        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, railShown: { true })
         service.start()
         let expected = owner.stored.railMigrationOps
         #expect(!expected.isEmpty)
@@ -133,6 +133,20 @@ import Testing
         owner.changeToken += 1
         await settled { false }
         #expect(owner.calls.count == expected.count)
+    }
+
+    /// With the rail turned off the sidebar shows its sections itself, so
+    /// a pre-rail layout stays: the rail default would scroll Settings out
+    /// of the top band and leave the account alone at the bottom.
+    @Test func aPreRailLayoutStaysWhileTheRailIsOff() async throws {
+        let owner = FakeOwner()
+        owner.stored = SidebarLayoutDocument(revision: 3, sections: SidebarLayoutDocument.preRailDefaults.sections)
+        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, railShown: { false })
+        service.start()
+        await settled { service.mirror.revision == 3 }
+        await settled { false }
+        #expect(owner.calls.isEmpty)
+        #expect(service.document.sections == SidebarLayoutDocument.preRailDefaults.sections)
     }
 
     @Test func aCustomizedStoredLayoutIsNotMigrated() async throws {

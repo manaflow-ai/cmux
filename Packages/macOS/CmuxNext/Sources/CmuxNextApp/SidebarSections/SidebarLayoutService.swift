@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextDesign
 import CmuxNextSidebar
 import Foundation
 import Observation
@@ -27,6 +28,8 @@ final class SidebarLayoutService {
     @ObservationIgnored private(set) var pending: [(key: String, op: SidebarLayoutOp, inFlight: Bool)] = []
     @ObservationIgnored private var prototype = SidebarLayoutMemoryOwner()
     @ObservationIgnored private let prototypeEnabled: @MainActor () -> Bool
+    /// The window rail shows the top sections (`window.rail` is not off).
+    @ObservationIgnored private let railShown: @MainActor () -> Bool
     @ObservationIgnored private let remote: (any SidebarLayoutRemote)?
     @ObservationIgnored private let onRefused: @MainActor (String) -> Void
     @ObservationIgnored private var observation: Task<Void, Never>?
@@ -37,10 +40,12 @@ final class SidebarLayoutService {
     init(remote: (any SidebarLayoutRemote)? = nil, onRefused: @escaping @MainActor (String) -> Void = { _ in },
          prototypeEnabled: @escaping @MainActor () -> Bool = {
              DevTools.isEnabled && SidebarSectionTunables.localPrototype.override == true
-         }) {
+         },
+         railShown: @escaping @MainActor () -> Bool = { DesignSettings.shared.rail != .off }) {
         self.remote = remote
         self.onRefused = onRefused
         self.prototypeEnabled = prototypeEnabled
+        self.railShown = railShown
     }
 
     isolated deinit {

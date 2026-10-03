@@ -23,6 +23,8 @@ final class SidebarItemRowView: NSView {
         var isIconOnly: Bool { self == .tile || self == .icon }
     }
 
+    /// Unread items show as a dot on the glyph (the window rail only).
+    var showsUnreadDot = false
     var onPress: (() -> Void)?
     var onContextMenu: ((NSEvent, NSView) -> Void)?
 
