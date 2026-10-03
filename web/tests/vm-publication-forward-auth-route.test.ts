@@ -109,6 +109,18 @@ describe("Freestyle publication forward-auth HTTP contract", () => {
     });
   });
 
+  test("redirects an unmapped edge rule to the CMUX deny page", async () => {
+    const result = await handleForwardAuthRequest(
+      request(),
+      dependencies({ evaluate: async () => ({ kind: "not_found" }) }),
+    );
+
+    expect(result.status).toBe(302);
+    expect(result.headers.get("location")).toBe("https://cmux.com/cloud/access");
+    expect(result.headers.get("cache-control")).toBe("no-store");
+    expect(result.headers.get("x-cmux-publication-deny")).toBe("publication_not_found");
+  });
+
   test("identifies the publication by TLS rule id, never by x-forwarded-host", async () => {
     // Vercel overwrites x-forwarded-host with the function's own host before the
     // route runs, so a hostname-keyed lookup 404s every protected publication.
