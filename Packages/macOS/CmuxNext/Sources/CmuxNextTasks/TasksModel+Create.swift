@@ -23,7 +23,7 @@ extension TasksModel {
     }
 
     /// A client-chosen task id the owner accepts (`task_[0-9a-z_-]{1,64}`).
-    public static func mintTaskID() -> String {
+    public nonisolated static func mintTaskID() -> String {
         "task_" + UUID().uuidString.lowercased()
     }
 }
