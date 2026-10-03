@@ -212,7 +212,8 @@ pub fn rekey(paths: &Paths, instance_id: &str) -> io::Result<()> {
     if seed_dir.is_dir() {
         step(
             "random-seed",
-            random_bytes::<512>().and_then(|seed| write_atomic(&paths.at(RANDOM_SEED_FILE), &seed, 0o600)),
+            random_bytes::<512>()
+                .and_then(|seed| write_atomic(&paths.at(RANDOM_SEED_FILE), &seed, 0o600)),
         );
     }
     step("ssh", rekey_ssh(paths, instance_id));

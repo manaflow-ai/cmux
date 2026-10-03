@@ -103,7 +103,10 @@ impl ActionLog {
 
 fn describe(action: &Action) -> String {
     match action {
-        Action::Reseed(id) | Action::WriteBound(id) | Action::Rekey(id) | Action::CommitBind(id) => {
+        Action::Reseed(id)
+        | Action::WriteBound(id)
+        | Action::Rekey(id)
+        | Action::CommitBind(id) => {
             format!("{} id={id}", action.name())
         }
         Action::ArmBackoff(ms) | Action::ArmRetry(ms) => format!("{} ms={ms}", action.name()),

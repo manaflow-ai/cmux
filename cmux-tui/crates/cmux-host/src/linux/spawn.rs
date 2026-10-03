@@ -11,8 +11,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
 use crate::config::{Config, Paths};
-use crate::daemon_spec::{inherited_env, 
+use crate::daemon_spec::{
     DaemonLayout, DaemonSpec, LayoutKind, ROOT_HOME, WORK_HOME, WORK_USER, binary_path,
+    inherited_env,
 };
 
 /// A passwd entry.

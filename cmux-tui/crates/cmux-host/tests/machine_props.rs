@@ -86,8 +86,10 @@ proptest! {
                 Op::AnnounceDone => Input::AnnounceDone,
             };
             let raw = m.step(input);
-            // P2-2: a timer or an exit never spawns by itself.
-            if matches!(op, Op::DaemonExit(_) | Op::BackoffElapsed | Op::StopDeadline) {
+            // P2-2: a timer or a crash never spawns by itself (an exit that
+            // ends a stop may run the observation deferred during it).
+            let crash = matches!(op, Op::DaemonExit(_)) && running_before;
+            if crash || matches!(op, Op::BackoffElapsed | Op::StopDeadline) {
                 prop_assert!(!raw.contains(&Action::SpawnDaemon), "{raw:?}");
             }
             // Answer like the agent: commits (or a failure), role parks and

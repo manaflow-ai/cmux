@@ -10,8 +10,8 @@ pub mod spawn;
 
 use std::collections::BTreeSet;
 use std::fs;
-use std::net::IpAddr;
 use std::io;
+use std::net::IpAddr;
 use std::os::unix::net::UnixDatagram;
 use std::path::PathBuf;
 use std::process::Child;
@@ -227,7 +227,8 @@ impl LinuxPlatform {
         // Track the child before anything else can fail, so a later error
         // never leaves an untracked session host (a second one would start
         // and park could not stop the first).
-        let pidfd = PidFd::open(pid).map_err(|e| eprintln!("cmux-host: pidfd_open {pid}: {e}")).ok();
+        let pidfd =
+            PidFd::open(pid).map_err(|e| eprintln!("cmux-host: pidfd_open {pid}: {e}")).ok();
         if let Some(fd) = &pidfd
             && let Err(e) = self.epoll.add(fd.raw(), T_DAEMON)
         {
@@ -427,7 +428,8 @@ fn interface_addresses() -> Vec<(String, IpAddr)> {
         let mut at = head;
         while !at.is_null() {
             let ifa = &*at;
-            let family = if ifa.ifa_addr.is_null() { -1 } else { i32::from((*ifa.ifa_addr).sa_family) };
+            let family =
+                if ifa.ifa_addr.is_null() { -1 } else { i32::from((*ifa.ifa_addr).sa_family) };
             let addr = if family == libc::AF_INET {
                 let sin = &*ifa.ifa_addr.cast::<libc::sockaddr_in>();
                 Some(IpAddr::V4(std::net::Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr))))
@@ -553,7 +555,8 @@ impl Platform for LinuxPlatform {
         let (pid, pidfd) =
             procs::find_session_host(&self.cfg.paths.at(DAEMON_PID_FILE), &layout.bin, layout.uid)?;
         self.epoll.add(pidfd.raw(), T_DAEMON).ok()?;
-        self.daemon = Some(Daemon { pid, pidfd: Some(pidfd), child: None, started: Instant::now() });
+        self.daemon =
+            Some(Daemon { pid, pidfd: Some(pidfd), child: None, started: Instant::now() });
         Some(pid)
     }
 
