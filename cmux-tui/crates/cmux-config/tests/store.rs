@@ -274,3 +274,15 @@ fn reads_report_values_defaults_and_managers() {
     let covered = start.get(&Target::Key("appearance".into()));
     assert_eq!(covered.managed.map(|(key, _)| key), Some("appearance.density".to_string()));
 }
+
+#[test]
+fn a_retired_key_is_refused_as_removed_and_a_reset_cleans_it_up() {
+    let start = state(r#"{"appearance": {"tabBarBackground": "darker", "density": "compact"}}"#, Default::default());
+    let refusal = apply(&start, set("appearance.tabBarBackground", json!("darker"))).unwrap_err();
+    assert_eq!(refusal.code(), "removed");
+    assert!(refusal.to_string().starts_with("appearance.tabBarBackground was removed: "));
+    let cleaned = apply(&start, reset("appearance.tabBarBackground")).unwrap().state;
+    assert_eq!(file_value(&cleaned, &path("appearance.tabBarBackground")), None);
+    assert_eq!(file_value(&cleaned, &path("appearance.density")), Some(json!("compact")));
+    assert!(start.effective().diagnostics.is_empty(), "a retired key loads without a diagnostic");
+}
