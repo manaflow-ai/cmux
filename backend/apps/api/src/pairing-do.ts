@@ -29,6 +29,7 @@ type Row = {
   collect_hash: string
   expires_at: number
   result: string | null
+  approver: string | null
 }
 
 const equal = (a: string, b: string): boolean => {
@@ -51,7 +52,7 @@ export class PairingDO extends DurableObject<Env> {
     super(ctx, env)
     ctx.storage.sql.exec(
       `CREATE TABLE IF NOT EXISTS pairing (id INTEGER PRIMARY KEY CHECK (id = 1), code TEXT NOT NULL, public_jwk TEXT NOT NULL, thumbprint TEXT NOT NULL,
-        wg_public_key TEXT NOT NULL, info TEXT NOT NULL, country TEXT, collect_hash TEXT NOT NULL, expires_at INTEGER NOT NULL, result TEXT)`
+        wg_public_key TEXT NOT NULL, info TEXT NOT NULL, country TEXT, collect_hash TEXT NOT NULL, expires_at INTEGER NOT NULL, result TEXT, approver TEXT)`
     )
   }
 
@@ -70,7 +71,7 @@ export class PairingDO extends DurableObject<Env> {
     const expires = input.now + PAIRING_TTL_MS
     this.ctx.storage.sql.exec(`DELETE FROM pairing`)
     this.ctx.storage.sql.exec(
-      `INSERT INTO pairing (id, code, public_jwk, thumbprint, wg_public_key, info, country, collect_hash, expires_at, result) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+      `INSERT INTO pairing (id, code, public_jwk, thumbprint, wg_public_key, info, country, collect_hash, expires_at, result, approver) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
       input.code,
       JSON.stringify(input.public_jwk),
       input.thumbprint,
@@ -90,10 +91,18 @@ export class PairingDO extends DurableObject<Env> {
     return r && r.code === code && r.result === null ? this.record(r) : null
   }
 
-  /** The pending record for an approval in progress (also after the result is stored, so a retry can finish). */
-  async pending(code: string, now: number): Promise<{ record: PairingRecord; result: PairingResult | null } | null> {
+  /**
+   * Claims the code for one approver before any other owner is written: the
+   * first claim wins; the same approver may claim again (a retry finishes its
+   * approval); every other approver is refused. Single-threaded per object, so
+   * two concurrent approvals cannot both pass.
+   */
+  async claim(code: string, approver: string, now: number): Promise<{ ok: true; record: PairingRecord; result: PairingResult | null } | { ok: false; reason: "unknown" | "claimed" }> {
     const r = this.row(now)
-    return r && r.code === code ? { record: this.record(r), result: r.result ? (JSON.parse(r.result) as PairingResult) : null } : null
+    if (!r || r.code !== code) return { ok: false, reason: "unknown" }
+    if (r.approver !== null && r.approver !== approver) return { ok: false, reason: "claimed" }
+    if (r.approver === null) this.ctx.storage.sql.exec(`UPDATE pairing SET approver = ? WHERE id = 1`, approver)
+    return { ok: true, record: this.record(r), result: r.result ? (JSON.parse(r.result) as PairingResult) : null }
   }
 
   /**
@@ -104,6 +113,7 @@ export class PairingDO extends DurableObject<Env> {
     const r = this.row(now)
     if (!r || r.code !== code) return { ok: false, message: "pairing code expired or unknown" }
     if (!equal(r.thumbprint, thumbprint)) return { ok: false, message: "pairing key changed" }
+    if (r.approver !== result.user) return { ok: false, message: "pairing code claimed by another approver" }
     const json = JSON.stringify(result)
     if (r.result !== null) return r.result === json ? { ok: true } : { ok: false, message: "pairing code already used" }
     this.ctx.storage.sql.exec(`UPDATE pairing SET result = ? WHERE id = 1`, json)

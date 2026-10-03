@@ -105,8 +105,16 @@ const fail = (op: string, key: string, code: string, message: string, retryable 
 /** A user-origin session only: never an install token, never an agent acting through one. */
 const isHumanSession = (p: Principal) => p.kind === "session" && !p.agent && Boolean(p.user)
 
+/** Per-user limit on preview and approve (code guessing), on the pairing namespace with user keys. */
+const pairLimited = async (env: Env, principal: Principal): Promise<boolean> => {
+  if (!env.PAIR_BEGIN_LIMIT) return true
+  const { success } = await env.PAIR_BEGIN_LIMIT.limit({ key: `user:${principal.user}` })
+  return success
+}
+
 export const pairPreview = async (env: Env, principal: Principal, params: unknown): Promise<{ ok: true; value: unknown } | { ok: false; code: string; message: string }> => {
   if (!isHumanSession(principal)) return { ok: false, code: "auth.forbidden", message: "pairing needs a signed-in user" }
+  if (!(await pairLimited(env, principal))) return { ok: false, code: "auth.forbidden", message: "too many pairing requests" }
   const code = normalizeCode(String((params as { code?: unknown } | null)?.code ?? ""))
   if (!code) return { ok: false, code: "validation.invalid", message: "invalid pairing code" }
   const r: PairingRecord | null = await pairingStub(env, code).preview(code, Date.now())
@@ -135,13 +143,21 @@ export const pairApprove = async (
   if (params.team !== principal.team) return fail(op, frame.idempotency_key, "auth.forbidden", "pairing into another team is not supported yet")
   const name = typeof params.name === "string" && params.name.length >= 1 && params.name.length <= 80 ? params.name : null
   if (!name) return fail(op, frame.idempotency_key, "validation.invalid", "name must be 1 to 80 characters")
+  if (!(await pairLimited(env, principal))) return fail(op, frame.idempotency_key, "auth.forbidden", "too many pairing requests, try again in a minute", true)
+  const team = principal.team!
+  // Role first: an approver who may not add servers writes nothing anywhere.
+  if (!(await env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).canEnrollServer(team, principal))) {
+    return fail(op, frame.idempotency_key, "auth.forbidden", "only team owners and admins may add a server")
+  }
   const stub = pairingStub(env, code)
-  const now = Date.now()
-  const pending = await stub.pending(code, now)
-  if (!pending) return fail(op, frame.idempotency_key, "selector.not_found", "pairing code expired or unknown")
+  // Claim before any write: concurrent approvals by different users cannot both register an install and a host.
+  const claimed = await stub.claim(code, principal.user!, Date.now())
+  if (!claimed.ok) {
+    return claimed.reason === "unknown" ? fail(op, frame.idempotency_key, "selector.not_found", "pairing code expired or unknown") : fail(op, frame.idempotency_key, "auth.forbidden", "pairing code already used")
+  }
   const done = (result: PairingResult): OpReply => ({ ok: true, op, value: result, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `team:${result.team}`, sequence: 0 })
-  if (pending.result) return pending.result.user === principal.user ? done(pending.result) : fail(op, frame.idempotency_key, "auth.forbidden", "pairing code already used")
-  const rec = pending.record
+  if (claimed.result) return done(claimed.result)
+  const rec = claimed.record
   const reg = await submit("cloud:UserDO", principal, {
     op: "install.register",
     params: { public_jwk: rec.public_jwk, kind: "daemon", name, device_name: rec.info.name, platform: rec.info.platform, op_classes: ["read", "mutate-own"], bound_team: principal.team },
@@ -151,7 +167,6 @@ export const pairApprove = async (
   const regReply = reg.frames.find((f) => f.t === "result" || f.t === "reject")
   if (!regReply || regReply.t !== "result") return fail(op, frame.idempotency_key, regReply && regReply.t === "reject" ? regReply.code : "owner.unreachable", regReply && regReply.t === "reject" ? regReply.message : "install registration failed", true)
   const install = (regReply.value as { id: string }).id
-  const team = principal.team!
   const enrolled = await env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).enrollServer(
     team,
     principal,

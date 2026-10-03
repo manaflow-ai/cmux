@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 import { beginProofMessage, codeFromRandom, displayCode, normalizeCode } from "../src/domains/pairing.ts"
 import { teamDomain, type TeamState } from "../src/domains/team.ts"
 import { userDomain, type UserState } from "../src/domains/user.ts"
+import { pairApprove } from "../src/pair-routes.ts"
 
 const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; ENVIRONMENT: string }
 const worker = (exports as unknown as { default: Fetcher }).default
@@ -94,6 +95,23 @@ describe("install.revoke_by_team (UserDO reducer)", () => {
     expect(userDomain.reduce(user(), "install.revoke_by_team", params, sys(`system:team:${TEAM}`))).toMatchObject({ ok: false, code: "auth.forbidden" })
     expect(userDomain.reduce(user(TEAM), "install.revoke_by_team", params, sys("system:team:team_00000000000000000099"))).toMatchObject({ ok: false, code: "auth.forbidden" })
     expect(userDomain.reduce(user(TEAM), "install.revoke_by_team", params, ctx(OWNER))).toMatchObject({ ok: false, code: "auth.forbidden" })
+  })
+})
+
+describe("approval order (pairApprove)", () => {
+  it("checks the approver's role before it claims the code or writes any owner", async () => {
+    const calls: Array<string> = []
+    const fakeEnv = {
+      TEAM_DO: { idFromName: (n: string) => n, get: () => ({ canEnrollServer: async () => (calls.push("role"), false), enrollServer: async () => (calls.push("enroll"), { ok: true, host: "host_x" }) }) },
+      PAIRING_DO: { idFromName: (n: string) => n, get: () => ({ claim: async () => (calls.push("claim"), { ok: false, reason: "unknown" }), complete: async () => (calls.push("complete"), { ok: true }) }) }
+    } as never
+    const member = { identity: `user:${MEMBER}`, user: MEMBER, team: TEAM, kind: "session" as const }
+    const r = await pairApprove(fakeEnv, member, { op: "server.pair.approve", params: { code: "76KJ982X", team: TEAM, name: "x" }, idempotency_key: "k" }, async () => {
+      calls.push("submit")
+      return { frames: [] }
+    })
+    expect(r).toMatchObject({ ok: false, error: { code: "auth.forbidden" } })
+    expect(calls).toEqual(["role"])
   })
 })
 
@@ -216,6 +234,28 @@ describe("server pairing over the API (workerd)", () => {
     // The token minted before the revoke fails its next request.
     expect((await read(tok.json.access_token, "install.list", {})).status).toBe(403)
     expect((await read(tok.json.access_token, "team.directory", {})).status).toBe(403)
+  })
+
+  it("lets exactly one of two concurrent approvers claim a code; the other writes nothing", async () => {
+    const a = await sessionToken("stack-pair-race-a")
+    const b = await sessionToken("stack-pair-race-b")
+    await op(a, "user.ensure", {})
+    await op(b, "user.ensure", {})
+    const teamA = (await read(a, "team.directory", {})).json.value.team as string
+    const teamB = (await read(b, "team.directory", {})).json.value.team as string
+    const { res } = await beginPairing()
+    const code = res.json.code as string
+    const [ra, rb] = await Promise.all([
+      op(a, "server.pair.approve", { code, team: teamA, name: "A" }),
+      op(b, "server.pair.approve", { code, team: teamB, name: "B" })
+    ])
+    expect([ra.json.ok, rb.json.ok].filter(Boolean)).toHaveLength(1)
+    const loser = ra.json.ok ? b : a
+    const loserTeam = ra.json.ok ? teamB : teamA
+    const installs = (await read(loser, "install.list", {})).json.value.installs as Array<{ kind: string }>
+    expect(installs.filter((i) => i.kind === "daemon")).toHaveLength(0)
+    expect(((await read(loser, "team.directory", {})).json.value.hosts as Array<{ kind?: string }>).filter((h) => h.kind === "server")).toHaveLength(0)
+    expect(loserTeam).toBeDefined()
   })
 
   it("refuses a begin without proof of possession or with a stale timestamp, and an unknown code", async () => {

@@ -257,6 +257,12 @@ export class TeamDO extends OwnerDO<TeamState> {
    * or an agent; then the internal `server.enrolled` commits the host. Keyed by the
    * pairing code, so a retried approval returns the same host.
    */
+  /** May this signed-in principal add a server to this team? Checked before the approval writes anything. */
+  async canEnrollServer(entity: string, principal: Principal): Promise<boolean> {
+    const engine = this.bind(entity)
+    return principal.kind === "session" && !principal.agent && Boolean(principal.user) && mayEnrollServer(engine.currentState, principal.user)
+  }
+
   async enrollServer(
     entity: string,
     principal: Principal,
@@ -289,7 +295,13 @@ export class TeamDO extends OwnerDO<TeamState> {
     const revoked: Array<string> = []
     for (const r of pending) {
       const user = this.env.USER_DO.get(this.env.USER_DO.idFromName(r.owner_user))
-      const res = (await user.revokeByTeam(r.owner_user, entity, r.install, r.by, `team-revoke:${entity}:${r.install}`)) as { ok: boolean; code?: string }
+      let res: { ok: boolean; code?: string }
+      try {
+        res = (await user.revokeByTeam(r.owner_user, entity, r.install, r.by, `team-revoke:${entity}:${r.install}`)) as { ok: boolean; code?: string }
+      } catch (e) {
+        // A thrown RPC keeps the item in the retried set and never stops the rest of onWake.
+        res = { ok: false, code: `rpc:${String(e)}` }
+      }
       // Done or permanently impossible (not bound, unknown): stop retrying either way; failures are logged.
       if (!res.ok && res.code !== "auth.forbidden" && res.code !== "selector.not_found") {
         this.revokeAttempts += 1
