@@ -1,6 +1,6 @@
 # cmux-next team VM plan (P15)
 
-Status: draft 1, 2026-10-03 (team VM lead). Spec: cmux-next-spec `spec/team-vm.md` (draft 2), `spec/tasks.md`, `research/zero-loss-filesystem.md`. Decided input: D27 to D32, D33 (userspace WireGuard by default plus a Fly.io SSH gate), D34 (the gate is off by default; a team admin turns it on), D35 (zero-loss filesystem metadata in a new small PlanetScale Postgres database per environment, `cmux-teamfs`), D36 (if FUSE is missing or slow: git with synchronous push plus synchronous catalog write paths, and ask Freestyle for FUSE), Tasks T1 (an op log on the zero-loss tier), B-ALL (2026-10-03). Coverage row: spec-coverage.md P15. Binding: OWNERSHIP-PRINCIPLES.md. Only the coordinator edits the spec; this file is the spec proposal "team-vm".
+Status: draft 2, 2026-10-03 (team VM lead; plan approved by the worker; spike phase A done, results in team-vm-spike.md). Spec: cmux-next-spec `spec/team-vm.md` (draft 2), `spec/tasks.md`, `research/zero-loss-filesystem.md`. Decided input: D27 to D32, D33 (userspace WireGuard by default plus a Fly.io SSH gate), D34 (the gate is off by default; a team admin turns it on), D35 (zero-loss filesystem metadata in a new small PlanetScale Postgres database per environment, `cmux-teamfs`), D36 (if FUSE is missing or slow: git with synchronous push plus synchronous catalog write paths, and ask Freestyle for FUSE), Tasks T1 (an op log on the zero-loss tier), B-ALL (2026-10-03). Coverage row: spec-coverage.md P15. Binding: OWNERSHIP-PRINCIPLES.md. Only the coordinator edits the spec; this file is the spec proposal "team-vm".
 
 Related plans that this one depends on and does not repeat: vm-image.md (lane 1: image, roles, bind, guest capabilities), server.md (lane 10: VM software, roles, app server lease, Postgres), transport.md (lane 12: overlay, `cmux link`, SSH certificate fetch), tasks.md (Tasks lead: op log store, `Owner::resolve`).
 
@@ -34,8 +34,8 @@ Each slice lands directly on feat-cmux-next after exact-head gates (lane rules).
 | --- | --- | --- | --- | --- |
 | S0 | this plan | plans/ | | committed, sent to main |
 | S1 | zero-loss storage spike, phase A (section 4) | `cmuxnp-dev-` Freestyle VMs, a `cmuxnp-dev-` R2 bucket, Postgres on a second `cmuxnp-dev-` VM | none | results file with numbers; go or no-go for JuiceFS |
-| S1b | spike phase B: repeat the latency and durability runs against `cmux-teamfs` development | same | Lawrence creates `cmux-teamfs` (section 6) | numbers with the real metadata engine |
-| S2 | `TeamVmDO`: VM record, `team_vm.status`, `team_vm.ensure_awake {lease}`, idempotent provision on team create, epoch fencing, Freestyle driver behind an interface with a fake for tests | backend/apps/api | DO migration tag (v11 requested from the backend lead) | workerd tests: create is idempotent, leases expire, wake on lease, a second provision returns the same VM |
+| S1b | ON HOLD: phase A rejected JuiceFS on latency (team-vm-spike.md). Next: measure the journal store candidates (a DO near SJC, a PlanetScale single INSERT, an R2 conditional PUT) | backend staging + `cmuxnp-dev-` VM | a scoped R2 token from the coordinator; Lawrence's answer on the D36 promise | numbers per candidate; nothing built on the weaker promise before the answer |
+| S2 | `TeamVmDO` (DO migration tag v13): VM record, `team_vm.status`, `team_vm.ensure_awake {lease}`, idempotent provision on team create, epoch fencing, Freestyle driver behind an interface with a fake for tests | backend/apps/api | DO migration tag (v11 requested from the backend lead) | workerd tests: create is idempotent, leases expire, wake on lease, a second provision returns the same VM |
 | S3 | SSH CA in `TeamDO`: CA key sealed under a Worker KEK, `team_vm.ssh_cert {pubkey}` (Ed25519 signing in workerd), key id `<principal>/<grant>/<install>/<nonce>`, 15 to 60 min validity, class extensions (D28 force-command for ordinary agents), KRL on revoke | backend/apps/api | S2 | workerd tests; `ssh-keygen -L` parses the certificate; revoked serials appear in the KRL; review subagent clean |
 | S4 | reconciler: users, groups `n-<node>-{r,w,a}`, membership closure, node directories, access and default ACLs, setgid, umask 007, mailbox modes, idempotent, drift revert | cmux-tui (team-host role) | S2 for directory events; landing window | Linux container tests on a Testbox (root, real `setfacl`): fixture trees from the spec example table give exactly the spec's access matrix; second run is a no-op |
 | S5 | sshd and PAM config for the team role: `TrustedUserCAKeys`, `AuthorizedPrincipalsCommand cmux team principals %u`, `RevokedKeys`, `pam_umask`, force-command, audit login uid | image files (lane 1 owns the image; this lane provides the role's files) | S3, S4 | a `cmuxnp-dev-` VM accepts a fresh certificate, refuses an expired or revoked one, and an ordinary-agent certificate gets only `cmux team …` |
@@ -83,7 +83,13 @@ Output: `plans/cmux-next/team-vm-spike.md` with numbers, method, and the go or n
 3. The SSH CA private key never leaves `TeamDO` in clear; it is sealed under a Worker secret like the SSO secrets (`INTEGRATIONS_KEK` pattern).
 4. A restored VM gets a new epoch. The old VM's credentials are revoked at restore, and the JuiceFS session of the old epoch is cleaned before the new mount (a stale writer cannot commit).
 
-## 6. What Lawrence must create (exact commands go to main, not run by this lane)
+## 5a. Spike result (2026-10-03)
+
+Phase A (team-vm-spike.md): every capability passes through the JuiceFS mount, and O1 isolation works, but latency fails every go criterion. A raw R2 PUT from Freestyle (San Francisco) takes 214 ms p50, and PlanetScale us-west-2 is 33 ms away, so write plus fsync is 259 ms p50 with nearby metadata and 810 ms with PlanetScale; warm `rg` over 10,000 files takes 14 s (ext4 under 0.1 s). The recommendation is the D36 path: local ext4 for files, a synchronous journal for the acknowledged write paths (Tasks Replica, `team.mail.send`, `team.memory.write`), seconds of recovery point for plain-tool edits. This changes the zero-loss promise, so it waits for Lawrence; `cmux-teamfs` creation is on hold.
+
+Requirement for lane 10 (app supervisor): `CMUX_APP_HOST` on the team VM is the per-instance metadata instance id, never a value that a cloned image shares (Tasks lead, epoch fence).
+
+## 6. What Lawrence must create (ON HOLD after the spike) (exact commands go to main, not run by this lane)
 
 1. PlanetScale database `cmux-teamfs` (D35), org `cmux`, region `us-west` (same as `cmux-next`): production branch `main` highly available (`PS-5-AWS-ARM`, 2 replicas, about $15 per month by `pscale size cluster list`), branches `staging` and `development` at the default development size. One admin role per branch for the control plane, written to `~/.secrets/cmux-teamfs-planetscale-<branch>.env` without printing. Commands: `.cmux-scratch/nx-worker/team-vm/lawrence-create-teamfs.md`.
 2. R2 buckets `cmux-teamfs-development`, `cmux-teamfs-staging`, `cmux-teamfs-production` (location hint `wnam`) and the audit bucket lock rule, plus an API token that can mint temporary credentials for those buckets. Same file.
@@ -91,11 +97,12 @@ Output: `plans/cmux-next/team-vm-spike.md` with numbers, method, and the go or n
 
 ## 7. Open items and decisions for Lawrence (through main)
 
-- O1 DECISION: per-team isolation on the zero-loss tier. RECOMMEND: prefix-scoped R2 temporary credentials minted by `TeamVmDO` plus one Postgres role per team schema, because a shared environment key lets one team VM read every team's files. Alternative: one R2 bucket per team (simple isolation, but bucket count limits per account and more provisioning).
+- O1 ANSWERED YES (2026-10-03) and verified in the spike: prefix-scoped R2 temporary credentials minted by `TeamVmDO` plus one Postgres role per team schema, because a shared environment key lets one team VM read every team's files. Alternative: one R2 bucket per team (simple isolation, but bucket count limits per account and more provisioning).
 - O2 DECISION: `cmux-teamfs` production size. RECOMMEND: the highly available `PS-5-AWS-ARM` (about $15 per month) because a single node cannot promise zero loss of acknowledged metadata; development and staging stay single node.
 - O3 for the server lane, not Lawrence yet: team app Postgres on local disk is not zero-loss. Tasks avoids it (op log). Other team apps that need zero loss must write their durable state through the app data directory or `cmux app data commit` (server.md 7). To be stated in the app platform docs.
 - O4: R2 object versioning. The spec names it as the second line. The spike checks what the bucket supports; if versioning is not available, the second line is bucket lock rules on the audit prefix plus Freestyle snapshots.
-- DO migration tag v11 for `TeamVmDO`: requested from the backend lead through main.
+- DO migration tag for `TeamVmDO`: v13 (assigned by the worker, recorded by the backend lead).
+- O5 DECISION (to Lawrence through main): the zero-loss promise under D36. Files written through cmux ops and the Tasks log are zero-loss; plain-tool edits have a recovery point of seconds.
 
 ## 8. Risks
 
