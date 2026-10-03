@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import {
   PERMISSION_GROUP_OPS,
   PermissionRpcError,
@@ -89,7 +90,7 @@ function asError(error: unknown): PermissionRpcError {
   }
   return new PermissionRpcError({
     code: "operation.failed",
-    message: error instanceof Error ? error.message : "Permission request failed",
+    message: error instanceof Error ? error.message : t("permission.error.failed"),
   });
 }
 
@@ -175,8 +176,8 @@ export class PermissionGroupClient {
   }
 
   private session(): string {
-    if (!this.state.supported) throw localError("operation.unsupported", "Grouped permissions are unavailable.");
-    if (!this.sessionId) throw localError("validation.invalid", "Select a session first.");
+    if (!this.state.supported) throw localError("operation.unsupported", t("permission.error.unavailable"));
+    if (!this.sessionId) throw localError("validation.invalid", t("permission.error.selectSession"));
     return this.sessionId;
   }
 
@@ -226,7 +227,7 @@ export class PermissionGroupClient {
       if (result.groups.some((group) => group.sessionId !== sessionId))
         throw new PermissionRpcError({
           code: "operation.failed",
-          message: "The permission server returned a group for another session.",
+          message: t("permission.error.wrongSession"),
           data: { reason: "invalid_scope" },
         });
       this.state = {
@@ -254,7 +255,7 @@ export class PermissionGroupClient {
         this.state = {
           ...this.state,
           uncertain: true,
-          error: this.state.error ?? "Another permission decision is awaiting retry.",
+          error: this.state.error ?? t("permission.error.awaitingRetry"),
         };
       }
     } catch (error) {
@@ -277,27 +278,19 @@ export class PermissionGroupClient {
     const sessionId = this.session();
     if (!this.authoritative) throw this.notReady();
     if (!allowMutation && (this.state.busy || this.mutationInFlight))
-      throw localError("operation.failed", "A permission decision is already being sent.", "busy");
+      throw localError("operation.failed", t("permission.error.busy"), "busy");
     return sessionId;
   }
 
   private notReady(): PermissionRpcError {
-    const error = localError(
-      "operation.failed",
-      "Read the current permission groups before answering.",
-      "read_required",
-    );
+    const error = localError("operation.failed", t("permission.error.readRequired"), "read_required");
     this.state = { ...this.state, error: error.message };
     this.changed();
     return error;
   }
 
   private selectionChanged(): PermissionRpcError {
-    return localError(
-      "operation.failed",
-      "The selected session changed. Read its permissions before answering.",
-      "selection_changed",
-    );
+    return localError("operation.failed", t("permission.error.selectionChanged"), "selection_changed");
   }
 
   private async sendDecision(pending: PendingDecision, generation: number): Promise<void> {
@@ -319,14 +312,14 @@ export class PermissionGroupClient {
         // The daemon may have committed before a malformed reply reached the page.
         throw new PermissionRpcError({
           code: "mutation.indeterminate",
-          message: "The permission answer may have been applied. Read before retrying.",
+          message: t("permission.error.answerUncertain"),
           origin: "session_host",
         });
       }
       if (receipt.group.sessionId !== pending.sessionId || receipt.group.groupId !== pending.groupId)
         throw new PermissionRpcError({
           code: "mutation.indeterminate",
-          message: "The permission answer returned a different group. Read before retrying.",
+          message: t("permission.error.wrongGroup"),
           origin: "session_host",
         });
       await this.clearPending(pending.sessionId);
@@ -354,18 +347,12 @@ export class PermissionGroupClient {
   async respond(groupId: string, revision: number, decision: PermissionDecision): Promise<void> {
     const sessionId = this.requireAuthoritative();
     const generation = this.generation;
-    if (this.state.uncertain)
-      throw localError(
-        "operation.failed",
-        "Read the current result before retrying this permission answer.",
-        "uncertain",
-      );
+    if (this.state.uncertain) throw localError("operation.failed", t("permission.error.readResult"), "uncertain");
     if (!Number.isSafeInteger(revision) || revision < 0)
-      throw localError("validation.invalid", "Invalid group revision.");
+      throw localError("validation.invalid", t("permission.error.invalidRevision"));
     const group = this.state.groups.find((candidate) => candidate.groupId === groupId);
-    if (!group) throw localError("resource.not_found", "Permission group was not found.");
-    if (this.mutationInFlight)
-      throw localError("operation.failed", "A permission decision is already being sent.", "busy");
+    if (!group) throw localError("resource.not_found", t("permission.error.notFound"));
+    if (this.mutationInFlight) throw localError("operation.failed", t("permission.error.busy"), "busy");
     this.mutationInFlight = true;
     this.state = { ...this.state, busy: true, error: undefined };
     this.changed();
@@ -384,7 +371,7 @@ export class PermissionGroupClient {
             decision: existing.decision,
           }) !== stable(body)
         )
-          throw localError("idempotency.conflict", "Another permission decision is awaiting retry.");
+          throw localError("idempotency.conflict", t("permission.error.awaitingRetry"));
         pending = existing;
       } else {
         pending = { ...body, decisionKey: key() };
@@ -406,8 +393,7 @@ export class PermissionGroupClient {
   }
 
   async retry(): Promise<void> {
-    if (this.mutationInFlight)
-      throw localError("operation.failed", "A permission decision is already being sent.", "busy");
+    if (this.mutationInFlight) throw localError("operation.failed", t("permission.error.busy"), "busy");
     const sessionId = this.session();
     const generation = this.generation;
     this.mutationInFlight = true;
@@ -420,7 +406,7 @@ export class PermissionGroupClient {
         await this.sendRevoke(generation, true);
         return;
       }
-      if (!pending) throw localError("validation.invalid", "There is no permission decision to retry.");
+      if (!pending) throw localError("validation.invalid", t("permission.error.noRetry"));
       await this.refresh();
       if (generation !== this.generation || sessionId !== this.sessionId) throw this.selectionChanged();
       const group = this.state.groups.find((candidate) => candidate.groupId === pending.groupId);
@@ -430,11 +416,11 @@ export class PermissionGroupClient {
           this.state = {
             ...this.state,
             uncertain: false,
-            error: "Permission group is no longer available. Review the current groups.",
+            error: t("permission.error.noLongerAvailable"),
           };
           this.changed();
         }
-        throw localError("resource.not_found", "Permission group was not found.");
+        throw localError("resource.not_found", t("permission.error.notFound"));
       }
       if ((group.state === "resolved" || group.state === "cancelled") && group.revision >= pending.revision) {
         await this.clearPending(sessionId);
@@ -448,7 +434,7 @@ export class PermissionGroupClient {
         if (generation !== this.generation || sessionId !== this.sessionId) throw this.selectionChanged();
         const error = new PermissionRpcError({
           code: "revision.conflict",
-          message: "The permission group changed. Review it again before retrying.",
+          message: t("permission.error.groupChanged"),
           data: { reason: "stale_revision", group },
         });
         this.state = { ...this.state, uncertain: false, error: error.message };
@@ -468,8 +454,7 @@ export class PermissionGroupClient {
   private async sendRevoke(generation: number, alreadyLocked = false): Promise<void> {
     const sessionId = this.requireAuthoritative(alreadyLocked);
     if (!alreadyLocked) {
-      if (this.mutationInFlight)
-        throw localError("operation.failed", "A permission decision is already being sent.", "busy");
+      if (this.mutationInFlight) throw localError("operation.failed", t("permission.error.busy"), "busy");
       this.mutationInFlight = true;
     }
     this.state = { ...this.state, busy: true, error: undefined };
@@ -510,7 +495,7 @@ export class PermissionGroupClient {
       ready: false,
       loading: true,
       busy: false,
-      error: "Permission groups are disconnected. Refresh before answering.",
+      error: t("permission.error.disconnected"),
       uncertain: this.state.uncertain,
     };
     this.changed();

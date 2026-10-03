@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
+import { t, type StringKey } from "../i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "../shortcuts";
 import type { PermissionClientState, PermissionDecision, PermissionGroup } from "./protocol";
 
-const choices: Record<PermissionDecision, string> = {
-  allow_once: "Allow once",
-  allow_chat: "Allow for this chat",
-  deny: "Deny",
+const choices: Record<PermissionDecision, StringKey> = {
+  allow_once: "permission.allowOnce",
+  allow_chat: "permission.allowChat",
+  deny: "permission.deny",
 };
 
 type Props = {
@@ -35,9 +36,11 @@ function GroupItems({ group, expandSignal }: { group: PermissionGroup; expandSig
         return (
           <details key={item.permissionId}>
             <summary>
-              <span>{typeof tool?.title === "string" ? tool.title : "Tool request"}</span>
+              <span>{typeof tool?.title === "string" ? tool.title : t("permission.toolRequest")}</span>
               <span className="acpmux-permission-item-kind">{typeof tool?.kind === "string" ? tool.kind : ""}</span>
-              {item.state !== "pending" && <span>{item.state}</span>}
+              {item.state !== "pending" && (
+                <span>{t(item.state === "cancelled" ? "permission.itemCancelled" : "permission.itemResolved")}</span>
+              )}
             </summary>
             {Array.isArray(tool?.locations) && (
               <ul>
@@ -52,7 +55,7 @@ function GroupItems({ group, expandSignal }: { group: PermissionGroup; expandSig
               <pre>{typeof tool.rawInput === "string" ? tool.rawInput : JSON.stringify(tool.rawInput, null, 2)}</pre>
             )}
             {tool?.content !== undefined && <pre>{JSON.stringify(tool.content, null, 2)}</pre>}
-            {tool?.rawInput === undefined && tool?.content === undefined && <p>No additional input was provided.</p>}
+            {tool?.rawInput === undefined && tool?.content === undefined && <p>{t("permission.noInput")}</p>}
           </details>
         );
       })}
@@ -119,46 +122,43 @@ export function PermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh
   if (!pending.length && !receipt && !state.chatAllowance && !state.error) return null;
   const disabled = state.busy || state.loading || state.ready === false || !!state.uncertain;
   return (
-    <section className="acpmux-permission acpmux-permission-panel" aria-label="Tool permissions" aria-busy={state.busy}>
-      <div
-        className="acpmux-permission-coverage"
-        title="Only actions the agent requests through ACP are covered. Host isolation is unverified."
-      >
-        ACP requests only · Isolation unverified
+    <section
+      className="acpmux-permission acpmux-permission-panel"
+      aria-label={t("permission.title")}
+      aria-busy={state.busy}
+    >
+      <div className="acpmux-permission-coverage" title={t("permission.coverageDetail")}>
+        {t("permission.coverage")}
       </div>
       {state.chatAllowance && (
         <div className="acpmux-permission-allowance">
-          <span>Future eligible tool requests are allowed in this chat. Deny rules still apply.</span>
+          <span>{t("permission.chatAllowed")}</span>
           <button disabled={disabled} onClick={onRevoke}>
-            {withShortcut("Revoke", revokeShortcut)}
+            {withShortcut(t("permission.revoke"), revokeShortcut)}
           </button>
         </div>
       )}
       {pending.map((group) => (
         <div className="acpmux-permission-card" key={group.groupId}>
-          <strong>Tool permissions</strong>
+          <strong>{t("permission.title")}</strong>
           <p className="acpmux-permission-scope">
-            {group.items.length} {group.items.length === 1 ? "request" : "requests"} from this turn
+            {t(group.items.length === 1 ? "permission.count.one" : "permission.count.other", { n: group.items.length })}
           </p>
           {group.state === "pending" && (
             <button type="button" onClick={() => setExpandSignal((value) => value + 1)}>
-              {withShortcut("Expand details", expandShortcut)}
+              {withShortcut(t("permission.expand"), expandShortcut)}
             </button>
           )}
           <GroupItems group={group} expandSignal={expandSignal} />
           {group.state === "collecting" ? (
-            <output>Collecting requests…</output>
+            <output>{t("permission.collecting")}</output>
           ) : (
             <>
               {group.decisions.includes("allow_chat") && (
-                <p className="acpmux-permission-scope">
-                  Allow for this chat also approves future eligible requests until this chat stops.
-                </p>
+                <p className="acpmux-permission-scope">{t("permission.chatScope")}</p>
               )}
               {!group.decisions.includes("allow_once") && (
-                <p className="acpmux-permission-scope">
-                  An item has no single-use approval option. This group can only be denied.
-                </p>
+                <p className="acpmux-permission-scope">{t("permission.denyOnly")}</p>
               )}
               <div className="acpmux-permission-buttons">
                 {group.decisions.map((decision) => (
@@ -168,7 +168,7 @@ export function PermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh
                     disabled={disabled}
                     onClick={() => onRespond(group.groupId, group.revision, decision)}
                   >
-                    {withShortcut(choices[decision], shortcuts[decision])}
+                    {withShortcut(t(choices[decision]), shortcuts[decision])}
                   </button>
                 ))}
               </div>
@@ -180,10 +180,10 @@ export function PermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh
         <details className="acpmux-permission-receipt">
           <summary>
             {receipt.state === "cancelled"
-              ? "Tool requests cancelled"
+              ? t("permission.cancelled")
               : receipt.decision
-                ? choices[receipt.decision]
-                : "Tool requests answered"}
+                ? t(choices[receipt.decision])
+                : t("permission.answered")}
           </summary>
           <GroupItems group={receipt} expandSignal={expandSignal} />
         </details>
@@ -193,7 +193,7 @@ export function PermissionPanel({ state, onRespond, onRetry, onRevoke, onRefresh
           <span>{state.error}</span>
           <button disabled={state.busy || state.loading} onClick={state.uncertain ? onRetry : onRefresh}>
             {withShortcut(
-              state.uncertain ? "Check and retry" : "Refresh",
+              state.uncertain ? t("permission.checkRetry") : t("permission.refresh"),
               state.uncertain ? retryShortcut : refreshShortcut,
             )}
           </button>

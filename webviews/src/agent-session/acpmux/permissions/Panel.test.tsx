@@ -107,4 +107,32 @@ describe("grouped tool permission panel", () => {
     expect(html).toContain("acpmux-permission-receipt");
     expect(html).not.toContain("<button");
   });
+  test("Japanese pane localizes approval and recovery controls while preserving agent input", () => {
+    const navigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+    try {
+      Object.defineProperty(globalThis, "navigator", { configurable: true, value: { languages: ["ja-JP"] } });
+      const html = render({
+        chatAllowance: true,
+        uncertain: true,
+        error: "Owner error remains intact",
+        groups: [{ ...group, items: [{ ...group.items[0]!, request: { toolCall: { title: "Write app.ts" } } }] }],
+      });
+      expect(html).toContain('aria-label="ツールの権限"');
+      expect(html).toContain("1 回だけ許可");
+      expect(html).toContain("このチャットで許可");
+      expect(html).toContain("拒否");
+      expect(html).toContain("取り消す");
+      expect(html).toContain("確認して再試行");
+      expect(html).toContain("このターンのリクエスト 1 件");
+      expect(html).toContain("隔離は未検証");
+      expect(html).toContain("追加の入力はありません。");
+      expect(html).toContain("Write app.ts");
+      expect(html).toContain("Owner error remains intact");
+      expect(html).not.toContain("Allow once");
+    } finally {
+      if (navigator) Object.defineProperty(globalThis, "navigator", navigator);
+      else Reflect.deleteProperty(globalThis, "navigator");
+    }
+    expect(render()).toContain("Allow once");
+  });
 });
