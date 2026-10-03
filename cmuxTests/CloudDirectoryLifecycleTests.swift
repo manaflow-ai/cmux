@@ -80,6 +80,30 @@ struct CloudDirectoryLifecycleTests {
         #expect(staleRow.directoryText == CloudWorkspaceSidebarPresentation.unavailableDirectory)
     }
 
+    @Test("Launching Cloud terminals do not render a directory placeholder")
+    func launchingDirectoryIsOmitted() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        try fixture.install(paths: [nil, nil], revision: 2, lifecycles: ["launching", "launching"])
+
+        let presentation = try #require(CloudWorkspaceSidebarPresentation(
+            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false
+        ))
+        #expect(presentation.directoryCandidates.isEmpty)
+    }
+
+    @Test("A running Cloud terminal without cwd keeps its own placeholder beside a launching terminal")
+    func mixedLaunchingAndRunningDirectoryStates() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        try fixture.install(paths: [nil, nil], revision: 2, lifecycles: ["launching", "running"])
+
+        let presentation = try #require(CloudWorkspaceSidebarPresentation(
+            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false
+        ))
+        #expect(presentation.directoryCandidates == ["cwd-machine · Directory unavailable"])
+    }
+
     @Test("An unconfirmed Cloud terminal withholds its requested cwd until the machine's state is current")
     func unconfirmedCloudDirectoryIsWithheld() throws {
         let fixture = try CloudDirectoryTestFixture()
