@@ -2309,6 +2309,156 @@ mod unix {
         load_terminal_host_records_with_policy(root, false)
     }
 
+    /// A discovery record this build cannot adopt: it does not decode or does
+    /// not validate, for example a newer `record_version` left by a host of a
+    /// later build after a rollback. Its host may still run its shell, so the
+    /// terminal must stay visible instead of being reported ended (R41).
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct UnadoptableTerminalHostRecord {
+        pub terminal_id: String,
+        pub record_path: PathBuf,
+        /// `record_version` when the file is JSON with that field.
+        pub record_version: Option<u64>,
+        /// `host_pid` when the file is JSON with that field.
+        pub host_pid: Option<u32>,
+        pub reason: String,
+    }
+
+    /// Every `<terminal id>.json` record under `root` that
+    /// [`load_terminal_host_records`] skips because it cannot be read,
+    /// decoded or validated.
+    pub fn load_unadoptable_terminal_host_records(
+        root: &Path,
+    ) -> anyhow::Result<Vec<UnadoptableTerminalHostRecord>> {
+        let entries = match fs::read_dir(root) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error.into()),
+        };
+        let mut records = Vec::new();
+        for entry in entries {
+            let path = entry?.path();
+            if path.extension().and_then(|value| value.to_str()) != Some("json") {
+                continue;
+            }
+            let Some(terminal_id) = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .filter(|stem| TerminalId::from_hex(stem).is_some())
+                .map(str::to_owned)
+            else {
+                continue;
+            };
+            let bytes = match fs::read(&path) {
+                Ok(bytes) => bytes,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => {
+                    records.push(UnadoptableTerminalHostRecord {
+                        terminal_id,
+                        record_path: path,
+                        record_version: None,
+                        host_pid: None,
+                        reason: format!("unreadable: {error}"),
+                    });
+                    continue;
+                }
+            };
+            let loose = serde_json::from_slice::<serde_json::Value>(&bytes).ok();
+            let field = |name: &str| loose.as_ref().and_then(|value| value.get(name)?.as_u64());
+            let reason = match serde_json::from_slice::<TerminalHostRecord>(&bytes) {
+                Ok(record) => match validate_terminal_host_record(&path, &record) {
+                    Ok(_) => continue,
+                    Err(error) => format!("invalid: {error:#}"),
+                },
+                Err(error) => format!("undecodable: {error}"),
+            };
+            records.push(UnadoptableTerminalHostRecord {
+                terminal_id,
+                record_path: path,
+                record_version: field("record_version"),
+                host_pid: field("host_pid").and_then(|pid| u32::try_from(pid).ok()),
+                reason,
+            });
+        }
+        records.sort_by(|left, right| left.record_path.cmp(&right.record_path));
+        Ok(records)
+    }
+
+    /// End the host of an unadoptable record without speaking its protocol.
+    /// The kill needs positive proof that the recorded PID is this
+    /// terminal's live host: a `<terminal id>.*.live` marker that another
+    /// process holds locked (hosts hold it for their whole life) and a
+    /// running `host_pid`. Without that proof nothing is signalled. Returns
+    /// whether the host is gone and its artifacts were removed.
+    pub fn terminate_unadoptable_terminal_host(
+        record: &UnadoptableTerminalHostRecord,
+    ) -> anyhow::Result<bool> {
+        let Some(parent) = record.record_path.parent() else { return Ok(false) };
+        let prefix = format!("{}.", record.terminal_id);
+        let markers = fs::read_dir(parent)?
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| {
+                path.extension().and_then(|value| value.to_str()) == Some("live")
+                    && path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.starts_with(&prefix))
+            })
+            .collect::<Vec<_>>();
+        let mut held = Vec::new();
+        for marker in &markers {
+            let file = match OpenOptions::new()
+                .read(true)
+                .write(true)
+                .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+                .open(marker)
+            {
+                Ok(file) => file,
+                Err(_) => continue,
+            };
+            // SAFETY: flock only probes the advisory lock of this owned fd.
+            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+                // SAFETY: same descriptor; release the probe lock at once.
+                let _ = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+                continue;
+            }
+            held.push(file);
+        }
+        if let (Some(pid), Some(_)) = (record.host_pid, held.first()) {
+            let pid = libc::pid_t::try_from(pid)?;
+            // SAFETY: the host is a session leader (`setsid` at spawn), so its
+            // process group is its PID; a held live marker proves it runs.
+            if unsafe { libc::killpg(pid, libc::SIGKILL) } != 0
+                && std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+            {
+                return Ok(false);
+            }
+            for file in &held {
+                // SAFETY: a blocking exclusive lock returns when the dying
+                // host's descriptor closes; it is the death proof, not a delay.
+                while unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
+                    if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+                        return Ok(false);
+                    }
+                }
+            }
+        } else if !held.is_empty() {
+            // A live marker without a usable PID: never guess a process.
+            return Ok(false);
+        }
+        let endpoint = PathBuf::from("/tmp")
+            .join(format!("cmux-th-{}", fs::metadata(parent)?.uid()))
+            .join(format!("{}.sock", record.terminal_id));
+        let _ = fs::remove_file(&record.record_path);
+        for marker in markers {
+            let _ = fs::remove_file(marker);
+        }
+        if fs::symlink_metadata(&endpoint).is_ok_and(|metadata| metadata.file_type().is_socket()) {
+            let _ = fs::remove_file(endpoint);
+        }
+        Ok(true)
+    }
+
     pub(crate) fn load_terminal_host_records_for_reset(
         root: &Path,
     ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
@@ -10146,11 +10296,13 @@ pub(crate) use unix::{
 };
 #[cfg(unix)]
 pub use unix::{
-    HostAttachment, acknowledge_terminal_host_exit_record, adopt_terminal_host,
+    HostAttachment, UnadoptableTerminalHostRecord, acknowledge_terminal_host_exit_record,
+    adopt_terminal_host,
     decode_host_snapshot_payload, encode_host_snapshot_payload, isolate_terminal_host_process_fds,
     launch_terminal_host, launch_terminal_host_with_identity, load_terminal_host_exit_records,
-    load_terminal_host_records, remove_stale_terminal_host_record, serve_terminal_host_stdio,
-    terminal_host_exit_record, terminal_host_record_liveness, terminal_host_root,
+    load_terminal_host_records, load_unadoptable_terminal_host_records,
+    remove_stale_terminal_host_record, serve_terminal_host_stdio, terminal_host_exit_record,
+    terminal_host_record_liveness, terminal_host_root, terminate_unadoptable_terminal_host,
     validate_terminal_host_exit_record, validate_terminal_host_record,
 };
 #[cfg(all(unix, test))]

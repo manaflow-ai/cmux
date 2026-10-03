@@ -41,7 +41,8 @@ use agent_hook_errors::{
 
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use presentation::{
-    TabDirectory, TabNotificationAck, TabPinChange, TreeDecorations, WorkspaceGroupChange,
+    PendingTerminal, TabDirectory, TabNotificationAck, TabPinChange, TreeDecorations,
+    WorkspaceGroupChange,
 };
 pub(crate) use resource_content::ResourceEffectProjection;
 pub(crate) use resource_topology::{BatchCloseOutcome, BatchCloseTarget};
@@ -2715,6 +2716,9 @@ pub struct Mux {
     resource_creation_execution: Mutex<()>,
     resource_creation_active: AtomicBool,
     terminal_adoptions: Mutex<HashSet<String>>,
+    /// Terminals with a possibly live host and no runtime surface (R41).
+    /// A leaf lock: nothing else is locked while it is held.
+    pending_terminals: Mutex<HashMap<String, PendingTerminal>>,
     terminal_exit_detaches: Arc<TerminalExitDetachTracker>,
     terminal_adoption_insert_failures: AtomicU64,
     template_completion_failures: AtomicU64,
@@ -3151,6 +3155,7 @@ impl Mux {
             resource_creation_execution: Mutex::new(()),
             resource_creation_active: AtomicBool::new(false),
             terminal_adoptions: Mutex::new(HashSet::new()),
+            pending_terminals: Mutex::new(HashMap::new()),
             terminal_exit_detaches: Arc::new(TerminalExitDetachTracker::default()),
             terminal_adoption_insert_failures: AtomicU64::new(
                 std::env::var("CMUX_TUI_TEST_ADOPTION_INSERT_FAILURES")
@@ -3722,8 +3727,11 @@ impl Mux {
                     } else {
                         // Socket loss and descriptor pressure are not process
                         // death proof. Keep the capability and retry the same
-                        // host rather than spawning a replacement shell.
+                        // host rather than spawning a replacement shell. The
+                        // tab has no surface meanwhile; it is adopting, not
+                        // dead (R41).
                         handled_terminals.insert(terminal_id.clone());
+                        self.set_pending_terminal(&terminal_id, PendingTerminal::Adopting);
                         self.schedule_terminal_adoption(options.clone(), record, record_path);
                     }
                     continue;
@@ -3750,6 +3758,7 @@ impl Mux {
                         &record,
                     );
                 } else {
+                    self.set_pending_terminal(&terminal_id, PendingTerminal::Adopting);
                     self.schedule_terminal_adoption(options.clone(), record, record_path);
                 }
                 continue;
@@ -3757,6 +3766,41 @@ impl Mux {
             self.ensure_template_adoption_completed(&terminal_id);
             handled_terminals.insert(terminal_id);
             self.reap_if_dead(&surface);
+        }
+
+        // A record this build cannot read belongs to a host that may still run
+        // its shell (a newer record version after a rollback). Never report
+        // that terminal ended; keep it visible as unadoptable (R41).
+        let unadoptable = match options.terminal_host_root.as_deref() {
+            Some(root) => crate::terminal_host_runtime::load_unadoptable_terminal_host_records(root)?,
+            None => Vec::new(),
+        };
+        for record in unadoptable {
+            if handled_terminals.contains(&record.terminal_id) {
+                continue;
+            }
+            let lifecycle = self
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(&record.terminal_id)?
+                .map(|terminal| terminal.lifecycle);
+            if matches!(
+                lifecycle,
+                None | Some(TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned)
+            ) {
+                continue;
+            }
+            eprintln!(
+                "cmux-tui: terminal {} has a host record this build cannot adopt \
+                 (record_version {:?}): {}",
+                record.terminal_id, record.record_version, record.reason
+            );
+            self.set_pending_terminal(
+                &record.terminal_id,
+                PendingTerminal::Unadoptable { record_version: record.record_version },
+            );
+            handled_terminals.insert(record.terminal_id);
         }
 
         // No launcher survives a daemon restart. A durable lifecycle row
@@ -3944,6 +3988,7 @@ impl Mux {
         reason: &str,
         options: &SurfaceOptions,
     ) -> anyhow::Result<()> {
+        self.clear_pending_terminal(terminal_id);
         let terminal = self.workspace_registry.lock().unwrap().terminal_record(terminal_id)?;
         let Some(terminal) = terminal else { return Ok(()) };
         if terminal.lifecycle == TerminalLifecycle::Tombstoned {
@@ -4074,6 +4119,11 @@ impl Mux {
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
         drop(registry);
+        // Clients read tab liveness from the tree, not from registry events:
+        // a tab that was adopting is live now, so they must read it again.
+        if self.clear_pending_terminal(terminal_id) {
+            self.emit(MuxEvent::TreeChanged);
+        }
         // Adoption makes the terminal's resource surface available. Retry
         // only hooks scoped to this terminal, not the entire pending table.
         if let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) {
@@ -4144,6 +4194,23 @@ impl Mux {
         self.terminal_adoption_insert_failures
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| remaining.checked_sub(1))
             .is_ok()
+    }
+
+    /// Terminals whose tabs must not read as dead while they have no runtime
+    /// surface ([`PendingTerminal`]).
+    pub(crate) fn pending_terminals_snapshot(&self) -> HashMap<String, PendingTerminal> {
+        self.pending_terminals.lock().unwrap().clone()
+    }
+
+    #[cfg(unix)]
+    fn set_pending_terminal(&self, terminal_id: &str, pending: PendingTerminal) {
+        self.pending_terminals.lock().unwrap().insert(terminal_id.to_string(), pending);
+    }
+
+    /// Forget a pending marker. Returns whether one was present.
+    #[cfg(unix)]
+    fn clear_pending_terminal(&self, terminal_id: &str) -> bool {
+        self.pending_terminals.lock().unwrap().remove(terminal_id).is_some()
     }
 
     #[cfg(unix)]
@@ -4349,6 +4416,12 @@ impl Mux {
                         break;
                     }
                     delay = (delay * 2).min(Duration::from_secs(5));
+                }
+                {
+                    let mut pending = mux.pending_terminals.lock().unwrap();
+                    if pending.get(&terminal_id) == Some(&PendingTerminal::Adopting) {
+                        pending.remove(&terminal_id);
+                    }
                 }
                 mux.terminal_adoptions.lock().unwrap().remove(&terminal_id);
             });
@@ -10803,6 +10876,7 @@ impl Mux {
     ) {
         #[cfg(unix)]
         {
+            self.clear_pending_terminal(terminal_id);
             let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
             let Some(root) = root else { return };
             terminate_discovered_terminal_host_in(&root, terminal_id, incarnation);
@@ -18738,6 +18812,22 @@ fn terminate_discovered_terminal_host_in(
             && !terminate_host_record(record.clone(), path.clone())
         {
             schedule_terminal_host_record_cleanup(record, path);
+        }
+    }
+    if let Ok(unadoptable) =
+        crate::terminal_host_runtime::load_unadoptable_terminal_host_records(root)
+    {
+        for record in unadoptable.iter().filter(|record| record.terminal_id == terminal_id) {
+            if !matches!(
+                crate::terminal_host_runtime::terminate_unadoptable_terminal_host(record),
+                Ok(true)
+            ) {
+                eprintln!(
+                    "cmux-tui: could not end the unadoptable host of terminal {terminal_id}; \
+                     its record stays at {}",
+                    record.record_path.display()
+                );
+            }
         }
     }
     let record_path = root.join(format!("{terminal_id}.json"));

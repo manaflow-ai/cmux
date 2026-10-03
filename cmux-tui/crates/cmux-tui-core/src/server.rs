@@ -11603,9 +11603,34 @@ fn pane_json(
                 .filter(|_| surface.is_none_or(|surface| surface.is_dead()))
                 .and_then(|tab| notifications.presentation.kept_tabs.get(tab.as_str()))
                 .map(|kept| json!({"cwd": kept.cwd}));
+            // R41: a terminal tab with no runtime surface is dead only when
+            // its terminal really ended; a host still being adopted, or one
+            // this build cannot adopt, keeps running its shell.
+            let pending_terminal = surface.is_none().then(|| {
+                state.resource_indexes.content_ids.get(sid).and_then(|content| match content {
+                    ContentPublicId::Terminal(id) => notifications.pending_terminals.get(id.as_str()),
+                    ContentPublicId::Browser(_) => None,
+                })
+            }).flatten();
+            let is_terminal_tab = surface.map_or_else(
+                || matches!(state.resource_indexes.content_ids.get(sid), Some(ContentPublicId::Terminal(_))),
+                |surface| surface.kind() == SurfaceKind::Pty,
+            );
+            let dead = surface.map(|s| s.is_dead()).unwrap_or(pending_terminal.is_none());
+            let terminal_state = match (pending_terminal, is_terminal_tab) {
+                (Some(pending), _) => Some(pending.state()),
+                (None, true) => Some(if dead { "exited" } else { "running" }),
+                (None, false) => None,
+            };
+            let host_record_version = match pending_terminal {
+                Some(crate::mux::PendingTerminal::Unadoptable { record_version }) => *record_version,
+                _ => None,
+            };
             let mut tab = json!({
                 "surface": sid,
                 "tab_resource_id": tab_resource_id,
+                "terminal_state": terminal_state,
+                "host_record_version": host_record_version,
                 "group": group_of(sid),
                 "pinned": pinned,
                 "relaunch": relaunch,
@@ -11635,7 +11660,12 @@ fn pane_json(
                     let (c, r) = s.size();
                     json!({"cols": c, "rows": r})
                 }),
-                "dead": surface.map(|s| s.is_dead()).unwrap_or(true),
+                "dead": dead,
+                // Why a dead terminal ended (R41). Absent while it runs.
+                "end": surface
+                    .filter(|surface| surface.is_dead())
+                    .and_then(|surface| surface.terminal_end())
+                    .map(|end| end.wire_json()),
             });
             raw_tab::merge_browser_fields(&mut tab, surface, frontend_browser, conversation);
             tab

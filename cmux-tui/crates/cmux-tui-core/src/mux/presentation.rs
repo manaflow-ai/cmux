@@ -26,6 +26,29 @@ pub struct TreeDecorations {
     pub presentation: Arc<PresentationSnapshot>,
     /// Working directory and git HEAD of each PTY placement.
     pub directories: HashMap<SurfaceId, TabDirectory>,
+    /// Terminals whose host may still run but which have no runtime surface
+    /// in this daemon, keyed by terminal id. Their tabs are not dead (R41).
+    pub pending_terminals: HashMap<String, PendingTerminal>,
+}
+
+/// Why a terminal has no runtime surface while its host may still run its
+/// shell (plans/cmux-next/durable-sessions.md section 7).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PendingTerminal {
+    /// A restarted daemon is still adopting the host.
+    Adopting,
+    /// The host's discovery record is one this build cannot adopt (a newer
+    /// `record_version`, or a record that does not decode).
+    Unadoptable { record_version: Option<u64> },
+}
+
+impl PendingTerminal {
+    pub fn state(&self) -> &'static str {
+        match self {
+            Self::Adopting => "adopting",
+            Self::Unadoptable { .. } => "unadoptable",
+        }
+    }
 }
 
 /// The directory a PTY tab presents (the shell's OSC 7 report, or its launch
@@ -194,7 +217,8 @@ impl Mux {
             (self.surface_notifications_in_state(&state), surface_directories_in_state(&state))
         };
         let directories = self.resolve_tab_directories(directories, true);
-        TreeDecorations { notifications, presentation, directories }
+        let pending_terminals = self.pending_terminals_snapshot();
+        TreeDecorations { notifications, presentation, directories, pending_terminals }
     }
 
     /// The same as [`Self::tree_decorations`] for a caller that already
@@ -204,7 +228,8 @@ impl Mux {
         let presentation = self.presentation_snapshot();
         let notifications = self.surface_notifications_in_state(state);
         let directories = self.resolve_tab_directories(surface_directories_in_state(state), false);
-        TreeDecorations { notifications, presentation, directories }
+        let pending_terminals = self.pending_terminals_snapshot();
+        TreeDecorations { notifications, presentation, directories, pending_terminals }
     }
 
     fn resolve_tab_directories(
