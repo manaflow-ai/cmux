@@ -94,6 +94,28 @@ import Testing
         let (service, _) = service(AppcastFixtures.identity(), data: nil)
         #expect(service.updaterRelaunchBlockers() == .empty)
     }
+
+    /// With the window rail off there is no circle, so a check falls back to the sheet.
+    @Test func checksOpenTheSheetWhenThereIsNoCircle() async {
+        let feed = AppcastFixtures.feed(AppcastFixtures.item("106", short: "0.64.25", minimum: "14.0"))
+        let (updater, _) = service(AppcastFixtures.identity(bundle: "com.cmuxterm.app.debug.updtr", build: "106"), data: feed)
+        var presented = 0
+        updater.presentUpdateUI = { presented += 1 }
+        updater.showsIndicator = { false }
+        _ = await updater.checkForUpdates()?.value
+        #expect(presented == 1)
+    }
+
+    /// A probe's sheet reads the probe itself, so its note clears on time
+    /// even while the sheet is open (no later event would clear it).
+    @Test func aProbeNoteClearsOnTimeEvenWithTheSheetOpen() async {
+        let (updater, _) = service(AppcastFixtures.identity(bundle: "com.cmuxterm.app.debug.t"), data: nil)
+        _ = await updater.checkForUpdates()?.value
+        #expect(updater.indicatorPhase == .note(UpdaterStrings.checkFailed, isError: true))
+        updater.isSheetPresented = { true }
+        updater.dismissIndicatorNote()
+        #expect(updater.indicatorPhase == .hidden)
+    }
 }
 
 @MainActor
@@ -146,25 +168,4 @@ import Testing
         #expect(ready?.buttons == [.later, .relaunch])
     }
 
-    /// With the window rail off there is no circle, so a check falls back to the sheet.
-    @Test func checksOpenTheSheetWhenThereIsNoCircle() async {
-        let feed = AppcastFixtures.feed(AppcastFixtures.item("106", short: "0.64.25", minimum: "14.0"))
-        let (updater, _) = service(AppcastFixtures.identity(bundle: "com.cmuxterm.app.debug.updtr", build: "106"), data: feed)
-        var presented = 0
-        updater.presentUpdateUI = { presented += 1 }
-        updater.showsIndicator = { false }
-        _ = await updater.checkForUpdates()?.value
-        #expect(presented == 1)
-    }
-
-    /// A probe's sheet reads the probe itself, so its note clears on time
-    /// even while the sheet is open (no later event would clear it).
-    @Test func aProbeNoteClearsOnTimeEvenWithTheSheetOpen() async {
-        let (updater, _) = service(AppcastFixtures.identity(bundle: "com.cmuxterm.app.debug.t"), data: nil)
-        _ = await updater.checkForUpdates()?.value
-        #expect(updater.indicatorPhase == .note(UpdaterStrings.checkFailed, isError: true))
-        updater.isSheetPresented = { true }
-        updater.dismissIndicatorNote()
-        #expect(updater.indicatorPhase == .hidden)
-    }
 }
