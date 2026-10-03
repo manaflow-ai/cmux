@@ -4,6 +4,7 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import { createRegistry, Harness, type ToolRegistration } from "@earendil-works/pi-durable";
 import { PiHarness } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
+import { WebSockets } from "agents/websockets";
 import { createAI } from "agents/models/pi-ai";
 import {
   CHIEF_SYSTEM,
@@ -96,7 +97,25 @@ export class ChiefDO extends DurableObject<Env> {
     defaults: { model: this.ai(this.env.CHIEF_MODEL), thinkingLevel: "low" },
   });
 
-  readonly lifecycle = Lifecycle.install(this).use(this.harness);
+  /**
+   * Clients follow the conversation over hibernating WebSockets
+   * (`/v1/chiefs/:id/stream?after=N`): the backlog after N on connect, then
+   * every new message as it is recorded. No Agent protocol frames; the only
+   * frame is `{"messages": [...]}`. Idle sockets cost nothing while the
+   * object sleeps.
+   */
+  readonly webSockets = new WebSockets({
+    protocol: () => false,
+    handlers: {
+      onConnect: (connection, ctx) => {
+        const after = Number(new URL(ctx.request.url).searchParams.get("after") ?? "0");
+        const backlog = this.messages(Number.isSafeInteger(after) && after >= 0 ? after : 0, 1000);
+        connection.send(JSON.stringify({ messages: backlog }));
+      },
+    },
+  });
+
+  readonly lifecycle = Lifecycle.install(this).use(this.webSockets).use(this.harness);
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -121,6 +140,12 @@ export class ChiefDO extends DurableObject<Env> {
   }
 
   // ---------------------------------------------------------------- API
+
+  /** Binds this object to its chief id (the stream route calls it before upgrading). */
+  async ensureBound(chief: string): Promise<void> {
+    await this.lifecycle.start();
+    this.bind(chief);
+  }
 
   /** A person's message. Idempotent by its client id. */
   async send(chief: string, id: string, author: string, text: string): Promise<ChiefMessage> {
@@ -240,8 +265,39 @@ export class ChiefDO extends DurableObject<Env> {
       }
     });
     for (const wake of this.waiters) wake();
+    this.push(id);
     const row = sql.exec<Record<string, SqlStorageValue>>(`SELECT seq FROM chief_message WHERE id = ?`, id).one();
     return { seq: Number(row.seq), id, kind, author, text, at };
+  }
+
+  /** Sends one recorded message to every open stream. */
+  private push(id: string): void {
+    const row = this.ctx.storage.sql
+      .exec<Record<string, SqlStorageValue>>(
+        `SELECT seq, id, kind, author, text, at FROM chief_message WHERE id = ?`,
+        id,
+      )
+      .toArray()[0];
+    if (!row) return;
+    const frame = JSON.stringify({
+      messages: [
+        {
+          seq: Number(row.seq),
+          id: String(row.id),
+          kind: row.kind,
+          author: String(row.author),
+          text: String(row.text),
+          at: Number(row.at),
+        },
+      ],
+    });
+    for (const connection of this.webSockets.getConnections()) {
+      try {
+        connection.send(frame);
+      } catch {
+        // A closing socket; its client reconnects with ?after=.
+      }
+    }
   }
 
   /** Starts the drain unless one runs. The object stays up while pi or the request holds it. */

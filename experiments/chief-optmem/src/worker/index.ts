@@ -84,6 +84,15 @@ export default {
     if (!url.pathname.startsWith("/v1/")) return json({ error: "not_found" }, 404);
     if (!authorized(request, env)) return json({ error: "unauthorized" }, 401);
 
+    const stream = /^\/v1\/chiefs\/([^/]+)\/stream$/.exec(url.pathname);
+    if (stream) {
+      if (!ID.test(stream[1]!) || request.headers.get("upgrade")?.toLowerCase() !== "websocket")
+        return json({ error: "invalid" }, 400);
+      // The object must know its id before a socket arrives (bind happens on first send otherwise).
+      const chief = env.CHIEF_DO.get(env.CHIEF_DO.idFromName(stream[1]!));
+      await chief.ensureBound(stream[1]!);
+      return chief.fetch(request);
+    }
     const c = /^\/v1\/chiefs\/([^/]+)\/(messages|memory)$/.exec(url.pathname);
     if (c) return chiefRoute(request, env, url, c[1]!, c[2]!);
 
