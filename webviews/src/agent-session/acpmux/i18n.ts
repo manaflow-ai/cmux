@@ -180,6 +180,8 @@ const en = {
   "turn.retry": "Retry",
   "turn.retryLabel": "Send this prompt again",
   "turn.failed": "The turn failed",
+  "preview.open": "Open in tab",
+  "preview.openLabel": "Open {address} in a browser tab",
 } as const;
 
 export type StringKey = keyof typeof en;
@@ -364,6 +366,8 @@ const ja: Record<StringKey, string> = {
   "turn.retry": "再試行",
   "turn.retryLabel": "このプロンプトをもう一度送信",
   "turn.failed": "ターンが失敗しました",
+  "preview.open": "タブで開く",
+  "preview.openLabel": "{address} をブラウザタブで開く",
 };
 
 const tables: Record<string, Record<StringKey, string>> = { en, ja };

@@ -16,6 +16,11 @@ extension AgentPaneModel {
         String(localized: "agentPane.error.openFile", defaultValue: "The file could not be opened.", bundle: .module)
     }
 
+    /// The page's browser.open (a turn's local web page) was refused or failed.
+    static var openPreviewFailedMessage: String {
+        String(localized: "agentPane.error.openPreview", defaultValue: "The page could not be opened.", bundle: .module)
+    }
+
     /// A git read of the changes view failed or has no session host.
     static var gitFailedMessage: String {
         String(localized: "agentPane.error.git", defaultValue: "The changes could not be read.", bundle: .module)
