@@ -51,3 +51,39 @@ export function rejectedHunks(files: TurnFile[], decisions: ReadonlyMap<string, 
     ),
   );
 }
+
+/// Every review key in a turn's files, each with its original patch, in file order.
+export function turnHunks(files: TurnFile[]) {
+  return files.flatMap((file) =>
+    file.edits.flatMap((edit, editIndex) =>
+      edit.hunks.flatMap((hunk, hunkIndex) => {
+        const key = hunkKey(file, editIndex, hunkIndex);
+        return (hunk.reviewKeys ?? [key]).map((reviewKey) => ({ key: reviewKey, patch: hunkPatch(file, edit, hunk) }));
+      }),
+    ),
+  );
+}
+
+/// The hunks an Undo request may send, excluding those already requested.
+export function undoableHunks(files: TurnFile[], decisions: ReadonlyMap<string, HunkDecision>) {
+  return turnHunks(files).filter((hunk) => decisions.get(hunk.key) !== "requested");
+}
+
+/// The keys used by the review state for a turn's hunks.
+export function turnHunkKeys(files: TurnFile[]): string[] {
+  return turnHunks(files).map((hunk) => hunk.key);
+}
+
+/// Restore decisions that were marked requested when a revert request failed.
+export function restoredDecisions(
+  current: ReadonlyMap<string, HunkDecision>,
+  previous: readonly (readonly [string, HunkDecision | undefined])[],
+): Map<string, HunkDecision> {
+  const next = new Map(current);
+  for (const [key, decision] of previous) {
+    if (next.get(key) !== "requested") continue;
+    if (decision) next.set(key, decision);
+    else next.delete(key);
+  }
+  return next;
+}
