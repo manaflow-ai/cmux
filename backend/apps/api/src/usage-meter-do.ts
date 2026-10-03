@@ -41,7 +41,13 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     // usd_micros: integer micro-dollars, the only money column (summed exactly).
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS usage_month (month TEXT NOT NULL, meter TEXT NOT NULL, quantity REAL NOT NULL, usd_micros INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (month, meter))`)
     const cols = ctx.storage.sql.exec<{ name: string }>(`PRAGMA table_info(usage_month)`).toArray()
-    if (!cols.some((c) => c.name === "usd_micros")) ctx.storage.sql.exec(`ALTER TABLE usage_month ADD COLUMN usd_micros INTEGER NOT NULL DEFAULT 0`)
+    if (!cols.some((c) => c.name === "usd_micros")) {
+      // Objects from before integer money: carry existing model spend over in the same transaction.
+      ctx.storage.transactionSync(() => {
+        ctx.storage.sql.exec(`ALTER TABLE usage_month ADD COLUMN usd_micros INTEGER NOT NULL DEFAULT 0`)
+        ctx.storage.sql.exec(`UPDATE usage_month SET usd_micros = CAST(ROUND(quantity * 1000000) AS INTEGER) WHERE meter = 'model.spend_usd'`)
+      })
+    }
   }
 
   private ceiling() {

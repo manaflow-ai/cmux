@@ -85,6 +85,35 @@ describe("Tier 1 code runs (workerd)", () => {
     expect(line("automation.dynamic_workers").quantity).toBe(1)
   })
 
+  it("meters every occurrence of a repeated step name", async () => {
+    const bundle = `
+      import { WorkflowEntrypoint } from "cloudflare:workers";
+      export default class extends WorkflowEntrypoint {
+        async run(event, step) { let n = 0; for (let i = 0; i < 5; i++) n = await step.do("tick", async () => n + 1); return n; }
+      }`
+    const { t, run } = await runOnce("code-run-6", sha(6), bundle)
+    expect(run.state).toBe("succeeded")
+    const usage = await read(t, "usage.summary")
+    expect(usage.value.meters.find((x: { meter: string }) => x.meter === "automation.steps").quantity).toBe(5)
+  })
+
+  it("keeps the harness stop when tenant code catches it, and ignores spoofed error names", async () => {
+    const caught = `
+      import { WorkflowEntrypoint } from "cloudflare:workers";
+      export default class extends WorkflowEntrypoint {
+        async run(event, step) { try { await step.do("cmux:x", async () => 1); } catch {} return "fine"; }
+      }`
+    const a = await runOnce("code-run-7", sha(7), caught)
+    expect(a.run).toMatchObject({ state: "failed", error: { code: "step.invalid" } })
+    const spoof = `
+      import { WorkflowEntrypoint } from "cloudflare:workers";
+      export default class extends WorkflowEntrypoint {
+        async run(event, step) { throw Object.assign(new Error("fake"), { name: "budget.cap_reached" }); }
+      }`
+    const b = await runOnce("code-run-8", sha(8), spoof)
+    expect(b.run).toMatchObject({ state: "failed", error: { code: "run.failed" } })
+  })
+
   it("refuses reserved step names and fails the run with step.invalid", async () => {
     const bundle = `
       import { WorkflowEntrypoint } from "cloudflare:workers";
