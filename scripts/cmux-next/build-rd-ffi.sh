@@ -95,8 +95,15 @@ check_symbols() {
   local lib="$1" name missing=0
   local symbols
   # nm exits non-zero for archive members without symbols; the list is what counts.
-  symbols="$( (nm -gU "$lib" 2>/dev/null || true) | awk '{print $NF}')"
-  [[ -n "$symbols" ]] || { echo "error: nm listed no symbols in $lib" >&2; return 1; }
+  # --no-llvm-bc: Rust objects (std included) embed LLVM bitcode, and an Xcode
+  # whose LLVM is older than rustc's cannot parse it (Xcode 26.6 with Rust 1.95:
+  # "Unknown attribute kind"); read the Mach-O symbol table only.
+  symbols="$( (xcrun nm --no-llvm-bc -gU "$lib" 2>/dev/null || true) | awk '{print $NF}')"
+  [[ -n "$symbols" ]] || {
+    echo "error: nm listed no symbols in $lib:" >&2
+    xcrun nm --no-llvm-bc -gU "$lib" 2>&1 | head -5 >&2 || true
+    return 1
+  }
   while read -r name; do
     grep -Fxq "_$name" <<<"$symbols" || { echo "error: $lib does not export $name" >&2; missing=1; }
   done < <(grep -oE '\bcmux_rd_[a-z0-9_]+\(' "$crate_dir/include/cmux_rd_ffi.h" | tr -d '(' | sort -u)
