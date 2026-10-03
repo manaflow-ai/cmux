@@ -37,6 +37,9 @@ final class RightSidebarModeBarDragController {
     let anchor = RightSidebarModeBarDragAnchor()
     @ObservationIgnored private var paneDrag: RightSidebarModePaneDragSource?
     @ObservationIgnored private var mouseUpMonitor: Any?
+    /// The gesture that last ended. SwiftUI can deliver one more change for
+    /// it after the release; that must not start a new drag.
+    @ObservationIgnored private var endedStartLocation: CGPoint?
 
     func isLifted(_ mode: RightSidebarMode) -> Bool {
         guard let session else { return false }
@@ -60,7 +63,7 @@ final class RightSidebarModeBarDragController {
         dragImage: @MainActor (CGSize) -> NSImage?
     ) {
         if session?.mode != mode || session?.startLocation != startLocation {
-            guard begin(mode: mode, displayed: displayed, startLocation: startLocation) else { return }
+            guard startLocation != endedStartLocation, begin(mode: mode, displayed: displayed, startLocation: startLocation) else { return }
         }
         guard var current = session, !current.isCarriedOut else { return }
         let tabFrame = current.layout.frames[current.layout.source]
@@ -119,6 +122,7 @@ final class RightSidebarModeBarDragController {
 
     private func commit(_ current: Session, animation: Animation?) {
         removeMouseUpMonitor()
+        endedStartLocation = current.startLocation
         guard !current.isCarriedOut else { return }
         let order = current.layout.reordered(current.modes, slot: current.slot)
         withAnimation(animation) {
@@ -162,7 +166,10 @@ final class RightSidebarModeBarDragController {
 
     private func paneDragEnded() {
         paneDrag = nil
-        if session?.isCarriedOut == true { session = nil }
+        if session?.isCarriedOut == true {
+            endedStartLocation = session?.startLocation
+            session = nil
+        }
     }
 
     private func removeMouseUpMonitor() {
@@ -218,7 +225,9 @@ struct RightSidebarModeBarTabDrag: ViewModifier {
             .onGeometryChange(for: CGRect.self) { proxy in
                 proxy.frame(in: .named(RightSidebarModeBarDragController.coordinateSpace))
             } action: { frame in
-                controller.frames[mode] = frame
+                // Measured inside the offset; keep the tab's resting frame so
+                // a drag that starts mid-glide freezes the real slots.
+                controller.frames[mode] = frame.offsetBy(dx: -controller.offset(for: mode), dy: 0)
             }
             .offset(x: controller.offset(for: mode))
             // The lifted tab is under the hand: it never animates while held.
