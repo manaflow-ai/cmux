@@ -42,7 +42,6 @@ extension CloudTreeOutlineView.Coordinator {
         }
         let lifted = outline.machineLift.begin(
             sequence: session.draggingSequenceNumber, source: node, siblings: parent.children,
-            pressY: outline.convert(session.draggingLocation, from: nil).y,
             isPeer: isPeer, closes: isPeer,
             onLeave: { [weak self, weak outline] in
                 guard let self, let outline else { return }
@@ -72,7 +71,7 @@ extension CloudTreeOutlineView.Coordinator {
               let scope = CloudMachineReorderScope(machineNodeID: node.id, roots: nodes) else { return }
         outline.machineLift.begin(
             sequence: session.draggingSequenceNumber, source: node, siblings: scope.siblings,
-            pressY: pressY ?? outline.convert(session.draggingLocation, from: nil).y,
+            pressY: pressY,
             isPeer: { $0.canReorderMachine && $0.isPinned == node.isPinned },
             closes: { if case .machine = $0.kind { return true }; return false }
         ) { machines in
