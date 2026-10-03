@@ -60,13 +60,23 @@ export function rememberCombo(recents: Combo[], combo: Combo): Combo[] {
 
 export type Choice = { id: string; name: string; description?: string; icon?: React.ReactNode; hint?: string };
 
+/// Runs `run` after `ms` unless the returned cancel runs first.
+export type SettleTimer = (run: () => void, ms: number) => () => void;
+
+const browserSettleTimer: SettleTimer = (run, ms) => {
+  const timer = setTimeout(run, ms);
+  return () => clearTimeout(timer);
+};
+
 type Props = {
   snapshot: AcpmuxSnapshot;
   onModel(modelId: string): void;
   onMode(modeId: string): void;
   onEffort(configId: string, value: string): void;
-  /// How long a combo must hold before it counts as recent (tests shorten it).
+  /// How long a combo must hold before it counts as recent.
   settleMs?: number;
+  /// Schedules the settle check and returns its cancel; tests run it by hand.
+  settleTimer?: SettleTimer;
   /// Starts a new chat in another harness (the model picker offers it).
   onHarness?(harness: string): void;
   /// The model picker's room for side submenus (tests pass a fixed one; see ModelPicker).
@@ -85,6 +95,7 @@ export function ComposerPickers({
   onEffort,
   onHarness,
   settleMs = RECENT_SETTLE_MS,
+  settleTimer = browserSettleTimer,
   measurePickerRoom,
 }: Props) {
   const summary = snapshot.summary;
@@ -123,15 +134,14 @@ export function ComposerPickers({
   const offersEffort = effort !== undefined;
   useEffect(() => {
     if (!harness || !current || (offersEffort && !currentEffort)) return;
-    const timer = setTimeout(
+    return settleTimer(
       () =>
         setRecents((list) =>
           rememberCombo(list, { harness, model: current, effort: currentEffort, effortName: effortName }),
         ),
       settleMs,
     );
-    return () => clearTimeout(timer);
-  }, [harness, current, currentEffort, offersEffort, effortName, settleMs]);
+  }, [harness, current, currentEffort, offersEffort, effortName, settleMs, settleTimer]);
   // A combo for another model sends the model first, then its effort once the
   // agent reports that model and offers the effort; anything else drops it.
   const pending = useRef<
