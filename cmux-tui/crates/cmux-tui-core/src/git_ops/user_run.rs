@@ -41,19 +41,6 @@ const MAX_STDOUT_BYTES: usize = 1024 * 1024;
 /// Hook and git messages kept from stderr.
 pub(super) const MAX_STDERR_BYTES: usize = 16 * 1024;
 
-/// Test seams: the environment the daemon would have inherited.
-#[cfg(test)]
-pub(super) mod seams {
-    use std::cell::RefCell;
-
-    thread_local! {
-        /// Set (or, with `None`, removed) on top of the test process's
-        /// environment before the runner filters it.
-        pub static INHERITED: RefCell<Vec<(String, Option<String>)>> =
-            const { RefCell::new(Vec::new()) };
-    }
-}
-
 /// A finished run's exit and output, success or not: push reports per-ref
 /// results on stdout even when it fails.
 pub(super) struct UserRun {
@@ -233,5 +220,18 @@ impl Pipe {
     fn collect(self, grace: Instant) -> Vec<u8> {
         let _ = self.done.recv_timeout(grace.saturating_duration_since(Instant::now()));
         self.kept.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+}
+
+/// Test seams: the environment the daemon would have inherited.
+#[cfg(test)]
+pub(super) mod seams {
+    use std::cell::RefCell;
+
+    thread_local! {
+        /// Set (or, with `None`, removed) on top of the test process's
+        /// environment before the runner filters it.
+        pub static INHERITED: RefCell<Vec<(String, Option<String>)>> =
+            const { RefCell::new(Vec::new()) };
     }
 }

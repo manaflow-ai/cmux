@@ -30,18 +30,6 @@ use crate::Mux;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
 
-/// Test seams for failures a test cannot otherwise time.
-#[cfg(test)]
-pub(super) mod seams {
-    use std::cell::Cell;
-
-    thread_local! {
-        /// Loses the reply after git committed and before the ledger, as a
-        /// daemon that stopped there would.
-        pub static LOSE_REPLY: Cell<bool> = const { Cell::new(false) };
-    }
-}
-
 const OPERATION: &str = "git.commit";
 const MAX_MESSAGE_BYTES: usize = 64 * 1024;
 const MAX_PATHS: usize = 5000;
@@ -401,5 +389,17 @@ impl Scratch {
 impl Drop for Scratch {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+/// Test seams for failures a test cannot otherwise time.
+#[cfg(test)]
+pub(super) mod seams {
+    use std::cell::Cell;
+
+    thread_local! {
+        /// Loses the reply after git committed and before the ledger, as a
+        /// daemon that stopped there would.
+        pub static LOSE_REPLY: Cell<bool> = const { Cell::new(false) };
     }
 }
