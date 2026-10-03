@@ -16,6 +16,13 @@ extension ActionRegistry {
         unavailableReason(for: id) ?? action(for: id)?.targetUnavailableReason?(invocation)
     }
 
+    /// Refuses `invocation` with the action's target reason, if it has one.
+    func refusesTarget(_ action: Action, _ invocation: ActionInvocation) -> Bool {
+        guard let reason = action.targetUnavailableReason?(invocation) else { return false }
+        refuse(reason)
+        return true
+    }
+
     /// `canPerform(_:)` for one invocation's target.
     public func canPerform(_ id: ActionID, invocation: ActionInvocation) -> Bool {
         canPerform(id) && action(for: id)?.targetUnavailableReason?(invocation) == nil
