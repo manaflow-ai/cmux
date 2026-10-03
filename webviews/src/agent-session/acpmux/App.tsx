@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
@@ -7,6 +7,7 @@ import {
   layoutConversation,
   paneHeader,
   placeRows,
+  plainEditLabels,
   transcriptRowWidth,
   visibleLayoutRange,
   type AcpmuxPermission,
@@ -30,7 +31,7 @@ import { ComposerPickers } from "./ComposerPickers";
 import { EmptyState, isNewChat, projectName } from "./EmptyState";
 import { HomeLists } from "./HomeLists";
 import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
-import { turnFiles, turnRows } from "./diff";
+import { turnFiles, turnRows, type TurnFile } from "./diff";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk } from "./TrustAsk";
 import { PermissionCard } from "./PermissionCard";
@@ -40,6 +41,9 @@ import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
 import { SummaryButton } from "./summary/SummaryButton";
+import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
+import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
+import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
 import { restoredDecisions, type HunkDecision, type HunkReview } from "./changes/hunkReview";
 import { configureDictation, deliverDictation, useDictation } from "./dictation";
 import type { DictationUpdate } from "./dictationText";
@@ -47,8 +51,9 @@ import { DictationButton } from "./DictationButton";
 import { DictationNotice } from "./DictationNotice";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import type { ChangesSource } from "./changes/model";
+import { Counts } from "./changes/Counts";
+import { ChevronDown, DiffFile } from "./changeIcons";
 import { Markdown } from "./conversation/Markdown";
-import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
 import { DATE, PREVIEW, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
@@ -277,9 +282,104 @@ const PermissionRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+const EDITED_FILES_SHOWN = 3;
+
+/// "Edited N files", ported from EditedFilesCard in the reference prototype's
+/// src/conversation/cards.tsx): totals, View changes, and the first files with their counts;
+/// each file opens the changes at that file. One edited file is named in the title instead.
 const EditedFilesRow = memo(
   function EditedFilesRow({ row, onOpenDiff }: RowProps) {
-    return <EditedFilesCard row={row} onOpenDiff={onOpenDiff} />;
+    const [showAll, setShowAll] = useState(false);
+    const edits = (row.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
+    const toolFiles = useMemo(() => turnFiles([row]), [row]);
+    // Once the turn's checkpoint has loaded, its files and counts replace the tool calls'.
+    const countsFor = useContext(TurnCountsContext);
+    const counts = useMemo(
+      () => (countsFor ? countsFor(row.id, toolFiles) : turnCounts(toolFiles, undefined)),
+      [countsFor, row.id, toolFiles],
+    );
+    const files = counts.files;
+    // An edit whose tool call carried no diff still lists, without counts.
+    const plain = counts.files === toolFiles ? plainEditLabels(edits) : [];
+    const entries: { key: string; file?: TurnFile; text?: string }[] = [
+      ...files.map((file) => ({ key: file.path, file })),
+      ...plain.map((text, index) => ({ key: `plain-${index}`, text })),
+    ];
+    const total = entries.length;
+    const { additions, deletions } = counts;
+    const single = total === 1 && files.length === 1 ? files[0] : undefined;
+    const shown = single ? [] : showAll ? entries : entries.slice(0, EDITED_FILES_SHOWN);
+    const more = single ? 0 : total - shown.length;
+    const reviewable = onOpenDiff && files.length > 0;
+    return (
+      <div className="acpmux-edited">
+        <div className="acpmux-edited-head">
+          <span className="acpmux-edited-icon">
+            <DiffFile />
+          </span>
+          <div className="acpmux-edited-title">
+            <div>
+              {single ? `Edited ${single.path.split("/").pop()}` : `Edited ${total} ${total === 1 ? "file" : "files"}`}
+            </div>
+            {files.length > 0 && <Counts additions={additions} deletions={deletions} />}
+            {counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>}
+          </div>
+          {reviewable && (
+            <button
+              type="button"
+              className="acpmux-review-changes"
+              onClick={(event) => onOpenDiff(row.id, single?.path, event.currentTarget)}
+            >
+              View changes
+            </button>
+          )}
+        </div>
+        {shown.map((entry) => {
+          if (!entry.file)
+            return (
+              <div className="acpmux-edited-file" key={entry.key}>
+                <span className="acpmux-edited-path">{entry.text}</span>
+              </div>
+            );
+          const file = entry.file;
+          const slash = file.displayPath.lastIndexOf("/");
+          const label = (
+            <>
+              <span className="acpmux-edited-path" title={file.path}>
+                <span className="acpmux-edited-dir">{file.displayPath.slice(0, slash + 1)}</span>
+                <span className="acpmux-edited-base">{file.displayPath.slice(slash + 1)}</span>
+              </span>
+              <Counts additions={file.additions} deletions={file.deletions} />
+            </>
+          );
+          return onOpenDiff ? (
+            <button
+              type="button"
+              className="acpmux-edited-file"
+              key={entry.key}
+              onClick={(event) => onOpenDiff(row.id, file.path, event.currentTarget)}
+            >
+              {label}
+            </button>
+          ) : (
+            <div className="acpmux-edited-file" key={entry.key}>
+              {label}
+            </div>
+          );
+        })}
+        {(more > 0 || showAll) && !single && total > EDITED_FILES_SHOWN && (
+          <button
+            type="button"
+            className="acpmux-edited-more"
+            aria-expanded={showAll}
+            onClick={() => setShowAll(!showAll)}
+          >
+            {showAll ? "Show fewer files" : `Show ${more} more ${more === 1 ? "file" : "files"}`}
+            <ChevronDown width={14} height={14} style={showAll ? { transform: "rotate(180deg)" } : undefined} />
+          </button>
+        )}
+      </div>
+    );
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.onOpenDiff === b.onOpenDiff,
 );
@@ -672,10 +772,12 @@ function AcpmuxPane() {
   const [reviewReload, setReviewReload] = useState(0);
   useEffect(() => setContinuing(false), [snapshot.sessionId]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  // The footer's fork shows only when acpmux serves forks and is reachable. The client reports a
-  // failed fork in the transcript; a bridge that cannot route it has nothing to add.
+  // Footer actions show only while acpmux is reachable. The client reports failures in the
+  // transcript; a bridge that cannot route an action has nothing to add.
   const connected = snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
-  const forkable = Boolean(snapshot.canFork) && connected;
+  const forkable =
+    Boolean(snapshot.canFork) &&
+    connected;
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
   const reviewing =
@@ -827,6 +929,43 @@ function AcpmuxPane() {
     if (diffActivity.current?.key !== key) diffActivity.current = { key, files: turnFiles(activity) };
     return diffActivity.current.files;
   }, [diffView, diffOpen, snapshot.rows]);
+  // Each turn's checkpoint pair, named by the row that starts the turn. The host reads none yet
+  // (changesSource has no `turn`), so Last turn shows the tool calls' edits as before.
+  const turnCheckpoints = useTurnCheckpoints(changesSource.turn, snapshot.sessionId);
+  const { request: requestTurnCheckpoint, get: turnCheckpoint } = turnCheckpoints;
+  const turnRowsRef = useRef(snapshot.rows);
+  turnRowsRef.current = snapshot.rows;
+  const turnKey = useCallback((rowId: string) => turnRows(turnRowsRef.current, rowId)[0]?.id ?? rowId, []);
+  const diffTurn = diffView && diffOpen ? turnKey(diffView.rowId) : undefined;
+  useEffect(() => {
+    if (diffTurn) requestTurnCheckpoint(diffTurn);
+  }, [diffTurn, requestTurnCheckpoint]);
+  const diffDisplay = useMemo(() => {
+    if (!diffFiles || !diffTurn) return undefined;
+    // An Undo chosen but not yet sent holds the tool-call view; Keep has nothing to send.
+    const toolIds = new Set(diffFiles.flatMap((file) => file.edits.map((edit) => edit.toolId)));
+    const pending = [...hunkDecisions].some(
+      ([key, decision]) => decision === "rejected" && toolIds.has(key.split("\u0000")[0]!),
+    );
+    return turnDisplay(diffFiles, turnCheckpoint(diffTurn) ?? { state: "loading" }, pending);
+  }, [diffFiles, diffTurn, hunkDecisions, turnCheckpoint]);
+  // The latest edited-files card shows its turn's checkpoint counts once the turn has ended.
+  const endedEditTurn = useMemo(() => {
+    let ended = false;
+    for (let index = snapshot.rows.length - 1; index >= 0; index--) {
+      const row = snapshot.rows[index]!;
+      if (row.kind === "turnSummary") ended = true;
+      else if (row.kind === "editedFiles") return ended ? row.id : undefined;
+    }
+    return undefined;
+  }, [snapshot.rows]);
+  useEffect(() => {
+    if (endedEditTurn) requestTurnCheckpoint(turnKey(endedEditTurn));
+  }, [endedEditTurn, requestTurnCheckpoint, turnKey]);
+  const turnCountsFor = useCallback<TurnCountsFor>(
+    (rowId, toolFiles) => turnCounts(toolFiles, turnCheckpoint(turnKey(rowId))),
+    [turnCheckpoint, turnKey],
+  );
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   /// Who is signed in, when the host says: the sidebar's account row.
   const [account, setAccount] = useState<SidebarAccount>();
@@ -1321,22 +1460,24 @@ function AcpmuxPane() {
   };
   const transcript = (
     <TurnActionsContext.Provider value={turnActions}>
-      <VirtualTranscript
-        rows={transcriptRows}
-        canLoadOlder={snapshot.canLoadOlder}
-        expanded={expanded}
-        registry={registry}
-        // The Quick Composer has no room for the changes view; its file rows stay plain.
-        onOpenDiff={quick ? undefined : openDiff}
-        onToggleActivity={(id) =>
-          setExpanded((current) => {
-            const next = new Set(current);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
-            return next;
-          })
-        }
-      />
+      <TurnCountsContext.Provider value={turnCountsFor}>
+        <VirtualTranscript
+          rows={transcriptRows}
+          canLoadOlder={snapshot.canLoadOlder}
+          expanded={expanded}
+          registry={registry}
+          // The Quick Composer has no room for the changes view; its file rows stay plain.
+          onOpenDiff={quick ? undefined : openDiff}
+          onToggleActivity={(id) =>
+            setExpanded((current) => {
+              const next = new Set(current);
+              if (next.has(id)) next.delete(id);
+              else next.add(id);
+              return next;
+            })
+          }
+        />
+      </TurnCountsContext.Provider>
     </TurnActionsContext.Provider>
   );
   const asks = (
@@ -1538,7 +1679,8 @@ function AcpmuxPane() {
                 )}
                 {diffView && diffFiles && (
                   <DiffPanel
-                    files={diffFiles}
+                    files={diffDisplay?.files ?? diffFiles}
+                    turn={diffDisplay}
                     initialPath={diffView.path}
                     onClose={closeDiff}
                     source={changesSource}

@@ -24,6 +24,7 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
 .acpmux-file-menu-item[aria-disabled="true"]{color:var(--agent-muted);background:none}
 /* Under the header: the Branch scope's branch and base, and the tracked-only banner. */
 .acpmux-diff-notes{flex:none;display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:8px;border-bottom:1px solid var(--agent-border)}
+.acpmux-turn-note{color:var(--agent-muted);font-size:12px;line-height:16px}
 .acpmux-branch-pill{display:inline-flex;align-items:center;max-width:100%;height:29px;box-sizing:border-box;padding:0 12px;border-radius:14.5px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));box-shadow:inset 0 0 0 .5px var(--acpmux-pill-edge);white-space:nowrap}
 .acpmux-branch-from,.acpmux-branch-to{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .acpmux-branch-arrow{flex:none;margin:0 10px;color:var(--agent-muted)}
