@@ -26,7 +26,15 @@ export function takeLock(path: string): (() => void) | undefined {
     closeSync(fd);
     return undefined;
   }
-  const older = olderHost(path, fd);
+  let older: number | undefined;
+  try {
+    older = olderHost(path, fd);
+  } catch (error) {
+    // The check could not decide: refuse, and drop the flock with the descriptor.
+    console.error(`mux lock: checking ${path} for an older host failed: ${String(error)}; not starting`);
+    closeSync(fd);
+    return undefined;
+  }
   if (older !== undefined) {
     console.error(`mux lock: an older mux host (pid ${older}) holds ${path} without a kernel lock; not starting`);
     closeSync(fd);
@@ -96,7 +104,8 @@ const START_SLACK_MS = 1_000;
 
 /** The process's OS start time, epoch ms, from `ps -o lstart` in the C locale and UTC. */
 function processStartMs(pid: number): number | undefined {
-  const result = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], {
+  // Absolute path: the PATH of a host started by the app is not trusted for this.
+  const result = spawnSync("/bin/ps", ["-o", "lstart=", "-p", String(pid)], {
     env: { ...process.env, LC_ALL: "C", TZ: "UTC" },
     encoding: "utf8",
   });
