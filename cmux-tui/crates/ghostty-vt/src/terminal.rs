@@ -1645,9 +1645,10 @@ impl PaletteOverrideTracker {
                             PaletteTrackState::String { bell_terminated: false }
                         }
                         b'c' => {
-                            // Ghostty preserves palette overrides across RIS, but
-                            // attached byte frontends reset their mirror palette.
-                            // Re-emit the authoritative sparse snapshot afterward.
+                            // RIS resets the palette to its defaults (ghostty-next),
+                            // and attached byte frontends reset their mirror
+                            // palette. Re-emit the authoritative sparse snapshot.
+                            self.active = [false; 256];
                             self.revision = self.revision.wrapping_add(1);
                             self.reapply_revision = self.reapply_revision.wrapping_add(1);
                             PaletteTrackState::Ground
