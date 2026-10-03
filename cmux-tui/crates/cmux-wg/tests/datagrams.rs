@@ -76,7 +76,7 @@ async fn a_media_datagram_overtakes_a_bulk_upload() {
         LinkProfile { latency: ONE_WAY, rate_pps: 20_000, queue: 64, ..LinkProfile::default() };
     sim.set_link(addr(CLIENT), addr(SERVER), bottleneck);
     let (client, server, configs) = pair(&sim, sim.bind(addr(CLIENT)).unwrap());
-    let mut ours = client.bind_datagram(MEDIA_PORT).await.unwrap();
+    let ours = client.bind_datagram(MEDIA_PORT).await.unwrap();
     let mut theirs = server.bind_datagram(MEDIA_PORT).await.unwrap();
 
     let mut listener = server.listen(4100).await.unwrap();

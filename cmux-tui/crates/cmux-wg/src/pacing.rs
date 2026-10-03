@@ -21,7 +21,8 @@
 //! Order inside a connection is kept.
 //!
 //! Strict priority between classes (transport.md 12a): interactive
-//! datagrams and every connection with a short queue first (unpaced), then
+//! datagrams and every connection with a short queue and a small flight
+//! first, then
 //! media datagrams (any older than [`MEDIA_MAX_AGE`] are dropped, oldest
 //! first: media must never queue behind a stall), then bulk: paced
 //! connections with long queues and bulk datagrams. Nothing is dropped: the queues are
@@ -43,8 +44,10 @@ const MIN_FLIGHT: u32 = 10 * 1200;
 /// about 1 ms resolution; without credit a connection would send one packet
 /// per wake, and the pace would be the timer's, not the network's.
 const MAX_CREDIT: Duration = Duration::from_millis(2);
-/// A connection with at most this many packets queued is interactive: it
-/// leaves before media and bulk, unpaced.
+/// A connection with at most this many packets queued and less than
+/// `MIN_FLIGHT` in flight is interactive: it leaves before media and bulk.
+/// Every connection stays paced; the flight floor makes an interactive
+/// connection's pace generous.
 const INTERACTIVE_QUEUE: usize = 4;
 /// Media datagrams older than this in the queue are dropped.
 pub(crate) const MEDIA_MAX_AGE: Duration = Duration::from_millis(50);
@@ -143,14 +146,23 @@ impl Connection {
         }
     }
 
+    /// Bytes emitted and not yet acknowledged.
+    fn flight(&self) -> u32 {
+        match (self.snd_emitted, self.snd_una) {
+            (Some(max), Some(una)) if after(max, una) => max.wrapping_sub(una),
+            _ => 0,
+        }
+    }
+
+    /// Whether the connection is interactive now (see `INTERACTIVE_QUEUE`).
+    fn interactive(&self) -> bool {
+        self.queue.len() <= INTERACTIVE_QUEUE && self.flight() < MIN_FLIGHT
+    }
+
     /// Bytes per second, or `None` before the first RTT sample (unpaced).
     fn rate(&self) -> Option<f64> {
         let srtt = self.srtt?.as_secs_f64().max(1e-6);
-        let flight = match (self.snd_emitted, self.snd_una) {
-            (Some(max), Some(una)) if after(max, una) => max.wrapping_sub(una),
-            _ => 0,
-        };
-        Some(GAIN * f64::from(flight.max(MIN_FLIGHT)) / srtt)
+        Some(GAIN * f64::from(self.flight().max(MIN_FLIGHT)) / srtt)
     }
 
     /// Record a segment the stack emitted; true when it carries sequence
@@ -221,7 +233,6 @@ pub(crate) struct Pacer {
     other: VecDeque<Vec<u8>>,
     media: VecDeque<(Instant, Vec<u8>)>,
     bulk: VecDeque<Vec<u8>>,
-    media_dropped: u64,
     queued: usize,
 }
 
@@ -259,11 +270,6 @@ impl Pacer {
             Priority::Media => self.media.push_back((now, packet)),
             Priority::Bulk => self.bulk.push_back(packet),
         }
-    }
-
-    /// Media datagrams dropped as stale so far.
-    pub(crate) fn media_dropped(&self) -> u64 {
-        self.media_dropped
     }
 
     /// Queue one packet the stack wants sent. True when it is new traffic
@@ -326,7 +332,6 @@ impl Pacer {
             }
             self.media.pop_front();
             self.queued -= 1;
-            self.media_dropped += 1;
         }
         if let Some((_, packet)) = self.media.pop_front() {
             self.queued -= 1;
@@ -348,17 +353,16 @@ impl Pacer {
         earliest.map_or(Ok(None), Err)
     }
 
-    /// The head of the shortest eligible connection queue: interactive
-    /// connections (short queues, unpaced) or bulk ones (paced).
+    /// The head of the shortest eligible queue among the interactive or the
+    /// bulk connections; both are paced.
     fn pop_connection(&mut self, now: Instant, interactive: bool) -> Option<Vec<u8>> {
         let flow = self
             .connections
             .iter()
             .filter(|(_, connection)| {
-                let short = connection.queue.len() <= INTERACTIVE_QUEUE;
                 !connection.queue.is_empty()
-                    && short == interactive
-                    && (interactive || connection.next_free <= now)
+                    && connection.interactive() == interactive
+                    && connection.next_free <= now
             })
             .min_by_key(|(_, connection)| connection.queue.len())
             .map(|(flow, _)| *flow)?;
