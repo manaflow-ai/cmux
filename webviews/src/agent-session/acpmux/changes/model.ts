@@ -210,5 +210,6 @@ export function changeSetFiles(changeSet: ChangeSet, editId: string = changeSet.
     created: file.status === "added" || file.status === "untracked",
     deleted: file.status === "deleted",
     binary: file.binary,
+    patchTruncated: file.patchTruncated,
   }));
 }

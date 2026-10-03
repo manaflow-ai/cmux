@@ -223,3 +223,65 @@ test("a turn with checkpoints reviews the files its tool calls changed and marks
   expect(sent[0]!.prompt).toContain("--- /repo/src/a.ts\n+++ /repo/src/a.ts\n@@ -1,1 +1,2 @@\n a\n+b");
   expect(sent[0]!.prompt).not.toContain("b.ts");
 });
+
+test("a tool call that names /tmp matches git's /private/tmp root, and a truncated patch is not reviewed", async () => {
+  const { turnFiles } = await import("../diff");
+  const transcript = turnFiles([
+    {
+      id: "activity-1",
+      version: 1,
+      at: 1,
+      kind: "activity",
+      items: [
+        {
+          kind: "tool",
+          text: "Edit",
+          tool: {
+            id: "t1",
+            title: "Edit",
+            kind: "edit",
+            status: "completed",
+            diffs: [
+              { path: "/tmp/repo/a.ts", oldText: "a\n", newText: "a\nb\n", line: 1 },
+              { path: "/tmp/repo/big.ts", oldText: "x\n", newText: "x\ny\n", line: 1 },
+            ],
+          },
+        },
+      ],
+    },
+  ] as never);
+  const source = {
+    diff: () => Promise.reject(new Error("not this scope")),
+    checkpointDiff: () =>
+      Promise.resolve({
+        root: "/private/tmp/repo",
+        files: [
+          { path: "a.ts", status: "modified", additions: 1, deletions: 0, patch: "@@ -1 +1,2 @@\n a\n+b\n" },
+          {
+            path: "big.ts",
+            status: "modified",
+            additions: 1,
+            deletions: 0,
+            patch: "@@ -1 +1,2 @@\n x\n+y\n",
+            patch_truncated: true,
+          },
+        ],
+      }),
+  };
+  await act(async () =>
+    root.render(
+      createElement(DiffPanel, {
+        files: transcript,
+        onClose: () => {},
+        source,
+        turnCheckpoint: { from: "ckpt_a", to: "ckpt_b" },
+        review: { decisions: new Map(), decide: () => {}, requestRevert: () => {} },
+      }),
+    ),
+  );
+  await settle(() => doc.querySelector(".acpmux-hunk-reject") !== null);
+  const section = (path: string) => doc.querySelector(`.acpmux-diff-file[data-path="${path}"]`);
+  expect(doc.querySelector(".acpmux-diff-outside")).toBeNull();
+  expect(section("/private/tmp/repo/a.ts")?.querySelectorAll(".acpmux-hunk-reject").length).toBe(1);
+  expect(section("/private/tmp/repo/big.ts")?.querySelector(".acpmux-hunk-actions")).toBeNull();
+});

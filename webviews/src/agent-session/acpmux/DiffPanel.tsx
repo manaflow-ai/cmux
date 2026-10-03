@@ -10,7 +10,7 @@ import { ChevronLeft, CollapseAll, Panels, SplitView, Wrap } from "./changeIcons
 import { ChangedFilesTree } from "./changes/ChangedFilesTree";
 import { Counts } from "./changes/Counts";
 import { EditBlock, type DiffLayout } from "./changes/EditBlock";
-import type { HunkReview } from "./changes/hunkReview";
+import { agentEdited, comparablePath, type HunkReview } from "./changes/hunkReview";
 import type { FileActions, OpenTarget } from "./changes/FileHeader";
 import { LoadState } from "./changes/LoadState";
 import { applyCommand } from "./changes/applyCommand";
@@ -89,13 +89,13 @@ export function DiffPanel({
   /// Last turn between the turn's checkpoints: the repository's changes, reviewed where the
   /// transcript's tool calls made them.
   const fromCheckpoints = scope === "lastTurn" && turnCheckpoint?.from != null;
-  const editId = fromCheckpoints && turnCheckpoint ? checkpointEditId(turnCheckpoint) : undefined;
+  const editId = fromCheckpoints ? checkpointEditId(turnCheckpoint) : undefined;
   const scopeFiles = useMemo(
     () => (load.state === "loaded" ? changeSetFiles(load.changeSet, editId) : []),
     [load, editId],
   );
   /// The files the turn's tool calls changed, which keep hunk review in the checkpoint view.
-  const agentPaths = useMemo(() => new Set(turnFiles.map((file) => file.path)), [turnFiles]);
+  const agentPaths = useMemo(() => new Set(turnFiles.map((file) => comparablePath(file.path))), [turnFiles]);
   const files = fromTranscript ? turnFiles : scopeFiles;
   /// A git scope's body before its files: loading, failed, empty or unavailable.
   const scopeState =
@@ -116,8 +116,11 @@ export function DiffPanel({
   // Decisions are keyed by the turn's tool calls or its checkpoints, so only the last turn's
   // hunks are reviewed.
   const hunkReview = fromTranscript || fromCheckpoints ? review : undefined;
-  /// A checkpoint file the tool calls did not change: shown, not reviewed.
-  const outside = (file: { path: string }) => fromCheckpoints && !agentPaths.has(file.path);
+  /// A checkpoint file the tool calls did not change: shown, not reviewed. Review is per file:
+  /// in a file the tool calls changed, every hunk is reviewable, also one a shell command made.
+  const outside = (file: TurnFile) => fromCheckpoints && !agentEdited(agentPaths, file);
+  /// A truncated patch's last hunk is incomplete, so its file is not reviewed either.
+  const reviewable = (file: TurnFile) => !outside(file) && !file.patchTruncated;
   const totals = useMemo(
     () =>
       files.reduce(
@@ -352,7 +355,7 @@ export function DiffPanel({
                   view={{ collapsed: collapsed.has(file.path), viewed: viewed.has(file.path) }}
                   on={on}
                   onPainted={onPainted}
-                  review={outside(file) ? undefined : hunkReview}
+                  review={reviewable(file) ? hunkReview : undefined}
                   outsideAgentEdits={outside(file)}
                   focusAfter={focusAfter}
                 />
@@ -366,7 +369,9 @@ export function DiffPanel({
           </nav>
         )}
       </div>
-      {hunkReview && <RevertBar files={files} review={hunkReview} onSent={() => back.current?.focus()} />}
+      {hunkReview && (
+        <RevertBar files={files.filter(reviewable)} review={hunkReview} onSent={() => back.current?.focus()} />
+      )}
     </section>
   );
 }

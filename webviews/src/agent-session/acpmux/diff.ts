@@ -17,6 +17,8 @@ export type TurnFile = {
   /// A git scope's file that the change removed, or whose contents are not text.
   deleted?: boolean;
   binary?: boolean;
+  /// A git scope's patch for this file stopped short of the whole diff.
+  patchTruncated?: boolean;
 };
 
 /// Lines unchanged around a change that a hunk keeps, as `git diff` does.

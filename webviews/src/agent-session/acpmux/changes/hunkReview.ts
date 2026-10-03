@@ -16,6 +16,15 @@ export type HunkAnchor = { key: string; label: string };
 /// pressed is replaced.
 export type FocusAfter = { current: string | undefined };
 
+/// A path as the view compares it: macOS reaches /var, /tmp and /etc through /private, and
+/// git names a repository by its resolved path while a tool call may name the link.
+export const comparablePath = (path: string) => path.replace(/^\/private(?=\/(?:var|tmp|etc)\/)/, "");
+
+/// Whether the turn's tool calls changed a checkpoint file, from the tool calls' paths.
+export function agentEdited(paths: ReadonlySet<string>, file: TurnFile) {
+  return paths.has(comparablePath(file.path));
+}
+
 /// A hunk's actions sit under its last changed line, on the side that line is on.
 export function hunkAnchor(hunk: DiffHunk, key: string, file: TurnFile, numbered: boolean) {
   const changed = hunk.lines.filter((line) => line.type !== "context");
