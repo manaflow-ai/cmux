@@ -1019,14 +1019,9 @@
       } catch (e) {
         if (driverErrorCode(e) !== "unsupported") throw e;
       }
-      // Fallback for drivers without frame.contentFrame: match the iframe's
-      // content box against each child frame's owner box.
-      const box = await this._agent("contentBox", handle);
-      await this._page._refreshFrames();
-      for (const child of this.childFrames()) {
-        const owner = await this._session.call("frame.ownerBox", { targetId: this._page._targetId, frameId: child._id });
-        if (owner && Math.abs(owner.x - box.x) < 1 && Math.abs(owner.y - box.y) < 1 && Math.abs(owner.width - box.width) < 1) return child;
-      }
+      // A driver without frame.contentFrame cannot say which frame the
+      // iframe holds. Matching boxes would guess (overlapping iframes share
+      // one) and could read or act in the wrong frame, so there is none.
       return null;
     }
     // Offset of this frame's viewport inside the tab viewport.

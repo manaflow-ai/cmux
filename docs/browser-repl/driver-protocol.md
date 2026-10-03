@@ -355,8 +355,9 @@ The dev driver implements all of them.
 - `frame.contentFrame { targetId, frameId, element }` returns `{ frameId }` of
   the frame an `<iframe>` agent handle hosts, or `null`. The runtime uses it
   for frame locators, DOM-order frame prefixes and snapshot stitching. Without
-  it the runtime falls back to matching the iframe's content box against each
-  child's `frame.ownerBox`, which fails for overlapping or hidden frames.
+  it (`unsupported`) the runtime finds no frame for an iframe: matching the
+  iframe's box against each child's `frame.ownerBox` would guess, and
+  overlapping iframes share a box.
 - `frame.contentFrames { targetId, frameId, elements: [handle] }` returns one
   `{ frameId }` or `null` per handle, in order: every iframe of a frame in one
   call. Snapshots use it; without it (`unsupported`) they call
