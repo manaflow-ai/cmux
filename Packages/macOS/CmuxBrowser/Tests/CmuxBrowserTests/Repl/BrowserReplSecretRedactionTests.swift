@@ -50,6 +50,32 @@ struct BrowserReplSecretRedactionTests {
         #expect(masked.allSatisfy { (($0["domains"] as? [[String: Any]]) ?? []).contains { $0["host"] as? String == "example.com" } })
     }
 
+    @Test("A secret in a binary fetch body is redacted before JavaScript sees the bytes")
+    func binaryFetchBodyIsRedacted() async throws {
+        let value = Self.value
+        let server = try BrowserReplTestHTTPServer { _, _, _ in
+            var body = Data([0xff, 0x00, 0xfe])
+            body.append(Data(value.utf8))
+            body.append(Data([0x00, 0x80]))
+            return (200, ["Content-Type": "application/octet-stream"], body)
+        }
+        try await server.start()
+        defer { server.stop() }
+        let session = try #require(makeSession(ScriptedPageDriver()))
+        defer { session.close() }
+        let result = await run(session, """
+        secrets.set("k", "\(value)", { domains: ["example.com"] });
+        const bytes = new Uint8Array(await (await fetch("http://127.0.0.1:\(server.port)/blob")).arrayBuffer());
+        const text = Array.from(bytes, (b) => String.fromCharCode(b)).join("");
+        console.log(text.split("").join(" "));
+        console.log("masked", text.includes("<secret:k>"), bytes[0], bytes[bytes.length - 1]);
+        """)
+        let output = result?.lines.map(\.text).joined(separator: "\n") ?? ""
+        #expect(result?.error == nil, "\(result?.error ?? "")")
+        #expect(!output.contains(spelled(value)), "\(output)")
+        #expect(output.contains("masked true 255 128"), "\(output)")
+    }
+
     private func currentCode() -> String {
         BrowserReplSecretStore.totp(key: BrowserReplSecretStore.base32Decode(Self.totpSeed) ?? Data(), time: Date().timeIntervalSince1970)
     }
