@@ -70,6 +70,9 @@ const levelSync = (state: UserState, agent: string): Array<OutboxItem> => {
 export const reduceChief = (stateIn: UserState, op: string, params: Params, ctx: ReduceContext): ReduceResult<UserState> => {
   const owner = stateIn.user?.id
   if (!owner) return reject("validation.invalid", "call user.ensure first")
+  // Only the user's own session or app install writes chief records; never an agent or a system op.
+  const p = ctx.principal
+  if ((p.kind !== "session" && p.kind !== "install") || p.agent || p.user !== owner) return reject("auth.forbidden", "only the user writes chief records")
   const now = formatNow(ctx.now)
   const state = compactChiefs(stateIn, ctx.now)
   const chiefs = state.chiefs ?? {}

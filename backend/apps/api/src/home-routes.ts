@@ -20,6 +20,7 @@ import type { SubmitResult } from "./owner-do.ts"
 
 const CODE = /^([dg])([0-9A-HJKMNP-TV-Z]{26})$/
 const SECRET = /^[0-9A-HJKMNP-TV-Z]{26}$/
+const CONVERSATION_ID = /^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$/
 const STASH_TTL_MS = 24 * 3_600_000
 
 export type HomeError = { readonly ok: false; readonly code: string; readonly message: string }
@@ -133,19 +134,19 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
     }
     case "conversation.import": {
       // First call: the id is derived from the signed-in user and the source (never a client field).
-      const source = params.source as { host?: unknown; local_id?: unknown } | undefined
+      const source = params.source as { host?: unknown; local_id?: unknown } | null | undefined
       if (source !== undefined) {
-        if (typeof source.host !== "string" || typeof source.local_id !== "string") return reject(key, "validation.invalid", "source needs host and local_id")
+        if (!source || typeof source !== "object" || typeof source.host !== "string" || typeof source.local_id !== "string") return reject(key, "validation.invalid", "source needs host and local_id")
         const id = homeConversation.importConversationId(actorOf(principal), source.host, source.local_id)
         const res = await conversationStub(env, id).submit(id, await withOwnedAgents(env, principal), { ...frame, params: { ...params, id } })
         // The caller learns the derived id here; continuations and the commit name it.
         return { frames: res.frames.map((f) => (f.t === "result" ? { ...f, value: { ...(f.value as object), id } } : f)) }
       }
-      if (typeof params.id !== "string") return reject(key, "validation.invalid", "a continuation names its id")
+      if (typeof params.id !== "string" || !CONVERSATION_ID.test(params.id)) return reject(key, "validation.invalid", "a continuation names its id")
       return conversationStub(env, params.id).submit(params.id, principal, frame)
     }
     case "conversation.import.commit": {
-      if (typeof params.id !== "string") return reject(key, "validation.invalid", "commit names its id")
+      if (typeof params.id !== "string" || !CONVERSATION_ID.test(params.id)) return reject(key, "validation.invalid", "commit names its id")
       return conversationStub(env, params.id).submit(params.id, principal, frame)
     }
     case "invite.accept": {
