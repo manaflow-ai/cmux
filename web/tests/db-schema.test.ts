@@ -146,9 +146,7 @@ describe("Cloud VM database schema", () => {
       } catch (error) {
         insertError = error;
       }
-      expect((insertError as { code?: string } | undefined)?.code).toBe(
-        cleanup === null ? "23502" : "23514",
-      );
+      expect((insertError as { code?: string } | undefined)?.code).toBe("23514");
     }
   });
 
