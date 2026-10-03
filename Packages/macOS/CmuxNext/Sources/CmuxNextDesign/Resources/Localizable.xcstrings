@@ -57,6 +57,78 @@
             "state": "translated",
             "value": "糸杉のある麦畑"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pšenično polje s čempresima"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvedemark med cypresser"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Campo di grano con cipressi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វាលស្រូវសាលីជាមួយដើមស៊ីព្រេស"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hveteåker med sypresser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pole pszenicy z cyprysami"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Campo de trigo com ciprestes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пшеничное поле с кипарисами"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทุ่งข้าวสาลีกับต้นไซเปรส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servilerle buğday tarlası"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пшеничне поле з кипарисами"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cánh đồng lúa mì với những cây bách"
+          }
         }
       }
     },
@@ -115,6 +187,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "macOS システム壁紙 · %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS system wallpaper · %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS system wallpaper · %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS system wallpaper · %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS system wallpaper · %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS system wallpaper · %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS system wallpaper · %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS system wallpaper · %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS system wallpaper · %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS system wallpaper · %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS system wallpaper · %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS system wallpaper · %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "macOS system wallpaper · %@"
           }
         }
       }
@@ -175,6 +319,78 @@
             "state": "translated",
             "value": "アレクサンドリアの聖カタリナ"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saint Catherine of Alexandria"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saint Catherine of Alexandria"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saint Catherine of Alexandria"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saint Catherine of Alexandria"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saint Catherine of Alexandria"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saint Catherine of Alexandria"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saint Catherine of Alexandria"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saint Catherine of Alexandria"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saint Catherine of Alexandria"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saint Catherine of Alexandria"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saint Catherine of Alexandria"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saint Catherine of Alexandria"
+          }
         }
       }
     },
@@ -233,6 +449,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "窓辺の肖像"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portrait at a Casement"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portrait at a Casement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portrait at a Casement"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portrait at a Casement"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portrait at a Casement"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portrait at a Casement"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portrait at a Casement"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portrait at a Casement"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portrait at a Casement"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portrait at a Casement"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portrait at a Casement"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portrait at a Casement"
           }
         }
       }
@@ -293,6 +581,78 @@
             "state": "translated",
             "value": "オリーブを摘む女性たち"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Women Picking Olives"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Women Picking Olives"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Women Picking Olives"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Women Picking Olives"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Women Picking Olives"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Women Picking Olives"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Women Picking Olives"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Women Picking Olives"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Women Picking Olives"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Women Picking Olives"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Women Picking Olives"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Women Picking Olives"
+          }
         }
       }
     },
@@ -351,6 +711,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "ひまわり"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunflowers"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunflowers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunflowers"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunflowers"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunflowers"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunflowers"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunflowers"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunflowers"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunflowers"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunflowers"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunflowers"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunflowers"
           }
         }
       }
@@ -411,6 +843,78 @@
             "state": "translated",
             "value": "糸杉のある麦畑 · フィンセント・ファン・ゴッホ · 1889 · メトロポリタン美術館 · CC0"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pšenično polje s čempresima · Vincent van Gogh · 1889 · Metropolitan Museum of Art · CC0"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvedemark med cypresser · Vincent van Gogh · 1889 · Metropolitan Museum of Art · CC0"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Campo di grano con cipressi · Vincent van Gogh · 1889 · Metropolitan Museum of Art · CC0"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វាលស្រូវសាលីជាមួយដើមស៊ីព្រេស · Vincent van Gogh · 1889 · សារមន្ទីរសិល្បៈ Metropolitan · CC0"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hveteåker med sypresser · Vincent van Gogh · 1889 · Metropolitan Museum of Art · CC0"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pole pszenicy z cyprysami · Vincent van Gogh · 1889 · Metropolitan Museum of Art · CC0"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Campo de trigo com ciprestes · Vincent van Gogh · 1889 · Metropolitan Museum of Art · CC0"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пшеничное поле с кипарисами · Винсент Ван Гог · 1889 · Метрополитен-музей · CC0"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทุ่งข้าวสาลีกับต้นไซเปรส · Vincent van Gogh · 1889 · พิพิธภัณฑ์ศิลปะเมโทรโพลิแทน · CC0"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servilerle buğday tarlası · Vincent van Gogh · 1889 · Metropolitan Sanat Müzesi · CC0"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пшеничне поле з кипарисами · Вінсент ван Гог · 1889 · Музей мистецтва Метрополітен · CC0"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cánh đồng lúa mì với những cây bách · Vincent van Gogh · 1889 · Bảo tàng Nghệ thuật Metropolitan · CC0"
+          }
         }
       }
     },
@@ -469,6 +973,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "アレクサンドリアの聖カタリナ · ピエトロ・ロレンツェッティ · 1342年頃 · メトロポリタン美術館 · CC0"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saint Catherine of Alexandria · Pietro Lorenzetti · ca. 1342 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saint Catherine of Alexandria · Pietro Lorenzetti · ca. 1342 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saint Catherine of Alexandria · Pietro Lorenzetti · ca. 1342 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saint Catherine of Alexandria · Pietro Lorenzetti · ca. 1342 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saint Catherine of Alexandria · Pietro Lorenzetti · ca. 1342 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saint Catherine of Alexandria · Pietro Lorenzetti · ca. 1342 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saint Catherine of Alexandria · Pietro Lorenzetti · ca. 1342 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saint Catherine of Alexandria · Pietro Lorenzetti · ca. 1342 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saint Catherine of Alexandria · Pietro Lorenzetti · ca. 1342 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saint Catherine of Alexandria · Pietro Lorenzetti · ca. 1342 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saint Catherine of Alexandria · Pietro Lorenzetti · ca. 1342 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saint Catherine of Alexandria · Pietro Lorenzetti · ca. 1342 · The Metropolitan Museum of Art · CC0"
           }
         }
       }
@@ -529,6 +1105,78 @@
             "state": "translated",
             "value": "窓辺の女性と男性の肖像 · フィリッポ・リッピ · 1440年頃 · メトロポリタン美術館 · CC0"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portrait of a Woman with a Man at a Casement · Fra Filippo Lippi · ca. 1440 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portrait of a Woman with a Man at a Casement · Fra Filippo Lippi · ca. 1440 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portrait of a Woman with a Man at a Casement · Fra Filippo Lippi · ca. 1440 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portrait of a Woman with a Man at a Casement · Fra Filippo Lippi · ca. 1440 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portrait of a Woman with a Man at a Casement · Fra Filippo Lippi · ca. 1440 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portrait of a Woman with a Man at a Casement · Fra Filippo Lippi · ca. 1440 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portrait of a Woman with a Man at a Casement · Fra Filippo Lippi · ca. 1440 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portrait of a Woman with a Man at a Casement · Fra Filippo Lippi · ca. 1440 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portrait of a Woman with a Man at a Casement · Fra Filippo Lippi · ca. 1440 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portrait of a Woman with a Man at a Casement · Fra Filippo Lippi · ca. 1440 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portrait of a Woman with a Man at a Casement · Fra Filippo Lippi · ca. 1440 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Portrait of a Woman with a Man at a Casement · Fra Filippo Lippi · ca. 1440 · The Metropolitan Museum of Art · CC0"
+          }
         }
       }
     },
@@ -588,6 +1236,78 @@
             "state": "translated",
             "value": "オリーブを摘む女性たち · フィンセント・ファン・ゴッホ · 1889 · メトロポリタン美術館 · CC0"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Women Picking Olives · Vincent van Gogh · 1889 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Women Picking Olives · Vincent van Gogh · 1889 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Women Picking Olives · Vincent van Gogh · 1889 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Women Picking Olives · Vincent van Gogh · 1889 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Women Picking Olives · Vincent van Gogh · 1889 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Women Picking Olives · Vincent van Gogh · 1889 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Women Picking Olives · Vincent van Gogh · 1889 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Women Picking Olives · Vincent van Gogh · 1889 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Women Picking Olives · Vincent van Gogh · 1889 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Women Picking Olives · Vincent van Gogh · 1889 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Women Picking Olives · Vincent van Gogh · 1889 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Women Picking Olives · Vincent van Gogh · 1889 · The Metropolitan Museum of Art · CC0"
+          }
         }
       }
     },
@@ -646,6 +1366,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "ひまわり · フィンセント・ファン・ゴッホ · 1887 · メトロポリタン美術館 · CC0"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunflowers · Vincent van Gogh · 1887 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunflowers · Vincent van Gogh · 1887 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunflowers · Vincent van Gogh · 1887 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunflowers · Vincent van Gogh · 1887 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunflowers · Vincent van Gogh · 1887 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunflowers · Vincent van Gogh · 1887 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunflowers · Vincent van Gogh · 1887 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunflowers · Vincent van Gogh · 1887 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunflowers · Vincent van Gogh · 1887 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunflowers · Vincent van Gogh · 1887 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunflowers · Vincent van Gogh · 1887 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunflowers · Vincent van Gogh · 1887 · The Metropolitan Museum of Art · CC0"
           }
         }
       }
