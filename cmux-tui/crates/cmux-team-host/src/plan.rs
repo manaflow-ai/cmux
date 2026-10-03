@@ -11,18 +11,53 @@ use std::path::PathBuf;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
-    DeleteUser { name: String },
-    DeleteGroup { name: String },
-    CreateGroup { name: String, gid: u32 },
-    CreateUser { name: String, uid: u32, gid: u32, home: PathBuf, shell: String },
-    FixUser { name: String, gid: u32, home: PathBuf, shell: String },
-    SetGroups { name: String, groups: Vec<String> },
-    Mkdir { path: PathBuf },
-    Chown { path: PathBuf, uid: u32, gid: u32 },
-    Chmod { path: PathBuf, mode: u32 },
+    DeleteUser {
+        name: String,
+    },
+    DeleteGroup {
+        name: String,
+    },
+    CreateGroup {
+        name: String,
+        gid: u32,
+    },
+    CreateUser {
+        name: String,
+        uid: u32,
+        gid: u32,
+        home: PathBuf,
+        shell: String,
+    },
+    FixUser {
+        name: String,
+        gid: u32,
+        home: PathBuf,
+        shell: String,
+    },
+    SetGroups {
+        name: String,
+        groups: Vec<String>,
+    },
+    Mkdir {
+        path: PathBuf,
+    },
+    Chown {
+        path: PathBuf,
+        uid: u32,
+        gid: u32,
+    },
+    Chmod {
+        path: PathBuf,
+        mode: u32,
+    },
     /// The access ACL and the same default ACL.
-    SetAcl { path: PathBuf, acl: Acl },
-    ClearAcl { path: PathBuf },
+    SetAcl {
+        path: PathBuf,
+        acl: Acl,
+    },
+    ClearAcl {
+        path: PathBuf,
+    },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -54,7 +89,10 @@ pub fn plan(d: &Desired, o: &Observed) -> Plan {
     for (name, u) in &d.users {
         if let Some(e) = o.users.get(name) {
             if e.uid < FIRST_UID {
-                p.refusals.push(Refusal::new(format!("user {name}"), format!("a system account (uid {}) has this name; not touched", e.uid)));
+                p.refusals.push(Refusal::new(
+                    format!("user {name}"),
+                    format!("a system account (uid {}) has this name; not touched", e.uid),
+                ));
                 blocked_users.insert(name.clone());
             } else if e.uid != u.uid {
                 p.refusals.push(Refusal::new(format!("user {name}"), format!("exists with uid {} instead of {}; files would change owner, repair by hand", e.uid, u.uid)));
@@ -72,7 +110,10 @@ pub fn plan(d: &Desired, o: &Observed) -> Plan {
         match o.groups.get(name) {
             Some(g) if g.gid == *gid => {}
             Some(g) => {
-                p.refusals.push(Refusal::new(format!("group {name}"), format!("exists with gid {} instead of {gid}; not changed", g.gid)));
+                p.refusals.push(Refusal::new(
+                    format!("group {name}"),
+                    format!("exists with gid {} instead of {gid}; not changed", g.gid),
+                ));
                 blocked_gids.insert(*gid);
             }
             None => creates.push(Action::CreateGroup { name: name.clone(), gid: *gid }),
@@ -105,16 +146,33 @@ pub fn plan(d: &Desired, o: &Observed) -> Plan {
         }
         let home = u.home.to_string_lossy().into_owned();
         match o.users.get(name) {
-            None => creates.push(Action::CreateUser { name: name.clone(), uid: u.uid, gid: u.gid, home: u.home.clone(), shell: u.shell.clone() }),
+            None => creates.push(Action::CreateUser {
+                name: name.clone(),
+                uid: u.uid,
+                gid: u.gid,
+                home: u.home.clone(),
+                shell: u.shell.clone(),
+            }),
             Some(e) if e.gid != u.gid || e.home != home || e.shell != u.shell => {
-                fixes.push(Action::FixUser { name: name.clone(), gid: u.gid, home: u.home.clone(), shell: u.shell.clone() });
+                fixes.push(Action::FixUser {
+                    name: name.clone(),
+                    gid: u.gid,
+                    home: u.home.clone(),
+                    shell: u.shell.clone(),
+                });
             }
             Some(_) => {}
         }
-        let want: BTreeSet<String> = u.groups.iter().filter(|g| !d.groups.get(*g).is_some_and(|gid| blocked_gids.contains(gid))).cloned().collect();
+        let want: BTreeSet<String> = u
+            .groups
+            .iter()
+            .filter(|g| !d.groups.get(*g).is_some_and(|gid| blocked_gids.contains(gid)))
+            .cloned()
+            .collect();
         let have = if o.users.contains_key(name) { o.supplementary(name) } else { BTreeSet::new() };
         if want != have {
-            memberships.push(Action::SetGroups { name: name.clone(), groups: want.into_iter().collect() });
+            memberships
+                .push(Action::SetGroups { name: name.clone(), groups: want.into_iter().collect() });
         }
     }
 
@@ -129,15 +187,25 @@ pub fn plan(d: &Desired, o: &Observed) -> Plan {
         if blocked_paths.iter().any(|b| dir.path.starts_with(b)) {
             continue;
         }
-        if blocked_uids.contains(&dir.uid) || blocked_gids.contains(&dir.gid) || acl_gids(dir).iter().any(|g| blocked_gids.contains(g)) {
-            p.refusals.push(Refusal::new(format!("directory {}", dir.path.display()), "names a refused user or group; not touched"));
+        if blocked_uids.contains(&dir.uid)
+            || blocked_gids.contains(&dir.gid)
+            || acl_gids(dir).iter().any(|g| blocked_gids.contains(g))
+        {
+            p.refusals.push(Refusal::new(
+                format!("directory {}", dir.path.display()),
+                "names a refused user or group; not touched",
+            ));
             blocked_paths.push(dir.path.clone());
             continue;
         }
         match o.dirs.get(&dir.path).cloned().flatten() {
             None => {
                 p.actions.push(Action::Mkdir { path: dir.path.clone() });
-                p.actions.push(Action::Chown { path: dir.path.clone(), uid: dir.uid, gid: dir.gid });
+                p.actions.push(Action::Chown {
+                    path: dir.path.clone(),
+                    uid: dir.uid,
+                    gid: dir.gid,
+                });
                 if dir.acl.is_none() {
                     // A new directory inherits its parent's default ACL; a plain one must not keep it.
                     p.actions.push(Action::ClearAcl { path: dir.path.clone() });
@@ -148,12 +216,19 @@ pub fn plan(d: &Desired, o: &Observed) -> Plan {
                 }
             }
             Some(s) if !s.is_dir => {
-                p.refusals.push(Refusal::new(format!("directory {}", dir.path.display()), "exists and is not a directory (or is a symlink); not touched"));
+                p.refusals.push(Refusal::new(
+                    format!("directory {}", dir.path.display()),
+                    "exists and is not a directory (or is a symlink); not touched",
+                ));
                 blocked_paths.push(dir.path.clone());
             }
             Some(s) => {
                 if s.uid != dir.uid || s.gid != dir.gid {
-                    p.actions.push(Action::Chown { path: dir.path.clone(), uid: dir.uid, gid: dir.gid });
+                    p.actions.push(Action::Chown {
+                        path: dir.path.clone(),
+                        uid: dir.uid,
+                        gid: dir.gid,
+                    });
                 }
                 let acl_wrong = match &dir.acl {
                     Some(a) => s.acl.access != *a || s.acl.default != *a,
@@ -178,5 +253,7 @@ pub fn plan(d: &Desired, o: &Observed) -> Plan {
 
 fn acl_gids(dir: &DesiredDir) -> Vec<u32> {
     use crate::acl::Tag;
-    dir.acl.as_ref().map_or_else(Vec::new, |a| a.0.iter().filter_map(|e| if let Tag::Group(g) = e.tag { Some(g) } else { None }).collect())
+    dir.acl.as_ref().map_or_else(Vec::new, |a| {
+        a.0.iter().filter_map(|e| if let Tag::Group(g) = e.tag { Some(g) } else { None }).collect()
+    })
 }

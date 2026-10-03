@@ -119,17 +119,26 @@ pub fn compile(v: &Valid, layout: &Layout) -> Desired {
     d.groups.insert(MUXES.to_string(), MUXES_GID);
     for m in v.members.values() {
         // A person's own node: the person, their mux and their ordinary agents (D30), nobody else.
-        let own: Vec<Grant> = v.person_node_of(&m.name).map(|n| Grant { node: n.id.clone(), role: Role::Admin }).into_iter().collect();
+        let own: Vec<Grant> = v
+            .person_node_of(&m.name)
+            .map(|n| Grant { node: n.id.clone(), role: Role::Admin })
+            .into_iter()
+            .collect();
         let mut human = closure(v, &m.roles);
         human.extend(closure(v, &own));
         let mut mux = human.clone();
         mux.insert(MUXES.to_string());
         let mut agents = closure(v, m.agent_roles.as_deref().unwrap_or(&m.roles));
         agents.extend(closure(v, &own));
-        for ((name, uid), groups) in member_users(&m.name, m.uid).into_iter().zip([human, mux, agents]) {
+        for ((name, uid), groups) in
+            member_users(&m.name, m.uid).into_iter().zip([human, mux, agents])
+        {
             d.groups.insert(name.clone(), uid);
             let home = layout.homes.join(&name);
-            d.users.insert(name.clone(), DesiredUser { name, uid, gid: uid, home, shell: SHELL.to_string(), groups });
+            d.users.insert(
+                name.clone(),
+                DesiredUser { name, uid, gid: uid, home, shell: SHELL.to_string(), groups },
+            );
         }
     }
     // Directories, parents first. Plain directories are root-owned and traversable only.
@@ -139,9 +148,19 @@ pub fn compile(v: &Valid, layout: &Layout) -> Desired {
     d.dirs.push(plain(root.join("memory"), 0o711));
     d.dirs.push(plain(root.join("memory/people"), 0o711));
     let team = v.team.as_str();
-    let (tr, tw, ta) = (v.gid(team, Role::Read).unwrap_or_default(), v.gid(team, Role::Write).unwrap_or_default(), v.gid(team, Role::Admin).unwrap_or_default());
+    let (tr, tw, ta) = (
+        v.gid(team, Role::Read).unwrap_or_default(),
+        v.gid(team, Role::Write).unwrap_or_default(),
+        v.gid(team, Role::Admin).unwrap_or_default(),
+    );
     // Org memory: every member reads and writes (D29); the control is the audit trail.
-    d.dirs.push(DesiredDir { path: root.join("memory/org"), uid: 0, gid: tr, mode: 0o2770, acl: Some(node_acl(tr, tw, ta, Perm::RWX)) });
+    d.dirs.push(DesiredDir {
+        path: root.join("memory/org"),
+        uid: 0,
+        gid: tr,
+        mode: 0o2770,
+        acl: Some(node_acl(tr, tw, ta, Perm::RWX)),
+    });
     // Node directories: the team and projects (depth order), then person nodes.
     let mut ids: Vec<&str> = v.nodes.keys().map(String::as_str).collect();
     ids.sort_by(|a, b| a.matches('.').count().cmp(&b.matches('.').count()).then(a.cmp(b)));
@@ -150,26 +169,52 @@ pub fn compile(v: &Valid, layout: &Layout) -> Desired {
         let path = node_path(v, layout, id);
         let (r, w, a) = (node.gid, node.gid + 1, node.gid + 2);
         let owner = match node.kind {
-            NodeKind::Person => v.members.get(node.person.as_deref().unwrap_or("")).map_or(0, |m| m.uid),
+            NodeKind::Person => {
+                v.members.get(node.person.as_deref().unwrap_or("")).map_or(0, |m| m.uid)
+            }
             _ => 0,
         };
         if node.kind == NodeKind::Project {
             // `p/` between a node and its sub-projects: traversable, created only here.
             d.dirs.push(plain(path.parent().map(Path::to_path_buf).unwrap_or_default(), 0o711));
         }
-        d.dirs.push(DesiredDir { path, uid: owner, gid: w, mode: 0o2770, acl: Some(node_acl(r, w, a, Perm::RX)) });
+        d.dirs.push(DesiredDir {
+            path,
+            uid: owner,
+            gid: w,
+            mode: 0o2770,
+            acl: Some(node_acl(r, w, a, Perm::RX)),
+        });
     }
     // Mailbox: inbox/<name> 1733 (others drop files, cannot list or read), inbox/all 1775 for the team.
     d.dirs.push(plain(root.join("mailbox"), 0o755));
     d.dirs.push(plain(root.join("mailbox/inbox"), 0o755));
-    d.dirs.push(DesiredDir { path: root.join("mailbox/inbox/all"), uid: 0, gid: tr, mode: 0o1775, acl: None });
+    d.dirs.push(DesiredDir {
+        path: root.join("mailbox/inbox/all"),
+        uid: 0,
+        gid: tr,
+        mode: 0o1775,
+        acl: None,
+    });
     for m in v.members.values() {
-        d.dirs.push(DesiredDir { path: root.join("mailbox/inbox").join(&m.name), uid: m.uid, gid: m.uid, mode: 0o1733, acl: None });
+        d.dirs.push(DesiredDir {
+            path: root.join("mailbox/inbox").join(&m.name),
+            uid: m.uid,
+            gid: m.uid,
+            mode: 0o1733,
+            acl: None,
+        });
     }
     // Homes: private to the user.
     d.dirs.push(DesiredDir { path: layout.homes.clone(), uid: 0, gid: 0, mode: 0o755, acl: None });
     for u in d.users.values() {
-        d.dirs.push(DesiredDir { path: u.home.clone(), uid: u.uid, gid: u.gid, mode: 0o700, acl: None });
+        d.dirs.push(DesiredDir {
+            path: u.home.clone(),
+            uid: u.uid,
+            gid: u.gid,
+            mode: 0o700,
+            acl: None,
+        });
     }
     dedup_dirs(&mut d.dirs);
     d

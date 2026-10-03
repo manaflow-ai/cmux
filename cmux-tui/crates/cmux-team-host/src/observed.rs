@@ -57,7 +57,11 @@ impl Observed {
 pub fn parse_passwd(text: &str) -> Result<BTreeMap<String, PasswdEntry>, String> {
     let mut out = BTreeMap::new();
     for line in text.lines() {
-        if line.trim().is_empty() || line.starts_with('#') || line.starts_with('+') || line.starts_with('-') {
+        if line.trim().is_empty()
+            || line.starts_with('#')
+            || line.starts_with('+')
+            || line.starts_with('-')
+        {
             continue;
         }
         let f: Vec<&str> = line.split(':').collect();
@@ -65,7 +69,16 @@ pub fn parse_passwd(text: &str) -> Result<BTreeMap<String, PasswdEntry>, String>
             return Err(format!("unexpected passwd line {line:?}"));
         }
         let num = |s: &str| s.parse::<u32>().map_err(|_| format!("bad id in passwd line {line:?}"));
-        out.insert(f[0].to_string(), PasswdEntry { name: f[0].to_string(), uid: num(f[2])?, gid: num(f[3])?, home: f[5].to_string(), shell: f[6].to_string() });
+        out.insert(
+            f[0].to_string(),
+            PasswdEntry {
+                name: f[0].to_string(),
+                uid: num(f[2])?,
+                gid: num(f[3])?,
+                home: f[5].to_string(),
+                shell: f[6].to_string(),
+            },
+        );
     }
     Ok(out)
 }
@@ -74,7 +87,11 @@ pub fn parse_passwd(text: &str) -> Result<BTreeMap<String, PasswdEntry>, String>
 pub fn parse_group(text: &str) -> Result<BTreeMap<String, GroupEntry>, String> {
     let mut out = BTreeMap::new();
     for line in text.lines() {
-        if line.trim().is_empty() || line.starts_with('#') || line.starts_with('+') || line.starts_with('-') {
+        if line.trim().is_empty()
+            || line.starts_with('#')
+            || line.starts_with('+')
+            || line.starts_with('-')
+        {
             continue;
         }
         let f: Vec<&str> = line.split(':').collect();

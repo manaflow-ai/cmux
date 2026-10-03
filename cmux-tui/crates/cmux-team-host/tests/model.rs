@@ -63,7 +63,12 @@ struct Fake {
 }
 
 fn spec(args: &[String]) -> Acl {
-    let text = args[args.len() - 2].replace(',', "\n").replace("u:", "user:").replace("g:", "group:").replace("m:", "mask:").replace("o:", "other:");
+    let text = args[args.len() - 2]
+        .replace(',', "\n")
+        .replace("u:", "user:")
+        .replace("g:", "group:")
+        .replace("m:", "mask:")
+        .replace("o:", "other:");
     cmux_team_host::acl::parse_getfacl(&text).expect("spec parses").access
 }
 
@@ -78,14 +83,23 @@ impl System for Fake {
         } else {
             let mut s = String::from("root:x:0:\n");
             for (n, (gid, members)) in &self.groups {
-                s += &format!("{n}:x:{gid}:{}\n", members.iter().cloned().collect::<Vec<_>>().join(","));
+                s += &format!(
+                    "{n}:x:{gid}:{}\n",
+                    members.iter().cloned().collect::<Vec<_>>().join(",")
+                );
             }
             s
         })
     }
 
     fn dir_state(&mut self, path: &Path) -> io::Result<Option<DirState>> {
-        Ok(self.dirs.get(path).map(|d| DirState { is_dir: true, uid: d.uid, gid: d.gid, mode: d.mode, acl: PathAcl { access: d.access(), default: d.default.clone() } }))
+        Ok(self.dirs.get(path).map(|d| DirState {
+            is_dir: true,
+            uid: d.uid,
+            gid: d.gid,
+            mode: d.mode,
+            acl: PathAcl { access: d.access(), default: d.default.clone() },
+        }))
     }
 
     fn run(&mut self, program: &str, args: &[String]) -> Result<(), String> {
@@ -106,7 +120,15 @@ impl System for Fake {
                 if self.users.values().any(|u| u.0 == uid) || self.users.contains_key(&name) {
                     return Err(format!("exit 4 from useradd {name}"));
                 }
-                self.users.insert(name, (uid, opt("-g").unwrap().parse().unwrap(), opt("-d").unwrap(), opt("-s").unwrap()));
+                self.users.insert(
+                    name,
+                    (
+                        uid,
+                        opt("-g").unwrap().parse().unwrap(),
+                        opt("-d").unwrap(),
+                        opt("-s").unwrap(),
+                    ),
+                );
             }
             "userdel" => {
                 self.users.remove(&name).ok_or("exit 6 from userdel")?;
@@ -134,7 +156,10 @@ impl System for Fake {
             }
             "setfacl" => {
                 assert_eq!(args[0], "-P", "setfacl must not follow symlinks");
-                let d = self.dirs.get_mut(Path::new(&name)).ok_or("exit 1 from setfacl: no such file")?;
+                let d = self
+                    .dirs
+                    .get_mut(Path::new(&name))
+                    .ok_or("exit 1 from setfacl: no such file")?;
                 if args.contains(&"-b".to_string()) {
                     d.named.clear();
                     d.mask = None;
@@ -174,7 +199,15 @@ impl System for Fake {
             return Err(io::ErrorKind::AlreadyExists.into());
         }
         let parent = path.parent().and_then(|p| self.dirs.get(p)).cloned();
-        let mut d = Dir { uid: 0, gid: 0, mode: 0o755, group_obj: Perm::RX, named: BTreeSet::new(), mask: None, default: Acl::default() };
+        let mut d = Dir {
+            uid: 0,
+            gid: 0,
+            mode: 0o755,
+            group_obj: Perm::RX,
+            named: BTreeSet::new(),
+            mask: None,
+            default: Acl::default(),
+        };
         if let Some(p) = parent {
             if p.mode & 0o2000 != 0 {
                 d.gid = p.gid;
@@ -194,7 +227,8 @@ impl System for Fake {
 /// POSIX.1e access check (owner, named users, groups under the mask, other).
 fn access(f: &Fake, user: &str, path: &Path) -> String {
     let (uid, gid, ..) = f.users[user];
-    let mut gids: BTreeSet<u32> = f.groups.values().filter(|(_, m)| m.contains(user)).map(|(g, _)| *g).collect();
+    let mut gids: BTreeSet<u32> =
+        f.groups.values().filter(|(_, m)| m.contains(user)).map(|(g, _)| *g).collect();
     gids.insert(gid);
     let d = &f.dirs[path];
     let acl = d.access();
@@ -210,10 +244,10 @@ fn access(f: &Fake, user: &str, path: &Path) -> String {
             matched = Some(get(Tag::GroupObj).unwrap_or(0));
         }
         for e in &acl.0 {
-            if let Tag::Group(g) = e.tag {
-                if gids.contains(&g) {
-                    matched = Some(matched.unwrap_or(0) | e.perm.0);
-                }
+            if let Tag::Group(g) = e.tag
+                && gids.contains(&g)
+            {
+                matched = Some(matched.unwrap_or(0) | e.perm.0);
             }
         }
         matched.map_or(get(Tag::Other).unwrap_or(0), |m| m & mask)
@@ -225,7 +259,18 @@ fn fresh() -> (Fake, Accounts, Layout) {
     let mut f = Fake::default();
     // The image: the root of the team tree's parent and the homes' parent exist.
     for p in ["/srv", "/home"] {
-        f.dirs.insert(PathBuf::from(p), Dir { uid: 0, gid: 0, mode: 0o755, group_obj: Perm::RX, named: BTreeSet::new(), mask: None, default: Acl::default() });
+        f.dirs.insert(
+            PathBuf::from(p),
+            Dir {
+                uid: 0,
+                gid: 0,
+                mode: 0o755,
+                group_obj: Perm::RX,
+                named: BTreeSet::new(),
+                mask: None,
+                default: Acl::default(),
+            },
+        );
     }
     (f, Accounts { passwd: "/etc/passwd".into(), group: "/etc/group".into() }, Layout::default())
 }
@@ -253,9 +298,15 @@ fn the_spec_example_gives_the_spec_access_matrix_and_a_second_run_is_a_no_op() {
     assert_eq!(mode("mailbox/inbox/aziz"), 0o1733);
     assert_eq!(mode("mailbox/inbox/all"), 0o1775);
     assert_eq!(mode("t/acme/p/web"), 0o2770);
-    assert_eq!(f.dirs[&layout.root.join("t/acme/p/web")].default, f.dirs[&layout.root.join("t/acme/p/web")].access());
+    assert_eq!(
+        f.dirs[&layout.root.join("t/acme/p/web")].default,
+        f.dirs[&layout.root.join("t/acme/p/web")].access()
+    );
     assert_eq!(f.dirs[&layout.root.join("t/acme/p")].mode, 0o711);
-    assert!(f.dirs[&layout.root.join("t/acme/p")].default.0.is_empty(), "a plain directory keeps no inherited default ACL");
+    assert!(
+        f.dirs[&layout.root.join("t/acme/p")].default.0.is_empty(),
+        "a plain directory keeps no inherited default ACL"
+    );
     assert_eq!(f.users["austin-agents"].0, 20_006);
 
     let before = f.commands;
@@ -270,7 +321,8 @@ fn drift_is_reverted() {
     reconcile(&mut f, &acc, &layout, &common::acme());
     // A manual group membership, a manual user in the managed range, a widened mode and ACL.
     f.groups.get_mut("n-acme-a").unwrap().1.insert("aziz".into());
-    f.users.insert("intruder".into(), (20_400, 20_400, "/home/intruder".into(), "/bin/bash".into()));
+    f.users
+        .insert("intruder".into(), (20_400, 20_400, "/home/intruder".into(), "/bin/bash".into()));
     let web = layout.root.join("t/acme/p/web");
     f.dirs.get_mut(&web).unwrap().mode = 0o2777;
     f.dirs.get_mut(&web).unwrap().named.insert(AclEntry::group(20_008, Perm::RWX));
@@ -287,7 +339,11 @@ fn a_member_name_that_a_system_account_has_is_refused_and_untouched() {
     let (mut f, acc, layout) = fresh();
     f.users.insert("aziz".into(), (998, 998, "/var/lib/aziz".into(), "/usr/sbin/nologin".into()));
     let r = reconcile(&mut f, &acc, &layout, &common::acme());
-    assert!(r.refusals.iter().any(|x| x.subject == "user aziz" && x.reason.contains("system account")), "{:?}", r.refusals);
+    assert!(
+        r.refusals.iter().any(|x| x.subject == "user aziz" && x.reason.contains("system account")),
+        "{:?}",
+        r.refusals
+    );
     assert_eq!(f.users["aziz"], (998, 998, "/var/lib/aziz".into(), "/usr/sbin/nologin".into()));
     assert!(!f.groups.contains_key("aziz"), "no private group for a refused name");
     assert!(!f.dirs.contains_key(&layout.root.join("mailbox/inbox/aziz")));
@@ -308,19 +364,51 @@ fn removing_a_member_removes_their_users_and_groups_and_keeps_their_files() {
     for u in ["aziz", "aziz-mux", "aziz-agents"] {
         assert!(!f.users.contains_key(u) && !f.groups.contains_key(u), "{u} removed");
     }
-    assert!(f.dirs.contains_key(&layout.root.join("mailbox/inbox/aziz")), "files and directories are kept");
+    assert!(
+        f.dirs.contains_key(&layout.root.join("mailbox/inbox/aziz")),
+        "files and directories are kept"
+    );
 }
 
 #[test]
 fn invalid_directory_parts_are_refused_not_guessed() {
     let mut d = common::acme();
-    d.nodes.push(cmux_team_host::directory::Node { id: "acme.ghost.child".into(), kind: cmux_team_host::directory::NodeKind::Project, gid: 200_012, person: None });
-    d.nodes.push(cmux_team_host::directory::Node { id: "acme.dup".into(), kind: cmux_team_host::directory::NodeKind::Project, gid: 200_003, person: None });
-    d.members.push(cmux_team_host::directory::Member { name: "Root".into(), uid: 20_012, roles: vec![], agent_roles: None });
-    d.members.push(cmux_team_host::directory::Member { name: "eve".into(), uid: 20_001, roles: vec![], agent_roles: None });
+    d.nodes.push(cmux_team_host::directory::Node {
+        id: "acme.ghost.child".into(),
+        kind: cmux_team_host::directory::NodeKind::Project,
+        gid: 200_012,
+        person: None,
+    });
+    d.nodes.push(cmux_team_host::directory::Node {
+        id: "acme.dup1".into(),
+        kind: cmux_team_host::directory::NodeKind::Project,
+        gid: 200_015,
+        person: None,
+    });
+    d.nodes.push(cmux_team_host::directory::Node {
+        id: "acme.dup2".into(),
+        kind: cmux_team_host::directory::NodeKind::Project,
+        gid: 200_015,
+        person: None,
+    });
+    d.members.push(cmux_team_host::directory::Member {
+        name: "Root".into(),
+        uid: 20_012,
+        roles: vec![],
+        agent_roles: None,
+    });
+    d.members.push(cmux_team_host::directory::Member {
+        name: "eve".into(),
+        uid: 20_001,
+        roles: vec![],
+        agent_roles: None,
+    });
     let (v, refusals) = cmux_team_host::validate(&d);
     let subjects: Vec<&str> = refusals.iter().map(|r| r.subject.as_str()).collect();
-    for s in ["node acme.ghost.child", "node acme.dup", "member Root", "member eve"] {
+    // Two nodes with one GID block are both refused (never first come, first served).
+    for s in
+        ["node acme.ghost.child", "node acme.dup1", "node acme.dup2", "member Root", "member eve"]
+    {
         assert!(subjects.contains(&s), "{s} refused: {refusals:?}");
     }
     assert_eq!(v.members.len(), 3);

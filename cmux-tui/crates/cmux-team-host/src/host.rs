@@ -35,12 +35,23 @@ impl Default for Accounts {
     }
 }
 
-pub fn observe(sys: &mut dyn System, accounts: &Accounts, desired: &Desired) -> Result<Observed, String> {
-    let users = parse_passwd(&sys.read_to_string(&accounts.passwd).map_err(|e| format!("read {}: {e}", accounts.passwd.display()))?)?;
-    let groups = parse_group(&sys.read_to_string(&accounts.group).map_err(|e| format!("read {}: {e}", accounts.group.display()))?)?;
+pub fn observe(
+    sys: &mut dyn System,
+    accounts: &Accounts,
+    desired: &Desired,
+) -> Result<Observed, String> {
+    let users = parse_passwd(
+        &sys.read_to_string(&accounts.passwd)
+            .map_err(|e| format!("read {}: {e}", accounts.passwd.display()))?,
+    )?;
+    let groups = parse_group(
+        &sys.read_to_string(&accounts.group)
+            .map_err(|e| format!("read {}: {e}", accounts.group.display()))?,
+    )?;
     let mut dirs = std::collections::BTreeMap::new();
     for d in &desired.dirs {
-        let state = sys.dir_state(&d.path).map_err(|e| format!("stat {}: {e}", d.path.display()))?;
+        let state =
+            sys.dir_state(&d.path).map_err(|e| format!("stat {}: {e}", d.path.display()))?;
         dirs.insert(d.path.clone(), state);
     }
     Ok(Observed { users, groups, dirs })
@@ -55,17 +66,44 @@ pub fn apply_one(sys: &mut dyn System, action: &Action) -> Result<(), String> {
     match action {
         Action::DeleteUser { name } => sys.run("userdel", &[s(name)]),
         // 6 = the group does not exist (userdel may already have removed a private group).
-        Action::DeleteGroup { name } => sys.run("groupdel", &[s(name)]).or_else(|e| if e.starts_with("exit 6") { Ok(()) } else { Err(e) }),
-        Action::CreateGroup { name, gid } => sys.run("groupadd", &[s("-g"), gid.to_string(), s(name)]),
+        Action::DeleteGroup { name } => sys
+            .run("groupdel", &[s(name)])
+            .or_else(|e| if e.starts_with("exit 6") { Ok(()) } else { Err(e) }),
+        Action::CreateGroup { name, gid } => {
+            sys.run("groupadd", &[s("-g"), gid.to_string(), s(name)])
+        }
         Action::CreateUser { name, uid, gid, home, shell } => sys.run(
             "useradd",
-            &[s("-u"), uid.to_string(), s("-g"), gid.to_string(), s("-N"), s("-M"), s("-d"), path_arg(home), s("-s"), s(shell), s(name)],
+            &[
+                s("-u"),
+                uid.to_string(),
+                s("-g"),
+                gid.to_string(),
+                s("-N"),
+                s("-M"),
+                s("-d"),
+                path_arg(home),
+                s("-s"),
+                s(shell),
+                s(name),
+            ],
         ),
-        Action::FixUser { name, gid, home, shell } => sys.run("usermod", &[s("-g"), gid.to_string(), s("-d"), path_arg(home), s("-s"), s(shell), s(name)]),
-        Action::SetGroups { name, groups } => sys.run("usermod", &[s("-G"), groups.join(","), s(name)]),
-        Action::Mkdir { path } => sys.mkdir(path).map_err(|e| format!("mkdir {}: {e}", path.display())),
-        Action::Chown { path, uid, gid } => sys.chown(path, *uid, *gid).map_err(|e| format!("chown {}: {e}", path.display())),
-        Action::Chmod { path, mode } => sys.chmod(path, *mode).map_err(|e| format!("chmod {}: {e}", path.display())),
+        Action::FixUser { name, gid, home, shell } => sys.run(
+            "usermod",
+            &[s("-g"), gid.to_string(), s("-d"), path_arg(home), s("-s"), s(shell), s(name)],
+        ),
+        Action::SetGroups { name, groups } => {
+            sys.run("usermod", &[s("-G"), groups.join(","), s(name)])
+        }
+        Action::Mkdir { path } => {
+            sys.mkdir(path).map_err(|e| format!("mkdir {}: {e}", path.display()))
+        }
+        Action::Chown { path, uid, gid } => {
+            sys.chown(path, *uid, *gid).map_err(|e| format!("chown {}: {e}", path.display()))
+        }
+        Action::Chmod { path, mode } => {
+            sys.chmod(path, *mode).map_err(|e| format!("chmod {}: {e}", path.display()))
+        }
         Action::SetAcl { path, acl } => {
             sys.run("setfacl", &[s("-P"), s("--set"), acl.spec(), path_arg(path)])?;
             sys.run("setfacl", &[s("-P"), s("-d"), s("--set"), acl.spec(), path_arg(path)])
@@ -87,7 +125,12 @@ pub struct Report {
 /// Plans and applies until nothing is left (at most `passes` rounds: a deleted user's private
 /// group, for example, disappears only after `userdel`). Refusals from the directory and from the
 /// machine are reported; a failing action is reported and the rest still runs.
-pub fn reconcile(sys: &mut dyn System, accounts: &Accounts, layout: &Layout, dir: &Directory) -> Report {
+pub fn reconcile(
+    sys: &mut dyn System,
+    accounts: &Accounts,
+    layout: &Layout,
+    dir: &Directory,
+) -> Report {
     let (valid, mut refusals) = validate(dir);
     let desired = compile(&valid, layout);
     let mut report = Report::default();
@@ -156,27 +199,54 @@ impl System for HostSystem {
             Err(e) => return Err(e),
         };
         if !meta.is_dir() {
-            return Ok(Some(DirState { is_dir: false, uid: meta.uid(), gid: meta.gid(), mode: meta.mode() & 0o7777, acl: Default::default() }));
+            return Ok(Some(DirState {
+                is_dir: false,
+                uid: meta.uid(),
+                gid: meta.gid(),
+                mode: meta.mode() & 0o7777,
+                acl: Default::default(),
+            }));
         }
-        let out = std::process::Command::new("getfacl").args(["-n", "-p", "--omit-header"]).arg(path).output()?;
+        let out = std::process::Command::new("getfacl")
+            .args(["-n", "-p", "--omit-header"])
+            .arg(path)
+            .output()?;
         if !out.status.success() {
-            return Err(io::Error::other(format!("getfacl {}: {}", path.display(), String::from_utf8_lossy(&out.stderr).trim())));
+            return Err(io::Error::other(format!(
+                "getfacl {}: {}",
+                path.display(),
+                String::from_utf8_lossy(&out.stderr).trim()
+            )));
         }
         let acl = parse_getfacl(&String::from_utf8_lossy(&out.stdout)).map_err(io::Error::other)?;
-        Ok(Some(DirState { is_dir: true, uid: meta.uid(), gid: meta.gid(), mode: meta.mode() & 0o7777, acl }))
+        Ok(Some(DirState {
+            is_dir: true,
+            uid: meta.uid(),
+            gid: meta.gid(),
+            mode: meta.mode() & 0o7777,
+            acl,
+        }))
     }
 
     fn run(&mut self, program: &str, args: &[String]) -> Result<(), String> {
-        if program == "setfacl" {
-            if let Some(path) = args.last() {
-                no_symlink(Path::new(path)).map_err(|e| e.to_string())?;
-            }
+        if program == "setfacl"
+            && let Some(path) = args.last()
+        {
+            no_symlink(Path::new(path)).map_err(|e| e.to_string())?;
         }
-        let out = std::process::Command::new(program).args(args).output().map_err(|e| format!("{program}: {e}"))?;
+        let out = std::process::Command::new(program)
+            .args(args)
+            .output()
+            .map_err(|e| format!("{program}: {e}"))?;
         if out.status.success() {
             return Ok(());
         }
-        Err(format!("exit {} from {program} {}: {}", out.status.code().unwrap_or(-1), args.join(" "), String::from_utf8_lossy(&out.stderr).trim()))
+        Err(format!(
+            "exit {} from {program} {}: {}",
+            out.status.code().unwrap_or(-1),
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ))
     }
 
     fn chown(&mut self, path: &Path, uid: u32, gid: u32) -> io::Result<()> {

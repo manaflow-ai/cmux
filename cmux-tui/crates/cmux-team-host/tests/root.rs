@@ -17,11 +17,17 @@ use std::process::Command;
 
 fn enabled() -> bool {
     if std::env::var("CMUX_TEAM_HOST_ROOT_TESTS").as_deref() != Ok("1") {
-        eprintln!("skipped: set CMUX_TEAM_HOST_ROOT_TESTS=1 and run as root on a throwaway Linux box");
+        eprintln!(
+            "skipped: set CMUX_TEAM_HOST_ROOT_TESTS=1 and run as root on a throwaway Linux box"
+        );
         return false;
     }
     let uid = Command::new("id").arg("-u").output().expect("id");
-    assert_eq!(String::from_utf8_lossy(&uid.stdout).trim(), "0", "CMUX_TEAM_HOST_ROOT_TESTS=1 needs root");
+    assert_eq!(
+        String::from_utf8_lossy(&uid.stdout).trim(),
+        "0",
+        "CMUX_TEAM_HOST_ROOT_TESTS=1 needs root"
+    );
     true
 }
 
@@ -32,7 +38,9 @@ fn sh(program: &str, args: &[&str]) -> bool {
 /// `rwx`, `r-x` or `---` for `user` on `path`, from the kernel.
 fn access(user: &str, path: &Path) -> String {
     let p = path.to_str().expect("utf-8 path");
-    let t = |flag: &str, c: char| if sh("runuser", &["-u", user, "--", "test", flag, p]) { c } else { '-' };
+    let t = |flag: &str, c: char| {
+        if sh("runuser", &["-u", user, "--", "test", flag, p]) { c } else { '-' }
+    };
     [t("-r", 'r'), t("-w", 'w'), t("-x", 'x')].iter().collect()
 }
 
@@ -43,12 +51,19 @@ struct Scratch {
 
 impl Drop for Scratch {
     fn drop(&mut self) {
-        let mut users: Vec<String> = ["lawrence", "austin", "aziz"].iter().flat_map(|n| [n.to_string(), format!("{n}-mux"), format!("{n}-agents")]).collect();
+        let mut users: Vec<String> = ["lawrence", "austin", "aziz"]
+            .iter()
+            .flat_map(|n| [n.to_string(), format!("{n}-mux"), format!("{n}-agents")])
+            .collect();
         users.extend(self.extra_users.iter().cloned());
         for u in &users {
             let _ = Command::new("userdel").arg(u).status();
         }
-        let groups = Command::new("getent").arg("group").output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+        let groups = Command::new("getent")
+            .arg("group")
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+            .unwrap_or_default();
         for line in groups.lines() {
             let name = line.split(':').next().unwrap_or("");
             if name.starts_with("n-acme") || name == "muxes" || users.iter().any(|u| u == name) {
@@ -86,13 +101,19 @@ fn spec_matrix_inheritance_drift_and_refusal_on_a_real_machine() {
     // A file Austin writes in the project keeps the project's group and default ACL: Aziz reads, cannot write.
     let file = layout.root.join("t/acme/p/web/notes.md");
     let f = file.to_str().expect("utf-8");
-    assert!(sh("runuser", &["-u", "austin", "--", "sh", "-c", &format!("umask 007; echo x > {f}")]));
+    assert!(sh(
+        "runuser",
+        &["-u", "austin", "--", "sh", "-c", &format!("umask 007; echo x > {f}")]
+    ));
     assert!(sh("runuser", &["-u", "aziz", "--", "test", "-r", f]));
     assert!(!sh("runuser", &["-u", "aziz", "--", "test", "-w", f]));
     assert!(sh("runuser", &["-u", "austin-agents", "--", "test", "-w", f]));
     // A sub-directory Austin makes inherits the same ACL.
     let sub = layout.root.join("t/acme/p/web/drafts");
-    assert!(sh("runuser", &["-u", "austin", "--", "sh", "-c", &format!("umask 007; mkdir {}", sub.display())]));
+    assert!(sh(
+        "runuser",
+        &["-u", "austin", "--", "sh", "-c", &format!("umask 007; mkdir {}", sub.display())]
+    ));
     assert_eq!(access("aziz", &sub), "r-x");
     assert_eq!(access("lawrence", &sub), "rwx");
 
@@ -119,7 +140,17 @@ fn spec_matrix_inheritance_drift_and_refusal_on_a_real_machine() {
     let mut d = common::acme();
     d.members.push(Member { name: "sysx".into(), uid: 20_012, roles: vec![], agent_roles: None });
     let refused = reconcile(&mut HostSystem, &acc, &layout, &d);
-    assert!(refused.refusals.iter().any(|x| x.subject == "user sysx" && x.reason.contains("system account")), "{:?}", refused.refusals);
-    assert_eq!(Command::new("getent").args(["passwd", "sysx"]).output().expect("getent").stdout, before);
+    assert!(
+        refused
+            .refusals
+            .iter()
+            .any(|x| x.subject == "user sysx" && x.reason.contains("system account")),
+        "{:?}",
+        refused.refusals
+    );
+    assert_eq!(
+        Command::new("getent").args(["passwd", "sysx"]).output().expect("getent").stdout,
+        before
+    );
     s.extra_users.extend(["sysx-mux".into(), "sysx-agents".into()]);
 }

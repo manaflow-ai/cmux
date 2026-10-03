@@ -120,7 +120,8 @@ pub fn parse_getfacl(text: &str) -> Result<PathAcl, String> {
         if parts.len() != 3 {
             return Err(format!("unexpected getfacl line {raw:?}"));
         }
-        let perm = Perm::parse(parts[2]).ok_or_else(|| format!("unexpected permissions in {raw:?}"))?;
+        let perm =
+            Perm::parse(parts[2]).ok_or_else(|| format!("unexpected permissions in {raw:?}"))?;
         let id = |s: &str| s.parse::<u32>().map_err(|_| format!("non-numeric id in {raw:?}"));
         let tag = match (parts[0], parts[1]) {
             ("user", "") => Tag::UserObj,

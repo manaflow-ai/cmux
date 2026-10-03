@@ -154,7 +154,9 @@ impl Valid {
     }
 
     pub fn person_node_of(&self, member: &str) -> Option<&Node> {
-        self.nodes.values().find(|n| n.kind == NodeKind::Person && n.person.as_deref() == Some(member))
+        self.nodes
+            .values()
+            .find(|n| n.kind == NodeKind::Person && n.person.as_deref() == Some(member))
     }
 }
 
@@ -171,7 +173,10 @@ fn segments_valid(id: &str) -> bool {
 /// A member name as `TeamDO` allocates it: a lowercase letter, then letters and digits, at most 24.
 pub fn valid_member_name(name: &str) -> bool {
     let b = name.as_bytes();
-    !b.is_empty() && b.len() <= 24 && b[0].is_ascii_lowercase() && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+    !b.is_empty()
+        && b.len() <= 24
+        && b[0].is_ascii_lowercase()
+        && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
 }
 
 /// Checks the snapshot. Invalid nodes (and every node below them), members and grants are dropped
@@ -186,8 +191,14 @@ pub fn validate(d: &Directory) -> (Valid, Vec<Refusal>) {
     let names: BTreeSet<&str> = d.members.iter().map(|m| m.name.as_str()).collect();
     // Parents before children: sort by depth, then id.
     let mut nodes: Vec<&Node> = d.nodes.iter().collect();
-    nodes.sort_by(|a, b| a.id.matches('.').count().cmp(&b.id.matches('.').count()).then(a.id.cmp(&b.id)));
-    let mut blocks: BTreeMap<u32, String> = BTreeMap::new();
+    nodes.sort_by(|a, b| {
+        a.id.matches('.').count().cmp(&b.id.matches('.').count()).then(a.id.cmp(&b.id))
+    });
+    // A GID block named by two nodes is ambiguous: both are refused, never first come, first served.
+    let mut uses: BTreeMap<u32, usize> = BTreeMap::new();
+    for n in &d.nodes {
+        *uses.entry(n.gid).or_default() += 1;
+    }
     for n in nodes {
         let subject = format!("node {}", n.id);
         let parent = Valid::parent(&n.id);
@@ -197,10 +208,13 @@ pub fn validate(d: &Directory) -> (Valid, Vec<Refusal>) {
             Some("duplicate node id".to_string())
         } else if Valid::group(&n.id, Role::Admin).len() > MAX_NAME {
             Some(format!("group name n-{}-a is longer than {MAX_NAME} characters", n.id))
-        } else if n.gid < FIRST_NODE_GID || n.gid > MAX_NODE_GID - 2 || (n.gid - FIRST_NODE_GID) % 3 != 0 {
+        } else if n.gid < FIRST_NODE_GID
+            || n.gid > MAX_NODE_GID - 2
+            || !(n.gid - FIRST_NODE_GID).is_multiple_of(3)
+        {
             Some(format!("gid {} is not a node block (from {FIRST_NODE_GID}, steps of 3)", n.gid))
-        } else if let Some(owner) = blocks.get(&n.gid) {
-            Some(format!("gid block {} already belongs to node {owner}", n.gid))
+        } else if uses.get(&n.gid).copied().unwrap_or(0) > 1 {
+            Some(format!("gid block {} is named by more than one node", n.gid))
         } else {
             match (n.kind, parent) {
                 (NodeKind::Team, None) if n.id == d.team => None,
@@ -227,13 +241,15 @@ pub fn validate(d: &Directory) -> (Valid, Vec<Refusal>) {
         match reason {
             Some(r) => refusals.push(Refusal::new(subject, r)),
             None => {
-                blocks.insert(n.gid, n.id.clone());
                 v.nodes.insert(n.id.clone(), n.clone());
             }
         }
     }
     if !v.nodes.contains_key(&d.team) {
-        refusals.push(Refusal::new(format!("team {}", d.team), "no valid team node; nothing is reconciled"));
+        refusals.push(Refusal::new(
+            format!("team {}", d.team),
+            "no valid team node; nothing is reconciled",
+        ));
         v.nodes.clear();
         return (v, refusals);
     }
@@ -244,8 +260,14 @@ pub fn validate(d: &Directory) -> (Valid, Vec<Refusal>) {
             Some("invalid Linux name".to_string())
         } else if v.members.contains_key(&m.name) {
             Some("duplicate member name".to_string())
-        } else if m.uid < FIRST_UID || m.uid + UID_BLOCK > MAX_UID || (m.uid - FIRST_UID) % UID_BLOCK != 0 {
-            Some(format!("uid {} is not a member block (from {FIRST_UID}, steps of {UID_BLOCK}, below {MAX_UID})", m.uid))
+        } else if m.uid < FIRST_UID
+            || m.uid + UID_BLOCK > MAX_UID
+            || !(m.uid - FIRST_UID).is_multiple_of(UID_BLOCK)
+        {
+            Some(format!(
+                "uid {} is not a member block (from {FIRST_UID}, steps of {UID_BLOCK}, below {MAX_UID})",
+                m.uid
+            ))
         } else if uids.contains(&m.uid) {
             Some(format!("uid block {} is used twice", m.uid))
         } else {
@@ -260,10 +282,16 @@ pub fn validate(d: &Directory) -> (Valid, Vec<Refusal>) {
             let mut out = Vec::new();
             for g in grants {
                 match v.nodes.get(&g.node) {
-                    None => refusals.push(Refusal::new(format!("member {} {what} {}", m.name, g.node), "unknown or refused node")),
+                    None => refusals.push(Refusal::new(
+                        format!("member {} {what} {}", m.name, g.node),
+                        "unknown or refused node",
+                    )),
                     // A person node is private: only its person (added below), never a grant.
                     Some(n) if n.kind == NodeKind::Person => {
-                        refusals.push(Refusal::new(format!("member {} {what} {}", m.name, g.node), "person nodes take no grants"));
+                        refusals.push(Refusal::new(
+                            format!("member {} {what} {}", m.name, g.node),
+                            "person nodes take no grants",
+                        ));
                     }
                     Some(_) => out.push(g.clone()),
                 }
@@ -274,13 +302,18 @@ pub fn validate(d: &Directory) -> (Valid, Vec<Refusal>) {
         };
         let roles = keep(&m.roles, "role on");
         let agent_roles = m.agent_roles.as_ref().map(|a| keep(a, "agent role on"));
-        v.members.insert(m.name.clone(), Member { name: m.name.clone(), uid: m.uid, roles, agent_roles });
+        v.members.insert(
+            m.name.clone(),
+            Member { name: m.name.clone(), uid: m.uid, roles, agent_roles },
+        );
     }
     // Person nodes whose member was refused have no owner: drop them too.
     let orphans: Vec<String> = v
         .nodes
         .values()
-        .filter(|n| n.kind == NodeKind::Person && !v.members.contains_key(n.person.as_deref().unwrap_or("")))
+        .filter(|n| {
+            n.kind == NodeKind::Person && !v.members.contains_key(n.person.as_deref().unwrap_or(""))
+        })
         .map(|n| n.id.clone())
         .collect();
     for id in orphans {
