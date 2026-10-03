@@ -17,6 +17,7 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxHomeCore"),
         .package(path: "../../Packages/Shared/CmuxFeedPushCore"),
         .package(path: "../../Packages/Shared/CmuxInstallAuthCore"),
+        .package(path: "../../Packages/Shared/CmuxTextConfirmCore"),
         .package(path: "../../Packages/Shared/CMUXAuthCore"),
         .package(path: "../../Packages/Shared/CMUXMobileCore"),
         .package(path: "../../Packages/Shared/CmuxAuthRuntime"),
@@ -35,6 +36,8 @@ let package = Package(
                 "CmuxiOSPush",
                 "CmuxiOSIdentity",
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
+                "CmuxiOSTextConfirm",
+                .product(name: "CmuxTextConfirmCore", package: "CmuxTextConfirmCore"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxPhonePush", package: "CmuxPhonePush"),
             ],
@@ -102,6 +105,12 @@ let package = Package(
                 .product(name: "CmuxInstallAuthCore", package: "CmuxInstallAuthCore"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
             ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .target(
+            name: "CmuxiOSTextConfirm",
+            dependencies: [.product(name: "CmuxTextConfirmCore", package: "CmuxTextConfirmCore")],
+            resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(
