@@ -357,6 +357,33 @@ describe("request timeouts", () => {
   }, 5000);
 });
 
+describe("acpmux request timeouts", () => {
+  test("a stuck child events fetch hits the request deadline: acpmux reconnects and the child still finishes", async () => {
+    const w = await setup();
+    const clock = fakeClock();
+    const childHold = deferred<string>();
+    w.acpmux.respond = (session, text) => (session.name === "fixer" ? childHold.promise : `ok: ${text.slice(0, 40)}`);
+    const host = w.host({ clock, requestTimeoutMs: 1_000 });
+    host.start();
+    await host.ready;
+    const child = await spawnAgent(w.acpmux.path, { cwd: w.dir, name: "fixer", harness: "claude", prompt: "fix the bug" });
+    expect(child.tags["mux.parent"]).toBe("mux");
+    const events = () => w.acpmux.calls.filter((c) => c.method === "_acpmux/events").length;
+    const before = events();
+    w.acpmux.hold.add("_acpmux/events");
+    childHold.resolve("fixed it");
+    await w.acpmux.until(() => events() > before);
+    w.acpmux.hold.delete("_acpmux/events");
+    const initializes = () => w.acpmux.calls.filter((c) => c.method === "initialize").length;
+    const connects = initializes();
+    clock.advance(1_000); // the request deadline
+    const used = await advanceUntil(clock, () => initializes() > connects);
+    expect(used).toBeLessThanOrEqual(MAX_BACKOFF_MS); // at most one backoff
+    // The lost connection finishes the child with no reply text; the mux still hears of it.
+    await w.acpmux.until(() => w.acpmux.userMessages("mux").some((m) => m.text.startsWith("[mux-event] child fixer finished")));
+  }, 5000);
+});
+
 describe("connect-phase timeouts", () => {
   test("a stuck conversation-create times out on the injected clock and the daemon connect is retried", async () => {
     const w = await setup();
