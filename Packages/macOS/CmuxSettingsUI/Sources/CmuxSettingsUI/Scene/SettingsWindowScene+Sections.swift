@@ -76,6 +76,7 @@ extension SettingsWindowRoot {
             // while unavailable, not just no placeholder.
             if isCloudSectionAvailable {
                 CloudMachinesSection(hostActions: hostActions)
+                    .id(cloudSectionIdentity)
             }
         }
 
