@@ -1371,3 +1371,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_gh_merge_green.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_guard.py"
+lane = "linux-guard"
