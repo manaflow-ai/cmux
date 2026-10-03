@@ -66,6 +66,26 @@ async fn one_probed_path_reports_its_kind_and_round_trip() {
     assert!((19.0..=25.0).contains(&event.rtt_ms), "rtt {} ms", event.rtt_ms);
     assert_eq!(event.max_datagram, 1152);
     assert_eq!(control.snapshot().path, event.path);
+
+    // The only path goes silent: once it is dead, events say so, but keep
+    // its kind and report its loss instead of a blank "no path" with 0 %.
+    sim.set_link(addr(CLIENT), addr(SERVER), LinkProfile { cut: true, ..Default::default() });
+    let dead = timeout(Duration::from_secs(30), async {
+        loop {
+            ours.send_to(b"frame", peer, Priority::Media).await.unwrap();
+            if let Ok(event) = events.try_recv()
+                && event.path.is_none()
+            {
+                return event;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the cut path is declared dead");
+    assert_eq!(dead.kind, Some(PathKind::ViaCloudRegion), "{dead:?}");
+    assert!(dead.loss_pct > 0.0, "a dead path reports its loss: {dead:?}");
+    assert_eq!(control.snapshot().kind, Some(PathKind::ViaCloudRegion));
     client.shutdown().await;
     server.shutdown().await;
 }
