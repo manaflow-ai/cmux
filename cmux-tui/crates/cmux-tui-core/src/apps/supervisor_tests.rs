@@ -187,6 +187,10 @@ impl OpRouter for Arc<FakeRouter> {
     fn start_events(&self, publish: Box<dyn Fn(&str) + Send + Sync>) {
         *self.publish.lock().unwrap() = Some(publish);
     }
+
+    fn owns(&self, op: &str) -> bool {
+        !super::provider::FAMILIES.contains(&super::provider::family_of(op))
+    }
 }
 
 #[derive(Default)]
@@ -304,6 +308,8 @@ fn fixture_with(defaults: &[&str], idle: Duration, root: TempDir) -> Fixture {
                 defaults: defaults.iter().map(|s| s.to_string()).collect(),
             },
             idle_stop: idle,
+            provider_deadline: Duration::from_millis(400),
+            provider_user_deadline: Duration::from_millis(400),
         },
         Box::new(router.clone()),
         Box::new(fetcher.clone()),
@@ -813,13 +819,13 @@ fn action_run_honors_the_action_catalog_and_needs_a_gesture() {
         f.call("m1", "action.run", json!({ "id": "newWindow" }), false)["body"]["code"],
         "gesture.required"
     );
-    // Allowed with a gesture; the action owner (the cmux app) answers it, not the daemon.
+    // Allowed with a gesture; with no Mac app connected it fails at once (APP-R1).
+    let unavailable = f.call("m1", "action.run", json!({ "id": "newWindow" }), true);
     assert_eq!(
-        f.call("m1", "action.run", json!({ "id": "newWindow" }), true)["body"]["message"]
-            .as_str()
-            .map(|m| m.contains("answered by the cmux app")),
-        Some(true)
+        (unavailable["body"]["code"].clone(), unavailable["body"]["retryable"].clone()),
+        (json!("provider.unavailable"), json!(true))
     );
+    assert_eq!(unavailable["body"]["details"]["family"], "action");
 }
 
 #[test]
@@ -857,5 +863,143 @@ fn a_palette_command_runs_its_user_only_op_with_the_palette_gesture() {
     assert_eq!(
         rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap_err().code,
         "gesture.required"
+    );
+}
+
+// MARK: provider channel (app-op-routing.md, APP-R1)
+
+const PROVIDER: u64 = 9;
+
+/// Registers a provider connection and returns its event stream.
+fn provider(f: &Fixture, families: &[&str]) -> Receiver<Value> {
+    let (tx, rx) = channel();
+    let tx = Mutex::new(tx);
+    f.supervisor.register_client(
+        PROVIDER,
+        Arc::new(move |v: &Value| tx.lock().unwrap().send(v.clone()).is_ok()),
+    );
+    f.supervisor
+        .register_provider(PROVIDER, families.iter().map(|s| s.to_string()).collect())
+        .unwrap();
+    rx
+}
+
+fn next_request(rx: &Receiver<Value>) -> Value {
+    loop {
+        let event = rx.recv_timeout(Duration::from_secs(10)).expect("provider request");
+        if event["event"] == "apps-provider-request" {
+            return event;
+        }
+    }
+}
+
+#[test]
+fn provider_calls_carry_the_stamped_actor_and_answer_the_app() {
+    let f = fixture();
+    f.install("cmux/demo");
+    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    let rx = provider(&f, &["action"]);
+    f.supervisor
+        .dispatch(
+            CLIENT,
+            "m1",
+            "n1",
+            "tap",
+            json!({ "op": "action.run", "params": { "id": "newWindow" } }),
+            true,
+        )
+        .unwrap();
+    let request = next_request(&rx);
+    assert_eq!(
+        (
+            request["app"].clone(),
+            request["actor"].clone(),
+            request["origin"].clone(),
+            request["op"].clone()
+        ),
+        (json!("cmux/demo"), json!("app:cmux/demo"), json!("user"), json!("action.run"))
+    );
+    assert!(request["idempotency_key"].as_str().is_some_and(|k| k.starts_with("app:cmux/demo:")));
+    let id = request["request_id"].as_u64().unwrap();
+    // Only the connection the call went to may answer it.
+    assert_eq!(
+        f.supervisor.provider_result(CLIENT, id, true, json!({ "value": 1 })).unwrap_err().code,
+        "apps.provider.unknown"
+    );
+    f.supervisor.provider_result(PROVIDER, id, true, json!({ "value": "opened" })).unwrap();
+    let update =
+        f.wait("call result", |e| e["event"] == "apps-scene" && e["ops"][0]["op"] == "update");
+    assert_eq!(
+        update["ops"][0]["props"]["result"],
+        json!({ "ok": true, "body": { "value": "opened" } })
+    );
+}
+
+#[test]
+fn no_provider_fails_at_once_and_a_provider_leaving_fails_its_pending_calls() {
+    let f = fixture();
+    f.install("cmux/demo");
+    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    let started = Instant::now();
+    let missing = f.call("m1", "action.run", json!({ "id": "newWindow" }), true);
+    assert_eq!(missing["body"]["code"], "provider.unavailable");
+    assert!(
+        started.elapsed() < Duration::from_millis(400),
+        "no wait for a provider that is not there"
+    );
+    let rx = provider(&f, &["action"]);
+    f.supervisor
+        .dispatch(
+            CLIENT,
+            "m1",
+            "n1",
+            "tap",
+            json!({ "op": "action.run", "params": { "id": "newWindow" } }),
+            true,
+        )
+        .unwrap();
+    next_request(&rx);
+    f.supervisor.disconnect(PROVIDER);
+    let update =
+        f.wait("call result", |e| e["event"] == "apps-scene" && e["ops"][0]["op"] == "update");
+    let body = update["ops"][0]["props"]["result"]["body"].clone();
+    assert_eq!(
+        (body["code"].clone(), body["retryable"].clone(), body["details"]["family"].clone()),
+        (json!("provider.unavailable"), json!(true), json!("action"))
+    );
+    // The family went with the connection.
+    assert_eq!(
+        f.call("m1", "action.run", json!({ "id": "newWindow" }), true)["body"]["code"],
+        "provider.unavailable"
+    );
+}
+
+#[test]
+fn a_provider_that_does_not_answer_times_out_and_is_told() {
+    let f = fixture();
+    f.install("cmux/demo");
+    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    let rx = provider(&f, &["action"]);
+    f.supervisor
+        .dispatch(
+            CLIENT,
+            "m1",
+            "n1",
+            "tap",
+            json!({ "op": "action.run", "params": { "id": "newWindow" } }),
+            true,
+        )
+        .unwrap();
+    let id = next_request(&rx)["request_id"].clone();
+    let update = f.wait("timeout", |e| e["event"] == "apps-scene" && e["ops"][0]["op"] == "update");
+    assert_eq!(update["ops"][0]["props"]["result"]["body"]["details"]["reason"], "timeout");
+    let cancel = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(
+        (cancel["event"].clone(), cancel["request_id"].clone()),
+        (json!("apps-provider-cancel"), id)
+    );
+    assert_eq!(
+        f.supervisor.register_provider(PROVIDER, vec!["shell".into()]).unwrap_err().code,
+        "bad-request"
     );
 }
