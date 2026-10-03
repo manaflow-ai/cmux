@@ -1432,12 +1432,12 @@ else
 fi
 
 # cmux-next's agent pane starts the acpmux daemon from Resources/bin. CI and
-# reload-build provision CMUX_NEXT_ACPMUX_BIN from the pinned source ref; a
-# tagged reload outside CI may reuse that ref-addressed cache, but never runs
+# reload-build provision CMUX_NEXT_ACPMUX_BIN from the in-tree source; a
+# tagged reload outside CI may reuse that commit-addressed cache, but never runs
 # Cargo on the developer machine.
 if [[ -n "${CMUX_NEXT_ACPMUX_BIN:-}" ]]; then
   echo "==> cmux-next: bundling acpmux from CMUX_NEXT_ACPMUX_BIN=$CMUX_NEXT_ACPMUX_BIN"
-elif [[ -x "$PWD/scripts/cmux-next/build-acpmux.sh" && -f "$PWD/scripts/cmux-next/acpmux.ref" ]]; then
+elif [[ -x "$PWD/scripts/cmux-next/build-acpmux.sh" ]]; then
   if acpmux_cached="$("$PWD/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path 2>/dev/null)"; then
     export CMUX_NEXT_ACPMUX_BIN="$acpmux_cached"
     echo "==> cmux-next: bundling cached acpmux from $CMUX_NEXT_ACPMUX_BIN"
@@ -1446,7 +1446,7 @@ elif [[ -x "$PWD/scripts/cmux-next/build-acpmux.sh" && -f "$PWD/scripts/cmux-nex
     export CMUX_NEXT_ACPMUX_BIN="$("$PWD/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path)"
     echo "==> cmux-next: bundling fleet-built acpmux from $CMUX_NEXT_ACPMUX_BIN"
   else
-    echo "error: no cached acpmux for this ref; provision it on CI/fleet or set CMUX_NEXT_ACPMUX_BIN" >&2
+    echo "error: no cached acpmux for this checkout; provision it on CI/fleet or set CMUX_NEXT_ACPMUX_BIN" >&2
     exit 1
   fi
 fi

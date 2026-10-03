@@ -37,7 +37,6 @@ on:
       - scripts/cmux-next/build-cef-shim.sh
       - scripts/cmux-next/cmux-tui.pin
       - scripts/cmux-next/pin-cmux-tui.sh
-      - scripts/cmux-next/acpmux.ref
       - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/download-prebuilt-ghosttykit.sh
@@ -74,7 +73,6 @@ on:
       - scripts/cmux-next/build-cef-shim.sh
       - scripts/cmux-next/cmux-tui.pin
       - scripts/cmux-next/pin-cmux-tui.sh
-      - scripts/cmux-next/acpmux.ref
       - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - .github/workflows/cmux-next.yml
@@ -514,7 +512,7 @@ jobs:
       - name: Install Rust (diff sidecar)
         run: ./scripts/install-rust-ci.sh
 
-      - name: Build pinned acpmux for the app bundle
+      - name: Build in-tree acpmux for the app bundle
         env:
           CMUX_NEXT_ACPMUX_ARCHS: arm64
         run: |

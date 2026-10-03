@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
-# Build the acpmux daemon from the pinned source ref for cmux-next.
+# Build the acpmux daemon from the in-tree cmux-tui workspace for cmux-next.
 #
 # CI and fleet reload jobs call this script after installing Rust. It keeps an
-# immutable, ref-addressed result under cmux-tui/target/hosted so a tagged
+# immutable, commit-addressed result under cmux-tui/target/hosted so a tagged
 # reload can reuse the result without compiling locally. The script never
 # downloads or builds when --cached-only is used.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ref_file="$repo_root/scripts/cmux-next/acpmux.ref"
 
 usage() {
   sed -n '2,9p' "$0" | sed 's/^# //'
@@ -24,12 +23,8 @@ USAGE
 cached_only=0
 print_path=0
 output=""
-source_checkout=""
 build_root=""
-cleanup() {
-  [[ -z "$source_checkout" ]] || rm -rf "$source_checkout"
-  [[ -z "$build_root" ]] || rm -rf "$build_root"
-}
+cleanup() { [[ -z "$build_root" ]] || rm -rf "$build_root"; }
 trap cleanup EXIT
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -41,12 +36,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-pin_field() { awk -F= -v key="$1" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "$ref_file"; }
-[[ -f "$ref_file" ]] || { echo "error: missing $ref_file" >&2; exit 1; }
-pinned_commit="$(pin_field commit)"
-repository="$(pin_field repository)"
-[[ "$pinned_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "error: malformed acpmux ref commit in $ref_file" >&2; exit 1; }
-[[ "$repository" == https://* ]] || { echo "error: malformed acpmux ref repository in $ref_file" >&2; exit 1; }
+source_mode=in-tree
+source_root="$repo_root"
+source_commit="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)"
+[[ "$source_commit" =~ ^[0-9a-f]{40}$ ]] || {
+  echo "error: cannot determine the in-tree acpmux source commit" >&2
+  exit 1
+}
+[[ -f "$source_root/cmux-tui/crates/acpmux/Cargo.toml" ]] || {
+  echo "error: in-tree cmux-tui/crates/acpmux is missing" >&2
+  exit 1
+}
 
 normalize_archs() {
   local raw="${CMUX_NEXT_ACPMUX_ARCHS:-${ARCHS:-}}"
@@ -73,21 +73,8 @@ normalize_archs() {
 archs="$(normalize_archs)"
 arch_key="${archs// /-}"
 cache_root="${CMUX_NEXT_ACPMUX_CACHE:-$repo_root/cmux-tui/target/hosted/acpmux}"
-cache_dir="$cache_root/$pinned_commit/$arch_key"
+cache_dir="$cache_root/in-tree-$source_commit/$arch_key"
 cache_bin="$cache_dir/acpmux"
-
-if [[ -f "$repo_root/cmux-tui/crates/acpmux/Cargo.toml" ]]; then
-  # Once the source branch merges, use the in-tree crate and key its cache by
-  # the checkout. Keep the ref file as the transition marker for old builds.
-  source_mode=in-tree
-  source_root="$repo_root"
-  source_commit="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || printf '%s' in-tree)"
-  cache_dir="$cache_root/in-tree-$source_commit/$arch_key"
-  cache_bin="$cache_dir/acpmux"
-else
-  source_mode=pinned
-  source_root=""
-fi
 
 sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
 
@@ -110,19 +97,10 @@ if [[ "$cached_only" -eq 1 ]]; then
   exit 1
 fi
 
-if [[ "$source_mode" == pinned ]]; then
-  [[ -n "${CI:-}${GITHUB_ACTIONS:-}${CMUX_FLEET_BUILD_TAG:-}" ]] || {
-    echo "error: acpmux is not cached; build it on CI/fleet and set CMUX_NEXT_ACPMUX_BIN (or run this script there)" >&2
-    exit 1
-  }
-  source_checkout="$(mktemp -d "${TMPDIR:-/tmp}/cmux-acpmux-src.XXXXXX")"
-  git -C "$source_checkout" init -q
-  git -C "$source_checkout" remote add origin "$repository"
-  echo "==> fetching acpmux source $pinned_commit"
-  git -C "$source_checkout" fetch --depth=1 origin "$pinned_commit"
-  git -C "$source_checkout" checkout -q --detach FETCH_HEAD
-  source_root="$source_checkout"
-fi
+[[ -n "${CI:-}${GITHUB_ACTIONS:-}${CMUX_FLEET_BUILD_TAG:-}" ]] || {
+  echo "error: acpmux is not cached; build it on CI/fleet and set CMUX_NEXT_ACPMUX_BIN" >&2
+  exit 1
+}
 
 command -v cargo >/dev/null 2>&1 || { echo "error: cargo is required to build acpmux" >&2; exit 1; }
 command -v rustup >/dev/null 2>&1 || { echo "error: rustup is required to provision acpmux targets" >&2; exit 1; }
@@ -140,7 +118,7 @@ built_slices=()
 for arch in $archs; do
   target="$([[ "$arch" == arm64 ]] && printf aarch64 || printf x86_64)-apple-darwin"
   target_dir="$build_root/$target"
-  echo "==> building acpmux ($source_mode $pinned_commit, $target)"
+  echo "==> building acpmux ($source_mode $source_commit, $target)"
   (cd "$source_root/cmux-tui" && CARGO_TARGET_DIR="$target_dir" cargo build \
     --locked --release --package acpmux --target "$target")
   slice="$target_dir/$target/release/acpmux"
@@ -158,7 +136,7 @@ else
 fi
 chmod 755 "$staged"
 mv -f "$staged" "$cache_bin"
-printf '%s\n' "commit=$pinned_commit" "source=$source_mode" "archs=$archs" "sha256=$(sha256_of "$cache_bin")" > "$cache_bin.ref"
+printf '%s\n' "commit=$source_commit" "source=$source_mode" "archs=$archs" "sha256=$(sha256_of "$cache_bin")" > "$cache_bin.ref"
 
 if [[ -n "$output" && "$output" != "$cache_bin" ]]; then
   mkdir -p "$(dirname "$output")"

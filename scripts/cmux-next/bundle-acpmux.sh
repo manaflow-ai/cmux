@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Xcode "Bundle acpmux" phase for cmux-next. The binary is built by CI or
-# supplied from the ref-addressed fleet cache. This phase only copies it into
+# supplied from the commit-addressed fleet cache. This phase only copies it into
 # the app, so an ordinary local Xcode build never starts a Cargo build.
 set -euo pipefail
 
@@ -13,7 +13,7 @@ if [[ -z "$src" ]]; then
   src="$({ "$repo_root/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path; } 2>/dev/null || true)"
 fi
 if [[ -z "$src" || ! -f "$src" ]]; then
-  echo "error: no acpmux binary is available for this build. CI must run scripts/cmux-next/build-acpmux.sh and set CMUX_NEXT_ACPMUX_BIN; local reloads need the ref-addressed fleet cache." >&2
+  echo "error: no acpmux binary is available for this build. CI must run scripts/cmux-next/build-acpmux.sh and set CMUX_NEXT_ACPMUX_BIN; local reloads need the commit-addressed fleet cache." >&2
   exit 1
 fi
 [[ -x "$src" ]] || { echo "error: acpmux source is not executable: $src" >&2; exit 1; }
@@ -47,7 +47,7 @@ chmod 755 "$dest"
 commit="$(awk -F= '$1 == "commit" { print $2; exit }' "$src.ref" 2>/dev/null || true)"
 source_kind="$(awk -F= '$1 == "source" { print $2; exit }' "$src.ref" 2>/dev/null || true)"
 if [[ -z "$commit" ]]; then
-  commit="$(awk -F= '$1 == "commit" { print $2; exit }' "$repo_root/scripts/cmux-next/acpmux.ref")"
+  commit="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)"
 fi
 [[ -n "$source_kind" ]] || source_kind="ci-or-cache"
 actual_archs="$(command -v lipo >/dev/null 2>&1 && lipo -archs "$dest" || /usr/bin/file -b "$dest")"

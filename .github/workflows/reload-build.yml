@@ -161,11 +161,11 @@ jobs:
             echo "cmux-cua build script absent in source ref; skipping Rust provisioning"
           fi
 
-      # cmux-next's agent pane starts the ref-pinned acpmux daemon from the
-      # app bundle. Build it on the fleet before reload.sh; local reloads use
-      # the same ref-addressed cache when one has already been provisioned.
-      - name: Build pinned acpmux (macOS)
-        if: ${{ inputs.platform == 'macos' && hashFiles('scripts/cmux-next/build-acpmux.sh', 'scripts/cmux-next/acpmux.ref') != '' }}
+      # cmux-next's agent pane starts the in-tree acpmux daemon from the app
+      # bundle. Build it on the fleet before reload.sh; local reloads use the
+      # same commit-addressed cache when one has already been provisioned.
+      - name: Build in-tree acpmux (macOS)
+        if: ${{ inputs.platform == 'macos' && hashFiles('scripts/cmux-next/build-acpmux.sh') != '' }}
         run: |
           set -euo pipefail
           ./scripts/install-rust-ci.sh
