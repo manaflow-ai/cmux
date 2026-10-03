@@ -31,6 +31,7 @@ nonisolated extension ActionSurfaceCatalog {
             "clearAllNotifications", "notifications.toggleBanners", "notifications.dismissal.keystroke",
             "notifications.dismissal.focus", "notifications.dismissal.click", "notifications.dismissal.explicit",
             "notifications.dismissal.timeout", "notifications.dismissal.never", "palette.openTerminalChatView",
+            "palette.quickAgentChat",
             "palette.launchClaudeTeams", "palette.launchCodexTeams", "palette.computerUse.setup",
             "palette.computerUse.accessibility", "palette.computerUse.screenRecording", "computerUseStop",
             "newCloudMachine", "cloudDiagnostics", "openTeamPicker", "palette.auth.signIn", "palette.auth.signOut",

@@ -56,6 +56,9 @@ type Props = {
   searchFiles?: FileSearchSource;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
   onProject?(cwd: string): void;
+  /// ⌘Return, only where set (the Quick Composer): sends what was typed as Return would, then
+  /// asks to open the chat in a window. `sent` says whether there was a prompt to send.
+  onOpenInWindow?(sent: boolean): void;
 };
 
 /// The prompt box with the agent's `/` command menu:
@@ -76,6 +79,7 @@ export function Composer({
   onAttach,
   searchFiles,
   onProject,
+  onOpenInWindow,
 }: Props) {
   const [findingFiles, setFindingFiles] = useState(false);
   // A new folder (another chat) closes the palette, so no row from the last one stays pickable.
@@ -197,6 +201,21 @@ export function Composer({
     // Every key belongs to the input method while it composes, not only Enter.
     if (event.isComposing || event.keyCode === 229) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+    // ⌘Return sends whatever is typed, even over an open command menu, then opens the window.
+    if (
+      onOpenInWindow &&
+      event.key === "Enter" &&
+      event.metaKey &&
+      !event.shiftKey &&
+      !event.altKey &&
+      !event.ctrlKey
+    ) {
+      event.preventDefault();
+      const sent = unwrapped().trim() !== "";
+      submit(event);
+      onOpenInWindow(sent);
+      return;
+    }
     // Enter sends unless it picks a command: with the menu closed, with nothing
     // to pick (an unknown command or a pasted path), or on a command already
     // typed in full that takes no arguments.

@@ -56,6 +56,8 @@ import type { HandoffReviewInput } from "./handoff/review";
 import { useCheckpoints } from "./checkpoints/controller";
 import { checkpointStrings, localizedCheckpointStrings } from "./checkpoints/strings";
 import { NativeError, type NativeErrorReply } from "./nativeError";
+import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
+import { QuickSurface } from "./QuickSurface";
 
 type Reply<T> = { ok: true; value: T } | { ok: false; error?: NativeErrorReply };
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
@@ -121,6 +123,10 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
     },
   );
 }
+
+/// Asks the host to show the Quick Composer's chat in a window.
+const postOpenInWindow = (sessionId: string) =>
+  void callNative(QUICK_MESSAGES.openInWindow, { sessionId }).catch(() => undefined);
 
 /// Folder trust lives with acpmux (or the mock daemon), else the native host.
 const trustSource: TrustSource = {
@@ -835,6 +841,9 @@ function AcpmuxPane() {
   // live bindings through applyShortcuts, so labels follow a rebind.
   const [searching, setSearching] = useState(false);
   const [shortcuts, setShortcuts] = useState<ShortcutLabels>({});
+  /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
+  const [surface, setSurface] = useState<PaneSurface>("pane");
+  const quick = surface === "quick";
   // While the narrow-pane overlay is open, Escape closes it and focus moves into it.
   useEffect(() => {
     if (sidebar !== "open" || wide) return;
@@ -848,6 +857,22 @@ function AcpmuxPane() {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [sidebar, wide, closeOverlay]);
+  const surfaceRef = useRef(surface);
+  surfaceRef.current = surface;
+  // Escape that no menu, picker or palette took hides the Quick Composer, keeping its draft.
+  useEscapeToDismiss(quick, () => void callNative(QUICK_MESSAGES.dismiss).catch(() => undefined));
+  // ⌘Return in the Quick Composer opens its chat in a window, once the chat has a session: a
+  // first prompt's send starts one, so the ask waits for it.
+  const openInWindowPending = useRef(false);
+  const openInWindow = (sent: boolean) => {
+    if (snapshot.sessionId) postOpenInWindow(snapshot.sessionId);
+    else if (sent) openInWindowPending.current = true;
+  };
+  useEffect(() => {
+    if (!openInWindowPending.current || !snapshot.sessionId) return;
+    openInWindowPending.current = false;
+    postOpenInWindow(snapshot.sessionId);
+  }, [snapshot.sessionId]);
   const rowsRef = useRef(new Map<string, AcpmuxRow>());
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(undefined);
@@ -877,7 +902,8 @@ function AcpmuxPane() {
     };
     window.cmuxAcpmuxBridge = {
       command(name) {
-        if (name === "searchChats") setSearching((open) => !open);
+        // The Quick Composer has no chat list to search or switch to.
+        if (name === "searchChats" && surfaceRef.current !== "quick") setSearching((open) => !open);
         if (name === "createCheckpoint") showCheckpoint.current();
         if (
           name === "continueIn" &&
@@ -956,8 +982,10 @@ function AcpmuxPane() {
           account?: unknown;
           handoffStrings?: unknown;
           checkpointStrings?: unknown;
+          surface?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
+        if (!reconnect) setSurface(readSurface(host.surface));
         // A tab opened as the new tab page shows it until it becomes something (#16620).
         if (!reconnect) setNewTab(newTabHost(host));
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
@@ -1113,6 +1141,67 @@ function AcpmuxPane() {
     setNewTab(undefined);
     if (text) void callNative("chat.send", { text });
   };
+  const transcript = (
+    <TurnActionsContext.Provider value={turnActions}>
+      <VirtualTranscript
+        rows={transcriptRows}
+        canLoadOlder={snapshot.canLoadOlder}
+        expanded={expanded}
+        registry={registry}
+        // The Quick Composer has no room for the changes view; its file rows stay plain.
+        onOpenDiff={quick ? undefined : openDiff}
+        onToggleActivity={(id) =>
+          setExpanded((current) => {
+            const next = new Set(current);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+          })
+        }
+      />
+    </TurnActionsContext.Provider>
+  );
+  const asks = (snapshot.permission?.pending || trustAsk.ask) && (
+    <div className="acpmux-permission">
+      {trustAsk.ask && (
+        <TrustAsk
+          ask={trustAsk.ask}
+          agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
+          onTrust={trustAsk.trust}
+          onDistrust={trustAsk.distrust}
+          onUndo={trustAsk.undo}
+        />
+      )}
+      {snapshot.permission?.pending && (
+        <PermissionCard permission={snapshot.permission} onAnswer={answerPermission(snapshot.permission)} />
+      )}
+    </div>
+  );
+  const composer = !reviewing && !handoffLoading && (
+    <Composer
+      snapshot={composerSnapshot}
+      chips={ComposerChips}
+      draft={draft}
+      onSend={(text) => void callNative("chat.send", { text })}
+      onStop={() => void callNative("chat.cancel")}
+      onProject={(cwd) => void callNative("chat.new", { cwd }).catch(() => undefined)}
+      // Without a folder there is nothing to search; the + menu leaves the item out.
+      searchFiles={fileRoot ? searchFiles : undefined}
+      onOpenInWindow={quick ? openInWindow : undefined}
+    />
+  );
+  if (quick)
+    return (
+      <ShortcutsContext.Provider value={shortcuts}>
+        <section className="acpmux-shell" data-surface="quick">
+          <QuickSurface
+            transcript={snapshot.rows.length > 0 ? transcript : undefined}
+            asks={asks}
+            composer={composer}
+          />
+        </section>
+      </ShortcutsContext.Provider>
+    );
   return (
     <ShortcutsContext.Provider value={shortcuts}>
       <section className="acpmux-shell" data-sidebar={shellSidebar}>
@@ -1214,23 +1303,7 @@ function AcpmuxPane() {
                 ) : freshChat ? (
                   <EmptyState project={projectName(snapshot.summary?.cwd)} />
                 ) : (
-                  <TurnActionsContext.Provider value={turnActions}>
-                    <VirtualTranscript
-                      rows={transcriptRows}
-                      canLoadOlder={snapshot.canLoadOlder}
-                      expanded={expanded}
-                      registry={registry}
-                      onOpenDiff={openDiff}
-                      onToggleActivity={(id) =>
-                        setExpanded((current) => {
-                          const next = new Set(current);
-                          if (next.has(id)) next.delete(id);
-                          else next.add(id);
-                          return next;
-                        })
-                      }
-                    />
-                  </TurnActionsContext.Provider>
+                  transcript
                 )}
                 {diffView && diffFiles && (
                   <DiffPanel
@@ -1250,40 +1323,14 @@ function AcpmuxPane() {
                   />
                 )}
               </div>
-              {(snapshot.permission?.pending || trustAsk.ask) && (
-                <div className="acpmux-permission">
-                  {trustAsk.ask && (
-                    <TrustAsk
-                      ask={trustAsk.ask}
-                      agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
-                      onTrust={trustAsk.trust}
-                      onDistrust={trustAsk.distrust}
-                      onUndo={trustAsk.undo}
-                    />
-                  )}
-                  {snapshot.permission?.pending && (
-                    <PermissionCard permission={snapshot.permission} onAnswer={answerPermission(snapshot.permission)} />
-                  )}
-                </div>
-              )}
+              {asks}
               {/* Between the hero and the docked composer. */}
               {freshChat && (
                 <div className="acpmux-home-area">
                   <HomeLists sessions={snapshot.sessions} currentId={snapshot.sessionId} onSelect={selectSession} />
                 </div>
               )}
-              {!reviewing && !handoffLoading && (
-                <Composer
-                  snapshot={composerSnapshot}
-                  chips={ComposerChips}
-                  draft={draft}
-                  onSend={(text) => void callNative("chat.send", { text })}
-                  onStop={() => void callNative("chat.cancel")}
-                  onProject={(cwd) => void callNative("chat.new", { cwd }).catch(() => undefined)}
-                  // Without a folder there is nothing to search; the + menu leaves the item out.
-                  searchFiles={fileRoot ? searchFiles : undefined}
-                />
-              )}
+              {composer}
             </>
           )}
         </div>

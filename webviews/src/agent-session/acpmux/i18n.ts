@@ -49,6 +49,10 @@ const en = {
   "project.search": "Search projects",
   "project.none": "No matching projects",
   "permission.required": "Permission required",
+  "quick.keys": "Keyboard shortcuts",
+  "quick.send": "send",
+  "quick.openInWindow": "open in window",
+  "quick.close": "close",
 } as const;
 
 export type StringKey = keyof typeof en;
@@ -100,6 +104,10 @@ const ja: Record<StringKey, string> = {
   "project.search": "プロジェクトを検索",
   "project.none": "一致するプロジェクトはありません",
   "permission.required": "許可が必要です",
+  "quick.keys": "キーボードショートカット",
+  "quick.send": "送信",
+  "quick.openInWindow": "ウィンドウで開く",
+  "quick.close": "閉じる",
 };
 
 const tables: Record<string, Record<StringKey, string>> = { en, ja };

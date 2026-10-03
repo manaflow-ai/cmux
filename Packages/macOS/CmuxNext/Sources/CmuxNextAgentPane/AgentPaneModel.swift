@@ -31,6 +31,12 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
     /// Opens a changed file the page names; false when it could not.
     @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget) async -> Bool)?
+    /// The quick panel's page asked to hide the panel (`quick.dismiss`).
+    @ObservationIgnored public var onQuickDismiss: (() -> Void)?
+    /// The quick panel's page asked to open its chat in the main window
+    /// (`quick.openInWindow`). Gets the chat's session, nil before the
+    /// first prompt.
+    @ObservationIgnored public var onQuickOpenInWindow: ((String?) -> Void)?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
     /// What a new chat inherits from the tab it was opened from.
@@ -63,6 +69,9 @@ public final class AgentPaneModel {
                     handshake.draft = seed.draft
                     handshake.prompt = seed.prompt
                 }
+                // The surface holds after the chat has a session (a reload
+                // of the quick panel stays compact).
+                handshake.surface = seed?.surface
                 // A new tab page is a new chat on every host, the mock included: the page
                 // never falls back to the most recent session behind it.
                 if sessionId == nil, let newTab {
@@ -106,6 +115,19 @@ public final class AgentPaneModel {
                   target == .editor || AgentPaneFileOpen.showsInTab(url), await onOpenFile(url, target) else {
                 return AgentPaneReply.failure(code: "open_failed", message: Self.openFileFailedMessage)
             }
+            return AgentPaneReply.success()
+        case .quickDismiss:
+            guard let onQuickDismiss else { return Self.unsupported("quick.dismiss") }
+            onQuickDismiss()
+            return AgentPaneReply.success()
+        case .quickOpenInWindow(let session):
+            guard let onQuickOpenInWindow else { return Self.unsupported("quick.openInWindow") }
+            if let session, session != sessionId {
+                sessionId = session
+                newTab = nil
+                onSessionChange?(session)
+            }
+            onQuickOpenInWindow(sessionId)
             return AgentPaneReply.success()
         case .unsupported(let method):
             return Self.unsupported(method)

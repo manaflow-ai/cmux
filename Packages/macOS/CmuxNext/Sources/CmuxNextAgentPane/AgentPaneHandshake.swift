@@ -41,6 +41,9 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// A new chat's first prompt, sent by the page once it connects.
     /// Pages that predate it ignore it (the chat just stays empty).
     public var prompt: String?
+    /// Where the page is shown when it is not a pane tab (`"quick"`: the
+    /// quick panel's compact composer). Pages that predate it ignore it.
+    public var surface: AgentPaneSurface?
 
     public init(transport: Transport, endpoint: String? = nil, token: String? = nil, sessionId: String? = nil, newSession: Bool? = nil) {
         protocolVersion = Self.currentVersion

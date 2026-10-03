@@ -77,7 +77,7 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.disableMinimalMode", "markAllNotificationsRead", "clearAllNotifications",
         "notifications.toggleWorkspaceMute", "notifications.toggleBanners", "notifications.dismissal.keystroke",
         "notifications.dismissal.focus", "notifications.dismissal.click", "notifications.dismissal.explicit",
-        "notifications.dismissal.timeout", "notifications.dismissal.never", "palette.newAgentChat",
+        "notifications.dismissal.timeout", "notifications.dismissal.never", "palette.newAgentChat", "palette.quickAgentChat",
         "palette.launchClaudeTeams", "palette.launchCodexTeams", "palette.forkAgentConversationRight",
         "palette.forkAgentConversationLeft", "palette.forkAgentConversationTop", "palette.forkAgentConversationBottom",
         "palette.forkAgentConversationNewTab", "palette.forkAgentConversationNewWorkspace", "computerUseStop",

@@ -131,6 +131,8 @@ final class AppServices {
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
     private(set) lazy var agentTabs = AgentTabStore(tag: environment.tag, registry: registry)
+    /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
+    private(set) lazy var quickComposer = makeQuickComposer()
     /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps
     /// them in the import store only.
     var importedBookmarkSink: (any ImportedBookmarkSink)?
