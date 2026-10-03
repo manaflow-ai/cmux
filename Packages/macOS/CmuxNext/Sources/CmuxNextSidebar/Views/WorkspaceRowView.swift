@@ -173,7 +173,7 @@ final class WorkspaceRowView: SidebarRowView {
         )
         groupRail.isHidden = !grouped
         performWithTheme {
-            let color = groupColor.map { $0.swatch.blended(withFraction: 0.25, of: Palette.accent) }
+            let color = groupColor.flatMap { $0.swatch.blended(withFraction: 0.25, of: Palette.accent) }
             groupRail.backgroundColor = color?.cgColor
             groupRail.cornerRadius = railWidth / 2
         }
