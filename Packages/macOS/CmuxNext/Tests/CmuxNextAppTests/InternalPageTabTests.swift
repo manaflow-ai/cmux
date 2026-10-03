@@ -105,6 +105,6 @@ struct InternalPageTabTests {
         }
         #expect(view.page == .settings)
         #expect(view.focusTarget.isDescendant(of: view))
-        #expect(services.pages.stripItem(key).title == SettingsPane.title)
+        #expect(services.pages.stripItem(key).title == SettingsWindowModel.paneTitle)
     }
 }

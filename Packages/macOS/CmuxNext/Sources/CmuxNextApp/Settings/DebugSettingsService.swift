@@ -84,7 +84,7 @@ final class DebugSettingsService: InternalPageProvider {
         if SettingsWindowLayout.presentation.value == .pane, let window = services.windows.active {
             if let query { model.query = query }
             if let selection { model.selection = selection }
-            SettingsPane.follow(window.themeScope)
+            SettingsWindowModel.followTheme(window.themeScope)
             if services.pages.show(.debugSettings, in: window, focus: services.viewChangeAllowed) != nil { return }
         }
         if controller == nil {
@@ -115,13 +115,13 @@ final class DebugSettingsService: InternalPageProvider {
     // MARK: InternalPageProvider
 
     var page: InternalPageID { .debugSettings }
-    var title: String { SettingsPane.debugTitle }
+    var title: String { DebugSettingsModel.paneTitle }
     var symbol: String { "slider.horizontal.3" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let model = sharedModel ?? DebugSettingsModel(store: TunableStore.shared, descriptors: TunableCatalog.all)
         sharedModel = model
-        return SettingsPane.makeDebugView(model: model, scope: window?.themeScope ?? .app)
+        return model.makePaneView(scope: window?.themeScope ?? .app)
     }
 
     func tabClosed(_ key: String) {

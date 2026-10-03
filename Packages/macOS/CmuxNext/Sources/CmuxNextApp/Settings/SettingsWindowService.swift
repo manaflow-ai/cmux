@@ -53,7 +53,7 @@ final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
                 model.select(section, layout: SettingsWindowLayout.tunable.value)
             }
             // Settings draws in the theme of the window that shows it.
-            SettingsPane.follow(window.themeScope)
+            SettingsWindowModel.followTheme(window.themeScope)
             if services.pages.show(.settings, in: window, focus: services.viewChangeAllowed) != nil { return }
         }
         if controller == nil {
@@ -86,14 +86,14 @@ final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
     // MARK: InternalPageProvider
 
     var page: InternalPageID { .settings }
-    var title: String { SettingsPane.title }
+    var title: String { SettingsWindowModel.paneTitle }
     var symbol: String { "gearshape" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let model = sharedModel ?? services.settings.map { SettingsWindowModel(settings: $0, registry: services.registry, host: self) }
         sharedModel = model
         guard let model else { return NSView() }
-        return SettingsPane.makeView(model: model, scope: window?.themeScope ?? .app)
+        return model.makePaneView(scope: window?.themeScope ?? .app)
     }
 
     func tabClosed(_ key: String) {

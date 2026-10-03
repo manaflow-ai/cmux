@@ -2,35 +2,38 @@ public import AppKit
 public import CmuxNextDesign
 import SwiftUI
 
-/// Settings and Debug Settings as internal page tabs (the App's
-/// `InternalPageTabStore`): the same root views as their windows, filling a
-/// pane. The views paint their own background, so the main window's
-/// background is never changed.
-@MainActor
-public enum SettingsPane {
+// Settings and Debug Settings as internal page tabs (the App's
+// `InternalPageTabStore`): the same root views as their windows, filling a
+// pane. The views paint their own background, so the main window's
+// background is never changed.
+
+extension SettingsWindowModel {
     /// The Settings tab title ("Settings", localized).
-    public static var title: String { SettingsWindowStrings.windowTitle }
-    /// The Debug Settings tab title.
-    public static var debugTitle: String { DebugSettingsStrings.windowTitle }
+    public static var paneTitle: String { SettingsWindowStrings.windowTitle }
 
-    /// A Settings view over `model`, drawn in `scope` (the theme of the
+    /// A Settings view over this model, drawn in `scope` (the theme of the
     /// window that shows the tab).
-    public static func makeView(model: SettingsWindowModel, scope: ThemeScope) -> NSView {
-        SettingsTheme.shared.follow(scope)
-        return SettingsPaneHostingView(model: model)
-    }
-
-    /// A Debug Settings view over `model`, drawn in `scope`.
-    public static func makeDebugView(model: DebugSettingsModel, scope: ThemeScope) -> NSView {
-        SettingsTheme.shared.follow(scope)
-        let view = NSHostingView(rootView: DebugSettingsRootView(model: model))
-        view.setAccessibilityIdentifier("cmux.debugSettings.pane")
-        return view
+    public func makePaneView(scope: ThemeScope) -> NSView {
+        Self.followTheme(scope)
+        return SettingsPaneHostingView(model: self)
     }
 
     /// Draws every open Settings view in `scope` from now on.
-    public static func follow(_ scope: ThemeScope) {
+    public static func followTheme(_ scope: ThemeScope) {
         SettingsTheme.shared.follow(scope)
+    }
+}
+
+extension DebugSettingsModel {
+    /// The Debug Settings tab title.
+    public static var paneTitle: String { DebugSettingsStrings.windowTitle }
+
+    /// A Debug Settings view over this model, drawn in `scope`.
+    public func makePaneView(scope: ThemeScope) -> NSView {
+        SettingsTheme.shared.follow(scope)
+        let view = NSHostingView(rootView: DebugSettingsRootView(model: self))
+        view.setAccessibilityIdentifier("cmux.debugSettings.pane")
+        return view
     }
 }
 
