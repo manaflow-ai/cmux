@@ -1,5 +1,4 @@
 public import CmuxNextDesign
-
 /// Sidebar section settings (plans/cmux-next/sidebar-sections.md 7) in the
 /// Appearance section's Sidebar group.
 extension SettingsSchema {
@@ -42,13 +41,7 @@ extension SettingsSchema {
                 kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.stickyBandsScroll),
                 keywords: ["sidebar", "sections", "sticky", "scroll"]
             ),
-            SettingDescriptor(
-                SidebarSectionsSetting.showWorkspaceTabsPath, section: .appearance, group: sidebar,
-                title: SettingsText.keyed("settings.sidebar.showWorkspaceTabs", "Show Workspace Tabs"),
-                help: SettingsText.keyed("settings.sidebar.showWorkspaceTabs.help", "Lists tabs beneath each workspace in the sidebar."),
-                kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showWorkspaceTabs),
-                keywords: ["sidebar", "workspace", "tabs"]
-            ),
+            SidebarSectionsSetting.showWorkspaceTabsDescriptor(group: sidebar),
         ]
     }
 }

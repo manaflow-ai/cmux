@@ -201,8 +201,6 @@ public final class SidebarView: NSView {
         edgeFade = ScrollEdgeFadeView(scrollView: scrollView)
         addSubview(edgeFade)
         scrollFit = ScrollFitElasticity(scrollView: scrollView)
-
-
         buildBands()
 
         addSubview(footer)
@@ -395,9 +393,7 @@ public final class SidebarView: NSView {
         lastState = state
     }
 
-    /// Whether a sections change animates its rows. Saved or placeholder
-    /// rows turning into live ones (or any change from them) update in
-    /// place without motion, so the launch swap to live data is invisible.
+    /// Whether a sections change animates its rows. Provisional rows swap in place.
     static func animatesReload(from old: [SidebarSection]?, to new: [SidebarSection]) -> Bool {
         !((old ?? []) + new).contains(where: \.hasProvisionalRows)
     }
