@@ -179,7 +179,10 @@ export const Run = Schema.Struct({
     id: Schema.NullOr(TriggerId),
     type: Schema.String,
     scheduled_at: Schema.optionalKey(Schema.Int),
-    delivery_id: Schema.optionalKey(Schema.String)
+    delivery_id: Schema.optionalKey(Schema.String),
+    /** type `automation`: the run whose code or op step started this run, and the chain depth (1 = started by a run another trigger started). */
+    parent_run: Schema.optionalKey(RunId),
+    depth: Schema.optionalKey(Schema.Int)
   }),
   state: RunState,
   step: Schema.Int,

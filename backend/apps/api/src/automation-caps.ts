@@ -25,6 +25,7 @@ export const automationPrincipal = (c: CapabilityClaims): Principal => ({
   kind: "agent",
   identity: `automation:${c.automation}`,
   agent: c.automation,
+  run: c.run,
   team: c.team,
   grant_classes: [...AUTOMATION_OP_CLASSES]
 })

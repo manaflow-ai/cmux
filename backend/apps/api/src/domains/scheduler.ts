@@ -14,6 +14,7 @@ import {
 } from "@cmux/protocol"
 import { checkCron, nextFire } from "../cron.ts"
 import { admit, decodeParams, reject, requirePersonalTeamAdmin } from "./common.ts"
+import { automationTrigger, isAutomationPrincipal } from "./scheduler-chain.ts"
 import { automationOutbox, countDeploy, invalidOpStep, reduceDeploy } from "./scheduler-code.ts"
 import { MAX_ACTIVE_RUNS_PER_TEAM, MAX_OPEN_RUNS_PER_TEAM, queueFull, rateLimited, takeRunToken, type RunBucket } from "./scheduler-limits.ts"
 import { reduceRunPolicy, runPolicyRefusal, type RunPolicy } from "./scheduler-policy.ts"
@@ -229,7 +230,7 @@ const startRun = (
   // A run from any trigger other than continue starts a new continue chain.
   const continueTrigger = a.triggers.find((t) => t.spec.type === "continue")
   const chains = { ...state.chains }
-  if (continueTrigger) chains[continueTrigger.id] = trigger.id === continueTrigger.id ? (chains[continueTrigger.id] ?? 0) + 1 : 0
+  if (continueTrigger && trigger.type !== "automation") chains[continueTrigger.id] = trigger.id === continueTrigger.id ? (chains[continueTrigger.id] ?? 0) + 1 : 0
   return { state: { ...state, runs: prune({ ...state.runs, [run.id]: run }), chains, rate }, run, outbox: [runOutbox(run)] }
 }
 
@@ -384,8 +385,9 @@ export const schedulerDomain: Domain<SchedulerState> = {
         if (!d.ok) return d
         const a = state.automations[d.value.automation]
         if (!a) return reject("selector.not_found", "automation not found")
-        const manual = a.triggers.find((t) => t.spec.type === "manual")
-        const r = startRun(state, a, { id: manual?.id ?? null, type: "manual" }, ctx)
+        const chained = isAutomationPrincipal(p) ? automationTrigger(state, p, a) : undefined
+        if (chained && "ok" in chained) return chained
+        const r = startRun(state, a, chained?.trigger ?? { id: a.triggers.find((t) => t.spec.type === "manual")?.id ?? null, type: "manual" }, ctx)
         if ("rejected" in r) return r.rejected
         return { ok: true, state: r.state, value: publicRun(r.run), outbox: r.outbox }
       }
