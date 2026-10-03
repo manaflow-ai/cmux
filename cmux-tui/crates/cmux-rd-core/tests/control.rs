@@ -209,7 +209,10 @@ fn send_times_survive_sequence_wrap() {
     let mut arrivals = Vec::new();
     for i in 0..10u64 {
         cc.on_sent(seq, now + i * 100);
-        arrivals.push(Arrival { transport_seq: seq, arrival_us: (now + i * 100 + 5_000 + i * 2_000) as u32 });
+        arrivals.push(Arrival {
+            transport_seq: seq,
+            arrival_us: (now + i * 100 + 5_000 + i * 2_000) as u32,
+        });
         seq = seq.wrapping_add(1);
     }
     cc.on_feedback(&arrivals, 0.0, now + 16_667);
@@ -219,7 +222,10 @@ fn send_times_survive_sequence_wrap() {
 #[test]
 fn a_skipped_gap_is_reported_once_so_the_host_releases_keys() {
     let mut a = InputApplier::new(10);
-    let later = cmux_rd_proto::InputPacket { first_seq: 2, events: vec![InputEvent::Key { usage: 4, down: true }] };
+    let later = cmux_rd_proto::InputPacket {
+        first_seq: 2,
+        events: vec![InputEvent::Key { usage: 4, down: true }],
+    };
     a.accept(&later, 0);
     a.tick(10);
     assert!(a.take_skipped_gap());

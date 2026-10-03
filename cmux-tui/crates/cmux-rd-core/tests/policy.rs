@@ -3,7 +3,9 @@
 use cmux_rd_core::policy::{
     Admission, ConsentRule, Deny, Grant, HostPolicy, Mode, Principal, PrincipalClass, admit,
 };
-use cmux_rd_core::session::{Actor, EndReason, SessionId, SessionState, SessionTable, StartRequest};
+use cmux_rd_core::session::{
+    Actor, EndReason, SessionId, SessionState, SessionTable, StartRequest,
+};
 
 const NOW: u64 = 1_000_000;
 
@@ -122,7 +124,12 @@ fn an_agent_on_the_viewers_install_cannot_join() {
     let owner = person("lawrence", "laptop");
     let id = go(&mut t, "o", Some(&owner), Mode::Control, None, NOW).expect("start");
     for class in [PrincipalClass::Agent, PrincipalClass::Run, PrincipalClass::Mux] {
-        let agent = Principal { user: "lawrence".into(), install: "laptop".into(), class, interactive: false };
+        let agent = Principal {
+            user: "lawrence".into(),
+            install: "laptop".into(),
+            class,
+            interactive: false,
+        };
         assert!(!t.may_send_media(id, &agent));
         assert!(!t.may_inject_input(id, &agent));
         assert_eq!(t.stop(id, &Actor::Remote(Some(agent.clone()))), Err(Deny::NotYourSession));
@@ -134,7 +141,12 @@ fn another_principal_cannot_replay_a_start_key() {
     let mut t = SessionTable::new(policy());
     let owner = person("lawrence", "laptop");
     let id = go(&mut t, "k", Some(&owner), Mode::Control, None, NOW).expect("start");
-    let agent = Principal { user: "lawrence".into(), install: "laptop".into(), class: PrincipalClass::Agent, interactive: false };
+    let agent = Principal {
+        user: "lawrence".into(),
+        install: "laptop".into(),
+        class: PrincipalClass::Agent,
+        interactive: false,
+    };
     assert_eq!(go(&mut t, "k", Some(&agent), Mode::Control, None, NOW), Err(Deny::AgentClass));
     let austin_on_same_install = person("austin", "laptop");
     assert_ne!(go(&mut t, "k", Some(&austin_on_same_install), Mode::Control, None, NOW), Ok(id));
@@ -149,7 +161,10 @@ fn releasing_control_always_succeeds() {
     let austin = person("austin", "austin-mac");
     let id = go(&mut t, "a", Some(&austin), Mode::Control, None, NOW).expect("start");
     // Even after the grant expired (the policy would refuse a new request).
-    assert_eq!(t.set_mode(id, Some(&austin), Mode::View, None, NOW + 5_000), Ok(SessionState::Active));
+    assert_eq!(
+        t.set_mode(id, Some(&austin), Mode::View, None, NOW + 5_000),
+        Ok(SessionState::Active)
+    );
     assert!(!t.may_inject_input(id, &austin));
 }
 
@@ -157,7 +172,13 @@ fn releasing_control_always_succeeds() {
 fn forbidding_unattended_access_ends_sessions_that_skipped_consent() {
     let mut p = policy();
     p.consent = ConsentRule::AskAlways;
-    p.grants.push(Grant { id: "g-own".into(), user: "lawrence".into(), mode: Mode::Control, unattended: true, expires_at_ms: None });
+    p.grants.push(Grant {
+        id: "g-own".into(),
+        user: "lawrence".into(),
+        mode: Mode::Control,
+        unattended: true,
+        expires_at_ms: None,
+    });
     let mut t = SessionTable::new(p.clone());
     let owner = person("lawrence", "laptop");
     let id = go(&mut t, "o", Some(&owner), Mode::Control, None, NOW).expect("unattended start");
@@ -335,7 +356,11 @@ fn consent_needed_on_a_headless_host_is_refused_unless_unattended() {
     });
     assert_eq!(
         admit(&p, Some(&owner), Mode::Control, None, NOW),
-        Admission::Allow { needs_consent: false, via_grant: Some("g-own".into()), unattended: true }
+        Admission::Allow {
+            needs_consent: false,
+            via_grant: Some("g-own".into()),
+            unattended: true
+        }
     );
     // Team policy that forbids unattended grants brings the consent step back.
     p.unattended_allowed = false;

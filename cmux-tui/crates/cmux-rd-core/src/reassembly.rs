@@ -98,7 +98,8 @@ impl Reassembler {
     ) -> Vec<CompleteFrame> {
         let too_far = self.finished_through != 0
             && header.frame > self.finished_through.saturating_add(MAX_FRAME_LEAD);
-        let no_room = self.pending.len() >= MAX_PENDING_FRAMES && !self.pending.contains_key(&header.frame);
+        let no_room =
+            self.pending.len() >= MAX_PENDING_FRAMES && !self.pending.contains_key(&header.frame);
         if !matches!(header.kind, DatagramKind::Video | DatagramKind::Fec)
             || header.frame <= self.finished_through
             || too_far
@@ -214,7 +215,8 @@ impl Reassembler {
             self.finished_through = self.finished_through.max(frame);
             let keyframe = p.flags & flags::KEYFRAME != 0 || body.ref_frame == REF_NONE;
             let referenced = self.last_released != 0 && body.ref_frame == self.last_released;
-            let recovers = p.flags & flags::RECOVERY != 0 && self.released_recent.contains(&body.ref_frame);
+            let recovers =
+                p.flags & flags::RECOVERY != 0 && self.released_recent.contains(&body.ref_frame);
             if keyframe || referenced || recovers {
                 self.last_released = frame;
                 if keyframe {

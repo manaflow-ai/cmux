@@ -144,7 +144,8 @@ impl SessionTable {
     /// `rd.session.start`. Replaying the same key from the same caller
     /// returns the first decision; the same key with another mode is refused.
     pub fn start(&mut self, req: StartRequest<'_>) -> Result<SessionId, Deny> {
-        let ledger_key = req.caller.map(|p| (p.user.clone(), p.install.clone(), p.class, req.key.to_owned()));
+        let ledger_key =
+            req.caller.map(|p| (p.user.clone(), p.install.clone(), p.class, req.key.to_owned()));
         if let Some(k) = &ledger_key
             && let Some((mode, decided)) = self.started.get(k)
         {
@@ -152,7 +153,8 @@ impl SessionTable {
         }
         let decision = self.decide(req);
         if let Err(reason) = decision {
-            self.audit.push(AuditEvent::Refused { user: req.caller.map(|p| p.user.clone()), reason });
+            self.audit
+                .push(AuditEvent::Refused { user: req.caller.map(|p| p.user.clone()), reason });
         }
         if let Some(k) = ledger_key {
             if self.started_order.len() >= LEDGER_CAPACITY
@@ -178,7 +180,10 @@ impl SessionTable {
         let viewer = match caller.class {
             PrincipalClass::Mux => {
                 let client = req.for_client.ok_or(Deny::NoViewerClient)?;
-                if client.class != PrincipalClass::User || !client.interactive || client.user != caller.user {
+                if client.class != PrincipalClass::User
+                    || !client.interactive
+                    || client.user != caller.user
+                {
                     return Err(Deny::NoViewerClient);
                 }
                 client.clone()
@@ -187,8 +192,13 @@ impl SessionTable {
         };
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1).max(1);
-        self.audit.push(AuditEvent::Requested { session: id, user: viewer.user.clone(), mode: req.mode });
-        let state = if needs_consent { SessionState::AwaitingConsent } else { SessionState::Active };
+        self.audit.push(AuditEvent::Requested {
+            session: id,
+            user: viewer.user.clone(),
+            mode: req.mode,
+        });
+        let state =
+            if needs_consent { SessionState::AwaitingConsent } else { SessionState::Active };
         if state == SessionState::Active {
             self.audit.push(AuditEvent::Started { session: id, mode: req.mode });
         }
@@ -233,7 +243,8 @@ impl SessionTable {
             }
             None => {
                 session.state = SessionState::Ended(EndReason::ConsentDenied);
-                self.audit.push(AuditEvent::Ended { session: id, reason: EndReason::ConsentDenied });
+                self.audit
+                    .push(AuditEvent::Ended { session: id, reason: EndReason::ConsentDenied });
                 Err(Deny::ConsentDenied)
             }
         }
@@ -285,7 +296,11 @@ impl SessionTable {
         }
         let upgrade = mode > session.mode;
         // A mux-opened session stays view-only: control is asked by the opener's rules.
-        let checked = if session.opened_by.class == PrincipalClass::Mux { &session.opened_by } else { principal };
+        let checked = if session.opened_by.class == PrincipalClass::Mux {
+            &session.opened_by
+        } else {
+            principal
+        };
         let (needs_consent, grant) = if upgrade {
             match admit(&self.policy, Some(checked), mode, console_user, now_ms) {
                 Admission::Deny(reason) => return Err(reason),
@@ -343,7 +358,9 @@ impl SessionTable {
 
     /// May the engine send media of session `id` to `peer` now?
     pub fn may_send_media(&self, id: SessionId, peer: &Principal) -> bool {
-        self.sessions.get(&id).is_some_and(|s| s.state == SessionState::Active && is_viewer(peer, &s.viewer))
+        self.sessions
+            .get(&id)
+            .is_some_and(|s| s.state == SessionState::Active && is_viewer(peer, &s.viewer))
     }
 
     /// May `peer` inject input into session `id` now? The engine checks this
@@ -351,11 +368,17 @@ impl SessionTable {
     /// input applier.
     pub fn may_inject_input(&self, id: SessionId, peer: &Principal) -> bool {
         self.may_send_media(id, peer)
-            && self.sessions.get(&id).is_some_and(|s| s.mode == Mode::Control && s.opened_by.class == PrincipalClass::User)
+            && self.sessions.get(&id).is_some_and(|s| {
+                s.mode == Mode::Control && s.opened_by.class == PrincipalClass::User
+            })
     }
 
     fn live_ids(&self) -> Vec<SessionId> {
-        self.sessions.values().filter(|s| !matches!(s.state, SessionState::Ended(_))).map(|s| s.id).collect()
+        self.sessions
+            .values()
+            .filter(|s| !matches!(s.state, SessionState::Ended(_)))
+            .map(|s| s.id)
+            .collect()
     }
 
     fn end(&mut self, id: SessionId, reason: EndReason) {
