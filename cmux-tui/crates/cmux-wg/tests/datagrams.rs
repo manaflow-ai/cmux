@@ -31,7 +31,11 @@ fn pair(sim: &SimNet, client_socket: SimSocket) -> (WgNet, WgNet, ConfigPair) {
 }
 
 fn plain_link(sim: &SimNet) {
-    sim.set_link(addr(CLIENT), addr(SERVER), LinkProfile { latency: ONE_WAY, ..LinkProfile::default() });
+    sim.set_link(
+        addr(CLIENT),
+        addr(SERVER),
+        LinkProfile { latency: ONE_WAY, ..LinkProfile::default() },
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -55,7 +59,8 @@ async fn a_datagram_round_trips_and_misdirected_ones_are_refused_or_dropped() {
     ours.send_to(b"lost", nowhere, Priority::Media).await.unwrap();
     let largest = vec![7u8; client.max_datagram()];
     ours.send_to(&largest, peer, Priority::Media).await.unwrap();
-    let (payload, from) = timeout(Duration::from_secs(5), theirs.recv_from()).await.unwrap().unwrap();
+    let (payload, from) =
+        timeout(Duration::from_secs(5), theirs.recv_from()).await.unwrap().unwrap();
     assert_eq!(payload, largest, "the largest datagram arrives whole; the misdirected one never");
     assert_eq!(from, SocketAddr::new(configs.client_v6, MEDIA_PORT));
 
@@ -108,11 +113,14 @@ async fn a_media_datagram_overtakes_a_bulk_upload() {
         for frame in 0..10u8 {
             let sent = Instant::now();
             ours.send_to(&[frame], peer, class).await.unwrap();
-            let (payload, _) = timeout(Duration::from_secs(5), theirs.recv_from()).await.unwrap().unwrap();
+            let (payload, _) =
+                timeout(Duration::from_secs(5), theirs.recv_from()).await.unwrap().unwrap();
             assert_eq!(payload, [frame]);
             slowest = slowest.max(sent.elapsed());
         }
-        eprintln!("{class:?} datagram during the upload: slowest {slowest:?} (one way {ONE_WAY:?})");
+        eprintln!(
+            "{class:?} datagram during the upload: slowest {slowest:?} (one way {ONE_WAY:?})"
+        );
         if class == Priority::Media {
             worst = slowest;
         }
@@ -146,7 +154,8 @@ async fn stale_media_is_dropped_oldest_first() {
     ours.send_to(&1000u32.to_be_bytes(), peer, Priority::Media).await.unwrap();
 
     let mut received = Vec::new();
-    while let Ok(Some((payload, _))) = timeout(Duration::from_millis(500), theirs.recv_from()).await {
+    while let Ok(Some((payload, _))) = timeout(Duration::from_millis(500), theirs.recv_from()).await
+    {
         received.push(u32::from_be_bytes(payload.try_into().unwrap()));
     }
     eprintln!("stale media: {} of 101 delivered, last {:?}", received.len(), received.last());
@@ -164,7 +173,8 @@ async fn a_path_switch_sends_a_path_event() {
     let configs = config_pair(addr(SERVER));
     let (underlay, control) = Multipath::new(SelectorConfig::default());
     let relay_socket = sim.bind(addr("198.51.100.10:40000")).unwrap();
-    let relay = control.add_path(PathKind::DoRelay, SocketPath::new(relay_socket, Some(addr(SERVER))));
+    let relay =
+        control.add_path(PathKind::DoRelay, SocketPath::new(relay_socket, Some(addr(SERVER))));
     let direct_socket = sim.bind(addr("192.168.9.1:51820")).unwrap();
     let direct =
         control.add_path(PathKind::DirectLan, SocketPath::new(direct_socket, Some(addr(SERVER))));
@@ -178,7 +188,10 @@ async fn a_path_switch_sends_a_path_event() {
 
     control.on_probe(direct, ProbeOutcome::Answered { rtt_us: 2_000 }).unwrap();
     let event = events.recv().await.unwrap();
-    assert_eq!((event.path, event.kind, event.rtt_ms), (Some(direct), Some(PathKind::DirectLan), 2.0));
+    assert_eq!(
+        (event.path, event.kind, event.rtt_ms),
+        (Some(direct), Some(PathKind::DirectLan), 2.0)
+    );
 
     for _ in 0..3 {
         control.on_probe(direct, ProbeOutcome::Lost).unwrap();

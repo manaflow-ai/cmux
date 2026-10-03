@@ -19,7 +19,6 @@ use crate::config::WgConfig;
 use crate::udp;
 use crate::underlay::Underlay;
 
-
 /// The overlay addresses probes travel between: this side's tunnel address
 /// and, in the same family, the base address of the peer's first allowed
 /// network. The receiver intercepts probes by port and magic before routing,
@@ -112,7 +111,6 @@ mod tests {
     use crate::udp::{IPV4_HEADER, IPV6_HEADER, checksum_ok, sum};
 
     const UDP: u8 = 17;
-
 
     #[test]
     fn probes_round_trip_in_both_families() {

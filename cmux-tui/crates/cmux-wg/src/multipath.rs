@@ -131,7 +131,11 @@ impl Shared {
     }
 
     /// Apply one probe outcome to the path's statistics and the selector.
-    fn record(&mut self, id: PathId, outcome: ProbeOutcome) -> Result<Option<Switch>, SelectorError> {
+    fn record(
+        &mut self,
+        id: PathId,
+        outcome: ProbeOutcome,
+    ) -> Result<Option<Switch>, SelectorError> {
         if let Some(slot) = self.slot_mut(id) {
             match outcome {
                 ProbeOutcome::Answered { rtt_us } => {

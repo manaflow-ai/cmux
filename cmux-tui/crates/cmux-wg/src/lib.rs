@@ -33,12 +33,12 @@ mod net;
 mod pacing;
 mod probe_schedule;
 mod probing;
-mod udp;
 mod stream;
 /// Two-peer loopback harness. Test support for this crate and its dependents;
 /// it links no code into a binary that does not call it.
 pub mod testing;
 mod timers;
+mod udp;
 mod underlay;
 mod watchdog;
 mod wire;

@@ -104,10 +104,7 @@ impl WgNet {
 }
 
 impl Driver {
-    pub(super) fn bind_datagram(
-        &mut self,
-        port: u16,
-    ) -> Result<mpsc::Receiver<Datagram>, WgError> {
+    pub(super) fn bind_datagram(&mut self, port: u16) -> Result<mpsc::Receiver<Datagram>, WgError> {
         if port == cmux_transport::probe::PROBE_PORT
             || self.datagram_ports.get(&port).is_some_and(|sender| !sender.is_closed())
         {

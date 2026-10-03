@@ -156,8 +156,7 @@ impl WgNet {
         let addresses: Arc<[InterfaceAddress]> = config.addresses.clone().into();
         let (commands_tx, commands_rx) = mpsc::channel(COMMAND_DEPTH);
         let wake = Arc::new(Notify::new());
-        let max_datagram =
-            usize::from(config.mtu).saturating_sub(datagram_ops::DATAGRAM_OVERHEAD);
+        let max_datagram = usize::from(config.mtu).saturating_sub(datagram_ops::DATAGRAM_OVERHEAD);
         let mut underlay: Box<dyn Underlay> = Box::new(underlay);
         underlay.set_max_datagram(max_datagram);
         let driver = Driver::new(config, underlay, commands_rx, Arc::clone(&wake))?;
