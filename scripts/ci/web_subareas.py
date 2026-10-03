@@ -179,6 +179,8 @@ REACT_EXACT = {
     # the page and runs the driver's test.
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html",
     "scripts/cmux-next/build-agent-pane-web.sh",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/index.html",
+    "scripts/cmux-next/build-agent-activity-web.sh",
     "scripts/cmux-next/regenerate-web-bundles.sh",
     ".gitattributes",
     "scripts/install-git-hooks.sh",

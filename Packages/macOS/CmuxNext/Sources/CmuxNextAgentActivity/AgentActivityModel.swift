@@ -40,10 +40,20 @@ public final class AgentActivityModel {
     public private(set) var selectedSessionID: String?
     /// Seq of the event the scrubber is on; nil means "follow the newest".
     public private(set) var scrubSeq: UInt64?
-    public var filter: String = ""
+    public var filter: String = "" {
+        didSet { notifyChange() }
+    }
     public var watching: Set<String> = []
+    /// The web/native renderer layout preference for this pane instance.
+    public var layout: AgentActivityLayout = .split {
+        didSet { notifyChange() }
+    }
     /// Last error from a user operation, for the toolbar.
     public private(set) var lastOperationError: String?
+
+    /// Called by a host view when the projection changes and must be sent to
+    /// another renderer, such as the Activity web view.
+    @ObservationIgnored public var onChange: (() -> Void)?
 
     @ObservationIgnored private let source: any AgentActivitySource
     @ObservationIgnored private var followed: [String] = []
@@ -74,6 +84,7 @@ public final class AgentActivityModel {
         case let .connection(machine, state):
             connections[machine] = state
         }
+        notifyChange()
     }
 
     // MARK: Derived state
@@ -142,6 +153,7 @@ public final class AgentActivityModel {
         selectedSessionID = id
         scrubSeq = nil
         updateFollow()
+        notifyChange()
     }
 
     /// Moves the scrubber to `seq` (nil follows the newest event).
@@ -151,6 +163,7 @@ public final class AgentActivityModel {
             return
         }
         scrubSeq = selectedEvents.contains { $0.seq == seq } ? seq : nil
+        notifyChange()
     }
 
     /// Steps the scrubber by `delta` events (`framesOnly` skips events
@@ -179,13 +192,16 @@ public final class AgentActivityModel {
     public func perform(_ op: AgentActivityUserOp) {
         if case let .watch(session, on) = op {
             if on { watching.insert(session) } else { watching.remove(session) }
+            notifyChange()
         }
         Task { @MainActor [source] in
             do {
                 try await source.perform(op)
                 self.lastOperationError = nil
+                self.notifyChange()
             } catch {
                 self.lastOperationError = String(describing: error)
+                self.notifyChange()
             }
         }
     }
@@ -226,6 +242,7 @@ public final class AgentActivityModel {
     public func follow(_ ids: Set<String>) {
         extraFollowed = ids
         updateFollow()
+        notifyChange()
     }
 
     private func updateFollow() {
@@ -234,5 +251,9 @@ public final class AgentActivityModel {
         for id in followed where !desired.contains(id) { source.follow(session: id, false) }
         for id in desired where !followed.contains(id) { source.follow(session: id, true) }
         followed = desired
+    }
+
+    private func notifyChange() {
+        onChange?()
     }
 }
