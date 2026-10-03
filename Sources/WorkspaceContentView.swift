@@ -321,6 +321,7 @@ struct WorkspaceContentView: View {
                         onRequestPanelFocus: {
                             guard isWorkspaceInputActive else { return }
                             guard workspace.panels[panel.id] != nil else { return }
+                            guard workspace.focusRestoreTransactionId == focusRestoreTransactionId else { return }
                             AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
                                 workspaceId: workspace.id,
                                 panelId: panel.id,
