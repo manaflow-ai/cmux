@@ -22,7 +22,6 @@
     "screen-groups-v1",
     "screen-metadata-v1",
     "session-identity-v1",
-    "state-resources-v1",
     "sticky-columns-v1",
     "tab-drag-v1",
     "tab-groups-v1",
@@ -51,6 +50,7 @@
   "unservedByBundledDaemon" : [
     "detached-terminals-v1",
     "remote-terminal-tabs-v1",
-    "sidebar-layout-v1"
+    "sidebar-layout-v1",
+    "state-resources-v1"
   ]
 }

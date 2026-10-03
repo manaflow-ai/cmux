@@ -150,7 +150,7 @@ public struct DaemonCapabilities: Sendable {
                                             terminalReap, batchClose, loopbackForward, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
-                                            terminalCommandJournal, stickyColumns, endTerminalsKeepLayout, stateResources,
+                                            terminalCommandJournal, stickyColumns, endTerminalsKeepLayout,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides] }
 
@@ -160,7 +160,7 @@ public struct DaemonCapabilities: Sendable {
     /// (DaemonCapabilityExportTests): new app features land with their
     /// daemon half, and check-daemon-capabilities.sh fails once the bundled
     /// daemon serves an entry, so it moves to `optional`.
-    public var unservedByBundledDaemon: [String] { [remoteTerminalTabs, detachedTerminals, sidebarLayout] }
+    public var unservedByBundledDaemon: [String] { [remoteTerminalTabs, detachedTerminals, sidebarLayout, stateResources] }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     public var advertised: [String] { required + optional + unservedByBundledDaemon }
