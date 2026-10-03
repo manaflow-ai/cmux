@@ -182,6 +182,49 @@ struct CloudDirectoryLifecycleTests {
         #expect(!text.contains("/home/cmux/second"))
     }
 
+    @Test("An expired creation overlay cannot close a pane while its live tab is unresolved")
+    func pendingCreationOverlayExpiryFencesPaneCleanup() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        let panel = fixture.panels[1]
+        let terminalID = fixture.resourceID(1)
+        let session = CloudTuiManualMirrorSession(
+            machineID: fixture.machine.rawValue,
+            terminalID: terminalID.key,
+            remoteSurfaceID: 0,
+            onNeedsReconnect: {}
+        )
+        fixture.provider.manualMirrorSessions[panel] = session
+        defer { session.stop() }
+
+        let resource = try #require(fixture.catalog.resources[terminalID])
+        fixture.provider.pendingRemoteCreations[terminalID] = .init(
+            resource: resource,
+            receipt: .init(generation: "daemon", revision: 2),
+            tabID: "tab_1"
+        )
+        var snapshot = try #require(fixture.provider.cloudState?.snapshotObject())
+        snapshot["cursor"] = ["generation": "daemon", "revision": "2"]
+        // Keep the live tab row while omitting its terminal row. This is an
+        // incomplete accepted graph; the pending overlay is the only catalog
+        // row that had been making the placement look complete.
+        snapshot["terminals"] = [[
+            "id": "term_0", "title": "bash", "lifecycle": "running"
+        ]]
+        let next = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: fixture.machine))
+        #expect(fixture.provider.installSnapshotIfNewer(next))
+        fixture.provider.publishDelta(
+            next,
+            impact: .init(resourceIDs: [fixture.resourceID(0)], requiresFullResourceRebuild: false),
+            ports: [],
+            reconcileTitles: false
+        )
+
+        #expect(fixture.catalog.resources[terminalID] == nil)
+        #expect(fixture.provider.manualMirrorSessions[panel] === session)
+        #expect(fixture.workspace.panels[panel] != nil)
+    }
+
     @Test("Older and equal-cursor conflicting snapshots cannot overwrite a live cd")
     func outOfOrderReports() throws {
         let fixture = try CloudDirectoryTestFixture()

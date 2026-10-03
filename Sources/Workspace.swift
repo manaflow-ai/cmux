@@ -14598,6 +14598,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didReorderTabsInPane pane: PaneID, orderedTabIds: [TabID]) {
+        cloudLayoutDidChange()
         // A remote tmux mirror tab reorder propagates to tmux window order.
         // Mirror transactions send their desired order explicitly. Their local
         // mutations, including rollback and remote updates, must not echo it.
@@ -14657,6 +14658,7 @@ extension Workspace: BonsplitDelegate {
         normalizePinnedTabs(in: source)
         normalizePinnedTabs(in: destination)
         scheduleTerminalGeometryReconcile()
+        cloudLayoutDidChange()
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()
         }
@@ -15239,6 +15241,8 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
         let deviceLayoutExternal = remoteTmuxMirrorMutations.suppressesFocusActivation
+        // Before deferral: a graph event queued behind this edit must not re-apply the old tree.
+        if !deviceLayoutExternal { cloudLayoutDidChange() }
         // Capture the user's arrangement before deferred delivery: an incoming
         // remote snapshot must not replace the intent while this event waits.
         let deviceLayoutSnapshot = !deviceLayoutExternal

@@ -19611,7 +19611,12 @@ private extension NSWindow {
     }
 
     @objc func cmux_sendEvent(_ event: NSEvent) {
-        if AppDelegate.shared?.forwardCloudMountKeyEvent(window: self, event: event) == true {
+        let cloudMountKeyEventForwarded =
+            AppDelegate.shared?.forwardCloudMountKeyEvent(window: self, event: event) == true
+        if cloudMountKeyEventForwarded {
+            if event.type == .keyDown {
+                AppDelegate.shared?.recordTypingActivity()
+            }
             return
         }
 #if DEBUG
@@ -19636,7 +19641,19 @@ private extension NSWindow {
         // recordTypingActivity runs in all builds so the autosave coordinator
         // can honor the typing quiet period in release.
         if event.type == .keyDown, let app = AppDelegate.shared, cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: app) { return }
-        if event.type == .keyDown { AppDelegate.shared?.recordTypingActivity() }
+        let terminalInputIsRouted: Bool = {
+            guard event.type == .keyDown,
+                  let app = AppDelegate.shared,
+                  let context = app.contextForMainWindow(self) ?? app.contextForMainTerminalWindow(self),
+                  context.tabManager.selectedWorkspace?.focusedTerminalInputTarget() != nil else {
+                return false
+            }
+            guard let firstResponder = self.firstResponder else { return true }
+            return !shouldRespectForeignFirstResponder(firstResponder, in: self, isRightSidebarOwner: {
+                app.isRightSidebarFocusResponder($0, in: self)
+            })
+        }()
+        if terminalInputIsRouted { AppDelegate.shared?.recordTypingActivity() }
         if event.type == .leftMouseDown,
            AppDelegate.shared?.handleMinimalModeSidebarChromeMouseDown(window: self, event: event) == true {
             return
