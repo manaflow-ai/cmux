@@ -90,7 +90,9 @@ MAP
 check_symbols() {
   local lib="$1" name missing=0
   local symbols
-  symbols="$(nm -gU "$lib" 2>/dev/null | awk '{print $NF}')"
+  # nm exits non-zero for archive members without symbols; the list is what counts.
+  symbols="$( (nm -gU "$lib" 2>/dev/null || true) | awk '{print $NF}')"
+  [[ -n "$symbols" ]] || { echo "error: nm listed no symbols in $lib" >&2; return 1; }
   while read -r name; do
     grep -Fxq "_$name" <<<"$symbols" || { echo "error: $lib does not export $name" >&2; missing=1; }
   done < <(grep -oE '\bcmux_rd_[a-z0-9_]+\(' "$crate_dir/include/cmux_rd_ffi.h" | tr -d '(' | sort -u)
@@ -117,7 +119,7 @@ for target in ${ios_targets[@]+"${ios_targets[@]}"}; do
 done
 
 rm -rf "$xcframework"
-xcodebuild -create-xcframework "${args[@]}" -output "$xcframework" >/dev/null
+xcodebuild -create-xcframework "${args[@]}" -output "$xcframework" >&2
 source_commit="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || echo unknown)"
 dirty="$(git -C "$repo_root" status --porcelain -- cmux-tui/crates/cmux-rd-ffi cmux-tui/crates/cmux-rd-core cmux-tui/crates/cmux-rd-proto 2>/dev/null | wc -l | tr -d ' ')"
 printf '%s\n' "commit=$source_commit" "dirty_rd_files=$dirty" "macos=${mac_targets[*]}" "ios=${ios_targets[*]:-none}" \
