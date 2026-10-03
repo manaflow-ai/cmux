@@ -148,12 +148,18 @@ fn private_process_modes_run_under_the_cmux_name() {
 }
 
 /// A one-connection app socket that answers every request with `result`.
+/// The socket lives in a short directory under the canonical /tmp, because a
+/// socket path must fit sun_path (104 bytes on macOS) and a macOS $TMPDIR
+/// already uses about half of it. The returned guard removes the directory.
 fn fake_app(
-    dir: &std::path::Path,
     result: serde_json::Value,
-) -> (PathBuf, std::thread::JoinHandle<()>) {
+) -> (tempfile::TempDir, PathBuf, std::thread::JoinHandle<()>) {
     use std::io::{BufRead, BufReader, Write};
-    let socket = dir.join("app.sock");
+    let dir = tempfile::Builder::new()
+        .prefix("cmux-sfc")
+        .tempdir_in(fs::canonicalize("/tmp").unwrap())
+        .unwrap();
+    let socket = dir.path().join("app.sock");
     let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
     let handle = std::thread::spawn(move || {
         let (stream, _) = listener.accept().unwrap();
@@ -167,7 +173,7 @@ fn fake_app(
             writeln!(writer, "{reply}").unwrap();
         }
     });
-    (socket, handle)
+    (dir, socket, handle)
 }
 
 #[test]
@@ -176,7 +182,7 @@ fn accounts_list_warns_on_stderr_when_handles_are_not_stable() {
         let names = Names::new(&format!("handles-{stable}"));
         let result =
             serde_json::json!({"signed_in": true, "handles_stable": stable, "providers": []});
-        let (socket, app) = fake_app(&names.dir, result);
+        let (_socket_dir, socket, app) = fake_app(result);
         let socket = socket.display().to_string();
         let output = names.run("cmux", &["--app-socket", &socket, "accounts", "list"]);
         app.join().unwrap();
