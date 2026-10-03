@@ -434,6 +434,7 @@ private func terminalViewportFormat(_ value: CGFloat) -> String {
 struct PanelAppearance {
     let backgroundColor: NSColor
     let foregroundColor: NSColor
+    let terminalPalette: [Int: NSColor]
     let dividerColor: Color
     let unfocusedOverlayNSColor: NSColor
     let unfocusedOverlayOpacity: Double
@@ -441,6 +442,7 @@ struct PanelAppearance {
     init(
         backgroundColor: NSColor,
         foregroundColor: NSColor,
+        terminalPalette: [Int: NSColor] = [:],
         dividerColor: Color,
         unfocusedOverlayNSColor: NSColor,
         unfocusedOverlayOpacity: Double,
@@ -448,6 +450,7 @@ struct PanelAppearance {
     ) {
         self.backgroundColor = backgroundColor
         self.foregroundColor = foregroundColor
+        self.terminalPalette = terminalPalette
         self.dividerColor = dividerColor
         self.unfocusedOverlayNSColor = unfocusedOverlayNSColor
         self.unfocusedOverlayOpacity = unfocusedOverlayOpacity
@@ -481,6 +484,7 @@ struct PanelAppearance {
                 preferred: config.foregroundColor,
                 on: backgroundColor
             ),
+            terminalPalette: config.palette,
             dividerColor: Color(nsColor: config.resolvedSplitDividerColor),
             unfocusedOverlayNSColor: config.unfocusedSplitOverlayFill,
             unfocusedOverlayOpacity: config.unfocusedSplitOverlayOpacity,
