@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR adf95df282e0f31a2dec89e838ffc10d5104802e1ecf9344d548ac5408ff2bd3. */
+/* cmux-tui mux protocol 12, IR 5175ed0446eb2f7e4e6f0e8f78fb03ef392f00fcf8e090683d14b5f813824852. */
 
 
 import type * as T from "./types.js";
@@ -1394,6 +1394,7 @@ export interface RestartTabRequest extends CmuxRequestBase {
   "cwd"?: (string) | null;
   "env"?: (Record<string, string>) | null;
   "idempotency_key"?: (string) | null;
+  "only_lost"?: boolean;
   "surface": T.TabRef;
   "transaction"?: (string) | null;
 }

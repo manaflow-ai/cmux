@@ -75,7 +75,18 @@ fn cmux_next_tab_restart_keeps_the_tab_and_gives_it_a_live_terminal() {
     let before = placements(&mux);
     let dead_content = content_of(&mux, surface);
 
-    let outcome = restart(&mux, surface, "restart-1").unwrap();
+    // A host loss qualifies for the automatic restart (`only_lost`).
+    let outcome = mux
+        .restart_tab(
+            TabRestartRequest {
+                surface,
+                idempotency_key: Some("restart-1".into()),
+                only_lost: true,
+                ..TabRestartRequest::default()
+            },
+            None,
+        )
+        .unwrap();
     assert!(!outcome.replayed);
     assert_eq!(placements(&mux), before, "a restart moved or replaced a tab");
     assert_eq!(outcome.result["surface"], serde_json::json!(surface));
@@ -130,6 +141,15 @@ fn cmux_next_tab_restart_restarts_a_kept_process_end_and_rejects_unknown_tabs() 
     mux.surface_exited(surface);
     let before = placements(&mux);
     assert!(before.iter().any(|(_, tabs)| !tabs.is_empty()), "keep_on_exit kept the tab");
+    // The automatic restart takes only host losses; a process end stays.
+    let only_lost = TabRestartRequest {
+        surface,
+        idempotency_key: Some("kept-auto".into()),
+        only_lost: true,
+        ..TabRestartRequest::default()
+    };
+    let error = mux.restart_tab(only_lost, None).unwrap_err();
+    assert_eq!(error.downcast_ref::<TabRestartError>(), Some(&TabRestartError::NotLost(surface)));
     let outcome = restart(&mux, surface, "kept-1").unwrap();
     assert_eq!(placements(&mux), before);
     let new_host = outcome.result["terminal_id"].as_str().unwrap().to_string();
