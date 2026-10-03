@@ -141,3 +141,85 @@ test("a turn with checkpoints reads its changes between them from the session ho
   expect(doc.querySelector('[data-state="unavailable"]')).toBeNull();
   expect(doc.body.textContent).toContain("a.ts");
 });
+
+test("a turn with checkpoints reviews the files its tool calls changed and marks the others read-only", async () => {
+  const { turnFiles } = await import("../diff");
+  const transcript = turnFiles([
+    {
+      id: "activity-1",
+      version: 1,
+      at: 1,
+      kind: "activity",
+      items: [
+        {
+          kind: "tool",
+          text: "Edit",
+          tool: {
+            id: "t1",
+            title: "Edit",
+            kind: "edit",
+            status: "completed",
+            diffs: [{ path: "/repo/src/a.ts", oldText: "a\n", newText: "a\nb\n", line: 1 }],
+          },
+        },
+      ],
+    },
+  ] as never);
+  const source = {
+    diff: () => Promise.reject(new Error("not this scope")),
+    checkpointDiff: () =>
+      Promise.resolve({
+        root: "/repo",
+        files: [
+          { path: "src/a.ts", status: "modified", additions: 1, deletions: 0, patch: "@@ -1 +1,2 @@\n a\n+b\n" },
+          { path: "src/b.ts", status: "modified", additions: 1, deletions: 0, patch: "@@ -1 +1,2 @@\n x\n+y\n" },
+        ],
+      }),
+  };
+  const decisions = new Map<string, "accepted" | "rejected" | "requested">();
+  const sent: { keys: string[]; prompt: string }[] = [];
+  const render = () =>
+    root.render(
+      createElement(DiffPanel, {
+        files: transcript,
+        onClose: () => {},
+        source,
+        turnCheckpoint: { from: "ckpt_a", to: "ckpt_b" },
+        review: {
+          decisions: new Map(decisions),
+          decide: (key: string, decision?: "accepted" | "rejected" | "requested") => {
+            if (decision) decisions.set(key, decision);
+            else decisions.delete(key);
+            render();
+          },
+          requestRevert: (keys: string[], prompt: string) => {
+            sent.push({ keys, prompt });
+            for (const key of keys) decisions.set(key, "requested");
+            render();
+          },
+        },
+      }),
+    );
+  await act(async () => render());
+  await settle(() => doc.querySelector(".acpmux-hunk-reject") !== null);
+  const section = (path: string) => doc.querySelector(`.acpmux-diff-file[data-path="${path}"]`);
+  // The tool calls changed a.ts: its hunk keeps Reject and Accept.
+  expect(section("/repo/src/a.ts")?.querySelector(".acpmux-diff-outside")).toBeNull();
+  expect(doc.querySelectorAll(".acpmux-hunk-reject").length).toBe(1);
+  // b.ts changed some other way: read-only, and marked as outside the agent's edits.
+  expect(section("/repo/src/b.ts")?.querySelector(".acpmux-diff-outside")?.textContent).toBe(
+    "Outside the agent's edits",
+  );
+  expect(section("/repo/src/b.ts")?.querySelector(".acpmux-hunk-actions")).toBeNull();
+  await act(async () => {
+    doc.querySelector(".acpmux-hunk-reject")!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  });
+  // A decision names the turn's checkpoints, so it never marks another turn's hunks.
+  expect([...decisions.keys()]).toEqual(["checkpoint:ckpt_a..ckpt_b\u0000/repo/src/a.ts\u00000\u00000"]);
+  await act(async () => {
+    doc.querySelector(".acpmux-revert-send")!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  });
+  expect(sent.length).toBe(1);
+  expect(sent[0]!.prompt).toContain("--- /repo/src/a.ts\n+++ /repo/src/a.ts\n@@ -1,1 +1,2 @@\n a\n+b");
+  expect(sent[0]!.prompt).not.toContain("b.ts");
+});

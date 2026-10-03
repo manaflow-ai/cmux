@@ -193,13 +193,18 @@ export function patchHunks(patch: string | undefined): DiffHunk[] {
   return hunks;
 }
 
-/// A scope's files as the view's files: one edit each, with the patch's line numbers.
-export function changeSetFiles(changeSet: ChangeSet): TurnFile[] {
+/// The edit id of a turn's checkpoint diff. Hunk decisions are keyed by edit id and outlive the
+/// view, so the id names the turn's checkpoints: one turn's decisions never mark another's hunks.
+export const checkpointEditId = (turn: TurnCheckpoint) => `checkpoint:${turn.from ?? ""}..${turn.to ?? ""}`;
+
+/// A scope's files as the view's files: one edit each, with the patch's line numbers. `editId`
+/// names the edit (the scope by default).
+export function changeSetFiles(changeSet: ChangeSet, editId: string = changeSet.scope): TurnFile[] {
   const root = changeSet.root?.replace(/\/+$/, "");
   return changeSet.files.map((file) => ({
     path: root ? `${root}/${file.path}` : file.path,
     displayPath: file.path,
-    edits: [{ toolId: changeSet.scope, hunks: file.binary ? [] : patchHunks(file.patch), numbered: true }],
+    edits: [{ toolId: editId, hunks: file.binary ? [] : patchHunks(file.patch), numbered: true }],
     additions: file.additions,
     deletions: file.deletions,
     created: file.status === "added" || file.status === "untracked",

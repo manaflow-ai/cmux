@@ -87,3 +87,5 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 .acpmux-revert-bar input{flex:1;min-width:0;height:28px;padding:0 10px;border:1px solid var(--agent-border);border-radius:14px;background:var(--agent-input-bg);color:var(--agent-text);font:inherit}
 .acpmux-revert-bar input:focus-visible{outline:none;border-color:color-mix(in srgb,var(--agent-accent) 55%,transparent)}
 .acpmux-revert-send{height:28px;padding:0 12px;border-radius:14px}
+
+.acpmux-diff-outside{padding:4px 16px;color:var(--agent-muted);font-size:12px}

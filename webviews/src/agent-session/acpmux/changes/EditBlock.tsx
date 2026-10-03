@@ -3,6 +3,7 @@ import React, { useMemo } from "react";
 import { getFiletypeFromFileName, getSingularPatch, setLanguageOverride } from "@pierre/diffs";
 import { FileDiff, useStableCallback } from "@pierre/diffs/react";
 import { editPatch, hunkKey, type DiffEdit, type TurnFile } from "../diff";
+import { t } from "../i18n";
 import { isHighlighted } from "../shikiLanguages";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS } from "../diffTheme";
 import { FileHeader, type FileActions, type FileView } from "./FileHeader";
@@ -25,6 +26,7 @@ export function EditBlock({
   on,
   onPainted,
   review,
+  outsideAgentEdits,
   focusAfter,
 }: {
   file: TurnFile;
@@ -37,6 +39,9 @@ export function EditBlock({
   onPainted: () => void;
   /// Hunk review, when the view offers it: each hunk gets Reject and Accept as a line annotation.
   review?: HunkReview;
+  /// A file the turn changed outside its tool calls (a shell command, the user): read-only,
+  /// with a note that says so.
+  outsideAgentEdits?: boolean;
   focusAfter?: FocusAfter;
 }) {
   // A language the bundle can't highlight shows as plain text; Pierre throws for it otherwise.
@@ -85,6 +90,7 @@ export function EditBlock({
   return (
     <div className="acpmux-diff-file" data-path={file.path} data-collapsed={view.collapsed ? "" : undefined}>
       {header}
+      {outsideAgentEdits && <div className="acpmux-diff-outside">{t("changes.outsideAgentEdits")}</div>}
       {!view.collapsed && edit.hunks.length === 0 && (
         <div className="acpmux-diff-empty-edit">{file.binary ? "Binary file not shown" : "No line changes"}</div>
       )}

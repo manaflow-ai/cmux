@@ -16,7 +16,7 @@ import { LoadState } from "./changes/LoadState";
 import { applyCommand } from "./changes/applyCommand";
 import { BranchPill } from "./changes/BranchPill";
 import { copyText } from "./conversation/clipboard";
-import { changeSetFiles, type ChangeScope, type ChangesSource, type TurnCheckpoint } from "./changes/model";
+import { changeSetFiles, checkpointEditId, type ChangeScope, type ChangesSource, type TurnCheckpoint } from "./changes/model";
 import { OptionsMenu, type OptionsRow } from "./changes/OptionsMenu";
 import { RevertBar } from "./changes/RevertBar";
 import { ScopeMenu } from "./changes/ScopeMenu";
@@ -48,6 +48,9 @@ type Tool = "collapse" | "wrap" | "split" | "tree";
 /// The changes one turn's tool calls made, file by file, or a git scope of the session's
 /// repository from `source`. Back or Escape returns to the transcript. With `review`, the last
 /// turn's hunks can each be accepted or rejected, and the rejected ones sent back to the agent.
+/// A turn with checkpoints shows the repository's changes between them; review stays on the
+/// files the turn's tool calls changed, and the other files show read-only, marked as outside
+/// the agent's edits.
 export function DiffPanel({
   files: turnFiles,
   initialPath,
@@ -75,9 +78,18 @@ export function DiffPanel({
   registerAgentDiffTheme();
   const [scope, setScope] = useState<ChangeScope>("lastTurn");
   const { load, retry, branch } = useScopeChanges(source, scope, turnCheckpoint);
-  const scopeFiles = useMemo(() => (load.state === "loaded" ? changeSetFiles(load.changeSet) : []), [load]);
   /// Last turn reads the transcript's files unless acpmux recorded the turn's checkpoints.
   const fromTranscript = scope === "lastTurn" && !turnCheckpoint;
+  /// Last turn between the turn's checkpoints: the repository's changes, reviewed where the
+  /// transcript's tool calls made them.
+  const fromCheckpoints = scope === "lastTurn" && turnCheckpoint?.from != null;
+  const editId = fromCheckpoints && turnCheckpoint ? checkpointEditId(turnCheckpoint) : undefined;
+  const scopeFiles = useMemo(
+    () => (load.state === "loaded" ? changeSetFiles(load.changeSet, editId) : []),
+    [load, editId],
+  );
+  /// The files the turn's tool calls changed, which keep hunk review in the checkpoint view.
+  const agentPaths = useMemo(() => new Set(turnFiles.map((file) => file.path)), [turnFiles]);
   const files = fromTranscript ? turnFiles : scopeFiles;
   /// A git scope's body before its files: loading, failed, empty or unavailable.
   const scopeState =
@@ -95,8 +107,11 @@ export function DiffPanel({
   const body = useRef<HTMLDivElement>(null);
   const back = useRef<HTMLButtonElement>(null);
   const focusAfter = useRef<string | undefined>(undefined);
-  // Decisions are keyed by the turn's tool calls, so only the last turn's hunks are reviewed.
-  const hunkReview = fromTranscript ? review : undefined;
+  // Decisions are keyed by the turn's tool calls or its checkpoints, so only the last turn's
+  // hunks are reviewed.
+  const hunkReview = fromTranscript || fromCheckpoints ? review : undefined;
+  /// A checkpoint file the tool calls did not change: shown, not reviewed.
+  const outside = (file: { path: string }) => fromCheckpoints && !agentPaths.has(file.path);
   const totals = useMemo(
     () =>
       files.reduce(
@@ -331,7 +346,8 @@ export function DiffPanel({
                   view={{ collapsed: collapsed.has(file.path), viewed: viewed.has(file.path) }}
                   on={on}
                   onPainted={onPainted}
-                  review={hunkReview}
+                  review={outside(file) ? undefined : hunkReview}
+                  outsideAgentEdits={outside(file)}
                   focusAfter={focusAfter}
                 />
               )),
