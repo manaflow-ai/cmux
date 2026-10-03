@@ -10,7 +10,7 @@ public struct AppearanceTuning: Equatable, Sendable {
     public var saturation: Double
 
     /// The identity tuning used when the experimental controls are off.
-    public static let identity = AppearanceTuning(glassTransparency: 0, hue: 0.5, saturation: 1)
+    public nonisolated static let identity = AppearanceTuning(glassTransparency: 0, hue: 0.5, saturation: 1)
 
     /// Creates a clamped live tuning.
     public init(glassTransparency: Double, hue: Double, saturation: Double) {
