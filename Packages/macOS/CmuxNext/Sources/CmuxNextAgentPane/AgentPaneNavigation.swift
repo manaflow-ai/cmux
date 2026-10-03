@@ -2,13 +2,19 @@ import Foundation
 import WebKit
 
 /// Keeps the web view on its page (`AgentPaneSource`). A clicked http(s) link opens
-/// outside the pane; every other navigation is cancelled.
+/// outside the pane; a frame inside the page may show a loopback web page (a turn's
+/// preview card, ``AgentPanePreview``); every other navigation is cancelled.
 final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
     weak var view: AgentPaneView?
 
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
         guard let view else { return .cancel }
-        switch Self.decision(for: action.request.url, source: view.source, userClicked: action.navigationType == .linkActivated) {
+        switch Self.decision(
+            for: action.request.url,
+            source: view.source,
+            userClicked: action.navigationType == .linkActivated,
+            mainFrame: action.targetFrame?.isMainFrame ?? true
+        ) {
         case .allow:
             return .allow
         case .openOutside(let url):
@@ -37,9 +43,11 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         case cancel
     }
 
-    static func decision(for url: URL?, source: AgentPaneSource, userClicked: Bool) -> Decision {
+    static func decision(for url: URL?, source: AgentPaneSource, userClicked: Bool, mainFrame: Bool = true) -> Decision {
         guard let url else { return .cancel }
-        if source.isTrusted(url) { return .allow }
+        if mainFrame, source.isTrusted(url) { return .allow }
+        // A preview frame stays on loopback pages; a click inside it does not leave the frame.
+        if !mainFrame { return AgentPanePreview.loopback(url) == nil ? .cancel : .allow }
         if userClicked, let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" { return .openOutside(url) }
         return .cancel
     }
