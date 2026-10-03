@@ -6721,6 +6721,11 @@ impl PtySurface {
         });
     }
 
+    /// Send `frame` to replay viewers only; snapshot viewers are untouched.
+    fn broadcast_attach_frame_to_replay_taps(&self, frame: AttachFrame) {
+        self.taps.lock().unwrap().retain(|tap| tap.is_snapshot() || tap.try_send(frame.clone()));
+    }
+
     /// Disconnect replay viewers (they reattach from fresh state); snapshot
     /// viewers stay and resync by snapshot.
     fn cancel_replay_taps(&self) {
@@ -7046,6 +7051,7 @@ impl PtySurface {
         if *geometry == next {
             return Ok(false);
         }
+        let grid_changed = (geometry.cols, geometry.rows) != (next.cols, next.rows);
         let previous = *geometry;
         let next_pty_size = next.pty_size()?;
         let previous_pty_size = previous.pty_size()?;
@@ -7168,7 +7174,7 @@ impl PtySurface {
             if !replay.pending_sequence.is_empty() {
                 self.cancel_taps_without_pending_support();
             }
-            self.broadcast_attach_frame(AttachFrame::ResizedWithColors {
+            let frame = AttachFrame::ResizedWithColors {
                 cols: next.cols,
                 rows: next.rows,
                 replay: replay.bytes.into(),
@@ -7176,8 +7182,15 @@ impl PtySurface {
                 kitty_state: replay.kitty_state,
                 colors,
                 pending_sequence: replay.pending_sequence.into(),
-            });
-        } else {
+            };
+            if grid_changed {
+                self.broadcast_attach_frame(frame);
+            } else {
+                // A cell-pixel-only change reflows nothing: snapshot viewers
+                // keep their grid and generation.
+                self.broadcast_attach_frame_to_replay_taps(frame);
+            }
+        } else if grid_changed {
             self.resync_snapshot_taps();
         }
         // Geometry changes are terminal-stream transitions too. Publish the

@@ -291,3 +291,22 @@ fn snapshot_encode_waits_for_an_oversized_escape_sequence_to_finish() {
     drop(stream);
     surface.kill();
 }
+
+#[test]
+fn only_a_grid_change_resyncs_a_snapshot_viewer() {
+    let mux = Mux::new_for_test("snapshot-grid-only", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    let stream = surface.attach_snapshot_stream(AttachLifecycle::default(), 1 << 20).unwrap();
+    surface.take_viewer_snapshot(&stream.receiver).unwrap();
+    let (generation, _) = surface.snapshot_stream_position().unwrap();
+    let (width, height) = surface.cell_pixel_size();
+    surface.set_cell_pixel_size(width + 1, height + 1).unwrap();
+    assert_eq!(stream.receiver.resyncs(), 0, "a pixel-only change reflows nothing");
+    assert_eq!(surface.snapshot_stream_position().unwrap().0, generation);
+    surface.resize(40, 10).unwrap();
+    assert_eq!(stream.receiver.resyncs(), 1);
+    assert!(surface.snapshot_stream_position().unwrap().0 > generation);
+    drop(stream);
+    surface.kill();
+}
