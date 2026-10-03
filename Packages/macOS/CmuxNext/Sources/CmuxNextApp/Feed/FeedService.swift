@@ -128,15 +128,18 @@ final class FeedService {
     }
 
     /// Applies the user-owned GitHub connection setting. The source remains
-    /// stopped until the feed owner is running and the user is signed in.
+        /// stopped until the feed owner is running and the user is signed in.
     func configureGitHub(enabled: Bool, pollIntervalSeconds: Double) {
         githubEnabled = enabled
         model.githubConnectionEnabled = enabled
-        model.onRefresh = enabled ? { [weak self] in
-            guard let self else { return }
-            guard self.connection == .connected else { return }
-            Task { @MainActor in await self.github.refresh() }
-        } : nil
+        if enabled {
+            model.onRefresh = { [weak self] in
+                guard let self, self.connection == .connected else { return }
+                Task { @MainActor in await self.github.refresh() }
+            }
+        } else {
+            model.onRefresh = nil
+        }
         github.setInterval(.seconds(pollIntervalSeconds))
         if enabled, started, auth.isSignedIn, connection == .connected { github.start() } else if !enabled { github.stop() }
     }
