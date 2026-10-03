@@ -259,6 +259,18 @@ risk class. Token ops are `mcp.expose: never`.
      beside origin on WorkspaceMutation, out of the fingerprint, secret ops
      never through commit_state; (g) action.run-forwarded requests carry the
      forwarded flag.
+   - 3c: the Mac app's OWN install principal (coordinator decision
+     2026-10-03). The Mac app registers this install with the shared
+     `CmuxInstallAuthCore` client (identity spec D5, the iOS app already uses
+     it): a per-install signing key in the Keychain, registration with the
+     user's Stack session, install tokens minted per fresh challenge and kept
+     only in memory. First user: `feed.adopt` (FeedDO accepts it from install
+     principals only); `FeedService.installID` (lane 9, branch
+     feat-cmux-next-feed-app af694897df9) stops returning nil, and the feed
+     handoff driver stays off until then. The install key is a cloud principal
+     and is separate from the local `frontend` proof (3b); one Keychain key may
+     not serve both. Known gap as in 3b: DEV builds are ad-hoc signed, so their
+     Keychain ACL does not keep other same-uid processes out.
 4. `terminal.for_pid` and pid-ancestry stamping; acpmux mints per ACP session.
 5. App side: `action.run` verifies the credential and records the actor.
 6. Tailnet mode. 7. HTTP MCP with scoped revocable tokens.
