@@ -43,7 +43,8 @@ fn codex_reads_the_trust_level_of_the_folders_project_table() {
 fn get_projects_the_agents_levels_and_acpmux_decision_answers_first() {
     let dir = scratch("get");
     let p = paths(&dir);
-    std::fs::write(&p.claude_json, r#"{"projects":{"/repo":{"hasTrustDialogAccepted":true}}}"#).unwrap();
+    std::fs::write(&p.claude_json, r#"{"projects":{"/repo":{"hasTrustDialogAccepted":true}}}"#)
+        .unwrap();
     std::fs::write(&p.codex_config, "[projects.\"/repo\"]\ntrust_level = \"untrusted\"\n").unwrap();
     let reply = get(&p, "/repo/").unwrap();
     assert_eq!(reply["cwd"], "/repo");

@@ -46,6 +46,8 @@ mod tests {
             method::MUX_HANDOFF_DRAFT,
             method::MUX_HANDOFF_START,
             method::MUX_HANDOFF_DISCARD,
+            method::ACP_TRUST_GET,
+            method::ACP_TRUST_SET,
         ] {
             assert!(methods.contains_key(m), "schema is missing method {m}");
         }
