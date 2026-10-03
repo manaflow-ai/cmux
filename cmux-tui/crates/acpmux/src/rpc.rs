@@ -198,6 +198,8 @@ pub mod method {
     pub const MUX_SET_RULES: &str = "_acpmux/set_rules";
     pub const MUX_TAG: &str = "_acpmux/tag";
     pub const MUX_WAIT: &str = "_acpmux/wait";
+    /// Start the agent children for the most recent project sessions.
+    pub const MUX_WARM: &str = "_acpmux/warm";
     pub const MUX_HISTORY: &str = "_acpmux/history";
     pub const MUX_SCHEMA: &str = "_acpmux/schema";
     pub const MUX_EXPORT: &str = "_acpmux/export";

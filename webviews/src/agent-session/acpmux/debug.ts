@@ -17,6 +17,7 @@ export type AcpmuxDebug = {
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
   perfStats(options?: { raw?: boolean }): Record<string, unknown>;
+  agentLatency(): Record<string, unknown>;
   typingStats(): Record<string, unknown>;
   resetTyping(): Record<string, unknown>;
   /// Opens the composer menu labelled `label` and resolves once it has painted.
@@ -118,7 +119,11 @@ export function createAcpmuxDebug(
 
     perfStats(options = {}) {
       acpmuxPerf.enable();
-      return { running, ...acpmuxPerf.stats(options.raw === true) };
+      return { running, ...acpmuxPerf.stats(options.raw === true), agent: acpmuxPerf.agentLatency() };
+    },
+
+    agentLatency() {
+      return acpmuxPerf.agentLatency();
     },
 
     typingStats() {

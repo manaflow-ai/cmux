@@ -11,6 +11,7 @@ import { AcpmuxRpcError, supportsHandoff } from "./handoff/protocol";
 import { sessionEnforcement } from "./handoff/review";
 import type { HandoffReviewInput } from "./handoff/review";
 import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
+import { acpmuxPerf } from "./perf";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -940,6 +941,7 @@ export class AcpmuxDirectClient {
     }
     const text = textFromContent(update.content);
     if (event.kind === "agent_message_chunk" && text) {
+      acpmuxPerf.markAgent("firstToken");
       const messageId = typeof update.messageId === "string" ? update.messageId : undefined;
       if (messageId && this.supersededMessageIds.has(messageId)) return;
       const sameMessage = Boolean(
@@ -1102,6 +1104,22 @@ export class AcpmuxDirectClient {
       await this.creating;
     }
     return this.selectedSessionId;
+  }
+
+  /// Starts one live agent child for each of the most recent project sessions.
+  /// Old daemons simply reject this extension, so warming never blocks chat.
+  async warmRecentProjects(limit = 3): Promise<void> {
+    const ids: string[] = [];
+    const seen = new Set<string>();
+    for (const session of [...this.sessions].sort((a, b) => Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0))) {
+      const cwd = typeof session.cwd === "string" ? session.cwd : "";
+      if (!cwd || seen.has(cwd)) continue;
+      seen.add(cwd);
+      ids.push(session.sessionId);
+      if (ids.length >= limit) break;
+    }
+    if (!ids.length) return;
+    await this.request("_acpmux/warm", { sessionIds: ids, limit }).catch(() => undefined);
   }
   async send(text: string): Promise<string | undefined> {
     const record = this.handoff.state.record;

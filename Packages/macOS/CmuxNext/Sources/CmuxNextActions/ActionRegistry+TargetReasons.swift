@@ -5,6 +5,7 @@
 // the palette, the CLI and MCP report it too. A separate type keeps
 // ActionRegistry within its size budget.
 @MainActor
+// lint:allow namespace-type: stateless action reason helpers are intentionally a namespace.
 public enum ActionTargetReasons {
     /// Sets the target-aware reason of a bound action.
     public static func set(_ id: ActionID, in registry: ActionRegistry, _ reason: @escaping @MainActor (ActionInvocation) -> String?) {
