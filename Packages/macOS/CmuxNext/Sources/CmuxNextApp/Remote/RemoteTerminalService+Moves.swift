@@ -115,7 +115,6 @@ extension RemoteTerminalService {
         let paneHandle = pane.handle
         let detached = machine.supports(DaemonCapabilities.shared.detachedTerminals)
         let existing = machine.store.workspaces.first { $0.key != nil }?.key
-        let repair = services.machines.emptyWorkspaceRepair(machine.machineID, local: services.emptyWorkspaces)
         services.registry.track(Task { [weak self] in
             do {
                 let terminal: TerminalID
@@ -127,22 +126,12 @@ extension RemoteTerminalService {
                     var key = existing
                     var scratch: WorkspaceKey?
                     if key == nil {
-                        // Empty on purpose until it closes: never repaired.
-                        let fresh = WorkspaceKey.generate()
-                        repair.beginClosing(fresh)
-                        do {
-                            let created = try await machineConnection.createWorkspace(name: name, key: fresh)
-                            (key, scratch) = (created.key, created.key)
-                        } catch {
-                            repair.endClosing(fresh)
-                            throw error
-                        }
+                        let created = try await machineConnection.createWorkspace(name: name)
+                        (key, scratch) = (created.key, created.key)
                     }
                     guard let key else { return ActionWorkFailure("open terminal on machine: no workspace") }
-                    let made: Result<(terminal: TerminalID, resource: ResourceID?), any Error>
-                    do { made = .success(try await machineConnection.createUnplacedTerminal(in: key, cwd: cwd)) } catch { made = .failure(error) }
-                    if let scratch, (try? await machineConnection.closeWorkspace(scratch)) == nil { repair.endClosing(scratch) }
-                    (terminal, resource) = try made.get()
+                    (terminal, resource) = try await machineConnection.createUnplacedTerminal(in: key, cwd: cwd)
+                    if let scratch { _ = try? await machineConnection.closeWorkspace(scratch) }
                 }
                 let ref = RemoteTerminalRef(sessionID: session, terminalID: terminal, sessionName: name)
                 if let resource { self?.remember(ref, resource: resource) }
