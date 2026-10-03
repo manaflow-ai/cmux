@@ -68,6 +68,14 @@ fn now_us() -> u64 {
     now_ns() / 1000
 }
 
+/// Per-event trace on stderr when `CMUX_RD_TRACE=1` (debugging only).
+fn trace(what: &str) {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if *ON.get_or_init(|| std::env::var_os("CMUX_RD_TRACE").is_some_and(|v| v == "1")) {
+        eprintln!("{} {what}", now_us());
+    }
+}
+
 fn process_cpu_s() -> f64 {
     // SAFETY: rusage is plain old data; all-zero is a valid value.
     let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
@@ -205,7 +213,9 @@ impl MediaSession {
             }
             for ev in &damage {
                 let r = Rect { x: ev.rect.x, y: ev.rect.y, width: ev.rect.w, height: ev.rect.h };
-                if let FlowAction::Encode { damage: d, frame } = self.gate.damage(r, now_us()) {
+                let action = self.gate.damage(r, now_us());
+                trace(&format!("damage {r:?} -> {action:?} in_flight {}", self.gate.in_flight()));
+                if let FlowAction::Encode { damage: d, frame } = action {
                     if let Err(e) = self.encode(stream, d, frame) {
                         return format!("encode/send failed: {e}");
                     }
@@ -345,6 +355,7 @@ impl MediaSession {
         if self.applier.take_skipped_gap() {
             let _ = self.injector.release_all();
         }
+        trace(&format!("inject {event:?}"));
         if let Err(e) = self.injector.apply(event) {
             eprintln!("inject failed: {e}");
         }
