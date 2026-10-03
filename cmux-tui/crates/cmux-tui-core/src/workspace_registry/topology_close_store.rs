@@ -99,19 +99,13 @@ impl WorkspaceRegistry {
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision, actor_json
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![
-                mutation.origin,
-                mutation.id,
-                operation,
-                fingerprint,
-                result_json,
-                sqlite_revision,
-                mutation_actor_json(&mutation.actor),
-            ],
+        insert_resource_mutation(
+            &tx,
+            &mutation,
+            &operation,
+            &fingerprint,
+            &result_json,
+            &sqlite_revision,
         )?;
         append_resource_journal_record(
             &tx,

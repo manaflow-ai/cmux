@@ -6,8 +6,9 @@ use serde_json::{Value, json};
 use super::resource_store::{apply_resource_patch_unrecorded, validate_resource_patch};
 use super::{
     RegistryTerminal, ResourcePatch, TerminalLifecycle, WorkspaceMutation, WorkspaceRegistry,
-    canonical_json, read_terminal, session_journal::append_resource_journal_record,
-    transaction_resource_revision, transaction_terminal_revision, validate_terminal_transition,
+    canonical_json, insert_resource_mutation, read_terminal,
+    session_journal::append_resource_journal_record, transaction_resource_revision,
+    transaction_terminal_revision, validate_terminal_transition,
 };
 use crate::resource::WireDecimal;
 use crate::terminal_host_protocol::{TerminalExit, TerminalExitOutcome};
@@ -339,18 +340,13 @@ impl WorkspaceRegistry {
                 &result_json,
             ],
         )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision, actor_json
-             ) VALUES(?1, ?2, 'terminal-exited', ?3, ?4, ?5, ?6)",
-            params![
-                &mutation.origin,
-                &mutation.id,
-                &fingerprint_json,
-                &result_json,
-                sqlite_resource_revision,
-                crate::workspace_registry::mutation_actor_json(&mutation.actor),
-            ],
+        insert_resource_mutation(
+            &tx,
+            &mutation,
+            &"terminal-exited",
+            &fingerprint_json,
+            &result_json,
+            &sqlite_resource_revision,
         )?;
         append_resource_journal_record(
             &tx,
