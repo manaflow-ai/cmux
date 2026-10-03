@@ -75,6 +75,27 @@ if [[ "${SIM_GALLERY_ONLY:-}" == tapback ]]; then
   ls -1 "$out"; exit 0
 fi
 
+# SIM_GALLERY_ONLY=clientver: Home's update-required banner (the team's
+# minimum version refuses this app, enterprise P17), light, dark, Japanese,
+# and the variant without a named version.
+if [[ "${SIM_GALLERY_ONLY:-}" == clientver ]]; then
+  for appearance in light dark; do
+    xcrun simctl ui "$udid" appearance "$appearance"
+    SIMCTL_CHILD_CMUX_IOS_HOME_PREVIEW=1 SIMCTL_CHILD_CMUX_IOS_PREVIEW_UPDATE_REQUIRED=2.4.0 \
+      xcrun simctl launch --terminate-running-process "$udid" "$bundle" >/dev/null
+    settle 6; shot "clientver-$appearance"
+  done
+  xcrun simctl ui "$udid" appearance light
+  SIMCTL_CHILD_CMUX_IOS_HOME_PREVIEW=1 SIMCTL_CHILD_CMUX_IOS_PREVIEW_UPDATE_REQUIRED=2.4.0 \
+    xcrun simctl launch --terminate-running-process "$udid" "$bundle" -AppleLanguages "(ja)" -AppleLocale ja_JP >/dev/null
+  settle 6; shot "clientver-ja"
+  SIMCTL_CHILD_CMUX_IOS_HOME_PREVIEW=1 SIMCTL_CHILD_CMUX_IOS_PREVIEW_UPDATE_REQUIRED= \
+    xcrun simctl launch --terminate-running-process "$udid" "$bundle" >/dev/null
+  settle 6; shot "clientver-noversion"
+  xcrun simctl terminate "$udid" "$bundle" >/dev/null 2>&1 || true
+  ls -1 "$out"; exit 0
+fi
+
 if [[ "${SIM_GALLERY_ONLY:-}" != terminal ]]; then
 xcrun simctl ui "$udid" appearance light
 xcrun simctl launch --terminate-running-process "$udid" "$bundle" >/dev/null
