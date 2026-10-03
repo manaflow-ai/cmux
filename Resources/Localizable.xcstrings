@@ -358356,22 +358356,34 @@
     "settings.search.alias.setting.terminal.copy-confirmation": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "translated",
             "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse تأكيد نسخ حافظة تحديد"
           }
         },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse potvrda kopirano međuspremnik odabir"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse bekræftelse kopieret udklipsholder markering"
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse Bestätigung kopiert Zwischenablage Auswahl"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse"
           }
         },
         "es": {
@@ -358386,16 +358398,70 @@
             "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse confirmation copié presse-papiers sélection"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse conferma copiato appunti selezione"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse 確認 コピー クリップボード 選択"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse បញ្ជាក់ ចម្លង ក្ដារតម្រៀប ជ្រើស"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse 확인 복사됨 클립보드 선택"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse bekreftelse kopiert utklippstavle markering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse potwierdzenie skopiowano schowek zaznaczenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse confirmação copiado área de transferência seleção"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse подтверждение скопировано буфер обмена выделение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse ยืนยัน คัดลอก คลิปบอร์ด เลือก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse onay kopyalandı pano seçim"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse підтвердження скопійовано буфер обміну виділення"
           }
         },
         "zh-Hans": {
@@ -365922,22 +365988,34 @@
     "settings.terminal.showCopyConfirmation": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Copy Confirmation"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "translated",
             "value": "إظهار تأكيد النسخ"
           }
         },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži potvrdu kopiranja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis kopieringsbekræftelse"
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Kopierbestätigung anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Copy Confirmation"
           }
         },
         "es": {
@@ -365952,16 +366030,70 @@
             "value": "Afficher la confirmation de copie"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra conferma di copia"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "コピーの確認を表示"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញការបញ្ជាក់ការចម្លង"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "복사 확인 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis kopieringsbekreftelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuj potwierdzenie kopiowania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar confirmação de cópia"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать подтверждение копирования"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงการยืนยันการคัดลอก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopyalama onayını göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати підтвердження копіювання"
           }
         },
         "zh-Hans": {
@@ -618659,22 +618791,34 @@
     "terminal.copyConfirmation.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copied to clipboard"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "translated",
             "value": "تم النسخ إلى الحافظة"
           }
         },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopirano u međuspremnik"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopieret til udklipsholder"
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "In die Zwischenablage kopiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied to clipboard"
           }
         },
         "es": {
@@ -618689,16 +618833,70 @@
             "value": "Copié dans le presse-papiers"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiato negli appunti"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "クリップボードにコピーしました"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានចម្លងទៅក្ដារតម្រៀប"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "클립보드에 복사됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiert til utklippstavlen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skopiowano do schowka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiado para a área de transferência"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировано в буфер обмена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอกไปยังคลิปบอร์ดแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panoya kopyalandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопійовано в буфер обміну"
           }
         },
         "zh-Hans": {
