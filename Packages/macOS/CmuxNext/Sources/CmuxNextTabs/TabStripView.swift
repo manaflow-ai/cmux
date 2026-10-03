@@ -79,7 +79,7 @@ public final class TabStripView: NSView {
     /// Tabs in visual order, excluding dying and torn-out tabs.
     var displayed: [TabItem] = []
     var result = TabLayoutResult(slots: [], contentWidth: 0, standardWidth: 0, availableWidth: 0)
-    var scroll = Spring(value: 0, token: .scroll)
+    var scroll = Spring(value: 0, token: .scroll, kind: .position)
     var closingModeWidth: CGFloat?
     var hasSynced = false
     var lastSelectedID: TabID?
