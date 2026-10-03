@@ -9,7 +9,8 @@
 /// ``isSingleTokenArgument(_:)`` or ``agentHookPIDKeyArgument(statusKey:sessionId:)``
 /// before composing a command, and every writer frames the finished line
 /// through ``framedLine(for:)``, which refuses CR, LF, and NUL outright.
-public enum SocketCommandLine {
+public struct SocketCommandLine {
+    private init() {}
     /// Maximum UTF-8 length accepted for a machine identifier embedded in a
     /// V1 command line as one unquoted token.
     public static let maximumSingleTokenArgumentLength = 256
