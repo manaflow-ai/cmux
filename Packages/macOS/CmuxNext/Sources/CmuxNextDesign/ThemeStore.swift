@@ -97,6 +97,7 @@ public final class ThemeStore {
     /// config stays light).
     private func refresh(_ window: NSWindow) {
         window.appearance = window.themeScope.appearance
+        window.paintKindSurface()
         if let contentView = window.contentView { Self.invalidate(contentView) }
         window.invalidateShadow()
     }

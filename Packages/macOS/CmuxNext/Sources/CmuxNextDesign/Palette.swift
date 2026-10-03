@@ -25,12 +25,11 @@ public struct Palette {
     /// (load error, sad tab): the terminal background, opaque, because a
     /// page is opaque and a stale page must not show through.
     public static var pageBackground: NSColor { color(\.contentBackground, opaque: true, dynamic: PaletteDynamic.pageBackground) }
-    /// Settings and other utility windows: the window background without
-    /// the terminal's opacity, so their text reads the same whatever the
-    /// main windows' transparency or material.
-    public static var utilityWindowBackground: NSColor {
-        color(\.windowBackground, opaque: true, dynamic: PaletteDynamic.utilityWindowBackground)
-    }
+    /// The one background of every window and surface that sits on it
+    /// (``ThemeTokens/surfaceBackground``): the window
+    /// (`NSWindow.install(kind:content:scope:)`), sidebar, panes and strip,
+    /// page tabs, titlebar and docks (plans/cmux-next/windows.md).
+    public static var surfaceBackground: NSColor { color(\.surfaceBackground, dynamic: PaletteDynamic.surfaceBackground) }
     /// Fields and toolbars that need a faint lift (omnibar, find bar).
     public static var chromeBackground: NSColor { color(\.chromeBackground, dynamic: PaletteDynamic.chromeBackground) }
     /// Floating cards: palette, hover card, editors.

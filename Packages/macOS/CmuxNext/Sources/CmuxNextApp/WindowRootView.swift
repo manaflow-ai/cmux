@@ -11,15 +11,15 @@ import Observation
 /// header, or with the sidebar hidden the top-left tab strip, which starts
 /// after them), and that row's empty space moves the window. "standard"
 /// adds a compact titlebar across the content column with the workspace
-/// name. Every surface is the terminal background
-/// (`Palette.windowBackground`), so sidebar, titlebar, tab strip and
+/// name. Every surface is the one surface token
+/// (`Palette.surfaceBackground`), so sidebar, titlebar, tab strip and
 /// terminal read as one sheet with no panel edges or seams. In a
 /// translucent window that sheet is one material with one theme tint
 /// (`backdropView`, the bottom subview) and everything above it is clear.
 /// `window.rail` moves the sidebar's sticky sections into an icon rail
 /// (`WindowRail`) before the sidebar or between the sidebar and the
 /// content column.
-final class WindowRootView: NSView {
+final class WindowRootView: NSView, WindowSurfacePainting {
     let titlebar = TitlebarView()
     /// The window's one material and tint (`WindowBackdrop`).
     let backdropView = WindowMaterialView(frame: .zero)
@@ -262,10 +262,16 @@ final class WindowRootView: NSView {
     private func paintBackground() {
         let backdrop = self.backdrop
         performWithTheme {
-            let background = Palette.windowBackground
+            let background = Palette.surfaceBackground
             layer?.backgroundColor = backdrop.isOpaque ? background.withAlphaComponent(1).cgColor : nil
             backdropView.apply(backdrop, tint: background)
         }
+    }
+
+    /// `NSWindow.install(kind:content:scope:)`: the backdrop before the
+    /// content view goes in.
+    func paintWindowSurface(of window: NSWindow) {
+        applyBackdrop(to: window)
     }
 
     /// Sets `window`'s opacity, background and blur radius for this view's
@@ -276,7 +282,7 @@ final class WindowRootView: NSView {
     func applyBackdrop(to window: NSWindow) {
         let backdrop = self.backdrop
         let color = backdrop.isOpaque
-            ? performWithTheme { Palette.windowBackground.withAlphaComponent(1) }
+            ? performWithTheme { Palette.surfaceBackground.withAlphaComponent(1) }
             : NSColor.white.withAlphaComponent(backdrop.windowBackgroundAlpha)
         if window.isOpaque != backdrop.isOpaque { window.isOpaque = backdrop.isOpaque }
         if window.backgroundColor != color { window.backgroundColor = color }

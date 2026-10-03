@@ -29,12 +29,9 @@ public final class SettingsWindowController: NSWindowController, NSWindowDelegat
         window.model = model
         super.init(window: window)
         window.delegate = self
-        // Theme and background first: changing the window background while
-        // AppKit installs the content view puts the content above the
-        // titlebar, which hides the close button (lane 20).
-        setThemeScope(SettingsTheme.shared.scope)
-        window.backgroundColor = SettingsTheme.shared.scope.perform { Palette.utilityWindowBackground }
-        window.contentView = SettingsContentView(rootView: SettingsRootView(model: model))
+        SettingsTheme.shared.follow(SettingsTheme.shared.scope)
+        window.install(kind: .settings, content: NSHostingView(rootView: SettingsRootView(model: model)),
+                       scope: SettingsTheme.shared.scope)
     }
 
     /// Draws the window in `scope`: the App passes the scope of the main
@@ -71,25 +68,6 @@ public final class SettingsWindowController: NSWindowController, NSWindowDelegat
     /// hot keys it suspended do not stay off behind another window or app.
     public func windowDidResignKey(_ notification: Notification) {
         model.cancelRecording()
-    }
-}
-
-/// The hosting view; it repaints the window background with the scope's
-/// colors on every theme change.
-final class SettingsContentView: NSHostingView<SettingsRootView> {
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        applyColors()
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        applyColors()
-    }
-
-    private func applyColors() {
-        let color = performWithTheme { Palette.utilityWindowBackground }
-        if let window, window.backgroundColor != color { window.backgroundColor = color }
     }
 }
 
