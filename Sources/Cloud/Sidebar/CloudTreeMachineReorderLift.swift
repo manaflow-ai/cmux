@@ -77,12 +77,6 @@ final class CloudTreeMachineReorderLift: NSObject {
         let ghosts = closing.isEmpty ? [] : makeGhosts(under: Set(closing.map(\.id)))
         if !closing.isEmpty { collapse(closing) }
 
-        // Collapsing an expanded sibling changes row indexes immediately, but
-        // AppKit can defer the corresponding geometry pass. Read post-collapse
-        // frames only after layout, or a source near the bottom of a tree with
-        // open children starts visibly offset from the pointer.
-        outline.layoutSubtreeIfNeeded()
-
         let frames = (0..<outline.numberOfRows).map { outline.rect(ofRow: $0) }
         var blocks: [CloudTreeReorderLiftLayout.Block] = []
         var sourceIndex: Int?

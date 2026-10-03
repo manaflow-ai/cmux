@@ -70,8 +70,7 @@ extension CloudTreeOutlineView.Coordinator {
         guard node.canReorderMachine,
               let scope = CloudMachineReorderScope(machineNodeID: node.id, roots: nodes) else { return }
         outline.machineLift.begin(
-            sequence: session.draggingSequenceNumber, source: node, siblings: scope.siblings,
-            pressY: pressY,
+            sequence: session.draggingSequenceNumber, source: node, siblings: scope.siblings, pressY: pressY,
             isPeer: { $0.canReorderMachine && $0.isPinned == node.isPinned },
             closes: { if case .machine = $0.kind { return true }; return false }
         ) { machines in
