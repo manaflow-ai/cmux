@@ -151,7 +151,10 @@ final class NewMachineSheetDataCache {
     /// `limit`: a slow control plane then gets a sheet with what is known,
     /// and the listener fills in the rest.
     func data(waitingAtMost limit: Duration = .seconds(1)) async -> NewMachineSheetData? {
-        if let readyData { return readyData }
+        if let readyData, let fetchedAt,
+           clock.now - fetchedAt < Self.staleAfter {
+            return readyData
+        }
         guard refresh() else { return currentData }
         let id = UUID()
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in

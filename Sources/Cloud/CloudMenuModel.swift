@@ -96,7 +96,14 @@ final class CloudMenuModel {
     /// readiness or retry policy in their presenter.
     func fleetPageForPresentation() async -> VMListPage? {
         guard !Task.isCancelled else { return nil }
-        if let fleetPage { return fleetPage }
+        if let fleetPage, let lastLoadedAt,
+           ContinuousClock.now - lastLoadedAt < Self.freshness {
+            return fleetPage
+        }
+        // Presentation must not reuse an expired page. The sheet has its own
+        // account-scoped cache, but this owner still needs to revalidate when
+        // that cache is cold or incomplete.
+        self.fleetPage = nil
         guard isAvailable() else { return nil }
         let waiterID = UUID()
         return await withTaskCancellationHandler(operation: {

@@ -244,16 +244,26 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
 #endif
         // The cache is warmed at sign-in, so this returns at once; only a
         // cold cache waits, for at most a second.
-        _ = await dataCache?.data()
-        guard let page = await CloudMenuModel.shared.fleetPageForPresentation(),
-              !Task.isCancelled, !isPresenting else {
+        let cachedData = await dataCache?.data()
+        let presentationData: (plan: MachinePlanSnapshot?, limits: VMPlanLimits?, activeCount: Int)
+        if let cachedData, cachedData.hasPlan {
+            presentationData = (cachedData.plan, cachedData.limits, cachedData.activeCount)
+        } else if let page = await CloudMenuModel.shared.fleetPageForPresentation() {
+            presentationData = (
+                MachineSnapshotBuilder.planSnapshot(activeCount: page.vms.count, limits: page.limits),
+                page.limits,
+                page.vms.count
+            )
+        } else {
             finishSelection(selectionID, request: nil)
             return nil
         }
-        // The shared fleet page is the readiness boundary. The cache may still
-        // be warming, but it must not decide whether the sheet is complete.
-        let limits = page.limits
-        let plan = MachineSnapshotBuilder.planSnapshot(activeCount: page.vms.count, limits: limits)
+        guard !Task.isCancelled, !isPresenting else {
+            finishSelection(selectionID, request: nil)
+            return nil
+        }
+        let limits = presentationData.limits
+        let plan = presentationData.plan
         guard !Self.shouldPresentUpgrade(for: plan) else {
             finishSelection(selectionID, request: nil)
             ProUpgradePresenter.present(source: .newMachineAtLimit)
