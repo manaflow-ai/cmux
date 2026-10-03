@@ -18,6 +18,9 @@ use super::supervisor::{Config, OpRouter, Supervisor};
 
 // MARK: scripted host
 
+/// Callback ids at and above this belong to a run's own call.
+const RUN_CALL: u64 = 1 << 20;
+
 #[test]
 #[ignore = "the scripted app host that supervisor tests spawn; does nothing without fd 3"]
 fn scripted_app_host() {
@@ -69,12 +72,30 @@ fn scripted_app_host() {
                 if let Some(g) = payload.get("gesture") {
                     options["gesture"] = g.clone();
                 }
+                let name: String = payload["op"].as_str().unwrap_or_default().into();
                 send(FromHost::Call {
                     cb,
-                    name: payload["op"].as_str().unwrap_or_default().into(),
+                    name: name.clone(),
                     params: payload["params"].clone(),
-                    options,
+                    options: options.clone(),
                 });
+                // `twice`: present the same token in a second call.
+                if payload["twice"] == true {
+                    let again = next_cb;
+                    next_cb += 1;
+                    let mount = cb_mount.last().expect("mount").1.clone();
+                    cb_mount.push((again, mount));
+                    send(FromHost::Call {
+                        cb: again,
+                        name,
+                        params: payload["params"].clone(),
+                        options,
+                    });
+                }
+            }
+            ToHost::Resolve { cb, ok, body } if cb >= RUN_CALL => {
+                // The answer to a run's own call finishes the run.
+                send(FromHost::Done { cb: cb - RUN_CALL, ok, body });
             }
             ToHost::Resolve { cb, ok, body } => {
                 let mount = cb_mount
@@ -87,11 +108,28 @@ fn scripted_app_host() {
                     ops: json!([{ "op": "update", "id": "n1", "props": { "result": { "ok": ok, "body": body } } }]),
                 });
             }
-            ToHost::Run { cb, export, .. } => {
+            ToHost::Run { cb, export, gesture, .. } => {
                 if export == "crash" {
                     std::process::exit(70);
                 }
+                if let Some(gesture) = &gesture {
+                    send(FromHost::Log {
+                        level: "info".into(),
+                        message: format!("gesture {gesture}"),
+                    });
+                }
                 send(FromHost::Log { level: "info".into(), message: format!("run {export}") });
+                if export == "focusTab" {
+                    // A palette command that focuses a tab with its token.
+                    let options = gesture.map_or_else(|| json!({}), |g| json!({ "gesture": g }));
+                    send(FromHost::Call {
+                        cb: RUN_CALL + cb,
+                        name: "tab.focus".into(),
+                        params: json!({ "tab": "tab_1" }),
+                        options,
+                    });
+                    continue;
+                }
                 send(FromHost::Done { cb, ok: true, body: json!({ "value": export }) });
             }
             ToHost::Event { sub, .. } => {
@@ -105,6 +143,23 @@ fn scripted_app_host() {
 }
 
 // MARK: fixtures
+
+fn run_request(
+    app: &str,
+    op: &str,
+    idempotency_key: Option<String>,
+    origin: Origin,
+    gesture: Option<&str>,
+) -> super::runs::RunRequest {
+    super::runs::RunRequest {
+        app: app.into(),
+        op: op.into(),
+        args: json!({}),
+        idempotency_key,
+        origin,
+        gesture: gesture.map(str::to_string),
+    }
+}
 
 /// (app, op, params, idempotency key, origin)
 type RoutedCall = (String, String, Value, Option<String>, Origin);
@@ -150,7 +205,7 @@ fn write_app(root: &Path, dir: &str, id: &str, scopes: Value) {
     let app = root.join(dir);
     std::fs::create_dir_all(app.join("dist")).unwrap();
     std::fs::write(app.join("dist/main.js"), "var __cmuxAppExports = {};").unwrap();
-    std::fs::write(app.join("catalog.json"), json!({ "operations": { "demo.go": { "export": "go" }, "demo.crash": { "export": "crash" } } }).to_string()).unwrap();
+    std::fs::write(app.join("catalog.json"), json!({ "operations": { "demo.go": { "export": "go" }, "demo.crash": { "export": "crash" }, "demo.focus": { "export": "focusTab" } } }).to_string()).unwrap();
     let mut manifest = json!({
         "manifestVersion": 2, "id": id, "name": "Demo", "version": "1.0.0", "description": "d",
         "engines": { "cmux": "^2.0" }, "runtime": { "main": "dist/main.js" }, "catalog": "catalog.json",
@@ -202,7 +257,7 @@ fn fixture_with(defaults: &[&str], idle: Duration, root: TempDir) -> Fixture {
             &bundled,
             "demo",
             "cmux/demo",
-            json!({ "workspace:read": "r", "workspace:write": "w", "storage:local": "s", "net:api.example.com": "n" }),
+            json!({ "workspace:read": "r", "workspace:write": "w", "storage:local": "s", "net:api.example.com": "n", "actions:run": "a", "terminal:write": "t" }),
         );
         write_app(
             &state.join("apps/local"),
@@ -360,7 +415,14 @@ fn default_apps_are_installed_with_required_scopes() {
     );
     assert_eq!(
         demo["grants"],
-        json!(["net:api.example.com", "storage:local", "workspace:read", "workspace:write"])
+        json!([
+            "actions:run",
+            "net:api.example.com",
+            "storage:local",
+            "terminal:write",
+            "workspace:read",
+            "workspace:write"
+        ])
     );
 }
 
@@ -484,11 +546,7 @@ fn runs_answer_through_the_responder_and_a_crash_restarts_with_reset() {
     let (tx, rx) = channel();
     let tx2 = tx.clone();
     f.supervisor.run(
-        "cmux/demo",
-        "demo.go",
-        json!({}),
-        None,
-        Origin::User,
+        run_request("cmux/demo", "demo.go", None, Origin::User, None),
         Box::new(move |r| tx.send(r).unwrap()),
     );
     assert_eq!(
@@ -497,11 +555,7 @@ fn runs_answer_through_the_responder_and_a_crash_restarts_with_reset() {
     );
     f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
     f.supervisor.run(
-        "cmux/demo",
-        "demo.crash",
-        json!({}),
-        None,
-        Origin::User,
+        run_request("cmux/demo", "demo.crash", None, Origin::User, None),
         Box::new(move |r| tx2.send(r).unwrap()),
     );
     assert_eq!(rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap_err().code, "apps.host");
@@ -557,11 +611,7 @@ fn keyed_runs_run_once_and_hidden_apps_refuse_hidden_surfaces() {
     for _ in 0..2 {
         let tx = tx.clone();
         f.supervisor.run(
-            "cmux/demo",
-            "demo.go",
-            json!({}),
-            Some("k1".into()),
-            Origin::Cli,
+            run_request("cmux/demo", "demo.go", Some("k1".into()), Origin::Cli, None),
             Box::new(move |r| tx.send(r).unwrap()),
         );
         assert_eq!(
@@ -584,20 +634,12 @@ fn keyed_runs_run_once_and_hidden_apps_refuse_hidden_surfaces() {
     .unwrap();
     let tx2 = tx.clone();
     f.supervisor.run(
-        "cmux/demo",
-        "demo.go",
-        json!({}),
-        None,
-        Origin::Cli,
+        run_request("cmux/demo", "demo.go", None, Origin::Cli, None),
         Box::new(move |r| tx2.send(r).unwrap()),
     );
     assert_eq!(rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap_err().code, "apps.hidden");
     f.supervisor.run(
-        "cmux/demo",
-        "demo.go",
-        json!({}),
-        None,
-        Origin::Mcp,
+        run_request("cmux/demo", "demo.go", None, Origin::Mcp, None),
         Box::new(move |r| tx.send(r).unwrap()),
     );
     assert!(rx.recv_timeout(Duration::from_secs(10)).unwrap().is_ok());
@@ -640,4 +682,163 @@ fn a_disabled_app_cannot_preview_or_mount() {
         .mount(CLIENT, "p", "cmux/demo", "cmux.section/1", json!({ "preview": true }))
         .unwrap_err();
     assert_eq!(preview.code, "apps.disabled");
+}
+
+#[test]
+fn palette_runs_get_one_supervisor_gesture_per_client_token() {
+    let f = fixture();
+    f.install("cmux/demo");
+    let (tx, rx) = channel();
+    for (origin, token) in [
+        (Origin::User, "palette-0001"),
+        (Origin::User, "palette-0001"),
+        (Origin::Cli, "palette-0002"),
+        (Origin::User, "x"),
+    ] {
+        let tx = tx.clone();
+        f.supervisor.run(
+            run_request("cmux/demo", "demo.go", None, origin, Some(token)),
+            Box::new(move |r| tx.send(r).unwrap()),
+        );
+        rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap();
+    }
+    let gestures: Vec<String> = f.supervisor.logs(CLIENT, "cmux/demo", false)["lines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|l| {
+            l["message"].as_str().and_then(|m| m.strip_prefix("gesture ")).map(str::to_string)
+        })
+        .collect();
+    assert_eq!(gestures.len(), 1, "only the first user invocation of a token: {gestures:?}");
+    assert!(gestures[0].starts_with("g_"), "the host sees a supervisor token, never the client's");
+}
+
+// MARK: host-side ABI enforcement (raw calls; the runtime is not involved)
+
+#[test]
+fn view_state_ops_need_a_live_token_for_this_app_spent_once() {
+    let f = fixture();
+    f.install("cmux/demo");
+    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    for op in ["tab.focus", "terminal.viewport.scroll", "workspace.focus", "pane.zoom"] {
+        let refused = f.call("m1", op, json!({}), false);
+        assert_eq!(refused["body"]["code"], "gesture.required", "{op}: {refused}");
+    }
+    // One user event: the first view-state call spends its token, the second is refused.
+    f.supervisor
+        .dispatch(
+            CLIENT,
+            "m1",
+            "n1",
+            "tap",
+            json!({ "op": "tab.focus", "params": { "tab": "tab_1" }, "twice": true }),
+            true,
+        )
+        .unwrap();
+    let mut results = Vec::new();
+    while results.len() < 2 {
+        let update =
+            f.wait("call result", |e| e["event"] == "apps-scene" && e["ops"][0]["op"] == "update");
+        results.push(update["ops"][0]["props"]["result"].clone());
+    }
+    // Answers arrive in any order: a refusal is immediate, an accepted call
+    // answers from its worker thread.
+    let accepted = results.iter().filter(|r| r["ok"] == true).count();
+    let refused = results.iter().filter(|r| r["body"]["code"] == "gesture.required").count();
+    assert_eq!((accepted, refused), (1, 1), "a token is spent once: {results:?}");
+}
+
+#[test]
+fn a_client_cannot_mint_a_token_and_another_apps_token_does_not_count() {
+    let f = fixture();
+    f.install("cmux/demo");
+    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    // A token the client wrote into the payload is stripped (automation event).
+    f.supervisor
+        .dispatch(
+            CLIENT,
+            "m1",
+            "n1",
+            "tap",
+            json!({ "op": "tab.focus", "params": {}, "gesture": "g_forged" }),
+            false,
+        )
+        .unwrap();
+    let update =
+        f.wait("call result", |e| e["event"] == "apps-scene" && e["ops"][0]["op"] == "update");
+    assert_eq!(update["ops"][0]["props"]["result"]["body"]["code"], "gesture.required");
+}
+
+#[test]
+fn action_run_honors_the_action_catalog_and_needs_a_gesture() {
+    let f = fixture();
+    f.install("cmux/demo");
+    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    for (id, reason) in [
+        ("palette.auth.signIn", "credentials"),
+        ("quit", "endsApp"),
+        ("keepMacAwake", "systemChange"),
+        ("taskManager.killProcess", "liveInput"),
+    ] {
+        let refused = f.call("m1", "action.run", json!({ "id": id }), true);
+        assert_eq!(
+            (refused["body"]["code"].clone(), refused["body"]["details"]["reason"].clone()),
+            (json!("scope.missing"), json!(reason)),
+            "{id}"
+        );
+    }
+    assert_eq!(
+        f.call("m1", "action.run", json!({ "id": "made.up" }), true)["body"]["code"],
+        "operation.unsupported"
+    );
+    assert_eq!(
+        f.call("m1", "action.run", json!({ "id": "newWindow" }), false)["body"]["code"],
+        "gesture.required"
+    );
+    // Allowed with a gesture; the action owner (the cmux app) answers it, not the daemon.
+    assert_eq!(
+        f.call("m1", "action.run", json!({ "id": "newWindow" }), true)["body"]["message"]
+            .as_str()
+            .map(|m| m.contains("answered by the cmux app")),
+        Some(true)
+    );
+}
+
+#[test]
+fn action_run_needs_the_actions_scope() {
+    let f = fixture();
+    f.install("local/spy");
+    f.mount("m1", "local/spy", "cmux.section/1", json!({}));
+    assert_eq!(
+        f.call("m1", "action.run", json!({ "id": "newWindow" }), true)["body"]["code"],
+        "scope.missing"
+    );
+}
+
+#[test]
+fn a_palette_command_runs_its_user_only_op_with_the_palette_gesture() {
+    let f = fixture();
+    f.install("cmux/demo");
+    let (tx, rx) = channel();
+    let tx2 = tx.clone();
+    f.supervisor.run(
+        run_request("cmux/demo", "demo.focus", None, Origin::User, Some("palette-run-1")),
+        Box::new(move |r| tx.send(r).unwrap()),
+    );
+    assert!(
+        rx.recv_timeout(Duration::from_secs(10)).unwrap().is_ok(),
+        "focus from the palette is accepted"
+    );
+    let calls = f.router.calls.lock().unwrap().clone();
+    assert_eq!((calls[0].1.as_str(), calls[0].4), ("tab.focus", Origin::User));
+    // The same command from the CLI carries no gesture and is refused.
+    f.supervisor.run(
+        run_request("cmux/demo", "demo.focus", None, Origin::Cli, Some("palette-run-2")),
+        Box::new(move |r| tx2.send(r).unwrap()),
+    );
+    assert_eq!(
+        rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap_err().code,
+        "gesture.required"
+    );
 }

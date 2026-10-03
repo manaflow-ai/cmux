@@ -119,6 +119,8 @@ pub(super) struct Host {
     pub grant: Grant,
     pub subs: HashMap<u64, String>,
     pub runs: HashMap<u64, Responder>,
+    /// The gesture token of each run that has one, revoked at its `done`.
+    pub run_gestures: HashMap<u64, String>,
     /// `run` messages for a host that has no process yet (restart pending).
     pub queued_runs: Vec<ToHost>,
     pub next_cb: u64,

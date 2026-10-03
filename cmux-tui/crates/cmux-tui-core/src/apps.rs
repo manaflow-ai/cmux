@@ -16,6 +16,8 @@
 // The app host is a Unix process with an OS sandbox; other platforms
 // advertise no `apps-v1` and answer `apps-*` with `apps.unavailable`.
 #[cfg(unix)]
+mod actions;
+#[cfg(unix)]
 mod calls;
 #[cfg(unix)]
 mod catalog;
@@ -48,6 +50,8 @@ use std::sync::{Arc, OnceLock};
 
 #[cfg(unix)]
 pub(crate) use mirror::{HiddenAccess, Origin, SetOp};
+#[cfg(unix)]
+pub(crate) use runs::RunRequest;
 #[cfg(unix)]
 pub(crate) use supervisor::{ApiError, Supervisor};
 

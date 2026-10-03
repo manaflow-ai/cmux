@@ -9,6 +9,7 @@ use std::time::Instant;
 use cmux_app_host::ToHost;
 use serde_json::{Value, json};
 
+use super::actions::{self, ActionDecision};
 use super::egress;
 use super::grants::{Decision, GestureCheck, Grant, OpClass, ScopeTable, needs_gesture};
 use super::host::HostProcess;
@@ -71,16 +72,36 @@ impl Supervisor {
             Decision::Allow(class) => class,
         };
         let mutation = class == OpClass::Mutation;
+        // action.run: the inner action decides (refused classes, gesture).
+        let mut view_op = needs_gesture(&op);
+        if op == "action.run" {
+            match actions::decide(params.get("id").and_then(Value::as_str)) {
+                ActionDecision::Unknown => {
+                    return reject(error(
+                        "operation.unsupported",
+                        "no such action in this cmux version",
+                    ));
+                }
+                ActionDecision::Refused(reason) => {
+                    return reject(
+                        json!({ "code": "scope.missing", "message": format!("apps cannot run {reason} actions"), "details": { "op": op, "reason": reason }, "retryable": false }),
+                    );
+                }
+                ActionDecision::NeedsGesture => view_op = true,
+            }
+        }
         let token = options.get("gesture").and_then(Value::as_str);
-        let gesture = inner.gestures.present(&key.app, token, mutation, Instant::now());
-        if needs_gesture(&op) && gesture != GestureCheck::User {
+        // One token allows one view-state change: a view-state op, or any op
+        // asked to move focus. Other calls run as the user while it is live.
+        let changes_view = view_op || params.get("focus") == Some(&Value::Bool(true));
+        let gesture = inner.gestures.present(&key.app, token, changes_view, Instant::now());
+        if view_op && gesture != GestureCheck::User {
             return reject(error(
                 "gesture.required",
-                format!("{op} changes focus and needs a user gesture"),
+                format!("{op} changes what the user sees and needs a user gesture"),
             ));
         }
-        let origin =
-            if mutation && gesture == GestureCheck::User { Origin::User } else { Origin::Script };
+        let origin = if gesture == GestureCheck::User { Origin::User } else { Origin::Script };
         // Without a spent gesture an app never asks an owner to move focus.
         if origin != Origin::User
             && let Some(fields) = params.as_object_mut()
