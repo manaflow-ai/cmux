@@ -69,6 +69,13 @@ extension HostSettingsActions {
         )
     }
 
+    func cloudMachinesPlanIncludesCloud() async -> Bool? {
+        guard let flow = AppDelegate.shared?.auth?.accountFlow, flow.isAuthenticated else { return nil }
+        await flow.refreshBillingPlan()
+        // Same answer the Cloud tab uses, so both show Upgrade for Free plans.
+        return flow.hasLoadedBillingPlan ? flow.isProActive : nil
+    }
+
     func openCloudMachinesPanel() {
         _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(mode: .machines)
     }

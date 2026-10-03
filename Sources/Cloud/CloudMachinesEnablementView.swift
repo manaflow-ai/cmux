@@ -13,6 +13,8 @@ import SwiftUI
 struct CloudMachinesEnablementView: View {
     let coordinator: CloudActivationCoordinator
     let accountFlow: HostAccountFlow?
+    /// Whether a billing plan request has finished for this account. When it
+    /// failed, the plan is still unknown and the server decides on enable.
     let billingPlanLoaded: Bool
     let chromeBackgroundColor: NSColor
 
@@ -164,7 +166,7 @@ struct CloudMachinesEnablementView: View {
     private var actionContent: some View {
         switch coordinator.state {
         case .disabled, .cancelled:
-            if !billingPlanLoaded {
+            if !billingPlanLoaded && !isPlanKnown {
                 Text(String(localized: "cloud.enable.planChecking", defaultValue: "Checking your cmux plan…"))
                     .cmuxFont(size: 12)
                     .foregroundStyle(.secondary)
@@ -186,11 +188,15 @@ struct CloudMachinesEnablementView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.regular)
                 .accessibilityIdentifier("CloudMachinesEnableButton")
-            Text(String(localized: "cloud.enable.planNote", defaultValue: "Requires a cmux Pro plan."))
-                    .cmuxFont(size: 11)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
+                // A known Pro plan needs no reminder; the note only explains
+                // what enable will check when the plan could not be loaded.
+                if !isPlanKnown {
+                    Text(String(localized: "cloud.enable.planNote", defaultValue: "Requires a cmux Pro plan."))
+                        .cmuxFont(size: 11)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         case .enabling:
             actionButton(
@@ -227,8 +233,14 @@ struct CloudMachinesEnablementView: View {
         }
     }
 
+    /// The account's plan is known (not just "a request finished").
+    private var isPlanKnown: Bool {
+        accountFlow?.hasLoadedBillingPlan == true
+    }
+
+    /// Free accounts see Upgrade to Pro in place of Enable Cloud.
     private var isProGated: Bool {
-        billingPlanLoaded && accountFlow?.isProActive != true
+        isPlanKnown && accountFlow?.isProActive != true
     }
 
     private func retryButton(prominent: Bool) -> some View {

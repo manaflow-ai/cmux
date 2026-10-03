@@ -11,6 +11,9 @@ public struct CloudMachinesSection: View {
     @State private var activationState: CloudMachinesActivationState
     @State private var plan: CloudMachinesPlanSummary?
     @State private var hasLoaded = false
+    /// Free accounts get Upgrade in place of the Enable toggle; nil until the
+    /// plan answers (or when signed out), which keeps the toggle.
+    @State private var planIncludesCloud: Bool?
 
     public init(hostActions: SettingsHostActions) {
         self.hostActions = hostActions
@@ -39,6 +42,10 @@ public struct CloudMachinesSection: View {
                 "setting:cloudMachines:vpn",
             ])
             .task { await observeActivation() }
+            .task(id: showsEnableToggle) {
+                guard showsEnableToggle else { return }
+                planIncludesCloud = await hostActions.cloudMachinesPlanIncludesCloud()
+            }
             .task(id: activationState.isEnabled) {
                 plan = nil
                 hasLoaded = false
@@ -65,6 +72,13 @@ public struct CloudMachinesSection: View {
     @ViewBuilder
     private var activationControl: some View {
         switch activationState {
+        case .disabled where planIncludesCloud == false, .cancelled where planIncludesCloud == false:
+            Button(String(localized: "settings.cloudMachines.enable.upgrade", defaultValue: "Upgrade")) {
+                hostActions.openCloudMachinesBilling()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityIdentifier("SettingsCloudEnableUpgrade")
         case .disabled, .cancelled:
             Toggle(
                 "",
@@ -130,8 +144,21 @@ public struct CloudMachinesSection: View {
         }
     }
 
+    /// Cloud is off, so the row offers to turn it on (or to upgrade first).
+    private var showsEnableToggle: Bool {
+        switch activationState {
+        case .disabled, .cancelled: return true
+        default: return false
+        }
+    }
+
     private var activationSubtitle: String {
         switch activationState {
+        case .disabled where planIncludesCloud == false, .cancelled where planIncludesCloud == false:
+            return String(
+                localized: "settings.cloudMachines.enable.requiresPro.subtitle",
+                defaultValue: "Your current plan does not include Cloud machine access."
+            )
         case .disabled, .cancelled:
             return String(
                 localized: "settings.cloudMachines.enable.subtitle",
