@@ -35,9 +35,7 @@ public enum CmuxPlainTextInput {
     /// Turns the substitutions off for text views created after this call.
     /// Call once at launch, before any window exists.
     public static func installAppDefaults(_ defaults: UserDefaults) {
-        for key in substitutionDefaultsKeys {
-            defaults.set(false, forKey: key)
-        }
+        defaults.register(defaults: Dictionary(uniqueKeysWithValues: substitutionDefaultsKeys.map { ($0, false) }))
     }
 }
 

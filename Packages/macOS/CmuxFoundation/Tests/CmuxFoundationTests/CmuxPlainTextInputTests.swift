@@ -9,7 +9,7 @@ import Testing
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         for key in CmuxPlainTextInput.substitutionDefaultsKeys {
-            defaults.set(true, forKey: key)
+            #expect(defaults.object(forKey: key) == nil)
         }
 
         CmuxPlainTextInput.installAppDefaults(defaults)
@@ -17,6 +17,10 @@ import Testing
         for key in CmuxPlainTextInput.substitutionDefaultsKeys {
             #expect(defaults.object(forKey: key) as? Bool == false, "\(key)")
         }
+
+        defaults.set(true, forKey: CmuxPlainTextInput.substitutionDefaultsKeys[0])
+        CmuxPlainTextInput.installAppDefaults(defaults)
+        #expect(defaults.object(forKey: CmuxPlainTextInput.substitutionDefaultsKeys[0]) as? Bool == true)
         #expect(CmuxPlainTextInput.substitutionDefaultsKeys.contains("NSAutomaticQuoteSubstitutionEnabled"))
         #expect(CmuxPlainTextInput.substitutionDefaultsKeys.contains("NSAutomaticDashSubstitutionEnabled"))
     }
