@@ -394,6 +394,23 @@ mod tests {
     }
 
     #[test]
+    fn an_integer_valued_float_count_is_that_integer() {
+        // JSON has one number type: JavaScript's JSON.parse reads 1.0 as 1.
+        let read = |text: &str| serde_json::from_str::<AcpmuxEvent>(text).expect("event");
+        let event = read(r#"{"seq": 1.0, "at": 1790985600002.0, "dir": "mux", "kind": "x"}"#);
+        assert!(event.valid);
+        assert_eq!((event.seq, event.at), (1, Some(1_790_985_600_002)));
+        assert_eq!(read(r#"{"seq": 3e0, "kind": "x"}"#).seq, 3);
+        assert_eq!(read(r#"{"seq": -0.0, "kind": "x"}"#).seq, 0, "-0 is 0, as in JavaScript");
+        assert_eq!(read(r#"{"seq": 9007199254740991.0, "kind": "x"}"#).seq, MAX_SAFE_INTEGER);
+        for bad in ["2.5", "-1", "-1.0", "9007199254740992.0", "1e300", "\"1\""] {
+            let event = read(&format!(r#"{{"seq": {bad}, "kind": "x"}}"#));
+            assert!(!event.valid, "seq {bad} is not a count");
+        }
+        assert_eq!(lenient_count_value(&json!(5.0)), Some(5));
+    }
+
+    #[test]
     fn last_reply_is_the_last_ended_turn() {
         let events = vec![
             event(1, "turn_started", json!({})),

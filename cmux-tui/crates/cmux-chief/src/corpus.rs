@@ -38,8 +38,25 @@ pub struct Case {
 pub struct Step {
     /// Milliseconds since the epoch.
     pub now: u64,
-    pub input: Input,
+    /// The input as a JSON value. Absent when `input_text` is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<Input>,
+    /// The input as wire text, parsed here with serde_json: it pins number
+    /// text a JSON value cannot carry (`1.0` is the integer 1 in both cores).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_text: Option<String>,
     pub effects: Vec<Value>,
+}
+
+impl Step {
+    /// The step's input: `input_text` parsed when present, else `input`.
+    pub fn input(&self) -> Result<Input, String> {
+        match (&self.input_text, &self.input) {
+            (Some(text), _) => serde_json::from_str(text).map_err(|e| e.to_string()),
+            (None, Some(input)) => Ok(input.clone()),
+            (None, None) => Err("no input".to_owned()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,8 +74,9 @@ pub fn run_case(case: &Case) -> Result<(), String> {
     let mut core = Core::new(case.state.clone());
     let log = json!("log");
     for (index, step) in case.steps.iter().enumerate() {
+        let input = step.input().map_err(|e| format!("{}: step {index}: {e}", case.name))?;
         let got: Vec<Effect> = core
-            .step(step.input.clone(), step.now)
+            .step(input, step.now)
             .into_iter()
             .filter(|effect| !matches!(effect, Effect::Log { .. }))
             .collect();
