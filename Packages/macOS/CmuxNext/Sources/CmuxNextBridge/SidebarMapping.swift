@@ -48,8 +48,21 @@ public struct SidebarMapping {
             unread: unread > 0 ? .count(unread) : (showsUnread && workspace.markedUnread ? .dot : .none),
             activity: indicator.state,
             activityStyle: indicator.style,
-            progress: progress(workspace, tabs: tabs)
+            progress: progress(workspace, tabs: tabs),
+            tabs: tabs.map { tab in
+                SidebarTab(id: TabID(tab.id), title: tab.displayTitle, kind: Self.tabKind(tab.kind), isUnread: tab.hasUnread)
+            }
         )
+    }
+
+    private static func tabKind(_ kind: TabKind) -> SidebarTabKind {
+        switch kind {
+        case .pty: .terminal
+        case .browser: .browser
+        case .remoteTerminal: .remoteTerminal
+        case .conversation: .conversation
+        case let .other(value): .other(value)
+        }
     }
 
     /// The workspace's reported progress, else the first terminal progress

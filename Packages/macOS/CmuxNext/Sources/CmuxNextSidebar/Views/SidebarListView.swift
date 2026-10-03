@@ -19,6 +19,7 @@ final class SidebarListView: NSView {
     var displayed = SidebarLayout.empty
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
+    var tabs: [TabID: SidebarTab] = [:]
     var groups: [GroupID: SidebarGroup] = [:]
     var sections: [SectionID: SidebarSection] = [:]
     /// Pill and gap CALayers, under the rows.
@@ -124,6 +125,7 @@ final class SidebarListView: NSView {
     /// Recomputes layout from the model and animates rows to their frames.
     func reload(animated: Bool) {
         workspaces = [:]
+        tabs = [:]
         groups = [:]
         sections = [:]
         for section in model.sections {
@@ -137,6 +139,7 @@ final class SidebarListView: NSView {
                 }
             }
         }
+        for workspace in workspaces.values { for tab in workspace.tabs { tabs[tab.id] = tab } }
         if let drag, !drag.isValid(in: model) { cancelDrag() }
         // A removed workspace's card ends on the geometry check after the
         // rows apply (its anchor is gone); a kept one updates in place.
@@ -148,6 +151,7 @@ final class SidebarListView: NSView {
     func options(includeGap: Bool) -> SidebarLayoutOptions {
         var o = SidebarLayoutOptions()
         o.filterMatches = model.filterMatches
+        o.showWorkspaceTabs = model.showWorkspaceTabs
         if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
             o.gap = DropPosition(section: section, group: group, index: index)
             o.gapHeight = metrics.rowHeight
@@ -283,6 +287,9 @@ final class SidebarListView: NSView {
             view.configure(ws, row: row)
             view.isSecondarySelected = model.selection.contains(id) && model.activeWorkspaceID != id
             view.isDropTarget = external?.proposal == .intoWorkspace(id)
+        case let (.tab(_, tabID), view as SidebarTabRowView):
+            guard let tab = tabs[tabID] else { return }
+            view.configure(tab, row: row)
         case let (.group(id), view as GroupHeaderRowView):
             guard let group = groups[id] else { return }
             view.configure(group, row: row, animated: animated)

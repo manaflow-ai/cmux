@@ -13,13 +13,14 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     public var rowHeight: CGFloat
     /// Workspace row with a live status line.
     public var rowHeightWithSubtitle: CGFloat
+    public var tabRowHeight: CGFloat
     public var rowSpacing: CGFloat
     public var groupBottomPadding: CGFloat
     public var emptySectionHeight: CGFloat
 
     public init(
         topPadding: CGFloat, bottomPadding: CGFloat, sectionHeaderHeight: CGFloat, sectionSpacing: CGFloat,
-        groupHeaderHeight: CGFloat, rowHeight: CGFloat, rowHeightWithSubtitle: CGFloat, rowSpacing: CGFloat,
+        groupHeaderHeight: CGFloat, rowHeight: CGFloat, rowHeightWithSubtitle: CGFloat, tabRowHeight: CGFloat, rowSpacing: CGFloat,
         groupBottomPadding: CGFloat, emptySectionHeight: CGFloat
     ) {
         self.topPadding = topPadding
@@ -29,6 +30,7 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         self.groupHeaderHeight = groupHeaderHeight
         self.rowHeight = rowHeight
         self.rowHeightWithSubtitle = rowHeightWithSubtitle
+        self.tabRowHeight = tabRowHeight
         self.rowSpacing = rowSpacing
         self.groupBottomPadding = groupBottomPadding
         self.emptySectionHeight = emptySectionHeight
@@ -55,6 +57,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// Show the machine header even when only one machine is listed.
     /// Off by default: headers appear once a Cloud or SSH machine joins.
     public var showsSoleMachineHeader = false
+    /// Include tab rows beneath each visible workspace.
+    public var showWorkspaceTabs = false
 
     public init() {}
 }

@@ -2148,6 +2148,8 @@
               "prevSidebarTab",
               "nextSidebarTabInGroup",
               "prevSidebarTabInGroup",
+              "nextWorkspaceGroup",
+              "prevWorkspaceGroup",
               "moveWorkspaceUp",
               "moveWorkspaceDown",
               "focusHistoryBack",

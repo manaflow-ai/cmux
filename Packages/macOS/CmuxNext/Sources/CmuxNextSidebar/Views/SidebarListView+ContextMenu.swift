@@ -19,6 +19,8 @@ extension SidebarListView {
             target = .group(id)
         case let .section(id)?, let .emptySection(id)?:
             target = .section(id)
+        case let .tab(workspace, _)?:
+            target = .workspaces([workspace])
         case nil:
             target = .background
         }

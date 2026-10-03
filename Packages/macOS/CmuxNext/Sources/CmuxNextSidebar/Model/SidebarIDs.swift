@@ -8,6 +8,13 @@ public nonisolated struct WorkspaceID: Hashable, Sendable, Codable, CustomString
     public var description: String { rawValue }
 }
 
+/// Stable identifier for a tab shown beneath a workspace row.
+public nonisolated struct TabID: Hashable, Sendable, Codable, CustomStringConvertible {
+    public let rawValue: String
+    public init(_ rawValue: String) { self.rawValue = rawValue }
+    public var description: String { rawValue }
+}
+
 /// Stable identifier of a workspace group.
 public nonisolated struct GroupID: Hashable, Sendable, Codable, CustomStringConvertible {
     public let rawValue: String
@@ -24,4 +31,3 @@ public nonisolated struct MachineID: Hashable, Sendable, Codable, CustomStringCo
     public static let local = MachineID("local")
     public var description: String { rawValue }
 }
-

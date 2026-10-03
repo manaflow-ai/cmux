@@ -8,6 +8,7 @@ enum SidebarStyle {
     static var rowCornerRadius: CGFloat { Metrics.itemCornerRadius }
     /// Leading indent of grouped rows (room for the group color rail).
     static var groupIndent: CGFloat { Metrics.space5 }
+    static var tabIconSize: CGFloat { Metrics.smallIconSize - Metrics.space2 }
     /// Height of a placeholder row's bar (about a caption's x-height).
     static var placeholderBarHeight: CGFloat { Metrics.space3 }
     /// Placeholder bar widths, as shares of the title width.
@@ -46,4 +47,3 @@ enum SidebarStyle {
     }
 
 }
-

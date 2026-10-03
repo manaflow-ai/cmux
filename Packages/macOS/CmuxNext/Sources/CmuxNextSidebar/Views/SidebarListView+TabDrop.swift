@@ -12,6 +12,7 @@ extension SidebarListView {
         var windowPoint: NSPoint
         var sourceMachine: MachineID?
         var springTarget: WorkspaceID?
+        var springGroupTarget: GroupID?
         var springTask: Task<Void, Never>?
 
         init(windowPoint: NSPoint, sourceMachine: MachineID?) {
@@ -83,17 +84,24 @@ extension SidebarListView {
     /// it so the user can keep dragging into that workspace's panes.
     func updateSpringLoad(_ external: ExternalDrag) {
         let target: WorkspaceID? = if case let .intoWorkspace(id)? = external.proposal { id } else { nil }
-        guard target != external.springTarget else { return }
+        let groupTarget: GroupID? = if case let .intoGroup(id)? = external.proposal { id } else { nil }
+        guard target != external.springTarget || groupTarget != external.springGroupTarget else { return }
         external.springTask?.cancel()
         external.springTarget = target
-        guard let target, model.activeWorkspaceID != target else { return }
+        external.springGroupTarget = groupTarget
+        guard target != nil || groupTarget != nil else { return }
         let clock = springLoadClock
         let delay = springLoadDelay
         external.springTask = Task { [weak self] in
             // wakeup-allow: one-shot spring-load delay while a tab hovers a row, cancelled when it leaves
             do { try await clock.sleep(for: delay) } catch { return }
-            guard let self, self.external === external, external.springTarget == target else { return }
-            self.model.click(target)
+            guard let self, self.external === external,
+                  external.springTarget == target, external.springGroupTarget == groupTarget else { return }
+            if let target, self.model.activeWorkspaceID != target {
+                self.model.click(target)
+            } else if let groupTarget, self.model.group(groupTarget)?.isCollapsed == true {
+                self.model.send(.toggleCollapse(.group(groupTarget)))
+            }
             self.reload(animated: true)
         }
     }

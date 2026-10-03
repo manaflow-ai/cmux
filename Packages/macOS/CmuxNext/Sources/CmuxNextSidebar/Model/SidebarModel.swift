@@ -37,6 +37,8 @@ public final class SidebarModel {
     public var collapsedLayoutSections: Set<LayoutSectionID> = []
     /// Search field contents. Non-empty text filters rows and disables drag.
     public var filterText = ""
+    /// Whether each workspace expands to show its intra-workspace tabs.
+    public var showWorkspaceTabs = false
     /// Machine sections list loose workspaces before groups (a daemon-backed
     /// sidebar: cmux-tui keeps no slot for one after a group), so a drag
     /// never offers a slot past the first group.
@@ -119,6 +121,8 @@ public final class SidebarModel {
         case let .select(id):
             activeWorkspaceID = id
             if !selection.contains(id) { selection = [id] }
+        case .selectTab, .moveTab:
+            break
         case let .closeGroup(id):
             let ids = group(id)?.workspaces.map(\.id) ?? []
             SidebarEdits.apply(intent, to: &sections)
