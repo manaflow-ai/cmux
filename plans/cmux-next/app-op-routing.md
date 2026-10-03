@@ -1,7 +1,7 @@
 > RESUME NOTE (updated 2026-10-03, Rust lane of the app platform)
-> State: branch feat-cmux-next-apps-routing (pushed, no PR, no base push) on top of #17008 e7a28e4e95f. Provider registration gated (agent connections refused, kind app required). Provider channel done and the security review's findings fixed (params cap, no takeover, cancel on revoke/exit, idle waits for calls, explicit integration method, fs.pick gesture, unknown families unsupported, event sent after the lock, failed sends fail at once, ABI error bodies); testbox: 49/49 supervisor tests three times, workspace clippy and fmt clean, god files ok.
-> Next: in the cmux-tui landing window, after #16872 and #17008 land (direct pushes, no PRs): rebase onto origin/feat-cmux-next, exact-head local gates, push. Swift lane: the Mac app sets client kind app and registers its families first thing after connect.
-> Open runs: none. #17008 hosted --filter apps:: (run 37081571961) is green.
+> State: branch feat-cmux-next-apps-routing (pushed, no base push) on top of #17008 without its actor commit (the identity lane owns the actor per identity.md section 3). Provider channel, review fixes and registration gate (agent conversation binding refused, kind app required) are done; provider events carry the section 3 `app` actor struct.
+> Next: in the cmux-tui landing window (after Home, P7, docks): #16872, then #17008, then this branch, each rebased onto origin/feat-cmux-next, exact-head local gates, push with .cmux-scratch/nx-worker/safe-push.sh. When the identity lane's Actor and dispatch API land: the supervisor sets the `app` actor explicitly on routed daemon calls, and the gate refuses terminal/acp_session actors with `agent` set.
+> Open runs: none.
 > Later queue: build-time scopes (fold fs.* and the routed ops into scopes.json), then power assertions.
 
 # App op routing from the supervisor (app platform step 3c)
@@ -24,7 +24,7 @@ The supervisor answers an app call only when the daemon owns the op (`cmux.proto
 
 Provider channel, modeled on `url_open` (daemon asks a connected frontend) and `browser_provider` (a client registers as provider):
 - `apps-provider-register {families: ["fs", "action", ...]}` on a local connection; the capability set is per connection and ends with it. One provider per family; a second registration replaces the first.
-- The supervisor forwards an admitted call as event `apps-provider-request {request_id, app, actor: "app:<id>", origin, gesture?, op, params, deadline_ms}` to that connection only.
+- The supervisor forwards an admitted call as event `apps-provider-request {request_id, app, actor: {kind: "app", id, host, version, on_behalf_of} (identity.md section 3), origin, op, params, idempotency_key?, deadline_ms}` to that connection only.
 - The provider answers `apps-provider-result {request_id, ok, body}` (ABI body shapes). Unanswered after the deadline (default 30 s; `fs.pick` waits for the user, 10 min) -> `operation.failed` with `reason: timeout`. A disconnect fails its pending requests at once.
 - No provider registered, or the provider disconnects mid-call -> `provider.unavailable` at once (retryable, details `{family, op}`; APP-R1). An op of no provider family -> `operation.unsupported`.
 - Who may register (app platform lead, 2026-10-03): a connection whose stamped actor is `agent:<id>` is refused (`apps.provider.forbidden`); this is the real barrier against an agent in a pane. The connection must also have declared `set-client-info` kind `app` (self-declared). The Mac app registers its families as the first thing after it connects, so the window for an impostor is short. Residual risk: a same-uid process that is not an agent and claims kind `app` can still register first; that is inside the documented local trust boundary until per-install keys bind the Mac app's connection.
