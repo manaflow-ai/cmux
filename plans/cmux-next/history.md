@@ -296,8 +296,8 @@ and for Chromium from fork API 14.
 Terminal command history (user decision 2026-09-30: off by default):
 cmux-tui `terminal-command-journal-v1` (`set-terminal-command-history`,
 `shell.command.finished` from producer `cmux_shell`) and the app setting
-`history.terminalCommands`. The capability is `awaitingPin` in the app
-until a cmux-tui pin carries it.
+`history.terminalCommands`. The capability is in the app's
+`optional` list; builds bundle the same-tree daemon, which serves it.
 
 Not built: mouse side buttons and swipe for either axis; a daemon list of
 closed workspaces (`closed-history-v1`; the app lists what it saw close).

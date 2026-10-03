@@ -168,9 +168,10 @@ chevron, Other Bookmarks, folder menus, drag reorder, link drop), the
 page Open Bookmark…, `cmux bookmark …` verbs and `bookmark.list`, the
 `debug.bookmarks` control method, the Settings toggle.
 
-Daemon: `bookmarks-v1` is implemented in cmux-tui on its own branch
-(feat-cmux-next-bookmarks-daemon, landing after the hosted gate); the app
-lists it in `awaitingPin`, so it uses the file until a pin brings it.
+Daemon: `bookmarks-v1` is served by cmux-tui and listed in the app's
+`optional` capabilities; builds bundle the daemon of their own cmux-tui tree
+(scripts/cmux-next/pin-cmux-tui.sh), so the file is used only with an older
+remote daemon.
 
 Verified on tag nxbm (no-activate launch, control socket, window
 screenshots; the app never became active and no window became key): the

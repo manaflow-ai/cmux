@@ -184,8 +184,8 @@ first). The brain host retries an `agent_rate` reply once after the gap and drop
 
 - Daemon owner: crate `cmux-conversation` + `conversation_store.rs`, capability `local-conversations-v1`
   (trusted local Unix connections only). Hosted focused run green (36967786594); the full run is
-  being fixed. The app lists the capability in `awaitingPin` until the next cmux-tui pin cut, which
-  belongs to the Rust CLI session; until then a tagged build needs `CMUX_NEXT_TUI_BIN=<hosted binary>`.
+  being fixed. The app lists the capability in `optional`; tagged builds bundle the daemon of their own
+  cmux-tui tree (scripts/cmux-next/pin-cmux-tui.sh), so they serve it.
 - App: Cmd-1 / `home.show`, Home row, `showsHome`, `HomeService` (mirror + intent log per open
   conversation, seeded property test against a reference owner), `HomeWindowModel`,
   `HomeTranscriptAdapter`, `debug.home`, `scripts/cmux-next/home-e2e.py`.
