@@ -94,8 +94,19 @@ describe("Home HTTP routes (stage B)", { timeout: 60_000 }, () => {
     const wire = (token: string) => worker.fetch(`https://api.test/v1/wire/conv/${id}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}` } })
     const ok = await wire(dana.token)
     expect(ok.status).toBe(101)
-    ok.webSocket!.accept()
-    ok.webSocket!.close()
+    const ws = ok.webSocket!
+    const frames: Array<any> = []
+    let wake: (() => void) | undefined
+    ws.addEventListener("message", (e) => {
+      frames.push(JSON.parse(e.data as string))
+      wake?.()
+    })
+    ws.accept()
+    // Ops the Worker completes never run from the socket (client-chosen token_hash or proof).
+    ws.send(JSON.stringify({ t: "op", op: "invite.create", params: { invite_id: `inv_${"0".repeat(26)}`, address: address, channel: "email", display_name: "x", token_hash: "A".repeat(43), locale: "en", copy_variant: "A" }, idempotency_key: "sock-1" }))
+    while (!frames.some((f) => f.t === "reject" && f.idempotency_key === "sock-1")) await new Promise<void>((r) => (wake = r))
+    expect(frames.find((f) => f.idempotency_key === "sock-1").message).toContain("POST /v1/ops")
+    ws.close()
     const eve = await signIn("home-http-eve", "eve@example.com", "Eve")
     expect((await wire(eve.token)).status).toBe(403)
   })

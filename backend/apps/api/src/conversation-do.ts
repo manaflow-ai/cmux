@@ -10,6 +10,8 @@ import { withAdmit } from "./home-admit.ts"
 
 type Head = conversation.ConversationState
 const MAX_HISTORY_PAGE = 200
+/** Ops the Worker completes (home-routes.ts); refused on the conversation socket. */
+const WORKER_DERIVED_OPS = new Set(["conversation.create", "dm.open", "invite.create", "invite.accept"])
 /** Accept rejects that count toward the lock (a wrong or used link), not transient ones. */
 const ACCEPT_FAILURES = new Set(["unknown_invite", "invite_not_pending", "invite_expired"])
 
@@ -49,8 +51,23 @@ export class ConversationDO extends OwnerDO<Head> {
     return state && actor ? state.participants.find((p) => p.id === actor && p.left_at === undefined) : undefined
   }
 
+  /** Current participants, and for installs only when the grant covers reads. */
   protected maySubscribe(state: Head, principal: Principal): boolean {
+    if (principal.kind !== "session" && !(principal.grant_classes ?? []).includes("read")) return false
     return this.member(state, principal) !== undefined
+  }
+
+  /**
+   * Ops whose fields the Worker derives (ids, invite secret hashes, accept proofs) never run
+   * from the socket: a frame would carry client-chosen values and skip the accept lock. They go
+   * through POST /v1/ops; other ops may use the socket.
+   */
+  protected routeFrame(ws: WebSocket, _a: unknown, frame: { readonly t?: string; readonly op?: unknown; readonly idempotency_key?: unknown }): boolean {
+    if (frame.t !== "op" || typeof frame.op !== "string" || !WORKER_DERIVED_OPS.has(frame.op)) return false
+    try {
+      ws.send(JSON.stringify({ t: "reject", tx: "", idempotency_key: frame.idempotency_key ?? "", code: "validation.invalid", message: `${frame.op} goes through POST /v1/ops`, retryable: false, replayed: false }))
+    } catch {}
+    return true
   }
 
   /** The lowest message seq a member may see (history_visible: since_join hides older ones). */
