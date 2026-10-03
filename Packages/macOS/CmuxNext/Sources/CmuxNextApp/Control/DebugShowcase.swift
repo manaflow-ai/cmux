@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextControl
+import CmuxNextSettings
 
 /// Seeds the deterministic DEBUG showcase in the current app window.
 /// `debug.showcase.seed` is intentionally one mutation path shared by the
