@@ -31,6 +31,22 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 
 <!-- generated: action surfaces -->
 
+## Catalog counts
+
+- `window`: 33
+- `workspace`: 139
+- `pane`: 72
+- `screen`: 62
+- `tab`: 78
+- `terminal`: 36
+- `browser`: 113
+- `sidebar`: 56
+- `notifications`: 19
+- `agents`: 30
+- `cloud`: 48
+- `remote`: 7
+- `settings`: 55
+
 ## Counts (748 actions)
 
 Palette 745, CLI verbs 426, right-click 422, MCP tools 372.
