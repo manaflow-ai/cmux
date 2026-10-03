@@ -60,17 +60,6 @@ final class NotificationCenterService {
                 self?.updateDockBadge(count)
             }
         })
-        // A tab read by any client (this app, the iPhone, `cmux` clear) reads its feed notices.
-        // A tab that left the store (closed, or a daemon disconnect) is not a read.
-        tasks.append(Task { [weak self] in
-            var previous: Set<String> = []
-            for await unread in Observations({ Self.unreadTabs(store) }) {
-                for tab in previous.subtracting(unread) where Self.tab(id: tab, in: store) != nil {
-                    self?.feedBridge?.read(tab: tab)
-                }
-                previous = unread
-            }
-        })
     }
 
     /// Follows `notifications.*` in every loaded snapshot.

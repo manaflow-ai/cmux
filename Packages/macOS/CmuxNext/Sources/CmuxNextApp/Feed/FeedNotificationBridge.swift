@@ -3,8 +3,10 @@ import Foundation
 
 /// Notifications migration step 1 (plans/cmux-next/feed.md section 9): a
 /// local daemon notification that would alert the user on this Mac is also
-/// posted to the user's feed as a notice, and a tab the user reads marks its
-/// notices read there. The daemon ledger stays the source of rings, badges
+/// posted to the user's feed as a notice, and this app's explicit view
+/// acknowledgement of a tab (`ack-tab-notifications`) marks its notices read
+/// there. Daemon-side clears (select-tab, another client) are not reads of
+/// the feed (spec C-BATCH: unread clears only on an explicit per-client ack). The daemon ledger stays the source of rings, badges
 /// and banners (steps 2 and 3 move them). The app posts because it holds the
 /// only cloud credential on the Mac; notifications that arrive while no app
 /// runs are not mirrored, and nothing queues while signed out or offline (U5).

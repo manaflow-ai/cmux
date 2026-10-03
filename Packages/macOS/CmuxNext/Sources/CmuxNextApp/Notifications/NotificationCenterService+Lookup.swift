@@ -75,19 +75,6 @@ extension NotificationCenterService {
         NSApp.dockTile.badgeLabel = label
     }
 
-    /// Ids of the tabs with an unread daemon notification.
-    static func unreadTabs(_ store: DaemonStore) -> Set<String> {
-        var tabs: Set<String> = []
-        for workspace in store.workspaces {
-            for screen in workspace.screens {
-                for pane in screen.panes {
-                    for tab in pane.tabs where tab.hasUnread { tabs.insert(tab.id) }
-                }
-            }
-        }
-        return tabs
-    }
-
     /// The feed bridge over `feed`'s owner calls (nil without a feed service).
     static func makeFeedBridge(_ feed: FeedService?) -> FeedNotificationBridge? {
         guard let feed else { return nil }
