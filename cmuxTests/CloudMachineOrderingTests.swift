@@ -261,11 +261,14 @@ struct CloudMachineOrderingTests {
         outline.expandItem(try #require(fixture.section))
         outline.expandItem(try fixture.root("c"))
         let source = try fixture.root("b")
-        let drag = try fixture.begin("b")
+        fixture.base.container.layoutSubtreeIfNeeded()
         let press = outline.rect(ofRow: outline.row(forItem: source)).midY
+        // The hand is a window point: rows closing may scroll the outline under it.
+        let hand = outline.convert(NSPoint(x: 10, y: press), to: nil)
+        let drag = try fixture.begin("b")
         coordinator.beginMachineLift(drag.session, node: source, in: outline, pressY: press)
         #expect(!outline.isItemExpanded(try fixture.root("c")))
-        drag.info.draggingLocation = outline.convert(NSPoint(x: 10, y: press + 3), to: nil)
+        drag.info.draggingLocation = NSPoint(x: hand.x, y: hand.y - 3)
         #expect(coordinator.outlineView(outline, validateDrop: drag.info,
             proposedItem: nil, proposedChildIndex: 0).isEmpty)
         try fixture.end(drag)
