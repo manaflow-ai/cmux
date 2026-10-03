@@ -78,6 +78,9 @@ final class AgentTabStore {
             let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
             host = AcpmuxHost { AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin, environment: environment) }
         }
+        // Start acpmux while the first pane is loading. The page still owns
+        // the authenticated WebSocket handshake and session selection.
+        Task { try? await host.prewarm() }
         // Release loads only the bundled page; the dev server is for Debug
         // and tagged builds (webviews/src/agent-session/acpmux/README.md).
         #if DEBUG
