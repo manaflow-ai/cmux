@@ -60,6 +60,7 @@ extension SettingsSchema {
         "status.inferCommandBusyAfter",
         "terminal.fontFamily",
         "terminal.fontSize",
+        "terminal.restartLostTerminals",
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",

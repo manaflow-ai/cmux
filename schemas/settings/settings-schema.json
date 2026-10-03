@@ -2374,6 +2374,52 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.terminalSessions",
+        "text" : "Sessions"
+      },
+      "help" : {
+        "key" : "settings.terminal.restartLostTerminals.help",
+        "text" : "When a terminal's host is lost, start a new shell in the same tab and folder."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "terminal.restartLostTerminals",
+      "keywords" : [
+        "restart",
+        "relaunch",
+        "respawn",
+        "lost",
+        "crash",
+        "dead",
+        "shell",
+        "session"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "terminal",
+        "restartLostTerminals"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "terminal",
+      "title" : {
+        "key" : "settings.terminal.restartLostTerminals",
+        "text" : "Restart Lost Terminals"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
 
       ],
       "agent_refusal" : null,
@@ -4224,7 +4270,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "c23da4e5d1551da2e148376009224cc4847dd53270837a09add5fea95cec9315",
+  "schema_hash" : "091e59458144c56be223feb0ea0cc8ffa173754395efcf45202a68ba7f91fb73",
   "sections" : [
     {
       "id" : "general",
