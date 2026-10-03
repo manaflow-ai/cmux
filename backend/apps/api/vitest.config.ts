@@ -17,6 +17,8 @@ const pubsubPrivate = { ...(await exportJWK(pubsub.privateKey)), kid: "google-te
 const kek = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64")
 
 export default defineConfig({
+  // Loads the Worker once per test file before any test runs (test/setup/warm-worker.ts).
+  test: { setupFiles: ["./test/setup/warm-worker.ts"] },
   plugins: [
     cloudflareTest({
       wrangler: { configPath: "./wrangler.jsonc" },
