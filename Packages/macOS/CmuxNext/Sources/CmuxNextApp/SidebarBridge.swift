@@ -181,7 +181,7 @@ final class SidebarBridge {
         case .layoutItem(let id):
             return layoutItemMenu(id)
         case .layoutSection(let id):
-            return registry.makeContextMenu(for: .sidebarSection, target: ActionTargetRef(kind: .sidebarSection, id: id.rawValue))
+            return layoutSectionMenu(id)
         }
     }
 

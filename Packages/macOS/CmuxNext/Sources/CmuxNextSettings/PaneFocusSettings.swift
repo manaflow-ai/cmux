@@ -1,13 +1,15 @@
 import CmuxNextDesign
 
-/// `appearance.focusIndicator` and `appearance.tabBarBackground` in
-/// cmux.json. A missing key is the default with no diagnostic; a bad value
+/// `appearance.focusIndicator`, `appearance.tabBarBackground` and
+/// `focus.inactiveTabStyle` in cmux.json. A missing key is the default with no diagnostic; a bad value
 /// is the default plus a diagnostic.
 enum PaneFocusSettings {
     static let focusIndicatorPath = ["appearance", "focusIndicator"]
     static let tabBarBackgroundPath = ["appearance", "tabBarBackground"]
     static let focusIndicatorFallback: FocusIndicator = .both
     static let tabBarBackgroundFallback: TabBarBackground = .window
+    static let inactiveTabStylePath = ["focus", "inactiveTabStyle"]
+    static let inactiveTabStyleFallback: InactiveTabStyle = .fade
 
     static func parse<T: RawRepresentable & CaseIterable>(_ root: JSONValue, at path: [String], fallback: T)
         -> (T, SettingsDiagnostic?) where T.RawValue == String {

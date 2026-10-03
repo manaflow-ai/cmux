@@ -1,4 +1,4 @@
-// A changed file's More menu: Copy path,
+// A changed file's More menu: Copy path, Open file in a tab,
 // and Collapse file (Expand file when folded). It is a menu button: it opens on its first
 // item, arrows move through the items, Enter or Space runs one, and Escape, Tab or a press
 // elsewhere closes it.
@@ -11,11 +11,14 @@ export function FileMenu({
   name,
   collapsed,
   onToggleCollapsed,
+  onOpenInTab,
 }: {
   path: string;
   name: string;
   collapsed: boolean;
   onToggleCollapsed: () => void;
+  /// Absent for a file with nothing on disk to open, such as a deleted one.
+  onOpenInTab?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
@@ -39,6 +42,7 @@ export function FileMenu({
   const items = [
     // The copy can fall back to a selection copy, which takes focus; focus returns after it.
     { label: "Copy path", run: () => copyText(path) },
+    ...(onOpenInTab ? [{ label: "Open file in a tab", run: onOpenInTab }] : []),
     { label: collapsed ? "Expand file" : "Collapse file", run: onToggleCollapsed },
   ];
   const onKeyDown = (event: React.KeyboardEvent) => {

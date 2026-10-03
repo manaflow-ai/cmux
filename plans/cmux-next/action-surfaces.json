@@ -4215,6 +4215,28 @@
       "palette" : "offered"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "browser link-hints",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "id" : "browserLinkHints",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "browser link-hints-split",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "id" : "browserLinkHintsNewSplit",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "browser split-right",
       "context_menu" : "offered",
@@ -7804,7 +7826,8 @@
       "cli_name" : "sidebar hide-app",
       "context_menu" : "offered",
       "context_menus" : [
-        "sidebarItem"
+        "sidebarItem",
+        "sidebarSection"
       ],
       "id" : "sidebar.item.hideApp",
       "mcp" : "offered",

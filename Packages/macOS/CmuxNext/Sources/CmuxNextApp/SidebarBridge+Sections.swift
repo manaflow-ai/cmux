@@ -65,6 +65,8 @@ extension SidebarBridge {
                 let infos = Self.itemInfo(for: layout, registered: { registry.action(for: $0) != nil },
                                           app: { Self.appInfo($0, registry: apps) })
                 if model.itemInfo != infos { model.itemInfo = infos }
+                let suppressed = AppPresence(apps.apps).suppressed
+                if model.suppressedApps != suppressed { model.suppressedApps = suppressed }
             }
         }
     }
@@ -95,14 +97,23 @@ extension SidebarBridge {
         guard let app = registry.app(id) else { return SidebarItemInfo.fallback(for: .app(id)) }
         let symbol = if case .symbol(let name)? = app.manifest.icon { name } else { "app" }
         return SidebarItemInfo(title: app.manifest.name.resolved(), symbol: symbol, isMissing: !app.isInstalled,
-                               isHidden: app.isInstalled && !app.isVisible)
+                               isHidden: AppPresence([app]).suppressed.contains(id))
     }
 
     /// A layout change from this sidebar (a drag, an inline edit): sent to
     /// the layout owner; a refusal shows in the refusal HUD.
+    /// The right-click menu of a section: Hide only on an app section.
+    func layoutSectionMenu(_ id: LayoutSectionID) -> NSMenu? {
+        let isApp = model.layout.section(id)?.owningAppID != nil
+        let menus = ContextMenuCatalog.shared
+        let entries = isApp ? menus.entries(for: .sidebarSection) : menus.entries(for: .sidebarSection, removing: ["sidebar.item.hideApp"])
+        return services.registry.makeContextMenu(for: .sidebarSection, target: ActionTargetRef(kind: .sidebarSection, id: id.rawValue),
+                                                 entries: entries)
+    }
+
     /// The right-click menu of a layout item: Hide only on app items.
     func layoutItemMenu(_ id: LayoutItemID) -> NSMenu? {
-        let isApp = model.layout.item(id)?.ref.kind == LayoutItemRef.appKind
+        let isApp = model.layout.item(id)?.owningAppID != nil
         let menus = ContextMenuCatalog.shared
         let entries = isApp ? menus.entries(for: .sidebarItem) : menus.entries(for: .sidebarItem, removing: ["sidebar.item.hideApp"])
         return services.registry.makeContextMenu(for: .sidebarItem, target: ActionTargetRef(kind: .sidebarItem, id: id.rawValue),

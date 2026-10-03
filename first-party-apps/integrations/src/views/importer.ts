@@ -1,8 +1,7 @@
 // Add a generic API: paste a spec URL or JSON, see the tools it would add with
 // the policy each gets by default, pick how it authenticates, then add it.
 
-import { defaultCounts } from "../core/catalog.ts"
-import type { AuthMethod, Catalog, ToolEntry } from "../core/types.ts"
+import { defaultCounts, type AuthMethod, type Catalog, type ToolEntry } from "@cmux/integrations-core"
 import { t } from "../l10n.ts"
 import { providerInfo } from "../model/providers.ts"
 import { addImported, authIndex, importState, setAuthIndex, submitImport } from "../model/importer.ts"

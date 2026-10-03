@@ -3,6 +3,7 @@ import type { ConversationDO } from "./conversation-do.ts"
 import type { MuxDO } from "./mux-do.ts"
 import type { AccountIndexDO } from "./account-index-do.ts"
 import type { DomainDO } from "./domain-do.ts"
+import type { PairingDO } from "./pairing-do.ts"
 import type { ConnectionDO } from "./connection-do.ts"
 import type { FeedDO } from "./feed-do.ts"
 import type { AutomationRunParams, SchedulerDO } from "./scheduler-do.ts"
@@ -35,6 +36,10 @@ export interface Env {
   readonly DOMAIN_DO: DurableObjectNamespace<DomainDO>
   /** Workers rate limit for unauthenticated sign-in discovery (30 per minute per client IP). */
   readonly SSO_DISCOVER_LIMIT?: RateLimit
+  /** Pending cmux server pairings, one object per code (plans/cmux-next/server.md 6.2). */
+  readonly PAIRING_DO: DurableObjectNamespace<PairingDO>
+  /** Per-IP limit on unauthenticated pairing begins. */
+  readonly PAIR_BEGIN_LIMIT?: RateLimit
   /** Where provider redirects land (the dashboard's /integrations/callback). */
   readonly DASHBOARD_ORIGIN?: string
   /** Secret: 32-byte base64 key that wraps credential data keys. Integrations refuse to connect without it. */

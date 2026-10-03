@@ -12,7 +12,7 @@ public final class ComputerUseStepModel {
     /// The list the drag tile is helping with, while it shows.
     public private(set) var helping: ComputerUsePermissionPane?
     @ObservationIgnored let source: (any ComputerUsePermissionSource)?
-    @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private(set) var task: Task<Void, Never>?
 
     init(source: (any ComputerUsePermissionSource)?) {
         self.source = source
@@ -24,7 +24,9 @@ public final class ComputerUseStepModel {
         let stream = source.permissions()
         task = Task { [weak self] in
             for await value in stream {
-                guard let self else { return }
+                // stop() cancels on the main actor, so a value already
+                // buffered then is dropped here rather than applied late.
+                guard let self, !Task.isCancelled else { return }
                 permissions = value
                 if let pane = helping, value.granted(pane) { helping = nil }
             }

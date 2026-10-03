@@ -30,4 +30,6 @@ public nonisolated enum SectionLook: String, Hashable, Sendable, Codable, CaseIt
 public nonisolated enum SectionContent: String, Hashable, Sendable, Codable {
     case items
     case workspaces
+    /// A section an app supplies (`contribution` names it); it holds no items.
+    case app
 }
