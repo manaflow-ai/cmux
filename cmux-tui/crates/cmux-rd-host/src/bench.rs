@@ -149,6 +149,11 @@ impl Viewer {
         }
         self.reassembler.tick(now_ns() / 1000);
         self.maybe_feedback()?;
+        self.send_input()?;
+        Ok(())
+    }
+
+    fn send_input(&mut self) -> Res<()> {
         if let Some(packet) = self.sender.packet() {
             let mut d = Vec::new();
             DatagramHeader {
@@ -307,6 +312,8 @@ pub fn run(opts: &Opts) -> Res<()> {
         let t0 = now_ns();
         v.sender.push(InputEvent::Key { usage: KEY_A, down: true });
         v.sender.push(InputEvent::Key { usage: KEY_A, down: false });
+        // Send at once; pump() resends until the host acknowledges.
+        v.send_input()?;
         loop {
             v.pump(2_000_000)?;
             if v.marker == Some(expected) {
