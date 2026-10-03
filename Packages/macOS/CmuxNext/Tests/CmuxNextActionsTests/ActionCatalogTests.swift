@@ -81,7 +81,7 @@ import Testing
         .agents: 22, // + Resume Agent Session, Toggle Dictation, Open Agent Activity, Search Agent Chats, Continue In, Create Checkpoint
         .cloud: 48, // + cloud file and tunnel/network/firewall actions
         .remote: 7, // SSH machines (Connect to Machine…), Open Terminal on Machine Here
-        .settings: 55, // + Toggle Column Scroll Bar, + Onboarding Gallery (DEBUG only), + Open Debug Settings (DEV and NIGHTLY only), + App Store, Installed Apps, Hide App, Unhide App, + Customize Appearance
+        .settings: 60, // + Make This Mac a Server, Stop Serving, Server Status, Server Health, Add Server (DEV and NIGHTLY), + Toggle Column Scroll Bar, + Onboarding Gallery (DEBUG only), + Open Debug Settings (DEV and NIGHTLY only), + App Store, Installed Apps, Hide App, Unhide App, + Customize Appearance
     ]
 
     @Test func everyKeyboardShortcutIDExists() {
