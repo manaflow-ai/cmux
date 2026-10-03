@@ -190,3 +190,14 @@ Source: spec-coverage.md P17 and the enterprise review. Each parsed policy key g
 | P17-6 | F3 `integration.policy.set` forwards to `team.policy.update` | ConnectionDO op | automations lead / backend lead |
 
 Order: P17-1, P17-2, P17-3 (Swift client), P17-5, then the backend slices through the backend lead. A review subagent (security) checks each slice before it lands.
+
+### P17-1 status and follow-ups (review subagent, 2026-10-03)
+
+Landed in P17-1: the registry gate (palette, context menus, shortcuts, perform, main menu items hidden at validation, the shortcut page, `action.list`, `feature.disabled` from `action.run` / `action.describe` / CLI names), `MachineRegistry.daemon(machine:)` for Cloud and SSH machines (covers `workspace.newOnMachine` and the sidebar "+"), the root palette's app rows, and the Computer Use onboarding step.
+
+Open:
+- P17-1b (HIGH, spec "the owning host refuses its ops"): `services.startCloud()`, `services.ssh.start()` and `services.apps.start()` start without a policy check, and SSH reconnects sessions on wake. Restored cloud and remote workspaces, open app pages and `coderouter.*` writes stay usable. Fix: each service observes `disabledFeatures`, refuses connects and creates, and ends live sessions. DECISION (Lawrence): does turning a feature off also disconnect live sessions? RECOMMEND: yes. MDM pushes the key to stop a feature, and a session left running defeats that.
+- `server.*` actions (Add Server, Make This Mac a Server) have no feature. DECISION: map them to `remoteHosts`? RECOMMEND: yes, because they open remote access to this Mac.
+- The leader overlay and chord prefixes (`LeaderLayer`, `startsChord`) still list and consume disabled chords. The read-only socket methods `cloud.machines` and `remote.machines` still answer.
+- A non-array `DisabledFeatures` value or an unknown name turns nothing off without any message. Add a managed-status diagnostic.
+- Rust half (ad349): `cmux mcp serve` and browser automation ops refuse when `mcp` or `browserAutomation` is off, through the config actor.
