@@ -45,7 +45,6 @@ mod convenience;
 mod generated;
 mod presence;
 pub mod raw;
-mod raw_frontend_browser;
 mod raw_support;
 mod resource;
 mod socket_hash;
