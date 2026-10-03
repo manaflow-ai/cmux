@@ -87,9 +87,20 @@ struct EditorTypingSubstitutionTests {
     /// `CmuxPlainTextInput.installAppDefaults` sets at launch.
     @Test("text field editing starts with typing substitutions off")
     func fieldEditorStartsWithSubstitutionsOff() throws {
-        // Test hosts do not enter cmux's application entry point, so install the
-        // same launch defaults before asking AppKit to create its shared editor.
-        CmuxPlainTextInput.installAppDefaults(.standard)
+        // Test hosts do not enter cmux's application entry point. Use an explicit
+        // opt-out for this fixture; installAppDefaults itself must preserve a
+        // user's persistent override.
+        let defaults = UserDefaults.standard
+        let savedValues = Self.systemSubstitutionDefaultsKeys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, value) in zip(Self.systemSubstitutionDefaultsKeys, savedValues) {
+                defaults.set(value, forKey: key)
+            }
+        }
+        for key in Self.systemSubstitutionDefaultsKeys {
+            defaults.set(false, forKey: key)
+        }
+        CmuxPlainTextInput.installAppDefaults(defaults)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 80),
             styleMask: [.titled],
