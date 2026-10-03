@@ -40,7 +40,7 @@ enum TabRestart {
             let daemon = ctx.services.activeDaemon
             ctx.registry.track(Task {
                 let ok = await daemon.run("restart-tab") { connection in
-                    try await connection.restartTab(surface, idempotencyKey: key, fallbackCwd: cwd)
+                    try await RestartTabRequest.send(surface, on: connection, idempotencyKey: key, fallbackCwd: cwd)
                 }
                 return ok ? nil : "restart-tab failed (see the app log)"
             })

@@ -47,6 +47,16 @@ public struct KeptTabRelaunch: Sendable, Equatable {
     }
 }
 
+extension KeptTabRelaunch {
+    /// `restart-tab` on a daemon that serves `tab-restart-v1`; false when it
+    /// does not (the caller relaunches by new tab, move and close).
+    func restartInPlace(on connection: DaemonConnection) async throws -> Bool {
+        guard await connection.identity?.supports(DaemonCapabilities.shared.tabRestart) == true else { return false }
+        try await RestartTabRequest.send(deadSurface, on: connection, idempotencyKey: restartKey, fallbackCwd: cwd)
+        return true
+    }
+}
+
 /// What `relaunchKeptTabs` did.
 public struct KeptTabsRelaunched: Sendable, Equatable {
     public var relaunched: Int
@@ -73,17 +83,10 @@ extension DaemonConnection {
         return result
     }
 
-    /// One kept tab. With `tab-restart-v1` the daemon restarts it in place
-    /// (`restart-tab`, keyed by its dead terminal like every other restart).
-    /// Otherwise the new shell opens in the dead tab's pane, takes its pin
-    /// first (pinned tabs sort first), moves to the dead tab's current index
-    /// (re-read, so an earlier failure cannot shift it), joins its group,
-    /// and the dead tab closes.
+    /// One kept tab: `restart-tab` in place, else a new shell in its pane takes its pin, index (re-read, so an
+    /// earlier failure cannot shift it) and group, and the dead tab closes.
     private func relaunch(_ step: KeptTabRelaunch) async throws {
-        if identity?.supports(DaemonCapabilities.shared.tabRestart) == true {
-            _ = try await restartTab(step.deadSurface, idempotencyKey: step.restartKey, fallbackCwd: step.cwd)
-            return
-        }
+        if try await step.restartInPlace(on: self) { return }
         let created = try await newTab(in: step.pane, options: SpawnOptions(cwd: step.cwd, name: step.name, workspace: step.workspace))
         if step.pinned, identity?.supports(DaemonCapabilities.shared.tabMetadata) == true {
             _ = try await setTabPinned(created.surface, true)
