@@ -67,6 +67,9 @@ class HooksSetupArgumentTests(unittest.TestCase):
         self.assert_rejected(['hooks', 'setup', '--agent', 'codex', '--agent', 'pi'],
                              '--agent was given more than once with different values')
 
+    def test_positional_and_agent_option_must_agree(self):
+        self.assert_rejected(['hooks', 'setup', 'codex', '--agent', 'pi'], 'Conflicting hooks target')
+
     def test_legacy_aliases_reject_unknown_options(self):
         for command in ('setup-hooks', 'uninstall-hooks'):
             with self.subTest(command=command):
