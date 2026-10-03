@@ -13,7 +13,7 @@ use serde_json::json;
 #[test]
 fn every_row_accepts_and_refuses_the_swift_samples() {
     let schema = Schema::embedded();
-    assert!(schema.rows.len() >= 79, "schema lost rows");
+    assert!(schema.rows.len() >= 78, "schema lost rows");
     let domains = Domains::default();
     let mut checked = 0;
     for row in &schema.rows {

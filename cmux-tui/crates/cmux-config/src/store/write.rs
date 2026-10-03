@@ -10,7 +10,7 @@ use crate::guard::{managed_key_for_path, managed_key_for_removal};
 use crate::jsonc::{self, JsoncError};
 use crate::keypath::{RESERVED_SHORTCUT_KEYS, dotted};
 use crate::refusal::Refusal;
-use crate::schema::{Row, accepts};
+use crate::schema::{Row, accepts, retired_reason};
 use crate::value::{canonical, is_empty_object, value_at};
 
 pub(super) fn apply_write(state: &State, op: Op) -> Result<Applied, Refusal> {
@@ -111,6 +111,9 @@ fn set_text(
     meta: &WriteMeta,
 ) -> Result<String, Refusal> {
     let path = writable_path(state, target)?;
+    if let Some(reason) = retired_reason(&path) {
+        return Err(Refusal::Removed { key: dotted(&path), reason: reason.to_string() });
+    }
     let row = state.schema.row_at(&path);
     check_agent(row, &path, meta)?;
     if let Some(row) = row {
@@ -125,7 +128,8 @@ fn reset_text(state: &State, target: &Target, meta: &WriteMeta) -> Result<String
     let row = state.schema.row_at(&path);
     check_agent(row, &path, meta)?;
     check_managed(state, &path)?;
-    if row.is_some() {
+    // A retired key may be removed from an old file (pruning like a row).
+    if row.is_some() || retired_reason(&path).is_some() {
         remove_pruning(state.source.clone(), &path)
     } else {
         jsonc::remove(&state.source, &path).map_err(unreadable)

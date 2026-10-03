@@ -277,7 +277,10 @@ fn reads_report_values_defaults_and_managers() {
 
 #[test]
 fn a_retired_key_is_refused_as_removed_and_a_reset_cleans_it_up() {
-    let start = state(r#"{"appearance": {"tabBarBackground": "darker", "density": "compact"}}"#, Default::default());
+    let start = state(
+        r#"{"appearance": {"tabBarBackground": "darker", "density": "compact"}}"#,
+        Default::default(),
+    );
     let refusal = apply(&start, set("appearance.tabBarBackground", json!("darker"))).unwrap_err();
     assert_eq!(refusal.code(), "removed");
     assert!(refusal.to_string().starts_with("appearance.tabBarBackground was removed: "));
