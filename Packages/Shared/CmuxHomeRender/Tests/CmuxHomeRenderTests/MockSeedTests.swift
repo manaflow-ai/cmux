@@ -13,7 +13,7 @@ import Testing
         let me = inbox.me.id
         for summary in inbox.conversations {
             let page = try await source.snapshot(of: summary.id, tail: 60)
-            let c = HomeController(conversation: summary.id, me: me)
+            let c = HomeController(conversation: summary.id, me: me, palette: Fixtures.palette, deadline: ManualDeadline())
             c.resize(to: CGSize(width: 628, height: 1041))
             let items = TranscriptWindow(messages: page.messages).items(pending: [], me: me)
             c.update(items: items, summary: page.conversation, typing: [], hasOlder: false)
@@ -35,7 +35,7 @@ import Testing
         try await until { store.me != nil && store.isOnline }
         await store.open(id)
         let me = try #require(store.me?.id)
-        let controller = HomeController(conversation: id, me: me)
+        let controller = HomeController(conversation: id, me: me, palette: Fixtures.palette, deadline: ManualDeadline())
         controller.resize(to: CGSize(width: 628, height: 1041))
         let binding = HomeStoreBinding(store: store, controller: controller)
         defer { binding.stop() }

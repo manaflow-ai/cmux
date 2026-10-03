@@ -47,10 +47,37 @@ enum Fixtures {
         }
     }
 
-    static func controller(width: CGFloat = 628, height: CGFloat = 1041) -> HomeController {
-        let c = HomeController(conversation: conversation, me: me, calendar: calendar, locale: Locale(identifier: "en_US"),
+    /// A themed palette with a non-blue accent (there is no default palette).
+    static let theme = HomePalette.Theme(background: .gray255(25), foreground: .gray255(255),
+                                         accent: .rgb255(52, 168, 96), failure: .rgb255(235, 70, 60))
+    static let palette = HomePalette.themed(theme)
+
+    static func controller(width: CGFloat = 628, height: CGFloat = 1041, deadline: ManualDeadline = ManualDeadline()) -> HomeController {
+        let c = HomeController(conversation: conversation, me: me, palette: palette, deadline: deadline,
+                               calendar: calendar, locale: Locale(identifier: "en_US"),
                                now: { start.addingTimeInterval(3600) })
         c.resize(to: CGSize(width: width, height: height))
         return c
+    }
+}
+
+/// A deadline the test fires by hand (no real time passes).
+@MainActor
+final class ManualDeadline: HomeDeadline {
+    private(set) var pending: (delay: Duration, action: @MainActor @Sendable () -> Void)?
+    private(set) var scheduledCount = 0
+
+    func schedule(after delay: Duration, _ action: @escaping @MainActor @Sendable () -> Void) {
+        pending = (delay, action)
+        scheduledCount += 1
+    }
+
+    func cancel() { pending = nil }
+
+    /// Runs the pending action, if any.
+    func fire() {
+        guard let p = pending else { return }
+        pending = nil
+        p.action()
     }
 }

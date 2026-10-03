@@ -231,3 +231,5 @@ mirror; no second model type.
 - Port the not-yet-shared UIKit behaviours: rubber band, thread panel,
   tapbacks, edit/unsend, attachments, context menus, hit testing.
 - Fix resize reflow and footprint in the landed render core.
+
+State 2026-10-02 (Lawrence chose B): the render core draws row bitmaps off the main actor, wakes through a host-injected `HomeDeadline` (no sleep), and takes a theme-built `HomePalette` (no blue default); branch feat-cmux-next-home-render-fixes. Next: merge it when its checks are green, then wire the AppKit host (DemandTimer adapter, Ghostty-theme palette) and the iOS host.

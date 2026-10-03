@@ -191,6 +191,24 @@ final class HomeScene {
         visible = next
         visibleIndex = newIndex
         for (r, i) in fresh { decorate(r, i) }
+        prefetchNearViewport()
+    }
+
+    /// Rows within one viewport above and below the visible rect: their
+    /// bitmaps are drawn off the main actor before they scroll in.
+    func prefetchIndices() -> [Int] {
+        let n = model.count
+        let rect = CGRect(x: 0, y: offset - size.height, width: size.width, height: size.height * 3)
+        return layout.rows(in: rect).filter { $0 < n }
+    }
+
+    private func prefetchNearViewport() {
+        let m = metrics
+        for i in prefetchIndices() {
+            let spec = model.rows[i].spec
+            guard visible[spec.key] == nil else { continue }
+            bitmaps.prefetch(spec, size: RowArt.frame(spec, metrics: m).size)
+        }
     }
 
     private func take() -> RowLayer {
@@ -223,7 +241,11 @@ final class HomeScene {
             row.applied.insert(e.id)
             if e.target == .receiptOld, let old = receiptChanges[r.spec.key] {
                 let frame = RowArt.frame(old, metrics: metrics)
-                row.setPreviousReceipt(bitmaps.image(for: old, size: frame.size), frame: frame)
+                let image = bitmaps.image(for: old, size: frame.size) { [weak row] image in
+                    guard let row, row.key == r.spec.key else { return }
+                    row.receiptOld.contents = image
+                }
+                row.setPreviousReceipt(image, frame: frame)
             }
             let target: CALayer = switch e.target {
             case .cell: row.layer
