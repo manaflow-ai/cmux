@@ -9,13 +9,20 @@ import Testing
     private let page = AgentPaneNewTab(kind: .browser, hotkeys: [.terminal: "⌃⇧⌘T", .agent: "⇧⌘I"], cwd: "~/code/cmux")
 
     @Test func aNewTabPageHandshakeCarriesKindHotkeysAndFolder() async throws {
-        let model = AgentPaneModel(host: MockAgentPaneHost(), newTab: page)
+        let model = AgentPaneModel(
+            host: MockAgentPaneHost(),
+            newTab: AgentPaneNewTab(
+                kind: page.kind, hotkeys: [.terminal: "⌃⇧⌘T", .agent: "⇧⌘I"], cwd: page.cwd,
+                projects: ["/src/app", "/src/web"]
+            )
+        )
         let reply = await model.respond(to: .ready)
         let value = try #require(reply["value"] as? [String: Any])
         let newTab = try #require(value["newTab"] as? [String: Any])
         #expect(newTab["kind"] as? String == "browser")
         #expect(newTab["hotkeys"] as? [String: String] == ["terminal": "⌃⇧⌘T", "agent": "⇧⌘I"])
         #expect(newTab["cwd"] as? String == "~/code/cmux")
+        #expect(newTab["projects"] as? [String] == ["/src/app", "/src/web"])
         // The mock host sets no newSession of its own; the page still opens empty.
         #expect(value["newSession"] as? Bool == true)
     }

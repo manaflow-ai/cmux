@@ -38,6 +38,10 @@ export function ProjectChooser({
       return words.every((word) => text.includes(word));
     });
   }, [projects, query]);
+  const typedPath = useMemo(() => {
+    const value = query.trim();
+    return value.startsWith("/") || value.startsWith("~/") ? value : undefined;
+  }, [query]);
   const selected = Math.max(
     0,
     shown.findIndex((project) => project.cwd === active),
@@ -53,11 +57,12 @@ export function ProjectChooser({
     if (refocus) trigger.current?.focus();
   };
   const pick = (project: Project | undefined) => {
-    if (!project) return;
+    const cwd = project?.cwd ?? typedPath;
+    if (!cwd) return;
     // A new chat takes the focus to its prompt (Composer); the current project returns to the pill.
-    const starts = project.cwd !== current;
+    const starts = cwd !== current;
     close(!starts);
-    if (starts) onPick(project.cwd);
+    if (starts) onPick(cwd);
   };
 
   useEffect(() => {
@@ -170,7 +175,22 @@ export function ProjectChooser({
                 <span className="acpmux-menu-label">{project.label}</span>
               </div>
             ))}
-            {shown.length === 0 && <div className="acpmux-project-empty">{t("project.none")}</div>}
+            {shown.length === 0 &&
+              (typedPath ? (
+                <button
+                  type="button"
+                  className="acpmux-menu-item acpmux-menu-active"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    pick(undefined);
+                  }}
+                >
+                  {icon}
+                  <span className="acpmux-menu-label">{t("project.usePath", { path: typedPath })}</span>
+                </button>
+              ) : (
+                <div className="acpmux-project-empty">{t("project.none")}</div>
+              ))}
           </div>
           {onBrowse && (
             <button

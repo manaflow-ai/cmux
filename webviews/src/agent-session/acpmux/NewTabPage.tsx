@@ -12,6 +12,7 @@ import {
   type OmnibarRow,
 } from "./omnibar";
 import { homePath, projectLabel, sessionEntry, sessionMark, type AcpmuxSessionEntry } from "./sessionList";
+import { t } from "./i18n";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -35,7 +36,7 @@ export const NEW_TAB_LABELS = {
   switchLabel: "Open as",
   editShortcut: (kind: string, keys: string) => `${kind} (${keys}). Right-click to change the shortcut`,
   open: "Open",
-  importAndSync: "Import and sync",
+  importAndSync: t("newtab.importAndSync"),
   suggestions: "Suggestions",
   rows: {
     tab: "Switch to tab",
@@ -75,6 +76,8 @@ export type NewTabHost = {
   cwd?: string;
   host?: string;
   location?: string;
+  /// Project folders found by the host scan, before session-derived folders.
+  projects?: string[];
   omnibar?: OmnibarContext;
   defaultKind?: DefaultKind;
 };
@@ -101,6 +104,9 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(typeof object.host === "string" ? { host: object.host } : {}),
     ...(typeof object.location === "string" && object.location ? { location: object.location } : {}),
     ...(omnibar ? { omnibar } : {}),
+    ...(Array.isArray(object.projects)
+      ? { projects: object.projects.filter((path): path is string => typeof path === "string" && path.length > 0) }
+      : {}),
     ...(DEFAULT_KINDS.includes(object.defaultKind as DefaultKind)
       ? { defaultKind: object.defaultKind as DefaultKind }
       : {}),

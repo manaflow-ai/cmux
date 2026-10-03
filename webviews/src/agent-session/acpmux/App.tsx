@@ -1491,8 +1491,10 @@ function AcpmuxPane() {
   };
   const newTabProjects = useMemo(() => {
     const byPath = new Map<string, { cwd: string; label: string }>();
+    for (const path of newTab?.projects ?? []) byPath.set(path, { cwd: path, label: projectLabel(path) });
     for (const session of composerSnapshot.sessions) {
       if (typeof session.cwd !== "string" || !session.cwd) continue;
+      if (session.host && session.hostKind !== "local") continue;
       byPath.set(session.cwd, { cwd: session.cwd, label: projectLabel(session.cwd) });
     }
     if (newTab?.cwd) byPath.set(newTab.cwd, { cwd: newTab.cwd, label: projectLabel(newTab.cwd) });
