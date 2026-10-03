@@ -51,6 +51,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             logger.info("agent pane ready accepted")
             view.applyTheme()
             view.applyShortcuts()
+            view.applyPreviewFeatures()
             view.replayCustomization()
         }
         return view.model

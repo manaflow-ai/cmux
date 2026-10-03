@@ -97,6 +97,9 @@ declare global {
       command?(name: string): void;
       /// The app's shortcuts as the user bound them, keyed by action id (shortcuts.ts).
       applyShortcuts?(labels: Record<string, string>): void;
+      /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
+      /// default): the session coverage label and the sidebar's Pull requests view.
+      applyPreview?(on: boolean): void;
       /// Scrolls to a turn a `cmux://session/<id>#turn-<turnId>` link names (links.ts), once its row
       /// renders; gives up quietly after a few seconds.
       revealTurn?(turnId: string): void;
@@ -865,6 +868,7 @@ function AcpmuxPane() {
   // live bindings through applyShortcuts, so labels follow a rebind.
   const [searching, setSearching] = useState(false);
   const [shortcuts, setShortcuts] = useState<ShortcutLabels>({});
+  const [preview, setPreview] = useState(false);
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
@@ -998,6 +1002,9 @@ function AcpmuxPane() {
       },
       applyShortcuts(labels) {
         setShortcuts(readShortcuts(labels));
+      },
+      applyPreview(on) {
+        setPreview(on === true);
       },
       revealTurn(turnId) {
         void revealTurnWhenShown(turnId);
@@ -1407,6 +1414,7 @@ function AcpmuxPane() {
           onSelect={selectSession}
           onNewChat={newChat}
           account={account}
+          preview={preview}
         />
         {sidebar === "open" && (
           <button
@@ -1465,12 +1473,14 @@ function AcpmuxPane() {
                         {checkpointLabels.createCheckpoint}
                       </button>
                     )}
-                    <span
-                      className="acpmux-session-coverage"
-                      title={`${handoffLabels.unverified} · ${snapshot.summary?.enforcement?.detail ?? handoffLabels.unverifiedDetail}`}
-                    >
-                      {snapshot.summary?.enforcement ? handoffLabels.nativePolicy : handoffLabels.unverified}
-                    </span>
+                    {preview && (
+                      <span
+                        className="acpmux-session-coverage"
+                        title={`${handoffLabels.unverified} · ${snapshot.summary?.enforcement?.detail ?? handoffLabels.unverifiedDetail}`}
+                      >
+                        {snapshot.summary?.enforcement ? handoffLabels.nativePolicy : handoffLabels.unverified}
+                      </span>
+                    )}
                     {snapshot.canHandoff && handoffTargets.length > 0 && (
                       <ContinueMenu
                         label={handoffLabels.continueIn}

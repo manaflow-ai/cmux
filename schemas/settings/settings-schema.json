@@ -5271,9 +5271,52 @@
         "text" : "Mark the Sidebar Row"
       },
       "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.previewFeatures.help",
+        "text" : "Unfinished surfaces, such as the agent session's coverage label and Pull requests view."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.previewFeatures",
+      "keywords" : [
+        "labs",
+        "preview",
+        "experimental",
+        "beta",
+        "prototype"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "labs",
+        "previewFeatures"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "title" : {
+        "key" : "settings.labs.previewFeatures",
+        "text" : "Show Preview Features"
+      },
+      "validation" : "portable"
     }
   ],
-  "schema_hash" : "dcdf064da4bb0bec715df805657f877a6ef202e4dd290095fa5dacd54fe23558",
+  "schema_hash" : "d2bf4d7d3a6561f535b9d50aa5bed4bf6d2b76644b201a8c2c01bcd0955604c3",
   "sections" : [
     {
       "id" : "general",

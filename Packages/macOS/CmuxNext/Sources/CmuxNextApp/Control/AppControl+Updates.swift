@@ -33,6 +33,29 @@ extension AppControl {
                 }
             },
         ])
+        #if DEBUG
+        service?.router.register([
+            .mainActor("debug.update_indicator") { call in
+                updater.debugIndicatorPhase = Self.indicatorPhase(call.params)
+                return .value(.object(["phase": .string(String(describing: updater.indicatorPhase))]))
+            },
+        ])
+        #endif
+    }
+
+    /// `debug.update_indicator {phase, version?, progress?, text?}`: a fixed
+    /// rail update circle for screenshots; `phase: "live"` (or none) follows
+    /// the updater again.
+    static func indicatorPhase(_ params: [String: JSONValue]) -> UpdateIndicatorPhase? {
+        switch params["phase"]?.stringValue {
+        case "hidden": .hidden
+        case "checking": .checking
+        case "downloading": .downloading(progress: params["progress"]?.doubleValue)
+        case "ready": .ready(version: params["version"]?.stringValue)
+        case "installing": .installing
+        case "note": .note(params["text"]?.stringValue ?? "", isError: params["error"]?.boolValue == true)
+        default: nil
+        }
     }
 
     static func json(_ status: UpdaterStatus, log: [String]) -> JSONValue {

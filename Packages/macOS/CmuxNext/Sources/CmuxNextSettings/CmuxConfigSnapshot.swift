@@ -63,6 +63,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserNewTabPage: URL?
     /// `browser.showBookmarksBar`; off when unset.
     public var browserShowBookmarksBar = false
+    /// `labs.previewFeatures`; off when unset.
+    public var previewFeatures = false
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.remoteLocalhost` and `browser.remoteLocalhostWorkspaces`.
@@ -166,6 +168,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (showBar, showBarDiagnostic) = BookmarksBarSetting.parse(root)
         snapshot.browserShowBookmarksBar = showBar
         if let showBarDiagnostic { snapshot.diagnostics.append(showBarDiagnostic) }
+        let (preview, previewDiagnostic) = Self.parsePreviewFeatures(root)
+        snapshot.previewFeatures = preview
+        if let previewDiagnostic { snapshot.diagnostics.append(previewDiagnostic) }
         let (hibernation, hibernationDiagnostics) = BrowserHibernationSetting.parse(root)
         snapshot.browserHibernation = hibernation
         snapshot.diagnostics += hibernationDiagnostics

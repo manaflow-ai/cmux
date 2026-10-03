@@ -37,6 +37,10 @@ struct WindowBlurRadiusTests {
                               styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        // Resolve the root against the room before the first backdrop write;
+        // otherwise a concurrently changing app theme can leave an initial
+        // global blur radius in the test log.
+        room.root(root)
         root.applyBackdrop(to: window)
         window.contentView = root
         room.adopt(window)
