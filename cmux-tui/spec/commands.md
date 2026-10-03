@@ -5765,7 +5765,8 @@ colors-changed | digest)* -> detached` instead of the replay stream:
   after this frame). A viewer drops output whose generation is older than the
   last snapshot it restored.
 - A grid change, a viewer backlog over `viewer_backlog_bytes`
-  (`terminal.viewerBacklogBytes`, default 262144, clamped to 65536..8388608)
+  (default 8388608 = 8 MiB, set per attach by the viewer, no daemon setting,
+  clamped to 65536..8388608)
   and `snapshot-request` reach the viewer as a new `snapshot`; a slow viewer
   is never disconnected for its backlog. `resized` is never sent.
 - `snapshot` also carries `marker_epoch` and `active_top_marker` (the row

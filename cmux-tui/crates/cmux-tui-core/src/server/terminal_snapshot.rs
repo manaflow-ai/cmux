@@ -5,7 +5,7 @@
 //! answers with event `snapshot {phase: "ready", generation, offset, version,
 //! data}` instead of `vt-state`, then live `output` events that carry
 //! `generation` and `offset`. A grid change, a backlog over
-//! `terminal.viewerBacklogBytes` and `snapshot-request` reach the viewer as a
+//! `viewer_backlog_bytes` and `snapshot-request` reach the viewer as a
 //! new READY snapshot; the viewer is never disconnected for being slow. Two
 //! seconds after output goes idle the viewer gets `digest {generation, offset,
 //! version, sha256}` of the host's READY encoding.
@@ -49,7 +49,7 @@ pub(crate) struct SnapshotAttachParams {
     snapshot: Option<String>,
     #[serde(default)]
     snapshot_version: Option<u16>,
-    /// `terminal.viewerBacklogBytes` for this viewer, clamped to
+    /// The viewer's backlog cap (default 8 MiB, no daemon setting), clamped to
     /// [`MIN_VIEWER_BACKLOG_BYTES`, `MAX_VIEWER_BACKLOG_BYTES`].
     #[serde(default)]
     viewer_backlog_bytes: Option<usize>,
