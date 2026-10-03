@@ -557,9 +557,10 @@ export const env = createEnv({
     CMUX_VM_PUBLICATION_AUTH_ORIGIN: trimEnv(
       process.env.CMUX_VM_PUBLICATION_AUTH_ORIGIN,
     ),
+    // Blank (as in .env.example) means unset, not an invalid origin.
     CMUX_VM_PUBLICATION_FORWARD_AUTH_ORIGIN: trimEnv(
       process.env.CMUX_VM_PUBLICATION_FORWARD_AUTH_ORIGIN,
-    ),
+    ) || undefined,
     CMUX_VM_PUBLICATION_GENERATED_DOMAIN: trimEnv(
       process.env.CMUX_VM_PUBLICATION_GENERATED_DOMAIN,
     ),
