@@ -80,6 +80,7 @@ import {
   VmResizeInProgressError,
   VmOperationUnsupportedError,
   VmProviderOperationError,
+  VmPrivateNetworkUnavailableError,
   VmSnapshotNotFoundError,
   VmUsageLimitExceededError,
   VmGoShapeError,
