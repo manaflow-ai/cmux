@@ -229,7 +229,7 @@ private func isCmuxInjectedCodexHookConfigValue(
 
     let body = String(value[value.index(after: equals)...])
     let prefix = "[{hooks=[{type=\"command\",command='''"
-    let lastTimeout = event.companion?.timeoutMs ?? event.timeoutMs
+    let lastTimeout = event.companion?.codexTimeoutValue ?? event.codexTimeoutValue
     let suffix = "''',timeout=\(lastTimeout)}]}]"
     guard body.count >= prefix.count + suffix.count,
           body.hasPrefix(prefix), body.hasSuffix(suffix) else { return false }
@@ -241,7 +241,7 @@ private func isCmuxInjectedCodexHookConfigValue(
     // Generated commands never contain a triple single quote. A crafted value
     // can still pass the inline command check below, which is as loose as it
     // is for single-handler values; stripping it only drops it from replay.
-    let separator = "''',timeout=\(event.timeoutMs)},{type=\"command\",command='''"
+    let separator = "''',timeout=\(event.codexTimeoutValue)},{type=\"command\",command='''"
     let commands = inner.components(separatedBy: separator)
     guard commands.count == 2 else { return false }
     return isCmuxCodexHookCommand(commands[0], subcommand: event.cmuxSubcommand)

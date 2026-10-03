@@ -37,7 +37,7 @@ struct CLICodexQueuedHookContractTests {
         ] {
             let configuration = try injectedConfiguration(event: event, arguments: arguments)
             let body = try injectedCommandBody(configuration: configuration)
-            #expect(configuration.contains("timeout=5000"))
+            #expect(configuration.contains("timeout=5}"))
             #expect(body.contains("hooks enqueue codex \(subcommand)"))
             #expect(body.contains("cmux-codex-hook"))
             #expect(body.contains("CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5"))
@@ -48,7 +48,7 @@ struct CLICodexQueuedHookContractTests {
 
         let permissionConfiguration = try injectedConfiguration(event: "PermissionRequest", arguments: arguments)
         let permissionBody = try injectedCommandBody(configuration: permissionConfiguration)
-        #expect(permissionConfiguration.contains("timeout=120000"))
+        #expect(permissionConfiguration.contains("timeout=120}"))
         #expect(permissionBody.contains("hooks codex notification"))
         #expect(!permissionBody.contains("hooks enqueue"))
     }

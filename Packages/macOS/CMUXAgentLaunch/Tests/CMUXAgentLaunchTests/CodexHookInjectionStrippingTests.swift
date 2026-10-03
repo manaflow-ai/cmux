@@ -56,13 +56,44 @@ struct CodexHookInjectionStrippingTests {
     }
 
     @Test("The current block pairs the agent message handlers with prompt submit and stop")
+    /// Verifies that the current schema renders Codex timeout values in seconds.
     func currentBlockHasInboxCompanions() {
         let companions = CodexHookInjectionSchema.current.events.compactMap { event in
             event.companion.map { "\(event.agentEvent):\($0.cmuxSubcommand)" }
         }
         #expect(companions == ["UserPromptSubmit:inbox-drain", "Stop:inbox-stop"])
         let value = CodexHookInjectionSchema.current.events[1].configValue { "/h/\($0).sh" }
-        #expect(value == "hooks.UserPromptSubmit=[{hooks=[{type=\"command\",command='''/h/prompt-submit.sh''',timeout=5000},{type=\"command\",command='''/h/inbox-drain.sh''',timeout=5000}]}]")
+        #expect(value == "hooks.UserPromptSubmit=[{hooks=[{type=\"command\",command='''/h/prompt-submit.sh''',timeout=5},{type=\"command\",command='''/h/inbox-drain.sh''',timeout=5}]}]")
+    }
+
+    @Test("Strips the current Codex hook block with second-based timeouts")
+    /// Verifies replay stripping for the current second-based schema.
+    func stripsCurrentCodexHookBlockWithSecondTimeouts() {
+        let arguments = ["codex"] + codexWrapperHookArguments { subcommand in
+            legacyNamedScriptPath(subcommand)
+        } + ["--model", "gpt-5.5"]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                arguments,
+                launcher: "",
+                fallbackKind: "codex"
+            ) == ["codex", "--model", "gpt-5.5"]
+        )
+    }
+
+    @Test("Strips a saved current Codex hook block with millisecond timeouts")
+    /// Verifies replay compatibility for saved millisecond timeout values.
+    func stripsSavedCurrentCodexHookBlockWithMillisecondTimeouts() {
+        let arguments = ["codex"] + oldCurrentCodexHookArguments { subcommand in
+            legacyNamedScriptPath(subcommand)
+        } + ["--model", "gpt-5.5"]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                arguments,
+                launcher: "",
+                fallbackKind: "codex"
+            ) == ["codex", "--model", "gpt-5.5"]
+        )
     }
 
     @Test("Strips the block from before the agent message handlers")
@@ -72,7 +103,8 @@ struct CodexHookInjectionStrippingTests {
                 agentEvent: $0.agentEvent,
                 cmuxSubcommand: $0.cmuxSubcommand,
                 timeoutMs: $0.timeoutMs,
-                delivery: $0.delivery
+                delivery: $0.delivery,
+                codexTimeoutValue: $0.timeoutMs
             )
         }
         let arguments = ["codex"] + hookArguments(events: events) { subcommand in
@@ -667,6 +699,28 @@ struct CodexHookInjectionStrippingTests {
         return arguments
     }
 
+    /// Builds a saved current-schema argv block with historical millisecond literals.
+    private func oldCurrentCodexHookArguments(
+        command: (String) -> String
+    ) -> [String] {
+        hookArguments(events: codexWrapperHookEvents.map { event in
+            CodexHookInjectionEvent(
+                agentEvent: event.agentEvent,
+                cmuxSubcommand: event.cmuxSubcommand,
+                timeoutMs: event.timeoutMs,
+                delivery: event.delivery,
+                companion: event.companion.map {
+                    CodexHookCompanion(
+                        cmuxSubcommand: $0.cmuxSubcommand,
+                        timeoutMs: $0.timeoutMs,
+                        codexTimeoutValue: $0.timeoutMs
+                    )
+                },
+                codexTimeoutValue: event.timeoutMs
+            )
+        }, command: command)
+    }
+
     private var codexWrapperHookEvents: [CodexHookInjectionEvent] {
         CodexHookInjectionSchema.current.events
     }
@@ -680,7 +734,14 @@ struct CodexHookInjectionStrippingTests {
             ("Notification", "notification", 10000),
             ("Stop", "stop", 10000),
         ]
-        return events.map { CodexHookInjectionEvent(agentEvent: $0.0, cmuxSubcommand: $0.1, timeoutMs: $0.2) }
+        return events.map {
+            CodexHookInjectionEvent(
+                agentEvent: $0.0,
+                cmuxSubcommand: $0.1,
+                timeoutMs: $0.2,
+                codexTimeoutValue: $0.2
+            )
+        }
     }
 
     private var legacySynchronousChildHookEvents: [CodexHookInjectionEvent] {
@@ -694,7 +755,14 @@ struct CodexHookInjectionStrippingTests {
             ("SubagentStart", "subagent-start", 10000),
             ("SubagentStop", "subagent-stop", 10000),
         ]
-        return events.map { CodexHookInjectionEvent(agentEvent: $0.0, cmuxSubcommand: $0.1, timeoutMs: $0.2) }
+        return events.map {
+            CodexHookInjectionEvent(
+                agentEvent: $0.0,
+                cmuxSubcommand: $0.1,
+                timeoutMs: $0.2,
+                codexTimeoutValue: $0.2
+            )
+        }
     }
 
     private var legacyAliasHookEvents: [CodexHookInjectionEvent] {
@@ -703,7 +771,14 @@ struct CodexHookInjectionStrippingTests {
             ("SessionStop", "stop", 10000),
             ("Notification", "notification", 10000),
         ]
-        return events.map { CodexHookInjectionEvent(agentEvent: $0.0, cmuxSubcommand: $0.1, timeoutMs: $0.2) }
+        return events.map {
+            CodexHookInjectionEvent(
+                agentEvent: $0.0,
+                cmuxSubcommand: $0.1,
+                timeoutMs: $0.2,
+                codexTimeoutValue: $0.2
+            )
+        }
     }
 
     private func isKnownAgentExecutableName(_ name: String) -> Bool {
