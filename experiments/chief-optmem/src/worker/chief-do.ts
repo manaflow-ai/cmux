@@ -33,6 +33,12 @@ const SpawnArgs = Type.Object({
     description: "Short worker name, letters, digits and dashes. Reuse a name to steer that worker.",
   }),
   prompt: Type.String({ description: "Everything the worker needs to do the task; it does not share your memory." }),
+  tools: Type.Optional(
+    Type.Union([Type.Literal("web"), Type.Literal("code")], {
+      description:
+        "web (default): reads web pages. code: a coding agent (Claude Code) on its own machine, for tasks that change code.",
+    }),
+  ),
 });
 
 const NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;
@@ -67,12 +73,15 @@ export class ChiefDO extends DurableObject<Env> {
         parameters: SpawnArgs,
         // Starting a worker is keyed by the turn and the name, so a rerun starts it once.
         replay: "safe",
-        execute: async ({ name, prompt }) => {
+        execute: async ({ name, prompt, tools }) => {
           const clean = name.toLowerCase();
           if (!NAME.test(clean))
             return { content: [{ type: "text", text: `Invalid name ${name}: use letters, digits and dashes.` }] };
           this.spawns.push({ name: clean, prompt });
-          await this.worker(clean).start(this.chiefId(), clean, prompt, `spawn:${this.turnId}:${clean}`);
+          const operationId = `spawn:${this.turnId}:${clean}`;
+          if (tools === "code")
+            await this.worker(clean).startCoding(this.chiefId(), clean, prompt, operationId, "claude");
+          else await this.worker(clean).start(this.chiefId(), clean, prompt, operationId);
           return { content: [{ type: "text", text: `Worker ${clean} started. Its report arrives as a new event.` }] };
         },
       };

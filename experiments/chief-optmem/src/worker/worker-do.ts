@@ -5,6 +5,8 @@ import { createRegistry, Harness, type ToolRegistration } from "@earendil-works/
 import { PiHarness } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { createAI } from "agents/models/pi-ai";
+import { type CodingAgent, runCodingTask } from "../coding/runner.ts";
+import { FreestyleDriver } from "../coding/vm.ts";
 import type { Env } from "./env.ts";
 
 const WORKER_SYSTEM = `You are a worker agent started by Chief, a manager agent. Do the task in the prompt with
@@ -70,10 +72,29 @@ export class WorkerDO extends DurableObject<Env> {
     ctx.storage.sql.exec(
       `CREATE TABLE IF NOT EXISTS worker_op (id TEXT PRIMARY KEY, chief TEXT NOT NULL, name TEXT NOT NULL, reported INTEGER NOT NULL DEFAULT 0)`,
     );
+    ctx.storage.sql.exec(
+      `CREATE TABLE IF NOT EXISTS coding_op (id TEXT PRIMARY KEY, chief TEXT NOT NULL, name TEXT NOT NULL, reported INTEGER NOT NULL DEFAULT 0)`,
+    );
   }
 
   /** Reports every prompt that settled while the object was down. */
   async onStart(): Promise<void> {
+    // A coding run lives in this isolate's memory; after a restart it is reported as interrupted
+    // (its VM is deleted by its own run budget, maxRunTotalSeconds).
+    for (const r of this.ctx.storage.sql
+      .exec<Record<string, SqlStorageValue>>(`SELECT id, chief, name FROM coding_op WHERE reported = 0`)
+      .toArray()) {
+      if (this.following.has(String(r.id))) continue;
+      this.ctx.waitUntil(
+        this.report(
+          String(r.id),
+          String(r.chief),
+          String(r.name),
+          "My coding run was interrupted by a restart; ask me again.",
+          "coding_op",
+        ),
+      );
+    }
     for (const r of this.ctx.storage.sql
       .exec<Record<string, SqlStorageValue>>(`SELECT id, chief, name FROM worker_op WHERE reported = 0`)
       .toArray()) {
@@ -95,6 +116,54 @@ export class WorkerDO extends DurableObject<Env> {
     this.follow(operationId, chief, name);
   }
 
+  /**
+   * Runs `prompt` with a coding agent on a fresh VM (idempotent by
+   * `operationId`) and reports the answer. Refuses, with the reason as the
+   * report, while this environment has no Freestyle key or no model
+   * credential (coordinator decisions, 2026-10-03; plans/cmux-next/chief.md).
+   */
+  async startCoding(
+    chief: string,
+    name: string,
+    prompt: string,
+    operationId: string,
+    harness: CodingAgent,
+  ): Promise<void> {
+    await this.lifecycle.start();
+    const sql = this.ctx.storage.sql;
+    if (sql.exec(`SELECT 1 FROM coding_op WHERE id = ?`, operationId).toArray().length > 0) return;
+    sql.exec(`INSERT INTO coding_op (id, chief, name) VALUES (?, ?, ?)`, operationId, chief, name);
+    this.following.add(operationId);
+    const driver = new FreestyleDriver(this.env.FREESTYLE_API_KEY, this.env.CHIEF_VM_SNAPSHOT);
+    const run = (async () => {
+      const outcome = await runCodingTask(
+        driver,
+        { label: `${chief}/${name}`, harness, prompt, dryRun: this.env.CHIEF_CODING_DRY_RUN === "1" },
+        { maxRunSeconds: 1800, sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)) },
+      );
+      const text =
+        outcome.status === "done"
+          ? outcome.answer || `(no output, exit ${outcome.exitCode})`
+          : outcome.status === "refused"
+            ? `I cannot run coding tasks here: ${outcome.reason}`
+            : `My coding run failed: ${outcome.reason}`;
+      await this.report(operationId, chief, name, text, "coding_op");
+    })();
+    this.ctx.waitUntil(run.catch((e) => console.error("coding run failed", e)));
+  }
+
+  private async report(
+    operationId: string,
+    chief: string,
+    name: string,
+    text: string,
+    table: "worker_op" | "coding_op",
+  ): Promise<void> {
+    const stub = this.env.CHIEF_DO.get(this.env.CHIEF_DO.idFromName(chief));
+    await stub.workerReport(chief, `report:${operationId}`, name, text);
+    this.ctx.storage.sql.exec(`UPDATE ${table} SET reported = 1 WHERE id = ?`, operationId);
+  }
+
   private follow(operationId: string, chief: string, name: string): void {
     if (this.following.has(operationId)) return;
     this.following.add(operationId);
@@ -102,9 +171,7 @@ export class WorkerDO extends DurableObject<Env> {
       const result = await this.harness.wait(operationId);
       const text =
         result.status === "done" ? (result.text ?? "") : `I could not finish: ${result.reason ?? "unanswered"}`;
-      const stub = this.env.CHIEF_DO.get(this.env.CHIEF_DO.idFromName(chief));
-      await stub.workerReport(chief, `report:${operationId}`, name, text || "(empty answer)");
-      this.ctx.storage.sql.exec(`UPDATE worker_op SET reported = 1 WHERE id = ?`, operationId);
+      await this.report(operationId, chief, name, text || "(empty answer)", "worker_op");
     })();
     this.ctx.waitUntil(report.catch((e) => console.error("worker report failed", e)));
   }

@@ -135,7 +135,15 @@ cursors stay on the Mac; search and contacts are not supported.
    the PNG shows the native bubbles. UNVERIFIED: sending from the composer; the Liquid Glass
    composer draws flat in the layer render. Rule (coordinator): no Computer Use and no GUI
    driving on Lawrence's laptop.
-6. Freestyle worker.
+6. Coding worker (built; real runs blocked by two decisions). `spawn` takes `tools: "code"`: WorkerDO
+   runs `src/coding/runner.ts` on a `VmDriver` (Freestyle REST over plain fetch: create from the
+   cmux devbox snapshot with an allow-public firewall and a run budget, start the agent detached,
+   poll a done file with backoff, read the answer, always DELETE). Tested on a real local shell
+   (quoting, env-only credential, budget, refusals). Coordinator decisions (2026-10-03): no
+   production Freestyle key on dev or staging until the non-production Freestyle account exists
+   (the driver refuses without a key); the model credential is the CodeRouter route (R35), a
+   coderouter token passed only through the exec env; no team API key in a Worker secret and no
+   public token-minting route. Until both exist, a coding spawn reports why it cannot run.
 
 ## 8. Open
 
