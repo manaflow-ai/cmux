@@ -61,7 +61,7 @@ export class DaemonClient {
     } = {},
   ): Promise<DaemonClient> {
     const client = new DaemonClient(options.onEvent ?? (() => {}));
-    client.socket = await LineSocket.open(path, (message) => client.dispatch(message));
+    client.socket = await LineSocket.open(path, (message) => client.dispatch(message), options.signal);
     const abort = () => client.close();
     if (options.signal?.aborted) abort();
     options.signal?.addEventListener("abort", abort, { once: true });

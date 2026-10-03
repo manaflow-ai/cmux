@@ -51,7 +51,7 @@ export class AcpmuxClient {
   /** Connects and runs `initialize`. Aborting `signal` closes the socket, so a stuck handshake leaves nothing open. */
   static async connect(path = acpmuxSocketPath(), clientName = "mux-host", signal?: AbortSignal): Promise<AcpmuxClient> {
     const client = new AcpmuxClient();
-    client.socket = await LineSocket.open(path, (message) => client.dispatch(message));
+    client.socket = await LineSocket.open(path, (message) => client.dispatch(message), signal);
     client.socket.onClose(() => {
       for (const p of client.pending.values())
         p.reject(new AcpmuxError(p.method, "acpmux connection closed"));
