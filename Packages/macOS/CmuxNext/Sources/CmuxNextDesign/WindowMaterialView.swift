@@ -24,12 +24,22 @@ public final class WindowMaterialView: NSView {
     /// The view drawing ``material``; nil while opaque.
     public private(set) var materialView: NSView?
     private let tintView = NSView()
+    private let artView = NSView()
+    private var loadedArt: BackdropArt?
+    private var artImage: NSImage?
 
     /// Creates an opaque backdrop (no material view, no tint).
     ///
     /// - Parameter frameRect: The initial frame.
     override public init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        artView.wantsLayer = true
+        artView.frame = bounds
+        artView.autoresizingMask = [.width, .height]
+        artView.layer?.contentsGravity = .resizeAspectFill
+        artView.layer?.masksToBounds = true
+        artView.isHidden = true
+        addSubview(artView)
         tintView.wantsLayer = true
         tintView.frame = bounds
         tintView.autoresizingMask = [.width, .height]
@@ -60,6 +70,13 @@ public final class WindowMaterialView: NSView {
     /// - Parameter tint: The theme background; its alpha is replaced by
     ///   the backdrop's tint opacity.
     public func apply(_ backdrop: WindowBackdrop, tint: NSColor) {
+        if loadedArt != backdrop.art {
+            loadedArt = backdrop.art
+            artImage = backdrop.art?.image()
+            artView.layer?.contents = artImage
+        }
+        // The solid sheet and Reduce Transparency must never expose art.
+        artView.isHidden = backdrop.isOpaque || artImage == nil
         if backdrop.material != material {
             material = backdrop.material
             materialView?.removeFromSuperview()
