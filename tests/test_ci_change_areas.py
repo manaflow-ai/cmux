@@ -2858,14 +2858,9 @@ def test_web_workflow_pins_every_bun_setup_version() -> None:
     workflow = WEB_WORKFLOW.read_text(encoding="utf-8")
     versions = _setup_bun_versions(workflow)
     assert versions
-    webviews_versions = []
-    for job in WEBVIEWS_BUN_JOBS:
-        webviews_versions += _setup_bun_versions(workflow_job_block(job, WEB_WORKFLOW))
-    assert len(webviews_versions) == len(WEBVIEWS_BUN_JOBS)
-    other = list(versions)
-    for version in webviews_versions:
-        other.remove(version)
-    assert set(other) == {"1.3.14"}
+    # One bun for every web job, the version webviews/package.json pins.
+    package = json.loads((ROOT / "webviews" / "package.json").read_text(encoding="utf-8"))
+    assert set(versions) == {package["devEngines"]["packageManager"]["version"]}
 
 
 def test_webviews_bun_jobs_match_dev_engines_pin() -> None:
