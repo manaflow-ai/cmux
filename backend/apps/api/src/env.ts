@@ -128,6 +128,8 @@ export interface Env {
   readonly SENDBLUE_API_SECRET?: string
   readonly SENDBLUE_FROM_NUMBER?: string
   readonly SENDBLUE_WEBHOOK_SECRET?: string
+  /** Header that carries the SendBlue webhook secret (default sb-signing-secret; UNVERIFIED until the first staging webhook). */
+  readonly SENDBLUE_WEBHOOK_HEADER?: string
   /** Staging, development and previews only: comma-separated recipients invites may reach; missing = none. */
   readonly HOME_INVITE_ALLOWLIST_EMAILS?: string
   readonly HOME_INVITE_ALLOWLIST_PHONES?: string
