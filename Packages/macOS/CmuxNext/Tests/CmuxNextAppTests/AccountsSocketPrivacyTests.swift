@@ -41,7 +41,7 @@ import Testing
         try write(".codex/auth.json", ["tokens": ["id_token": idToken, "refresh_token": "fake", "access_token": "fake", "account_id": "x"]])
         try write(".claude.json", ["oauthAccount": ["emailAddress": "someone@example.com"]])
         try write(".gemini/oauth_creds.json", ["refresh_token": "fake"])
-        try write(".gemini/google_accounts.json", ["active": "other@example.org"])
+        try write(".gemini/google_accounts.json", ["active": "someone＠example.org"])
         let environment = DetectionEnvironment(home: home, environment: [:], files: LiveFileReader(), keychain: NoKeychainItems(),
                                                servers: NoServers(), labeler: Self.labeler)
         return await ProviderDetector(environment: environment).detectAll()
@@ -50,9 +50,9 @@ import Testing
     @Test func accountsListRowsCarryHandlesAndNoEmail() async throws {
         let found = try await detections()
         let linked = [
-            LinkedAccount(id: "a1", family: .native, provider: .codex, account: Self.labeler.server(namespace: "codex", label: "someone@example.com"),
+            LinkedAccount(id: "a1", family: .native, provider: .codex, account: Self.labeler.server(namespace: "codex", id: "a1", label: "someone@example.com"),
                           state: "active"),
-            LinkedAccount(id: "c1", family: .claude, provider: .claude, account: Self.labeler.server(namespace: "claude", label: "someone@example.com"),
+            LinkedAccount(id: "c1", family: .claude, provider: .claude, account: Self.labeler.server(namespace: "claude", id: "c1", label: "jörg@bücher.de"),
                           state: "active"),
         ]
         var withAccount = 0
@@ -62,8 +62,8 @@ import Testing
             if let detection = found.first(where: { $0.provider == provider }) { row.reduce(.detected(detection)) }
             row.reduce(.linkedLoaded(linked))
             let json = AppControl.json(row)
-            let text = json.compactText
-            #expect(PrivacyScan.emails(in: text).isEmpty, "\(provider): \(text)")
+            let data = try JSONSerialization.data(withJSONObject: json.foundationObject)
+            #expect(PrivacyScan.emails(inJSON: data).isEmpty, "\(provider): \(json.compactText)")
             let object = try #require(json.objectValue)
             #expect(object["identity"] == nil, "the old field is gone")
             if let handle = object["account"]?.stringValue {

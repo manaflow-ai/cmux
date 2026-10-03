@@ -1,4 +1,3 @@
-import CryptoKit
 public import Foundation
 
 /// The per-user secret salt behind every handle. Tests pass a fixed one.
@@ -13,7 +12,9 @@ public actor AccountLabelerStore {
     private let provider: any AccountLabelSaltProviding
     private var cached: AccountLabeler?
     /// True when the Keychain salt failed and this process uses a random one.
-    public private(set) var usesEphemeralSalt = false
+    public var usesEphemeralSalt: Bool { saltFailure != nil }
+    /// Why the salt failed (for example `Keychain error -25308`); never a secret.
+    public private(set) var saltFailure: String?
 
     public init(provider: any AccountLabelSaltProviding) {
         self.provider = provider
@@ -22,21 +23,16 @@ public actor AccountLabelerStore {
     public func labeler() -> AccountLabeler {
         if let cached { return cached }
         let salt: Data
-        if let stored = try? provider.salt(), stored.count >= 16 {
+        do {
+            let stored = try provider.salt()
+            guard stored.count >= 16 else { throw AccountLabelSaltTooShort() }
             salt = stored
-        } else {
+        } catch {
             salt = AccountLabelSalt.random()
-            usesEphemeralSalt = true
+            saltFailure = String(describing: error)
         }
         let labeler = AccountLabeler(salt: salt)
         cached = labeler
         return labeler
-    }
-}
-
-enum AccountLabelSalt {
-    /// 32 random bytes.
-    static func random() -> Data {
-        SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
     }
 }

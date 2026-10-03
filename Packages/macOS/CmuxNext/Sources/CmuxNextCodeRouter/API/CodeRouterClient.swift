@@ -71,7 +71,7 @@ public struct CodeRouterClient: Sendable {
     public func request(_ method: String, _ path: String, body: [String: any Sendable]? = nil,
                         team override: String? = nil) async throws -> Data {
         let data = try await send(method, path, body: body, team: override)
-        return AccountJSONRedactor(labeler: await labeler()).redact(data)
+        return AccountJSONRedactor(labeler: await labeler(), accountRows: AccountJSONRedactor.isAccountEndpoint(path)).redact(data)
     }
 
     /// Adds an account. Re-adding the same sign-in or key updates it.

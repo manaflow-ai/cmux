@@ -44,7 +44,7 @@ import Testing
             #expect(PrivacyScan.emails(inJSON: json).isEmpty, "\(detection.provider): \(String(decoding: json, as: UTF8.self))")
         }
         let claude = try #require(results.first { $0.provider == .claude })
-        #expect(claude.account?.display == "s…@e…'s Organization", "an email inside an organization name is shortened")
+        #expect(claude.account?.display == "s…@e… Organization", "an email inside an organization name is shortened")
         #expect(results.first { $0.provider == .bedrock }?.detail == "profile s…@e…")
     }
 
@@ -80,6 +80,8 @@ import Testing
         let second = await broken.labeler().handle(namespace: "codex", identity: "someone@example.com")
         let brokenEphemeral = await broken.usesEphemeralSalt
         #expect(brokenEphemeral)
+        let failure = await broken.saltFailure
+        #expect(failure?.isEmpty == false, "the failure is kept for the log")
         #expect(first.hasPrefix("acct_"))
         #expect(first == second, "stable within the process")
     }
@@ -158,12 +160,13 @@ extension CodeRouterClientTests {
         #expect(rows[3]["label"] as? String == "", "an empty label stays empty for the CLI")
         #expect(rows[3]["identifier"] as? String == "sk-ant-oat01-…abcd")
         #expect(rows[4]["label"] as? String == "s…@e…")
+        #expect(rows.allSatisfy { $0["providerAccountId"] == nil && $0["providerUserId"] == nil }, "provider ids are dropped")
     }
 
     @Test func serverErrorsAndOtherRepliesAreRedacted() async throws {
         FakeCodeRouter.reset([
             "POST /api/coderouter/accounts": (409, #"{"error":"duplicate","message":"someone@example.com is already linked"}"#),
-            "GET /api/coderouter/vm-usage/team": (200, #"{"machines":[{"id":"m1","owner":"someone@example.com","displayName":"box"}]}"#),
+            "GET /api/coderouter/vm-usage/team": (200, #"{"machines":[{"id":"m1","provider":"freestyle","label":"box","owner":"someone@example.com","displayName":"box"}]}"#),
         ])
         do {
             _ = try await client.request("POST", "/api/coderouter/accounts", body: ["provider": "codex"])
@@ -174,5 +177,6 @@ extension CodeRouterClientTests {
         let machines = try await client.request("GET", "/api/coderouter/vm-usage/team")
         #expect(PrivacyScan.emails(inJSON: machines).isEmpty)
         #expect(String(decoding: machines, as: UTF8.self).contains("box"))
+        #expect(!String(decoding: machines, as: UTF8.self).contains("acct_"), "only account endpoints get handles")
     }
 }

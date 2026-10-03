@@ -50,7 +50,7 @@ import Testing
 
 @Suite struct AccountRowStateTests {
     let codexAccount = LinkedAccount(id: "a1", family: .native, provider: .codex,
-                                     account: fixtureLabeler.server(namespace: "codex", label: "dev@example.com"), state: "active")
+                                     account: fixtureLabeler.server(namespace: "codex", id: "a1", label: "dev@example.com"), state: "active")
 
     func signedInCodex() -> AccountRowState {
         var row = AccountRowState(provider: .codex)

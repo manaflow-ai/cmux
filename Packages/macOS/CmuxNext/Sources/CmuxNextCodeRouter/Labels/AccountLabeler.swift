@@ -4,7 +4,7 @@ public import Foundation
 /// Makes ``AccountLabel``s. The handle is `acct_` + base32 (lowercase, no
 /// padding) of the first 16 bytes of HMAC-SHA256(per-user salt,
 /// "<namespace>:<normalized identity>"), where the namespace is the
-/// provider id and the identity is trimmed and lowercased. Without the
+/// provider id and the identity is NFC-normalized, trimmed and lowercased. Without the
 /// salt a handle cannot be turned back into an email or matched across
 /// users. The salt is never printed.
 public struct AccountLabeler: Sendable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
@@ -21,7 +21,7 @@ public struct AccountLabeler: Sendable, CustomStringConvertible, CustomDebugStri
 
     /// The opaque handle of one identity under one provider.
     public func handle(namespace: String, identity: String) -> String {
-        let normalized = identity.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalized = identity.precomposedStringWithCanonicalMapping.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let mac = HMAC<SHA256>.authenticationCode(for: Data("\(namespace):\(normalized)".utf8), using: key)
         return "acct_" + Self.base32(Array(mac).prefix(16))
     }
@@ -33,12 +33,21 @@ public struct AccountLabeler: Sendable, CustomStringConvertible, CustomDebugStri
         return AccountLabel(handle: handle(namespace: provider.rawValue, identity: identity), display: display)
     }
 
-    /// A CodeRouter server label (an email, a user label, a masked key):
-    /// the display keeps a label or masked key and shortens every email.
-    /// `namespace` is the provider id, so a Codex email has the same handle
-    /// here as in local detection.
-    public func server(namespace: String, label: String) -> AccountLabel {
-        AccountLabel(handle: handle(namespace: namespace, identity: label), display: EmailRedaction.redactEmails(in: label))
+    /// A CodeRouter account row. The handle comes from a stable identity:
+    /// the label only when it is an email (the server's default label for a
+    /// sign-in, so a Codex email gets the same handle here as in local
+    /// detection), else `providerAccountId`, else `identifier`, else the
+    /// row id. A user-editable label is display only: renaming keeps the
+    /// handle, and two rows with the same label keep different handles.
+    /// The display is the label, else `identifier`, else `fallback`, with
+    /// every email shortened.
+    public func server(namespace: String, id: String, label: String?, providerAccountId: String? = nil, identifier: String? = nil,
+                       fallback: String = "") -> AccountLabel {
+        let label = label?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let accountID = providerAccountId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let identifier = identifier?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let identity = label.flatMap { EmailRedaction.containsEmail($0) ? $0 : nil } ?? accountID ?? identifier ?? "id:\(id)"
+        return AccountLabel(handle: handle(namespace: namespace, identity: identity), display: label ?? identifier ?? fallback)
     }
 
     /// RFC 4648 base32, lowercase, no padding.

@@ -11,48 +11,38 @@ public struct AccountLabel: Sendable, Equatable, Hashable, Codable, CustomString
     /// shortened identity (`s…@e…`). Never matches an email pattern.
     public let display: String
 
-    /// `display` is redacted again here, so no value of this type can hold an email.
-    public init(handle: String, display: String) {
+    /// Only ``AccountLabeler`` makes handles. `display` is redacted again
+    /// here, so no value of this type can hold an email.
+    init(handle: String, display: String) {
+        assert(Self.isValidHandle(handle), "not an account handle")
         self.handle = handle
         self.display = EmailRedaction.redactEmails(in: display)
+    }
+
+    /// Demo and test data only: the handle is hashed with a fixed, public
+    /// key, so it is not per user. Never pass a real identity as `seed`.
+    public static func demo(_ seed: String, display: String) -> AccountLabel {
+        AccountLabel(handle: AccountLabeler(salt: Data("cmux-demo-account-labels".utf8)).handle(namespace: "demo", identity: seed),
+                     display: display)
+    }
+
+    /// `acct_` and lowercase base32 characters.
+    static func isValidHandle(_ handle: String) -> Bool {
+        guard handle.hasPrefix("acct_") else { return false }
+        let body = handle.dropFirst(5)
+        return !body.isEmpty && body.unicodeScalars.allSatisfy { ("a"..."z").contains($0) || ("2"..."7").contains($0) }
     }
 
     private enum CodingKeys: String, CodingKey { case handle = "account", display = "label" }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.init(handle: try container.decode(String.self, forKey: .handle), display: try container.decode(String.self, forKey: .display))
+        let handle = try container.decode(String.self, forKey: .handle)
+        guard Self.isValidHandle(handle) else {
+            throw DecodingError.dataCorruptedError(forKey: .handle, in: container, debugDescription: "not an account handle")
+        }
+        self.init(handle: handle, display: try container.decode(String.self, forKey: .display))
     }
 
     public var description: String { "\(handle) (\(display))" }
-}
-
-/// Email detection and redaction shared by detection, the CodeRouter
-/// client boundary and the socket outputs.
-public enum EmailRedaction {
-    /// `local@domain.tld`, ASCII, case-insensitive.
-    static func pattern() -> Regex<Substring> { #/[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}/# }
-
-    public static func containsEmail(_ text: String) -> Bool { text.contains(pattern()) }
-
-    /// Every email inside `text` replaced with its short form (`s…@e…`).
-    public static func redactEmails(in text: String) -> String {
-        guard text.contains("@") else { return text }
-        return text.replacing(pattern()) { match in shorten(email: String(match.output)) }
-    }
-
-    /// An identity as a display: an email becomes `s…@e…`, anything else
-    /// its first character and `…`. Never the full local part or domain.
-    public static func redact(identity: String) -> String {
-        let trimmed = identity.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.wholeMatch(of: pattern()) != nil { return shorten(email: trimmed) }
-        return trimmed.first.map { "\($0)…" } ?? "…"
-    }
-
-    static func shorten(email: String) -> String {
-        let parts = email.split(separator: "@", maxSplits: 1)
-        let local = parts.first?.first.map(String.init) ?? ""
-        let domain = parts.count > 1 ? parts[1].first.map(String.init) ?? "" : ""
-        return "\(local)…@\(domain)…"
-    }
 }
