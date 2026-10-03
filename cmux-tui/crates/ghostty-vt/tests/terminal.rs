@@ -1054,10 +1054,11 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     state.update(&mut term).unwrap();
     assert_eq!(state.palette_color(0), Rgb { r: 0x10, g: 0x10, b: 0x10 });
 
+    let default_sixteen = state.palette_color(16);
     term.vt_write(b"\x1b]4;16;#161616\x18");
-    assert!(term.palette_overridden(16), "CAN dispatches Ghostty's valid OSC prefix");
+    assert!(!term.palette_overridden(16), "CAN cancels the OSC (ghostty-next)");
     state.update(&mut term).unwrap();
-    assert_eq!(state.palette_color(16), Rgb { r: 0x16, g: 0x16, b: 0x16 });
+    assert_eq!(state.palette_color(16), default_sixteen);
     term.vt_write(b"\x1bPab\x1b]4;17;#171717\x07");
     assert!(term.palette_overridden(17), "ESC must leave DCS before the next OSC");
     state.update(&mut term).unwrap();
