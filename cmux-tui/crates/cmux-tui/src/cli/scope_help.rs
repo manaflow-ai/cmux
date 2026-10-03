@@ -17,12 +17,14 @@ USAGE
     [--max-files <n>] [<path>...]
   cmux git files [TARGET] [--limit <n>] <query>...
   cmux git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...]
-    [--exclude <path,...>] [--reason manual|handoff] [--max-bytes <n>]
+    [--exclude <path,...>] [--reason manual|handoff|turn] [--max-bytes <n>]
     [--max-files <n>] [--expected-repository <id>] [--expected-worktree <id>]
   cmux git checkpoint get [TARGET] <checkpoint> | --key <idempotency-key>
   cmux git checkpoint list [TARGET] [--cursor <cursor>] [--limit <n>] [--candidates]
   cmux git checkpoint pin [TARGET] <checkpoint> --pin <pin-id> --reason <text>
   cmux git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
+  cmux git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch]
+    [--max-patch-bytes <n>] [--max-files <n>]
 
 TARGET
   --path <path>          A file or folder in the repository
@@ -57,7 +59,9 @@ untracked files (or every eligible one) under refs/cmux/checkpoints/ without
 changing HEAD, the index or the worktree. Ignored, credential-like and
 oversized files are skipped and reported. A reused --idempotency-key replays
 the first result; get --key recovers it. Checkpoints expire after 7 days unless
-pinned; pins beginning handoff: or restore: belong to cmux.
+pinned; pins beginning handoff: or restore: belong to cmux. checkpoint diff
+lists what changed from one checkpoint to a later one, or to the working tree
+now when <to> is left out, in the shape of diff.
 ";
 
 /// Levenshtein distance, for "did you mean" scope suggestions.
