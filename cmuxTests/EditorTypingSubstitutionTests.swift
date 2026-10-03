@@ -92,16 +92,21 @@ struct EditorTypingSubstitutionTests {
         // user's persistent override.
         let defaults = UserDefaults.standard
         let globalDomain = defaults.volatileDomain(forName: UserDefaults.globalDomain)
-        let persistentDomain = defaults.persistentDomain(forName: Bundle.main.bundleIdentifier ?? "") ?? [:]
+        let persistentDomainName = Bundle.main.bundleIdentifier ?? ""
+        let persistentDomain = defaults.persistentDomain(forName: persistentDomainName) ?? [:]
+        let savedEffectiveValues = Dictionary(uniqueKeysWithValues: Self.systemSubstitutionDefaultsKeys.map { ($0, defaults.object(forKey: $0)) })
         defer {
             defaults.setVolatileDomain(globalDomain, forName: UserDefaults.globalDomain)
-            defaults.setPersistentDomain(persistentDomain, forName: Bundle.main.bundleIdentifier ?? "")
+            defaults.setPersistentDomain(persistentDomain, forName: persistentDomainName)
+            for (key, value) in savedEffectiveValues {
+                defaults.set(value, forKey: key)
+            }
         }
-        var isolatedPersistentDomain = persistentDomain
+        // Remove effective values as well as the named test bundle domain. The
+        // host may have a different persistent domain than Bundle.main.
         for key in Self.systemSubstitutionDefaultsKeys {
-            isolatedPersistentDomain.removeValue(forKey: key)
+            defaults.removeObject(forKey: key)
         }
-        defaults.setPersistentDomain(isolatedPersistentDomain, forName: Bundle.main.bundleIdentifier ?? "")
         defaults.setVolatileDomain(
             Dictionary(uniqueKeysWithValues: Self.systemSubstitutionDefaultsKeys.map { ($0, false) }),
             forName: UserDefaults.globalDomain
