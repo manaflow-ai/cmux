@@ -19,3 +19,4 @@
 
 
 - 2026-10-03 (this commit) coderouter: machine credentials (VM-bound route token, chatmux token, crk_ key) get no account rights; resolveCoderouterControlContext refuses them (403 machine_token_cannot_manage_accounts); plans/cmux-next/coderouter.md and web/services/coderouter/README.md updated (Lawrence item 8) (app platform lead)
+- 2026-10-03 actions (catalog lane): action-surfaces.json rows carry `palette_section` (id, title_key, title_table, English title, order), generated from ActionCategory (paletteSectionID/Order, titleKey/Table; the palette reads the same) and covered by exportIsFresh. GPUI and cmux-browser take palette sections from this file.

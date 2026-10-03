@@ -15,11 +15,13 @@ public nonisolated struct ActionTitleCatalog: Sendable {
     }
 
     private let byKey: [String: Entry]
+    private let byTableKey: [String: Entry]
     private let byEnglish: [String: [Entry]]
 
     /// - Parameter catalogs: Each catalog's table name and its `.xcstrings` JSON.
     public init(catalogs: [(table: String, data: Data)]) throws {
         var byKey: [String: Entry] = [:]
+        var byTableKey: [String: Entry] = [:]
         var byEnglish: [String: [Entry]] = [:]
         for catalog in catalogs {
             let file = try JSONDecoder().decode(StringCatalogFile.self, from: catalog.data)
@@ -27,17 +29,25 @@ public nonisolated struct ActionTitleCatalog: Sendable {
                 let english = string.localizations?[file.sourceLanguage]?.stringUnit?.value ?? key
                 let entry = Entry(table: catalog.table, key: key, english: english)
                 if byKey[key] == nil || catalog.table == "Localizable" { byKey[key] = entry }
+                byTableKey[catalog.table + "\u{0}" + key] = entry
                 byEnglish[english, default: []].append(entry)
             }
         }
         self.byKey = byKey
+        self.byTableKey = byTableKey
         self.byEnglish = byEnglish
     }
 
     /// No catalogs: every title exports without a key.
     public init() {
         byKey = [:]
+        byTableKey = [:]
         byEnglish = [:]
+    }
+
+    /// The string with `key` in `table`, if the catalogs have it.
+    public func entry(key: String, table: String) -> Entry? {
+        byTableKey[table + "\u{0}" + key]
     }
 
     /// The string behind `descriptor`'s title, if one can be named.

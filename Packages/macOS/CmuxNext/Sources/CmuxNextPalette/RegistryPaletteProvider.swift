@@ -123,7 +123,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
 
     /// The section for a catalog category.
     public static func section(for category: ActionCategory) -> PaletteSection {
-        PaletteSection(id: "category.\(category.rawValue)", title: category.title, order: 100 + category.sortOrder)
+        PaletteSection(id: category.paletteSectionID, title: category.title, order: category.paletteSectionOrder)
     }
 }
 
