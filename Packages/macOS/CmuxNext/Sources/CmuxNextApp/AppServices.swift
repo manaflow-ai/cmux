@@ -39,6 +39,7 @@ final class AppServices {
     private(set) var cloud: CloudService!
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
     private(set) var feed: FeedService!
+    var showcase = ShowcaseState()
     /// SSH machines (Connect to Machine…).
     private(set) var ssh: SSHService!
     /// Phone access; started by the account layer once signed in.
@@ -143,7 +144,7 @@ final class AppServices {
     /// Browser profiles: records, the new-tab cascade, each tab's store.
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
-    private(set) lazy var agentTabs = AgentTabStore(tag: environment.tag, registry: registry, linkScheme: linkScheme, git: agentGit, settings: settings)
+    private(set) lazy var agentTabs = AgentTabStore(tag: environment.tag, registry: registry, environment: ProcessInfo.processInfo.environment, showcase: environment.showcase, linkScheme: linkScheme, git: agentGit, settings: settings)
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
     private(set) lazy var quickComposer = makeQuickComposer()
     /// Internal page tabs (Settings, Debug Settings, the App Store).

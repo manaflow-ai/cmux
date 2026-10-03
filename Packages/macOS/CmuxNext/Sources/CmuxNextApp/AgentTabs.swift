@@ -73,12 +73,12 @@ final class AgentTabStore {
     /// `settings`, when given, is followed for `labs.previewFeatures`
     /// (AppDelegate makes it before any agent tab).
     init(tag: String?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
-         linkScheme: String? = nil, git: AgentPaneGitLink? = nil, settings: SettingsController? = nil) {
+         showcase: Bool = false, linkScheme: String? = nil, git: AgentPaneGitLink? = nil, settings: SettingsController? = nil) {
         actionRegistry = registry
         self.linkScheme = linkScheme
         self.git = git
         let resolvedHost: any AgentPaneHostProviding
-        if environment["CMUX_NEXT_AGENT_PANE_MOCK"] == "1" {
+        if showcase || environment["CMUX_NEXT_AGENT_PANE_MOCK"] == "1" {
             resolvedHost = MockAgentPaneHost()
         } else {
             let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
