@@ -8816,7 +8816,7 @@
         "children": {},
         "defaultConversation": "conv_a",
         "muxSessionId": "s_mux",
-        "acpmuxEpoch": 1790985600500,
+        "acpmuxEpoch": 1790985600501,
         "acpmuxLog": 1790985600500
        }
       },
@@ -8894,10 +8894,10 @@
         "outbox": [
          {
           "conversation": "conv_a",
-          "idempotency_key": "turn:s_mux:1790985600500:4",
+          "idempotency_key": "turn:s_mux:1790985600501:4",
           "op": {
            "kind": "message.send",
-           "client_msg_id": "turn:s_mux:1790985600500:4",
+           "client_msg_id": "turn:s_mux:1790985600501:4",
            "parts": [
             {
              "type": "text",
@@ -8910,17 +8910,17 @@
         "children": {},
         "defaultConversation": "conv_a",
         "muxSessionId": "s_mux",
-        "acpmuxEpoch": 1790985600500,
+        "acpmuxEpoch": 1790985600501,
         "acpmuxLog": 1790985600500
        }
       },
       {
        "kind": "conversation_op",
        "conversation": "conv_a",
-       "idempotency_key": "turn:s_mux:1790985600500:4",
+       "idempotency_key": "turn:s_mux:1790985600501:4",
        "op": {
         "kind": "message.send",
-        "client_msg_id": "turn:s_mux:1790985600500:4",
+        "client_msg_id": "turn:s_mux:1790985600501:4",
         "parts": [
          {
           "type": "text",
@@ -8944,10 +8944,10 @@
     "outbox": [
      {
       "conversation": "conv_a",
-      "idempotency_key": "turn:s_mux:1790985600500:4",
+      "idempotency_key": "turn:s_mux:1790985600501:4",
       "op": {
        "kind": "message.send",
-       "client_msg_id": "turn:s_mux:1790985600500:4",
+       "client_msg_id": "turn:s_mux:1790985600501:4",
        "parts": [
         {
          "type": "text",
@@ -8960,7 +8960,7 @@
     "children": {},
     "defaultConversation": "conv_a",
     "muxSessionId": "s_mux",
-    "acpmuxEpoch": 1790985600500,
+    "acpmuxEpoch": 1790985600501,
     "acpmuxLog": 1790985600500
    }
   },
@@ -9207,6 +9207,216 @@
     "defaultConversation": "conv_a",
     "muxSessionId": "s_mux",
     "acpmuxEpoch": 1790985600501,
+    "acpmuxLog": 1790985600500
+   }
+  },
+  {
+   "name": "log identity: a legacy host.json (no acpmuxLog) for the same session adopts the identity without a reset",
+   "state": {
+    "acpmuxSeq": 4,
+    "prompts": {},
+    "answered": [],
+    "outbox": [],
+    "children": {},
+    "defaultConversation": "conv_a",
+    "muxSessionId": "s_mux"
+   },
+   "steps": [
+    {
+     "now": 1790985600001,
+     "input": {
+      "kind": "daemon_connected",
+      "conversation": {
+       "id": "conv_a",
+       "owner": "local",
+       "title": "conv_a",
+       "participants": [
+        {
+         "id": "user_local",
+         "kind": "human",
+         "display_name": "Me"
+        },
+        {
+         "id": "agent_mux",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux"
+        }
+       ],
+       "last_seq": 0,
+       "rev": 1,
+       "created_at": "2026-10-03T00:00:00.000Z",
+       "updated_at": "2026-10-03T00:00:00.000Z",
+       "read_cursors": {}
+      }
+     },
+     "effects": []
+    },
+    {
+     "now": 1790985600002,
+     "input": {
+      "kind": "acpmux_connected",
+      "session_id": "s_mux",
+      "sessions": [],
+      "events": [
+       {
+        "sessionId": "s_mux",
+        "seq": 5,
+        "dir": "mux",
+        "kind": "turn_started",
+        "msg": {}
+       },
+       {
+        "sessionId": "s_mux",
+        "seq": 6,
+        "dir": "agent",
+        "kind": "agent_message_chunk",
+        "msg": {
+         "params": {
+          "update": {
+           "content": {
+            "type": "text",
+            "text": "after upgrade"
+           }
+          }
+         }
+        }
+       },
+       {
+        "sessionId": "s_mux",
+        "seq": 7,
+        "dir": "mux",
+        "kind": "turn_end",
+        "msg": {}
+       }
+      ],
+      "log_id": 1790985600500
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 7,
+        "prompts": {},
+        "answered": [],
+        "outbox": [
+         {
+          "conversation": "conv_a",
+          "idempotency_key": "turn:s_mux:5",
+          "op": {
+           "kind": "message.send",
+           "client_msg_id": "turn:s_mux:5",
+           "parts": [
+            {
+             "type": "text",
+             "text": "after upgrade"
+            }
+           ]
+          }
+         }
+        ],
+        "children": {},
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux",
+        "acpmuxLog": 1790985600500
+       }
+      },
+      {
+       "kind": "typing",
+       "conversation": "conv_a",
+       "on": true
+      },
+      {
+       "kind": "conversation_op",
+       "conversation": "conv_a",
+       "idempotency_key": "turn:s_mux:5",
+       "op": {
+        "kind": "message.send",
+        "client_msg_id": "turn:s_mux:5",
+        "parts": [
+         {
+          "type": "text",
+          "text": "after upgrade"
+         }
+        ]
+       }
+      },
+      {
+       "kind": "typing",
+       "conversation": "conv_a",
+       "on": false
+      },
+      {
+       "kind": "list_conversations"
+      }
+     ]
+    }
+   ],
+   "state_after": {
+    "acpmuxSeq": 7,
+    "prompts": {},
+    "answered": [],
+    "outbox": [
+     {
+      "conversation": "conv_a",
+      "idempotency_key": "turn:s_mux:5",
+      "op": {
+       "kind": "message.send",
+       "client_msg_id": "turn:s_mux:5",
+       "parts": [
+        {
+         "type": "text",
+         "text": "after upgrade"
+        }
+       ]
+      }
+     }
+    ],
+    "children": {},
+    "defaultConversation": "conv_a",
+    "muxSessionId": "s_mux",
+    "acpmuxLog": 1790985600500
+   }
+  },
+  {
+   "name": "log identity: a log_id that is not a non-negative integer is ignored with a log",
+   "state": {
+    "acpmuxSeq": 4,
+    "prompts": {},
+    "answered": [],
+    "outbox": [],
+    "children": {},
+    "defaultConversation": "conv_a",
+    "muxSessionId": "s_mux",
+    "acpmuxLog": 1790985600500
+   },
+   "steps": [
+    {
+     "now": 1790985600001,
+     "input": {
+      "kind": "acpmux_connected",
+      "session_id": "s_mux",
+      "sessions": [],
+      "events": [],
+      "log_id": 2.5
+     },
+     "effects": [
+      {
+       "kind": "log",
+       "line": "ignoring log_id 2.5: not a non-negative integer"
+      }
+     ]
+    }
+   ],
+   "state_after": {
+    "acpmuxSeq": 4,
+    "prompts": {},
+    "answered": [],
+    "outbox": [],
+    "children": {},
+    "defaultConversation": "conv_a",
+    "muxSessionId": "s_mux",
     "acpmuxLog": 1790985600500
    }
   },
@@ -9942,7 +10152,7 @@
         "defaultConversation": "conv_a",
         "muxSessionId": "s_mux",
         "acpmuxLog": 1790985600900,
-        "acpmuxEpoch": 1790985600900
+        "acpmuxEpoch": 1790985600901
        }
       },
       {
@@ -9961,7 +10171,7 @@
     "defaultConversation": "conv_a",
     "muxSessionId": "s_mux",
     "acpmuxLog": 1790985600900,
-    "acpmuxEpoch": 1790985600900
+    "acpmuxEpoch": 1790985600901
    }
   },
   {
@@ -10078,7 +10288,7 @@
         "children": {},
         "defaultConversation": "conv_a",
         "muxSessionId": "s_mux",
-        "acpmuxEpoch": 1790985600800,
+        "acpmuxEpoch": 1790985600801,
         "acpmuxLog": 1790985600800
        }
       },
@@ -10102,7 +10312,7 @@
     "children": {},
     "defaultConversation": "conv_a",
     "muxSessionId": "s_mux",
-    "acpmuxEpoch": 1790985600800,
+    "acpmuxEpoch": 1790985600801,
     "acpmuxLog": 1790985600800
    }
   },
@@ -10214,7 +10424,7 @@
         "children": {},
         "defaultConversation": "conv_a",
         "muxSessionId": "s_mux",
-        "acpmuxEpoch": 1790985600700,
+        "acpmuxEpoch": 1790985600701,
         "acpmuxLog": 1790985600700
        }
       },
@@ -10238,7 +10448,7 @@
     "children": {},
     "defaultConversation": "conv_a",
     "muxSessionId": "s_mux",
-    "acpmuxEpoch": 1790985600700,
+    "acpmuxEpoch": 1790985600701,
     "acpmuxLog": 1790985600700
    }
   },
@@ -10617,6 +10827,475 @@
     "answered": [],
     "outbox": [],
     "children": {},
+    "defaultConversation": "conv_a",
+    "muxSessionId": "s_mux"
+   }
+  },
+  {
+   "name": "turns: recording an outstanding prompt again (a repeated permission) keeps its order",
+   "state": {
+    "acpmuxSeq": 0,
+    "prompts": {},
+    "answered": [],
+    "outbox": [],
+    "children": {}
+   },
+   "steps": [
+    {
+     "now": 1790985600001,
+     "input": {
+      "kind": "daemon_connected",
+      "conversation": {
+       "id": "conv_a",
+       "owner": "local",
+       "title": "conv_a",
+       "participants": [
+        {
+         "id": "user_local",
+         "kind": "human",
+         "display_name": "Me"
+        },
+        {
+         "id": "agent_mux",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux"
+        }
+       ],
+       "last_seq": 0,
+       "rev": 1,
+       "created_at": "2026-10-03T00:00:00.000Z",
+       "updated_at": "2026-10-03T00:00:00.000Z",
+       "read_cursors": {}
+      }
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {},
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_a"
+       }
+      }
+     ]
+    },
+    {
+     "now": 1790985600002,
+     "input": {
+      "kind": "acpmux_connected",
+      "session_id": "s_mux",
+      "sessions": [
+       {
+        "sessionId": "s_w",
+        "name": "writer",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "waiting",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       }
+      ],
+      "events": []
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {},
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux"
+       }
+      },
+      {
+       "kind": "list_conversations"
+      }
+     ]
+    },
+    {
+     "now": 1790985600003,
+     "input": {
+      "kind": "conversations_listed",
+      "conversations": [
+       {
+        "id": "conv_a",
+        "owner": "local",
+        "title": "conv_a",
+        "participants": [
+         {
+          "id": "user_local",
+          "kind": "human",
+          "display_name": "Me"
+         },
+         {
+          "id": "agent_mux",
+          "kind": "agent",
+          "display_name": "mux",
+          "agent_class": "mux",
+          "acp_session": "mux"
+         }
+        ],
+        "last_seq": 0,
+        "rev": 1,
+        "created_at": "2026-10-03T00:00:00.000Z",
+        "updated_at": "2026-10-03T00:00:00.000Z",
+        "read_cursors": {}
+       }
+      ]
+     },
+     "effects": [
+      {
+       "kind": "fetch_snapshot",
+       "conversation": "conv_a",
+       "tail": 500
+      }
+     ]
+    },
+    {
+     "now": 1790985600004,
+     "input": {
+      "kind": "snapshot",
+      "conversation": {
+       "id": "conv_a",
+       "owner": "local",
+       "title": "conv_a",
+       "participants": [
+        {
+         "id": "user_local",
+         "kind": "human",
+         "display_name": "Me"
+        },
+        {
+         "id": "agent_mux",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux"
+        }
+       ],
+       "last_seq": 0,
+       "rev": 1,
+       "created_at": "2026-10-03T00:00:00.000Z",
+       "updated_at": "2026-10-03T00:00:00.000Z",
+       "read_cursors": {}
+      },
+      "messages": []
+     },
+     "effects": [
+      {
+       "kind": "ready"
+      }
+     ]
+    },
+    {
+     "now": 1790985600005,
+     "input": {
+      "kind": "permission_pending",
+      "session_id": "s_w",
+      "permission_id": "p1",
+      "request": {}
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {
+         "perm:s_w:p1": {
+          "conversation": "conv_a",
+          "text": "[mux-event] child writer asks permission: a tool call\nOptions: (none)\nAnswer with `mux agents allow writer OPTION_ID` or `mux agents deny writer`. Ask the user first if it is destructive or outward-facing.",
+          "order": 1
+         }
+        },
+        "answered": [],
+        "outbox": [
+         {
+          "conversation": "conv_a",
+          "idempotency_key": "work:s_w",
+          "child": "s_w",
+          "op": {
+           "kind": "message.send",
+           "client_msg_id": "work:s_w",
+           "parts": [
+            {
+             "type": "work",
+             "session": "writer",
+             "status": "waiting"
+            }
+           ]
+          }
+         }
+        ],
+        "children": {
+         "s_w": {
+          "conversation": "conv_a",
+          "name": "writer",
+          "status": "waiting",
+          "edits": 0
+         }
+        },
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux"
+       }
+      },
+      {
+       "kind": "log",
+       "line": "child writer started (s_w)"
+      },
+      {
+       "kind": "conversation_op",
+       "conversation": "conv_a",
+       "idempotency_key": "work:s_w",
+       "op": {
+        "kind": "message.send",
+        "client_msg_id": "work:s_w",
+        "parts": [
+         {
+          "type": "work",
+          "session": "writer",
+          "status": "waiting"
+         }
+        ]
+       }
+      },
+      {
+       "kind": "prompt",
+       "prompt_id": "perm:s_w:p1",
+       "text": "[mux-event] child writer asks permission: a tool call\nOptions: (none)\nAnswer with `mux agents allow writer OPTION_ID` or `mux agents deny writer`. Ask the user first if it is destructive or outward-facing."
+      }
+     ]
+    },
+    {
+     "now": 1790985600006,
+     "input": {
+      "kind": "conversation_changed",
+      "conversation": "conv_a",
+      "change": {
+       "kind": "message",
+       "message": {
+        "id": "m_conv_a_1",
+        "conversation": "conv_a",
+        "seq": 1,
+        "client_msg_id": "c_conv_a_1",
+        "author": "user_local",
+        "parts": [
+         {
+          "type": "text",
+          "text": "meanwhile"
+         }
+        ],
+        "created_at": "2026-10-03T00:00:00.000Z",
+        "reactions": []
+       }
+      }
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {
+         "perm:s_w:p1": {
+          "conversation": "conv_a",
+          "text": "[mux-event] child writer asks permission: a tool call\nOptions: (none)\nAnswer with `mux agents allow writer OPTION_ID` or `mux agents deny writer`. Ask the user first if it is destructive or outward-facing.",
+          "order": 1
+         },
+         "m_conv_a_1": {
+          "conversation": "conv_a",
+          "text": "[conversation conv_a from Me] meanwhile",
+          "seq": 1,
+          "order": 2
+         }
+        },
+        "answered": [],
+        "outbox": [
+         {
+          "conversation": "conv_a",
+          "idempotency_key": "work:s_w",
+          "child": "s_w",
+          "op": {
+           "kind": "message.send",
+           "client_msg_id": "work:s_w",
+           "parts": [
+            {
+             "type": "work",
+             "session": "writer",
+             "status": "waiting"
+            }
+           ]
+          }
+         }
+        ],
+        "children": {
+         "s_w": {
+          "conversation": "conv_a",
+          "name": "writer",
+          "status": "waiting",
+          "edits": 0
+         }
+        },
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux"
+       }
+      },
+      {
+       "kind": "prompt",
+       "prompt_id": "m_conv_a_1",
+       "text": "[conversation conv_a from Me] meanwhile"
+      }
+     ]
+    },
+    {
+     "now": 1790985600007,
+     "input": {
+      "kind": "permission_pending",
+      "session_id": "s_w",
+      "permission_id": "p1",
+      "request": {}
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {
+         "perm:s_w:p1": {
+          "conversation": "conv_a",
+          "text": "[mux-event] child writer asks permission: a tool call\nOptions: (none)\nAnswer with `mux agents allow writer OPTION_ID` or `mux agents deny writer`. Ask the user first if it is destructive or outward-facing.",
+          "order": 1
+         },
+         "m_conv_a_1": {
+          "conversation": "conv_a",
+          "text": "[conversation conv_a from Me] meanwhile",
+          "seq": 1,
+          "order": 2
+         }
+        },
+        "answered": [],
+        "outbox": [
+         {
+          "conversation": "conv_a",
+          "idempotency_key": "work:s_w",
+          "child": "s_w",
+          "op": {
+           "kind": "message.send",
+           "client_msg_id": "work:s_w",
+           "parts": [
+            {
+             "type": "work",
+             "session": "writer",
+             "status": "waiting"
+            }
+           ]
+          }
+         },
+         {
+          "conversation": "conv_a",
+          "idempotency_key": "work:s_w:1",
+          "child": "s_w",
+          "op": {
+           "kind": "message.edit",
+           "message_id": "",
+           "parts": [
+            {
+             "type": "work",
+             "session": "writer",
+             "status": "waiting"
+            }
+           ]
+          }
+         }
+        ],
+        "children": {
+         "s_w": {
+          "conversation": "conv_a",
+          "name": "writer",
+          "status": "waiting",
+          "edits": 1
+         }
+        },
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux"
+       }
+      },
+      {
+       "kind": "prompt",
+       "prompt_id": "perm:s_w:p1",
+       "text": "[mux-event] child writer asks permission: a tool call\nOptions: (none)\nAnswer with `mux agents allow writer OPTION_ID` or `mux agents deny writer`. Ask the user first if it is destructive or outward-facing."
+      }
+     ]
+    }
+   ],
+   "state_after": {
+    "acpmuxSeq": 0,
+    "prompts": {
+     "perm:s_w:p1": {
+      "conversation": "conv_a",
+      "text": "[mux-event] child writer asks permission: a tool call\nOptions: (none)\nAnswer with `mux agents allow writer OPTION_ID` or `mux agents deny writer`. Ask the user first if it is destructive or outward-facing.",
+      "order": 1
+     },
+     "m_conv_a_1": {
+      "conversation": "conv_a",
+      "text": "[conversation conv_a from Me] meanwhile",
+      "seq": 1,
+      "order": 2
+     }
+    },
+    "answered": [],
+    "outbox": [
+     {
+      "conversation": "conv_a",
+      "idempotency_key": "work:s_w",
+      "child": "s_w",
+      "op": {
+       "kind": "message.send",
+       "client_msg_id": "work:s_w",
+       "parts": [
+        {
+         "type": "work",
+         "session": "writer",
+         "status": "waiting"
+        }
+       ]
+      }
+     },
+     {
+      "conversation": "conv_a",
+      "idempotency_key": "work:s_w:1",
+      "child": "s_w",
+      "op": {
+       "kind": "message.edit",
+       "message_id": "",
+       "parts": [
+        {
+         "type": "work",
+         "session": "writer",
+         "status": "waiting"
+        }
+       ]
+      }
+     }
+    ],
+    "children": {
+     "s_w": {
+      "conversation": "conv_a",
+      "name": "writer",
+      "status": "waiting",
+      "edits": 1
+     }
+    },
     "defaultConversation": "conv_a",
     "muxSessionId": "s_mux"
    }
@@ -13952,6 +14631,221 @@
       "messageId": "m_card"
      }
     },
+    "defaultConversation": "conv_a",
+    "muxSessionId": "s_mux"
+   }
+  },
+  {
+   "name": "children: on acpmux connect a pending permission whose session is no longer waiting is dropped (answered meanwhile)",
+   "state": {
+    "acpmuxSeq": 0,
+    "prompts": {},
+    "answered": [],
+    "outbox": [],
+    "children": {}
+   },
+   "steps": [
+    {
+     "now": 1790985600001,
+     "input": {
+      "kind": "daemon_connected",
+      "conversation": {
+       "id": "conv_a",
+       "owner": "local",
+       "title": "conv_a",
+       "participants": [
+        {
+         "id": "user_local",
+         "kind": "human",
+         "display_name": "Me"
+        },
+        {
+         "id": "agent_mux",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux"
+        }
+       ],
+       "last_seq": 0,
+       "rev": 1,
+       "created_at": "2026-10-03T00:00:00.000Z",
+       "updated_at": "2026-10-03T00:00:00.000Z",
+       "read_cursors": {}
+      }
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {},
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_a"
+       }
+      }
+     ]
+    },
+    {
+     "now": 1790985600002,
+     "input": {
+      "kind": "acpmux_connected",
+      "session_id": "s_mux",
+      "sessions": [],
+      "events": []
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {},
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux"
+       }
+      },
+      {
+       "kind": "list_conversations"
+      }
+     ]
+    },
+    {
+     "now": 1790985600003,
+     "input": {
+      "kind": "conversations_listed",
+      "conversations": [
+       {
+        "id": "conv_a",
+        "owner": "local",
+        "title": "conv_a",
+        "participants": [
+         {
+          "id": "user_local",
+          "kind": "human",
+          "display_name": "Me"
+         },
+         {
+          "id": "agent_mux",
+          "kind": "agent",
+          "display_name": "mux",
+          "agent_class": "mux",
+          "acp_session": "mux"
+         }
+        ],
+        "last_seq": 0,
+        "rev": 1,
+        "created_at": "2026-10-03T00:00:00.000Z",
+        "updated_at": "2026-10-03T00:00:00.000Z",
+        "read_cursors": {}
+       }
+      ]
+     },
+     "effects": [
+      {
+       "kind": "fetch_snapshot",
+       "conversation": "conv_a",
+       "tail": 500
+      }
+     ]
+    },
+    {
+     "now": 1790985600004,
+     "input": {
+      "kind": "snapshot",
+      "conversation": {
+       "id": "conv_a",
+       "owner": "local",
+       "title": "conv_a",
+       "participants": [
+        {
+         "id": "user_local",
+         "kind": "human",
+         "display_name": "Me"
+        },
+        {
+         "id": "agent_mux",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux"
+        }
+       ],
+       "last_seq": 0,
+       "rev": 1,
+       "created_at": "2026-10-03T00:00:00.000Z",
+       "updated_at": "2026-10-03T00:00:00.000Z",
+       "read_cursors": {}
+      },
+      "messages": []
+     },
+     "effects": [
+      {
+       "kind": "ready"
+      }
+     ]
+    },
+    {
+     "now": 1790985600005,
+     "input": {
+      "kind": "permission_pending",
+      "session_id": "s_v",
+      "permission_id": "p1",
+      "request": {}
+     },
+     "effects": [
+      {
+       "kind": "fetch_sessions"
+      }
+     ]
+    },
+    {
+     "now": 1790985600006,
+     "input": {
+      "kind": "disconnected",
+      "port": "acpmux"
+     },
+     "effects": []
+    },
+    {
+     "now": 1790985600007,
+     "input": {
+      "kind": "acpmux_connected",
+      "session_id": "s_mux",
+      "sessions": [
+       {
+        "sessionId": "s_v",
+        "name": "viewer",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       }
+      ],
+      "events": []
+     },
+     "effects": [
+      {
+       "kind": "list_conversations"
+      }
+     ]
+    }
+   ],
+   "state_after": {
+    "acpmuxSeq": 0,
+    "prompts": {},
+    "answered": [],
+    "outbox": [],
+    "children": {},
     "defaultConversation": "conv_a",
     "muxSessionId": "s_mux"
    }
