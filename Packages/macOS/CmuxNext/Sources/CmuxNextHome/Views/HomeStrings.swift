@@ -3,6 +3,7 @@ import Foundation
 /// Every user-facing string of the Home module (Localizable.xcstrings).
 enum HomeStrings {
     static var thisMacOnly: String { String(localized: "home.owner.thisMac", defaultValue: "This Mac only", bundle: .module) }
+    static var copyMessage: String { String(localized: "home.menu.copy", defaultValue: "Copy", bundle: .module) }
     static var messagePlaceholder: String { String(localized: "home.composer.placeholder", defaultValue: "Message", bundle: .module) }
     static var sending: String { String(localized: "home.receipt.sending", defaultValue: "Sending", bundle: .module) }
     static var notDelivered: String { String(localized: "home.receipt.failed", defaultValue: "Not delivered", bundle: .module) }

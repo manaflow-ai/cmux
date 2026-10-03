@@ -7,8 +7,8 @@ packetizer, reassembly, frame gate, congestion control, input, sessions and acce
 policy): `cmux-rd-core`.
 
 ```
-cmux-rd host    --owner USER --bind PRIVATE_ADDR [--display :99] [--port 4103] [--codec openh264]
-cmux-rd bench   --addr HOST:4103 [--carrier udp|stream] [--samples 300] [--user USER]
+cmux-rd host    --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99] [--port 4103] [--codec openh264]
+cmux-rd bench   --addr HOST:4103 --token-fd N [--carrier udp|stream] [--samples 300] [--user USER]
 cmux-rd testapp --display :99 --workload marker|text|motion|idle
 ```
 
@@ -36,7 +36,24 @@ VM), never on a Mac: `cargo build --release`.
 
 ## Security (phase 1)
 
-- `--bind` has no default and must be a loopback, RFC 1918, CGNAT or ULA address.
+- Per-launch session token: the host needs `--token-fd N`, an inherited pipe from its parent
+  (the cmux daemon) that carries a 256-bit token; no file, environment variable or argv value
+  holds it. A hello without the exact token is refused before any session or frame
+  (constant-time compare). The daemon releases the token only through `secret.release` to
+  the `frontend` actor (the native app's viewer pane); terminal and agent actors are refused
+  (P8 slice 3). Until that lands the host is development only and the pane is not in
+  Release builds.
+- The parent writes the 64 hex characters into the pipe; the host reads exactly those (no
+  wait for end of file) and refuses a regular file. On loopback the token crosses only the
+  local socket; with `--single-tenant-overlay 1` it relies on the overlay's encryption.
+
+- Development only. By default the host binds loopback (`--bind 127.0.0.1`) and refuses every
+  non-loopback peer before it reads the hello. Reach it through SSH or a tunnel. A private
+  single-tenant overlay (RFC 1918, CGNAT or ULA address) needs the explicit
+  `--single-tenant-overlay 1`; public addresses are always refused.
+- Loopback trusts every process on the same machine: on a machine that also runs agents
+  (for example a cloud dev VM), any local process can connect and claim the owner. Until
+  the link token exists, run the host only on a machine with no other users or agents.
 - Known gap until the overlay link token (lane 12) replaces them: the host trusts the
   principal claims in the `hello`. Every process that can reach the bind address can claim
   the owner and an interactive person, including agent VMs on a team VPC and every tailnet

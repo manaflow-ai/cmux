@@ -19,6 +19,34 @@ final class HomeRowHostView: NSView {
 
     override var isFlipped: Bool { true }
 
+    /// The message a context menu was opened on.
+    private(set) var menuHit: HomeHit?
+
+    /// Right-click or Control-click on a bubble: Copy. Actions the local
+    /// owner refuses (and tapbacks, which need a message id the transcript
+    /// item does not carry yet) are not offered.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let point = convert(event.locationInWindow, from: nil)
+        return menu(at: point)
+    }
+
+    func menu(at point: CGPoint) -> NSMenu? {
+        guard let hit = controller?.hit(at: point) else { return nil }
+        menuHit = hit
+        let menu = NSMenu()
+        let copy = NSMenuItem(title: HomeStrings.copyMessage, action: #selector(copyMessage(_:)), keyEquivalent: "")
+        copy.target = self
+        menu.addItem(copy)
+        return menu
+    }
+
+    @objc func copyMessage(_ sender: Any?) {
+        guard let text = menuHit?.text else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+    }
+
     func accessibilityChanged() {
         elements = []
         NSAccessibility.post(element: self, notification: .layoutChanged)

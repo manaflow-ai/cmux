@@ -11,3 +11,4 @@ dist/
 .tanstack/
 *.log
 apps/api/wrangler.*.generated.jsonc
+.drizzle-pull-*.config.ts

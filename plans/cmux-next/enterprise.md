@@ -175,3 +175,18 @@ Lawrence's decisions (2026-10-02):
 - (c) Only an `owner` removes or suspends an `admin`. An `admin` removes `member`, `guest` and `billing` only.
 
 Pending verification (the enterprise lead's OIDC callback): the Stack server calls (user search, create user, create session) ran only against a fake. Verify them against the real Stack project on staging the next time auth code changes, before SSO sign-in is enabled for a real connection.
+
+## P17: every policy key has an enforcement point (catalog lane, 2026-10-03)
+
+Source: spec-coverage.md P17 and the enterprise review. Each parsed policy key gets one owner that refuses, with a test. Managed values are read only through `SettingsController.managedPolicy`, the single Swift reader. That reader moves behind the Rust config actor's snapshot (settings-react.md) with no change to these call sites. No slice adds a second MDM reader.
+
+| Slice | Key | Enforcement point | Owner |
+| --- | --- | --- | --- |
+| P17-1 | `DisabledFeatures` (computerUse, browserAutomation, mcp, cloud, apps, remoteHosts) | `ActionRegistry`: a disabled feature's actions are unavailable with the reason "Turned off by your organization" on every surface (palette, menus, shortcuts, CLI and socket `action.run`), because they all run through the registry. Feature to actions comes from one table keyed by category and id prefix. MCP serve and browser automation ops in the daemon read the same key from the config actor (Rust follow-up). | catalog lane (Swift); Rust half goes to the CLI owner through main |
+| P17-2 | `UpdateChannel`, `MinimumVersion` | Updater: a forced channel overrides the user's track, and the channel picker shows it as managed. If the running version is older than `MinimumVersion`, the updater installs an update and does not offer Skip or Later. Sign-in refusal of old clients is server-side (P17-4). | catalog lane |
+| P17-3 | `RestrictToManagedTeam`, `AllowedSignInMethods` | Sign-in and team switch: the app offers only the allowed methods and refuses another team with a managed refusal. The server enforces the same rules (P17-4), because client checks are advisory. | catalog lane (client); backend lead (server) |
+| P17-4 | Server-side keys: team-enforced sign-in methods and minimum version, `agents.allowedClasses` at grant mint | `authenticate()` and grant mint in UserDO/TeamDO | backend lead, through main |
+| P17-5 | Publish the MDM schema with each release | The release and nightly workflows upload `docs/mdm/*` as release assets. A check fails when `docs/mdm` is stale; the golden test from 2a-4 already guards that. | catalog lane (workflow), release owner reviews |
+| P17-6 | F3 `integration.policy.set` forwards to `team.policy.update` | ConnectionDO op | automations lead / backend lead |
+
+Order: P17-1, P17-2, P17-3 (Swift client), P17-5, then the backend slices through the backend lead. A review subagent (security) checks each slice before it lands.

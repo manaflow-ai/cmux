@@ -87,7 +87,7 @@ jobs:
         env:
           SCRATCH_URL: postgres://postgres:postgres@localhost:5432/postgres
         run: bun migrate.ts --url-env SCRATCH_URL && bun migrate.ts --url-env SCRATCH_URL --verify
-      - name: Projection queries on the migrated scratch Postgres (home.search)
+      - name: Projection queries and the Drizzle schema on the migrated scratch Postgres
         working-directory: backend/db
         env:
           SCRATCH_URL: postgres://postgres:postgres@localhost:5432/postgres
