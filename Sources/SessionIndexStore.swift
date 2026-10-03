@@ -197,12 +197,6 @@ struct DirectorySnapshot: Sendable {
     let errors: [String]
 }
 
-#if DEBUG
-private enum ClaudeConfigDirectoriesOverrideForTesting {
-    @TaskLocal static var value: [String]?
-}
-#endif
-
 @MainActor
 final class SessionIndexStore: ObservableObject {
     private let snapshotLoader: SessionIndexSnapshotLoader
@@ -868,7 +862,7 @@ final class SessionIndexStore: ObservableObject {
         var headMessageLines: Int = 0
     }
 
-    private struct ClaudeSessionRoot: Hashable {
+    struct ClaudeSessionRoot: Hashable {
         let configDir: String
         let resumeConfigDirectory: String?
 
@@ -877,7 +871,7 @@ final class SessionIndexStore: ObservableObject {
         }
     }
 
-    private struct ClaudeSessionCandidate: Sendable {
+    struct ClaudeSessionCandidate: Sendable {
         let url: URL
         let mtime: Date
         let created: Date?
@@ -885,19 +879,6 @@ final class SessionIndexStore: ObservableObject {
         let resumeConfigDirectory: String?
         let prefilteredByRipgrep: Bool
     }
-
-    #if DEBUG
-    /// Scopes Claude session roots to `configDirs` for the current task tree. Tests use this
-    /// instead of mutating process-wide `CLAUDE_CONFIG_DIR`, which parallel suites also read.
-    static func withClaudeConfigDirectoriesForTesting<T>(
-        _ configDirs: [String],
-        _ body: () async throws -> T
-    ) async rethrows -> T {
-        try await ClaudeConfigDirectoriesOverrideForTesting.$value.withValue(configDirs) {
-            try await body()
-        }
-    }
-    #endif
 
     nonisolated private static func claudeSessionRoots() -> [ClaudeSessionRoot] {
         let fm = FileManager.default
@@ -931,15 +912,6 @@ final class SessionIndexStore: ObservableObject {
                 )
             )
         }
-
-        #if DEBUG
-        if let configDirs = ClaudeConfigDirectoriesOverrideForTesting.value {
-            for configDir in configDirs {
-                appendRoot(configDir, requireConfigured: false)
-            }
-            return roots
-        }
-        #endif
 
         let environmentConfigDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"]
         appendRoot(environmentConfigDir, requireConfigured: false)
@@ -1094,7 +1066,7 @@ final class SessionIndexStore: ObservableObject {
             ?? url.deletingLastPathComponent().lastPathComponent
     }
 
-    nonisolated private static func enumerateClaudeJSONLCandidates(
+    nonisolated static func enumerateClaudeJSONLCandidates(
         root: ClaudeSessionRoot,
         cwdFilter: String?,
         prefilteredByRipgrep: Bool
