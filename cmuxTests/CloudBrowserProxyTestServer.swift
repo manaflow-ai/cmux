@@ -26,28 +26,34 @@ final class CloudBrowserProxyTestServer {
     private let pageHTML: String?
     private let styles: CloudLinkFirstValue<Bool>?
     private let securePort: UInt16?
+    private let stallConnectResponse: Bool
     private let listener: NWListener
     private let queue = DispatchQueue(label: "cmux.tests.cloud-browser-connect")
     private var connections: [ObjectIdentifier: NWConnection] = [:]
     private var capturedRequests: [Request] = []
     private var capturedTargets: [String] = []
+    private let authorizedTargetSignal = CloudLinkFirstValue<String>()
     private var stopped = false
     private(set) var port: UInt16 = 0
     var requests: [Request] { capturedRequests }
     var authorizedTargets: [String] { capturedTargets }
+    /// Resolves when the fixture has accepted and authenticated a CONNECT.
+    var authorizedTarget: CloudLinkFirstValue<String> { authorizedTargetSignal }
     private var capturedBridgeRequests: [String] = []
     var bridgeRequests: [String] { capturedBridgeRequests }
     var endpoint: CloudBrowserProxyEndpoint {
         CloudBrowserProxyEndpoint(host: "127.0.0.1", port: port, username: marker, password: "fixture-\(marker)", websocketToken: "ws-token")
     }
 
-    init(address: String, marker: String, styles: CloudLinkFirstValue<Bool>? = nil, securePort: UInt16? = nil, servicePort: Int = 8000, pageHTML: String? = nil) throws {
+    /// Creates a loopback proxy fixture, optionally withholding the CONNECT response.
+    init(address: String, marker: String, styles: CloudLinkFirstValue<Bool>? = nil, securePort: UInt16? = nil, servicePort: Int = 8000, pageHTML: String? = nil, stallConnectResponse: Bool = false) throws {
         self.address = address
         self.marker = marker
         self.servicePort = servicePort
         self.pageHTML = pageHTML
         self.styles = styles
         self.securePort = securePort
+        self.stallConnectResponse = stallConnectResponse
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
         listener = try NWListener(using: parameters)
@@ -127,6 +133,14 @@ final class CloudBrowserProxyTestServer {
                 return
             }
             capturedTargets.append(connect.target)
+            authorizedTargetSignal.resolve(connect.target)
+            if stallConnectResponse {
+                // Keep the proxy half-open until the readiness probe cancels
+                // its connection. This exercises the real pending receive and
+                // does not strand the fixture in an arbitrary wall-clock sleep.
+                _ = try? await connection.receiveChunk(maximumLength: 1)
+                return
+            }
             try await connection.sendAll(Data("HTTP/1.1 200 Connection Established\r\n\r\n".utf8))
             if connect.target.hasSuffix(":\(port)") {
                 let bridge = try await readRequest(connection, buffered: &buffered)

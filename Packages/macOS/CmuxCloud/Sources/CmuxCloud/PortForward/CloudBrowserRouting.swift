@@ -11,6 +11,11 @@ public struct CloudBrowserRouting: Sendable {
     /// Test the service through the same authenticated carrier the page will use.
     /// A healthy desktop needs no control-plane exec. This short-lived stream is
     /// closed after the headers; no listener or persistent connection is added.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     public static func desktopIsReachable(
         endpoint: CloudBrowserProxyEndpoint,
         address: String,
