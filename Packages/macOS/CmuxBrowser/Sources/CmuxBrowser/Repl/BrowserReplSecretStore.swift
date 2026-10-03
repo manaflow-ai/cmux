@@ -11,6 +11,13 @@ public import Foundation
 /// responses, output, errors, written text files) is masked as
 /// `<secret:name>`, including the value's percent-encoded, JSON-escaped,
 /// HTML-escaped and Base64-wrapped forms (a Basic `Authorization` header).
+///
+/// A TOTP secret's value is its seed. The codes it generates are secrets too
+/// while a server can still accept them: the code of the current 30-second
+/// window and of the windows on each side (the clock skew RFC 6238 servers
+/// allow, so the code typed now stays covered until it expires) are masked as
+/// `<secret:name>` wherever they stand as a whole number, and are capture
+/// masks for the secret's domains.
 public final class BrowserReplSecretStore: @unchecked Sendable {
     public struct Entry: Sendable {
         public let name: String
@@ -23,6 +30,8 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     private var entries: [String: Entry] = [:]
     private var order: [String] = []
     private var matchers: [Matcher] = []
+    private var totpKeys: [(name: String, key: Data, domains: [BrowserReplDomainPattern])] = []
+    private var codeCache: (window: Int64, codes: [ValidCodes])?
 
     public init() {}
 
@@ -117,9 +126,50 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
         return (entry.value, entry.domains)
     }
 
-    /// Plain (non-TOTP) values with their domains, for masking captures.
+    /// Plain values, and the TOTP codes that are valid now, with their
+    /// domains, for masking captures.
     public var captureMasks: [(value: String, domains: [BrowserReplDomainPattern])] {
-        lock.withLock { order.compactMap { entries[$0] }.filter { !$0.totp }.map { ($0.value, $0.domains) } }
+        captureMasks(at: Date())
+    }
+
+    func captureMasks(at date: Date) -> [(value: String, domains: [BrowserReplDomainPattern])] {
+        let plain = lock.withLock { order.compactMap { entries[$0] }.filter { !$0.totp }.map { ($0.value, $0.domains) } }
+        return plain + validCodes(at: date).flatMap { entry in entry.codes.map { ($0, entry.domains) } }
+    }
+
+    /// Windows on each side of the current one whose codes a server still
+    /// accepts (RFC 6238's recommended skew of one step).
+    static let totpSkewWindows = 1
+
+    private struct ValidCodes {
+        let mask: String
+        let codes: [String]
+        let domains: [BrowserReplDomainPattern]
+        /// Matches one of `codes` standing as a whole number.
+        let pattern: NSRegularExpression?
+    }
+
+    /// The codes of every TOTP secret a server can still accept at `date`,
+    /// computed once per window.
+    private func validCodes(at date: Date) -> [ValidCodes] {
+        let window = Int64(floor(date.timeIntervalSince1970 / Self.totpPeriod))
+        return lock.withLock {
+            guard !totpKeys.isEmpty else { return [] }
+            if let cached = codeCache, cached.window == window { return cached.codes }
+            let codes = totpKeys.map { entry in
+                let list = Array(Set((-Self.totpSkewWindows...Self.totpSkewWindows).map {
+                    Self.totp(key: entry.key, time: Double(window + Int64($0)) * Self.totpPeriod)
+                })).sorted()
+                return ValidCodes(
+                    mask: "<secret:\(entry.name)>",
+                    codes: list,
+                    domains: entry.domains,
+                    pattern: try? NSRegularExpression(pattern: "(?<![0-9])(?:" + list.joined(separator: "|") + ")(?![0-9])")
+                )
+            }
+            codeCache = (window, codes)
+            return codes
+        }
     }
 
     // MARK: Redaction
@@ -134,6 +184,10 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     private static let base64Token = try! NSRegularExpression(pattern: "[A-Za-z0-9+/_-]{8,}={0,2}")
 
     private func rebuildLocked() {
+        codeCache = nil
+        totpKeys = order.compactMap { entries[$0] }.filter(\.totp).compactMap { entry in
+            Self.base32Decode(entry.value).map { (entry.name, $0, entry.domains) }
+        }
         matchers = order.compactMap { entries[$0] }
             .sorted { $0.value.count > $1.value.count }
             .map { entry in
@@ -174,8 +228,13 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
         return try? NSRegularExpression(pattern: pattern)
     }
 
-    /// `text` with every registered value and its encodings masked.
+    /// `text` with every registered value and its encodings masked, and the
+    /// TOTP codes valid now.
     public func redact(_ text: String) -> String {
+        redact(text, at: Date())
+    }
+
+    func redact(_ text: String, at date: Date) -> String {
         let matchers = lock.withLock { self.matchers }
         guard !matchers.isEmpty, !text.isEmpty else { return text }
         var out = Self.redactBase64(text, matchers)
@@ -187,6 +246,21 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
                 let range = NSRange(out.startIndex..., in: out)
                 out = encoded.stringByReplacingMatches(in: out, range: range, withTemplate: NSRegularExpression.escapedTemplate(for: matcher.mask))
             }
+        }
+        return redactCodes(out, at: date)
+    }
+
+    /// Masks the valid TOTP codes where they stand as a whole number (a code
+    /// inside a longer run of digits is another number).
+    private func redactCodes(_ text: String, at date: Date) -> String {
+        guard text.utf8.contains(where: { (0x30...0x39).contains($0) }) else { return text }
+        var out = text
+        for entry in validCodes(at: date) {
+            guard let pattern = entry.pattern else { continue }
+            out = pattern.stringByReplacingMatches(
+                in: out, range: NSRange(out.startIndex..., in: out),
+                withTemplate: NSRegularExpression.escapedTemplate(for: entry.mask)
+            )
         }
         return out
     }
@@ -228,6 +302,19 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
             var out: [String: Any] = [:]
             for (key, item) in object { out[redact(key)] = redactValue(item) }
             return out
+        case let number as NSNumber where CFGetTypeID(number) != CFBooleanGetTypeID():
+            // A page can read a code as a number (`Number(field.value)`),
+            // which drops a leading zero.
+            var forms = [number.stringValue]
+            let integer = number.int64Value
+            if Double(integer) == number.doubleValue, (0..<1_000_000).contains(integer) {
+                forms.append(String(format: "%06lld", integer))
+            }
+            for form in forms {
+                let masked = redact(form)
+                if masked != form { return masked }
+            }
+            return value
         default:
             return value
         }
@@ -253,7 +340,9 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
         return out
     }
 
-    static func totp(key: Data, time: TimeInterval, digits: Int = 6, period: Double = 30) -> String {
+    static let totpPeriod: Double = 30
+
+    static func totp(key: Data, time: TimeInterval, digits: Int = 6, period: Double = totpPeriod) -> String {
         var counter = UInt64(max(0, floor(time / period))).bigEndian
         let message = Data(bytes: &counter, count: 8)
         let mac = Array(HMAC<Insecure.SHA1>.authenticationCode(for: message, using: SymmetricKey(data: key)))

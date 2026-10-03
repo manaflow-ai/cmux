@@ -164,7 +164,9 @@ native (`BrowserReplBoundary` in the session, and the driver):
   between the check's last reply and the insert reaching that process:
   WebKit has no insert bound to an element or frame, so that cross-process
   window remains. Captures get `secretMasks
-  [{ value, domains }]`; the driver masks only in frames on those domains.
+  [{ value, domains }]` (plain values, and the codes of a TOTP secret a
+  server still accepts: the current window and one on each side); the
+  driver masks only in frames on those domains.
   Results, events, fetch responses, output, errors and written text are
   redacted by the session.
 - Domain policy: the session refuses `tab.navigate`/`tabs.open` to a blocked
