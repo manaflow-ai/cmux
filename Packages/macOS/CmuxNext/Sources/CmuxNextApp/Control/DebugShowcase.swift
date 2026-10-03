@@ -11,7 +11,7 @@ import CmuxNextSettings
 /// launch argument and capture tooling.
 @MainActor
 enum DebugShowcase {
-    static func seed(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+    static func seed(_ params: [String: CmuxNextSettings.JSONValue], services: AppServices) -> CmuxNextSettings.JSONValue {
         guard services.environment.showcase else {
             return .object(["seeded": .bool(false), "error": .string("launch with --showcase to enable the showcase profile")])
         }
@@ -52,7 +52,7 @@ enum DebugShowcase {
     /// Populate the real daemon ledger so a showcase capture exercises the
     /// production panel and row layout. Desktop banners stay disabled for
     /// the showcase profile, so this never asks for notification permission.
-    private static func seedNotifications(services: AppServices, surface: SurfaceID?) {
+    private static func seedNotifications(services: AppServices, surface: CmuxNextDaemon.SurfaceID?) {
         guard !services.showcase.notificationsSeeded, services.daemon.connection != nil else { return }
         services.showcase.notificationsSeeded = true
         let entries: [(String, String, NotificationLevel)] = [
