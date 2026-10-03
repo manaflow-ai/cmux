@@ -529,3 +529,15 @@ test("network: requests that never finish are not kept without bound", () => {
   page._onNetwork({ requestId: "r0", url: "https://example.com/0", status: 200 }, "response");
   assert.deepEqual(seen, ["https://example.com/4999", "https://example.com/0"]);
 });
+
+test("snapshot header: page text reaches the caller without controls or escape sequences, and bounded", () => {
+  // A title can carry terminal escapes (here OSC 52, a clipboard write) and C1 controls.
+  const title = "Inbox\u001b]52;c;cHduZWQ=\u0007\u001b[2J\u009b31mRed\u0085\u009d0;spoof\u009c" + "t".repeat(5000);
+  const s = new Snapshot({ header: [`title: ${title}`, "url: https://example.com/"], body: ['- button "Go" [ref=e1]'] });
+  const text = String(s);
+  assert.doesNotMatch(text, /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/);
+  const first = text.split("\n")[0];
+  assert.ok(first.startsWith("title: InboxRedttt"), JSON.stringify(first.slice(0, 40)));
+  assert.ok(first.length <= 600, `title line is ${first.length} characters`);
+  assert.match(text, /\nurl: https:\/\/example\.com\/\n- button "Go" \[ref=e1\]$/);
+});
