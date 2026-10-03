@@ -10,6 +10,7 @@ import type { SchedulerState } from "./scheduler.ts"
  * start an agent_prompt body (more power than its own classes).
  */
 export const MAX_AUTOMATION_DEPTH = 3
+const FINISHED: ReadonlySet<string> = new Set(["succeeded", "failed", "cancelled", "skipped", "dead"])
 
 export const isAutomationPrincipal = (p: Principal) => p.kind === "agent" && typeof p.run === "string" && p.identity.startsWith("automation:")
 
@@ -30,11 +31,12 @@ export const automationTrigger = (
   const parent = state.runs[p.run!]
   // The caller is running, so its record exists; an unknown caller is refused (fail closed).
   if (!parent || parent.automation !== p.agent) return { ok: false, code: "auth.forbidden", message: "the calling run is unknown" }
+  if (FINISHED.has(parent.state)) return { ok: false, code: "auth.forbidden", message: "the calling run has finished" }
   const chained = parent.trigger.type === "automation"
   const depth = (chained ? (parent.trigger.depth ?? MAX_AUTOMATION_DEPTH) : 0) + 1
   if (depth > MAX_AUTOMATION_DEPTH) return { ok: false, code: "automation.depth", message: `automations may start runs at most ${MAX_AUTOMATION_DEPTH} levels deep` }
   const root = chained ? parent.trigger.root_run : parent.id
-  if (!root) return { ok: false, code: "auth.forbidden", message: "the calling run has no root" }
+  if (!root) return { ok: false, code: "automation.fanout", message: "the calling run's chain predates run trees; it may not start runs" }
   // Keep counters only for trees that still have a run in state (bounded by the runs kept).
   const live = new Set<string>()
   for (const r of Object.values(state.runs)) {
