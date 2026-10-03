@@ -7883,6 +7883,57 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testTerminalOverviewReorderSurvivesReopeningAndSelection() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TERMINAL_OVERVIEW_PREVIEW": "1",
+            "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
+            "CMUX_UITEST_SUPPRESS_WHATS_NEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let done = app.buttons["MobileTerminalOverviewDone"]
+        let overview = app.buttons["MobileTerminalOverviewButton"]
+        let build = app.buttons["MobileTerminalOverviewCard-terminal-build"]
+        let agent = app.buttons["MobileTerminalOverviewCard-terminal-agent"]
+        let tui = app.buttons["MobileTerminalOverviewCard-terminal-tui"]
+        XCTAssertTrue(waitForHittable(done, timeout: 8))
+        done.tap()
+        XCTAssertTrue(waitForHittable(overview, timeout: 5))
+        overview.tap()
+        XCTAssertTrue(waitForHittable(build, timeout: 5))
+
+        // Start away from the center to expose a lift that jumps to the finger.
+        // The recording also covers the insertion gap while the card is held.
+        build.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.65))
+            .press(
+                forDuration: 0.8,
+                thenDragTo: agent.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.65)),
+                withVelocity: .slow,
+                thenHoldForDuration: 1
+            )
+        XCTAssertGreaterThan(build.frame.midX, agent.frame.midX, "Dropping a card must change its position.")
+        let reordered = XCTAttachment(screenshot: app.screenshot())
+        reordered.name = "Tab order after off-center drag"
+        reordered.lifetime = .keepAlways
+        add(reordered)
+
+        done.tap()
+        XCTAssertTrue(waitForHittable(overview, timeout: 5))
+        overview.tap()
+        XCTAssertTrue(waitForHittable(build, timeout: 5))
+        XCTAssertGreaterThan(build.frame.midX, agent.frame.midX, "Done and reopening must preserve the user's tab order.")
+
+        // Select a different card, then return through the same toolbar path.
+        tui.tap()
+        XCTAssertTrue(waitForHittable(overview, timeout: 5))
+        overview.tap()
+        XCTAssertTrue(waitForHittable(tui, timeout: 5))
+        XCTAssertGreaterThan(build.frame.midX, agent.frame.midX, "Selecting another terminal must preserve tab order.")
+        done.tap()
+        XCTAssertTrue(waitForHittable(app.buttons["MobileTerminalDropdown"], timeout: 5))
+    }
+
+    @MainActor
     func testWorkspaceDetailToolbarKeepsTerminalPickerVisibleWithLongTitle() throws {
         let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
             "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": "1",
