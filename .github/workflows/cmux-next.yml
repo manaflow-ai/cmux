@@ -37,6 +37,7 @@ on:
       - scripts/cmux-next/build-cef-shim.sh
       - scripts/cmux-next/cmux-tui.pin
       - scripts/cmux-next/pin-cmux-tui.sh
+      - plans/cmux-next/daemon-capabilities.json
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/download-prebuilt-ghosttykit.sh
       - .github/workflows/cmux-next.yml
@@ -72,6 +73,7 @@ on:
       - scripts/cmux-next/build-cef-shim.sh
       - scripts/cmux-next/cmux-tui.pin
       - scripts/cmux-next/pin-cmux-tui.sh
+      - plans/cmux-next/daemon-capabilities.json
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - .github/workflows/cmux-next.yml
       - tests/test_cmux_next_checks_workflow.py
@@ -341,15 +343,21 @@ jobs:
       # its stacks; each test step timeout stops it holding the runner regardless.
       # Control tests use tight request deadlines and run in their own process so
       # they do not compete with the other MainActor-isolated suites.
-      # The daemon integration tests use the pinned branch build of cmux-tui
-      # (scripts/cmux-next/cmux-tui.pin) when it is in the checkout, and fall
-      # back to the release client in ~/Library/Caches/cmux/cmux-tui-client.
-      # A mini has that cache (release clients lack the cmux-next daemon
-      # flags) and Blacksmith has none (the suite skipped), so the verdict
-      # depended on the runner. The pinned binary is public and sha256-checked.
-      - name: Fetch the pinned cmux-tui
-        timeout-minutes: 5
+      # The daemon integration tests use the hosted build of this commit's own
+      # cmux-tui tree (scripts/cmux-next/pin-cmux-tui.sh --help; public and
+      # sha256-checked). A push that changes cmux-tui waits here while the
+      # cmux-tui artifacts workflow builds, tests and publishes that tree.
+      # The capability check then fails the job when that daemon does not
+      # serve a capability the app relies on.
+      - name: Fetch the same-tree cmux-tui
+        timeout-minutes: 50
+        env:
+          CMUX_TUI_TREE_WAIT_SECONDS: "2700"
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
+
+      - name: Check the same-tree cmux-tui serves the app's daemon capabilities
+        timeout-minutes: 2
+        run: scripts/cmux-next/check-daemon-capabilities.sh
 
       - name: Run package tests (excluding control deadline, WebKit driver and attach stress tests)
         timeout-minutes: 20
@@ -499,8 +507,12 @@ jobs:
           set -euo pipefail
           GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh
 
-      - name: Fetch the pinned cmux-tui
-        timeout-minutes: 5
+      # The Bundle cmux-tui phase bundles this commit's same-tree cmux-tui
+      # and runs check-daemon-capabilities.sh on it (Debug builds).
+      - name: Fetch the same-tree cmux-tui
+        timeout-minutes: 50
+        env:
+          CMUX_TUI_TREE_WAIT_SECONDS: "2700"
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
       - name: Install Rust (diff sidecar)

@@ -335,12 +335,17 @@ if grep -Eq 'Cloud tunnel|SystemExtensions|tunnel-extension|cmux-cua|Computer Us
   exit 1
 fi
 
+# A release ships the pinned commit; the nightly ships the commit that
+# published its own cmux-tui tree (pin-cmux-tui.sh resolve-commit).
+if ! grep -Fq "cmux_tui_commit=\"\$(awk -F= '\$1==\"commit\"{print \$2}' scripts/cmux-next/cmux-tui.pin)\"" "$RELEASE_WORKFLOW_FILE"; then
+  echo "FAIL: release.yml must install the cmux-tui commit scripts/cmux-next/cmux-tui.pin names"
+  exit 1
+fi
+if ! grep -Fq 'cmux_tui_commit="$(scripts/cmux-next/pin-cmux-tui.sh resolve-commit)"' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly.yml must install the cmux-tui commit that published its own cmux-tui tree"
+  exit 1
+fi
 for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
-  # The app ships the cmux-tui it was built against: the pinned commit.
-  if ! grep -Fq "cmux_tui_commit=\"\$(awk -F= '\$1==\"commit\"{print \$2}' scripts/cmux-next/cmux-tui.pin)\"" "$workflow"; then
-    echo "FAIL: $(basename "$workflow") must install the cmux-tui commit scripts/cmux-next/cmux-tui.pin names"
-    exit 1
-  fi
   if grep -Fq 'git log -1 --format=%H -- cmux-tui' "$workflow"; then
     echo "FAIL: $(basename "$workflow") must not pick the cmux-tui commit with a bare git log: actions/checkout is depth 1 there, so it always answers HEAD"
     exit 1
@@ -363,7 +368,7 @@ if ! awk '
   /^  [a-zA-Z0-9_-]+:$/ { job=$1 }
   job == "build-nightly-app:" && /resolve-cmux-tui-client-commit\.sh/ { in_app=1 }
   job == "resolve-nightly-cmux-tui-client:" && /^    needs: decide$/ { resolver_needs=1 }
-  job == "resolve-nightly-cmux-tui-client:" && /scripts\/cmux-next\/cmux-tui\.pin/ { resolver=1 }
+  job == "resolve-nightly-cmux-tui-client:" && /scripts\/cmux-next\/pin-cmux-tui\.sh resolve-commit/ { resolver=1 }
   job == "build-sign-notarize-nightly:" && /^    needs: .*resolve-nightly-cmux-tui-client/ { sign_needs=1 }
   job == "build-sign-notarize-nightly:" && /^      - name: Bundle the cmux-tui client$/ { install_line=NR }
   job == "build-sign-notarize-nightly:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
@@ -390,11 +395,11 @@ for expected in '--expected-commit' '--require-capability' 'required cmux-tui ca
   fi
 done
 
-# Tagged reloads bundle only the pinned hosted cmux-tui (or an explicit
-# CMUX_NEXT_TUI_BIN override); any other source fails the reload.
+# Tagged reloads bundle only the same-tree hosted cmux-tui (or the pin, or an
+# explicit CMUX_NEXT_TUI_BIN override); any other source fails the reload.
 if ! grep -A3 -F 'case "$cmux_next_tui_source" in' "$ROOT_DIR/scripts/reload.sh" |
-   grep -Fq -- 'pinned-hosted|override)'; then
-  echo "FAIL: tagged reloads must reject a cmux-tui that is not the pinned hosted build"
+   grep -Fq -- 'tree-hosted|pinned-hosted|override)'; then
+  echo "FAIL: tagged reloads must reject a cmux-tui that is not the same-tree hosted build"
   exit 1
 fi
 

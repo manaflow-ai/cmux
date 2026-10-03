@@ -22,12 +22,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKFLOWS = os.path.join(ROOT, ".github", "workflows")
 FAILURES = []
 
-# Publishing a commit-addressed cmux-tui build is not a production release:
-# cmux-next pins daemon builds from helper branches (cmux-tui-pin-*). That job
-# runs in the `artifacts` environment (policy: main, feat-cmux-next,
+# Publishing a commit- or tree-addressed cmux-tui build is not a production
+# release: cmux-next builds bundle the daemon of their own cmux-tui tree, and
+# helper branches (cmux-tui-pin-*) publish an unmerged branch's tree. Those
+# jobs run in the `artifacts` environment (policy: main, feat-cmux-next,
 # cmux-tui-pin-*), which holds only the R2 upload credentials.
 ARTIFACT_JOBS = {
-    "cmux-tui-artifacts.yml": ["publish"],
+    "cmux-tui-artifacts.yml": ["publish", "publish-tree"],
 }
 ARTIFACT_SECRETS = {"CF_R2_ACCESS_KEY_ID", "CF_R2_SECRET_ACCESS_KEY", "CF_R2_ACCOUNT_ID"}
 

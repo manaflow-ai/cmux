@@ -8,7 +8,7 @@
 # deleted, and nothing failed until fleet dev builds did (exit 65).
 #
 # Needs GhosttyKit.xcframework (scripts/download-prebuilt-ghosttykit.sh) and
-# the pinned cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch), which the
+# the same-tree cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch), which the
 # Bundle cmux-tui phase copies instead of building it from source.
 #
 # Usage: scripts/cmux-next/check-cmux-scheme-compile.sh [derived-data-path]
