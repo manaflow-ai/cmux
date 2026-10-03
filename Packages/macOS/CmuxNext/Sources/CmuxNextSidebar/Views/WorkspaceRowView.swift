@@ -73,8 +73,9 @@ final class WorkspaceRowView: SidebarRowView {
         grouped = row.group != nil
         isShowingPlaceholder = ws.rowState == .placeholder
         placeholderFraction = SidebarStyle.placeholderFractions[ws.id.rawValue.utf8.reduce(0) { $0 &+ Int($1) } % SidebarStyle.placeholderFractions.count]
-        icon.configure(icon: ws.icon)
-        iconKind = ws.icon
+        let rowIcon = ws.icon ?? .symbol(ws.kind.symbol, tint: nil)
+        icon.configure(icon: ws.icon, fallback: ws.kind.iconName)
+        iconKind = rowIcon
         title.stringValue = ws.title
         title.font = ws.unread.isUnread ? SidebarStyle.titleUnreadFont : SidebarStyle.titleFont
         subtitle.font = SidebarStyle.subtitleFont
@@ -158,8 +159,8 @@ final class WorkspaceRowView: SidebarRowView {
         defer { CATransaction.commit() }
 
         let indent: CGFloat = grouped ? SidebarStyle.groupIndent : 0
-        // Text-first: the title starts at the inset unless the user chose
-        // an icon (a color is a small dot, a symbol a glyph).
+        // Every row reserves a leading type glyph. A custom workspace icon
+        // replaces the type glyph while keeping the same stable alignment.
         let leading = SidebarStyle.horizontalInset + indent
         let side: CGFloat
         switch iconKind {

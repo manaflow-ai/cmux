@@ -1,24 +1,18 @@
 import AppKit
 import CmuxNextDesign
 
-/// The sidebar's inset panel beside the leading rail (Leo, 2026-10-03, the
-/// Codex app's skinny strip): one tonal step darker than the window's
-/// backdrop, like the Codex panel under its lighter rail (`Palette.stripStep`,
-/// the tab strip's shade, from the terminal theme like every chrome
-/// color), with only its top leading corner rounded where it meets the
-/// rail and the top row. It paints no material of its own: the step is
-/// translucent, so a see-through window stays one backdrop under it, and
-/// with Reduce Transparency the backdrop below is opaque and the step reads
-/// as a solid tone. The root places it under the sidebar, which draws on
-/// it unchanged.
+/// The single rounded frame behind the sidebar and main pane beside the
+/// leading rail. It paints the same surface token as the window backdrop,
+/// so the rail and frame read as one glass surface without a lighter strip.
+/// The root places it below both columns; sidebar and pane content remain
+/// transparent chrome over that shared frame.
 final class WindowSidebarPanelView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
         translatesAutoresizingMaskIntoConstraints = false
         layer?.cornerCurve = .continuous
-        // Not flipped: the top leading corner is min x, max y.
-        layer?.maskedCorners = [.layerMinXMaxYCorner]
+        layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
         layer?.actions = ["backgroundColor": NSNull(), "bounds": NSNull(), "position": NSNull(), "cornerRadius": NSNull()]
     }
 
@@ -39,7 +33,7 @@ final class WindowSidebarPanelView: NSView {
     func paint() {
         guard let layer else { return }
         layer.cornerRadius = Metrics.panelCornerRadius
-        performWithTheme { layer.backgroundColor = Palette.stripStep.cgColor }
+        performWithTheme { layer.backgroundColor = Palette.surfaceBackground.cgColor }
     }
 
     override func viewDidChangeEffectiveAppearance() {

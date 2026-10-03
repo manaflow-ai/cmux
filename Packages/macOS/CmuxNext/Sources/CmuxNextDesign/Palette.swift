@@ -38,8 +38,8 @@ public struct Palette {
     public static var stripBackground: NSColor { color(\.stripBackground, dynamic: PaletteDynamic.stripBackground) }
     /// The sidebar's tonal step over the window backdrop.
     public static var sidebarStep: NSColor { color(\.sidebarStep, dynamic: PaletteDynamic.sidebarStep) }
-    /// The strip's tonal step: a translucent shade that darkens the window
-    /// backdrop to `stripBackground` (the inset sidebar panel beside the rail).
+    /// The strip's tonal step: a translucent shade derived from the terminal
+    /// theme, used to distinguish the rail from the shared window surface.
     public static var stripStep: NSColor { color(\.stripStep, dynamic: PaletteDynamic.stripStep) }
 
     /// Primary text.

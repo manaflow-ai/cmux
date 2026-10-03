@@ -34,10 +34,10 @@ import Testing
     /// The App's tooltip (title and shortcut) wins; without one the item's
     /// title shows.
     @Test func toolTipsComeFromTheAppElseTheTitle() throws {
-        let home = LayoutItemID("itm_home")
-        let view = rail(.defaults, toolTips: [home: "Home (⌘1)"])
-        #expect(view.itemView(home)?.toolTip == "Home (⌘1)")
-        #expect(view.itemView(LayoutItemID("itm_history"))?.toolTip == SidebarBuiltIn.history.title)
+        let newWorkspace = LayoutItemID("itm_new_workspace")
+        let view = rail(.defaults, toolTips: [newWorkspace: "New Workspace (⌘N)"])
+        #expect(view.itemView(newWorkspace)?.instantTooltip == "New Workspace (⌘N)")
+        #expect(view.itemView(LayoutItemID("itm_history"))?.instantTooltip == SidebarBuiltIn.history.title)
     }
 
     @Test func pressingAButtonActivatesItsItem() throws {
@@ -78,7 +78,7 @@ import Testing
         let view = rail(doc, height: 160)
         let more = try #require(view.moreView)
         #expect(more.frame == view.layoutResult.more)
-        #expect(more.toolTip == SectionStrings.more)
+        #expect(more.instantTooltip == SectionStrings.more)
         var activated: [LayoutItemID] = []
         view.onActivate = { activated.append($0) }
         let menu = view.overflowMenu()
@@ -92,18 +92,20 @@ import Testing
         #expect(view.itemView(LayoutItemID("a_1")) != nil)
     }
 
-    /// The default More lists the rarely used destinations, each running
-    /// what its button would.
+    /// The default More lists the rarely used destinations (the App Store
+    /// first), each running what its button would.
     @Test func theDefaultMoreListsTheRareDestinations() throws {
         let view = rail(.defaults)
         let more = try #require(view.moreView)
         #expect(more.frame == view.layoutResult.more)
         let menu = view.overflowMenu()
-        #expect(menu.items.map(\.title) == [SidebarBuiltIn.settings.title, SidebarBuiltIn.customize.title, "cmux/coderouter"])
+        #expect(menu.items.map(\.title) == [SidebarBuiltIn.appStore.title, SidebarBuiltIn.settings.title, SidebarBuiltIn.customize.title,
+                                             "cmux/coderouter"])
+        #expect(menu.items.allSatisfy { $0.image != nil })
         var activated: [LayoutItemID] = []
         view.onActivate = { activated.append($0) }
         menu.performActionForItem(at: 0)
-        #expect(activated == [LayoutItemID("itm_settings")])
+        #expect(activated == [LayoutItemID("itm_app_store")])
     }
 
     /// An icon button with unread items shows a small dot at its top
@@ -123,7 +125,7 @@ import Testing
         let dot = try #require(button.badgeFrame)
         #expect(dot.width == dot.height && dot.width < button.bounds.width / 4)
         #expect(dot.midX > button.bounds.midX && dot.midY < button.bounds.midY, "top trailing: \(dot) in \(button.bounds)")
-        #expect(view.itemView(LayoutItemID("itm_home"))?.isBadgeShown == false)
+        #expect(view.itemView(LayoutItemID("itm_history"))?.isBadgeShown == false)
 
         view.update(.init(document: .defaults, room: nil, infos: [notifications: SidebarItemInfo(title: info.title, symbol: "bell", badge: 0)],
                           toolTips: [:], metrics: m))
@@ -153,9 +155,9 @@ import Testing
         view.frame = NSRect(x: 0, y: 0, width: 48, height: 600)
         view.update(.init(document: .defaults, room: nil, infos: [:], toolTips: [:], metrics: metrics))
         view.layoutSubtreeIfNeeded()
-        let home = try #require(view.itemView(LayoutItemID("itm_home")))
-        home.layoutSubtreeIfNeeded()
-        #expect(home.glyphFrame.width >= Metrics.iconSize + Metrics.space3)
+        let newWorkspace = try #require(view.itemView(LayoutItemID("itm_new_workspace")))
+        newWorkspace.layoutSubtreeIfNeeded()
+        #expect(newWorkspace.glyphFrame.width >= Metrics.iconSize + Metrics.space3)
     }
 
     @Test func eachSectionLineIsALayer() {

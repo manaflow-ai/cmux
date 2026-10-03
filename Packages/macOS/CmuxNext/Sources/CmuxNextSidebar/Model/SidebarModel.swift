@@ -29,6 +29,10 @@ public final class SidebarModel {
     /// How layout items draw, by item id. Built-ins without an entry draw
     /// their own title and symbol.
     public var itemInfo: [LayoutItemID: SidebarItemInfo] = [:]
+    /// The sticky destination selected in this window, if any. This is kept
+    /// separate from the workspace selection so the rail can paint its
+    /// active tile immediately after a click.
+    public var activeLayoutItemID: LayoutItemID?
     /// Apps whose sections and items draw nothing (installed but hidden or
     /// disabled, D55); the App fills it from its one presence rule
     /// (`AppsService.presence`). The layout keeps their places.
@@ -117,6 +121,7 @@ public final class SidebarModel {
     public func apply(_ intent: SidebarIntent) {
         switch intent {
         case let .select(id):
+            activeLayoutItemID = nil
             activeWorkspaceID = id
             if !selection.contains(id) { selection = [id] }
         case let .closeGroup(id):
@@ -128,8 +133,8 @@ public final class SidebarModel {
             dropClosed(Set(ids))
         case let .switchProfile(id):
             activeProfileID = id
-        case .activateItem:
-            break
+        case let .activateItem(id):
+            activeLayoutItemID = id
         case let .layout(op):
             if case .success(let next) = SidebarLayoutReducer.reduce(layout, op) { layout = next }
         case let .toggleLayoutSection(id):

@@ -18,9 +18,9 @@ import Observation
 /// (`backdropView`, the bottom subview) and everything above it is clear.
 /// `window.rail` moves the sidebar's sticky sections into an icon rail
 /// (`WindowRail`) before the sidebar (the default) or between the sidebar
-/// and the content column. At the leading edge the sidebar becomes an
-/// inset panel beside the rail (`WindowSidebarPanelView`, Leo 2026-10-03):
-/// the one designed tonal step over the backdrop.
+/// and the content column. At the leading edge the sidebar and main pane
+/// share one rounded inset frame beside the rail
+/// (`WindowSidebarPanelView`).
 final class WindowRootView: NSView, WindowSurfacePainting {
     let titlebar = TitlebarView()
     /// The window's one material and tint (`WindowBackdrop`).
@@ -33,7 +33,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     let contentHost = NSView()
     private let sidebar: SidebarContainerView
     let rail: WindowRailView
-    /// The sidebar's inset panel while the rail is at the leading edge.
+    /// The shared rounded frame while the rail is at the leading edge.
     let sidebarPanel = WindowSidebarPanelView()
     private var titleHeight: NSLayoutConstraint?
     /// The panel's top: below the top row.
@@ -177,14 +177,14 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             ]
         }
         if placement == .leading {
-            // The panel follows the sidebar's (animated) width, from below
-            // the top row to the bottom edge.
+            // The frame follows the sidebar's leading edge and spans the
+            // main pane, from below the top row to the bottom edge.
             let top = sidebarPanel.topAnchor.constraint(equalTo: topAnchor, constant: topRowHeight)
             constraints += [
                 top,
                 sidebarPanel.bottomAnchor.constraint(equalTo: bottomAnchor),
                 sidebarPanel.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor),
-                sidebarPanel.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor),
+                sidebarPanel.trailingAnchor.constraint(equalTo: trailingAnchor),
             ]
             panelTop = top
             sidebarPanel.paint()
@@ -265,6 +265,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         paintBackground()
+        rail.paint()
         if sidebarPanel.superview != nil { sidebarPanel.paint() }
     }
 
@@ -280,6 +281,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// (`WindowBackdrop`). Re-run on theme and Reduce Transparency changes.
     func themeDidChange() {
         paintBackground()
+        rail.paint()
         if sidebarPanel.superview != nil { sidebarPanel.paint() }
         if let window { applyBackdrop(to: window) }
     }

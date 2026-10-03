@@ -15131,6 +15131,29 @@
       "title_table" : "Localizable"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action import-and-sync-show",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "importAndSync.show",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "Import and Sync…",
+      "title_key" : "action.importAndSync.show",
+      "title_table" : "Localizable"
+    },
+    {
       "cli" : "devOnly",
       "cli_name" : "settings onboarding-gallery",
       "context_menu" : "devOnly",

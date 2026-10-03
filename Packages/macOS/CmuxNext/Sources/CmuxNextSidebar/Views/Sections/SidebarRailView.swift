@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextIcons
 import CmuxNextDesign
 import QuartzCore
 
@@ -31,6 +32,7 @@ final class SidebarRailView: NSView {
     private(set) var layoutResult = SidebarRailLayout.empty
     private var content: Content?
     private var itemViews: [LayoutItemID: SidebarItemRowView] = [:]
+    private var tooltip: NSPopover?
     /// Lists the top-band items a short rail has no room for.
     private(set) var moreView: SidebarItemRowView?
     private var lineLayers: [CALayer] = []
@@ -68,6 +70,8 @@ final class SidebarRailView: NSView {
     }
 
     func update(_ content: Content) {
+        tooltip?.performClose(nil)
+        tooltip = nil
         guard content != self.content else { return }
         self.content = content
         needsLayout = true
@@ -92,13 +96,13 @@ final class SidebarRailView: NSView {
                 ?? content.document.item(button.item).map { SidebarItemInfo.fallback(for: $0.ref) }
                 ?? SidebarItemInfo(title: "", symbol: "circle", isMissing: true)
             view.configure(info, style: .icon)
-            view.toolTip = content.toolTips[button.item] ?? info.title
+            view.setInstantTooltip(content.toolTips[button.item] ?? info.title)
             view.frame = button.frame
         }
         if let frame = result.more {
             let view = moreView ?? makeMore()
             view.configure(SidebarItemInfo(title: SectionStrings.more, symbol: "ellipsis"), style: .icon)
-            view.toolTip = SectionStrings.more
+            view.setInstantTooltip(SectionStrings.more)
             view.frame = frame
         } else {
             moreView?.removeFromSuperview()
@@ -127,6 +131,10 @@ final class SidebarRailView: NSView {
                 self?.onActivate?(id)
             }
         }
+        view.onHoverChanged = { [weak self, weak view] isHovered in
+            guard let view else { return }
+            self?.setTooltip(for: id, view: view, visible: isHovered)
+        }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
             NSMenu.popUpContextMenu(menu, with: event, for: view)
@@ -142,6 +150,10 @@ final class SidebarRailView: NSView {
         view.onPress = { [weak self, weak view] in
             guard let self, let view else { return }
             overflowMenu().popUp(positioning: nil, at: NSPoint(x: view.bounds.maxX, y: view.bounds.minY), in: view)
+        }
+        view.onHoverChanged = { [weak self, weak view] isHovered in
+            guard let view else { return }
+            self?.setTooltip(text: SectionStrings.more, view: view, visible: isHovered)
         }
         addSubview(view)
         moreView = view
@@ -159,6 +171,7 @@ final class SidebarRailView: NSView {
             item.target = self
             item.representedObject = id.rawValue
             item.image = NSImage(systemSymbolName: info.symbol, accessibilityDescription: nil)
+                ?? NSImage.icon(.appCmux, size: Metrics.smallIconSize)
             menu.addItem(item)
         }
         return menu
@@ -184,6 +197,35 @@ final class SidebarRailView: NSView {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         contextMenuProvider?(.background)
+    }
+
+    private func setTooltip(for id: LayoutItemID, view: NSView, visible: Bool) {
+        setTooltip(text: content?.toolTips[id] ?? content?.infos[id]?.title, view: view, visible: visible)
+    }
+
+    private func setTooltip(text: String?, view: NSView, visible: Bool) {
+        tooltip?.performClose(nil)
+        tooltip = nil
+        guard visible, let text, !text.isEmpty else { return }
+        let label = NSTextField(labelWithString: text)
+        label.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        label.textColor = performWithTheme { Palette.textPrimary }
+        label.sizeToFit()
+        let padding = Metrics.space2
+        let holder = NSView(frame: NSRect(x: 0, y: 0, width: label.frame.width + padding * 2, height: label.frame.height + padding * 2))
+        holder.wantsLayer = true
+        holder.layer?.cornerRadius = Metrics.space1
+        holder.layer?.backgroundColor = performWithTheme { Palette.elevatedBackground.cgColor }
+        label.frame = holder.bounds.insetBy(dx: padding, dy: padding)
+        holder.addSubview(label)
+        let controller = NSViewController()
+        controller.view = holder
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = false
+        popover.contentViewController = controller
+        popover.show(relativeTo: view.bounds, of: view, preferredEdge: .maxX)
+        tooltip = popover
     }
 
     /// The item view for `id` (tests, hover cards).

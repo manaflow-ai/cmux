@@ -99,10 +99,10 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
     public static let railTopRows = 4
 
     /// The rail layout (Leo, 2026-10-03; `window.rail` is "leading" by
-    /// default, the Codex app's skinny strip). Top: Home, the App Store,
-    /// History and Notifications as rail buttons, then Settings, Customize
-    /// Appearance and CodeRouter (a first-party app's label item; it opens
-    /// the app's page) under the rail's More button (`maxRows`
+    /// default, the Codex app's skinny strip). Top: New Workspace, Import
+    /// and Sync, History and Notifications as rail buttons, then the App
+    /// Store, Settings, Customize Appearance and CodeRouter (a first-party
+    /// app's label item; it opens the app's page) under the rail's More button (`maxRows`
     /// `railTopRows`). Settings goes under More like in the Codex app, where
     /// it lives behind a menu rather than in the strip: ⌘, opens it, so the
     /// button is rarely needed. Middle: workspaces, so the sidebar starts
@@ -112,13 +112,34 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
     /// this one (`railMigrationOps`); customized ones are kept.
     public static let defaults = SidebarLayoutDocument(sections: [
         LayoutSection(id: topSectionID, region: .top, look: .builtIn, maxRows: railTopRows,
+                      items: [LayoutItem(id: LayoutItemID("itm_new_workspace"), ref: .builtIn(.newWorkspace)),
+                              LayoutItem(id: LayoutItemID("itm_import_sync"), ref: .builtIn(.importSync)),
+                              LayoutItem(id: LayoutItemID("itm_history"), ref: .builtIn(.history)),
+                              LayoutItem(id: LayoutItemID("itm_notifications"), ref: .builtIn(.notifications)),
+                              LayoutItem(id: LayoutItemID("itm_app_store"), ref: .builtIn(.appStore)),
+                              LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings)),
+                              LayoutItem(id: LayoutItemID("itm_customize"), ref: .builtIn(.customize)),
+                              // First-party apps are label items that open their page (Lawrence R36).
+                              LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter"))]),
+        LayoutSection(id: workspacesSectionID, region: .middle, look: .list, content: .workspaces),
+        LayoutSection(id: bottomSectionID, region: .bottom, look: .builtIn, arrangement: SectionArrangement(layout: .inline, align: .fill), items: [
+            LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false),
+        ]),
+    ])
+
+    /// The first rail default (2026-10-03, until Home left the rail the
+    /// same day): Home, the App Store, History and Notifications as rail
+    /// buttons, then Settings, Customize Appearance and CodeRouter under
+    /// More. A stored layout still equal to it migrates
+    /// (`railMigrationOps`).
+    public static let railV1Defaults = SidebarLayoutDocument(sections: [
+        LayoutSection(id: topSectionID, region: .top, look: .builtIn, maxRows: railTopRows,
                       items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .builtIn(.home)),
                               LayoutItem(id: LayoutItemID("itm_app_store"), ref: .builtIn(.appStore)),
                               LayoutItem(id: LayoutItemID("itm_history"), ref: .builtIn(.history)),
                               LayoutItem(id: LayoutItemID("itm_notifications"), ref: .builtIn(.notifications)),
                               LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings)),
                               LayoutItem(id: LayoutItemID("itm_customize"), ref: .builtIn(.customize)),
-                              // First-party apps are label items that open their page (Lawrence R36).
                               LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter"))]),
         LayoutSection(id: workspacesSectionID, region: .middle, look: .list, content: .workspaces),
         LayoutSection(id: bottomSectionID, region: .bottom, look: .builtIn, arrangement: SectionArrangement(layout: .inline, align: .fill), items: [

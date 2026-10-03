@@ -31,9 +31,13 @@ final class SidebarItemRowView: NSView {
     /// Option override. Plain activations continue through `onPress`.
     var onPressWithModifiers: ((NSEvent.ModifierFlags) -> Void)?
     var onContextMenu: ((NSEvent, NSView) -> Void)?
+    var onHoverChanged: ((Bool) -> Void)?
 
     private(set) var info = SidebarItemInfo(title: "", symbol: "circle")
     private(set) var style = Style.builtIn
+    /// The rail's instant tooltip text. Native AppKit tooltips are disabled
+    /// for rail buttons because their delayed cache can show the prior item.
+    private(set) var instantTooltip: String?
     private let pill = CALayer()
     private let chip = CALayer()
     private let icon = NSImageView()
@@ -125,9 +129,14 @@ final class SidebarItemRowView: NSView {
         needsDisplay = true
     }
 
+    func setInstantTooltip(_ text: String?) {
+        instantTooltip = text
+        toolTip = nil
+    }
+
     override func updateLayer() {
         performWithTheme {
-            ChromeHover.paint(pill, fill, animated: fadesNextFill)
+            ChromeHover.paint(pill, fill, animated: fadesNextFill && !isRailButton)
             fadesNextFill = false
             chip.backgroundColor = style == .list ? (info.color.map(SidebarStyle.color) ?? Palette.hoverFill).cgColor : nil
             title.textColor = Palette.textPrimary
@@ -203,8 +212,16 @@ final class SidebarItemRowView: NSView {
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false; isPressed = false }
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+        onHoverChanged?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        isPressed = false
+        onHoverChanged?(false)
+    }
 
     /// Activates on press, as the sidebar's rows do; the pressed fill shows
     /// until release.
