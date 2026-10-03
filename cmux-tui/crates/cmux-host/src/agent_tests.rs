@@ -145,7 +145,7 @@ fn binds_once_across_repeated_resume_signals() {
     assert_eq!(order, ["reseed", "drop-remote-identity", "write-bound", "spawn-daemon"]);
     assert_eq!(
         events.all(),
-        ["start:vm-1", "bound", "resumed", "resumed", "addresses", "shutdown", "stop"]
+        ["start:vm-1", "bound", "resumed", "addresses", "resumed", "shutdown", "stop"]
     );
 }
 
