@@ -236,23 +236,23 @@ test("secrets: a registered value never appears in output, errors, page reads or
   }
 });
 
-test("secrets: a TOTP secret types the current code", async () => {
+test("secrets: a TOTP secret types the current code, and reading it back shows the mask", async () => {
   const servers = await startFixtureServers();
   try {
     await withRepl(async ({ run }) => {
       const seed = "JBSWY3DPEHPK3PXP";
-      const before = Date.now();
+      // The code at any moment of the run is one of these windows' codes.
+      const now = Date.now();
+      const candidates = [T.totp(seed, now), T.totp(seed, now + 30_000), T.totp(seed, now + 60_000)];
       const r = await run(`
         secrets.set("otp", "${seed}", { domains: ["localhost"], totp: true });
         await page.goto("${servers.origins.primary}/agent-tools.html");
         await page.fill("#otp", secret("otp"));
-        await page.evaluate(() => document.getElementById("otp").value)
+        const typed = await page.evaluate((codes) => codes.includes(document.getElementById("otp").value), ${JSON.stringify(candidates)});
+        console.log(typed, await page.evaluate(() => document.getElementById("otp").value));
       `);
-      const after = Date.now();
       assert.equal(r.error, null);
-      const code = r.output;
-      assert.match(code, /^\d{6}$/);
-      assert.ok([T.totp(seed, before), T.totp(seed, after)].includes(code), `${code} is not the code at ${before} or ${after}`);
+      assert.equal(r.output, "true <secret:otp>");
       assert.ok(!r.output.includes(seed));
     });
   } finally {
