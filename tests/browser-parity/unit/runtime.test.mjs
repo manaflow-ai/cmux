@@ -515,3 +515,17 @@ test("url: the JavaScriptCore fallback's setters match WHATWG URL", () => {
     assert.equal(a.href, b.href, `${field} = ${value}`);
   }
 });
+
+test("network: requests that never finish are not kept without bound", () => {
+  const { session } = fakeSession();
+  const page = session.pageFor("t1");
+  const seen = [];
+  page.on("response", (r) => seen.push(r.request().url()));
+  for (let i = 0; i < 5000; i++) page._onNetwork({ requestId: `r${i}`, url: `https://example.com/${i}`, method: "GET" }, "request");
+  // A page that opens many long-lived requests (streams, long polls) keeps only the newest.
+  assert.ok(page._requests.size <= 1000, `${page._requests.size} requests kept`);
+  // The newest still pairs with its response; an evicted one still reports its own.
+  page._onNetwork({ requestId: "r4999", url: "https://example.com/4999", status: 200 }, "response");
+  page._onNetwork({ requestId: "r0", url: "https://example.com/0", status: 200 }, "response");
+  assert.deepEqual(seen, ["https://example.com/4999", "https://example.com/0"]);
+});
