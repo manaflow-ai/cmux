@@ -5,7 +5,7 @@ declare const Bun: {
 };
 import { spawn } from "node:child_process";
 import { runChild } from "./helpers/run-child";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -305,6 +305,64 @@ describe("devbox image template", () => {
         bootRuntime,
       );
       expect(result.stdout).toBe(transientRuntime);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("ble.sh cache seeds are installed atomically when shells race", async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "cmux-blesh-seed-"));
+    const seed = path.join(directory, "etc/cmux/blesh-cache-seed/blesh/v1/term.xterm-256color");
+    const destination = path.join(directory, "home/.cache/blesh/v1/term.xterm-256color");
+    const initTerm = path.join(directory, "usr/local/share/blesh/lib/init-term.sh");
+    const fakeBin = path.join(directory, "bin");
+    const fakeCp = path.join(fakeBin, "cp");
+    mkdirSync(path.dirname(seed), { recursive: true });
+    mkdirSync(path.dirname(initTerm), { recursive: true });
+    mkdirSync(fakeBin, { recursive: true });
+    const seedContents = "seed-cache\n" + "x".repeat(512 * 1024);
+    writeFileSync(seed, seedContents);
+    writeFileSync(initTerm, "# fixture\n");
+    writeFileSync(fakeCp, [
+      "#!/bin/sh",
+      "src=$1",
+      "dst=$2",
+      "head -c 1024 \"$src\" > \"$dst\"",
+      ": > \"$CMUX_CP_STARTED\"",
+      "sleep 0.2",
+      "tail -c +1025 \"$src\" >> \"$dst\"",
+    ].join("\n") + "\n");
+    chmodSync(fakeCp, 0o755);
+    const rc = path.join(directory, "bashrc");
+    writeFileSync(
+      rc,
+      bashrc
+        .replaceAll("/etc/cmux", path.join(directory, "etc/cmux"))
+        .replaceAll("/usr/local/share/blesh", path.join(directory, "usr/local/share/blesh")),
+    );
+    try {
+      const result = await runChild("bash", ["--noprofile", "--norc", "-ic", [
+        `. '${rc}' & __cmux_writer=$!`,
+        `while [ ! -f '${path.join(directory, "cp-started")}' ] && kill -0 "$__cmux_writer" 2>/dev/null; do :; done`,
+        `test -f '${path.join(directory, "cp-started")}'`,
+        `while kill -0 "$__cmux_writer" 2>/dev/null; do`,
+        `  if [ -f '${destination}' ]; then`,
+        `    __cmux_size=$(wc -c < '${destination}')`,
+        `    if [ "$__cmux_size" -gt 0 ] && [ "$__cmux_size" -lt ${seedContents.length} ]; then printf partial; exit 1; fi`,
+        "  fi",
+        "done",
+        "wait \"$__cmux_writer\"",
+        `cmp '${seed}' '${destination}'`,
+      ].join("\n")], {
+        env: {
+          ...process.env,
+          HOME: path.join(directory, "home"),
+          TERM: "xterm-256color",
+          PATH: `${fakeBin}:${process.env.PATH}`,
+          CMUX_CP_STARTED: path.join(directory, "cp-started"),
+        },
+      });
+      expect(result.status).toBe(0);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
