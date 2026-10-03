@@ -591,6 +591,16 @@ export class Core {
     for (const event of events) this.applyMuxEvent(event);
     this.resetReplay = false;
     this.acpmuxUp = true;
+    // A permission prompt whose session is not waiting in this list was answered meanwhile
+    // (or the session is gone): dropped, not resent. (The `sessions` reply path keeps its
+    // rule: acpmux's event order there is not confirmed.)
+    for (const promptId of Object.keys(this.state.prompts).sort(compare)) {
+      if (!promptId.startsWith("perm:")) continue;
+      if (sessions.some((s) => s.status === "waiting" && promptId.startsWith(`perm:${s.sessionId}:`))) continue;
+      delete this.state.prompts[promptId];
+      this.dirty = true;
+      this.log(`dropping permission prompt ${promptId}: its session is not waiting`);
+    }
     // Prompts acpmux may have dropped with an old connection, in recorded order; it dedupes the rest by promptId.
     const order = (id: string) => this.state.prompts[id].order ?? 0;
     for (const promptId of Object.keys(this.state.prompts).sort((a, b) => order(a) - order(b) || compare(a, b)))
