@@ -4411,6 +4411,42 @@
       "de": "\"Desktop\" is the established German loanword, spelled identically."
     }
   },
+  "account.callbackApproval.cancel": {
+    "source": "Don’t Sign In",
+    "class": "technical"
+  },
+  "account.callbackApproval.confirm": {
+    "source": "Sign In",
+    "class": "technical"
+  },
+  "account.callbackApproval.replace.confirm": {
+    "source": "Switch Account",
+    "class": "technical"
+  },
+  "account.callbackApproval.title": {
+    "source": "Sign in to cmux from a link?",
+    "class": "technical"
+  },
+  "account.callbackApproval.replace.title": {
+    "source": "Switch cmux to another account?",
+    "class": "technical"
+  },
+  "account.callbackApproval.message.email": {
+    "source": "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser.",
+    "class": "technical"
+  },
+  "account.callbackApproval.message.unknown": {
+    "source": "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser.",
+    "class": "technical"
+  },
+  "account.callbackApproval.replace.current": {
+    "source": "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In.",
+    "class": "technical"
+  },
+  "account.callbackApproval.replace.generic": {
+    "source": "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In.",
+    "class": "technical"
+  },
   "cli.help.agents.messages": {
     "source": "agent messages [on|off|status] [<target>] [--workspace]",
     "identityLocales": {

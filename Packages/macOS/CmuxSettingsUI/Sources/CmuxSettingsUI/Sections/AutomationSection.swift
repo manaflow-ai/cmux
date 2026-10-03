@@ -285,7 +285,7 @@ public struct AutomationSection: View {
                 )
                 SettingsCardNote(String.localizedStringWithFormat(format, effectiveMode.displayName))
             }
-            SettingsCardNote(String(localized: "settings.automation.socketMode.note", defaultValue: "“Off” turns control off. “cmux processes only” accepts only processes started in cmux terminals. “Automation mode” also accepts other apps running as this Mac user. “Password mode” requires a password. “Full open access” accepts any local process without a password and is unsafe."))
+            SettingsCardNote(String(localized: "settings.automation.socketMode.note", defaultValue: "“Off” turns control off. “cmux processes only” accepts only processes started in cmux terminals. “Automation mode” also accepts other apps running as this Mac user. “Password mode” requires a password. “Full open access” accepts any process running as this Mac user without a password and is unsafe."))
             if isPassword {
                 SettingsCardDivider()
                 SettingsCardRow(
@@ -331,7 +331,7 @@ public struct AutomationSection: View {
             }
             if isAllowAll {
                 SettingsCardDivider()
-                Text(String(localized: "settings.automation.openAccessWarning", defaultValue: "Warning: Full open access makes the control socket world-readable/writable on this Mac and disables auth checks. Use only for local debugging."))
+                Text(String(localized: "settings.automation.openAccessWarning", defaultValue: "Warning: Full open access allows any process running as this Mac user to control cmux without a password. Use only for local debugging."))
                     .cmuxFont(.caption)
                     .foregroundStyle(.red)
                     .padding(.horizontal, 14)

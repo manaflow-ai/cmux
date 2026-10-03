@@ -257,7 +257,7 @@ extension CMUXCLI {
             let pidKey = "\(statusKey).\(record.sessionId)"
             do {
                 _ = try sendV1Command(
-                    "clear_agent_pid \(pidKey) --tab=\(record.workspaceId)\(socketPanelOption(record.surfaceId)) --clear-status --require-owned-key",
+                    "clear_agent_pid \(socketQuoteIfNeeded(pidKey)) --tab=\(record.workspaceId)\(socketPanelOption(record.surfaceId)) --clear-status --require-owned-key",
                     client: client
                 )
                 clearedRecords.append(record)

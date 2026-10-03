@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::io::{self, BufRead, BufReader, Read, Write};
 #[cfg(unix)]
 use std::net::Shutdown;
@@ -732,7 +733,20 @@ fn flatten_human_object(
 fn human_cell(value: &Value) -> String {
     match value {
         Value::Null => "-".to_string(),
-        Value::String(value) => value.replace(['\r', '\n'], "\\n"),
+        Value::String(value) => {
+            let mut escaped = String::with_capacity(value.len());
+            for character in value.chars() {
+                match character {
+                    '\r' | '\n' => escaped.push_str("\\n"),
+                    character if character.is_control() => {
+                        write!(&mut escaped, "\\u{{{:x}}}", character as u32)
+                            .expect("writing to a String cannot fail");
+                    }
+                    character => escaped.push(character),
+                }
+            }
+            escaped
+        }
         Value::Bool(value) => value.to_string(),
         Value::Number(value) => value.to_string(),
         value => serde_json::to_string(value).expect("JSON value serialization cannot fail"),
@@ -882,6 +896,14 @@ mod tests {
         ]));
         assert_eq!(output, "ID    NAME   FOCUSED\nws_a  build  true\nws_b  docs   false\n");
         assert!(!output.contains(['{', '}', '"']));
+    }
+
+    #[test]
+    fn human_cells_escape_terminal_control_characters() {
+        let output = human_text(&json!([{"title":"\u{1b}[31mowned\u{7}"}]));
+        assert!(!output.contains('\u{1b}'));
+        assert!(!output.contains('\u{7}'));
+        assert!(output.contains(r"\u{1b}[31mowned\u{7}"));
     }
 
     #[test]

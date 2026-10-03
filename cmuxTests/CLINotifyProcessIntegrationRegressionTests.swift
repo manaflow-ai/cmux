@@ -388,6 +388,33 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testGenericAgentHookEscapesSessionIdBeforeV1Framing() throws {
+        let context = try makeClaudeHookContext(name: "agent-hook-wire-quoting")
+        defer { context.cleanup() }
+        startAgentHookMockServerAccepting(context: context)
+
+        let result = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"session\n--send","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(
+                context: context,
+                sessionId: "session\n--send",
+                agentPID: "4242"
+            )
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let setPIDCommands = context.state.commands.filter { $0.hasPrefix("set_agent_pid ") }
+        XCTAssertEqual(setPIDCommands.count, 1, context.state.commands.joined(separator: "\n"))
+        XCTAssertEqual(
+            setPIDCommands.first,
+            "set_agent_pid \"codex.session\\n--send\" 4242 --tab=\(context.workspaceId) --panel=\(context.surfaceId)",
+            context.state.commands.joined(separator: "\n")
+        )
+    }
+
     func testClaudePreToolUseFeedContextReadsOnlyRecentTranscriptTail() throws {
         let context = try makeClaudeHookContext(name: "claude-pretool-tail")
         defer { context.cleanup() }
@@ -9718,7 +9745,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     private func codexLaunchEnvironment(
         context: ClaudeHookContext,
         sessionId: String,
-        observedHookPID: String? = nil
+        agentPID: String? = nil
     ) -> [String: String] {
         var environment = agentLaunchEnvironment(
             context: context,
@@ -9726,8 +9753,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             executable: "/usr/local/bin/codex",
             arguments: ["/usr/local/bin/codex", "--model", "gpt-5.4"]
         )
-        if let observedHookPID {
-            environment["CMUX_CODEX_HOOK_PID"] = observedHookPID
+        if let agentPID {
+            environment["CMUX_CODEX_PID"] = agentPID
         }
         return environment
     }

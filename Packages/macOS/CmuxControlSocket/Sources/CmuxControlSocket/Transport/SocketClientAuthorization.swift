@@ -91,6 +91,9 @@ public struct SocketClientAuthorization {
             guard peerHasSameUID else { return nil }
             return SocketClientCapabilityCommand(command)?.command ?? command
         case .allowAll:
+            // Open access disables ancestry checks for automation, but the
+            // socket must never become a cross-user control channel.
+            guard peerHasSameUID else { return nil }
             return SocketClientCapabilityCommand(command)?.command ?? command
         }
     }

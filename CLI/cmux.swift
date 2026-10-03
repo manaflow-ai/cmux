@@ -21270,6 +21270,20 @@ struct CMUXCLI {
         return "\"\(escaped)\""
     }
 
+    /// Quote an argument only when it could be interpreted as more than one
+    /// v1 socket token. Keeping ordinary keys unquoted preserves the existing
+    /// wire output while preventing attacker-controlled hook session IDs from
+    /// breaking newline framing or adding command arguments.
+    func socketQuoteIfNeeded(_ s: String) -> String {
+        let needsQuoting = s.unicodeScalars.contains { scalar in
+            scalar.value <= 0x20
+                || (0x7F...0x9F).contains(scalar.value)
+                || scalar.value == 0x22
+                || scalar.value == 0x5C
+        }
+        return needsQuoting ? socketQuote(s) : s
+    }
+
     func parseOption(_ args: [String], name: String) -> (String?, [String]) {
         var remaining: [String] = []
         var value: String?
@@ -35833,6 +35847,7 @@ export default {
             return
         }
         let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
+        let wirePidKey = socketQuoteIfNeeded(pidKey)
         var didSendFeedTelemetry = false
         func cursorCriticalTimeout() -> TimeInterval? {
             cursorShellRemainingTimeout() ?? 2.0
@@ -35948,11 +35963,11 @@ export default {
                 }
                 if def.name == "cursor" {
                     sendCursorCriticalCommand(
-                        "clear_agent_pid \(pidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status"
+                        "clear_agent_pid \(wirePidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status"
                     )
                 } else {
                     _ = try? sendV1Command(
-                        "clear_agent_pid \(pidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status",
+                        "clear_agent_pid \(wirePidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status",
                         client: client
                     )
                 }
@@ -36646,7 +36661,7 @@ export default {
             )
             if let pid {
                 sendCursorCriticalCommand(
-                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+                    "set_agent_pid \(wirePidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
                 )
             }
             emitJournal(
@@ -37016,7 +37031,7 @@ export default {
             }
             if !relayOrigin, let pid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
-                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    "set_agent_pid \(wirePidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
                 )
             }
@@ -37358,11 +37373,11 @@ export default {
             if let pid, !suppressVisibleMutations {
                 if def.name == "cursor" {
                     sendCursorCriticalCommand(
-                        "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+                        "set_agent_pid \(wirePidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
                     )
                 } else {
                     _ = try? sendV1Command(
-                        "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        "set_agent_pid \(wirePidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                         client: client
                     )
                 }
@@ -37874,11 +37889,11 @@ export default {
             if let pid, !suppressVisibleMutations {
                 if def.name == "cursor" {
                     sendCursorCriticalCommand(
-                        "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
+                        "set_agent_pid \(wirePidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
                     )
                 } else {
                     _ = try? sendV1Command(
-                        "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        "set_agent_pid \(wirePidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                         client: client
                     )
                 }
@@ -38151,7 +38166,7 @@ export default {
             }
             if !relayOrigin, let pid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
-                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    "set_agent_pid \(wirePidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
                 )
             }

@@ -42,7 +42,9 @@ struct RemoteRelayAgentHookPolicyTests {
     private func evaluate(_ parameters: [String: Any]) throws -> RemoteRelayCommandPolicy.Verdict {
         let request: [String: Any] = ["id": "hook", "method": "agent.hook.enqueue", "params": parameters]
         let line = try JSONSerialization.data(withJSONObject: request)
-        return RemoteRelayCommandPolicy().evaluate(commandLine: line, workspaceAliases: [:], surfaceAliases: [:])
+        return RemoteRelayCommandPolicy().evaluate(
+            commandLine: line, workspaceAliases: [owner: owner], surfaceAliases: [ownedSurface: ownedSurface]
+        )
     }
 
     /// A lifecycle hook for an owned surface is admitted.

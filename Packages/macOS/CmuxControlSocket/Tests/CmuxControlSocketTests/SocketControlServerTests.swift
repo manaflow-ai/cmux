@@ -415,7 +415,7 @@ struct SocketControlServerLifecycleTests {
 
         var info = stat()
         #expect(stat(harness.socketPath, &info) == 0)
-        #expect(info.st_mode & 0o777 == 0o666)
+        #expect(info.st_mode & 0o777 == 0o600)
 
         #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
         #expect(stat(harness.socketPath, &info) == 0)

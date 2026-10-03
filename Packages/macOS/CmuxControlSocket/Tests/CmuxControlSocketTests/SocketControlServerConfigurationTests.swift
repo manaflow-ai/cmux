@@ -20,7 +20,7 @@ struct SocketControlServerConfigurationTests {
         #expect(fixture.server.isRunning)
         #expect(fixture.server.accessMode == .allowAll)
         #expect(fixture.server.transport.pathIdentity(at: fixture.socketPath) == originalIdentity)
-        #expect(try socketPermissions(at: fixture.socketPath) == 0o666)
+        #expect(try socketPermissions(at: fixture.socketPath) == 0o600)
     }
 
     @Test func reconfigureOffStopsAndUnlinksListener() throws {

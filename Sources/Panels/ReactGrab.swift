@@ -145,6 +145,103 @@ enum ReactGrabScriptLoader {
 
 private let reactGrabMessageHandlerName = "cmuxReactGrab"
 
+/// Build the page-world bootstrap for the integrity-checked React Grab bundle.
+///
+/// The page can define `window.__REACT_GRAB__` before the bundle runs. React
+/// Grab intentionally adopts that object, so treating the global as an API
+/// supplied by the bundle lets a page install a fake bridge and feed arbitrary
+/// content into the paste-back handler. The bootstrap reserves the global for
+/// this evaluation, runs the verified bundle, and only uses the API object that
+/// the bundle created. It keeps that object in a closure for the native toggle
+/// as well, so later page mutations cannot redirect the control call.
+func makeReactGrabInjectionScript(
+    handlerName: String,
+    updaterName: String,
+    toggleName: String,
+    sessionTokenLiteral: String,
+    scriptSource: String
+) -> String {
+    """
+    (function() {
+        var handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(handlerName);
+        var updaterName = '\(updaterName)';
+        var toggleName = '\(toggleName)';
+        var markerName = updaterName + '_installed';
+        var apiName = updaterName + '_api';
+        var definePrivate = function(name, value) {
+            Object.defineProperty(window, name, { value: value, writable: false, configurable: false, enumerable: false });
+        };
+        var refreshSessionToken = function() {
+            var syncToken = window[updaterName];
+            if (typeof syncToken !== 'function') return false;
+            return !!syncToken(\(sessionTokenLiteral));
+        };
+        var installBridge = function(api) {
+            if (!api || typeof api.registerPlugin !== 'function' || typeof api.activate !== 'function') return false;
+            if (window[markerName]) {
+                return window[apiName] === api && typeof window[updaterName] === 'function';
+            }
+            var activeToken = null;
+            var syncSessionToken = function(token) {
+                activeToken = (typeof token === 'string' && token.length > 0) ? token : null;
+                return true;
+            };
+            try {
+                definePrivate(updaterName, syncSessionToken);
+                definePrivate(toggleName, function() { api.toggle && api.toggle(); });
+                definePrivate(apiName, api);
+                definePrivate(markerName, true);
+            } catch (_) {
+                return false;
+            }
+            refreshSessionToken();
+            var lastActive;
+            api.registerPlugin({
+                name: 'cmux-bridge',
+                hooks: {
+                    onStateChange: function(state) {
+                        if (state.isActive === lastActive) return;
+                        lastActive = state.isActive;
+                        if (handler) handler.postMessage({ type: 'stateChange', isActive: state.isActive });
+                    },
+                    onCopySuccess: function(elements, content) {
+                        var token = activeToken;
+                        activeToken = null;
+                        if (handler) handler.postMessage({ type: 'copySuccess', content: String(content || ''), token: token });
+                    }
+                }
+            });
+            return true;
+        };
+
+        // Give the verified bundle a clean, app-owned global. A hostile page
+        // can make a non-configurable property that cannot be replaced safely,
+        // so fail closed in that case.
+        if (window[markerName]) {
+            var existingApi = window[apiName];
+            if (!installBridge(existingApi)) return;
+            refreshSessionToken();
+            existingApi.activate();
+            return;
+        }
+        var descriptor = Object.getOwnPropertyDescriptor(window, '__REACT_GRAB__');
+        if (descriptor && descriptor.configurable === false) return;
+        try {
+            Object.defineProperty(window, '__REACT_GRAB__', { value: undefined, writable: true, configurable: true, enumerable: false });
+        } catch (_) {
+            return;
+        }
+
+        \(scriptSource)
+        var api = window.__REACT_GRAB__;
+        if (!api) return;
+        if (!installBridge(api)) return;
+        refreshSessionToken();
+        api.activate();
+    })();
+    """
+}
+
 enum ReactGrabBridgeMessage {
     case stateChange(isActive: Bool)
     case copySuccess(content: String, token: String?)
@@ -347,67 +444,13 @@ extension BrowserPanel {
 
         let handlerName = reactGrabMessageHandlerName
         let sessionTokenLiteral = reactGrabSessionTokenLiteral()
-        let combined = """
-        (function() {
-            var handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(handlerName);
-            var updaterName = '\(reactGrabBridgeSessionUpdaterName)';
-            var refreshSessionToken = function() {
-                var syncToken = window[updaterName];
-                if (typeof syncToken !== 'function') return false;
-                return !!syncToken(\(sessionTokenLiteral));
-            };
-            var installBridge = function(api) {
-                if (!api || window.__CMUX_REACT_GRAB_BRIDGE_INSTALLED__) return;
-                window.__CMUX_REACT_GRAB_BRIDGE_INSTALLED__ = true;
-                var activeToken = null;
-                var syncSessionToken = function(token) {
-                    activeToken = (typeof token === 'string' && token.length > 0) ? token : null;
-                    return true;
-                };
-                try {
-                    Object.defineProperty(window, updaterName, {
-                        value: syncSessionToken,
-                        writable: false,
-                        configurable: false,
-                        enumerable: false
-                    });
-                } catch (_) {
-                    if (typeof window[updaterName] !== 'function') return;
-                }
-                refreshSessionToken();
-                var lastActive;
-                api.registerPlugin({
-                    name: 'cmux-bridge',
-                    hooks: {
-                        onStateChange: function(state) {
-                            if (state.isActive === lastActive) return;
-                            lastActive = state.isActive;
-                            if (handler) handler.postMessage({ type: 'stateChange', isActive: state.isActive });
-                        },
-                        onCopySuccess: function(elements, content) {
-                            var token = activeToken;
-                            activeToken = null;
-                            if (handler) handler.postMessage({ type: 'copySuccess', content: String(content || ''), token: token });
-                        }
-                    }
-                });
-            }
-            if (window.__REACT_GRAB__) {
-                installBridge(window.__REACT_GRAB__);
-                refreshSessionToken();
-                window.__REACT_GRAB__.activate();
-                return;
-            }
-            window.addEventListener('react-grab:init', function(e) {
-                var api = e.detail;
-                if (!api) return;
-                installBridge(api);
-                refreshSessionToken();
-                api.activate();
-            }, { once: true });
-        })();
-        \(scriptSource)
-        """
+        let combined = makeReactGrabInjectionScript(
+            handlerName: handlerName,
+            updaterName: reactGrabBridgeSessionUpdaterName,
+            toggleName: reactGrabBridgeToggleName,
+            sessionTokenLiteral: sessionTokenLiteral,
+            scriptSource: scriptSource
+        )
         #if DEBUG
         cmuxDebugLog("reactGrab.inject.evalJS len=\(combined.count)")
         #endif
@@ -429,7 +472,7 @@ extension BrowserPanel {
         #if DEBUG
         cmuxDebugLog("reactGrab.toggle.start")
         #endif
-        let script = "window.__REACT_GRAB__?.toggle()"
+        let script = "window['\(reactGrabBridgeToggleName)']?.()"
         webView.evaluateJavaScript(script, completionHandler: nil)
         #if DEBUG
         cmuxDebugLog("reactGrab.toggle.end")

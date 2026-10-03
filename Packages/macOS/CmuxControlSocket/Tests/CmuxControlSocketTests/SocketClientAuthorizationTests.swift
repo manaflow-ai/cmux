@@ -119,7 +119,7 @@ struct SocketClientAuthorizationTests {
         }
     }
 
-    @Test func allowAllDoesNotRequireSameUser() {
+    @Test func allowAllRequiresSameUser() {
         let authority = SocketClientCapabilityAuthority(
             secret: Data(repeating: 0xA5, count: SocketClientCapabilityAuthority.secureByteCount),
             audience: "com.cmuxterm.test"
@@ -130,6 +130,15 @@ struct SocketClientAuthorizationTests {
             accessMode: .allowAll,
             peerProcessID: nil,
             peerHasSameUID: false,
+            capabilityAuthority: authority,
+            isDescendant: { _ in false }
+        ) == nil)
+
+        #expect(authorization.authorizedCommand(
+            "ping",
+            accessMode: .allowAll,
+            peerProcessID: nil,
+            peerHasSameUID: true,
             capabilityAuthority: authority,
             isDescendant: { _ in false }
         ) == "ping")
