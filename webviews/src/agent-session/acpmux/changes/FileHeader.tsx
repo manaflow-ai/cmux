@@ -3,6 +3,7 @@
 import React from "react";
 import type { DiffEdit, TurnFile } from "../diff";
 import { ChevronDown, Code, Eye, FileTypeIcon, OpenTab } from "../changeIcons";
+import { t } from "../i18n";
 import { Counts } from "./Counts";
 import { FileMenu } from "./FileMenu";
 
@@ -48,6 +49,11 @@ export function FileHeader({
       {file.created && index === 0 && <span className="acpmux-fh-badge">New</span>}
       {file.deleted && <span className="acpmux-fh-badge">Deleted</span>}
       {file.edits.length > 1 && <span className="acpmux-fh-badge">{`Edit ${index + 1} of ${file.edits.length}`}</span>}
+      {file.outside && (
+        <span className="acpmux-fh-badge acpmux-fh-outside" title={t("turn.outside.title")}>
+          {t("turn.outside")}
+        </span>
+      )}
       <span className="acpmux-fh-spacer" />
       <Counts additions={additions} deletions={deletions} />
       <button

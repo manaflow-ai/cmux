@@ -20,6 +20,28 @@ public final class ThemeScope {
     /// The root scope: the Ghostty config theme.
     public static let app = ThemeScope()
 
+    /// Art is inherited independently of color themes, so every window
+    /// follows the app's one selection even with room or terminal themes.
+    public var backdropArt: BackdropArt? { selectedBackdropArt ?? parent?.backdropArt }
+    private var selectedBackdropArt: BackdropArt?
+
+    /// Changes art and repaints this scope and its descendants without a
+    /// Ghostty reload or changing any terminal colors.
+    /// - Parameter art: The painting to show; nil restores inherited art.
+    public func setBackdropArt(_ art: BackdropArt?) {
+        guard selectedBackdropArt != art else { return }
+        selectedBackdropArt = art
+        repaintBackdropArt()
+    }
+
+    private func repaintBackdropArt() {
+        repaint(animated: false)
+        for responder in responders.allObjects {
+            (responder as? any ThemeResponsive)?.themeDidChange()
+        }
+        for child in children.allObjects { child.repaintBackdropArt() }
+    }
+
     public let level: ThemeLevel
     public private(set) var parent: ThemeScope?
     /// This scope's own theme; nil inherits the parent's.
