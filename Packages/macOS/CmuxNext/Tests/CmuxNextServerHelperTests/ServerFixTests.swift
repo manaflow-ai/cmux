@@ -64,6 +64,28 @@ struct ServerFixTests {
         #expect(runner.recorded.count == 1)
     }
 
+    @Test func aWideStoreDirectoryIsNotTrusted() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-helper-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o755])
+        let store = FileFixPriorStore(url: directory.appending(path: "x.json"))
+        #expect(throws: (any Error).self) { try store.record(.systemSleepOffOnAC, prior: 7) }
+        #expect(store.prior(.systemSleepOffOnAC) == nil)
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    @Test func applyAndRevertDoNotInterleave() async {
+        let runner = DryRunFixRunner(customOutput: Self.custom)
+        let service = ServerHelperService(runner: runner, priors: MemoryFixPriorStore())
+        #expect(await call { service.apply(fixID: "pmset.ac.sleep.0", reply: $0) } == nil)
+        async let reverted = call { service.revert(fixID: "pmset.ac.sleep.0", reply: $0) }
+        async let applied = call { service.apply(fixID: "pmset.ac.sleep.0", reply: $0) }
+        _ = await (reverted, applied)
+        // Whatever the order, a later revert restores the user's 7, never a lost value.
+        let last = await call { service.revert(fixID: "pmset.ac.sleep.0", reply: $0) }
+        #expect(last == nil || last == "nothing to revert")
+        #expect(runner.recorded.filter { $0.1 == ["-c", "sleep", "7"] }.count >= 1)
+    }
+
     @Test func fileStoreKeepsTheFirstValue() throws {
         let url = FileManager.default.temporaryDirectory.appending(path: "cmux-helper-\(UUID().uuidString)/x.json")
         let store = FileFixPriorStore(url: url)

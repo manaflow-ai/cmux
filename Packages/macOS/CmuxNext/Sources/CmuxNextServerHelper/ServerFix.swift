@@ -50,6 +50,9 @@ public nonisolated enum ServerFix: String, CaseIterable, Sendable, Codable {
         }
     }
 
+    /// Values the helper reads, records and writes back (minutes or a flag).
+    public static let allowedRange = 0...100_000
+
     /// The exact argv that applies the fix.
     public var applyArguments: [String] { arguments(setting: appliedValue) }
 
@@ -68,7 +71,7 @@ public nonisolated enum ServerFix: String, CaseIterable, Sendable, Codable {
             }
             guard inAC else { continue }
             let fields = line.split(whereSeparator: \.isWhitespace)
-            guard fields.count == 2, fields[0] == setting, let value = Int(fields[1]), (0...100_000).contains(value) else { continue }
+            guard fields.count == 2, fields[0] == setting, let value = Int(fields[1]), Self.allowedRange.contains(value) else { continue }
             return value
         }
         return nil
