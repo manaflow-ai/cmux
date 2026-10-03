@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import type { OpFrame, OwnerFrame, Principal, RejectFrame, ResultFrame } from "@cmux/ownership"
 import type { Body, Run } from "@cmux/protocol"
 import { deadlineOf, dispatchable, dueFires, matchingEventTriggers, publicRun, schedulerDomain, TERMINAL, type SchedulerState } from "./domains/scheduler.ts"
+import { afterCreate } from "./domains/scheduler-policy.ts"
 import { codeRefOf, precheckCodeOp } from "./code-check.ts"
 import type { CodeStorageError } from "./code-storage.ts"
 import type { Env } from "./env.ts"
@@ -309,7 +310,7 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
       }
       // The create awaited: a policy deny, disable or delete may have cancelled the run meanwhile.
       // Its Workflow must not run on: terminate it now (run.report also stops it, see reportRun).
-      if (TERMINAL.has(engine.currentState.runs[run.id]?.state ?? "cancelled")) {
+      if (afterCreate(engine.currentState, run.id) === "terminate") {
         await this.terminateInstance(run.id)
         this.succeeded(key)
         continue
