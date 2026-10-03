@@ -1354,7 +1354,7 @@ struct RestorableAgentSessionIndexTests {
     // Sessions sidebar cwd filter takes a fast path that looks up the encoded project directory
     // directly. The fixture directory is named by `expectedClaudeProjectDirName`, not the production
     // encoder, so an encoder regression cannot move the fixture and the lookup together.
-    @Test
+    @Test @MainActor
     func testSessionIndexStoreDirectoryScopeFindsDottedClaudeProjectDir() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -1382,23 +1382,15 @@ struct RestorableAgentSessionIndexTests {
             cwd: cwd
         )
 
-        let originalClaudeConfigDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"]
-        setenv("CLAUDE_CONFIG_DIR", configDir.path, 1)
-        defer {
-            if let originalClaudeConfigDir {
-                setenv("CLAUDE_CONFIG_DIR", originalClaudeConfigDir, 1)
-            } else {
-                unsetenv("CLAUDE_CONFIG_DIR")
-            }
-        }
-
         let store = SessionIndexStore()
-        let outcome = await store.searchSessions(
-            query: "",
-            scope: .directory(cwd.path),
-            offset: 0,
-            limit: 10
-        )
+        let outcome = await SessionIndexStore.withClaudeConfigDirectoriesForTesting([configDir.path]) {
+            await store.searchSessions(
+                query: "",
+                scope: .directory(cwd.path),
+                offset: 0,
+                limit: 10
+            )
+        }
 
         XCTAssertTrue(
             outcome.entries.contains { $0.agent == .claude && $0.sessionId == sessionId },
