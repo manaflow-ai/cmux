@@ -149,11 +149,11 @@ import Testing
     /// With the window rail off there is no circle, so a check falls back to the sheet.
     @Test func checksOpenTheSheetWhenThereIsNoCircle() async {
         let feed = AppcastFixtures.feed(AppcastFixtures.item("106", short: "0.64.25", minimum: "14.0"))
-        let (service, _) = service(AppcastFixtures.identity(bundle: "com.cmuxterm.app.debug.updtr", build: "106"), data: feed)
+        let (updater, _) = service(AppcastFixtures.identity(bundle: "com.cmuxterm.app.debug.updtr", build: "106"), data: feed)
         var presented = 0
-        service.presentUpdateUI = { presented += 1 }
-        service.showsIndicator = { false }
-        _ = await service.checkForUpdates()?.value
+        updater.presentUpdateUI = { presented += 1 }
+        updater.showsIndicator = { false }
+        _ = await updater.checkForUpdates()?.value
         #expect(presented == 1)
     }
 }
