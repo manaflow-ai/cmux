@@ -314,6 +314,14 @@ pub struct WebSocketConfig {
     pub listen: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
+    /// Browser origins allowed besides the listener's own and the agent
+    /// pane's (for example a page dev server). `null` is never allowed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_origins: Vec<String>,
+    /// `Host` names allowed besides loopback (a proxy that keeps a public
+    /// name). Both lists are read when the listener starts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_hosts: Vec<String>,
 }
 
 fn default_palette_prefix() -> String {

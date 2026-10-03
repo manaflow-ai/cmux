@@ -47,6 +47,7 @@ members = [
     "crates/cmux-app-manifest",
     "crates/cmux-rd-proto",
     "crates/cmux-rd-core",
+    "crates/cmux-local-auth",
 ]
 default-members = [
     "crates/acpmux",
@@ -79,6 +80,7 @@ default-members = [
     "crates/cmux-app-manifest",
     "crates/cmux-rd-proto",
     "crates/cmux-rd-core",
+    "crates/cmux-local-auth",
 ]
 exclude = ["vendor/crossterm", "crates/cmux-rd-host"]
 
@@ -109,6 +111,7 @@ cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
+cmux-local-auth = { path = "crates/cmux-local-auth" }
 cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
 cmux-wg = { path = "crates/cmux-wg" }
 cmux-tui-machine-agent-protocol = { path = "crates/cmux-tui-machine-agent-protocol" }

@@ -58,10 +58,24 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let store = crate::store::open(&config.store, &home())?;
     // The dashboard and WebSocket always run. First run picks a loopback port
     // and a random token and saves both, so the URL is stable afterwards.
-    if config.websocket.is_none() {
+    // The token is mandatory (plans/cmux-next/identity.md section 4): a saved
+    // listener without one gets one, and the file keeps it.
+    let needs_token = config
+        .websocket
+        .as_ref()
+        .is_none_or(|w| w.token.as_deref().is_none_or(|t| t.trim().is_empty()));
+    if needs_token {
+        let listen = config.websocket.as_ref().map(|w| w.listen.clone());
+        let (allowed_origins, allowed_hosts) = config
+            .websocket
+            .as_ref()
+            .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone()))
+            .unwrap_or_default();
         config.websocket = Some(crate::config::WebSocketConfig {
-            listen: "127.0.0.1:47811".into(),
+            listen: listen.unwrap_or_else(|| "127.0.0.1:47811".into()),
             token: Some(random_token()),
+            allowed_origins,
+            allowed_hosts,
         });
         if let Err(e) = config.save() {
             tracing::warn!("could not save generated web config: {e}");
@@ -76,6 +90,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 listen,
                 opts.ws_token
                     .clone()
+                    .filter(|t| !t.trim().is_empty())
                     .or_else(|| config.websocket.as_ref().and_then(|w| w.token.clone())),
             )
         })
@@ -103,15 +118,27 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // `--listen 127.0.0.1:0` asked for any free port; report the real one.
     let bound = ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok()).map(|a| a.to_string());
     if let (Some(addr), Some((_, token))) = (&bound, &ws) {
-        config.websocket =
-            Some(crate::config::WebSocketConfig { listen: addr.clone(), token: token.clone() });
+        let (allowed_origins, allowed_hosts) = config
+            .websocket
+            .as_ref()
+            .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone()))
+            .unwrap_or_default();
+        config.websocket = Some(crate::config::WebSocketConfig {
+            listen: addr.clone(),
+            token: token.clone(),
+            allowed_origins,
+            allowed_hosts,
+        });
     }
     let hub = Hub::new(config, store);
     hub.begin_startup(login_env);
     std::fs::write(home().join("daemon.pid"), std::process::id().to_string())?;
     let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
-    let ws_task =
-        ws_listener.map(|(l, token)| tokio::spawn(crate::server::serve_ws(hub.clone(), l, token)));
+    let ws_task = ws_listener.map(|(l, token)| {
+        // `needs_token` above gave the saved listener a token.
+        let token = token.unwrap_or_else(random_token);
+        tokio::spawn(crate::server::serve_ws(hub.clone(), l, token))
+    });
     let ready = serde_json::json!({
         "ready": true,
         "pid": std::process::id(),

@@ -14,7 +14,7 @@ use std::time::Duration;
 use axum::body::Body;
 use axum::extract::{DefaultBodyLimit, Path as AxumPath, Query, Request, State};
 use axum::http::header::{
-    AUTHORIZATION, CACHE_CONTROL, CONNECTION, CONTENT_TYPE, WWW_AUTHENTICATE,
+    AUTHORIZATION, CACHE_CONTROL, CONNECTION, CONTENT_TYPE, ORIGIN, WWW_AUTHENTICATE,
 };
 use axum::http::{HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
@@ -460,6 +460,15 @@ async fn authenticate_and_admit(
     request: Request,
     next: Next,
 ) -> Response {
+    // No browser page is a client of this listener (the localhost listener
+    // rule, plans/cmux-next/identity.md section 4). Refusing every Origin
+    // stops cross-site form posts and DNS-rebound pages before the token check.
+    if request.headers().contains_key(ORIGIN) {
+        let mut response = StatusCode::FORBIDDEN.into_response();
+        response.headers_mut().insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        response.headers_mut().insert(CONNECTION, HeaderValue::from_static("close"));
+        return response;
+    }
     let authorized = request
         .headers()
         .get(AUTHORIZATION)
@@ -637,6 +646,20 @@ mod tests {
         let body = to_bytes(response.into_body(), MAX_HTTP_RPC_BODY_BYTES).await.unwrap();
         let response: RpcResponse = serde_json::from_slice(&body).unwrap();
         assert!(response.result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn workspace_http_refuses_browser_origins_even_with_the_token() {
+        let token = WorkspaceHttpBearerToken::test_value();
+        let authorization = format!("Bearer {}", token.0.as_str());
+        let router = workspace_http_router(WorkspaceService::new(), token);
+        for origin in ["https://evil.example", "null", "http://127.0.0.1:1"] {
+            let mut request = request(Some(&authorization));
+            request.headers_mut().insert(ORIGIN, HeaderValue::from_static(origin));
+            let response = router.clone().oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{origin}");
+            assert_eq!(response.headers().get(CONNECTION).unwrap(), "close");
+        }
     }
 
     #[tokio::test]

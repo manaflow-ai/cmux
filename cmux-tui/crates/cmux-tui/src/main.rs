@@ -521,6 +521,8 @@ START OPTIONS
   --ws <addr>        Also listen for WebSocket clients (default: off).
   --ws-token <token> Allow a static-token bypass for interactive pairing.
   --ws-insecure-bind Allow a non-loopback WebSocket bind (no TLS; use a proxy).
+  --ws-allow-origin <origin>  Also accept this browser Origin (repeatable).
+  --ws-allow-host <host>      Also accept this Host name, e.g. a tailnet name.
   --remote          Run the authenticated remote daemon with this session.
   --remote-ws <addr> Listen for direct remote WebSocket links.
   --remote-ws-insecure-bind  Allow plaintext remote WebSocket off loopback.
@@ -588,6 +590,7 @@ struct Args {
     ws: Option<String>,
     ws_token: Option<String>,
     ws_insecure_bind: bool,
+    ws_access: cmux_tui_core::server::WebSocketAccess,
     remote: bool,
     remote_ws: Option<String>,
     remote_ws_insecure_bind: bool,
@@ -637,6 +640,8 @@ impl Args {
             && ws_addr.is_none()
             && ws_token.is_none()
             && !self.ws_insecure_bind
+            && self.ws_access.origins.is_empty()
+            && self.ws_access.hosts.is_empty()
             && !self.remote
             && self.term.is_none()
     }
@@ -694,6 +699,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         ws: None,
         ws_token: None,
         ws_insecure_bind: false,
+        ws_access: Default::default(),
         remote: false,
         remote_ws: None,
         remote_ws_insecure_bind: false,
@@ -807,6 +813,20 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     Some(args.next().ok_or_else(|| "--ws-token needs a value".to_string())?);
             }
             "--ws-insecure-bind" => out.ws_insecure_bind = true,
+            "--ws-allow-origin" => {
+                let origin = args.next().ok_or("--ws-allow-origin needs a value")?;
+                let origin = cmux_tui_core::server::parse_websocket_origin(&origin).ok_or(
+                    "--ws-allow-origin needs scheme://host[:port], with no path; null is never allowed",
+                )?;
+                out.ws_access.origins.push(origin);
+            }
+            "--ws-allow-host" => {
+                let host = args.next().ok_or("--ws-allow-host needs a value")?;
+                if host.is_empty() || host.contains([':', '/', '@', ' ']) {
+                    return Err("--ws-allow-host needs a host name with no port".into());
+                }
+                out.ws_access.hosts.push(host);
+            }
             "--terminal-reap-grace-seconds" => {
                 let value = args
                     .next()
@@ -1361,6 +1381,9 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
     }
     if args.ws_insecure_bind {
         conflicts.push("--ws-insecure-bind");
+    }
+    if !args.ws_access.origins.is_empty() || !args.ws_access.hosts.is_empty() {
+        conflicts.push("--ws-allow-origin/--ws-allow-host");
     }
     if args.remote {
         conflicts.push("remote daemon options");
@@ -2423,11 +2446,12 @@ fn run_server(
                 let addr = addr
                     .parse()
                     .map_err(|error| anyhow::anyhow!("invalid WebSocket address: {error}"))?;
-                Some(cmux_tui_core::server::serve_websocket(
+                Some(cmux_tui_core::server::serve_websocket_with_access(
                     mux.clone(),
                     addr,
                     ws_token,
                     args.ws_insecure_bind,
+                    &args.ws_access,
                 )?)
             }
             None => None,
