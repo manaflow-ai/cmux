@@ -230,7 +230,7 @@ fn edge_dock_persists_across_restart_outside_the_viewport_record() {
     drop(mux);
     let mux = open_restart_mux(&root, session);
     mux.with_state(|state| {
-        assert_eq!(state.workspaces[0].screens[0].layout_columns[1].sticky, None)
+        assert_eq!(state.workspaces[0].screens[0].layout_columns[1].sticky, None);
     });
     mux.shutdown();
     drop(mux);
@@ -286,7 +286,7 @@ fn an_older_side_pin_wins_over_a_dock_that_would_leave_no_column_scrolling() {
             |row| row.get(0),
         )
         .unwrap();
-    let mut viewport: serde_json::Value = serde_json::from_str(&viewport).unwrap();
+    let mut viewport: Value = serde_json::from_str(&viewport).unwrap();
     viewport["columns"][1]["sticky"] = serde_json::json!({"edge": "left", "mode": "docked"});
     connection
         .execute(
