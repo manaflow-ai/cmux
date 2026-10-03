@@ -1306,10 +1306,7 @@ function AcpmuxPane() {
             />
           )}
           {individualPermission && (
-            <PermissionCard
-              permission={individualPermission}
-              onAnswer={answerPermission(individualPermission)}
-            />
+            <PermissionCard permission={individualPermission} onAnswer={answerPermission(individualPermission)} />
           )}
         </div>
       )}
