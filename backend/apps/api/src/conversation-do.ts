@@ -4,11 +4,14 @@ import { conversation, invites } from "@cmux/home-core"
 /** An invite still waiting for its recipient (pending, or waiting for approval). */
 const isOpen = (i: conversation.Invite) => i.status === "pending" || i.status === "pending_approval"
 import type { Env } from "./env.ts"
-import { OwnerDO, type ReadResult } from "./owner-do.ts"
+import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { publicActor } from "./public-actor.ts"
+import { withAdmit } from "./home-admit.ts"
 
 type Head = conversation.ConversationState
 const MAX_HISTORY_PAGE = 200
+/** Accept rejects that count toward the lock (a wrong or used link), not transient ones. */
+const ACCEPT_FAILURES = new Set(["unknown_invite", "invite_not_pending", "invite_expired"])
 
 /** First word of a display name, for the public invite card (never a full name or an address). */
 const firstName = (name: string | undefined): string | null => {
@@ -35,7 +38,7 @@ export class ConversationDO extends OwnerDO<Head> {
         return invites.isAddress(address) ? [invites.addressId(env.HOME_ADDRESS_KEY, address)] : []
       }
     })
-    super(ctx, env, domain as Domain<Head>, "conv", publicActor, {
+    super(ctx, env, withAdmit("cloud:ConversationDO", domain as Domain<Head>), "conv", publicActor, {
       rowMode: { snapshotTable: conversation.TABLE_MSG, snapshotTail: 50 },
       redact: { ...conversation.conversationRedact, privateTables: conversation.PRIVATE_TABLES }
     })
@@ -87,6 +90,12 @@ export class ConversationDO extends OwnerDO<Head> {
   protected read(state: Head, op: string, params: unknown, principal: Principal): ReadResult {
     const me = state ? this.member(state, principal) : undefined
     if (!state || !me) return { ok: false, code: "auth.forbidden", message: "not a participant" }
+    if (op === "conversation.snapshot") {
+      const engine = this.boundEngine!
+      const tail = typeof (params as { tail?: unknown } | null)?.tail === "number" ? (params as { tail: number }).tail : 50
+      const snap = this.subscriberSnapshot(engine.snapshot(principal.identity, []), principal) as { rows?: { table: string; rows: Array<unknown> } }
+      return { ok: true, value: snap.rows ? { ...snap, rows: { ...snap.rows, rows: snap.rows.rows.slice(Math.max(0, snap.rows.rows.length - tail)) } } : snap, revision: String(engine.currentSeq) }
+    }
     if (op !== "conversation.history") return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
     const q = (params ?? {}) as { before_seq?: unknown; limit?: unknown }
     const limit = typeof q.limit === "number" && q.limit > 0 ? Math.min(q.limit, MAX_HISTORY_PAGE) : 50
@@ -110,6 +119,27 @@ export class ConversationDO extends OwnerDO<Head> {
     const inviter = state.participants.find((p) => p.id === open.invited_by)
     const name = firstName(inviter?.display_name)
     return name ? { first_name: name, avatar_url: null } : null
+  }
+
+  /**
+   * invite.accept from the Worker (proof = sha256(secret)). A user with 10 failed accepts in the
+   * last hour on this conversation is refused before the owner runs (home-core acceptLocked), so
+   * a link cannot be guessed by retrying; failures are kept in a private table, never in events.
+   */
+  async acceptInvite(entity: string, principal: Principal, proof: string, idempotencyKey: string): Promise<SubmitResult> {
+    const who = principal.user ?? principal.identity
+    const sql = this.sqlStore
+    sql.exec(`CREATE TABLE IF NOT EXISTS home_accept_failures (who TEXT NOT NULL, at INTEGER NOT NULL)`)
+    const now = Date.now()
+    sql.exec(`DELETE FROM home_accept_failures WHERE at <= ?`, now - invites.HOUR)
+    const failures = sql.exec<{ at: number }>(`SELECT at FROM home_accept_failures WHERE who = ?`, who).map((r) => Number(r.at))
+    if (invites.acceptLocked({ failures }, now)) {
+      return { frames: [{ t: "reject", tx: "", idempotency_key: idempotencyKey, code: "accept_locked", message: "too many failed attempts; try again later", retryable: true, replayed: false } as OwnerFrame] }
+    }
+    const res = await this.submit(entity, principal, { t: "op", op: "invite.accept", params: { proof }, idempotency_key: idempotencyKey, origin: "user" })
+    const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
+    if (reply?.t === "reject" && ACCEPT_FAILURES.has(reply.code)) sql.exec(`INSERT INTO home_accept_failures (who, at) VALUES (?, ?)`, who, now)
+    return res
   }
 
   /** Anonymous, by secret: who invited the holder. The secret is hashed twice, as the domain stores it. */

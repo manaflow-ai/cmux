@@ -4,6 +4,7 @@ import { apiHandler } from "./http.ts"
 import { handleAutomationHook } from "./ingress/automation-hook.ts"
 import { handleProviderHook } from "./ingress/provider-hook.ts"
 import { handleSsoDiscover } from "./sso-discover.ts"
+import { handleInviteCard, handleInvitePreview } from "./home-routes.ts"
 import { handlePairBegin, handlePairWait } from "./pair-routes.ts"
 import { handleSsoCallback, handleSsoRedeem, handleSsoStart } from "./sso-routes.ts"
 
@@ -21,21 +22,29 @@ export { TeamDO } from "./team-do.ts"
 export { UserDO } from "./user-do.ts"
 
 /**
- * WebSocket gateway: `GET /v1/wire/{user|team|feed}` with subprotocols
+ * WebSocket gateway: `GET /v1/wire/{user|team|feed}` and `/v1/wire/conv/<conversation>` with subprotocols
  * `cmux.wire.v1, bearer.<token>` (browsers cannot set headers; the token stays
  * out of the URL and logs). The Worker authenticates and passes the principal
  * to the owner DO; frames never carry identity.
  */
-const wire = async (request: Request, env: Env, scope: string): Promise<Response> => {
+const wire = async (request: Request, env: Env, scope: string, conversation?: string): Promise<Response> => {
   const protocols = (request.headers.get("Sec-WebSocket-Protocol") ?? "").split(",").map((s) => s.trim())
   const token = protocols.find((p) => p.startsWith("bearer."))?.slice("bearer.".length)
   const authed = await authenticate(env, token)
   if (!authed?.user || !authed.team) return new Response("unauthenticated", { status: 401 })
   // TeamDO and FeedDO cannot see UserDO's revocations; resolve the grant first (UserDO checks its own installs).
-  const principal = scope === "team" || scope === "feed" ? await withGrantClasses(env, authed) : authed
+  const principal = scope === "user" ? authed : await withGrantClasses(env, authed)
   if (!principal) return new Response("forbidden", { status: 403 })
   const [ns, entity] =
-    scope === "user" ? [env.USER_DO, principal.user] : scope === "team" ? [env.TEAM_DO, principal.team] : scope === "feed" ? [env.FEED_DO, principal.user] : [undefined, undefined]
+    scope === "user"
+      ? [env.USER_DO, principal.user]
+      : scope === "team"
+        ? [env.TEAM_DO, principal.team]
+        : scope === "feed"
+          ? [env.FEED_DO, principal.user]
+          : scope === "conv"
+            ? [env.CONVERSATION_DO, conversation]
+            : [undefined, undefined]
   if (!ns || !entity) return new Response("not found", { status: 404 })
   const headers = new Headers(request.headers)
   headers.set("x-cmux-entity", entity)
@@ -49,6 +58,13 @@ export default {
     const url = new URL(request.url)
     const m = url.pathname.match(/^\/v1\/wire\/(user|team|feed)$/)
     if (m && request.headers.get("Upgrade") === "websocket") return wire(request, env, m[1]!)
+    // Home (E5): one socket per conversation; the ConversationDO admits current participants only.
+    const conv = url.pathname.match(/^\/v1\/wire\/conv\/(conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26})$/)
+    if (conv && request.headers.get("Upgrade") === "websocket") return wire(request, env, "conv", conv[1]!)
+    // Home invite links: anonymous; the card answers only for open invites, the preview only with the secret.
+    const card = url.pathname.match(/^\/v1\/invites\/card\/([dg][0-9A-HJKMNP-TV-Z]{26})$/)
+    if (card && request.method === "GET") return handleInviteCard(env, card[1]!)
+    if (url.pathname === "/v1/invites/preview") return handleInvitePreview(request, env)
     // Webhook ingress: no bearer; each route verifies its own signature before any DO call.
     const hook = url.pathname.match(/^\/v1\/hooks\/automation\/([^/]+)\/([^/]+)$/)
     if (hook) return handleAutomationHook(request, env, hook[1]!, hook[2]!)

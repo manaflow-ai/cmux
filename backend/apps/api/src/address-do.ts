@@ -18,6 +18,38 @@ export class AddressDO extends OwnerDO<address.AddressHead> {
     super(ctx, env, address.addressDomain as Domain<address.AddressHead>, "address")
   }
 
+  /**
+   * RPC from the Worker before invite.create commits: the invite secret, kept only here (the
+   * object that sends it) and deleted after the send or 24 h, whichever comes first.
+   */
+  async stashSecret(address: string, invite: string, secret: string, expiresAt: number): Promise<void> {
+    this.bind(address)
+    this.secrets()
+    this.sqlStore.exec(`INSERT INTO address_secrets (invite, secret, expires_at) VALUES (?, ?, ?) ON CONFLICT (invite) DO NOTHING`, invite, secret, expiresAt)
+    this.scheduleAlarm()
+  }
+
+  /** The stashed secret of an invite, if still there (stage C sends read it once, then delete it). */
+  protected stashedSecret(invite: string): string | undefined {
+    this.secrets()
+    return this.sqlStore.exec<{ secret: string }>(`SELECT secret FROM address_secrets WHERE invite = ? AND expires_at > ?`, invite, Date.now())[0]?.secret
+  }
+
+  private secrets() {
+    this.sqlStore.exec(`CREATE TABLE IF NOT EXISTS address_secrets (invite TEXT PRIMARY KEY, secret TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
+  }
+
+  protected nextWakeAt(_head: address.AddressHead, _now: number): number | null {
+    this.secrets()
+    const next = this.sqlStore.exec<{ at: number | null }>(`SELECT MIN(expires_at) AS at FROM address_secrets`)[0]?.at
+    return next === null || next === undefined ? null : Number(next)
+  }
+
+  protected async onWake(now: number): Promise<void> {
+    this.secrets()
+    this.sqlStore.exec(`DELETE FROM address_secrets WHERE expires_at <= ?`, now)
+  }
+
   protected maySubscribe(): boolean {
     return false
   }

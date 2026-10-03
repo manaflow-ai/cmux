@@ -2,7 +2,8 @@ import type { Domain, EventFrame, OpFrame, OwnerEngine, OwnerFrame, Principal } 
 import { inbox as homeInbox } from "@cmux/home-core"
 import { challengeMessagePrefix, type PushTarget } from "@cmux/protocol"
 import { verifyInstallSignature, type InstallClaims } from "./auth.ts"
-import { installActive, userDomain, type UserState } from "./domains/user.ts"
+import { admit } from "./domains/common.ts"
+import { grantFor, installActive, userDomain, type UserState } from "./domains/user.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
@@ -71,7 +72,8 @@ export class UserDO extends OwnerDO<UserState> {
 
   /** RPC: an inbox op (pin, mute, archive, mark unread) from the user's session or install. */
   async submitInbox(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
-    this.bind(entity)
+    const refused = this.inboxRefusal(entity, principal, frame.op)
+    if (refused) return { frames: [{ t: "reject", tx: "", idempotency_key: frame.idempotency_key, code: refused.code, message: refused.message, retryable: false, replayed: false } as OwnerFrame] }
     this.inbox.open(entity)
     const frames: Array<OwnerFrame> = []
     this.inbox.submit(principal, frame, (f) => frames.push(f))
@@ -81,8 +83,8 @@ export class UserDO extends OwnerDO<UserState> {
 
   /** RPC: inbox reads. `inbox.list` pages the entries; `inbox.dm_peer` finds an existing DM with a peer (design Q2). */
   async readInbox(entity: string, principal: Principal, op: string, params: Record<string, unknown>): Promise<ReadResult> {
-    if (principal.user !== entity) return { ok: false, code: "auth.forbidden", message: "not this user's inbox" }
-    this.bind(entity)
+    const refused = this.inboxRefusal(entity, principal, op)
+    if (refused) return { ok: false, code: refused.code, message: refused.message }
     const engine = this.inbox.open(entity)
     if (op === "inbox.dm_peer") {
       const peer = typeof params.peer === "string" ? params.peer : ""
@@ -95,6 +97,17 @@ export class UserDO extends OwnerDO<UserState> {
       return { ok: true, value: { entries: homeInbox.listInbox(entries, query) }, revision: String(engine.currentSeq) }
     }
     return { ok: false, code: "validation.invalid", message: `unknown inbox read ${op}` }
+  }
+
+  /**
+   * Inbox calls come from this user only, through an active install whose grant covers the op
+   * (the catalog check other owners apply), checked before the object binds the entity.
+   */
+  private inboxRefusal(entity: string, principal: Principal, op: string): { code: string; message: string } | undefined {
+    if (principal.user !== entity) return { code: "auth.forbidden", message: "not this user's inbox" }
+    const state = this.bind(entity).currentState
+    if (!installActive(state, principal)) return { code: "auth.forbidden", message: "install revoked or unknown" }
+    return admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now())
   }
 
   protected read(state: UserState, op: string, _params: unknown, principal: Principal): ReadResult {
