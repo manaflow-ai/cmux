@@ -95,8 +95,8 @@ Rules:
   same Unix socket, so the session host sees it as local. A paired peer is
   already trusted as the user, so the gap is attribution only (it could act
   as a terminal whose credential it read), never more reach. Slice 3b closes
-  it: the bridge marks its connection remote and the server refuses
-  `credential` on it. `secret.release` already refuses every credential.
+  it, before any frontend-only `secret.release` depends on it: the bridge
+  marks its connection remote and the server refuses `credential` on it. `secret.release` already refuses every credential.
 - The daemon never keeps an inherited `CMUX_LAUNCH_CREDENTIAL`: a mux process
   removes it from its own environment at start, and the CLI removes it from
   the detached owner it spawns, so no helper or plugin acts as a terminal.
@@ -241,6 +241,24 @@ risk class. Token ops are `mcp.expose: never`.
      local-admin, Unix-only commands) are restricted to the frontend/user
      actor; until then any local agent can call them (coordinator decision
      2026-10-03).
+   - Split: 3a = launch key, credential env, envelope `credential`, CLI/MCP,
+     `WorkspaceMutation.actor`, `resource_mutations.actor_json`. The journal
+     field and actors on effect ops (terminal input, `notification.create`,
+     v1 control mutations) come later as one catalog change with the SDK
+     owner (coordinator decision 2026-10-03). 3b = `client.hello`, the
+     launcher fd, `credential.verify|mint|rotate` ops, secret ops.
+   - 3b closes the remote bridge credential gap (section 3) BEFORE any
+     frontend-only `secret.release` depends on it (coordinator decision
+     2026-10-03).
+   - 3b checklist from the daemon owner's review (ad349), verbatim:
+     (a) install key only over the inherited fd, never argv/env, daemon closes
+     the fd after read; (b) a daemon the app did not start has no frontend
+     until re-pair; (c) client.hello is the first request and identity cannot
+     change on that connection; (d) HMAC over a fresh per-connection nonce,
+     constant-time compare; (e) frontend only from the local socket; (f) actor
+     beside origin on WorkspaceMutation, out of the fingerprint, secret ops
+     never through commit_state; (g) action.run-forwarded requests carry the
+     forwarded flag.
 4. `terminal.for_pid` and pid-ancestry stamping; acpmux mints per ACP session.
 5. App side: `action.run` verifies the credential and records the actor.
 6. Tailnet mode. 7. HTTP MCP with scoped revocable tokens.
