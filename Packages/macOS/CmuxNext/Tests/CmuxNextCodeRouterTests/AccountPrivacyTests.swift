@@ -116,7 +116,7 @@ import Testing
 extension CodeRouterClientTests {
     static let nativeReply = #"""
     {"teamId":"team-1","accounts":[
-      {"id":"a1","provider":"codex","label":"someone@example.com","providerAccountId":"x-1","state":"active","visibility":"private"},
+      {"id":"a1","provider":"codex","label":"someone@example.com","providerAccountId":"acct-fixture","providerUserId":"user-fixture","state":"active","visibility":"private"},
       {"id":"a2","provider":"openrouter-apikey","label":"work (other@example.com)","providerAccountId":"sk-or-v1-…abcd","state":"active"},
       {"id":"a3","provider":"openai-apikey","label":"sk-…wxyz","providerAccountId":"sk-…wxyz","state":"active"}]}
     """#
@@ -137,8 +137,8 @@ extension CodeRouterClientTests {
         #expect(accounts[0].label == "s…@e…")
         #expect(accounts[1].label == "work (o…@e…)")
         #expect(accounts[2].label == "sk-…wxyz", "a masked key is kept")
-        // A Codex email has the same handle here as in local detection.
-        #expect(accounts[0].account.handle == fixtureLabeler.local(.codex, identity: "someone@example.com").handle)
+        // A Codex sign-in has the same handle here as in local detection (workspace + user ids).
+        #expect(accounts[0].account.handle == codexHandle())
     }
 
     @Test func passthroughRepliesAreRedactedWithMatchingHandles() async throws {

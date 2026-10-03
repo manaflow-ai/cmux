@@ -16,7 +16,7 @@ public struct LinkedAccount: Identifiable, Sendable, Equatable, Hashable {
     public var family: Family
     public var provider: AIProvider
     /// A handle from the account's stable identity and a display from its
-    /// label with every email shortened (``AccountLabeler/server(namespace:id:label:providerAccountId:identifier:fallback:)``).
+    /// label with every email shortened (``AccountLabeler/server(namespace:id:label:providerAccountId:providerUserId:identifier:fallback:)``).
     /// The raw label is dropped at the client boundary.
     public var account: AccountLabel
     /// `active`, `refreshing`, `expired`, `broken`, `disabled`.
@@ -44,7 +44,10 @@ struct NativeAccountRow: Decodable {
     var id: String
     var provider: String
     var label: String?
+    /// Codex: the ChatGPT workspace id. Read for the handle, then dropped.
     var providerAccountId: String?
+    /// Codex: the ChatGPT user id. Read for the handle, then dropped.
+    var providerUserId: String?
     var state: String?
     var visibility: String?
 }
@@ -63,7 +66,7 @@ extension LinkedAccount {
     init?(native row: NativeAccountRow, labeler: AccountLabeler) {
         guard let provider = AIProvider.fromCodeRouter(provider: row.provider) else { return nil }
         let account = labeler.server(namespace: provider.rawValue, id: row.id, label: row.label, providerAccountId: row.providerAccountId,
-                                     fallback: provider.displayName)
+                                     providerUserId: row.providerUserId, fallback: provider.displayName)
         self.init(id: row.id, family: .native, provider: provider, account: account, state: row.state ?? "active", visibility: row.visibility)
     }
 
