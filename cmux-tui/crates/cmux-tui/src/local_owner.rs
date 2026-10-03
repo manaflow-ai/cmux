@@ -393,8 +393,16 @@ struct SpawnedOwner {
     ready: Option<std::convert::Infallible>,
 }
 
-const DETACHED_OWNER_IDENTITY_ENV: [&str; 5] =
-    ["CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID", "CMUX_PANE_ID"];
+const DETACHED_OWNER_IDENTITY_ENV: [&str; 6] = [
+    "CMUX_SURFACE_ID",
+    "CMUX_WORKSPACE_ID",
+    "CMUX_TAB_ID",
+    "CMUX_PANEL_ID",
+    "CMUX_PANE_ID",
+    // The calling terminal's launch credential: the owner and every helper
+    // it starts must never act as that terminal.
+    "CMUX_LAUNCH_CREDENTIAL",
+];
 
 /// Remove terminal identity claims from the detached owner while preserving
 /// configuration and socket variables inherited from the launching client.
@@ -689,6 +697,7 @@ mod tests {
             .env("CMUX_TAB_ID", "tab")
             .env("CMUX_PANEL_ID", "panel")
             .env("CMUX_PANE_ID", "pane")
+            .env("CMUX_LAUNCH_CREDENTIAL", "cmuxlc1.k.c.m")
             .env("CMUX_TUI_CONFIG", "/tmp/mux.json")
             .env("CMUX_MUX_CONFIG", "/tmp/legacy-mux.json");
 
@@ -698,9 +707,14 @@ mod tests {
             .get_envs()
             .map(|(key, value)| (key.to_owned(), value.map(OsString::from)))
             .collect::<std::collections::HashMap<_, _>>();
-        for key in
-            ["CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID", "CMUX_PANE_ID"]
-        {
+        for key in [
+            "CMUX_SURFACE_ID",
+            "CMUX_WORKSPACE_ID",
+            "CMUX_TAB_ID",
+            "CMUX_PANEL_ID",
+            "CMUX_PANE_ID",
+            "CMUX_LAUNCH_CREDENTIAL",
+        ] {
             assert_eq!(values.get(OsString::from(key).as_os_str()), Some(&None));
         }
         assert_eq!(

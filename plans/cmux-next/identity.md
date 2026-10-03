@@ -90,6 +90,16 @@ Rules:
   an `actor` field next to `origin` and `idempotency_key` (beside them, not in the
   payload). Projections never depend on the caller. Every durable write path must
   set it; a test fails when a mutation path leaves it empty.
+- Only the local Unix socket accepts `credential`. Known gap (slice 3a review):
+  the cmux-remote mux control bridge pumps a paired peer's bytes into that
+  same Unix socket, so the session host sees it as local. A paired peer is
+  already trusted as the user, so the gap is attribution only (it could act
+  as a terminal whose credential it read), never more reach. Slice 3b closes
+  it: the bridge marks its connection remote and the server refuses
+  `credential` on it. `secret.release` already refuses every credential.
+- The daemon never keeps an inherited `CMUX_LAUNCH_CREDENTIAL`: a mux process
+  removes it from its own environment at start, and the CLI removes it from
+  the detached owner it spawns, so no helper or plugin acts as a terminal.
 - The actor is NOT part of the idempotency fingerprint. The same key sent again
   with a different credential is a replay and keeps the FIRST actor (tested).
 - Thread-local scope is allowed only for non-durable reads (logs, diagnostics).

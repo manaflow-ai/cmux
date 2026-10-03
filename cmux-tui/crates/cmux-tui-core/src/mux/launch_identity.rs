@@ -20,7 +20,9 @@ const KEY_FILE: &str = "launch-keys.json";
 
 /// The launch keys of one session host.
 pub(crate) struct LaunchIdentity {
-    keys: Mutex<LaunchKeys>,
+    /// None only when the system gave no randomness: nothing is minted then,
+    /// and nothing verifies (never a guessable key).
+    keys: Mutex<Option<LaunchKeys>>,
     #[cfg_attr(not(test), allow(dead_code))]
     path: Option<PathBuf>,
 }
@@ -47,28 +49,39 @@ impl LaunchIdentity {
         let path = directory.map(|directory| directory.join(KEY_DIRECTORY).join(KEY_FILE));
         let stored = path.as_deref().and_then(read_keys);
         let keys = match stored {
-            Some(keys) => keys,
-            None => {
-                let keys = fresh_keys();
-                if let Some(path) = path.as_deref()
-                    && let Err(error) = write_keys(path, &keys)
-                {
-                    eprintln!(
-                        "cmux-tui: launch keys were not saved ({error}); they last this run only"
-                    );
+            Some(keys) => Some(keys),
+            None => match random_key() {
+                Ok(key) => {
+                    let keys = LaunchKeys::new(&new_kid(), key);
+                    if let Some(path) = path.as_deref()
+                        && let Err(error) = write_keys(path, &keys)
+                    {
+                        eprintln!(
+                            "cmux-tui: launch keys were not saved ({error}); they last this run only"
+                        );
+                    }
+                    Some(keys)
                 }
-                keys
-            }
+                Err(error) => {
+                    eprintln!("cmux-tui: no launch keys ({error}); terminals get no credential");
+                    None
+                }
+            },
         };
         Self { keys: Mutex::new(keys), path }
     }
 
     fn mint(&self, claims: &Claims) -> Option<String> {
-        self.keys.lock().unwrap().mint(claims)
+        self.keys.lock().unwrap().as_ref()?.mint(claims)
     }
 
+    /// With no keys every credential has an unknown key: it falls back,
+    /// it is never accepted.
     fn verify(&self, credential: &str) -> Result<Claims, VerifyError> {
-        self.keys.lock().unwrap().verify(credential)
+        match self.keys.lock().unwrap().as_ref() {
+            Some(keys) => keys.verify(credential),
+            None => Err(VerifyError::UnknownKey),
+        }
     }
 
     /// Make a new current key and keep one previous key.
@@ -76,13 +89,20 @@ impl LaunchIdentity {
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn rotate(&self) -> anyhow::Result<String> {
         let mut keys = self.keys.lock().unwrap();
-        let mut next = keys.clone();
         let kid = new_kid();
-        next.rotate(&kid, random_key()?);
+        let key = random_key()?;
+        let next = match keys.as_ref() {
+            Some(current) => {
+                let mut next = current.clone();
+                next.rotate(&kid, key);
+                next
+            }
+            None => LaunchKeys::new(&kid, key),
+        };
         if let Some(path) = self.path.as_deref() {
             write_keys(path, &next)?;
         }
-        *keys = next;
+        *keys = Some(next);
         Ok(kid)
     }
 }
@@ -184,14 +204,6 @@ fn new_kid() -> String {
     format!("k{}-{suffix}", unix_seconds())
 }
 
-fn fresh_keys() -> LaunchKeys {
-    // Randomness failure leaves a zero key that verifies nothing minted
-    // elsewhere; minting still works for this run. getrandom does not fail
-    // on supported platforms.
-    let key = random_key().unwrap_or([0u8; 32]);
-    LaunchKeys::new(&new_kid(), key)
-}
-
 fn read_keys(path: &Path) -> Option<LaunchKeys> {
     let bytes = std::fs::read(path).ok()?;
     let keys: LaunchKeys = serde_json::from_slice(&bytes).ok()?;
@@ -204,15 +216,24 @@ fn write_keys(path: &Path, keys: &LaunchKeys) -> std::io::Result<()> {
     let directory = path.parent().ok_or_else(|| std::io::Error::other("no key directory"))?;
     #[cfg(unix)]
     {
-        use std::os::unix::fs::DirBuilderExt;
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
         std::fs::DirBuilder::new().recursive(true).mode(0o700).create(directory)?;
+        // A directory left with wider bits is narrowed again.
+        std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700))?;
     }
     #[cfg(not(unix))]
     std::fs::create_dir_all(directory)?;
     let staged = directory.join(format!("{KEY_FILE}.tmp.{}", std::process::id()));
+    // A stale staged file (or a link planted there) is removed, and the new
+    // one must be created here: its mode is then ours, never inherited.
+    match std::fs::remove_file(&staged) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
     {
         let mut options = std::fs::OpenOptions::new();
-        options.write(true).create(true).truncate(true);
+        options.write(true).create_new(true);
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
@@ -222,7 +243,11 @@ fn write_keys(path: &Path, keys: &LaunchKeys) -> std::io::Result<()> {
         file.write_all(&serde_json::to_vec(keys).map_err(std::io::Error::other)?)?;
         file.sync_all()?;
     }
-    std::fs::rename(&staged, path)
+    std::fs::rename(&staged, path)?;
+    // Make the rename durable: a lost key file revokes every live credential.
+    #[cfg(unix)]
+    std::fs::File::open(directory)?.sync_all()?;
+    Ok(())
 }
 
 #[cfg(test)]

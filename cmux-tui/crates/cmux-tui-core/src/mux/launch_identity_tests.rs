@@ -134,6 +134,42 @@ fn keys_persist_owner_only_and_reload() {
     std::fs::write(&path, b"not json").unwrap();
     let replaced = LaunchIdentity::load(Some(directory.path()));
     assert_eq!(replaced.verify(&credential), Err(VerifyError::UnknownKey));
+    #[cfg(unix)]
+    {
+        // A widened directory and a stale staged file are narrowed and
+        // replaced by the next write.
+        use std::os::unix::fs::PermissionsExt;
+        let key_directory = path.parent().unwrap();
+        std::fs::set_permissions(key_directory, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let staged = key_directory.join(format!("{KEY_FILE}.tmp.{}", std::process::id()));
+        std::fs::write(&staged, b"stale").unwrap();
+        std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o644)).unwrap();
+        replaced.rotate().unwrap();
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(key_directory), 0o700);
+        assert_eq!(mode(&path), 0o600);
+        assert!(!staged.exists());
+    }
+}
+
+#[test]
+fn with_no_keys_nothing_is_minted_and_nothing_verifies() {
+    let identity = LaunchIdentity { keys: Mutex::new(None), path: None };
+    let claims = Claims {
+        v: 1,
+        host: "sess_a".into(),
+        terminal: Some("term_a".into()),
+        acp_session: None,
+        agent: None,
+        iat: 1,
+    };
+    assert_eq!(identity.mint(&claims), None);
+    let other = LaunchKeys::new("k1", [7u8; 32]);
+    let credential = other.mint(&claims).unwrap();
+    assert_eq!(identity.verify(&credential), Err(VerifyError::UnknownKey));
+    // Rotation makes the first key; minting works after it.
+    identity.rotate().unwrap();
+    assert!(identity.mint(&claims).is_some());
 }
 
 #[test]
