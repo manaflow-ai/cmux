@@ -332,6 +332,11 @@ describe("devbox image template", () => {
     writeFileSync(path.join(checkout, "evil", "__init__.py"), `open(${JSON.stringify(marker)}, "w").close()\n`);
     writeFileSync(path.join(directory, "target", "alpha.py"), "");
     writeFileSync(path.join(directory, "target", "beta", "__init__.py"), "");
+    // Namespace levels (no __init__.py) under a regular and a namespace parent.
+    mkdirSync(path.join(directory, "target", "spaced", "leaf"), { recursive: true });
+    writeFileSync(path.join(directory, "target", "spaced", "leaf", "__init__.py"), "");
+    mkdirSync(path.join(directory, "nsroot", "nsmid"), { recursive: true });
+    writeFileSync(path.join(directory, "nsroot", "nsmid", "tip.py"), "");
     const stock = path.join(directory, "stock-python-completion");
     writeFileSync(stock, "");
     const completion = path.join(directory, "python-completion");
@@ -344,12 +349,15 @@ describe("devbox image template", () => {
       const complete = async (cur: string) => {
         const result = await runChild("bash", ["--noprofile", "--norc", "-c", `. '${completion}'; cur='${cur}'; COMPREPLY=(); _python_modules '${python}'; printf '%s\\n' "\${COMPREPLY[@]}" | sort`], {
           cwd: checkout,
-          env: { PATH: process.env.PATH!, HOME: directory, PYTHONPATH: directory },
+          // The leading empty entry is how `PYTHONPATH=$PYTHONPATH:/x` adds the cwd.
+          env: { PATH: process.env.PATH!, HOME: directory, PYTHONPATH: `:${directory}` },
         });
         expect(result.status).toBe(0);
         return result.stdout.trim().split("\n");
       };
       expect(await complete("target.")).toEqual(["target.alpha", "target.beta"]);
+      expect(await complete("target.spaced.")).toEqual(["target.spaced.leaf"]);
+      expect(await complete("nsroot.nsmid.")).toEqual(["nsroot.nsmid.tip"]);
       expect(await complete("target.al")).toEqual(["target.alpha"]);
       expect(await complete("targ")).toEqual(["target"]);
       await complete("evil.x.");

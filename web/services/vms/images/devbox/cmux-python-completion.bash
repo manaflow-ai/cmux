@@ -14,23 +14,31 @@
 _python_modules()
 {
     # Python code here runs on every keystroke, so it must not execute any
-    # package: drop -c's current-directory entry (a checkout's pkgutil.py or
-    # packages would otherwise load) and resolve each dotted level with
-    # PathFinder instead of importing it.
+    # package. Import the helpers with every cwd entry off sys.path (-c adds
+    # "", and an empty PYTHONPATH entry adds the absolute cwd) so a checkout's
+    # pkgutil.py cannot load, then resolve each dotted level with PathFinder
+    # instead of importing it. Namespace levels need their parent in
+    # sys.modules; a stub with __path__ supplies it without running code.
     COMPREPLY+=($(compgen -W "$("${1:-python}" -c '
-import sys
-if sys.path and sys.path[0] == "":
-    del sys.path[0]
-import importlib.machinery, pkgutil
+import os, sys
+saved = sys.path[:]
+cwd = os.path.realpath(os.getcwd())
+sys.path[:] = [p for p in saved if p and os.path.realpath(p) != cwd]
+import importlib.machinery, pkgutil, types
+sys.path[:] = [p for p in saved if p]
 cur = sys.argv[1]
 if "." in cur:
     parts = cur.split(".")[:-1]
     paths = sys.path
     for i in range(len(parts)):
-        spec = importlib.machinery.PathFinder.find_spec(".".join(parts[:i + 1]), paths)
-        paths = spec.submodule_search_locations if spec else None
+        name = ".".join(parts[:i + 1])
+        spec = importlib.machinery.PathFinder.find_spec(name, paths)
+        paths = list(spec.submodule_search_locations or ()) if spec else None
         if not paths:
             break
+        stub = types.ModuleType(name)
+        stub.__path__ = paths
+        sys.modules.setdefault(name, stub)
     mods = pkgutil.iter_modules(paths, ".".join(parts) + ".") if paths else ()
 else:
     mods = pkgutil.iter_modules()
