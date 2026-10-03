@@ -33791,7 +33791,7 @@ struct CMUXCLI {
 // Installed by `cmux hooks opencode install` or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
 
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -33987,13 +33987,20 @@ function sendHook(subcommand, ctx, event, extra = {}) {
   if (context) payload.context = context;
   const cmux = process.env.CMUX_OPENCODE_CMUX_BIN || "cmux";
   try {
-    spawnSync(cmux, ["hooks", "enqueue", "opencode", subcommand], {
-      input: JSON.stringify(payload),
-      encoding: "utf8",
+    const child = spawn(cmux, ["hooks", "enqueue", "opencode", subcommand], {
       env: { ...hookEnvironment(cwd), CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC: "1" },
       stdio: ["pipe", "ignore", "ignore"],
-      timeout: 5000,
+      detached: true,
     });
+    // OpenCode V2 may run this server plugin in the shared background
+    // service. Never make that service wait on cmux admission: a slow or
+    // wedged socket would otherwise stall every TUI connected to it.
+    child.on("error", () => {});
+    child.stdin?.on("error", () => {}).end(JSON.stringify(payload));
+    const timeout = setTimeout(() => child.kill("SIGTERM"), 5000);
+    timeout.unref?.();
+    child.once("close", () => clearTimeout(timeout));
+    child.unref();
   } catch (_) {}
 }
 
