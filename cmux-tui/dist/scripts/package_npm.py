@@ -196,7 +196,7 @@ def package_platforms(
                 "license": "GPL-3.0-or-later",
                 "os": [target["os"]],
                 "cpu": [target["cpu"]],
-                "files": [f"bin/cmux-tui{ext}", f"bin/cmux-tui-hook{ext}", SSH_MANIFEST, "LICENSE"],
+                "files": [f"bin/cmux-tui{ext}", f"bin/cmux-tui-hook{ext}", SSH_MANIFEST],
             },
         )
 
@@ -231,7 +231,7 @@ def package_platforms(
                 "license": "GPL-3.0-or-later",
                 "os": [target["os"]],
                 "cpu": [target["cpu"]],
-                "files": [f"bin/chatmux-relay{ext}", f"bin/cmux-tui{ext}", "LICENSE"],
+                "files": [f"bin/chatmux-relay{ext}", f"bin/cmux-tui{ext}"],
             },
         )
 
