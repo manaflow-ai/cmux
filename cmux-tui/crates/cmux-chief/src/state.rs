@@ -21,6 +21,10 @@ pub struct HostState {
     /// The seq of the last turn end the host settled.
     #[serde(default)]
     pub acpmux_seq: u64,
+    /// Set by a cursor_reset of the same session: reply keys carry it from
+    /// then on (`rules::turn_key`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acpmux_epoch: Option<u64>,
     /// Prompts sent (or to send) whose turn has not ended.
     #[serde(default)]
     pub prompts: BTreeMap<String, OutstandingPrompt>,

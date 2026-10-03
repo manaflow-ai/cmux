@@ -645,11 +645,17 @@ impl Core {
         if self.state.mux_session_id.as_deref() != Some(session_id.as_str()) {
             self.state.mux_session_id = Some(session_id.clone());
             self.state.acpmux_seq = 0;
+            self.state.acpmux_epoch = None;
             self.dirty = true;
         } else if cursor_reset {
-            // The log is shorter than the saved cursor: replay it all; the
-            // owner dedupes replies.
+            // The log is shorter than the saved cursor (a re-imported
+            // session): replay it all. Its turn seqs restart, so reply keys
+            // get an epoch from now on: the `at` of the first replayed event
+            // (else now). Turns of prompts the core no longer holds post
+            // nothing (apply_mux_event).
             self.state.acpmux_seq = 0;
+            self.state.acpmux_epoch = Some(events.first().and_then(|e| e.at).unwrap_or(self.now));
+            self.dirty = true;
         }
         self.mux_session = Some(session_id);
         for session in sessions {
@@ -677,23 +683,34 @@ impl Core {
             match output {
                 TurnOutput::Accepted { prompt_id, .. } => self.accept(&prompt_id),
                 TurnOutput::Started { turn, .. } => {
-                    if let Some(conversation) = self.conversation_for(turn.prompt_id.as_deref()) {
+                    if let Some(conversation) = self.turn_conversation(turn.prompt_id.as_deref()) {
                         self.set_typing(&conversation, true);
                     }
                 }
                 TurnOutput::Ended { turn, seq, error } => {
-                    let conversation = self.conversation_for(turn.prompt_id.as_deref());
+                    let conversation = self.turn_conversation(turn.prompt_id.as_deref());
                     let mut text = js_trim(&turn.text).to_owned();
                     if text.is_empty()
                         && let Some(error) = error
                     {
                         text = format!("(turn failed: {error})");
                     }
+                    if conversation.is_none()
+                        && let Some(prompt_id) = &turn.prompt_id
+                    {
+                        self.log(format!(
+                            "turn {} answers prompt {prompt_id}, which is answered or lost; reply not posted",
+                            turn.turn_seq
+                        ));
+                    }
                     if let Some(conversation) = &conversation
                         && !text.is_empty()
                     {
-                        let key =
-                            turn_key(self.mux_session.as_deref().unwrap_or(""), turn.turn_seq);
+                        let key = turn_key(
+                            self.mux_session.as_deref().unwrap_or(""),
+                            turn.turn_seq,
+                            self.state.acpmux_epoch,
+                        );
                         self.state.outbox.push(OutboxEntry {
                             conversation: conversation.clone(),
                             idempotency_key: key.clone(),
@@ -721,13 +738,32 @@ impl Core {
         }
     }
 
+    /// The default conversation; an empty one is none.
+    fn default_conversation(&self) -> Option<String> {
+        self.state.default_conversation.clone().filter(|c| !c.is_empty())
+    }
+
+    /// Where a turn's typing and reply go: its prompt's conversation, the
+    /// default one for a turn without a prompt, and none for a prompt the
+    /// core no longer holds (answered, or lost): a replayed old turn posts
+    /// nothing.
+    fn turn_conversation(&self, prompt_id: Option<&str>) -> Option<String> {
+        let Some(prompt_id) = prompt_id.filter(|id| !id.is_empty()) else {
+            return self.default_conversation();
+        };
+        let entry = self.state.prompts.get(prompt_id)?;
+        Some(entry.conversation.clone())
+            .filter(|c| !c.is_empty())
+            .or_else(|| self.default_conversation())
+    }
+
     fn conversation_for(&self, prompt_id: Option<&str>) -> Option<String> {
         prompt_id
             .filter(|id| !id.is_empty())
             .and_then(|id| self.state.prompts.get(id))
             .map(|p| p.conversation.clone())
             .filter(|c| !c.is_empty())
-            .or_else(|| self.state.default_conversation.clone())
+            .or_else(|| self.default_conversation())
     }
 
     fn set_typing(&mut self, conversation: &str, on: bool) {
@@ -891,10 +927,13 @@ impl Core {
         }
         let running = self.folder.running().and_then(|t| t.prompt_id.clone());
         let conversation = self.conversation_for(running.as_deref()).unwrap_or_default();
+        // A child first seen ready or idle gets a done card (closed: failed,
+        // waiting: waiting).
+        let status = work_status(session.status);
         let child = ChildRecord {
             conversation: conversation.clone(),
             name: session.name.clone(),
-            status: WorkStatus::Running,
+            status,
             message_id: None,
             edits: 0,
         };
@@ -908,11 +947,7 @@ impl Core {
                 not_before: None,
                 op: Op::MessageSend {
                     client_msg_id: key,
-                    parts: vec![work_part(
-                        &session.name,
-                        WorkStatus::Running,
-                        session.last_prompt.as_deref(),
-                    )],
+                    parts: vec![work_part(&session.name, status, session.last_prompt.as_deref())],
                     reply_to: None,
                 },
                 child: Some(session.session_id.clone()),
@@ -991,7 +1026,7 @@ impl Core {
             .get(session_id)
             .map(|c| c.conversation.clone())
             .filter(|c| !c.is_empty())
-            .or_else(|| self.state.default_conversation.clone())
+            .or_else(|| self.default_conversation())
             .unwrap_or_default()
     }
 
@@ -1057,7 +1092,8 @@ impl Core {
                     }
                 }
                 Some(session) => {
-                    if child.status == WorkStatus::Running
+                    // A turn (or a permission wait) that ended while the host was away.
+                    if matches!(child.status, WorkStatus::Running | WorkStatus::Waiting)
                         && matches!(session.status, SessionStatus::Ready | SessionStatus::Idle)
                     {
                         self.child_finished(session);

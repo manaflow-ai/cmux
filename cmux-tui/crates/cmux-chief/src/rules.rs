@@ -80,9 +80,14 @@ pub fn inbox_prompt(summary: &Summary, message: &Message) -> String {
     format!("[conversation {} from {author}] {}", summary.id, message_text(message))
 }
 
-/// The reply key (idempotency key and client_msg_id) of a Chief turn.
-pub fn turn_key(session_id: &str, turn_seq: u64) -> String {
-    format!("turn:{session_id}:{turn_seq}")
+/// The reply key (idempotency key and client_msg_id) of a Chief turn:
+/// `turn:<session>:<turn seq>`, or `turn:<session>:<epoch>:<turn seq>` after
+/// a cursor_reset (a re-imported log reuses seqs).
+pub fn turn_key(session_id: &str, turn_seq: u64, epoch: Option<u64>) -> String {
+    match epoch {
+        Some(epoch) => format!("turn:{session_id}:{epoch}:{turn_seq}"),
+        None => format!("turn:{session_id}:{turn_seq}"),
+    }
 }
 
 /// Trimmed text (JavaScript trim) cut to `limit` UTF-16 units with an
@@ -229,6 +234,25 @@ mod tests {
         assert!(!wakes(&one_to_one, &retracted, |_| false));
         let without = summary("conv_c", vec![person(USER_LOCAL, human), person("agent_x", agent)]);
         assert!(!wakes(&without, &message(USER_LOCAL, None, None), |_| false));
+    }
+
+    /// Float gap (plans/cmux-next/chief-mac.md section 4): the cores write
+    /// floats differently, so no code compares this text between them and
+    /// the corpus has no floats in rawInput. This pins the Rust text; the
+    /// TypeScript test (mux/packages/brain/tests/rules.test.ts) pins
+    /// `{"a":2,"x":1}`.
+    #[test]
+    fn raw_input_float_text_is_serde_json() {
+        let child: SessionSummary = serde_json::from_value(serde_json::json!({
+            "sessionId": "s_w", "name": "writer", "status": "waiting"
+        }))
+        .unwrap();
+        let request: serde_json::Value =
+            serde_json::from_str(r#"{"toolCall":{"title":"t","rawInput":{"x":1.0,"a":2}}}"#)
+                .unwrap();
+        assert!(
+            child_permission_prompt(&child, &request).contains("\nInput: {\"a\":2,\"x\":1.0}\n")
+        );
     }
 
     #[test]
