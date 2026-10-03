@@ -348,7 +348,10 @@ jobs:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --skip CmuxNextControlTests --skip CmuxNextBrowserAutomationTests --skip TerminalAttachDriverStressTests
 
+      # Like the steps below, runs whenever the build succeeded, even after a
+      # failed test step, so one red step does not hide the others.
       - name: Run control package tests
+        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}
         timeout-minutes: 20
         working-directory: Packages/macOS/CmuxNext
         env:
@@ -356,10 +359,11 @@ jobs:
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter CmuxNextControlTests
 
       # The WebKit driver tests drive real WKWebViews against wall-clock load
-      # deadlines through main-actor navigation callbacks. They run after the
-      # control tests, in a process of their own: the package's other main-actor tests do not delay
-      # those callbacks, and a WebKit failure does not skip the control tests.
+      # deadlines through main-actor navigation callbacks. They run in a
+      # process of their own, so the package's other main-actor tests do not
+      # delay those callbacks.
       - name: Run WebKit driver package tests
+        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}
         timeout-minutes: 10
         working-directory: Packages/macOS/CmuxNext
         env:
