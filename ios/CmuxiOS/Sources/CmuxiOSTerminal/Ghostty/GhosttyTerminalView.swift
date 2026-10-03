@@ -5,7 +5,7 @@ import UIKit
 /// One visible terminal drawn by ghostty-next in mirror mode (a plain
 /// UIView: Ghostty adds and sizes its own surface layer; there is no display
 /// link on iOS, the renderer draws on change): the phone owns
-/// no PTY; the host's bytes arrive through `feed`, and everything the user
+/// no PTY; host output and snapshots arrive through `enqueueOutput`, and everything the user
 /// types leaves through `onInput` (encoded by Ghostty with the mirrored modes).
 @MainActor
 public final class GhosttyTerminalView: UIView, TerminalRenderer {
@@ -13,7 +13,8 @@ public final class GhosttyTerminalView: UIView, TerminalRenderer {
 
     private var surface: ghostty_surface_t?
     private var app: GhosttyNextApp?
-    /// `process_output` runs here: one serial queue, never the main thread
+    /// The output functions (process_output, set_grid, restore and encode
+    /// snapshot) run here: one serial queue, never the main thread
     /// (ghostty-next threading contract).
     private let outputQueue = DispatchQueue(label: "cmux.ios.terminal.output", qos: .userInteractive)
     private var inputBox: InputBox?
@@ -49,7 +50,7 @@ public final class GhosttyTerminalView: UIView, TerminalRenderer {
         createSurface()
     }
 
-    /// DEBUG diagnostics: what the surface did (written by `writeDiagnostics`).
+    /// DEBUG diagnostics: what the surface did (DevTerminal writes them for simulator checks).
     public private(set) var diagnostics: [String: String] = [:]
 
     private func createSurface() {
@@ -120,26 +121,17 @@ public final class GhosttyTerminalView: UIView, TerminalRenderer {
 
     // MARK: TerminalRenderer
 
-    public func feed(_ bytes: Data) {
-        guard let surface else {
-            diagnostics["dropped_bytes"] = String(Int(diagnostics["dropped_bytes"] ?? "0")! + bytes.count)
-            return
-        }
-        diagnostics["fed_bytes"] = String(Int(diagnostics["fed_bytes"] ?? "0")! + bytes.count)
-        let target = SurfaceRef(surface)
+    public var snapshotVersion: UInt16 { GhosttyOutputSurface.snapshotVersion }
+
+    @discardableResult
+    public func enqueueOutput(_ work: @escaping @Sendable (any TerminalOutputSurface) -> Void) -> Bool {
+        guard let surface else { return false }
+        let output = GhosttyOutputSurface(ref: SurfaceRef(surface))
         outputQueue.async {
-            bytes.withUnsafeBytes { raw in
-                guard let base = raw.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
-                ghostty_surface_process_output(target.surface, base, UInt(raw.count))
-            }
+            work(output)
             Task { @MainActor [weak self] in self?.requestFrame() }
         }
-    }
-
-    public func reset(snapshot: Data, cols: Int, rows: Int) {
-        // Until ghostty_surface_restore_snapshot lands (ghostty-next item 6),
-        // a snapshot is a full repaint: reset, clear, then the snapshot bytes.
-        feed(Data("\u{1B}c".utf8) + snapshot)
+        return true
     }
 
     public var fittingGrid: (cols: Int, rows: Int) {
@@ -178,11 +170,4 @@ private final class InputBox {
 private struct Retained: @unchecked Sendable {
     let object: AnyObject
     init(_ object: AnyObject) { self.object = object }
-}
-
-/// A surface handle sent to the output queue. The view keeps the surface
-/// alive while output is fed; ghostty-next serializes process_output itself.
-private struct SurfaceRef: @unchecked Sendable {
-    let surface: ghostty_surface_t
-    init(_ surface: ghostty_surface_t) { self.surface = surface }
 }

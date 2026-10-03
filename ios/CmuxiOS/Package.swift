@@ -22,6 +22,7 @@ let package = Package(
         .package(path: "../../Packages/Shared/CMUXAuthCore"),
         .package(path: "../../Packages/Shared/CMUXMobileCore"),
         .package(path: "../../Packages/Shared/CmuxAuthRuntime"),
+        .package(path: "../../Packages/Shared/CmuxTerminalStream"),
         .package(path: "../../Packages/iOS/CmuxMobileSupport"),
         .package(path: "../../Packages/macOS/CmuxPhonePush"),
         .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
@@ -78,19 +79,26 @@ let package = Package(
         ),
         .target(
             name: "CmuxiOSTerminal",
-            dependencies: ["GhosttyNextKit"],
+            dependencies: [
+                "GhosttyNextKit",
+                .product(name: "CmuxTerminalStream", package: "CmuxTerminalStream"),
+            ],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)],
             // The static library carries C++ objects (glslang).
             linkerSettings: [.linkedLibrary("c++")]
         ),
         // ghostty-next (plans/cmux-next/ghostty-next.md): the iOS remote-terminal
-        // build of libghostty, pinned to one release. Never pin ios-v1 (old module
-        // name GhosttyKit) or ios-v2 (draws black: its surface layer is never sized).
+        // build of libghostty, pinned to one release. ios-v4 adds the host-owned
+        // grid (ghostty_surface_set_grid / ghostty_surface_grid, generation
+        // ordered) and GHOSTSNP restore and encode (READY, HISTORY, COMPLETE;
+        // snapshot version 1). Never pin ios-v1 (old module name GhosttyKit),
+        // ios-v2 (draws black: its surface layer is never sized) or ios-v3 (no
+        // snapshot API, so attach and resize fall back to a reset and byte replay).
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-e71a12e5ab0d1e86751ec021efec3ab5a837f344-ios-v3/GhosttyNextKit.xcframework.zip",
-            checksum: "506fa02ba8d56ac65810d8466b661f889b6338f54b6b77cd10fae1d1358963d8"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-76db9d14f3cd66cb026d56a0bd46eecaa085ece4-ios-v4/GhosttyNextKit.xcframework.zip",
+            checksum: "e8f62d62a48eec2c685e997ba8efff2bb34712784f2d4aed988c38b691771126"
         ),
         .target(
             name: "CmuxiOSPush",
