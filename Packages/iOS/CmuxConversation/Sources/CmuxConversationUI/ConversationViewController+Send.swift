@@ -86,7 +86,7 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             imageFlights.append((imageView, start))
         }
 
-        var bubbleFlight: (bubble: BubbleBackgroundView, label: UILabel, from: CGRect, to: CGRect, textFrom: CGRect, textTo: CGRect)?
+        var bubbleFlight: (bubble: BubbleBackgroundView, clip: UIView, label: UILabel, from: CGRect, to: CGRect, textFrom: CGRect, textTo: CGRect)?
         if let bubbleFrame = cellLayout.bubbleFrame, let textFrame = cellLayout.textFrame {
             let bubble = BubbleBackgroundView()
             bubble.side = .trailing
@@ -95,8 +95,14 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             let label = UILabel()
             label.numberOfLines = 0
             label.attributedText = layoutCache.attributedText(for: model)
+            // The text rides in a clip that moves with the bubble, so a draft
+            // taller than the field shows the same lines the composer showed.
+            let clip = UIView()
+            clip.clipsToBounds = true
+            clip.isUserInteractionEnabled = false
+            clip.addSubview(label)
             container.addSubview(bubble)
-            container.addSubview(label)
+            container.addSubview(clip)
             let to = bubbleFrame.offsetBy(dx: cellOrigin.x, dy: cellOrigin.y)
             let textTo = textFrame.offsetBy(dx: cellOrigin.x, dy: cellOrigin.y)
             // Start as the whole composer field, text where it was typed.
@@ -106,15 +112,23 @@ extension ConversationViewController: ConversationComposerViewDelegate {
                 width: flight.fieldFrame.width + ConversationTheme.tailWidth,
                 height: max(ConversationTheme.composerMinHeight, min(flight.fieldFrame.height, to.height))
             )
-            let textFrom = CGRect(x: flight.textFrame.minX, y: from.minY + ConversationTheme.bubbleVerticalPadding - 1, width: textTo.width, height: textTo.height)
-            bubbleFlight = (bubble, label, from, to, textFrom, textTo)
+            // Bottom-aligned at the start: a scrolled draft showed its end, and
+            // a short one lands at the same spot as top alignment.
+            let textFrom = CGRect(
+                x: flight.textFrame.minX,
+                y: from.maxY - ConversationTheme.bubbleVerticalPadding - textTo.height + 1,
+                width: textTo.width,
+                height: textTo.height
+            )
+            bubbleFlight = (bubble, clip, label, from, to, textFrom, textTo)
         }
 
         UIView.performWithoutAnimation {
             if let flight = bubbleFlight {
                 flight.bubble.frame = flight.from
                 flight.bubble.layoutIfNeeded()
-                flight.label.frame = flight.textFrom
+                flight.clip.frame = flight.from
+                flight.label.frame = flight.textFrom.offsetBy(dx: -flight.from.minX, dy: -flight.from.minY)
             }
         }
 
@@ -133,7 +147,8 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             if let flight = bubbleFlight {
                 flight.bubble.frame = flight.to
                 flight.bubble.layoutIfNeeded()
-                flight.label.frame = flight.textTo
+                flight.clip.frame = flight.to
+                flight.label.frame = flight.textTo.offsetBy(dx: -flight.to.minX, dy: -flight.to.minY)
             }
         }
         CATransaction.commit()
