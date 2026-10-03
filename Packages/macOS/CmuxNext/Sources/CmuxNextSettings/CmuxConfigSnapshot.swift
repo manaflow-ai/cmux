@@ -114,6 +114,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `tabs.newTabKind`; "same-kind" when unset or invalid.
     public var newTabKind: NewTabDefaultKind = NewTabDefaultKind.fallback
+    /// `palette.scopes.<scope>.prefix`: user-assigned palette scope prefixes.
+    public var paletteScopePrefixes = PaletteScopePrefixes()
     /// `appearance.theme`: a Ghostty theme spec; nil (the Ghostty config's
     /// theme) when unset, empty or invalid.
     public var appTheme: String?
@@ -214,6 +216,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (newTabKind, newTabKindDiagnostic) = NewTabDefaultKind.parse(root)
         snapshot.newTabKind = newTabKind
         if let newTabKindDiagnostic { snapshot.diagnostics.append(newTabKindDiagnostic) }
+        let (prefixes, prefixDiagnostics) = PaletteScopePrefixes.parse(root)
+        snapshot.paletteScopePrefixes = prefixes
+        snapshot.diagnostics += prefixDiagnostics
         let (recordsCommands, commandsDiagnostic) = TerminalCommandHistorySetting.parse(root)
         snapshot.recordsTerminalCommands = recordsCommands
         if let commandsDiagnostic { snapshot.diagnostics.append(commandsDiagnostic) }

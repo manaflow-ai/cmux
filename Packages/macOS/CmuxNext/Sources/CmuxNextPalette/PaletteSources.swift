@@ -30,6 +30,9 @@ public struct PaletteSources {
     /// Scopes beyond the built-in ones (browser history, app scopes): each
     /// joins the scope graph and makes its page on entry.
     public var scopes: [PaletteScopeContribution] = []
+    /// Prefixes the user assigned (cmux.json `palette.scopes.<id>.prefix`):
+    /// a character, or nil to turn a scope's prefix off. Read on every open.
+    public var scopePrefixes: (@MainActor () -> [PaletteScopeID: String?])?
 
     public init(
         workspaces: (any PaletteWorkspaceSource)? = nil,

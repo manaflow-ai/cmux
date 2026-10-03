@@ -9,7 +9,7 @@ public import CoreGraphics
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
     public static var all: [SettingDescriptor] {
-        general + columnLayout + appearance + terminal + sidebarSections + browser + notifications
+        general + palette + columnLayout + appearance + terminal + sidebarSections + browser + notifications
     }
 
     /// Keys Reset All Settings leaves alone: the look picked at onboarding
