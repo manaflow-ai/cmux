@@ -201,16 +201,37 @@ impl SpringValue {
     }
 }
 
+/// What a `Spring` animates. It decides whether a move toward 0 is a
+/// collapse (faster `disappear`) or an ordinary move.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+#[repr(u8)]
+pub enum SpringKind {
+    /// A width, height, scale or opacity: 0 means gone, so a move to 0
+    /// (tab close, collapse, fade out) uses `disappear`. The default, and
+    /// the behavior of every spring before this kind existed.
+    #[default]
+    Size,
+    /// A position or offset (pane edge, x, gap, scroll offset): 0 and
+    /// negative values are ordinary places, so every move uses the
+    /// spring's own token and never switches to `disappear` (motion.md:
+    /// neighbors of a closing tab `move`, scroll reveal `scroll`).
+    Position,
+}
+
 /// A spring tuned by a token, with direct-manipulation support (cmux-next
 /// tab `Spring`): `follow` tracks the pointer exactly and estimates its
-/// velocity; `release` hands that velocity to the `settle` spring. A move
-/// to 0 (close, collapse) uses `disappear`.
+/// velocity; `release` hands that velocity to the `settle` spring. For a
+/// `SpringKind::Size` spring (the default) a move to 0 (close, collapse)
+/// uses `disappear`; a `SpringKind::Position` spring (`Spring::position`)
+/// always uses its token.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(C)]
 pub struct Spring {
     pub state: SpringValue,
     pub token: MotionSpring,
     pub epsilon: f32,
+    /// Size (a move to 0 is a disappear) or position (never).
+    pub kind: SpringKind,
     /// Last pointer sample for `follow` (plain fields so the type stays
     /// C-compatible).
     has_sample: bool,
@@ -224,15 +245,28 @@ impl Spring {
             state: SpringValue::new(value),
             token,
             epsilon: GEOMETRY_EPSILON,
+            kind: SpringKind::Size,
             has_sample: false,
             sample_value: 0.,
             sample_time: 0.,
         }
     }
 
-    /// A 0..1 value (opacity, progress) with a finer settle distance.
+    /// A position or offset (pane edge, x, gap, scroll offset): geometry
+    /// settle distance, and a move to 0 or below keeps `token`.
+    pub fn position(value: f32, token: MotionSpring) -> Self {
+        Self::new(value, token).with_kind(SpringKind::Position)
+    }
+
+    /// A 0..1 value (opacity, progress) with a finer settle distance. It is
+    /// a `Size`: a move to 0 uses `disappear`.
     pub fn unit(value: f32, token: MotionSpring) -> Self {
         Self { epsilon: UNIT_EPSILON, ..Self::new(value, token) }
+    }
+
+    /// The same spring with another kind.
+    pub fn with_kind(self, kind: SpringKind) -> Self {
+        Self { kind, ..self }
     }
 
     pub fn value(&self) -> f32 {
@@ -253,9 +287,13 @@ impl Spring {
         self.state.target = target;
     }
 
-    /// The token this step uses.
+    /// The token this step uses: `disappear` while a `Size` spring
+    /// collapses toward 0, else `token`.
     pub fn active_token(&self) -> MotionSpring {
-        if self.state.target <= 0.001 && self.state.value > self.state.target {
+        if self.kind == SpringKind::Size
+            && self.state.target <= 0.001
+            && self.state.value > self.state.target
+        {
             MotionSpring::Disappear
         } else {
             self.token
