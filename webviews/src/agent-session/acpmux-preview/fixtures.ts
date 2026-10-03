@@ -3,7 +3,7 @@ import claudeRecording from "./fixtures/claude-live-notifications.ndjson?raw";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../acpmux/model";
 import { commandsFromUpdate } from "../acpmux/slashCommands";
 import { sessionEntry } from "../acpmux/sessionList";
-import { workedTurnRows } from "./workedTurnFixture";
+import { workedTurnRows } from "../acpmux/workedTurn";
 
 const catalog = [
   {

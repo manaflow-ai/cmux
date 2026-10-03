@@ -1,6 +1,7 @@
-// A worked turn that edits three files, for the changes view: the prompt, the agent's edits
-// (each a real before and after), and its summary.
-import type { AcpmuxRow } from "../acpmux/model";
+// A worked turn that edits three files: the prompt, the agent's edits (each a real before and
+// after), and its summary. The preview's "Worked turn" fixture and `debug.agent_pane seed_rows`
+// with `fixture: "worked-turn"` show it, for the changes view and its captures.
+import type { AcpmuxRow } from "./model";
 
 const clientBefore = `import { parseError } from "./errors";
 
