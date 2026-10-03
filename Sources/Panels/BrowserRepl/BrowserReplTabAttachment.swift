@@ -490,13 +490,22 @@ final class BrowserReplTabAttachment {
     /// (``clipboardItems``). The guard stays on the web view for its life,
     /// also after the session leaves: a page loaded while the session drove
     /// the tab never gets the system clipboard. Writes after that fail.
+    ///
+    /// The guard fails closed: `tabs.open` refuses to open a tab when WebKit
+    /// cannot turn its Clipboard API off (``BrowserReplPageClipboard/isSupported``),
+    /// and a popup or a replaced web view of such a tab runs in the same
+    /// WebKit. Should the guard still not install, the web view's page is
+    /// stopped and replaced by an empty document with no script, so no page
+    /// there holds the agent's gestures with the system clipboard in reach.
     private func guardPageClipboard(_ webView: WKWebView) {
-        guard let pageClipboard = BrowserReplTabAttachments.shared.pageClipboard else { return }
-        pageClipboard.install(on: webView) { webView, items in
+        let installed = BrowserReplTabAttachments.shared.pageClipboard?.install(on: webView) { webView, items in
             guard let attachment = BrowserReplTabAttachments.shared.attachment(showing: webView) else { return false }
             attachment.clipboardItems = items
             return true
-        }
+        } ?? false
+        guard !installed else { return }
+        webView.stopLoading()
+        webView.loadHTMLString("", baseURL: nil)
     }
 
     /// Releases held dialogs and choosers and removes page instrumentation.

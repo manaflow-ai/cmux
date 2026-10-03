@@ -518,7 +518,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     private func openTab(_ params: [String: Any]) async throws -> [String: Any] {
         let workspace = try workspace()
         // A tab the session opens gets the page clipboard guard; without its
-        // script no page may run in such a tab.
+        // script, or without WebKit's switch for the asynchronous Clipboard
+        // API, no page may run in such a tab.
+        guard BrowserReplPageClipboard.isSupported else {
+            throw Self.error("unsupported", "This WebKit cannot turn its asynchronous Clipboard API off, so a page in a tab the session opens could write the system clipboard; tabs.open is refused")
+        }
         if BrowserReplTabAttachments.shared.pageClipboard == nil {
             guard let shim = bundle.readResource("page-clipboard.js") else {
                 throw Self.error("unsupported", "The browser REPL page clipboard script is not bundled")

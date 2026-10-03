@@ -65,7 +65,8 @@ public struct BrowserReplPageClipboard {
     ///   - onWrite: receives the web view a page wrote from and its items
     ///     (`[["type": String, "base64": String]]`); returns whether a tab's
     ///     clipboard took them. A refusal rejects the page's write.
-    /// - Returns: whether WebKit's asynchronous Clipboard API is off.
+    /// - Returns: whether WebKit's asynchronous Clipboard API is off. When it
+    ///   is not, the guard is incomplete and the caller must fail closed.
     @discardableResult
     public func install(
         on webView: WKWebView,
@@ -99,11 +100,26 @@ public struct BrowserReplPageClipboard {
         """
     }
 
+    /// Whether this WebKit can switch its asynchronous Clipboard API off, the
+    /// half of the guard that also covers documents ``shim`` never reaches.
+    /// When it cannot, ``install(on:onWrite:)`` leaves the page a native
+    /// `navigator.clipboard` there, so a caller must not hand such a web view
+    /// to a session as one it created (the driver's `tabs.open` fails with
+    /// `unsupported`).
+    public static var isSupported: Bool {
+        isSupported(featureKey: asyncClipboardFeature)
+    }
+
+    static func isSupported(featureKey: String) -> Bool {
+        disableAsyncClipboardAPI(in: WKPreferences(), featureKey: featureKey)
+    }
+
     /// Switches WebKit's asynchronous Clipboard API off in `preferences`.
-    /// Returns `false` when WebKit's feature list does not have it.
+    /// Returns `false` when WebKit's feature list does not have it, or it
+    /// stays on.
     @discardableResult
-    static func disableAsyncClipboardAPI(in preferences: WKPreferences) -> Bool {
-        guard let feature = feature(named: asyncClipboardFeature) else { return false }
+    static func disableAsyncClipboardAPI(in preferences: WKPreferences, featureKey: String = asyncClipboardFeature) -> Bool {
+        guard let feature = feature(named: featureKey) else { return false }
         let setter = NSSelectorFromString("_setEnabled:forFeature:")
         let getter = NSSelectorFromString("_isEnabledForFeature:")
         guard preferences.responds(to: setter), preferences.responds(to: getter) else { return false }
