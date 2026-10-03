@@ -44,7 +44,7 @@ use sha2::{Digest, Sha256};
 use tungstenite::protocol::CloseFrame;
 use tungstenite::protocol::WebSocketConfig;
 use tungstenite::protocol::frame::coding::CloseCode;
-use tungstenite::{Message, WebSocket, accept_with_config};
+use tungstenite::{Message, WebSocket, accept_hdr_with_config};
 use zeroize::Zeroize;
 
 use crate::browser::{
@@ -6802,11 +6802,36 @@ impl Drop for WebSocketServer {
 }
 
 /// Bind an opt-in WebSocket listener using one JSON message per text frame.
+/// Browser pages may connect only from the listener's own origin.
 pub fn serve_websocket(
     mux: Arc<Mux>,
     addr: SocketAddr,
     token: Option<String>,
     allow_insecure_bind: bool,
+) -> anyhow::Result<WebSocketServer> {
+    serve_websocket_with_access(mux, addr, token, allow_insecure_bind, &WebSocketAccess::default())
+}
+
+/// Extra browser origins and `Host` names a WebSocket listener accepts
+/// (`--ws-allow-origin`, `--ws-allow-host`), for example a web frontend dev
+/// server or a `tailscale serve` name. `Origin: null` is never accepted.
+pub use cmux_local_auth::parse_origin as parse_websocket_origin;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WebSocketAccess {
+    pub origins: Vec<String>,
+    pub hosts: Vec<String>,
+}
+
+/// [`serve_websocket`] with extra allowed origins and hosts. Every
+/// handshake passes the localhost listener rule (plans/cmux-next/identity.md
+/// section 4) before the first protocol frame.
+pub fn serve_websocket_with_access(
+    mux: Arc<Mux>,
+    addr: SocketAddr,
+    token: Option<String>,
+    allow_insecure_bind: bool,
+    access: &WebSocketAccess,
 ) -> anyhow::Result<WebSocketServer> {
     // WebSocket has no TLS here. Remote deployments must explicitly opt in and
     // should put cmux-tui behind a TLS-terminating reverse proxy.
@@ -6825,6 +6850,7 @@ pub fn serve_websocket(
     }
     let listener = TcpListener::bind(addr)?;
     let local_addr = listener.local_addr()?;
+    let policy = Arc::new(websocket_listener_policy(local_addr, access));
     let shutdown = Arc::new(AtomicBool::new(false));
     let connections = Arc::new(Mutex::new(HashMap::new()));
     let next_connection = Arc::new(AtomicU64::new(1));
@@ -6864,6 +6890,7 @@ pub fn serve_websocket(
             }
             let mux = mux.clone();
             let token = token.clone();
+            let policy = policy.clone();
             let render_service = render_service.clone();
             let connections = thread_connections.clone();
             let cleanup_connections = thread_connections.clone();
@@ -6875,6 +6902,7 @@ pub fn serve_websocket(
                         stream,
                         peer,
                         token.as_deref(),
+                        &policy,
                         render_service,
                         Some(permit),
                     );
@@ -7002,14 +7030,53 @@ fn handle_websocket_connection(
     token: Option<&str>,
     render_service: Arc<RenderService>,
 ) {
-    handle_websocket_connection_with_permit(mux, stream, peer, token, render_service, None);
+    let policy = cmux_local_auth::ListenerPolicy::loopback(0);
+    handle_websocket_connection_with_permit(
+        mux,
+        stream,
+        peer,
+        token,
+        &policy,
+        render_service,
+        None,
+    );
 }
 
+/// The Origin and Host rule of a daemon WebSocket listener bound on `local`.
+fn websocket_listener_policy(
+    local: SocketAddr,
+    access: &WebSocketAccess,
+) -> cmux_local_auth::ListenerPolicy {
+    let policy = cmux_local_auth::ListenerPolicy::for_bind(local);
+    let policy = access.hosts.iter().fold(policy, |policy, host| policy.with_host(host));
+    access.origins.iter().fold(policy, |policy, origin| policy.with_origin(origin))
+}
+
+/// Refuse a handshake whose `Host` or `Origin` breaks the listener rule,
+/// before any protocol frame. Tokens and pairing are checked after it.
+fn check_websocket_handshake(
+    policy: &cmux_local_auth::ListenerPolicy,
+    request: &tungstenite::handshake::server::Request,
+) -> Result<(), cmux_local_auth::Refusal> {
+    let values = |name: &str| {
+        request
+            .headers()
+            .get_all(name)
+            .iter()
+            .map(|value| value.to_str().unwrap_or("\u{0}"))
+            .collect::<Vec<_>>()
+    };
+    policy.check(&values("host"), &values("origin"))
+}
+
+// The handshake callback's error type is tungstenite's HTTP response.
+#[allow(clippy::result_large_err)]
 fn handle_websocket_connection_with_permit(
     mux: Arc<Mux>,
     stream: TcpStream,
     peer: SocketAddr,
     token: Option<&str>,
+    policy: &cmux_local_auth::ListenerPolicy,
     render_service: Arc<RenderService>,
     connection_permit: Option<ConnectionPermit>,
 ) {
@@ -7025,7 +7092,22 @@ fn handle_websocket_connection_with_permit(
         .max_write_buffer_size(WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES)
         .max_message_size(Some(WEBSOCKET_AUTH_MAX_BYTES))
         .max_frame_size(Some(WEBSOCKET_AUTH_MAX_BYTES));
-    let Ok(mut websocket) = accept_with_config(stream, Some(auth_config)) else { return };
+    let callback = |request: &tungstenite::handshake::server::Request,
+                    response: tungstenite::handshake::server::Response| {
+        match check_websocket_handshake(policy, request) {
+            Ok(()) => Ok(response),
+            Err(refusal) => {
+                let mut denied = tungstenite::handshake::server::ErrorResponse::new(Some(
+                    refusal.reason().to_owned(),
+                ));
+                *denied.status_mut() = tungstenite::http::StatusCode::FORBIDDEN;
+                Err(denied)
+            }
+        }
+    };
+    let Ok(mut websocket) = accept_hdr_with_config(stream, callback, Some(auth_config)) else {
+        return;
+    };
 
     if !authenticate_websocket(&mux, &mut websocket, peer, token) {
         let frame = CloseFrame { code: CloseCode::Policy, reason: "authentication failed".into() };

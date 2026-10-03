@@ -102,7 +102,7 @@ async fn peer_sessions_are_listed_prompted_and_permission_routed() {
     // B: serves WebSocket with a token, owns the agent.
     let b = hub(config(PermissionPolicy::Ask)).await;
     let port = free_port();
-    tokio::spawn(listen_ws(b.clone(), format!("127.0.0.1:{port}"), Some("tok".into())));
+    tokio::spawn(listen_ws(b.clone(), format!("127.0.0.1:{port}"), "tok".into()));
     let mut cb = client(b.clone()).await;
     let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "remote-one"}}})).await.unwrap();
     let remote_id = s["sessionId"].as_str().unwrap().to_owned();
@@ -193,7 +193,7 @@ async fn peer_sessions_are_listed_prompted_and_permission_routed() {
 async fn watchers_learn_peer_sessions_that_arrive_after_their_snapshot() {
     let b = hub(config(PermissionPolicy::Ask)).await;
     let port = free_port();
-    tokio::spawn(listen_ws(b.clone(), format!("127.0.0.1:{port}"), None));
+    tokio::spawn(listen_ws(b.clone(), format!("127.0.0.1:{port}"), "tok".into()));
     let mut cb = client(b.clone()).await;
     let s = cb
         .call(
@@ -211,7 +211,7 @@ async fn watchers_learn_peer_sessions_that_arrive_after_their_snapshot() {
     ca.call(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
     let v = ca.call(method::MUX_SESSIONS, json!({})).await.unwrap();
     assert!(v["sessions"].as_array().unwrap().is_empty());
-    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), None, false).await.unwrap();
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), false).await.unwrap();
     let changed =
         ca.wait(method::MUX_SESSION_CHANGED, |p| p["session"]["sessionId"] == remote_id).await;
     assert_eq!(changed["peer"], "b");

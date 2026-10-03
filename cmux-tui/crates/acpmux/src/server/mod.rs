@@ -7,6 +7,7 @@ use crate::hub::{EventFilter, Hub, HubEvent, VERSION};
 use crate::rpc::{Message, RpcError, method};
 use crate::store::EventRecord;
 use anyhow::{Context, Result};
+use cmux_local_auth::{ListenerPolicy, Refusal};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -134,7 +135,11 @@ const INDEX_HTML: &str = include_str!("../../web/index.html");
 /// One TCP port serves both the dashboard page (plain HTTP GET) and the
 /// WebSocket protocol. The request head is peeked, never consumed, so the
 /// WebSocket handshake still sees the full request.
-pub async fn listen_ws(hub: Arc<Hub>, addr: String, token: Option<String>) -> Result<()> {
+///
+/// Every request passes the localhost listener rule first
+/// (plans/cmux-next/identity.md section 4): a loopback `Host`, no foreign
+/// `Origin`, and the token, which is mandatory.
+pub async fn listen_ws(hub: Arc<Hub>, addr: String, token: String) -> Result<()> {
     let listener = bind_ws(&addr).await?;
     serve_ws(hub, listener, token).await
 }
@@ -148,7 +153,48 @@ pub async fn bind_ws(addr: &str) -> Result<TcpListener> {
     Ok(listener)
 }
 
-pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: Option<String>) -> Result<()> {
+/// The origin of the app's bundled agent pane page (a `cmux-agent` URL
+/// scheme handler). A `file://` page would send `Origin: null`, which every
+/// localhost listener refuses.
+pub const AGENT_PANE_ORIGIN: &str = "cmux-agent://pane";
+
+/// The Origin and Host rule of this listener: its own origin (the
+/// dashboard page), the agent pane, and the origins and hosts the config
+/// adds (`websocket.allowed_origins`, `websocket.allowed_hosts`). Never
+/// `null`. An entry that does not parse is skipped with a warning.
+pub fn listener_policy(
+    address: std::net::SocketAddr,
+    extra_origins: &[String],
+    extra_hosts: &[String],
+) -> ListenerPolicy {
+    let mut policy = ListenerPolicy::for_bind(address).with_origin(AGENT_PANE_ORIGIN);
+    for origin in extra_origins {
+        if cmux_local_auth::parse_origin(origin).is_none() {
+            tracing::warn!(
+                "websocket.allowed_origins: ignoring {origin:?} (not scheme://host[:port])"
+            );
+            continue;
+        }
+        policy = policy.with_origin(origin);
+    }
+    for host in extra_hosts {
+        policy = policy.with_host(host);
+    }
+    policy
+}
+
+pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: String) -> Result<()> {
+    anyhow::ensure!(!token.is_empty(), "the acpmux web listener needs a token");
+    let (extra_origins, extra_hosts) = hub
+        .config
+        .read()
+        .await
+        .websocket
+        .as_ref()
+        .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone()))
+        .unwrap_or_default();
+    let policy = Arc::new(listener_policy(listener.local_addr()?, &extra_origins, &extra_hosts));
+    let token = Arc::new(token);
     loop {
         let (stream, peer) = match listener.accept().await {
             Ok(s) => s,
@@ -159,6 +205,7 @@ pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: Option<String
         };
         let hub = hub.clone();
         let token = token.clone();
+        let policy = policy.clone();
         tokio::spawn(async move {
             let mut head = [0u8; 4096];
             let n = match tokio::time::timeout(
@@ -170,35 +217,42 @@ pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: Option<String
                 Ok(Ok(n)) => n,
                 _ => return,
             };
+            // The peek only routes the request. Each path checks the full
+            // head it parses: serve_http reads it, tungstenite parses the
+            // upgrade request for the callback.
             let head_text = String::from_utf8_lossy(&head[..n]).into_owned();
             if !head_text.to_ascii_lowercase().contains("upgrade: websocket") {
-                serve_http(stream, &head_text, token.as_deref()).await;
+                serve_http(stream, &policy, &token, peer).await;
                 return;
             }
             let expected = token.clone();
             let callback = move |req: &tokio_tungstenite::tungstenite::handshake::server::Request,
                                  resp: tokio_tungstenite::tungstenite::handshake::server::Response| {
-                let Some(expected) = expected.as_deref() else { return Ok(resp) };
-                let header_ok = req
+                let values = |name: &str| {
+                    req.headers()
+                        .get_all(name)
+                        .iter()
+                        .map(|value| value.to_str().unwrap_or("\u{0}"))
+                        .collect::<Vec<_>>()
+                };
+                let refuse = |refusal: Refusal| {
+                    tokio_tungstenite::tungstenite::http::Response::builder()
+                        .status(refusal.status())
+                        .body(Some(refusal.reason().to_owned()))
+                        .expect("static response")
+                };
+                if let Err(refusal) = policy.check(&values("host"), &values("origin")) {
+                    return Err(refuse(refusal));
+                }
+                let header = req
                     .headers()
                     .get("authorization")
                     .and_then(|v| v.to_str().ok())
-                    .map(|v| v.strip_prefix("Bearer ").unwrap_or(v) == expected)
-                    .unwrap_or(false);
-                let query_ok = req
-                    .uri()
-                    .query()
-                    .map(|q| q.split('&').any(|kv| kv == format!("token={expected}")))
-                    .unwrap_or(false);
-                if header_ok || query_ok {
-                    Ok(resp)
-                } else {
-                    let denied = tokio_tungstenite::tungstenite::http::Response::builder()
-                        .status(401)
-                        .body(Some("unauthorized".to_owned()))
-                        .expect("static response");
-                    Err(denied)
-                }
+                    .and_then(cmux_local_auth::bearer_token);
+                let query = req.uri().query().and_then(cmux_local_auth::query_token);
+                cmux_local_auth::check_token(header.or(query), &expected)
+                    .map(|()| resp)
+                    .map_err(refuse)
             };
             let ws = match tokio_tungstenite::accept_hdr_async(stream, callback).await {
                 Ok(ws) => ws,
@@ -236,12 +290,82 @@ pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: Option<String
     }
 }
 
-/// Minimal HTTP for the dashboard. GET / with a matching token serves the
-/// page; anything else is 401 or 404. Requests are read no further than
-/// the head we already peeked.
-async fn serve_http(mut stream: tokio::net::TcpStream, head: &str, token: Option<&str>) {
-    let mut buf = vec![0u8; 8192];
-    let _ = tokio::time::timeout(std::time::Duration::from_secs(2), stream.read(&mut buf)).await;
+/// Check the `Host` and `Origin` values of a complete request head.
+fn check_head(policy: &ListenerPolicy, head: &str) -> Result<(), Refusal> {
+    let mut hosts = Vec::new();
+    let mut origins = Vec::new();
+    for line in head.split("\r\n").skip(1) {
+        if line.is_empty() {
+            break;
+        }
+        let Some((name, value)) = line.split_once(':') else { continue };
+        let name = name.trim();
+        if name.eq_ignore_ascii_case("host") {
+            hosts.push(value.trim());
+        } else if name.eq_ignore_ascii_case("origin") {
+            origins.push(value.trim());
+        }
+    }
+    policy.check(&hosts, &origins)
+}
+
+async fn refuse_http(mut stream: tokio::net::TcpStream, refusal: Refusal) {
+    let status = match refusal.status() {
+        401 => "401 Unauthorized",
+        _ => "403 Forbidden",
+    };
+    let body = refusal.reason();
+    let response = format!(
+        "HTTP/1.1 {status}\r\ncontent-type: text/plain\r\ncontent-length: {}\r\ncache-control: no-store\r\nconnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let _ = stream.write_all(response.as_bytes()).await;
+    let _ = stream.shutdown().await;
+}
+
+/// The largest request head the dashboard reads.
+const MAX_HTTP_HEAD_BYTES: usize = 32 * 1024;
+
+/// Read a request head up to its blank line. None when it is larger than
+/// [`MAX_HTTP_HEAD_BYTES`] (room for large localhost cookies), the peer
+/// closes first, or it takes over 2 s.
+async fn read_http_head(stream: &mut tokio::net::TcpStream) -> Option<String> {
+    let read = async {
+        let mut head = Vec::with_capacity(1024);
+        let mut chunk = [0u8; 4096];
+        while !head.windows(4).any(|window| window == b"\r\n\r\n") {
+            if head.len() >= MAX_HTTP_HEAD_BYTES {
+                return None;
+            }
+            let n = stream.read(&mut chunk).await.ok()?;
+            if n == 0 {
+                return None;
+            }
+            head.extend_from_slice(&chunk[..n]);
+        }
+        Some(String::from_utf8_lossy(&head).into_owned())
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(2), read).await.ok().flatten()
+}
+
+/// Minimal HTTP for the dashboard. The whole head passes the listener rule
+/// first; then GET / with a matching token serves the page, and anything
+/// else is 401 or 404.
+async fn serve_http(
+    mut stream: tokio::net::TcpStream,
+    policy: &ListenerPolicy,
+    token: &str,
+    peer: std::net::SocketAddr,
+) {
+    let Some(head) = read_http_head(&mut stream).await else {
+        refuse_http(stream, Refusal::MissingHost).await;
+        return;
+    };
+    if let Err(refusal) = check_head(policy, &head) {
+        tracing::warn!("web request from {peer} refused: {refusal}");
+        refuse_http(stream, refusal).await;
+        return;
+    }
     let first = head.lines().next().unwrap_or("");
     let mut parts = first.split_whitespace();
     let method_ = parts.next().unwrap_or("");
@@ -252,11 +376,7 @@ async fn serve_http(mut stream: tokio::net::TcpStream, head: &str, token: Option
     } else if path == "/health" {
         ("200 OK", "ok".to_owned(), "text/plain")
     } else if path == "/" || path == "/index.html" {
-        let ok = match token {
-            None => true,
-            Some(t) => query.split('&').any(|kv| kv == format!("token={t}")),
-        };
-        if ok {
+        if cmux_local_auth::check_token(cmux_local_auth::query_token(query), token).is_ok() {
             ("200 OK", INDEX_HTML.to_owned(), "text/html; charset=utf-8")
         } else {
             ("401 Unauthorized", "<!doctype html><meta charset=utf-8><title>acpmux</title><p style=\"font-family:system-ui;padding:2rem\">This dashboard needs its token. Run <code>acpmux web</code> in a terminal to get the full link.</p>".to_owned(), "text/html; charset=utf-8")
