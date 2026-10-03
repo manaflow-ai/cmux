@@ -155,7 +155,10 @@ pub fn observer_command(observation_file: &Path) -> Result<String, HostKeyError>
 pub struct KnownElsewhere {
     /// A key the user trusts for the host, of any type (the offered type
     /// first). Any known key that differs from the offer makes the offer a
-    /// change, so a key-type downgrade is a hard stop too.
+    /// change, so a key-type downgrade is a hard stop too. When the host is
+    /// trusted only through a `@cert-authority` line, this is the CA key: a
+    /// plain key offered by such a host is a change, never an unknown the
+    /// sheet could confirm.
     pub key: Option<HostKey>,
     /// The offered key is marked `@revoked`.
     pub revoked: bool,
@@ -212,6 +215,7 @@ pub async fn find_known_elsewhere(
 #[must_use]
 pub fn parse_keygen_lines(text: &str, offered: &HostKey) -> KnownElsewhere {
     let mut found = KnownElsewhere::default();
+    let mut authority = None;
     for line in text.lines() {
         if line.starts_with('#') {
             continue;
@@ -225,6 +229,11 @@ pub fn parse_keygen_lines(text: &str, offered: &HostKey) -> KnownElsewhere {
         let (Some(found_type), Some(key)) = (fields.next(), fields.next()) else { continue };
         match marker {
             Some("@revoked") => found.revoked |= key == offered.key_base64,
+            Some("@cert-authority") => {
+                if authority.is_none() {
+                    authority = HostKey::new(&offered.lookup_host, found_type, key).ok();
+                }
+            }
             Some(_) => {}
             None => {
                 if let Ok(known) = HostKey::new(&offered.lookup_host, found_type, key) {
@@ -237,6 +246,9 @@ pub fn parse_keygen_lines(text: &str, offered: &HostKey) -> KnownElsewhere {
                 }
             }
         }
+    }
+    if found.key.is_none() {
+        found.key = authority;
     }
     found
 }
