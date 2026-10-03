@@ -544,6 +544,11 @@ export class Core {
     created: boolean,
   ): void {
     if (this.acpmuxUp) this.disconnected("acpmux");
+    // A log_id that is not a non-negative safe integer is unknown (as the Rust core reads it).
+    if (logId !== undefined && !(Number.isSafeInteger(logId) && logId >= 0)) {
+      this.log(`ignoring log_id ${String(logId)}: not a non-negative integer`);
+      logId = undefined;
+    }
     const first = events[0];
     const identity = logId ?? (first && validEvent(first) && first.seq === 1 && typeof first.at === "number" ? first.at : undefined);
     let reset = false;
