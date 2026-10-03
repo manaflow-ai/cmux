@@ -1102,6 +1102,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-chief",
  "cmux-conversation",
  "cmux-layout-reducer",
  "cmux-pty",
