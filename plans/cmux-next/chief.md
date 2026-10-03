@@ -126,7 +126,10 @@ cursors stay on the Mac; search and contacts are not supported.
    Model: Workers AI `@cf/moonshotai/kimi-k2.7-code` until a Claude route is chosen (AI Gateway
    billing or BYOK, a direct key, or coderouter: Lawrence's decision).
 4. Done: WorkerDO (pi session, `fetch_url`) and spawn.
-5. Native UI in Home (in progress): `CmuxNextChief` target, sidebar injection, internal page.
+5. Native UI in Home (416320062f3, 3e032168fbe): `CmuxNextChief` target, sidebar item, `chief.show`
+   action (palette, CLI `cmux chief show`). Tagged build `chief2` verified: `chief.show` runs, the
+   view long-polls staging and follows new messages (after=0 -> 1 -> 2). UNVERIFIED: the drawn
+   view and sending from the composer (Computer Use onboarding is not finished on this Mac).
 6. Freestyle worker.
 
 ## 8. Open
