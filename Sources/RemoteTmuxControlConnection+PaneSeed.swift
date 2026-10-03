@@ -368,18 +368,27 @@ extension RemoteTmuxControlConnection {
         schedulePaneSeedBudgetRecoveryIfNeeded()
     }
 
-    /// Repaints panes whose verified tmux assignment grew since the last
-    /// publication. A surface cannot recover cells that were clipped while its
-    /// grid was shorter from the live PTY stream alone; `capture-pane` is the
-    /// authoritative, transport-independent repair. New panes are excluded because
-    /// their full-history seed owns their initial paint.
-    func repaintPanesThatGrew(from previous: RemoteTmuxWindow?, to current: RemoteTmuxWindow) {
+    /// Repaints panes whose verified tmux assignment grew, or changed width, since the last
+    /// publication.
+    ///
+    /// A grow uncovers cells: a surface cannot recover what was clipped while its grid was
+    /// shorter from the live PTY stream alone. A width change in either direction makes tmux
+    /// rewrap the pane, and the surface's own rewrap matches only for lines it saw arrive
+    /// live. A seeded row carries no wrap information, and capture drops the trailing spaces
+    /// a shell pads its prompt line with, so after a narrowing the two wrap at different
+    /// places and every row below sits off, the cursor with them. In both cases
+    /// `capture-pane` is the authoritative, transport-independent repair.
+    ///
+    /// A pane that only got shorter is left alone: tmux moves whole rows into history there,
+    /// and so does the surface. New panes are excluded because their full-history seed owns
+    /// their initial paint.
+    func repaintPanesTmuxRedrew(from previous: RemoteTmuxWindow?, to current: RemoteTmuxWindow) {
         guard let previous else { return }
         let previousLeaves = assignedPaneLeaves(in: previous)
         let currentLeaves = assignedPaneLeaves(in: current)
         let panes = currentLeaves.compactMap { paneId, leaf -> Int? in
             guard let old = previousLeaves[paneId],
-                  leaf.width > old.width || leaf.height > old.height else { return nil }
+                  leaf.width != old.width || leaf.height > old.height else { return nil }
             return paneId
         }
         for paneId in panes.sorted() { repaintPaneVisibleScreen(paneId: paneId) }

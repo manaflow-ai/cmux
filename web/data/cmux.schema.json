@@ -852,6 +852,11 @@
           "descriptionKey": "schemaDescriptions.terminal.copyOnSelect",
           "description": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior."
         },
+        "showCopyConfirmation": {
+          "type": "boolean",
+          "default": false,
+          "description": "Briefly show \"Copied to clipboard\" at the bottom of a terminal after selecting text copies it. Applies whether copyOnSelect or Ghostty's copy-on-select turned copying on. Copies made with a keyboard shortcut or by a program (OSC 52) never show it."
+        },
         "reflowHardWrapOnCopy": {
           "type": "boolean",
           "default": false,

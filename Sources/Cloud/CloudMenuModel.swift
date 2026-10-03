@@ -108,18 +108,28 @@ final class CloudMenuModel {
         let waiterID = UUID()
         return await withTaskCancellationHandler(operation: {
             await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: nil)
+                    return
+                }
                 pageWaiters[waiterID] = continuation
+                if Task.isCancelled {
+                    finishPageWaiter(waiterID, page: nil)
+                    return
+                }
                 if let fleetPage {
-                    pageWaiters.removeValue(forKey: waiterID)?.resume(returning: fleetPage)
+                    finishPageWaiter(waiterID, page: fleetPage)
                 } else {
                     if task == nil { refresh() }
                 }
             }
         }, onCancel: {
-            Task { @MainActor [weak self] in
-                self?.pageWaiters.removeValue(forKey: waiterID)?.resume(returning: nil)
-            }
+            Task { @MainActor [weak self] in self?.finishPageWaiter(waiterID, page: nil) }
         })
+    }
+
+    private func finishPageWaiter(_ id: UUID, page: VMListPage?) {
+        pageWaiters.removeValue(forKey: id)?.resume(returning: page)
     }
 
     func menuWillOpen() {
@@ -165,9 +175,7 @@ final class CloudMenuModel {
         switch result {
         case .success(let page):
             fleetPage = page
-            let waiters = pageWaiters
-            pageWaiters.removeAll()
-            for waiter in waiters.values { waiter.resume(returning: page) }
+            for id in Array(pageWaiters.keys) { finishPageWaiter(id, page: page) }
             let windowDays = page.limits?.freeAccessWindowDays ?? 0
             let snapshots = page.vms.map { MachineSnapshotBuilder.snapshot(from: $0, freeAccessWindowDays: windowDays) }
             lastLoadedAt = ContinuousClock.now
@@ -183,9 +191,7 @@ final class CloudMenuModel {
     }
 
     private func finishPageWaiters() {
-        let waiters = pageWaiters
-        pageWaiters.removeAll()
-        for waiter in waiters.values { waiter.resume(returning: nil) }
+        for id in Array(pageWaiters.keys) { finishPageWaiter(id, page: nil) }
     }
 
     /// Same order and pins as the Cloud sidebar.
@@ -205,9 +211,7 @@ final class CloudMenuModel {
         task = nil
         lastLoadedAt = nil
         fleetPage = nil
-        let waiters = pageWaiters
-        pageWaiters.removeAll()
-        for waiter in waiters.values { waiter.resume(returning: nil) }
+        for id in Array(pageWaiters.keys) { finishPageWaiter(id, page: nil) }
         guard !machines.isEmpty || loadState != .idle else { return }
         publish(machines: [], loadState: .idle)
     }

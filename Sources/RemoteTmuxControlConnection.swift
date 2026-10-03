@@ -208,6 +208,13 @@ final class RemoteTmuxControlConnection {
     /// answer describes a stream that no longer exists. Writable only here.
     private(set) var processGeneration: UInt64 = 0
     var pendingCommands: [CommandKind] = []
+    /// How many replies this stream has taken off ``pendingCommands``, which is also the
+    /// position of its first entry counted from the start of the stream.
+    var dequeuedCommandCount = 0
+    /// The positions, by that count, of each queued line still waiting on replies. tmux stops
+    /// a queued line at its first failing command, so the commands after it are never
+    /// answered and their slots have to go when the failure arrives.
+    var pendingCommandQueues: [Range<Int>] = []
     /// A `detach-client` cmux sent is still waiting for tmux's `%exit`. That exit is cmux's own
     /// doing, so it must not reach the exit observers as a session that ended remotely.
     private var awaitingDeliberateDetach = false
@@ -665,6 +672,7 @@ final class RemoteTmuxControlConnection {
         #endif
         parser = RemoteTmuxControlStreamParser()
         pendingCommands.removeAll()
+        pendingCommandQueues.removeAll()
         resetWindowListRequestCoalescing()
         windowReorderBatchFailed = false
         windowReorderRecoveryGeneration = nil
@@ -1199,6 +1207,10 @@ final class RemoteTmuxControlConnection {
             record("stdin-write-backpressure")
             beginReconnecting()
             return false
+        }
+        if kinds.count > 1 {
+            let first = dequeuedCommandCount + pendingStart
+            pendingCommandQueues.append(first..<(first + kinds.count))
         }
         return true
     }
