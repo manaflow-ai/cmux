@@ -87,12 +87,9 @@ struct CloudTreeRowHoverButtons: View {
                     nodeActions.newDisplay(machine)
                 }
             }
-            // Keep the host hit-testable while guest discovery is pending.
-            // Disabling the SwiftUI button makes AppKit hand the click to the
-            // outline row, which collapses Displays instead of starting the
-            // self-starting creation path.
-            .opacity(canCreate ? 1 : 0.55)
-            .help(canCreate ? String(localized: "cloudTree.menu.newDisplay", defaultValue: "New Display") : CloudGuestDisplaySnapshot.unavailableMessage)
+            // Creation retries the authoritative guest probe. A stale
+            // discovery snapshot must not turn this into a dead button.
+            .help(String(localized: "cloudTree.menu.newDisplay", defaultValue: "New Display"))
         case .workspacesGroup(let machine):
             plus(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) {
                 nodeActions.newWorkspace(machine)
@@ -144,19 +141,16 @@ struct CloudTreeRowHoverButtons: View {
         return false
     }
 
-    /// The Displays affordance remains visible while guest discovery is pending
-    /// so its unavailable state can explain itself on hover. Keep that visual
-    /// affordance from dispatching a create operation until the snapshot says
-    /// the machine can accept one.
+    /// The Displays affordance remains actionable while guest discovery is
+    /// pending. Creation performs the authoritative probe and reports a real
+    /// failure only after that request fails.
     static func performDisplayCreationIfAvailable(
         _ canCreate: Bool,
         unavailable: () -> Void = {},
         action: () -> Void
     ) {
-        guard canCreate else {
-            unavailable()
-            return
-        }
+        _ = canCreate
+        _ = unavailable
         action()
     }
 
