@@ -14,6 +14,16 @@ import Testing
 
 @Suite("SSH cmux-tui migration", .serialized)
 struct SSHTuiMigrationTests {
+    @Test("SSH terminal failures do not use Cloud wording")
+    func sshTerminalFailureUsesSSHCopy() {
+        let failure = CloudPaneCreationFailure(machine: .ssh("austins-macbook-pro"), error: CloudMachineLink.LinkError.timedOut)
+
+        #expect(failure.displayTitle == "Couldn’t open SSH terminal")
+        #expect(failure.errorText.contains("cmux-tui link did not report a socket"))
+        #expect(failure.recoveryText.contains("SSH connection"))
+        #expect(!failure.copyableText.contains("Cloud"))
+    }
+
     private func configuration(options: [String] = [], command: String? = nil, identityFile: String = "/tmp/key with spaces", profile: WorkspaceRemoteTerminalProfile = .shell) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             terminalProfile: profile, destination: "alice@example.invalid", port: 2222, identityFile: identityFile,
