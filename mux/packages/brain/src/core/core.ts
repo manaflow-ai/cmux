@@ -72,7 +72,7 @@ export type Input =
       events: AcpmuxEvent[];
       cursor_reset?: boolean;
       /** The log's identity: the `at` of its seq 1 event (absent for an empty log). */
-      log_id?: number;
+      log_id?: number | null;
       /** The shell created the session on this connect: its log is new, nothing can reuse its keys. */
       created?: boolean;
     }
@@ -542,11 +542,12 @@ export class Core {
     sessions: SessionSummary[],
     events: AcpmuxEvent[],
     cursorReset: boolean,
-    logId: number | undefined,
+    logId: number | null | undefined,
     created: boolean,
   ): void {
     if (this.acpmuxUp) this.disconnected("acpmux");
     // A log_id that is not a non-negative safe integer is unknown (as the Rust core reads it).
+    if (logId === null) logId = undefined; // null reads as absent, as in the Rust core
     if (logId !== undefined && !isCount(logId)) {
       this.log(`ignoring log_id ${String(logId)}: not a non-negative integer`);
       logId = undefined;
@@ -594,9 +595,11 @@ export class Core {
     // A permission prompt whose session is not waiting in this list was answered meanwhile
     // (or the session is gone): dropped, not resent. (The `sessions` reply path keeps its
     // rule: acpmux's event order there is not confirmed.)
+    const waiting = new Set(sessions.filter((s) => s.status === "waiting").map((s) => s.sessionId));
     for (const promptId of Object.keys(this.state.prompts).sort(compare)) {
       if (!promptId.startsWith("perm:")) continue;
-      if (sessions.some((s) => s.status === "waiting" && promptId.startsWith(`perm:${s.sessionId}:`))) continue;
+      const session = permissionSession(promptId);
+      if (session !== undefined && waiting.has(session)) continue;
       delete this.state.prompts[promptId];
       this.dirty = true;
       this.log(`dropping permission prompt ${promptId}: its session is not waiting`);
@@ -915,4 +918,11 @@ export class Core {
     }
     this.flushOutbox();
   }
+}
+
+/** The session of a `perm:<session>:<permission>` prompt id: the permission id is after the last ':'. */
+export function permissionSession(promptId: string): string | undefined {
+  const rest = promptId.slice("perm:".length);
+  const last = rest.lastIndexOf(":");
+  return last < 0 ? undefined : rest.slice(0, last);
 }
