@@ -14,14 +14,13 @@ enum CloudHeaderMachineActions {
 /// Team scope, Invite, and machine actions share the Cloud header. Fleet status keeps its own
 /// row so it cannot squeeze the active team's name out of a narrow sidebar;
 /// the status view owns that row, so an idle fleet adds no gap under the toolbar.
-struct CloudTeamPickerHeader<AgentMenu: View, Status: View>: View {
+struct CloudTeamPickerHeader<Status: View>: View {
     let accountFlow: HostAccountFlow?
     let presentation: CloudTeamPickerPresentation?
     let chromeBackgroundColor: NSColor
     let isRefreshing: Bool
     let onRefresh: () -> Void
     let onNewMachine: () -> Void
-    @ViewBuilder let agentMenu: () -> AgentMenu
     @ViewBuilder let status: () -> Status
     @State private var panePresentation = CloudTeamPickerPresentation()
 
@@ -68,7 +67,6 @@ struct CloudTeamPickerHeader<AgentMenu: View, Status: View>: View {
                 }
             }
             Spacer(minLength: 0)
-            agentMenu()
             if let accountFlow, accountFlow.confirmedTeamID != nil {
                 MachinesChromeLabelButton(
                     symbolName: "person.badge.plus",
@@ -80,25 +78,6 @@ struct CloudTeamPickerHeader<AgentMenu: View, Status: View>: View {
                     CloudTeamInvitePopover(accountFlow: accountFlow, presentation: picker)
                 }
                 .accessibilityIdentifier("CloudTeamInviteButton")
-            }
-            switch actions {
-            case .inline:
-                MachinesChromeIconButton(
-                    symbolName: "arrow.clockwise",
-                    accessibilityLabel: refreshLabel,
-                    isBusy: isRefreshing,
-                    action: onRefresh
-                )
-                .accessibilityIdentifier("CloudHeaderRefreshButton")
-                MachinesChromeIconButton(
-                    symbolName: "plus",
-                    accessibilityLabel: newMachineLabel,
-                    isBusy: false,
-                    action: onNewMachine
-                )
-                .accessibilityIdentifier("CloudHeaderNewMachineButton")
-            case .overflowMenu:
-                machineActionsMenu
             }
         }
     }

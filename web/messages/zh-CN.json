@@ -490,11 +490,11 @@
           ],
           "pro": [
             "在 Cloud VM 上运行云端智能体",
-            "所有 VM 共享 24 GB 内存和 6 个 vCPU",
+            "最多 5 台 Cloud VM，每台最多 4 个 vCPU 和 8 GB 内存",
             "cmux iOS 应用"
           ],
           "max": [
-            "所有 VM 共享 64 GB 内存和 16 个 vCPU",
+            "最多 5 台 Cloud VM，每台最多 16 个 vCPU 和 32 GB 内存",
             "更大的机器规格",
             "Pro 的全部功能"
           ],
@@ -542,6 +542,11 @@
         "team": "创建团队",
         "banner": "你现在使用的是 {plan}。",
         "bannerLink": "套餐与账单"
+      },
+      "appStore": {
+        "title": "通过 App Store 计费",
+        "body": "你的方案是在 cmux iPhone 应用中购买的，由 Apple 计费。请在 App Store 订阅中更改或取消。",
+        "manage": "在 App Store 中管理"
       }
     },
     "mobileDevices": {
@@ -1126,6 +1131,80 @@
       "revokeApiKeyConfirmTitle": "撤销此 API 密钥？",
       "apiKeyUsageDetail": "过去 30 天：{completions} 次完成 · {tokens} 个令牌（输入 {input} / 输出 {output}）· API 等值 {value}",
       "apiKeyUsageUnavailable": "使用数据不可用",
+      "revokeApiKeyConfirmBody": "使用此密钥的客户端将立即无法通过验证。"
+    },
+    "cloud": {
+      "title": "Cloud 机器与 Mac 访问",
+      "description": "设置每台机器的出站网络，并查看可通过 WireGuard 访问你的私有 Cloud VM 网络的 Mac。iPhone 和 Iroh 配对记录单独管理。",
+      "macAccessTitle": "Mac 访问",
+      "machines": {
+        "title": "机器",
+        "empty": "你没有 Cloud 机器。",
+        "personal": "个人",
+        "team": "团队",
+        "status": {
+          "provisioning": "正在启动",
+          "running": "运行中",
+          "failed": "失败",
+          "paused": "已暂停",
+          "destroyed": "已删除"
+        }
+      },
+      "network": {
+        "open": "网络",
+        "title": "{name} 的出站网络",
+        "description": "选择此机器可以访问的目标。更改会立即生效，无需重启。",
+        "loading": "正在加载网络策略…",
+        "loadError": "无法加载此机器的网络策略。",
+        "saveError": "无法应用此网络策略。",
+        "unsupported": "此机器不支持出站网络控制。",
+        "retry": "重试",
+        "appliedLabel": "状态：",
+        "applied": {
+          "applied": "已应用",
+          "pending": "正在应用",
+          "failed": "应用失败"
+        },
+        "unsaved": "有未保存的更改",
+        "refresh": "刷新",
+        "modeLabel": "出站访问",
+        "mode": {
+          "full": {
+            "label": "完整互联网",
+            "description": "任何公共地址。"
+          },
+          "allowlist": {
+            "label": "允许列表",
+            "description": "仅限你列出的预设、域名和 IP 范围。"
+          },
+          "none": {
+            "label": "无互联网",
+            "description": "仅限下方列出的 cmux 主机。"
+          }
+        },
+        "presetsTitle": "预设",
+        "presetsNote": "每个预设会添加精确的主机名。使用其他子域名的服务可能需要更多域名。",
+        "domainsTitle": "域名",
+        "domainsNote": "仅限精确主机名，且仅限 443 端口上的 HTTPS。暂不支持通配符。",
+        "domainInput": "域名",
+        "rangesTitle": "IP 范围",
+        "rangesNote": "提供商防火墙在机器外部执行这些规则。端口留空表示允许所有端口。指定端口时需要选择协议。",
+        "cidrInput": "IP 范围 (CIDR)",
+        "portInput": "端口",
+        "protocolInput": "协议",
+        "anyProtocol": "任意",
+        "noteInput": "备注（可选）",
+        "allPorts": "所有端口",
+        "dnsLabel": "允许 DNS",
+        "dnsNote": "让工具解析你的 IP 范围所指向的名称。域名不需要 DNS。开放的 DNS 是一个出站通道：进程可以把数据放在它查询的名称中发送出去。",
+        "requiredTitle": "始终允许",
+        "requiredNote": "cmux 在所有模式下都需要这些主机，以便在机器中安装和更新 CLI。",
+        "add": "添加",
+        "remove": "移除",
+        "discard": "放弃更改",
+        "close": "关闭",
+        "apply": "应用"
+      },
       "revokeApiKeyConfirmBody": "使用此密钥的客户端将立即无法通过验证。",
       "apiKeysEmptyTitle": "还没有 API 密钥",
       "apiKeysEmptyHint": "创建一个密钥来验证 CodeRouter 客户端。",
@@ -2843,12 +2922,18 @@
       "limitsTitle": "套餐限制",
       "limitsDesc": "套餐限制按机器数量计算，而不是共享的 CPU 或内存池。每台机器都会获得其规格对应的资源。",
       "limitsFree": "免费账户无法创建机器。",
-      "limitsPaid": "Pro 和 Max 账户最多可拥有 50 台活跃机器。正在运行或正在启动的机器即为活跃机器。",
-      "limitsTeam": "Team 账户每个付费席位最多可拥有 50 台活跃机器。",
-      "limitsMax": "大于 24 GB 的机器需要 cmux Max。",
+      "limitsPaid": "Pro 和 Max 账户最多可拥有 5 台活跃机器。正在运行或正在启动的机器即为活跃机器。",
+      "limitsTeam": "Team 账户每个付费席位最多可拥有 5 台活跃机器。",
+      "limitsMax": "大于 8 GB 的机器需要 cmux Max。Max 机器最高可达 32 GB 和 16 vCPU。",
       "limitsPricing": "当前价格请查看定价页面。不按用量计费，也没有超额费用。",
+      "agentUpdatesTitle": "让编码代理保持最新",
+      "agentUpdatesDesc": "开启此设置后，机器会更新 Claude Code、Codex、OpenCode、pi 和 agent-browser。机器创建后以及每次连接时都会检查，每 24 小时最多一次。更新在后台独立运行，因此不会阻塞连接。",
+      "agentUpdatesSource": "每个工具都来自其官方 GitHub 版本，并使用发布资源的 sha256 摘要进行校验。不使用 npm。版本发布满 3 天后才会安装，更新绝不会安装更旧的版本。正在运行的代理会继续使用启动时的文件，更新失败时当前版本保持不变。",
+      "agentUpdatesStatus": "上次检查的结果在 /etc/cmux/agent-updates.state 中，更新程序的日志在 /var/log/cmux-agent-updates.log 中。失败的检查会在下次连接时重新运行。",
+      "agentUpdatesToggle": "“新建机器”面板默认开启此设置。要为现有机器更改，请右键点击机器并选择“让代理保持最新”，或运行 cmux vm agent-updates。除非传入 --agent-updates latest，否则 cmux vm new 会保留镜像中的版本。关闭更新后，已安装的版本会保留。",
+      "agentUpdatesNetwork": "更新只使用 github.com, api.github.com, objects.githubusercontent.com 和 release-assets.githubusercontent.com。cmux 在所有网络模式下都允许这些主机，包括“允许列表”和“无互联网”，因此网络策略不会阻止更新。",
       "resizeTitle": "调整规格",
-      "resizeDesc": "你可以在不丢失数据的情况下扩大机器。右键点击机器并选择 Resize machine，或使用 cmux vm resize。调整规格只能扩大机器。磁盘以 4 GB 为步长最多扩展到 256 GB，内存最多 64 GB，CPU 最多 32 vCPU。实际上限由你的套餐决定。",
+      "resizeDesc": "你可以在不丢失数据的情况下扩大机器。右键点击机器并选择 Resize machine，或使用 cmux vm resize。调整规格只能扩大机器。磁盘以 4 GB 为步长最多扩展到 256 GB，内存最多 32 GB，CPU 最多 16 vCPU。实际上限由你的套餐决定。",
       "pauseTitle": "暂停与恢复",
       "pauseDesc": "cmux vm pause 会停止机器的计算资源。磁盘、工作区和终端历史会保留，正在运行的进程会停止。cmux vm resume 会重新启动机器。打开已暂停的机器或在其上运行命令也会启动它。",
       "pauseIdle": "机器空闲时不会自动暂停。机器会一直运行，直到你暂停或删除它。",
@@ -2999,7 +3084,7 @@
       "errPlan": "Cloud VM 需要付费套餐",
       "fixPlan": "免费账户无法创建机器。请在定价页面升级。",
       "errSize": "所选规格需要更高级的套餐",
-      "fixSize": "大于 24 GB 的机器需要 cmux Max。请选择更小的规格或升级。",
+      "fixSize": "大于 8 GB 的机器需要 cmux Max。请选择更小的规格或升级。",
       "errLimit": "已达到活跃机器数量上限",
       "fixLimit": "暂停或删除一台机器后重试。",
       "errLocked": "机器已被锁定",
@@ -5104,7 +5189,8 @@
   "pricing": {
     "billingUnavailable": "目前无法使用结算功能。请稍后再试。",
     "signedOutNotice": "你尚未登录。登录后可查看当前方案或恢复已有购买。",
-    "signedOutSignIn": "登录"
+    "signedOutSignIn": "登录",
+    "manageInAppStore": "在 App Store 中管理"
   },
   "platforms": {
     "macos": "macOS",
@@ -5273,17 +5359,17 @@
   },
   "cmuxSignIn": {
     "signInTitle": "登录 cmux",
-    "signInSubtitle": "一个账号即可使用应用、Cloud 和控制台。",
+    "signInSubtitle": "一个账号即可使用应用、cloud 和控制台。",
     "signUpTitle": "创建 cmux 账号",
-    "signUpSubtitle": "一个账号即可使用应用、Cloud 和控制台。",
+    "signUpSubtitle": "一个账号即可使用应用、cloud 和控制台。",
     "continueWithProvider": "使用 {provider} 继续",
     "signInWithPasskey": "使用通行密钥登录",
-    "or": "或",
+    "orContinueWith": "或继续使用",
     "emailLabel": "电子邮件",
     "emailPlaceholder": "you@company.com",
     "continueWithEmail": "使用邮箱继续",
-    "usePasswordInstead": "改用密码",
-    "useEmailCodeInstead": "改为通过邮件接收验证码",
+    "emailCodeTab": "邮箱",
+    "emailPasswordTab": "邮箱和密码",
     "passwordLabel": "密码",
     "repeatPasswordLabel": "确认密码",
     "signInButton": "登录",

@@ -27,9 +27,9 @@ const {
   isReturningFromOAuth,
   oauthLoginHint,
   signInEntry,
+  signInIsForApp,
   signUpPendingHref,
-  withContinueMarker,
-  withoutContinueMarker,
+  oauthReturnTo,
 } = await import("../app/handler/sign-in-entry");
 const { GET: startNativeSignIn } = await import("../app/handler/native-sign-in/route");
 
@@ -59,6 +59,19 @@ describe("sign-in entry", () => {
     expect(signInEntry({ ...signedIn, prompt: "login" })).toBe("continue");
   });
 
+  // Austin's case: sign out in the app, sign in again. The browser is still
+  // signed in, so without this it hands the same account straight back.
+  test("a sign-in for the Mac app confirms the account", () => {
+    expect(signInEntry({ ...signedIn, forApp: true })).toBe("choose-account");
+    expect(signInEntry({ ...signedIn, forApp: true, returningFromOAuth: true })).toBe("continue");
+    expect(signInEntry({ ...signedIn, forApp: true, isRestricted: true })).toBe("onboarding");
+  });
+
+  test("an account signed in on this page just now is not asked again", () => {
+    expect(signInEntry({ ...signedIn, forApp: true, signedInHere: true })).toBe("continue");
+    expect(signInEntry({ ...signedIn, prompt: SELECT_ACCOUNT_PROMPT, signedInHere: true })).toBe("continue");
+  });
+
   test("every signed-in arrival confirms when that policy is on", () => {
     expect(signInEntry({ ...signedIn, chooseOnEverySignedInArrival: true })).toBe("choose-account");
   });
@@ -77,19 +90,42 @@ describe("sign-in entry", () => {
   });
 });
 
+describe("sign-ins for the Mac app", () => {
+  const appCallback = "cmux://auth-callback?cmux_auth_state=state-123";
+  const afterSignIn = (callback: string) => `/handler/after-sign-in?native_app_return_to=${encodeURIComponent(callback)}`;
+
+  test("an app attempt's return target counts, relative or absolute", () => {
+    expect(signInIsForApp(afterSignIn(appCallback))).toBe(true);
+    expect(signInIsForApp(`https://cmux.com${afterSignIn(appCallback)}`)).toBe(true);
+    expect(signInIsForApp(`${afterSignIn(appCallback)}&cmux_auth_handoff=nonce`)).toBe(true);
+  });
+
+  test("web sign-ins, the pricing webview and malformed targets do not", () => {
+    expect(signInIsForApp(null)).toBe(false);
+    expect(signInIsForApp("/dashboard")).toBe(false);
+    expect(signInIsForApp(afterSignIn("cmux://auth-callback"))).toBe(false);
+    expect(signInIsForApp(`/dashboard?native_app_return_to=${encodeURIComponent(appCallback)}`)).toBe(false);
+    expect(signInIsForApp(afterSignIn("not a url"))).toBe(false);
+  });
+});
+
 describe("OAuth return marker", () => {
   const page = "https://cmux.test/handler/sign-in?after_auth_return_to=%2Fdashboard&prompt=select_account";
 
-  test("round trips on the page URL without touching other params", () => {
-    const marked = new URL(withContinueMarker(page));
+  test("the provider returns to this page with the marker, other params kept", () => {
+    const returnTo = oauthReturnTo(`${page}#top`);
+    expect(returnTo).toBeDefined();
+    const marked = new URL(returnTo!);
     expect(marked.searchParams.get(CONTINUE_PARAM)).toBe("1");
     expect(marked.searchParams.get("after_auth_return_to")).toBe("/dashboard");
     expect(marked.searchParams.get("prompt")).toBe(SELECT_ACCOUNT_PROMPT);
+    expect(marked.hash).toBe("");
     expect(isReturningFromOAuth(marked.searchParams)).toBe(true);
+  });
 
-    const cleared = new URL(withoutContinueMarker(marked.toString()));
-    expect(cleared.searchParams.has(CONTINUE_PARAM)).toBe(false);
-    expect(cleared.toString()).toBe(page);
+  test("a page with no return target leaves the provider's default return", () => {
+    expect(oauthReturnTo("https://cmux.test/handler/sign-in")).toBeUndefined();
+    expect(oauthReturnTo("https://cmux.test/handler/sign-in?prompt=select_account")).toBeUndefined();
   });
 
   test("only the exact marker value counts", () => {

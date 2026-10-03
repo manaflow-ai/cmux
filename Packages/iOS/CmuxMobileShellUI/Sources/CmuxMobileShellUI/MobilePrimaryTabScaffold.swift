@@ -16,6 +16,7 @@ struct MobilePrimaryTabScaffold<
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
     let notificationUnreadCount: Int
     let feedNeedsInputCount: Int
+    let feedNeedsInputCountProvider: (@MainActor () -> Int)?
     /// False when the Feed replaces the Notifications tab (CMUX Labs).
     let showsNotificationsTab: Bool
     let taskComposerAction: (() -> Void)?
@@ -30,6 +31,7 @@ struct MobilePrimaryTabScaffold<
         searchCoordinator: MobilePrimarySearchCoordinator,
         notificationUnreadCount: Int,
         feedNeedsInputCount: Int = 0,
+        feedNeedsInputCountProvider: (@MainActor () -> Int)? = nil,
         showsNotificationsTab: Bool = true,
         taskComposerAction: (() -> Void)? = nil,
         @ViewBuilder workspaces: () -> Workspaces,
@@ -42,6 +44,7 @@ struct MobilePrimaryTabScaffold<
         self.searchCoordinator = searchCoordinator
         self.notificationUnreadCount = notificationUnreadCount
         self.feedNeedsInputCount = feedNeedsInputCount
+        self.feedNeedsInputCountProvider = feedNeedsInputCountProvider
         self.showsNotificationsTab = showsNotificationsTab
         self.taskComposerAction = taskComposerAction
         self.workspaces = workspaces()
@@ -66,20 +69,28 @@ struct MobilePrimaryTabScaffold<
                     }
                 }
                 .tabViewSearchActivation(.searchTabSelection)
-                .tabViewStyle(.tabBarOnly)
                 .accessibilityIdentifier("MobilePrimaryTabs")
-                .animation(nil, value: selection)
                 .onChange(of: selection, initial: true) { _, selection in
                     searchCoordinator.synchronizeSelection(selection)
                 }
 
-                if selection == .workspaces {
-                    iOS26TaskComposerButton
+                if selection == .workspaces, let taskComposerAction {
+                    TaskComposerButton(
+                        action: taskComposerAction,
+                        diameter: iOS26BottomControlDiameter
+                    )
+                    .padding(.trailing, iOS26BottomControlInset)
+                    .padding(.bottom, iOS26TaskComposerBottomPadding)
+                    // Compose anchors to the screen, not the keyboard. The
+                    // only keyboard that can appear while it is visible
+                    // belongs to an overlaying sheet (the composer's
+                    // auto-focused prompt), whose inset dragged the button
+                    // toward mid-screen and stranded it there whenever the
+                    // hide update was missed.
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .ignoresSafeArea(.keyboard, edges: .bottom)
                 }
             }
-            // The composer padding is calibrated from the screen edge. Keep
-            // the scaffold's layout space through the bottom container inset
-            // so the button does not float above its intended position.
             .ignoresSafeArea(.container, edges: .bottom)
         } else if #available(iOS 18.0, *) {
             TabView(selection: $selection) {
@@ -94,7 +105,7 @@ struct MobilePrimaryTabScaffold<
                 feed
                     .tabItem { feedLabel }
                     .tag(MobilePrimaryTab.feed)
-                    .badge(feedNeedsInputCount)
+                    .badge(resolvedFeedNeedsInputCount)
                 if showsNotificationsTab {
                     notifications
                         .tabItem { notificationsLabel }
@@ -109,6 +120,10 @@ struct MobilePrimaryTabScaffold<
         }
     }
 
+    private var resolvedFeedNeedsInputCount: Int {
+        feedNeedsInputCountProvider?() ?? feedNeedsInputCount
+    }
+
     /// A tab-view bottom accessory always adds a full-width plate, which is
     /// intended for mini-player content. Compose remains a standalone action
     /// aligned with the detached Search control instead.
@@ -117,26 +132,6 @@ struct MobilePrimaryTabScaffold<
     private var iOS26BottomControlSpacing: CGFloat { 12 }
     private var iOS26TaskComposerBottomPadding: CGFloat {
         iOS26BottomControlInset + iOS26BottomControlDiameter + iOS26BottomControlSpacing
-    }
-
-    @ViewBuilder
-    private var iOS26TaskComposerButton: some View {
-        if let taskComposerAction {
-            TaskComposerButton(
-                action: taskComposerAction,
-                diameter: iOS26BottomControlDiameter
-            )
-            .padding(.trailing, iOS26BottomControlInset)
-            .padding(.bottom, iOS26TaskComposerBottomPadding)
-            // Compose anchors to the screen, not the keyboard. The
-            // only keyboard that can appear while it is visible
-            // belongs to an overlaying sheet (the composer's
-            // auto-focused prompt), whose inset dragged the button
-            // toward mid-screen and stranded it there whenever the
-            // hide update was missed.
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-            .ignoresSafeArea(.keyboard, edges: .bottom)
-        }
     }
 
     private var tabSelection: Binding<MobilePrimaryTab> {
@@ -153,19 +148,7 @@ struct MobilePrimaryTabScaffold<
                         searchCoordinator.deactivateCurrentSearch()
                     }
                 }
-                // Each primary tab owns a NavigationStack. Letting the
-                // selection write inherit SwiftUI's default animation makes
-                // UIKit animate the outgoing stack's toolbar away before the
-                // incoming stack has installed its own toolbar items. The
-                // resulting empty frame is the brief flash seen at the top
-                // while switching between Workspaces and Notifications.
-                // Keep the tab contents and their navigation state intact,
-                // but commit the stack swap as one layout transaction.
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) {
-                    selection = newValue
-                }
+                selection = newValue
             }
         )
     }
@@ -184,7 +167,7 @@ struct MobilePrimaryTabScaffold<
         } label: {
             feedLabel
         }
-        .badge(feedNeedsInputCount)
+        .badge(resolvedFeedNeedsInputCount)
 
         if showsNotificationsTab {
             Tab(value: MobilePrimaryTab.notifications) {

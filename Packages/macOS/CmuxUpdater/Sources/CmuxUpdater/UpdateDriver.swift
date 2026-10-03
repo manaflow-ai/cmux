@@ -203,8 +203,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     }
 
     /// Holds `install` while relaunching would interrupt a busy agent or a running command.
-    /// Later leaves the downloaded update on "Restart to Complete Update"; Sparkle still
-    /// installs it when cmux quits.
+    /// Later leaves the downloaded update ready; Sparkle still installs it when cmux quits.
     private func holdRelaunch(isAutoUpdate: Bool, install: @escaping () -> Void) {
         relaunchGate.hold(
             isAutoUpdate: isAutoUpdate,
