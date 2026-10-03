@@ -387,19 +387,15 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         run: swift build --build-tests
 
-      - name: Regenerate action surface export
+      - name: Check generated action catalog, surfaces and inventory
         working-directory: Packages/macOS/CmuxNext
         run: |
-          CMUX_UPDATE_ACTION_SURFACES=1 \
-            swift test --skip-build --filter ActionSurfaceParityTests
-
-      - name: Upload regenerated action surface files
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: action-surface-regen
-          path: |
-            plans/cmux-next/action-surfaces.json
-            plans/cmux-next/actions.md
+          set -euo pipefail
+          if ../../../scripts/cmux-next/check-action-surfaces.sh "$PWD"; then
+            exit 0
+          fi
+          echo "::error::Generated cmux-next action catalog, surface or inventory files are stale. Run: scripts/cmux-next/regenerate-action-contracts.sh"
+          exit 1
 
       - name: Compile string catalogs into the resource bundles
         working-directory: Packages/macOS/CmuxNext
