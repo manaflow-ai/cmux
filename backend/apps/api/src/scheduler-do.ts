@@ -391,6 +391,13 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     return this.submit(entity, principal, frame)
   }
 
+  /** RPC from TeamDO: the run class of agents.allowedClasses at a policy version (newest wins). */
+  async applyRunPolicy(entity: string, policy: { version: number; runs_allowed: boolean }): Promise<{ ok: boolean; message?: string }> {
+    this.bind(entity)
+    const r = rejected(this.submitSystem("scheduler.run_policy", policy, `run-policy:${policy.version}:${policy.runs_allowed ? 1 : 0}`))
+    return r ? { ok: false, message: `${r.code}: ${r.message}` } : { ok: true }
+  }
+
   /** RPC from a run's Workflow. One key per (run, state, step): a retried step replays. */
   async reportRun(entity: string, report: RunReport): Promise<{ ok: boolean; code?: string }> {
     this.bind(entity)

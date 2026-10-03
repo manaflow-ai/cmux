@@ -7,10 +7,11 @@ import { reduceActivated, reduceConnectionCreate, reduceConnectionDisable, reduc
 import { reduceDeviceEnroll, reduceDeviceRelease, reduceReportStatus, reduceTokenCreate, reduceTokenRevoke, type EnrollmentState } from "./team-enrollment.ts"
 import { reduceIntegrationLock, reduceIntegrationSeed, reduceIntegrationSynced, reduceReleaseDone, reduceReleaseLock, type IntegrationSyncState } from "./team-integration-sync.ts"
 import { reducePolicyRollback, reducePolicyUpdate } from "./team-policy.ts"
+import { reduceRunsSynced, type RunSyncState } from "./team-run-sync.ts"
 import { reduceAccountAllocated, reduceCaInstalled, reduceCertsRevoked, type TeamSshState } from "./team-ssh.ts"
 import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerRevoke, type ServerRevocation } from "./team-servers.ts"
 
-export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncState, DomainState, SsoState, TeamSshState {
+export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncState, RunSyncState, DomainState, SsoState, TeamSshState {
   readonly team: { readonly id: string; readonly kind: "personal" | "stack"; readonly display_name: string } | null
   readonly members: Readonly<Record<string, typeof TeamMember.Type>>
   readonly hosts: Readonly<Record<string, typeof Host.Type>>
@@ -188,6 +189,10 @@ export const teamDomain: Domain<TeamState> = {
       case "team.policy.integration_synced": {
         if (p.kind !== "system") return reject("auth.forbidden", "internal op")
         return reduceIntegrationSynced(state, params)
+      }
+      case "team.policy.runs_synced": {
+        if (p.kind !== "system") return reject("auth.forbidden", "internal op")
+        return reduceRunsSynced(state, params)
       }
       case "team.policy.update":
       case "team.policy.rollback":

@@ -16,6 +16,7 @@ import { checkCron, nextFire } from "../cron.ts"
 import { admit, decodeParams, reject, requirePersonalTeamAdmin } from "./common.ts"
 import { automationOutbox, countDeploy, reduceDeploy } from "./scheduler-code.ts"
 import { MAX_ACTIVE_RUNS_PER_TEAM, MAX_OPEN_RUNS_PER_TEAM, queueFull, rateLimited, takeRunToken, type RunBucket } from "./scheduler-limits.ts"
+import { applyRunPolicy, policyDenied, runsAllowed, type RunPolicy } from "./scheduler-policy.ts"
 import { personalTeamIdFor } from "./user.ts"
 
 /**
@@ -70,6 +71,8 @@ export interface SchedulerState {
   readonly deploys?: { readonly day: string; readonly count: number }
   /** Run-creation token bucket (abuse limit, scheduler-limits.ts). */
   readonly rate?: RunBucket
+  /** TeamDO's push of the run class of agents.allowedClasses (scheduler-policy.ts); absent = allowed. */
+  readonly run_policy?: RunPolicy
 }
 
 
@@ -194,6 +197,7 @@ const startRun = (
   trigger: Run["trigger"],
   ctx: ReduceContext
 ): { state: SchedulerState; run: RunRecord; outbox: Array<OutboxItem> } | { rejected: ReturnType<typeof rateLimited> } => {
+  if (!runsAllowed(state.run_policy)) return { rejected: policyDenied() }
   const rate = takeRunToken(state.rate, ctx.now)
   if (!rate) return { rejected: rateLimited() }
   if (Object.values(state.runs).filter((r) => !TERMINAL.has(r.state)).length >= MAX_OPEN_RUNS_PER_TEAM) return { rejected: queueFull() }
@@ -395,6 +399,8 @@ export const schedulerDomain: Domain<SchedulerState> = {
         const next_at = spec.type === "cron" ? nextFire(spec.expr, spec.tz, Math.max(d.value.scheduled_at, ctx.now)) : null
         const updated = withNextRun({ ...a, triggers: a.triggers.map((x) => (x.id === t.id ? { ...x, next_at } : x)) })
         const base = { ...state, automations: { ...state.automations, [a.id]: updated } }
+        // Runs not allowed by team policy: the schedule moves on and no run starts (a retry would loop).
+        if (!runsAllowed(state.run_policy)) return { ok: true, state: base, value: { skipped: "policy.denied" }, outbox: [automationOutbox(updated)] }
         const r = startRun(base, updated, { id: t.id, type: spec.type, scheduled_at: d.value.scheduled_at }, ctx)
         if ("rejected" in r) return r.rejected
         return { ok: true, state: r.state, value: publicRun(r.run), outbox: [automationOutbox(updated), ...r.outbox] }
@@ -454,6 +460,14 @@ export const schedulerDomain: Domain<SchedulerState> = {
           outbox.push(...c.outbox)
         }
         return { ok: true, state: s, value: publicRun(next), outbox }
+      }
+
+      case "scheduler.run_policy": {
+        const d = decodeParams<RunPolicy>(internalByName.get(op)!, params)
+        if (!d.ok) return d
+        const next = applyRunPolicy(state.run_policy, d.value)
+        if (!next) return { ok: true, state, value: state.run_policy ?? null, changed: false }
+        return { ok: true, state: { ...state, run_policy: next }, value: next }
       }
 
       case "automation.settings.set": {

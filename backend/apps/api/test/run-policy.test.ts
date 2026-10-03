@@ -1,5 +1,5 @@
 import { env, exports } from "cloudflare:workers"
-import { runDurableObjectAlarm } from "cloudflare:test"
+import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 
@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest"
  */
 const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; TEAM_DO: DurableObjectNamespace; SCHEDULER_DO: DurableObjectNamespace }
 const worker = (exports as unknown as { default: Fetcher }).default
+const inDO = runInDurableObject as unknown as (stub: unknown, cb: (instance: any) => Promise<void>) => Promise<void>
 const token = async (sub: string) =>
   new SignJWT({ email: `${sub}@example.com`, email_verified: true, name: sub })
     .setProtectedHeader({ alg: "ES256", kid: "stack-test" })
@@ -61,7 +62,7 @@ describe("run class of agents.allowedClasses (workerd)", { timeout: 60_000 }, ()
     const before = (await read(t, "automation.get", { automation })).value.triggers[0].next_at as number
     const scheduler = testEnv.SCHEDULER_DO.get(testEnv.SCHEDULER_DO.idFromName(team))
     let value: any
-    await (await import("cloudflare:test")).runInDurableObject(scheduler, async (s: any) => {
+    await inDO(scheduler, async (s) => {
       const trigger = s.boundEngine.currentState.automations[automation].triggers[0].id
       const r = s.submitSystem("automation.fire", { automation, trigger, scheduled_at: before }, `fire-test:${before}`)
       value = r.frames.find((f: { t: string }) => f.t === "result" || f.t === "reject")

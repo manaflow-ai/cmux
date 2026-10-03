@@ -232,3 +232,12 @@ export const RunReportParams = Schema.Struct({
 })
 
 export const RunDispatchedParams = Schema.Struct({ run: RunId })
+
+/**
+ * TeamDO's push of the run class of agents.allowedClasses (enterprise P17-4): whether the team
+ * allows automation runs, at a TeamPolicy version. SchedulerDO keeps the newest version.
+ */
+export const RunPolicyApplyParams = Schema.Struct({
+  version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+  runs_allowed: Schema.Boolean
+})
