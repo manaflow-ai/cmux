@@ -8199,6 +8199,28 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testTextBoxSubmitCloudImagesUploadsAtPromptPosition() throws {
+        let imageURL = try makeTemporaryPNGFile(named: "cloud-prompt.png")
+        let attachment = TextBoxAttachment(
+            localURL: imageURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: imageURL)
+        )
+
+        XCTAssertEqual(
+            TextBoxSubmit.dispatchEvents(
+                for: [.text("what is "), .attachment(attachment), .text("now")],
+                terminalAgentContext: "restoredAgent:codex",
+                imageTransferTarget: .cloud
+            ),
+            [
+                .pasteText("what is "),
+                .pasteCloudImages([imageURL.standardizedFileURL]),
+                .pasteText(" now"),
+                .namedKey("return")
+            ]
+        )
+    }
+
     func testTextBoxSubmitStagesClaudeImagePromptWithMultilineTail() throws {
         let imageURL = try makeTemporaryPNGFile(named: "moon.png")
         let attachment = TextBoxAttachment(
