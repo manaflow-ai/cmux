@@ -9,6 +9,10 @@ public enum TerminalTabState: String, Sendable, Hashable, Decodable {
     /// The host's record is one this daemon build cannot adopt; the shell may
     /// still run until the user closes the tab.
     case unadoptable
+    /// The daemon lost its link to the terminal's host and is reconnecting.
+    case reconnecting
+    /// The daemon gave up reconnecting to the host; the shell may still run.
+    case failed
     case exited
 }
 
@@ -34,6 +38,8 @@ public struct TerminalTabEnd: Sendable, Hashable, Decodable {
         case diedWithoutExitStatus = "died_without_exit_status"
         case missingExitReceipt = "missing_exit_receipt"
         case sessionShutdown = "session_shutdown"
+        /// A host this daemon could not adopt ended (by itself or on close).
+        case unadoptableHostEnded = "unadoptable_host_ended"
         case other
 
         public init(from decoder: any Decoder) throws {
