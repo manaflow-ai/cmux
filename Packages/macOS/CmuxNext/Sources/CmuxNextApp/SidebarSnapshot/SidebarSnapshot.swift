@@ -32,6 +32,8 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
         var id: String
         var machineID: String
         var title: String
+        /// `harness`, `browser` or `terminal`; absent in older snapshots.
+        var kind: String?
         /// `symbol:<name>`, `swatch:<color>` or `emoji:<text>`.
         var icon: String?
         var iconTint: String?
@@ -124,12 +126,15 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
         case let .emoji(text)?: icon = "emoji:" + text
         case nil: break
         }
-        return Workspace(id: ws.id.rawValue, machineID: ws.machineID.rawValue, title: ws.title, icon: icon, iconTint: tint)
+        return Workspace(id: ws.id.rawValue, machineID: ws.machineID.rawValue, title: ws.title,
+                         kind: ws.kind.rawValue, icon: icon, iconTint: tint)
     }
 
     private static func sidebarWorkspace(_ ws: Workspace) -> SidebarWorkspace {
         SidebarWorkspace(id: WorkspaceID(ws.id), machineID: MachineID(ws.machineID), title: ws.title,
-                         icon: ws.icon.flatMap { icon($0, tint: ws.iconTint) }, rowState: .stale)
+                         icon: ws.icon.flatMap { icon($0, tint: ws.iconTint) },
+                         kind: SidebarWorkspaceKind(rawValue: ws.kind ?? "terminal") ?? .terminal,
+                         rowState: .stale)
     }
 
     private static func icon(_ value: String, tint: String?) -> WorkspaceIcon? {

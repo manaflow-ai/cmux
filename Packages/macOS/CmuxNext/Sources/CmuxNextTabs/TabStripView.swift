@@ -190,6 +190,18 @@ public final class TabStripView: NSView {
     public override var isFlipped: Bool { true }
     public override var mouseDownCanMoveWindow: Bool { false }
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    public override var acceptsFirstResponder: Bool { true }
+
+    /// F2 starts the same inline editor as a screen-tab double-click. The
+    /// strip owns this path so pane tabs and screen tabs share one editor.
+    public override func keyDown(with event: NSEvent) {
+        let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])
+        if event.keyCode == 120, flags.isEmpty, let selectedID = model.selectedID {
+            beginInlineRename(selectedID)
+            return
+        }
+        super.keyDown(with: event)
+    }
 
     public override var intrinsicContentSize: NSSize {
         NSSize(width: NSView.noIntrinsicMetric, height: metrics.stripHeight)

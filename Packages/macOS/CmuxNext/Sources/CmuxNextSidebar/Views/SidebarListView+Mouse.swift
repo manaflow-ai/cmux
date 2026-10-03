@@ -153,6 +153,10 @@ extension SidebarListView {
 
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])
+        if event.keyCode == 120, flags.isEmpty { // F2
+            if let active = model.activeWorkspaceID { inlineRename.begin(.workspace(active)) }
+            return
+        }
         if event.keyCode == 53 { // Escape
             if drag != nil { return cancelDrag() }
             if !model.filterText.isEmpty {

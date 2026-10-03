@@ -41,15 +41,19 @@ struct WindowRailTests {
         let column = controller.root.rail.column
         column.layoutSubtreeIfNeeded()
         let ids = { (raw: [String]) in raw.map(LayoutItemID.init) }
-        #expect(column.layoutResult.buttons.map(\.item) == ids(["itm_home", "itm_app_store", "itm_history", "itm_notifications", "itm_account"]))
-        #expect(Array(column.layoutResult.overflow.prefix(2)) == ids(["itm_settings", "itm_customize"]))
+        #expect(column.layoutResult.buttons.map(\.item) == ids(["itm_new_workspace", "itm_import_sync", "itm_history", "itm_notifications",
+                                                                 "itm_account"]))
+        #expect(Array(column.layoutResult.overflow.prefix(3)) == ids(["itm_app_store", "itm_settings", "itm_customize"]))
         #expect(column.layoutResult.more != nil)
         for builtIn in SidebarBuiltIn.allCases {
             #expect(SidebarBridge.builtInActions[builtIn] != nil, "\(builtIn) has no action")
             #expect(NSImage(systemSymbolName: builtIn.symbol, accessibilityDescription: nil) != nil, "\(builtIn.symbol)")
         }
+        // The rail's top slots run New Workspace and the import menu.
+        #expect(SidebarBridge.builtInActions[.newWorkspace] == "newTab")
+        #expect(SidebarBridge.builtInActions[.importSync] == "importAndSync.show")
         // The new-tab launchers the rail used to hard-code run bound actions.
-        for builtIn in [SidebarBuiltIn.newTerminal, .newBrowser, .newAgentChat, .settings, .account] {
+        for builtIn in [SidebarBuiltIn.newWorkspace, .importSync, .newTerminal, .newBrowser, .newAgentChat, .settings, .account] {
             #expect(SidebarBridge.builtInActions[builtIn].map(services.registry.isBound) == true, "\(builtIn) is not bound")
         }
         close(controller)
@@ -65,10 +69,10 @@ struct WindowRailTests {
         defer { DesignSettings.shared.rail = saved }
         let controller = makeWindow(services, .leading)
         let column = controller.root.rail.column
-        let home = LayoutItemID("itm_home")
-        let menu = try #require(column.contextMenuProvider?(.layoutItem(home)))
+        let newWorkspace = LayoutItemID("itm_new_workspace")
+        let menu = try #require(column.contextMenuProvider?(.layoutItem(newWorkspace)))
         #expect(!menu.items.isEmpty)
-        #expect(menu.items.map(\.title) == controller.sidebar.contextMenu(for: .layoutItem(home))?.items.map(\.title))
+        #expect(menu.items.map(\.title) == controller.sidebar.contextMenu(for: .layoutItem(newWorkspace))?.items.map(\.title))
         #expect(column.contextMenuProvider?(.background) != nil)
         close(controller)
         withExtendedLifetime(services) {}
@@ -90,6 +94,10 @@ struct WindowRailTests {
         defer { DesignSettings.shared.rail = saved }
         let browserShortcut = try #require(registry.shortcutDisplay(for: "openBrowser"))
         #expect(WindowRail.toolTip(for: .builtIn(.newBrowser), registry: registry) == "New Browser Tab (\(browserShortcut))")
+        let newWorkspaceShortcut = try #require(registry.shortcutDisplay(for: "newTab"))
+        #expect(WindowRail.toolTip(for: .builtIn(.newWorkspace), registry: registry) == "New Workspace (\(newWorkspaceShortcut))")
+        // No default shortcut: the import menu's title alone.
+        #expect(WindowRail.toolTip(for: .builtIn(.importSync), registry: registry) == "Import and Sync")
         // No shortcut: the title alone, without the menu ellipsis.
         #expect(WindowRail.toolTip(for: .builtIn(.account), registry: registry) == "Accounts")
         // Not a built-in: the item's own title.
@@ -222,11 +230,10 @@ struct WindowRailTests {
     }
 
     /// With the rail at the window's leading edge (the default, the Codex
-    /// app's skinny strip) the sidebar is an inset panel beside it: it
-    /// starts below the top row, reaches the bottom, rounds only its top
-    /// leading corner, and fills with the theme's sidebar step over the
-    /// window backdrop, so the rail reads one tone darker (lighter themes:
-    /// one tone lighter). The other placements keep one sheet.
+    /// app's skinny strip) the sidebar and main pane share one rounded frame
+    /// beside it. The frame starts below the top row and uses the same
+    /// surface token as the window backdrop. The other placements keep one
+    /// sheet.
     @Test func theLeadingRailSitsBesideAnInsetSidebarPanel() throws {
         let services = Coverage.boundServices()
         let saved = DesignSettings.shared.rail
@@ -239,18 +246,18 @@ struct WindowRailTests {
                 #expect(panel.superview === root)
                 #expect(root.subviews.first === root.backdropView, "the panel sits on the backdrop")
                 let sidebar = controller.sidebar.container.frame
-                #expect(panel.frame.minX == sidebar.minX && panel.frame.width == sidebar.width)
+                #expect(panel.frame.minX == sidebar.minX && panel.frame.maxX == root.bounds.maxX)
                 #expect(panel.frame.minX == root.rail.frame.maxX)
                 #expect(panel.frame.minY == root.bounds.minY)
                 #expect(panel.frame.maxY == root.bounds.maxY - root.rail.topInset, "starts below the top row")
                 let layer = try #require(panel.layer)
                 #expect(layer.cornerRadius == Metrics.panelCornerRadius)
-                #expect(layer.maskedCorners == [.layerMinXMaxYCorner])
+                #expect(layer.maskedCorners == [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner])
                 let fill = try #require(layer.backgroundColor.flatMap { NSColor(cgColor: $0)?.usingColorSpace(.sRGB) })
-                let step = try #require(root.performWithTheme { Palette.stripStep }.usingColorSpace(.sRGB))
-                #expect(abs(fill.redComponent - step.redComponent) < 0.004 && abs(fill.greenComponent - step.greenComponent) < 0.004
-                    && abs(fill.blueComponent - step.blueComponent) < 0.004 && abs(fill.alphaComponent - step.alphaComponent) < 0.004,
-                        "\(fill) is not the strip step \(step)")
+                let surface = try #require(root.performWithTheme { Palette.surfaceBackground }.usingColorSpace(.sRGB))
+                #expect(abs(fill.redComponent - surface.redComponent) < 0.004 && abs(fill.greenComponent - surface.greenComponent) < 0.004
+                    && abs(fill.blueComponent - surface.blueComponent) < 0.004 && abs(fill.alphaComponent - surface.alphaComponent) < 0.004,
+                        "\(fill) is not the shared surface \(surface)")
             } else {
                 #expect(panel.superview == nil, "\(placement)")
             }
@@ -259,8 +266,8 @@ struct WindowRailTests {
         withExtendedLifetime(services) {}
     }
 
-    /// A hidden sidebar takes its panel with it: the rail and the content
-    /// column meet on the one backdrop.
+    /// A hidden sidebar leaves the shared frame over the content column; the
+    /// rail and frame still meet on the one backdrop.
     @Test func theInsetPanelFollowsTheSidebarsWidth() {
         let services = Coverage.boundServices()
         let saved = DesignSettings.shared.rail
@@ -268,7 +275,8 @@ struct WindowRailTests {
         let controller = makeWindow(services, .leading)
         controller.sidebar.container.restore(width: nil, presentation: .hidden)
         controller.root.layoutSubtreeIfNeeded()
-        #expect(controller.root.sidebarPanel.frame.width == 0)
+        #expect(controller.root.sidebarPanel.frame.minX == WindowRail.width)
+        #expect(controller.root.sidebarPanel.frame.maxX == controller.root.bounds.maxX)
         #expect(controller.root.contentHost.frame.minX == WindowRail.width)
         close(controller)
         withExtendedLifetime(services) {}

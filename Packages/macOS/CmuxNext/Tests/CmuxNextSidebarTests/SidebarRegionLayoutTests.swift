@@ -21,8 +21,9 @@ import Testing
 
     @Test func defaultBandsAreTheDestinationsAboveAndTheAccountBelow() {
         let bands = defaults.bands(room: nil)
-        #expect(bands.above.flatMap(\.items).map(\.ref) == [.builtIn(.home), .builtIn(.appStore), .builtIn(.history), .builtIn(.notifications),
-                                                            .builtIn(.settings), .builtIn(.customize), .app("cmux/coderouter")])
+        #expect(bands.above.flatMap(\.items).map(\.ref) == [.builtIn(.newWorkspace), .builtIn(.importSync), .builtIn(.history),
+                                                            .builtIn(.notifications), .builtIn(.appStore), .builtIn(.settings),
+                                                            .builtIn(.customize), .app("cmux/coderouter")])
         #expect(bands.below.flatMap(\.items).map(\.ref) == [.builtIn(.account)])
     }
 
@@ -149,8 +150,8 @@ import Testing
 
     @Test func modelAppliesSectionIntentsLocally() {
         let model = SidebarModel()
-        model.send(.layout(.itemRemove(LayoutItemID("itm_home"))))
-        #expect(model.layout.firstItem(with: .builtIn(.home)) == nil)
+        model.send(.layout(.itemRemove(LayoutItemID("itm_history"))))
+        #expect(model.layout.firstItem(with: .builtIn(.history)) == nil)
         model.send(.toggleLayoutSection(SidebarLayoutDocument.bottomSectionID))
         #expect(model.collapsedLayoutSections == [SidebarLayoutDocument.bottomSectionID])
         model.send(.toggleLayoutSection(SidebarLayoutDocument.bottomSectionID))
@@ -164,8 +165,8 @@ import Testing
         let view = SidebarView(model: model)
         view.frame = NSRect(x: 0, y: 0, width: 260, height: 700)
         view.layoutSubtreeIfNeeded()
-        let home = try #require(view.aboveRegion.itemView(LayoutItemID("itm_home")))
-        #expect(home.info.title == SidebarBuiltIn.home.title)
+        let newWorkspace = try #require(view.aboveRegion.itemView(LayoutItemID("itm_new_workspace")))
+        #expect(newWorkspace.info.title == SidebarBuiltIn.newWorkspace.title)
         #expect(view.aboveRegion.layoutResult.height > 0)
         #expect(view.belowRegion.itemView(LayoutItemID("itm_account")) != nil)
         let aboveTop = try #require(view.aboveRegion.enclosingScrollView?.superview).frame.minY

@@ -6,7 +6,8 @@ import Testing
 /// defaults, every op, invariants L1-L6, idempotency and the wire format.
 @Suite struct SidebarLayoutReducerTests {
     private let defaults = SidebarLayoutDocument.defaults
-    private let home = LayoutItemID("itm_home")
+    private let newWorkspace = LayoutItemID("itm_new_workspace")
+    private let history = LayoutItemID("itm_history")
     private let settings = LayoutItemID("itm_settings")
 
     private func reduce(_ doc: SidebarLayoutDocument, _ op: SidebarLayoutOp) throws -> SidebarLayoutDocument {
@@ -21,53 +22,56 @@ import Testing
     // MARK: Defaults
 
     /// The rail layout (Leo, 2026-10-03; `window.rail` defaults to
-    /// "leading"): the top section holds the destinations, the first four
-    /// (Home, the App Store, History, Notifications) as buttons and the rest
-    /// (Settings, Customize Appearance, CodeRouter) under the rail's More
-    /// button (`maxRows` 4); the bottom section holds only the account; the
-    /// sidebar keeps the workspace list.
+    /// "leading"): the top section holds New Workspace, Import and Sync,
+    /// History and Notifications as buttons and the rest (the App Store,
+    /// Settings, Customize Appearance, CodeRouter) under the rail's More
+    /// button (`maxRows` 4); no Home; the bottom section holds only the
+    /// account; the sidebar keeps the workspace list.
     @Test func defaultsPutTheDestinationsInTheRailAndTheAccountAtTheBottom() {
         #expect(defaults.sections(in: .top, room: nil).flatMap(\.items).map(\.ref) == [
-            .builtIn(.home), .builtIn(.appStore), .builtIn(.history), .builtIn(.notifications),
-            .builtIn(.settings), .builtIn(.customize), .app("cmux/coderouter"),
+            .builtIn(.newWorkspace), .builtIn(.importSync), .builtIn(.history), .builtIn(.notifications),
+            .builtIn(.appStore), .builtIn(.settings), .builtIn(.customize), .app("cmux/coderouter"),
         ])
+        #expect(defaults.firstItem(with: .builtIn(.home)) == nil)
         #expect(defaults.section(SidebarLayoutDocument.topSectionID)?.maxRows == 4)
         #expect(defaults.sections(in: .middle, room: nil).map(\.content) == [.workspaces])
         #expect(defaults.sections(in: .bottom, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.account)])
         #expect(defaults.sections.filter { $0.region != .middle && $0.content == .items }.allSatisfy { $0.look == .builtIn && $0.title == nil })
         #expect(defaults.sections.allSatisfy { $0.content != .app })
-        #expect(defaults.firstTopItem(room: nil)?.ref == .builtIn(.home))
+        #expect(defaults.firstTopItem(room: nil)?.ref == .builtIn(.newWorkspace))
         // Every id is fixed, so a never-written layout is the same everywhere.
-        #expect(Self.itemIDs(defaults).map(\.rawValue) == ["itm_home", "itm_app_store", "itm_history", "itm_notifications", "itm_settings",
-                                                           "itm_customize", "itm_app_coderouter", "itm_account"])
+        #expect(Self.itemIDs(defaults).map(\.rawValue) == ["itm_new_workspace", "itm_import_sync", "itm_history", "itm_notifications",
+                                                           "itm_app_store", "itm_settings", "itm_customize", "itm_app_coderouter",
+                                                           "itm_account"])
     }
 
     // MARK: Items
 
-    @Test func removeHomeMakesTheAppStoreTheFirstTopItem() throws {
-        let doc = try reduce(defaults, .itemRemove(home))
-        #expect(doc.firstItem(with: .builtIn(.home)) == nil)
-        #expect(doc.firstTopItem(room: nil)?.ref == .builtIn(.appStore))
+    @Test func removeNewWorkspaceMakesImportTheFirstTopItem() throws {
+        let doc = try reduce(defaults, .itemRemove(newWorkspace))
+        #expect(doc.firstItem(with: .builtIn(.newWorkspace)) == nil)
+        #expect(doc.firstTopItem(room: nil)?.ref == .builtIn(.importSync))
         #expect(doc.revision == defaults.revision + 1)
     }
 
     @Test func addPinsAtIndexAndClampsTheIndex() throws {
         let ws = LayoutItem(id: LayoutItemID("itm_ws"), ref: .workspace("local:ws_1"))
         let doc = try reduce(defaults, .itemAdd(ws, section: SidebarLayoutDocument.topSectionID, index: 99))
-        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == Self.topIDs([home.rawValue, "itm_app_store", "itm_history", "itm_notifications",
-                                                                                                  "itm_settings", "itm_customize", "itm_app_coderouter"]) + [ws.id])
+        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == Self.topIDs(["itm_new_workspace", "itm_import_sync", history.rawValue, "itm_notifications",
+                                                                                                  "itm_app_store", "itm_settings", "itm_customize",
+                                                                                                  "itm_app_coderouter"]) + [ws.id])
         let front = try reduce(defaults, .itemAdd(ws, section: SidebarLayoutDocument.topSectionID, index: -3))
         #expect(front.section(SidebarLayoutDocument.topSectionID)?.items.first?.id == ws.id)
     }
 
     @Test func addingTheSameRefTwiceToASectionIsANoOp() throws {
-        let again = LayoutItem(id: LayoutItemID("itm_home2"), ref: .builtIn(.home))
+        let again = LayoutItem(id: LayoutItemID("itm_history2"), ref: .builtIn(.history))
         let doc = try reduce(defaults, .itemAdd(again, section: SidebarLayoutDocument.topSectionID, index: 0))
         #expect(doc == defaults)
     }
 
     @Test func theSameRefMayLiveInTwoSections() throws {
-        let copy = LayoutItem(id: LayoutItemID("itm_home2"), ref: .builtIn(.home))
+        let copy = LayoutItem(id: LayoutItemID("itm_history2"), ref: .builtIn(.history))
         let doc = try reduce(defaults, .itemAdd(copy, section: SidebarLayoutDocument.bottomSectionID, index: 0))
         #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.items.first == copy)
     }
@@ -75,7 +79,7 @@ import Testing
     @Test func itemsCannotGoIntoTheWorkspacesSection() {
         let item = LayoutItem(id: LayoutItemID("itm_x"), ref: .builtIn(.history))
         #expect(reject(defaults, .itemAdd(item, section: SidebarLayoutDocument.workspacesSectionID, index: 0)) == .workspacesRequired)
-        #expect(reject(defaults, .itemMove(home, section: SidebarLayoutDocument.workspacesSectionID, index: 0)) == .workspacesRequired)
+        #expect(reject(defaults, .itemMove(history, section: SidebarLayoutDocument.workspacesSectionID, index: 0)) == .workspacesRequired)
     }
 
     @Test func duplicateItemIDIsRefused() {
@@ -84,33 +88,35 @@ import Testing
     }
 
     @Test func moveAcrossRegionsKeepsTheItem() throws {
-        let doc = try reduce(defaults, .itemMove(home, section: SidebarLayoutDocument.bottomSectionID, index: 1))
-        #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.items.map(\.id) == [LayoutItemID("itm_account"), home])
-        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == Self.topIDs(["itm_app_store", "itm_history", "itm_notifications",
-                                                                                                  "itm_settings", "itm_customize", "itm_app_coderouter"]))
+        let doc = try reduce(defaults, .itemMove(history, section: SidebarLayoutDocument.bottomSectionID, index: 1))
+        #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.items.map(\.id) == [LayoutItemID("itm_account"), history])
+        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == Self.topIDs(["itm_new_workspace", "itm_import_sync",
+                                                                                                  "itm_notifications", "itm_app_store", "itm_settings",
+                                                                                                  "itm_customize", "itm_app_coderouter"]))
         #expect(Set(Self.itemIDs(doc)) == Set(Self.itemIDs(defaults)))
     }
 
     @Test func moveWithinASectionExcludesItself() throws {
         let doc = try reduce(defaults, .itemMove(settings, section: SidebarLayoutDocument.topSectionID, index: 1))
-        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == Self.topIDs([home.rawValue, settings.rawValue, "itm_app_store", "itm_history",
-                                                                                                  "itm_notifications", "itm_customize", "itm_app_coderouter"]))
+        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == Self.topIDs(["itm_new_workspace", settings.rawValue, "itm_import_sync",
+                                                                                                  history.rawValue, "itm_notifications", "itm_app_store",
+                                                                                                  "itm_customize", "itm_app_coderouter"]))
     }
 
     @Test func moveOntoASectionHoldingTheSameRefIsRefused() throws {
-        let copy = LayoutItem(id: LayoutItemID("itm_home2"), ref: .builtIn(.home))
+        let copy = LayoutItem(id: LayoutItemID("itm_history2"), ref: .builtIn(.history))
         let doc = try reduce(defaults, .itemAdd(copy, section: SidebarLayoutDocument.bottomSectionID, index: 0))
-        #expect(reject(doc, .itemMove(home, section: SidebarLayoutDocument.bottomSectionID, index: 0)) == .duplicateRef)
+        #expect(reject(doc, .itemMove(history, section: SidebarLayoutDocument.bottomSectionID, index: 0)) == .duplicateRef)
     }
 
     @Test func moveToTheSamePlaceIsANoOp() throws {
-        let doc = try reduce(defaults, .itemMove(home, section: SidebarLayoutDocument.topSectionID, index: 0))
+        let doc = try reduce(defaults, .itemMove(history, section: SidebarLayoutDocument.topSectionID, index: 2))
         #expect(doc == defaults)
     }
 
     @Test func unknownTargetsAreRefused() {
         #expect(reject(defaults, .itemRemove(LayoutItemID("itm_nope"))) == .unknownItem)
-        #expect(reject(defaults, .itemMove(home, section: LayoutSectionID("sec_nope"), index: 0)) == .unknownSection)
+        #expect(reject(defaults, .itemMove(history, section: LayoutSectionID("sec_nope"), index: 0)) == .unknownSection)
         #expect(reject(defaults, .sectionRemove(LayoutSectionID("sec_nope"))) == .unknownSection)
     }
 
@@ -186,7 +192,7 @@ import Testing
     @Test func titlesCountUnicodeScalarsAndIDsAreUniqueAcrossSectionsAndItems() throws {
         let flags = String(repeating: "\u{1F1EF}\u{1F1F5}", count: 41) // 82 scalars, 41 graphemes
         #expect(reject(defaults, .sectionUpdate(SidebarLayoutDocument.bottomSectionID, SectionPatch(title: .set(flags)))) == .invalidTitle)
-        let clash = LayoutSection(id: LayoutSectionID("itm_home"), region: .top)
+        let clash = LayoutSection(id: LayoutSectionID("itm_history"), region: .top)
         #expect(reject(defaults, .sectionAdd(clash, index: 0)) == .duplicateID)
         let item = LayoutItem(id: LayoutItemID("sec_bottom"), ref: .builtIn(.history))
         #expect(reject(defaults, .itemAdd(item, section: SidebarLayoutDocument.topSectionID, index: 0)) == .duplicateID)
@@ -198,18 +204,18 @@ import Testing
         #expect(doc.section(app.id)?.owningAppID == "manaflow-ai/github-prs")
         let item = LayoutItem(id: LayoutItemID("itm_x"), ref: .builtIn(.history))
         #expect(reject(doc, .itemAdd(item, section: app.id, index: 0)) == .itemsNotAllowed)
-        #expect(reject(doc, .itemMove(home, section: app.id, index: 0)) == .itemsNotAllowed)
+        #expect(reject(doc, .itemMove(history, section: app.id, index: 0)) == .itemsNotAllowed)
         #expect(LayoutItem(id: LayoutItemID("i"), ref: .app("a/b")).owningAppID == "a/b")
         #expect(defaults.section(SidebarLayoutDocument.topSectionID)?.owningAppID == nil)
     }
 
     @Test func removeRefTakesEveryCopyOutOfTheSidebar() throws {
-        let copy = LayoutItem(id: LayoutItemID("itm_h2"), ref: .builtIn(.home))
+        let copy = LayoutItem(id: LayoutItemID("itm_h2"), ref: .builtIn(.history))
         let two = try reduce(defaults, .itemAdd(copy, section: SidebarLayoutDocument.bottomSectionID, index: 0))
-        let none = try reduce(two, .itemRemoveRef(.builtIn(.home)))
-        #expect(none.firstItem(with: .builtIn(.home)) == nil)
+        let none = try reduce(two, .itemRemoveRef(.builtIn(.history)))
+        #expect(none.firstItem(with: .builtIn(.history)) == nil)
         #expect(none.revision == two.revision + 1)
-        #expect(reject(none, .itemRemoveRef(.builtIn(.home))) == .unknownItem)
+        #expect(reject(none, .itemRemoveRef(.builtIn(.history))) == .unknownItem)
     }
 
     @Test func itemUpdateTogglesTheLabel() throws {
@@ -239,7 +245,7 @@ import Testing
     }
 
     @Test func resetRestoresDefaultsWithANewRevision() throws {
-        let edited = try reduce(defaults, .itemRemove(home))
+        let edited = try reduce(defaults, .itemRemove(history))
         let reset = try reduce(edited, .reset)
         #expect(reset.sections == defaults.sections)
         #expect(reset.revision == edited.revision + 1)
@@ -247,12 +253,19 @@ import Testing
 
     // MARK: Planner
 
-    @Test func reAddHomeGoesBackToTheTop() throws {
-        let removed = try reduce(defaults, .itemRemove(home))
-        let op = try #require(SidebarLayoutPlanner.add(.builtIn(.home), in: removed, newItem: LayoutItemID("itm_h2")))
+    @Test func reAddHistoryGoesBackToTheTop() throws {
+        let removed = try reduce(defaults, .itemRemove(history))
+        let op = try #require(SidebarLayoutPlanner.add(.builtIn(.history), in: removed, newItem: LayoutItemID("itm_h2")))
         let doc = try reduce(removed, op)
+        #expect(doc.firstTopItem(room: nil)?.ref == .builtIn(.history))
+        #expect(SidebarLayoutPlanner.add(.builtIn(.history), in: defaults) == nil)
+    }
+
+    /// Home left the defaults but stays a built-in a person can pin.
+    @Test func homeCanStillBePinnedToTheTop() throws {
+        let op = try #require(SidebarLayoutPlanner.add(.builtIn(.home), in: defaults, newItem: LayoutItemID("itm_h2")))
+        let doc = try reduce(defaults, op)
         #expect(doc.firstTopItem(room: nil)?.ref == .builtIn(.home))
-        #expect(SidebarLayoutPlanner.add(.builtIn(.home), in: defaults) == nil)
     }
 
     @Test func reAddHomeCreatesATopSectionWhenTheRegionIsEmpty() throws {
@@ -266,8 +279,9 @@ import Testing
     }
 
     @Test func plannerRemove() throws {
-        let op = try #require(SidebarLayoutPlanner.remove(.builtIn(.home), in: defaults))
-        #expect(op == .itemRemoveRef(.builtIn(.home)))
+        let op = try #require(SidebarLayoutPlanner.remove(.builtIn(.history), in: defaults))
+        #expect(op == .itemRemoveRef(.builtIn(.history)))
+        #expect(SidebarLayoutPlanner.remove(.builtIn(.home), in: defaults) == nil)
         #expect(SidebarLayoutPlanner.remove(.builtIn(.bookmarks), in: defaults) == nil)
     }
 
@@ -275,8 +289,8 @@ import Testing
 
     @Test func replayingAKeyChangesNothing() {
         var owner = SidebarLayoutMemoryOwner()
-        let first = owner.apply(.itemRemove(home), key: "k1")
-        let replay = owner.apply(.itemRemove(home), key: "k1")
+        let first = owner.apply(.itemRemove(history), key: "k1")
+        let replay = owner.apply(.itemRemove(history), key: "k1")
         #expect(first == replay)
         #expect(owner.document.revision == 1)
         #expect(owner.apply(.itemRemove(settings), key: "k1") == .failure(.idempotencyConflict))
@@ -320,7 +334,7 @@ import Testing
     @Test func unknownRefKindsSurviveEdits() throws {
         let future = LayoutItem(id: LayoutItemID("itm_f"), ref: LayoutItemRef(kind: "hologram", value: "x"))
         var doc = try reduce(defaults, .itemAdd(future, section: SidebarLayoutDocument.topSectionID, index: 1))
-        doc = try reduce(doc, .itemMove(home, section: SidebarLayoutDocument.bottomSectionID, index: 0))
+        doc = try reduce(doc, .itemMove(history, section: SidebarLayoutDocument.bottomSectionID, index: 0))
         #expect(doc.item(future.id) == future)
         #expect(future.ref.builtIn == nil)
     }

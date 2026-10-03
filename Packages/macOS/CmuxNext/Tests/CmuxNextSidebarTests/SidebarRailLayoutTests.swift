@@ -21,14 +21,14 @@ import Testing
     }
 
     /// The default rail (Leo, 2026-10-03; the Codex app's skinny strip):
-    /// Home, the App Store, History and Notifications from the top, then a
-    /// More button holding Settings, Customize Appearance and CodeRouter
-    /// (the top section's `maxRows` is 4), and the account pinned to the
-    /// bottom.
+    /// New Workspace, Import and Sync, History and Notifications from the
+    /// top, then a More button holding the App Store, Settings, Customize
+    /// Appearance and CodeRouter (the top section's `maxRows` is 4), and the
+    /// account pinned to the bottom. No Home.
     @Test func theDefaultRailIsFourDestinationsThenMoreWithTheAccountAtTheBottom() {
         let rail = SidebarRailLayout.make(document: .defaults, room: nil, height: 600, metrics: m)
-        #expect(rail.buttons.map(\.item.rawValue) == ["itm_home", "itm_app_store", "itm_history", "itm_notifications", "itm_account"])
-        #expect(rail.overflow.map(\.rawValue) == ["itm_settings", "itm_customize", "itm_app_coderouter"])
+        #expect(rail.buttons.map(\.item.rawValue) == ["itm_new_workspace", "itm_import_sync", "itm_history", "itm_notifications", "itm_account"])
+        #expect(rail.overflow.map(\.rawValue) == ["itm_app_store", "itm_settings", "itm_customize", "itm_app_coderouter"])
         let frames = rail.buttons.map(\.frame)
         #expect(frames[0] == CGRect(x: 7, y: 40, width: 34, height: 34))
         #expect(frames[1].minY == frames[0].maxY + 4)
@@ -176,7 +176,7 @@ import Testing
 
     @Test func buttonAtFindsTheButtonUnderThePoint() {
         let rail = SidebarRailLayout.make(document: .defaults, room: nil, height: 600, metrics: m)
-        #expect(rail.button(at: CGPoint(x: 24, y: 57))?.item.rawValue == "itm_home")
+        #expect(rail.button(at: CGPoint(x: 24, y: 57))?.item.rawValue == "itm_new_workspace")
         #expect(rail.button(at: CGPoint(x: 24, y: 300)) == nil)
     }
 

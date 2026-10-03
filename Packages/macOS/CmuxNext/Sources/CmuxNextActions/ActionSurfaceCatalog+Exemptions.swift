@@ -160,7 +160,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
             "palette.cloud.tools", "cloudOpenMachine", "openTeamPicker", "palette.mobileConnect",
             "palette.openCmuxSettingsFile", "palette.openGhosttySettings", "palette.searchShortcuts",
-            "palette.pro.upgrade", "palette.welcomeChecklist", "sendFeedback", "help.featureFlags",
+            "palette.pro.upgrade", "palette.welcomeChecklist", "palette.importClassicSessions", "sendFeedback", "help.featureFlags",
             "help.documentation", "recentlyFocused", "recentlyClosed", "history.commands", "browserShowHistory",
             "history.search", "bookmark.toggleBar", "bookmark.manager", "browserLinkHints", "browserLinkHintsNewSplit",
         ],

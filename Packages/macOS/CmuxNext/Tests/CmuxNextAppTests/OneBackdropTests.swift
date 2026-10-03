@@ -14,10 +14,9 @@ extension AppThemeGlobalStateTests {
 /// has exactly one translucent backdrop, the root's material and tint,
 /// and every surface above it (sidebar, panes, strips, titlebar, docks)
 /// is clear, so everything reads as the same color. At opacity 1 the
-/// surfaces draw the token or stay clear. One designed exception: beside
-/// the leading rail the sidebar is an inset panel (Leo, 2026-10-03) whose
-/// fill is the theme's translucent `stripStep` over this same backdrop
-/// (`WindowSidebarPanelView`; WindowRailTests checks its fill).
+/// surfaces draw the token or stay clear. Beside the leading rail the
+/// sidebar and main pane share the rounded frame in
+/// `WindowSidebarPanelView`; the frame uses the same surface token.
 @MainActor
 @Suite(.serialized)
 struct OneBackdropTests {

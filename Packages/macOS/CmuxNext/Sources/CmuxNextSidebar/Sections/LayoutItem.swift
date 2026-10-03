@@ -16,6 +16,10 @@ public nonisolated enum SidebarBuiltIn: String, Hashable, Sendable, CaseIterable
     case newAgentChat = "new_agent_chat"
     /// The appearance studio (Customize Appearance).
     case customize
+    /// A new workspace (the rail's top slot).
+    case newWorkspace = "new_workspace"
+    /// The import menu: classic cmux sessions, agent chats, browser data.
+    case importSync = "import_sync"
 }
 
 /// What an item points at: a kind and a string value. Kinds this client

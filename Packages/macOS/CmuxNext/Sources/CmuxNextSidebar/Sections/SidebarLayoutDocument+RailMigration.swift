@@ -6,19 +6,30 @@ import Foundation
 // layout the user changed in any way is theirs and never migrates.
 extension SidebarLayoutDocument {
     /// The ops that turn this layout into the current defaults, or none.
-    /// Only a layout whose sections equal `preRailDefaults` migrates (the
-    /// revision does not matter: a layout edited and edited back is still
-    /// the old default). The ops are ordinary layout ops, so the owner
-    /// applies and syncs them like any edit, and Settings keeps its item id
-    /// as it moves from the bottom line to the top section.
+    /// Only an untouched shipped default migrates (the revision does not
+    /// matter: a layout edited and edited back is still a shipped default).
+    /// The ops are ordinary layout ops, so the owner applies and syncs them
+    /// like any edit, and existing item ids stay stable as destinations move.
     public nonisolated var railMigrationOps: [SidebarLayoutOp] {
-        guard sections == Self.preRailDefaults.sections else { return [] }
         let top = Self.topSectionID
+        if sections == Self.railV1Defaults.sections {
+            return [
+                .itemRemove(LayoutItemID("itm_home")),
+                .itemAdd(LayoutItem(id: LayoutItemID("itm_new_workspace"), ref: .builtIn(.newWorkspace)), section: top, index: 0),
+                .itemAdd(LayoutItem(id: LayoutItemID("itm_import_sync"), ref: .builtIn(.importSync)), section: top, index: 1),
+                .itemMove(LayoutItemID("itm_app_store"), section: top, index: 4),
+            ]
+        }
+        guard sections == Self.preRailDefaults.sections else { return [] }
         return [
             .itemAdd(LayoutItem(id: LayoutItemID("itm_history"), ref: .builtIn(.history)), section: top, index: 2),
             .itemAdd(LayoutItem(id: LayoutItemID("itm_notifications"), ref: .builtIn(.notifications)), section: top, index: 3),
             .itemMove(LayoutItemID("itm_settings"), section: top, index: 4),
             .itemAdd(LayoutItem(id: LayoutItemID("itm_customize"), ref: .builtIn(.customize)), section: top, index: 5),
+            .itemRemove(LayoutItemID("itm_home")),
+            .itemAdd(LayoutItem(id: LayoutItemID("itm_new_workspace"), ref: .builtIn(.newWorkspace)), section: top, index: 0),
+            .itemAdd(LayoutItem(id: LayoutItemID("itm_import_sync"), ref: .builtIn(.importSync)), section: top, index: 1),
+            .itemMove(LayoutItemID("itm_app_store"), section: top, index: 4),
             .sectionUpdate(top, SectionPatch(maxRows: .set(Self.railTopRows))),
         ]
     }

@@ -37,8 +37,8 @@ enum WindowRail {
 }
 
 /// The rail's column. It paints nothing of its own: it sits on the window's
-/// shared backdrop, one tone apart from the sidebar's inset panel beside
-/// it (`WindowSidebarPanelView`). Buttons start below the top row
+/// shared backdrop beside the sidebar and main pane's rounded frame
+/// (`WindowSidebarPanelView`). Buttons start below the top row
 /// (and the traffic lights), so the rail's top-row space moves the window.
 final class WindowRailView: NSView {
     let column: SidebarRailColumnView

@@ -50,14 +50,14 @@ import Testing
     @Test func anIntentShowsAtOnceAndLeavesOnItsReply() async throws {
         let owner = FakeOwner()
         let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false })
-        try service.send(.itemRemove(LayoutItemID("itm_home")))
-        #expect(service.document.firstItem(with: .builtIn(.home)) == nil)
+        try service.send(.itemRemove(LayoutItemID("itm_history")))
+        #expect(service.document.firstItem(with: .builtIn(.history)) == nil)
         #expect(service.pending.count == 1)
         await settled { owner.isWaiting }
         owner.accept(try #require(owner.calls.first?.key))
         await settled { service.pending.isEmpty }
         #expect(service.mirror.revision == 1)
-        #expect(service.document.firstItem(with: .builtIn(.home)) == nil)
+        #expect(service.document.firstItem(with: .builtIn(.history)) == nil)
     }
 
     @Test func aRejectAnimatesBackAndIsReported() async throws {
@@ -84,13 +84,13 @@ import Testing
         let owner = FakeOwner()
         let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false })
         service.start()
-        try service.send(.itemRemove(LayoutItemID("itm_home")))
+        try service.send(.itemRemove(LayoutItemID("itm_history")))
         await settled { owner.isWaiting }
         let key = try #require(owner.calls.first?.key)
         owner.isAvailable = false
         owner.fail(key, DaemonError.connectionClosed(reason: "test"))
         await settled { service.pending.first?.inFlight == false }
-        #expect(service.document.firstItem(with: .builtIn(.home)) == nil)
+        #expect(service.document.firstItem(with: .builtIn(.history)) == nil)
         #expect(throws: (any Error).self) { try service.send(.itemRemove(LayoutItemID("itm_settings"))) }
         owner.isAvailable = true
         await settled { owner.calls.count == 2 }
@@ -104,20 +104,22 @@ import Testing
         let owner = FakeOwner()
         let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false })
         service.start()
-        owner.stored = try SidebarLayoutReducer.reduce(.defaults, .itemRemove(LayoutItemID("itm_home"))).get()
+        owner.stored = try SidebarLayoutReducer.reduce(.defaults, .itemRemove(LayoutItemID("itm_history"))).get()
         owner.changeToken += 1
         await settled { service.mirror.revision == 1 }
-        #expect(service.document.firstItem(with: .builtIn(.home)) == nil)
+        #expect(service.document.firstItem(with: .builtIn(.history)) == nil)
         service.settle("stale", confirmed: .defaults)
         #expect(service.mirror.revision == 1)
     }
 
-    /// A stored layout that still equals the pre-rail default is moved to
-    /// the rail default through the owner (ordinary intents, applied by
-    /// its reducer), once; a customized layout is never touched.
-    @Test func aStoredPreRailLayoutMigratesThroughTheOwner() async throws {
+    /// A stored layout that still equals an old default (pre-rail, or the
+    /// first rail with Home) is moved to the current default through the
+    /// owner (ordinary intents, applied by its reducer), once; a customized
+    /// layout is never touched.
+    @Test(arguments: [SidebarLayoutDocument.preRailDefaults, SidebarLayoutDocument.railV1Defaults])
+    func aStoredOldDefaultLayoutMigratesThroughTheOwner(old: SidebarLayoutDocument) async throws {
         let owner = FakeOwner()
-        owner.stored = SidebarLayoutDocument(revision: 3, sections: SidebarLayoutDocument.preRailDefaults.sections)
+        owner.stored = SidebarLayoutDocument(revision: 3, sections: old.sections)
         let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, railShown: { true })
         service.start()
         let expected = owner.stored.railMigrationOps
@@ -161,7 +163,7 @@ import Testing
     }
 
     @Test func snapshotsDecodeTheDecimalRevision() throws {
-        let doc = try SidebarLayoutReducer.reduce(.defaults, .itemRemove(LayoutItemID("itm_home"))).get()
+        let doc = try SidebarLayoutReducer.reduce(.defaults, .itemRemove(LayoutItemID("itm_history"))).get()
         var json = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(doc))
         if case .object(var object) = json {
             object["revision"] = .string("1")
