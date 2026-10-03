@@ -17,6 +17,13 @@ import { sshCaView } from "./domains/team-ssh.ts"
 import { sshExternal } from "./team-ssh-ca.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
+/** TeamDO.signInRules result (policy-gate.ts). */
+export interface SignInRules {
+  readonly sso_required: boolean
+  readonly minimum_version: string | null
+  readonly allowed_classes: ReadonlyArray<string>
+}
+
 export class TeamDO extends OwnerDO<TeamState> {
   constructor(ctx: DurableObjectState, env: Env) {
     // Members see each other's public ids and display name in events, never email,
@@ -274,6 +281,26 @@ export class TeamDO extends OwnerDO<TeamState> {
   async ssoDiscover(entity: string, domain: string): Promise<{ sso: boolean }> {
     const engine = this.boundEngine ?? this.bind(entity)
     return { sso: Boolean(connectionForDomain(engine.currentState, domain)) }
+  }
+
+  /**
+   * Sign-in rules of this team for one user (enterprise P17-4): whether a Stack session needs this
+   * team's SSO (sso.enforce; owners exempt unless sso.enforceForOwners), the minimum client
+   * version, and the agent classes grants may be minted for. Read by the Worker, cached briefly.
+   */
+  async signInRules(entity: string, user: string): Promise<SignInRules> {
+    const state = this.bind(entity).currentState
+    const values = currentPolicy(state).values as Record<string, { value: unknown } | undefined>
+    const role = state.members?.[user]?.role
+    const enforce = values["sso.enforce"]?.value === true
+    const owners = values["sso.enforceForOwners"]?.value === true
+    const min = values["updates.minimumVersion"]?.value
+    const classes = values["agents.allowedClasses"]?.value
+    return {
+      sso_required: enforce && (role !== "owner" || owners),
+      minimum_version: typeof min === "string" ? min : null,
+      allowed_classes: Array.isArray(classes) ? (classes as Array<string>) : ["mux", "agent", "run"]
+    }
   }
 
   /** May this signed-in principal add a server to this team? An early refusal before the approval writes anything. */

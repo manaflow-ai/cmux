@@ -35,6 +35,8 @@ export interface Principal {
    * that add participants (Home). Owners trust it only because the Worker builds every
    * principal; frames and params never carry it.
    */
+  /** Team whose SSO issued this Stack session (claim `cmux_sso_team`), for sso.enforce (P17-4). */
+  readonly sso_team?: string
   readonly owned_agents?: ReadonlyArray<{ readonly id: string; readonly display_name: string }>
   /** Op classes of the principal's grant, resolved by the grant's owner (UserDO) for other owners. */
   readonly grant_classes?: ReadonlyArray<string>

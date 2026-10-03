@@ -46,7 +46,8 @@ const sessionPrincipal = async (env: Env, token: string): Promise<Principal | un
       email,
       email_verified: emailVerified,
       ...(typeof payload.exp === "number" ? { expires_at: payload.exp * 1000 } : {}),
-      ...(name ? { display_name: name } : {})
+      ...(name ? { display_name: name } : {}),
+      ...(typeof payload.cmux_sso_team === "string" ? { sso_team: payload.cmux_sso_team } : {})
     }
   } catch {
     return undefined

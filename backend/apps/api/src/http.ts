@@ -8,6 +8,7 @@ import {
   cloudOpByName,
   CurrentPrincipal,
   Forbidden,
+  PolicyRefused,
   googleProviderOpNames,
   googleReadOpNames,
   OwnerUnreachable,
@@ -18,7 +19,7 @@ import {
   type CurrentPrincipalShape
 } from "@cmux/protocol"
 import { Effect, Layer, Redacted } from "effect"
-import { HttpRouter, HttpServer } from "effect/unstable/http"
+import { HttpRouter, HttpServer, HttpServerRequest } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { authenticate, mintAccessToken, publicJwks, withGrantClasses } from "./auth.ts"
 import type { Env } from "./env.ts"
@@ -34,6 +35,8 @@ import type { RedeemResult } from "./user-do.ts"
 import { pairApprove, pairPreview } from "./pair-routes.ts"
 import { conversationMutate, conversationRead } from "./home-routes.ts"
 import { homeSearch, type SearchParams } from "./home-search.ts"
+import { signInRules, ssoRefusal, versionRefusal } from "./policy-gate.ts"
+import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
 
 /** DO RPC stubs erase union result types; the DO methods define them. */
 const rpc = <T>(p: unknown) => p as Promise<T>
@@ -174,6 +177,11 @@ const AuthLive = HttpApiBuilder.group(CloudApi, "auth", (handlers) =>
           catch: () => new Forbidden({ code: "auth.forbidden", message: "token mint failed" })
         })
         if (!r.ok) return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
+        // Team policy (P17-4): updates.minimumVersion against x-cmux-client-version.
+        const request = yield* HttpServerRequest.HttpServerRequest
+        const rules = yield* Effect.promise(() => signInRules(env, r.team, r.user))
+        const tooOld = versionRefusal(request.headers["x-cmux-client-version"] ?? null, rules)
+        if (tooOld) return yield* new PolicyRefused(tooOld)
         const { token, expires_at } = yield* Effect.promise(() => mintAccessToken(env, r))
         return { access_token: token, token_type: "Bearer" as const, expires_at, user: r.user, team: r.team, install: r.install, grant: r.grant }
       })
@@ -257,6 +265,19 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           return toResponse(payload.op, r.frames)
         }
         // Home: conversations are keyed by the op's params, inbox ops run on UserDO's second stream (home-routes.ts).
+        // F3 / P17-6: the old integration policy op is an alias of team.policy.update (TeamPolicy is the single writer).
+        if (payload.op === "integration.policy.set") {
+          const p = yield* principalFor("cloud:TeamDO", principal)
+          const team = env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)) as unknown as Parameters<typeof forwardIntegrationPolicy>[0]
+          const connections = env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(p.team!)) as unknown as Parameters<typeof forwardIntegrationPolicy>[1]
+          const res = yield* Effect.tryPromise({ try: () => forwardIntegrationPolicy(team, connections, p.team!, p, (payload.params ?? {}) as PolicyFields, frame.idempotency_key), catch: unreachable })
+          return toResponse(payload.op, res.frames as unknown as ReadonlyArray<OwnerFrame>)
+        }
+        // agents.allowedClasses (P17-4): a chief is the "mux" class.
+        if (payload.op === "chief.create") {
+          const rules = yield* Effect.promise(() => signInRules(env, principal.team!, principal.user!))
+          if (!rules.allowed_classes.includes("mux")) return yield* new PolicyRefused({ code: "policy.denied", message: "your team does not allow chiefs (agents.allowedClasses)" })
+        }
         // A chief's MuxDO is keyed by its agent id; the principal carries install_kind (withGrantClasses).
         if (def.owner === "cloud:MuxDO") {
           const p = yield* principalFor(def.owner, principal)
@@ -392,6 +413,12 @@ const AuthorizationLive = Layer.succeed(Authorization)(
       Effect.gen(function* () {
         const p = yield* Effect.promise(() => authenticate(env, Redacted.value(credential)))
         if (!p || !p.user || !p.team) return yield* new Unauthenticated({ code: "auth.unauthenticated", message: "missing or invalid bearer token" })
+        // Team policy (P17-4): a team that enforces SSO refuses a Stack session without its SSO claim.
+        if (p.kind === "session") {
+          const rules = yield* Effect.promise(() => signInRules(env, p.team!, p.user!))
+          const refused = ssoRefusal(p, rules)
+          if (refused) return yield* new PolicyRefused(refused)
+        }
         const shape: CurrentPrincipalShape = {
           kind: p.kind === "session" ? "session" : "install",
           identity: p.identity,

@@ -201,3 +201,14 @@ Open:
 - The leader overlay and chord prefixes (`LeaderLayer`, `startsChord`) still list and consume disabled chords. The read-only socket methods `cloud.machines` and `remote.machines` still answer.
 - A non-array `DisabledFeatures` value or an unknown name turns nothing off without any message. Add a managed-status diagnostic.
 - Rust half (ad349): `cmux mcp serve` and browser automation ops refuse when `mcp` or `browserAutomation` is off, through the config actor.
+
+### P17-4 and P17-6 status (backend lead, 2026-10-03)
+
+P17-4, enforced against the principal's TeamDO policy (TeamDO.signInRules, cached 30 s per Worker isolate):
+- `sso.enforce`: a Stack session without the team's SSO claim `cmux_sso_team` (the enterprise OIDC callback stamps it) gets 403 `auth.sso_required` on every API request and wire connect; owners are exempt unless `sso.enforceForOwners`.
+- `updates.minimumVersion`: `/v1/auth/token` and every wire connect read `x-cmux-client-version`; older, or missing while the key is set, answers 403 `client.too_old` with `minimum_version`. Mac, iOS and CLI send the header (coordinator routes).
+- `agents.allowedClasses`, class mapping (enterprise lane checks it):
+  - `mux` = chief creation (`chief.create`, which also binds the chief's MuxDO): enforced in the Worker (403 `policy.denied`).
+  - `agent` = `install.register` for agent install kinds: no agent install kind exists yet (kinds are mac, ios, cli, daemon, web, vm); enforced when one is added.
+  - `run` = automation run grants: NOT yet enforced. Runs start inside SchedulerDO (alarms, webhooks), which has no copy of the team policy; follow-up with the automations lead: TeamDO pushes `agents.allowedClasses` to SchedulerDO as it pushes the integration slice to ConnectionDO, and run creation refuses when `run` is absent.
+P17-6: `integration.policy.set` is a deprecated alias of `team.policy.update`, forwarded by the Worker with the caller's own principal (TeamDO's admin check applies; a system forward would skip it). An SSO or MDM lock on ConnectionDO still answers `policy.locked`. The answer keeps the old shape (the integration slice, source `team_policy`); ConnectionDO receives it through TeamDO's push within seconds. Remove the alias after one release.
