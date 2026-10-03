@@ -84,6 +84,7 @@ struct ComputersSettingsRow: View {
         case true: String(localized: "settings.computers.online", defaultValue: "Online")
         case false: String(localized: "settings.computers.offline", defaultValue: "Offline")
         case nil: String(localized: "settings.computers.unknown", defaultValue: "Waiting for connection")
+        case .some(_): String(localized: "settings.computers.online", defaultValue: "Online")
         }
     }
 }
