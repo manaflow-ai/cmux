@@ -7,7 +7,7 @@ Design note, 2026-10-01. Owner: the cmux-next browser-use lead. Binding inputs: 
 > 2. Branch `feat-cmux-next-wake-post` (head pushed, not landed): POST pages never hibernate (WebKit tracker + CEF shim export). Swift tests green via nx-remote; shim compile UNVERIFIED (nx-remote ssh dropped). Next: `scripts/cmux-next/ensure-cef.sh` + `build-cef-shim.sh` on the build host, gates, then land.
 > 3. Landed today: quit-order fix a73630ec329, SIGPIPE no-op handler 3114269a0cd. Open after landing b: seal tabs (decision 8), owner policy path (fail-closed setup, real-Chromium worker/WebSocket tests), WebRTC, native fetch, conformance 11/33.
 > 4. Waiting on the CEF fork lane: cmux.14 pin (adopt `cmux_tab_duplicate` behind `browser.duplicateRight`), watchdog/signal-handler change.
-> 5. Lawrence decision pending: with any domain policy active, all WebSockets are blocked (Slack, Linear included).
+> 5. Decided (Lawrence, BR-R3, 264f11c): keep all WebSockets blocked while any domain policy is active. The cmux-conversation conformance red is a base red (fixed by the Home corpus fix), not ours.
 
 ## Decisions (Lawrence, 2026-10-01, via the coordinator)
 
