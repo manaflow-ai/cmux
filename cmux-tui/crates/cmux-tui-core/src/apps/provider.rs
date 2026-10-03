@@ -177,6 +177,8 @@ impl Supervisor {
             );
         }
         let Some(&client) = inner.providers.get(family_of(op)) else { return Err(unavailable(op)) };
+        let version =
+            inner.catalog.packages.get(&key.app).map(|p| p.version.clone()).unwrap_or_default();
         if serde_json::to_vec(&params).map_or(usize::MAX, |b| b.len()) > MAX_PARAMS_BYTES {
             return Err(
                 json!({ "code": "validation.invalid", "message": "params are larger than 64 KiB", "retryable": false }),
@@ -212,7 +214,14 @@ impl Supervisor {
             "event": "apps-provider-request",
             "request_id": request_id,
             "app": key.app,
-            "actor": format!("app:{}", key.app),
+            // The identity.md section 3 `app` actor (only the supervisor sets it).
+            "actor": {
+                "kind": "app",
+                "id": key.app,
+                "host": crate::machine_name::machine_name(),
+                "version": version,
+                "on_behalf_of": { "kind": "user", "id": crate::conversation_store::LOCAL_USER },
+            },
             "origin": origin,
             "op": op,
             "params": params,
