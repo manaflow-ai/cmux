@@ -24,4 +24,5 @@ Read the lane file before changing a shared surface. Newest entries remain first
 - [rust-cli](rust-cli.md)
 - [server](server.md)
 - [settings](settings.md)
+- [sidebar](sidebar.md)
 - [team-vm](team-vm.md)

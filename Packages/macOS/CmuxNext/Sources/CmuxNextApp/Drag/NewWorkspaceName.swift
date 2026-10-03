@@ -47,12 +47,18 @@ nonisolated enum NewWorkspaceName {
     /// (coordinator decision 2026-10-03): the old workspace's name when the
     /// user named it, else the tab's name.
     static func forLastTab(workspaceName: String, workspaceTitle: String?, tab: Tab) -> String? {
-        forTab(tab)
+        if let title = clean(workspaceTitle) { return title }
+        if !isDefaultWorkspaceName(workspaceName), let name = clean(workspaceName) { return name }
+        return forTab(tab)
     }
 
     /// True for a name the daemon gave (`workspace-N`, its default).
+    /// A user could name a workspace `workspace-7` by hand; the daemon
+    /// records no "named by the user" flag, so that name reads as default.
     static func isDefaultWorkspaceName(_ name: String) -> Bool {
-        false
+        guard name.hasPrefix("workspace-") else { return false }
+        let number = name.dropFirst("workspace-".count)
+        return !number.isEmpty && number.allSatisfy(\.isASCII) && number.allSatisfy(\.isNumber)
     }
 
     /// The name for a workspace made from a tab group: its name, else its

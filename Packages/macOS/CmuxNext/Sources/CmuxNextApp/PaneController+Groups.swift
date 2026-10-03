@@ -36,7 +36,7 @@ extension PaneController {
             }
         case .addToGroup(let tabID, let id, let index):
             guard let tab = tab(tabID) else { return }
-            let surface = tab.surface, resource = tab.resourceID
+            let surface = tab.surface, resource = tab.resourceID, index = index.map { StripOrder.groupIndex($0, moving: tabID, group: id, in: self) }
             let group = TabGroupID_(id)
             groupCommand("add-tabs-to-group") { connection, transaction in
                 if v2, let resource { return try await connection.state.addTabs([resource], toTabGroup: group.rawValue, index: index) }
@@ -133,7 +133,7 @@ extension PaneController {
                               _ body: @escaping @Sendable (DaemonConnection, ClientTransactionID) async throws -> Void) {
         Task {
             let ok = await daemon.runGroupCommand(label, intent: intent, body)
-            if !ok { resyncStrip() }
+            if ok { StripOrder.settle([self]) } else { resyncStrip() } // one ordering source (R38)
         }
     }
 }

@@ -30,6 +30,7 @@ public nonisolated enum TabMoveIndex {
     /// shown before it. `add-tabs-to-group` takes a position inside the
     /// group, the strip reports a display index.
     public static func groupIndex(display: [String], members: Set<String>, moving: String, displayIndex: Int) -> Int {
-        displayIndex
+        let shown = display.filter { $0 != moving }
+        return shown.prefix(min(max(displayIndex, 0), shown.count)).filter(members.contains).count
     }
 }

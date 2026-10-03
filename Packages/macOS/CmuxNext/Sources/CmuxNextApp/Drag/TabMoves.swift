@@ -128,7 +128,7 @@ enum TabMoves {
         let surface = tab.surface
         let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
         let before = Set(daemon.store.workspaces.compactMap(\.key))
-        let name = NewWorkspaceName.forTab(nameInput(tab, services: services))
+        let name = newWorkspaceName(for: tab, services: services)
         let key = await daemon.request("move-tab-to-new-workspace") { connection -> WorkspaceKey? in
             let result = try await connection.moveTabToNewWorkspace(surface, group: nil, index: index, transaction: echoes ? transaction : nil)
             let created: WorkspaceKey?
@@ -146,6 +146,16 @@ enum TabMoves {
             return created
         }
         return key ?? nil
+    }
+
+    /// The name a workspace made from `tab` takes: the tab's, or, when
+    /// `tab` is its workspace's last daemon tab, the workspace's own name
+    /// when the user named it (the workspace closes behind the move).
+    static func newWorkspaceName(for tab: TabModel, services: AppServices) -> String? {
+        let input = nameInput(tab, services: services)
+        guard let source = services.workspaceID(ofTab: tab.id).flatMap(services.workspace(id:)),
+              source.screens.flatMap(\.panes).flatMap(\.tabs).count == 1 else { return NewWorkspaceName.forTab(input) }
+        return NewWorkspaceName.forLastTab(workspaceName: source.name, workspaceTitle: source.title, tab: input)
     }
 
     /// What `NewWorkspaceName` reads from `tab`: the browser's live page

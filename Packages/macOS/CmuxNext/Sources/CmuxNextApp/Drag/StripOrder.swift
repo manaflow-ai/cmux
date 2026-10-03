@@ -24,6 +24,14 @@ enum StripOrder {
                                     pane: pane.pane.tabs.map(\.id))
     }
 
+    /// The position inside `group` for a drop of `moving` at `index` of
+    /// `pane`'s strip as shown (`add-tabs-to-group` takes a group position).
+    static func groupIndex(_ index: Int, moving: StripTabID, group: CmuxNextTabs.TabGroupID, in pane: PaneController) -> Int {
+        let members = Set(pane.stripModel.orderedTabs.filter { $0.groupID == group }.map(\.id.rawValue))
+        return TabMoveIndex.groupIndex(display: pane.orderedIDs.map(\.rawValue), members: members, moving: moving.rawValue,
+                                       displayIndex: index)
+    }
+
     /// After a committed move: each strip shows the store's order and
     /// drops its optimistic one.
     static func settle(_ panes: [PaneController?]) {
