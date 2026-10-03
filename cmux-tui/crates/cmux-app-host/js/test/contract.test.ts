@@ -1,5 +1,9 @@
 // Runtime contract v1.1 (plans/cmux-next/app-platform.md section 12, V11).
 import { describe, expect, test } from "bun:test"
+import { mkdtempSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { validatePackage } from "../../tools/validate-manifest.ts"
 import { app, FakeHost } from "./fake-host.ts"
 
 describe("error codes", () => {
@@ -69,5 +73,13 @@ describe("lifecycle, settings, l10n", () => {
   test("t() looks up the app's strings for the user's locale", () => {
     const host = new FakeHost("", { app: { id: "local/t", version: "1.0.0" }, locale: "ja", strings: { greeting: "こんにちは {name}", plain: "プレーン" } })
     expect(host.eval(`[cmux.t("greeting", { name: "Ada" }), cmux.t("plain"), cmux.t("missing", "Fallback {n}", { n: 2 }), cmux.app.locale]`)).toEqual(["こんにちは Ada", "プレーン", "Fallback 2", "ja"])
+  })
+})
+
+describe("manifest", () => {
+  test("x-cmux-devOnly is allowed on the app and on contributions", () => {
+    const dir = mkdtempSync(join(tmpdir(), "cmux-app-dev-"))
+    writeFileSync(join(dir, "cmux-app.json"), JSON.stringify({ manifestVersion: 1, id: "local/dev", name: "D", version: "0.1.0", description: "d", engines: { cmux: "^1.0" }, "x-cmux-devOnly": true, contributes: { themes: [{ id: "t", title: "T", "x-cmux-devOnly": true }] } }))
+    expect(validatePackage(dir).errors).toEqual([])
   })
 })
