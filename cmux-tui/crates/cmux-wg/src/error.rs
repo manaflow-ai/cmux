@@ -25,6 +25,8 @@ pub enum WgError {
     HandshakeTimeout(Duration),
     /// smoltcp refused the operation.
     Stack(String),
+    /// A datagram larger than the session's `max_datagram`.
+    DatagramTooLarge { len: usize, max: usize },
 }
 
 impl fmt::Display for WgError {
@@ -45,6 +47,9 @@ impl fmt::Display for WgError {
                 write!(formatter, "no WireGuard handshake completed within {timeout:?}")
             }
             Self::Stack(detail) => write!(formatter, "tcp stack: {detail}"),
+            Self::DatagramTooLarge { len, max } => {
+                write!(formatter, "a {len}-byte datagram exceeds the {max}-byte maximum")
+            }
         }
     }
 }
