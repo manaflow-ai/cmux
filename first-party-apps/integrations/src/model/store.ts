@@ -5,7 +5,7 @@
 
 import { t } from "../l10n.ts"
 import { sortConnections, type Connection, type ListResult, type TeamPolicy } from "./connections.ts"
-import type { CatalogKind } from "../core/types.ts"
+import type { CatalogKind } from "@cmux/integrations-core"
 
 export type Route = { readonly screen: "home" } | { readonly screen: "detail"; readonly id: string } | { readonly screen: "add" } | { readonly screen: "import"; readonly kind?: CatalogKind }
 

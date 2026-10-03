@@ -41,7 +41,8 @@ export const COMPOSER_LABELS = {
 type Props = {
   snapshot: AcpmuxSnapshot;
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
-  onSend(text: string): void;
+  /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it.
+  onSend(text: string): boolean | void;
   onStop(): void;
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
@@ -150,15 +151,21 @@ export function Composer({
     const plus = plusDraft.current;
     return plus && plus.written === text ? plus.original : text;
   };
-  const submit = (event: { preventDefault(): void }) => {
+  /// Sends the draft; false when there was nothing to send or the host refused it.
+  const submit = (event: { preventDefault(): void }): boolean => {
     event.preventDefault();
     const prompt = unwrapped().trim();
+    if (!prompt) {
+      plusDraft.current = undefined;
+      return false;
+    }
+    const fromSend = document.activeElement?.classList.contains("acpmux-send") ?? false;
+    if (onSend(prompt) === false) return false;
     plusDraft.current = undefined;
-    if (!prompt) return;
     edit("", 0);
     sentAt.current = Date.now();
-    refocusSend.current = document.activeElement?.classList.contains("acpmux-send") ?? false;
-    onSend(prompt);
+    refocusSend.current = fromSend;
+    return true;
   };
   /// + then Mention: an "@" at the caret, set off by a space, for the agent to read as a path.
   // Writes "@" at the caret, or "@path " for a file picked in Search files.
@@ -210,9 +217,10 @@ export function Composer({
       !event.altKey &&
       !event.ctrlKey
     ) {
-      event.preventDefault();
-      const sent = unwrapped().trim() !== "";
-      submit(event);
+      const typed = unwrapped().trim() !== "";
+      const sent = submit(event);
+      // A prompt the host refused stays in the composer, and the chat stays here.
+      if (typed && !sent) return;
       onOpenInWindow(sent);
       return;
     }
