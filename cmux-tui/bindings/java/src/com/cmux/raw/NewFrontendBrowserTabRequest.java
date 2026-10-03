@@ -15,6 +15,7 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
     private final Field<Integer> cols;
     private final String engine;
     private final Field<String> faviconUrl;
+    private final Field<String> idempotencyKey;
     private final Field<String> owner;
     private final Field<UInt64> pane;
     private final Field<String> profileId;
@@ -27,6 +28,7 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
         if (!builder.engineSet) throw new IllegalArgumentException("engine is required");
         this.engine = Wire.nonNull(builder.engine, "engine");
         this.faviconUrl = builder.faviconUrl;
+        this.idempotencyKey = builder.idempotencyKey;
         this.owner = builder.owner;
         this.pane = builder.pane;
         this.profileId = builder.profileId;
@@ -41,6 +43,7 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
     public Field<Integer> cols() { return cols; }
     public String engine() { return engine; }
     public Field<String> faviconUrl() { return faviconUrl; }
+    public Field<String> idempotencyKey() { return idempotencyKey; }
     public Field<String> owner() { return owner; }
     public Field<UInt64> pane() { return pane; }
     public Field<String> profileId() { return profileId; }
@@ -60,6 +63,10 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
         Object rawFaviconUrl = Wire.optional(object, "favicon_url");
         if (!Wire.isMissing(rawFaviconUrl)) {
             builder.faviconUrl(rawFaviconUrl == null ? null : Wire.string(rawFaviconUrl, "NewFrontendBrowserTabRequest.favicon_url"));
+        }
+        Object rawIdempotencyKey = Wire.optional(object, "idempotency_key");
+        if (!Wire.isMissing(rawIdempotencyKey)) {
+            builder.idempotencyKey(rawIdempotencyKey == null ? null : Wire.string(rawIdempotencyKey, "NewFrontendBrowserTabRequest.idempotency_key"));
         }
         Object rawOwner = Wire.optional(object, "owner");
         if (!Wire.isMissing(rawOwner)) {
@@ -92,6 +99,7 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
         Wire.put(object, "cols", cols);
         Wire.put(object, "engine", engine);
         Wire.put(object, "favicon_url", faviconUrl);
+        Wire.put(object, "idempotency_key", idempotencyKey);
         Wire.put(object, "owner", owner);
         Wire.put(object, "pane", pane);
         Wire.put(object, "profile_id", profileId);
@@ -104,11 +112,11 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NewFrontendBrowserTabRequest that)) return false;
-        return Objects.equals(cols, that.cols) && Objects.equals(engine, that.engine) && Objects.equals(faviconUrl, that.faviconUrl) && Objects.equals(owner, that.owner) && Objects.equals(pane, that.pane) && Objects.equals(profileId, that.profileId) && Objects.equals(rows, that.rows) && Objects.equals(title, that.title) && Objects.equals(url, that.url);
+        return Objects.equals(cols, that.cols) && Objects.equals(engine, that.engine) && Objects.equals(faviconUrl, that.faviconUrl) && Objects.equals(idempotencyKey, that.idempotencyKey) && Objects.equals(owner, that.owner) && Objects.equals(pane, that.pane) && Objects.equals(profileId, that.profileId) && Objects.equals(rows, that.rows) && Objects.equals(title, that.title) && Objects.equals(url, that.url);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cols, engine, faviconUrl, owner, pane, profileId, rows, title, url); }
+    public int hashCode() { return Objects.hash(cols, engine, faviconUrl, idempotencyKey, owner, pane, profileId, rows, title, url); }
 
     @Override
     public String toString() { return "NewFrontendBrowserTabRequest" + toWire(); }
@@ -118,6 +126,7 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
         private String engine;
         private boolean engineSet;
         private Field<String> faviconUrl = Field.omitted();
+        private Field<String> idempotencyKey = Field.omitted();
         private Field<String> owner = Field.omitted();
         private Field<UInt64> pane = Field.omitted();
         private Field<String> profileId = Field.omitted();
@@ -137,6 +146,10 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
         }
         public Builder faviconUrl(String value) {
             this.faviconUrl = Field.ofNullable(value);
+            return this;
+        }
+        public Builder idempotencyKey(String value) {
+            this.idempotencyKey = Field.ofNullable(value);
             return this;
         }
         public Builder owner(String value) {

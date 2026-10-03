@@ -15,6 +15,7 @@ pub(crate) mod closed_history_store;
 pub(crate) mod commit;
 pub(crate) mod conversation_tabs;
 pub(crate) mod conversation_tabs_store;
+pub(crate) mod frontend_browser_keys;
 pub(crate) mod home;
 pub(crate) mod home_store;
 #[cfg(test)]
