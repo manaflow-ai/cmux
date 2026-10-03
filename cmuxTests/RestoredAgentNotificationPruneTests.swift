@@ -29,6 +29,48 @@ struct RestoredAgentNotificationPruneTests {
         }
     }
 
+    @Test func readNotificationPostedAfterRestoreIsNotPruned() throws {
+        try withIsolatedNotificationStore { store in
+            let (restored, panelId) = try restoreWorkspace(store: store, hostsAgent: true, notifications: [
+                (body: "Restored read summary", isRead: true),
+            ])
+            store.replaceNotificationsForTesting(store.notifications + [
+                TerminalNotification(
+                    id: UUID(),
+                    tabId: restored.id,
+                    surfaceId: panelId,
+                    panelId: panelId,
+                    title: "Claude Code",
+                    subtitle: "Completed",
+                    body: "Posted after restore",
+                    createdAt: Date(timeIntervalSince1970: 1_800_000_000),
+                    isRead: true
+                ),
+            ])
+
+            restored.clearStaleAgentPIDs(refreshPorts: false)
+
+            #expect(store.notifications(forTabId: restored.id, surfaceId: panelId).map(\.body) == ["Posted after restore"])
+        }
+    }
+
+    @Test func readNotificationIsKeptWhileRestoredResumeIsInFlight() throws {
+        try withIsolatedNotificationStore { store in
+            let (restored, panelId) = try restoreWorkspace(store: store, hostsAgent: true, notifications: [
+                (body: "Read turn summary", isRead: true),
+            ])
+            restored.restoredAgentLifecycle.setResumeState(.awaitingAutoResumeCommand, panelId: panelId)
+
+            restored.clearStaleAgentPIDs(refreshPorts: false)
+            #expect(store.notifications(forTabId: restored.id, surfaceId: panelId).map(\.body) == ["Read turn summary"])
+
+            // The resume ended without the agent reporting a PID.
+            restored.restoredAgentLifecycle.setResumeState(nil, panelId: panelId)
+            restored.clearStaleAgentPIDs(refreshPorts: false)
+            #expect(store.notifications(forTabId: restored.id, surfaceId: panelId).isEmpty)
+        }
+    }
+
     @Test func readNotificationIsKeptWhenAgentReturnsToThePane() throws {
         try withIsolatedNotificationStore { store in
             let (restored, panelId) = try restoreWorkspace(store: store, hostsAgent: true, notifications: [
