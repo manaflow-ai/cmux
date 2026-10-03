@@ -15,10 +15,10 @@ import Foundation
 /// sends the same key again; FeedDO's ledger makes that retry safe. Passes
 /// run on events only (activation, a new local item), never on a timer.
 ///
-/// Active only when the local daemon serves `feed-local-owner-v1`, the user
-/// is signed in, and the app holds an install credential (`feed.adopt` is an
-/// install-only op). Otherwise the step-1 bridge (`FeedNotificationBridge`)
-/// keeps mirroring (B1).
+/// Active only when `enabled` (off in shipped builds, `isEnabledByDefault`),
+/// the local daemon serves `feed-local-owner-v1`, the user is signed in, and
+/// the app holds an install credential (`feed.adopt` is an install-only op).
+/// Otherwise the step-1 bridge (`FeedNotificationBridge`) keeps mirroring (B1).
 @MainActor
 final class FeedHandoffDriver {
     /// The local daemon's feed-owner commands.
@@ -31,6 +31,12 @@ final class FeedHandoffDriver {
 
     typealias Owner = FeedNotificationBridge.Owner
 
+    /// The gate for shipped builds. OFF until P8 slice 3 lands: the daemon
+    /// must accept `feed-local-handoff-begin`/`-done` only from the frontend
+    /// (user) actor before the app starts handoffs (daemon owner's review
+    /// condition, feed.md 9.1). Tests construct the driver with the gate on.
+    static let isEnabledByDefault = false
+
     /// The home FeedDO items get.
     static let home = "cloud"
     /// Client cap on adopts: terminal spam must not use up the owner's per-poster limit.
@@ -38,6 +44,7 @@ final class FeedHandoffDriver {
     /// Items read while they were moving, read in the cloud once they moved (bounded).
     static let maxPendingReads = 500
 
+    private let enabled: Bool
     private let daemon: Daemon
     private let owner: Owner
     private let isSignedIn: @MainActor () -> Bool
@@ -56,9 +63,10 @@ final class FeedHandoffDriver {
     private(set) var log: [String] = []
     private static let logLimit = 32
 
-    init(daemon: Daemon, owner: @escaping Owner, isSignedIn: @escaping @MainActor () -> Bool,
+    init(enabled: Bool = FeedHandoffDriver.isEnabledByDefault, daemon: Daemon, owner: @escaping Owner, isSignedIn: @escaping @MainActor () -> Bool,
          installID: @escaping @MainActor () -> String?, policy: @escaping @MainActor () -> FeedHandoffPolicy,
          now: @escaping @MainActor () -> Date = Date.init) {
+        self.enabled = enabled
         self.daemon = daemon
         self.owner = owner
         self.isSignedIn = isSignedIn
@@ -68,7 +76,7 @@ final class FeedHandoffDriver {
     }
 
     /// Whether the driver replaces the step-1 bridge right now.
-    var isActive: Bool { daemon.serves() && isSignedIn() && installID() != nil }
+    var isActive: Bool { enabled && daemon.serves() && isSignedIn() && installID() != nil }
 
     /// Runs one pass (at activation and on each new local item). A pass that
     /// is running finishes first; one more pass follows it.

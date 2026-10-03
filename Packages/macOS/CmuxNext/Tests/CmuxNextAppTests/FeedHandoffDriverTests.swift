@@ -97,10 +97,12 @@ struct FeedHandoffDriverTests {
     }
 
     private func driver(_ daemon: Daemon, _ owner: Owner, prefs: NotificationPreferences = NotificationPreferences(),
-                        muted: Set<String> = [], signedIn: Bool = true, install: String? = install) -> FeedHandoffDriver {
+                        muted: Set<String> = [], signedIn: Bool = true, install: String? = install,
+                        enabled: Bool = true) -> FeedHandoffDriver {
         var utc = Calendar(identifier: .gregorian)
         utc.timeZone = TimeZone(identifier: "UTC")!
         return FeedHandoffDriver(
+            enabled: enabled,
             daemon: daemon.client(),
             owner: { _, body in try await owner.handle(body) },
             isSignedIn: { signedIn },
@@ -286,5 +288,18 @@ struct FeedHandoffDriverTests {
         #expect(driver(daemon, Owner()).isActive)
         #expect(!driver(daemon, Owner(), signedIn: false).isActive)
         #expect(!driver(daemon, Owner(), install: nil).isActive)
+    }
+
+    @Test func shippedBuildsKeepTheDriverOffUntilP8Slice3() async {
+        #expect(!FeedHandoffDriver.isEnabledByDefault)
+        let daemon = Daemon([Self.item("a")])
+        let owner = Owner()
+        let off = driver(daemon, owner, enabled: false)
+        #expect(!off.isActive)
+        #expect(NotificationCenterService.feedPath(driver: off) == .bridge)
+        off.run()
+        await off.drain()
+        #expect(daemon.calls.isEmpty)
+        #expect(owner.calls.isEmpty)
     }
 }

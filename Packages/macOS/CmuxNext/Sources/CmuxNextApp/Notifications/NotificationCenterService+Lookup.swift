@@ -108,9 +108,11 @@ extension NotificationCenterService {
         return FeedHandoffDriver(
             daemon: .init(
                 serves: { daemon.isLocal && daemon.identity?.supports(DaemonCapabilities.shared.feedLocalOwner) == true },
-                list: { state, unread in try await connection().feedLocalList(state: state, unread: unread) },
-                begin: { try await connection().feedLocalHandoffBegin($0) },
-                done: { try await connection().feedLocalHandoffDone($0, home: $1) }),
+                list: { state, unread in
+                    try await connection().request(FeedLocalListRequest(state: state, unread: unread ? true : nil)).items
+                },
+                begin: { try await connection().request(FeedLocalHandoffBeginRequest(item: $0)).item },
+                done: { try await connection().request(FeedLocalHandoffDoneRequest(item: $0, home: $1)).item }),
             owner: { [weak feed] path, body in
                 guard let feed else { throw FeedServiceError.signedOut }
                 return try await feed.call(path, body)
