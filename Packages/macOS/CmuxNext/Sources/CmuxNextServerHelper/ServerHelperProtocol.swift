@@ -62,40 +62,59 @@ public nonisolated enum ServerHelperConstants {
     }
 }
 
-/// The helper side: validates the fix id and runs exactly its argv.
+/// The helper side: validates the fix id, records the value it replaces and
+/// runs exactly the fix's argv; revert restores the recorded value.
 public final nonisolated class ServerHelperService: NSObject, ServerHelperProtocol, @unchecked Sendable {
     private let runner: any ServerFixRunner
+    private let priors: any ServerFixPriorStore
 
-    public init(runner: any ServerFixRunner = ProcessFixRunner()) {
+    public init(runner: any ServerFixRunner = ProcessFixRunner(), priors: any ServerFixPriorStore = MemoryFixPriorStore()) {
         self.runner = runner
+        self.priors = priors
     }
 
     public func apply(fixID: String, reply: @escaping @Sendable (String?) -> Void) {
-        perform(fixID, revert: false, reply: reply)
+        guard let fix = ServerFix(rawValue: fixID) else { return reply("unknown fix") }
+        let runner = runner, priors = priors
+        Task { reply(await Self.apply(fix, runner: runner, priors: priors)) }
     }
 
     public func revert(fixID: String, reply: @escaping @Sendable (String?) -> Void) {
-        perform(fixID, revert: true, reply: reply)
+        guard let fix = ServerFix(rawValue: fixID) else { return reply("unknown fix") }
+        let runner = runner, priors = priors
+        Task { reply(await Self.revert(fix, runner: runner, priors: priors)) }
     }
 
     public func version(reply: @escaping @Sendable (Int) -> Void) {
         reply(ServerHelperConstants.protocolVersion)
     }
 
-    private func perform(_ fixID: String, revert: Bool, reply: @escaping @Sendable (String?) -> Void) {
-        guard let fix = ServerFix(rawValue: fixID) else {
-            reply("unknown fix")
-            return
-        }
-        let runner = runner
-        let arguments = revert ? fix.revertArguments : fix.applyArguments
-        Task {
-            do {
-                let status = try await runner.run(ServerFix.pmset, arguments)
-                reply(status == 0 ? nil : "pmset exited \(status)")
-            } catch {
-                reply("pmset did not start")
+    static func apply(_ fix: ServerFix, runner: any ServerFixRunner, priors: any ServerFixPriorStore) async -> String? {
+        do {
+            if priors.prior(fix) == nil {
+                let current = try await runner.run(ServerFix.pmset, ["-g", "custom"])
+                guard current.status == 0, let value = fix.currentValue(inCustomOutput: current.output) else {
+                    return "could not read the current \(fix.setting) setting"
+                }
+                if value == fix.appliedValue { return nil }
+                try priors.record(fix, prior: value)
             }
+            let result = try await runner.run(ServerFix.pmset, fix.applyArguments)
+            return result.status == 0 ? nil : "pmset exited \(result.status)"
+        } catch {
+            return "pmset did not start"
+        }
+    }
+
+    static func revert(_ fix: ServerFix, runner: any ServerFixRunner, priors: any ServerFixPriorStore) async -> String? {
+        guard let prior = priors.prior(fix) else { return "nothing to revert" }
+        do {
+            let result = try await runner.run(ServerFix.pmset, fix.arguments(setting: prior))
+            guard result.status == 0 else { return "pmset exited \(result.status)" }
+            try priors.clear(fix)
+            return nil
+        } catch {
+            return "pmset did not start"
         }
     }
 }
