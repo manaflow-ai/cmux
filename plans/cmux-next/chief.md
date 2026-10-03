@@ -1,0 +1,121 @@
+# cmux-next Chief: a manager whose memory is its whole context (isolated experiment)
+
+Status: isolated experiment, revision 2, 2026-10-02 (chief lane, session cmuxterm-hq-e0). Lives on
+branch `feat-cmux-next-chief` in `experiments/chief-optmem/` and is never merged into
+`feat-cmux-next` without a new decision. Decisions (Lawrence via the coordinator, 2026-10-02): no
+spec changes; production Home objects (MuxDO, ConversationDO, OwnerDO), home-core and other
+feat-cmux-next code are not touched; the loop uses Cloudflare `agents` pi-on-DO (`PiHarness`), beta
+and its own transcript schema accepted inside the experiment; one memory per chief; cloud first,
+staging only, own Worker name and DO namespaces, own wrangler config; Home data is read only
+through public routes if at all; a minimal UI inside the experiment.
+
+References: https://github.com/VictorTaelin/OptMem at 1fb164cf (Python `memo`, read in full; the
+repository has no license, so the experiment reimplements the behavior and uses the script only as
+a test oracle, never copies it), Taelin's post of 2026-09-29 ("a harness that replaces the chat by
+optmem ... it IS the chat history ... no tools other than spawn"), `agents` 0.26.0 and
+`@earendil-works/pi-durable` 1.0.0.
+
+## 1. The product
+
+Chief is one manager agent per person that you talk to forever. It has no chat transcript and no
+compaction. Each turn its whole context is rebuilt from its memory: a fixed budget of lines where
+recent events are verbatim and older ones are progressively coarser summaries (OptMem's cover).
+Everything that happens (your messages, its replies, results from workers) is appended to memory.
+The chief does no work itself: its only tool is `spawn`, which starts or steers a worker agent that
+has the real tools. Worker results come back as events, which become memory, which wake the chief.
+
+Properties to prove: the chief never forgets (append-only log, `recall` finds any line); a turn
+costs the same on day 1 and day 1000 (context bounded by `WAKE_LINES`); the model can change between
+two turns (nothing lives in a provider session).
+
+## 2. Words
+
+- Memory: an append-only log of entries plus a binary tree of one-line summaries (OptMem).
+- Entry `#n`: one line of at most 280 bytes with a date.
+- Block `#lo-hi`: an aligned power-of-two range; its summary is one line.
+- Cover: the blocks a turn sees, `cover(T, WAKE_LINES)`.
+- Nap: writing the next pending summary. Blocks are built in order, smallest first.
+- Worker: an agent the chief spawned. A worker never writes memory (OptMem's subagent rule).
+
+## 3. Layout (experiments/chief-optmem/)
+
+```
+src/memory/      pure OptMem: cover, pending, nap prompts, wake/zoom/recall views, memo-format text
+src/memory-do.ts MemoryDO: one per chief, DO SQLite tables entry(n, date, text) and node(size, k, text)
+src/chief-do.ts  ChiefDO: Agent + PiHarness; the turn loop and the spawn tool
+src/worker.ts    routes: chief create, send, stream, memory views; bearer token (staging secret)
+web/             minimal UI: the conversation and a memory view
+conformance/     generator that runs the Python memo on seeded op sequences -> vectors JSON
+test/            vitest: pure memory vs vectors; DO tests with the workers pool
+wrangler.jsonc   Worker `cmux-chief-optmem-staging` (and a local env), its own DO classes
+```
+
+## 4. Memory
+
+The behavior is OptMem's, checked byte for byte against the Python script by the conformance
+vectors (wake, note, nap, zoom, recall, forget, config and their messages, with the tool name fixed
+to `memo`). Storage differences:
+
+- Fixed-width records exist in OptMem for O(1) seeks; `entry.n` and `node(size, k)` give the same
+  lookups in SQLite.
+- `forget` truncates the dense prefix count of each level (`built[size]`) instead of deleting rows;
+  rows past the prefix are dead and are overwritten when the block is rebuilt. Forgetting a low
+  block of a large memory is O(levels), not O(blocks).
+- Every write carries an idempotency key, so a retried turn appends once (OptMem has no such guard;
+  the DO is the lock).
+- Dates come from the chief's time zone (config `TZ`), not the server clock's.
+
+MemoryDO RPC: `note(entries, key)`, `nap(block, text)`, `forget(block)`, `config(knobs)`,
+`import(entries)`, `wake(part?, T?)`, `recall(regex)`, `zoom(block)`, `state()`.
+
+## 5. The turn
+
+ChiefDO is an `Agent` with a `PiHarness`. One turn at a time (pi's busy session + `whenBusy:
+"followUp"` queues later events).
+
+1. Event in: a human message (`POST /chiefs/:id/messages`) or a worker event.
+2. Ingest: append one entry per event (`<name>: <text>`; a longer message stores its first 280
+   bytes plus `[msg <id>]`, and the full text is kept in ChiefDO's message table for this turn and
+   for the UI).
+3. Nap: while the cover needs a summary, run the nap prompt as a separate pi request with the
+   chief's model (the chief compresses its own memory, as in OptMem); spare naps after the turn,
+   at most 4 per turn.
+4. Context: pi's `beforeRequest` hook replaces the request messages with: system section (identity,
+   the spawn tool, how to read `#n` and `#a-b`) + the cover + the new events in full. pi keeps its
+   own transcript; the model never sees it.
+5. Reply: the assistant text is shown in the conversation and appended to memory as `chief: ...`
+   (one line; the chief is told to keep replies short, longer ones are stored as first line + ref).
+6. `spawn {name, prompt, resume?}` starts or steers a worker. Phase 1 worker: a pi sub-session in
+   a WorkerDO with read-only web tools (fetch, search) so the loop is end to end on Cloudflare.
+   Phase 2: a coding agent on a Freestyle VM (the cmux Cloud provider). The worker's final message
+   comes back as a `worker <name>: ...` event.
+
+Memory is shown to the model only through the cover; `recall` and `zoom` are not chief tools in
+phase 1 (Taelin: spawn only). If turns show the chief needs older detail, phase 2 adds
+`recall`/`zoom` as read tools and we measure the difference.
+
+## 6. UI
+
+A static page served by the Worker: the conversation (chief replies, worker events) and a memory
+panel (the cover as of now, zoom on click, recall search). The native MessagesLab client (Home,
+lane 16) is not part of the experiment.
+
+## 7. Steps
+
+1. Pure memory + conformance vectors from the Python memo (no new dependencies).
+2. MemoryDO + workers-pool tests.
+3. ChiefDO with PiHarness, the turn loop, staging deploy. Blocked: the local npm policy
+   (`min-release-age=7`) refuses `agents` 0.25+/0.26 and `@earendil-works/pi-*` 1.0 until about
+   2026-10-09; installing earlier needs Lawrence's approval for an exclusion.
+4. WorkerDO (pi sub-session) and spawn.
+5. UI page.
+6. Freestyle worker.
+
+## 8. Open
+
+- How long a chief reply may be before it is stored as first line + ref (start: 280 bytes).
+- Whether the nap runs on the chief's model or a cheaper one (start: the chief's model).
+</content>
+</invoke>
+<invoke name="Bash">
+<parameter name="command">cd /tmp/optmem-src && sed -n 1,80p test.py
