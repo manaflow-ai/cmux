@@ -33,9 +33,10 @@ extension HomeController {
             case .receipt(let text), .failedLabel(let text): label = text; value = ""
             case .unsent(let outgoing): label = outgoing ? HomeStrings.unsentMine : HomeStrings.unsentTheirs; value = ""
             case .typing: label = HomeStrings.typing; value = ""
+            case .senderName(let name): label = name; value = ""
             }
             let item: IdempotencyKey? = if case .part = spec.kind { Self.itemKey(of: spec.key).map { IdempotencyKey($0) } } else { nil }
-            out.append(HomeAXItem(id: spec.key, role: .staticText, label: label, value: value, frame: frame, item: item))
+            out.append(HomeAXItem(id: spec.key, role: .staticText, label: label, value: value, frame: toHost(frame), item: item))
         }
         out.append(HomeAXItem(id: "compose", role: .textArea, label: HomeStrings.composeLabel, value: draft, frame: fieldRect))
         return out

@@ -17,21 +17,23 @@ extension HomeController {
     }
 
     public var scrollGeometry: ScrollGeometry {
-        ScrollGeometry(contentHeight: scene.layout.contentHeight, minOffset: scene.minOffset,
-                       pinnedOffset: scene.pinnedOffset, offset: scene.offset)
+        ScrollGeometry(contentHeight: scene.layout.contentHeight * zoom, minOffset: scene.minOffset * zoom,
+                       pinnedOffset: scene.pinnedOffset * zoom, offset: scene.offset * zoom)
     }
 
     /// The host's scroll view moved (user, momentum or rubber band).
     public func hostScrolled(to offset: CGFloat) {
-        scene.hostScroll(to: offset)
+        scene.hostScroll(to: offset / zoom)
         afterViewportChange()
     }
 
     /// The compose field the host draws, in viewport points (top-left
     /// origin). `send` is true for the shrink after a send. The rows above
     /// follow with the shared field spring (`animateField`).
-    public func setHostedField(_ frame: CGRect, send: Bool = false) {
+    public func setHostedField(_ hostFrame: CGRect, send: Bool = false) {
         let oldTop = scene.fieldTop
+        hostedFieldInHost = hostFrame
+        let frame = toDesign(hostFrame)
         guard frame != scene.hostedField else { return }
         let begin = scene.now
         scene.hostedField = frame
@@ -60,7 +62,7 @@ extension HomeController {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let intent = HomeIntent(op: .sendMessage(conversation: conversation, parts: [.text(trimmed)]))
-        pendingSend = (intent, text, field)
+        pendingSend = (intent, text, toDesign(field))
         scene.pinned = true
         onIntent(intent)
         onAccessibilityChange()
@@ -103,7 +105,7 @@ extension HomeController {
         guard let i = scene.model.rows.indices.first(where: { scene.model.rows[$0].spec.key.hasPrefix(prefix) && !scene.model.rows[$0].ghost })
         else { return nil }
         let spec = scene.model.rows[i].spec
-        return CGRect(x: 0, y: scene.layout.contentTop(i), width: scene.size.width, height: spec.height)
+        return toHost(CGRect(x: 0, y: scene.layout.contentTop(i), width: scene.size.width, height: spec.height))
     }
 
     /// Keyframes that move a host view from `old` to `new` along the shared
@@ -125,5 +127,47 @@ extension HomeController {
         }
         frames[frames.count - 1] = new
         return (curve.duration, times, frames)
+    }
+}
+
+/// Where `scroll(to:anchor:)` places a message.
+public enum HomeScrollAnchor: Sendable, Hashable {
+    /// The message's top just under the top inset.
+    case top
+    /// The message centered between the top inset and the compose field.
+    case center
+}
+
+extension HomeController {
+    /// Scrolls so `item` shows at `anchor` (a search hit, a reply jump).
+    /// Returns false when the item is not loaded (the host loads its page
+    /// first). The host's scroll view follows through `onScrollGeometryChange`.
+    @discardableResult
+    public func scroll(to item: IdempotencyKey, anchor: HomeScrollAnchor = .center) -> Bool {
+        let prefix = "part:\(item.rawValue):"
+        guard let i = scene.model.rows.indices.first(where: { scene.model.rows[$0].spec.key.hasPrefix(prefix) && !scene.model.rows[$0].ghost })
+        else { return false }
+        let top = scene.layout.contentTop(i)
+        let height = scene.model.rows[i].spec.height
+        let target: CGFloat = switch anchor {
+        case .top: top - scene.topInset - 8
+        case .center: top + height / 2 - (scene.topInset + scene.anchorY) / 2
+        }
+        let offset = scene.clamped(target)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        scene.setOffset(offset)
+        scene.layoutRows()
+        scene.refreshVisibleRows()
+        scene.pinned = scene.pinnedOffset - offset < 1
+        CATransaction.commit()
+        publishScrollGeometryIfChanged()
+        afterViewportChange()
+        return true
+    }
+
+    /// The item with sequence number `seq`, for hosts that hold a seq (search hits).
+    public func item(withSeq seq: Seq) -> IdempotencyKey? {
+        items.first { $0.seq == seq }?.key
     }
 }

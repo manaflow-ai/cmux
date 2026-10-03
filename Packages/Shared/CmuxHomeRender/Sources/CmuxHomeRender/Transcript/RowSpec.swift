@@ -25,6 +25,8 @@ struct RowSpec: Hashable, Sendable {
         case failedLabel(String)
         /// "Read" or "Delivered" under my latest send.
         case receipt(String)
+        /// The sender's name above the first bubble of a run (group conversations).
+        case senderName(String)
         case typing
     }
 

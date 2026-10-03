@@ -11,9 +11,9 @@ extension HomeController {
         switch input {
         case .scroll(let dy, let phase, _):
             if phase == .began || phase == .mayBegin { scene.momentum = nil }
-            if scene.scroll(by: dy) { afterViewportChange() }
+            if scene.scroll(by: dy / zoom) { afterViewportChange() }
         case .fling(let velocity):
-            scene.beginMomentum(velocity: velocity, at: CACurrentMediaTime())
+            scene.beginMomentum(velocity: velocity / zoom, at: CACurrentMediaTime())
         case .insertText(let s, let range): edit { $0.insert(s, replacing: range) }
         case .setMarkedText(let s, let selected, let range): edit { $0.setMarked(s, selected: selected, replacing: range) }
         case .unmarkText: edit { $0.unmark() }
@@ -54,9 +54,9 @@ extension HomeController {
     public var selectedRange: NSRange { scene.compose.editor.selection }
     public var markedRange: NSRange? { scene.compose.editor.marked }
     /// The caret in viewport points, top-left origin.
-    public var caretRect: CGRect { scene.compose.caretRect }
+    public var caretRect: CGRect { toHost(scene.compose.caretRect) }
     /// The compose field in viewport points; hosts place their buttons beside it.
-    public var fieldRect: CGRect { scene.compose.fieldRect }
+    public var fieldRect: CGRect { toHost(scene.hostedField ?? scene.compose.fieldRect) }
     /// Hide while the host's text input is not focused.
     public var showsCaret: Bool {
         get { scene.compose.showsCaret }
