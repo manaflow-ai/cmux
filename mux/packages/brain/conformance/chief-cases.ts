@@ -496,7 +496,8 @@ function turnCases(): CorpusCase[] {
   }
 
   {
-    const c = new CaseBuilder("turns: cursor_reset (a re-imported session) replays the log from 0; the owner dedupes by key", {
+    const epoch = T0 + 500;
+    const c = new CaseBuilder("turns: after cursor_reset reply keys carry an epoch (the at of the first replayed event), so a reused turn seq gets a new key", {
       defaultConversation: "conv_a",
       muxSessionId: MUX_SESSION,
       acpmuxSeq: 9,
@@ -507,11 +508,48 @@ function turnCases(): CorpusCase[] {
         kind: "acpmux_connected",
         session_id: MUX_SESSION,
         sessions: [],
-        events: [ev(1, "turn_started"), chunk(2, "again"), ev(3, "turn_end")],
+        events: [{ ...ev(1, "turn_started"), at: epoch }, { ...chunk(2, "again"), at: epoch + 1 }, { ...ev(3, "turn_end"), at: epoch + 2 }],
         cursor_reset: true,
       },
       ["persist", "typing", "conversation_op", "typing", "list_conversations"],
-      (e) => c.check(c.persisted(e).acpmuxSeq === 3, "cursor from the replay"),
+      (e) => {
+        c.check(opKey(c, e) === `turn:${MUX_SESSION}:${epoch}:1`, `epoch key, got ${opKey(c, e)}`);
+        const state = c.persisted(e) as HostStateData & { acpmuxEpoch?: number };
+        c.check(state.acpmuxSeq === 3 && state.acpmuxEpoch === epoch, "cursor and epoch saved");
+      },
+    );
+    c.step({ kind: "op_result", idempotency_key: `turn:${MUX_SESSION}:${epoch}:1` }, ["persist"]);
+    c.step(mux(ev(4, "turn_started")), ["typing"]);
+    c.step(mux(chunk(5, "later")), []);
+    c.step(mux(ev(6, "turn_end")), ["persist", "conversation_op", "typing"], (e) =>
+      c.check(opKey(c, e) === `turn:${MUX_SESSION}:${epoch}:4`, "the epoch stays until the next reset"),
+    );
+    cases.push(c.end());
+  }
+
+  {
+    const c = new CaseBuilder("turns: a replayed turn of an answered prompt (conv_b) posts nothing, not even to the default conversation", {
+      defaultConversation: "conv_a",
+      muxSessionId: MUX_SESSION,
+      acpmuxSeq: 9,
+      answered: [msgId("conv_b", 1)],
+    });
+    c.step({ kind: "daemon_connected", conversation: summary("conv_a") }, []);
+    c.step(
+      {
+        kind: "acpmux_connected",
+        session_id: MUX_SESSION,
+        sessions: [],
+        events: [
+          { ...ev(1, "user_message", { promptId: msgId("conv_b", 1) }), at: T0 + 700 },
+          ev(2, "turn_started"),
+          chunk(3, "the old answer"),
+          ev(4, "turn_end"),
+        ],
+        cursor_reset: true,
+      },
+      ["persist", "list_conversations"],
+      (e) => c.check(c.persisted(e).outbox.length === 0, "no reply queued"),
     );
     cases.push(c.end());
   }
