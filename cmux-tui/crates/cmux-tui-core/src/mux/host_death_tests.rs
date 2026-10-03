@@ -434,8 +434,14 @@ fn session_shutdown_settles_a_live_signal_exit_after_the_lead() {
     drop(mux);
 
     // The next owner re-classifies the receipt against the recorded window.
-    let reopened = Mux::open_persistent(session, options, &root).unwrap();
+    let reopened = Mux::open_persistent(session, options.clone(), &root).unwrap();
     assert_eq!(topology(&reopened), after_normal, "a restart removed a logout tab");
+    // That owner's own shutdown replaces the recorded window; the host loss
+    // must not depend on it.
+    reopened.shutdown();
+    drop(reopened);
+    let reopened = Mux::open_persistent(session, options, &root).unwrap();
+    assert_eq!(topology(&reopened), after_normal, "a second restart removed a logout tab");
     reopened.shutdown();
     drop(reopened);
     let _ = std::fs::remove_dir_all(root);

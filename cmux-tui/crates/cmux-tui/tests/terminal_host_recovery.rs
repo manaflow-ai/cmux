@@ -46,6 +46,8 @@ struct RecoveryHarness {
     state: PathBuf,
     session: String,
     host_ready_delay_ms: Option<u64>,
+    /// `CMUX_TUI_TEST_SESSION_SHUTDOWN_LEAD_MS` for the daemon (debug builds).
+    session_shutdown_lead_ms: Option<u64>,
     reconnect_completion_failures: Option<u64>,
     adoption_insert_failures: Option<u64>,
     template_completion_failures: Option<u64>,
@@ -68,6 +70,7 @@ impl RecoveryHarness {
             state: dir.join("state"),
             session: "host-recovery".into(),
             host_ready_delay_ms: None,
+            session_shutdown_lead_ms: None,
             reconnect_completion_failures: None,
             adoption_insert_failures: None,
             template_completion_failures: None,
@@ -137,6 +140,7 @@ impl RecoveryHarness {
             state: dir.join("state"),
             session: "host-recovery".into(),
             host_ready_delay_ms: None,
+            session_shutdown_lead_ms: None,
             reconnect_completion_failures: None,
             adoption_insert_failures: None,
             template_completion_failures: None,
@@ -166,6 +170,9 @@ impl RecoveryHarness {
             .stderr(Stdio::null());
         if let Some(delay_ms) = self.host_ready_delay_ms {
             command.env("CMUX_TUI_TEST_HOST_READY_DELAY_MS", delay_ms.to_string());
+        }
+        if let Some(lead_ms) = self.session_shutdown_lead_ms {
+            command.env("CMUX_TUI_TEST_SESSION_SHUTDOWN_LEAD_MS", lead_ms.to_string());
         }
         if let Some(failures) = self.reconnect_completion_failures {
             command.env("CMUX_TUI_TEST_RECONNECT_COMPLETION_FAILURES", failures.to_string());
@@ -4733,11 +4740,15 @@ fn session_shutdown_signal_exits_keep_tabs_dead() {
 /// termination signal does. The daemon then still runs normally; it commits
 /// the exit but keeps the tab, dead, for the session shutdown lead before it
 /// detaches it. The daemon's shutdown within that lead makes those exits
-/// host losses: after the restart every tab is still there, dead.
+/// host losses: after the restart, and after a second restart whose
+/// shutdown replaced the recorded window, every tab is still there, dead.
+/// The lead is raised so a loaded runner cannot outlast it.
 #[test]
 fn session_shutdown_logout_race_keeps_tabs_dead() {
     let _exclusive = exclusive_process_test();
-    let mut harness = RecoveryHarness::start("session-shutdown-logout-race");
+    let mut harness = RecoveryHarness::start_unstarted("session-shutdown-logout-race");
+    harness.session_shutdown_lead_ms = Some(30_000);
+    harness.restart();
     let names = ["first", "second"];
     let shells = names
         .iter()
@@ -4772,6 +4783,19 @@ fn session_shutdown_logout_race_keeps_tabs_dead() {
     }
     let tree = request(&harness.socket, serde_json::json!({"id":11,"cmd":"list-workspaces"}));
     assert_dead_tabs(&tree, &names, "after the restart");
+
+    // This owner's shutdown replaces the recorded window.
+    harness.signal_daemon(libc::SIGTERM);
+    let mut daemon = harness.child.take().unwrap();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while daemon.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline, "daemon did not exit after the second SIGTERM");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let _ = fs::remove_file(&harness.socket);
+    harness.restart();
+    let tree = request(&harness.socket, serde_json::json!({"id":12,"cmd":"list-workspaces"}));
+    assert_dead_tabs(&tree, &names, "after the second restart");
 }
 
 /// Invariant 3 at runtime: a host killed under a running daemon (no exit
