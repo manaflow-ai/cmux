@@ -1653,6 +1653,12 @@ fi
 if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
   XCODEBUILD_ARGS+=(CMUX_SKIP_ZIG_BUILD=1)
 fi
+# The monitor's reserved mini uses Xcode's separately mounted Metal Toolchain
+# from a build phase. Disable only that disposable debug build's script sandbox
+# when requested, because the sandbox cannot traverse the cryptex mount.
+if [[ "${CMUX_DISABLE_USER_SCRIPT_SANDBOXING:-0}" == "1" ]]; then
+  XCODEBUILD_ARGS+=(ENABLE_USER_SCRIPT_SANDBOXING=NO)
+fi
 SWIFT_OTHER_FLAGS='$(inherited)'
 if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}" == "1" || "${CMUX_SWIFT_DISABLE_GLOBAL_ISEL:-}" == "1" ]]; then
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=1
