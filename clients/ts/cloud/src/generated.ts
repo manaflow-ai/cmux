@@ -64,6 +64,8 @@ export type Budget = {
   readonly tool_calls?: number
 }
 
+export type ChiefId = string
+
 /** 1 to 128 printable ASCII characters (idempotency key, client_msg_id). */
 export type ClientToken = string
 
@@ -290,14 +292,17 @@ export type Grant = {
 export type GrantId = string
 
 export type HomeChief = {
-  readonly agent: AgentId
+  readonly id: ChiefId
   readonly owner_user: string
-  readonly name: string
-  readonly avatar?: string
-  readonly parent?: AgentId
-  readonly brain: "local" | "cloud"
-  readonly thread: ConversationId
-  readonly archived_at?: Timestamp
+  readonly display_name: string
+  readonly is_default: boolean
+  readonly brain: "cloud"
+  readonly main_conversation: ConversationId | null
+  readonly harness: string | null
+  readonly rev: number | "Infinity" | "-Infinity" | "NaN"
+  readonly created_at: Timestamp
+  readonly updated_at: Timestamp
+  readonly archived_at: Timestamp | null
 }
 
 /** rev after the op; seq and message_id for a new message; change is the committed Change. */
@@ -1026,29 +1031,45 @@ export interface CloudOps {
     }
     readonly result: unknown
   }
-  /** Archive a chief: its thread stays readable, it stops waking. */
+  /** Archive a chief (not the default): it stops waking; restorable for 30 days, then a tombstone keeps its id forever. */
   readonly "chief.archive": {
     readonly params: {
-      readonly agent: AgentId
+      readonly chief: ChiefId
+      readonly expected_rev: number | "Infinity" | "-Infinity" | "NaN"
     }
     readonly result: HomeChief
   }
-  /** Create a chief (or a subchief under parent): its agent principal and mux grant, its wake queue and its chief thread. */
+  /** Create a chief (the user's first chief is the default; use the idempotency key chief-default for it). Binds its wake queue and gives it the user's text confirmation level. */
   readonly "chief.create": {
     readonly params: {
-      readonly name: string
-      readonly parent?: AgentId
-      readonly avatar?: string
-      readonly brain: "local" | "cloud"
+      readonly display_name?: string
+      readonly is_default?: boolean
     }
     readonly result: HomeChief
   }
-  /** Rename a chief or change its avatar. */
+  /** The user's chiefs (active first, the default marked), archived ones on request, and tombstones. */
+  readonly "chief.list": {
+    readonly params: {
+      readonly include_archived?: boolean
+    }
+    readonly result: {
+      readonly chiefs: ReadonlyArray<HomeChief>
+      readonly tombstones: ReadonlyArray<{
+        readonly id: ChiefId
+        readonly owner_user: string
+        readonly archived_at: Timestamp
+      }>
+    }
+  }
+  /** Rename a chief, make it the default (clears the old default in the same commit), set its harness, or restore it within 30 days of archiving (archived: false). */
   readonly "chief.update": {
     readonly params: {
-      readonly agent: AgentId
-      readonly name?: string
-      readonly avatar?: string
+      readonly chief: ChiefId
+      readonly expected_rev: number | "Infinity" | "-Infinity" | "NaN"
+      readonly display_name?: string
+      readonly is_default?: true
+      readonly harness?: string | null
+      readonly archived?: false
     }
     readonly result: HomeChief
   }
@@ -2275,6 +2296,7 @@ export const cloudOpMeta = {
   "calendar.events.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
   "chief.archive": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
   "chief.create": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "chief.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "chief.update": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "conversation.create": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "conversation.history": { class: "read", owner: "cloud:ConversationDO", risk: "read" },

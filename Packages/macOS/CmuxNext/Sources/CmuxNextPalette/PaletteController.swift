@@ -58,6 +58,46 @@ public final class PaletteController {
         model.onRefusal = { [weak self] _ in self?.presentAgain() }
         model.onEditShortcut = { [weak self] id in self?.shortcutRecorder.begin(id) ?? false }
         model.onDropShortcutRecorder = { [weak self] in self?.shortcutRecorder.abandon() }
+        model.scopePage = { [weak self] scope, context in self?.page(forScope: scope, context: context) }
+        model.onAnnounce = { [weak self] text in
+            guard let element = self?.panel else { return }
+            NSAccessibility.post(element: element, notification: .announcementRequested,
+                                 userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        }
+    }
+
+    /// Reads the scope prototypes (Debug Settings) and the sources into the
+    /// model's scope graph. Runs on every open, so a changed tunable
+    /// applies on the next open.
+    func configureScopes() {
+        configureScopes(entry: PaletteScopeTunables.entryStyle.value, chip: PaletteScopeTunables.chipStyle.value,
+                        itemActions: PaletteScopeTunables.itemActions.value)
+    }
+
+    func configureScopes(entry: PaletteScopeEntryStyle, chip: PaletteScopeChipStyle, itemActions: PaletteItemActionsStyle) {
+        let config = PaletteNavConfig(prefixEntry: entry.prefixEntry, keywordEntry: entry.keywordEntry)
+        var scopes = PaletteScopeCatalog.builtIns(
+            tabs: sources.tabs != nil || sources.actionPages["tab.search"] != nil,
+            workspaces: sources.workspaces != nil, settings: sources.settings != nil)
+        scopes += sources.scopes.map(\.descriptor)
+        model.navigation = PaletteNavReducer(graph: PaletteScopeGraph(root: PaletteScopeCatalog.root, scopes: scopes), config: config)
+        model.itemActionsAsScope = itemActions == .scope
+        model.chipStyle = chip
+        model.scopeEntry = entry
+    }
+
+    /// Opens `scope` above the root (`palette.open`, a scope's shortcut).
+    /// Returns false for a scope the graph does not have.
+    @discardableResult
+    public func show(scope: PaletteScopeID, query: String = "", relativeTo window: NSWindow? = nil) -> Bool {
+        configureScopes()
+        guard model.navigation.graph.contains(scope) else { return false }
+        openStarted = .now
+        captureContext()
+        model.open(scope: scope, query: query)
+        modelReady = .now
+        present(relativeTo: window)
+        return true
     }
 
     // MARK: Registry wiring
@@ -108,6 +148,7 @@ public final class PaletteController {
             return true
         case 1:
             guard let panel else { return false }
+            configureScopes()
             model.reset(to: commandsPage())
             panel.contentView?.layoutSubtreeIfNeeded()
             return false
@@ -128,6 +169,7 @@ public final class PaletteController {
 
     /// Opens the palette over `window` (default: the key or main window).
     public func show(_ mode: PaletteMode = .commands, relativeTo window: NSWindow? = nil) {
+        configureScopes()
         openStarted = .now
         captureContext()
         model.reset(to: page(for: mode))
@@ -138,6 +180,7 @@ public final class PaletteController {
     /// Opens the palette on `page` (a keyboard, menu or CLI run of an action
     /// the palette serves as a page).
     public func show(page: PalettePageSpec, relativeTo window: NSWindow? = nil) {
+        configureScopes()
         openStarted = .now
         captureContext()
         model.reset(to: page)
@@ -159,6 +202,7 @@ public final class PaletteController {
             handler()
             return
         }
+        configureScopes()
         openStarted = .now
         model.reset(to: effect, fallback: commandsPage())
         modelReady = .now
@@ -180,7 +224,10 @@ public final class PaletteController {
         let createdPanel = panel == nil
         // The document window, never a Chromium page window over it (a child
         // window): hiding gives the keys back to the window, not the page.
-        var parent = window ?? NSApp.keyWindow.flatMap { $0 is PalettePanel ? nil : $0 } ?? NSApp.mainWindow
+        // `NSApplication.shared`, not `NSApp`: the latter is nil in a
+        // process that never created the application (package tests).
+        let app = NSApplication.shared
+        var parent = window ?? app.keyWindow.flatMap { $0 is PalettePanel ? nil : $0 } ?? app.mainWindow
         while let owner = parent?.parent { parent = owner }
         let panel = self.panel ?? makePanel()
         let panelDone = ContinuousClock.now

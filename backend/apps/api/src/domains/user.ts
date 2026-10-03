@@ -5,11 +5,12 @@ import { admit, decodeParams, reject } from "./common.ts"
 import { reducePushTarget, type PushTargetsState } from "./user-push.ts"
 import { user as homeUser } from "@cmux/home-core"
 import { confirmEnv, reduceConfirm, revokePresenceKey, USER_CONFIRM_OPS } from "./user-confirm.ts"
+import { CHIEF_OPS, reduceChief, type ChiefsState } from "./user-chief.ts"
 
 type UserProfile = typeof UserProfileSchema.Type
 type Mutable<T> = { -readonly [K in keyof T]: T[K] }
 
-export interface UserState extends PushTargetsState {
+export interface UserState extends PushTargetsState, ChiefsState {
   readonly user: UserProfile | null
   /** Text confirmation level and presence keys (home-core user/), absent until first used. */
   readonly confirm?: homeUser.UserConfirmState
@@ -90,6 +91,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
 
   reduce: (state, op, params, ctx) => {
     const p = ctx.principal
+    if (CHIEF_OPS.has(op)) return reduceChief(state, op, (params ?? {}) as Record<string, unknown>, ctx)
     if (USER_CONFIRM_OPS.has(op)) return reduceConfirm(state, op, params, { ...ctx, principal: withInstallKind(state, p) }, appIdHash)
     switch (op) {
       case "user.ensure": {

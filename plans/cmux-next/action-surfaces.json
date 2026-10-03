@@ -234,6 +234,22 @@
       "title_table" : "Localizable"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "palette open",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "palette.open",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "title" : "Open Palette Scope…",
+      "title_key" : "action.palette.open",
+      "title_table" : "Localizable"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "app command-palette",
       "context_menu" : "noObject",

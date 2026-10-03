@@ -6,6 +6,7 @@ import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
 import { admit } from "./domains/common.ts"
 import { grantFor, installActive, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
 import { appIdHashFor, confirmView } from "./domains/user-confirm.ts"
+import { chiefList } from "./domains/user-chief.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
@@ -161,10 +162,14 @@ export class UserDO extends OwnerDO<UserState> {
     return admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now())
   }
 
-  protected read(state: UserState, op: string, _params: unknown, principal: Principal): ReadResult {
+  protected read(state: UserState, op: string, params: unknown, principal: Principal): ReadResult {
     if (state.user && principal.user !== state.user.id) return { ok: false, code: "auth.forbidden", message: "not this user" }
     // A revoked install's still-valid token reads nothing (it would otherwise read until the token expires).
     if (!installActive(state, principal)) return { ok: false, code: "auth.forbidden", message: "install revoked or unknown" }
+    if (op === "chief.list") {
+      const refused = admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now())
+      return refused ? { ok: false, ...refused } : { ok: true, value: chiefList(state, Date.now(), (params as { include_archived?: unknown } | null)?.include_archived === true), revision: "" }
+    }
     if (op === "user.text_confirm.get") {
       const refused = admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now())
       return refused ? { ok: false, ...refused } : { ok: true, value: confirmView(state), revision: "" }
