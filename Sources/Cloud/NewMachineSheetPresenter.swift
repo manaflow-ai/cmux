@@ -362,7 +362,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
     }
 
     static func applyInitialData(_ data: NewMachineSheetData, to model: NewMachineModel) {
-        apply(data, to: model, includingPlan: false)
+        apply(data, to: model, includingPlan: true)
     }
 
     static func apply(_ data: NewMachineSheetData, to model: NewMachineModel, includingPlan: Bool) {
