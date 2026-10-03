@@ -1,24 +1,26 @@
-cmux/integrations contains code adapted from executor
+cmux/integrations bundles @cmux/integrations-core (libs/integrations-core in
+https://github.com/manaflow-ai/cmux, MIT License, see libs/integrations-core/LICENSE
+and NOTICE) into dist/main.js. That package contains code adapted from executor
 https://github.com/UsefulSoftwareCo/executor (commit 98d606bd2b47b9dcc2c03a129a14b5134d9852c8)
 
 Adapted files (each keeps a header naming its upstream paths and the changes):
 
-  src/core/policy.ts         packages/core/sdk/src/policies.ts
-                             packages/plugins/openapi/src/sdk/invoke.ts (annotationsForOperation)
-                             packages/plugins/graphql/src/sdk/plugin.ts (annotationsFor)
-                             packages/plugins/mcp/src/sdk/plugin.ts (toToolDef)
-  src/core/openapi.ts        packages/plugins/openapi/src/sdk/extract.ts
-                             packages/plugins/openapi/src/sdk/openapi-utils.ts (DocResolver)
-  src/core/openapi-paths.ts  packages/plugins/openapi/src/sdk/definitions.ts
-  src/core/openapi-auth.ts   packages/plugins/openapi/src/sdk/preview.ts (security schemes and presets)
-  src/core/graphql.ts        packages/plugins/graphql/src/sdk/extract.ts
-                             packages/plugins/graphql/src/sdk/introspect.ts (types)
-                             packages/plugins/graphql/src/sdk/plugin.ts (tool naming)
-  src/core/mcp.ts            packages/plugins/mcp/src/sdk/manifest.ts
-                             packages/plugins/mcp/src/sdk/types.ts (McpToolAnnotations)
+  libs/integrations-core/src/policy.ts         packages/core/sdk/src/policies.ts
+                                               packages/plugins/openapi/src/sdk/invoke.ts (annotationsForOperation)
+                                               packages/plugins/graphql/src/sdk/plugin.ts (annotationsFor)
+                                               packages/plugins/mcp/src/sdk/plugin.ts (toToolDef)
+  libs/integrations-core/src/openapi.ts        packages/plugins/openapi/src/sdk/extract.ts
+                                               packages/plugins/openapi/src/sdk/openapi-utils.ts (DocResolver)
+  libs/integrations-core/src/openapi-paths.ts  packages/plugins/openapi/src/sdk/definitions.ts
+  libs/integrations-core/src/openapi-auth.ts   packages/plugins/openapi/src/sdk/preview.ts (security schemes and presets)
+  libs/integrations-core/src/graphql.ts        packages/plugins/graphql/src/sdk/extract.ts
+                                               packages/plugins/graphql/src/sdk/introspect.ts (types)
+                                               packages/plugins/graphql/src/sdk/plugin.ts (tool naming)
+  libs/integrations-core/src/mcp.ts            packages/plugins/mcp/src/sdk/manifest.ts
+                                               packages/plugins/mcp/src/sdk/types.ts (McpToolAnnotations)
 
 No telemetry, billing, analytics, registry-fetch or credential-storage code was copied.
-dist/main.js bundles these files.
+This file is the notice that ships with the app bundle.
 
 ----------------------------------------------------------------------------
 

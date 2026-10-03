@@ -7,7 +7,12 @@ extension DaemonConnection {
     /// Stable frontend identity for the exactly-once ledger.
     public static let origin = "cmux-next"
 
-    public func mutation() -> MutationIdentity { MutationIdentity(origin: Self.origin) }
+    /// A fresh mutation identity, or one derived from the running action's
+    /// idempotency key (`DaemonCommandScope`), so a retried action replays.
+    public func mutation() -> MutationIdentity {
+        guard let derived = DaemonCommandScope.current?.nextMutationID() else { return MutationIdentity(origin: Self.origin) }
+        return MutationIdentity(origin: Self.origin, mutationID: derived)
+    }
 
     public func listWorkspaces() async throws -> DaemonTree {
         try await request(ListWorkspacesRequest())
@@ -36,33 +41,6 @@ extension DaemonConnection {
                                      markedUnread: Bool? = nil) async throws -> WorkspaceMetadataResult {
         try await request(SetWorkspaceMetadataRequest(workspace: .key(key), color: color, icon: icon, title: title, pinned: pinned,
                                                       markedUnread: markedUnread, mutation: mutation()))
-    }
-
-    // Groups (`workspace-groups-v1`)
-
-    @discardableResult
-    public func createGroup(name: String, id: WorkspaceGroupID? = nil, color: String? = nil, index: Int? = nil) async throws -> WorkspaceGroupSnapshot {
-        try await request(CreateWorkspaceGroupRequest(name: name, group: id, color: color, index: index)).group
-    }
-
-    @discardableResult
-    public func updateGroup(_ id: WorkspaceGroupID, name: String? = nil, color: FieldUpdate<String> = .unchanged,
-                            collapsed: Bool? = nil) async throws -> WorkspaceGroupSnapshot {
-        try await request(UpdateWorkspaceGroupRequest(group: id, name: name, color: color, collapsed: collapsed)).group
-    }
-
-    public func deleteGroup(_ id: WorkspaceGroupID) async throws {
-        _ = try await request(DeleteWorkspaceGroupRequest(group: id))
-    }
-
-    public func moveGroup(_ id: WorkspaceGroupID, to index: Int) async throws {
-        _ = try await request(MoveWorkspaceGroupRequest(group: id, index: index))
-    }
-
-    /// Puts a workspace in a group (nil ungroups) at an optional section index.
-    @discardableResult
-    public func moveWorkspace(_ key: WorkspaceKey, toGroup group: WorkspaceGroupID?, index: Int? = nil) async throws -> MoveWorkspaceToGroupRequest.Response {
-        try await request(MoveWorkspaceToGroupRequest(workspace: .key(key), group: group, index: index, mutation: mutation()))
     }
 
     /// Closes a workspace. `endTerminals` also ends, in the same daemon

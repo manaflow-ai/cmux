@@ -9,14 +9,16 @@ public import Observation
 @Observable
 public final class OnboardingModel {
     public enum Step: String, CaseIterable, Sendable {
-        case role, firstTask, defaultBrowser, importData, theme, computerUse, accounts
+        case role, firstTask, projects, chats, defaultBrowser, importData, theme, computerUse, accounts
     }
 
     public private(set) var step: Step
-    /// The steps of this flow (`firstTask` and `accounts` only when the App supplies them).
+    /// The steps of this flow (`firstTask`, `chats` and `accounts` only when the App supplies them).
     public let steps: [Step]
     public let role: RoleStepModel
     public let firstTask: FirstTaskStepModel
+    public let projects: ProjectsStepModel
+    public let chats: ChatsStepModel
     public let theme: ThemeStepModel
     public let importer: ImportStepModel
     public let defaults: DefaultAppsStepModel
@@ -32,7 +34,8 @@ public final class OnboardingModel {
         let computerUseSource = services.computerUsePermissions
         let steps = Step.allCases.filter { step in
             switch step {
-            case .firstTask: services.canRunFirstTask
+            // Resumed chats open as agent tabs, as the first task's chat does.
+            case .firstTask, .chats: services.canRunFirstTask
             case .accounts: services.hasAccountsStep
             case .computerUse: computerUseSource != nil
             default: true
@@ -42,6 +45,8 @@ public final class OnboardingModel {
         step = start.flatMap { steps.contains($0) ? $0 : nil } ?? steps[0]
         role = RoleStepModel(services: services)
         firstTask = FirstTaskStepModel(services: services)
+        projects = ProjectsStepModel(services: services)
+        chats = ChatsStepModel(services: services)
         theme = ThemeStepModel(services: services)
         importer = ImportStepModel(services: services)
         defaults = DefaultAppsStepModel(services: services)
@@ -71,6 +76,8 @@ public final class OnboardingModel {
             importer.start()
             return
         case .role: role.commit()
+        case .projects: projects.commit()
+        case .chats: chats.commit()
         case .theme: theme.commit()
         default: break
         }
@@ -100,12 +107,16 @@ public final class OnboardingModel {
     public func stepDidAppear() {
         if step != .computerUse { computerUse.stop() }
         switch step {
+        // The role step starts the project and chat scans, so their lists are ready.
+        case .role, .projects, .chats:
+            projects.scan()
+            if steps.contains(.chats) { chats.scan() }
         case .defaultBrowser: defaults.refresh()
         case .importData: importer.detect()
         case .theme: theme.load()
         case .firstTask: firstTask.refreshOutputs()
         case .computerUse: computerUse.start()
-        case .role, .accounts: break
+        case .accounts: break
         }
     }
 
@@ -114,6 +125,8 @@ public final class OnboardingModel {
     public func finish(completed: Bool) {
         guard !ended else { return }
         ended = true
+        projects.stop()
+        chats.stop()
         computerUse.stop()
         if !completed, !theme.isCommitted { theme.revert() }
         firstTask.stop()

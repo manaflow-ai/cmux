@@ -18,6 +18,14 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 targets: [.pane], cliName: "tab new-page"
             ),
             ActionDescriptor(
+                id: "focusLocation",
+                title: String(localized: "action.focusLocation", defaultValue: "Focus Location Bar", bundle: .module),
+                keywords: ["location", "address", "url", "omnibox", "run", "command", "new tab page"],
+                defaultShortcut: Shortcut("l", modifiers: [.command]),
+                category: .tab, symbol: "magnifyingglass", surfaces: [.palette, .keyboard],
+                targets: [.pane], cliName: "tab focus-location"
+            ),
+            ActionDescriptor(
                 id: "newSurface",
                 title: String(localized: "action.newSurface", defaultValue: "New Terminal Tab", bundle: .module),
                 keywords: ["tab", "terminal", "create"], defaultShortcut: Shortcut("t", modifiers: [.control, .shift, .command]),
@@ -76,6 +84,12 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 keywords: ["tab", "title"], defaultShortcut: Shortcut("r", modifiers: [.command]), category: .tab,
                 symbol: "pencil", surfaces: [.palette, .keyboard, .contextMenu],
                 arguments: [CatalogArgument.nameString.renamingTarget], targets: [.tab], cliName: "tab rename"
+            ),
+            ActionDescriptor(
+                id: "tab.focus",
+                title: String(localized: "action.tab.focus", defaultValue: "Show Tab", bundle: .module),
+                keywords: ["tab", "focus", "select", "switch"], category: .tab, symbol: "scope",
+                surfaces: [.palette], targets: [.tab], cliName: "app show-tab"
             ),
             ActionDescriptor(
                 id: "palette.clearTabName",

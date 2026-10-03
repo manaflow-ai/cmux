@@ -8,6 +8,8 @@ extension OnboardingModel.Step {
         switch self {
         case .role: RoleVariants.all
         case .firstTask: FirstTaskVariants.all
+        case .projects: ProjectsVariants.all
+        case .chats: ChatsVariants.all
         case .defaultBrowser: DefaultBrowserVariants.all
         case .importData: ImportVariants.all
         case .theme: ThemeVariants.all

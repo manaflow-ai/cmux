@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Installs the cmux-tui client into an app bundle as Contents/Resources/bin/cmux-tui,
-# the same way the Ghostty CLI helper is bundled: the app carries the exact client
-# that talks to cmux Cloud machines, so the Machines panel needs no separate install.
+# Installs the cmux-tui binary into an app bundle as Contents/Resources/bin/cmux, the
+# cmux CLI, with bin/cmux-tui and bin/acpmux as relative symlinks to it (the binary
+# picks its program from argv[0]; plans/cmux-next/cli.md). The app carries the exact
+# client that talks to cmux Cloud machines, so the Machines panel needs no separate install.
 #
 # The build comes from the artifacts manifest the cmux-tui-artifacts workflow publishes
 # (rolling `latest` by default; a commit-addressed manifest pins one build). Both
@@ -10,7 +11,7 @@
 # Downloads are cached per commit under CMUX_TUI_CLIENT_CACHE.
 #
 #   scripts/install-cmux-tui-client.sh <app-path> [--manifest-url <url>] [--cache-dir <dir>]
-#     [--expected-commit <sha>] [--require-capability <name>]...
+#     [--expected-commit <sha>] [--require-capability <name>]... [--require-acpmux]
 #     [--arch <native|arm64|x86_64|universal>]
 #     [--attest-signer-workflow <owner/repo/.github/workflows/name.yml>] [--allow-unattested]
 #
@@ -24,6 +25,10 @@
 # machine without an authenticated gh; CI never passes it. A CMUX_TUI_CLIENT_LOCAL
 # binary is not downloaded and is not subject to it.
 #
+# acpmux is linked into the same binary, so bin/acpmux needs no separate download.
+# Builds from before that lack it: `bin/acpmux --version` then does not identify as
+# acpmux, which is a warning, or an error with --require-acpmux.
+#
 # Env: CMUX_TUI_CLIENT_MANIFEST_URL overrides the manifest, CMUX_TUI_CLIENT_LOCAL points at
 # a prebuilt binary to install instead of downloading (offline/dev builds).
 # CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS (default 5) and CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS
@@ -32,7 +37,7 @@
 # and still checked with remote-probe and any required capabilities.
 set -euo pipefail
 
-usage() { sed -n '2,22p' "$0"; }
+usage() { sed -n '2,23p' "$0"; }
 
 APP_PATH=""
 MANIFEST_URL="${CMUX_TUI_CLIENT_MANIFEST_URL:-https://files.cmux.com/cmux-tui/latest/manifest.json}"
@@ -41,6 +46,7 @@ EXPECTED_COMMIT=""
 ARCH="universal"
 ATTEST_SIGNER_WORKFLOW="manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml"
 ALLOW_UNATTESTED=0
+REQUIRE_ACPMUX=0
 REQUIRED_CAPABILITIES=()
 while (( $# )); do
   case "$1" in
@@ -50,6 +56,7 @@ while (( $# )); do
     --expected-commit) shift; EXPECTED_COMMIT="${1:?--expected-commit needs a value}" ;;
     --attest-signer-workflow) shift; ATTEST_SIGNER_WORKFLOW="${1:?--attest-signer-workflow needs a value}" ;;
     --allow-unattested) ALLOW_UNATTESTED=1 ;;
+    --require-acpmux) REQUIRE_ACPMUX=1 ;;
     --require-capability) shift; REQUIRED_CAPABILITIES+=("${1:?--require-capability needs a value}") ;;
     -h|--help) usage; exit 0 ;;
     -*) echo "unknown option: $1" >&2; usage >&2; exit 64 ;;
@@ -80,7 +87,8 @@ esac
   exit 64
 }
 DEST_DIR="$APP_PATH/Contents/Resources/bin"
-DEST="$DEST_DIR/cmux-tui"
+DEST="$DEST_DIR/cmux"
+ALIASES=(cmux-tui acpmux)
 mkdir -p "$DEST_DIR"
 
 sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
@@ -126,10 +134,37 @@ PY
   done
 }
 
+# Remove first: overwriting a signed Mach-O in place keeps the kernel's cached
+# code signature for the old inode and the new binary dies with SIGKILL. The
+# aliases are relative symlinks so the bundle stays relocatable and codesign
+# treats them as links, not second copies.
+install_binary() {
+  local name
+  rm -f "$DEST"
+  install -m 755 "$1" "$DEST"
+  for name in "${ALIASES[@]}"; do
+    rm -rf "${DEST_DIR:?}/$name"
+    ln -s cmux "$DEST_DIR/$name"
+  done
+}
+
+# acpmux is linked into the binary; bin/acpmux runs it through argv[0].
+check_acpmux() {
+  local version
+  version="$("$DEST_DIR/acpmux" --version 2>/dev/null || true)"
+  [[ "$version" == acpmux\ * ]] && return 0
+  if (( REQUIRE_ACPMUX )); then
+    echo "error: installed binary does not run acpmux through bin/acpmux: $version" >&2
+    exit 1
+  fi
+  echo "warning: installed binary does not run acpmux through bin/acpmux ($version); the agent chat pane falls back to acpmux on PATH" >&2
+}
+
 if [[ -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
   [[ -f "$CMUX_TUI_CLIENT_LOCAL" ]] || { echo "error: CMUX_TUI_CLIENT_LOCAL not found: $CMUX_TUI_CLIENT_LOCAL" >&2; exit 1; }
-  install -m 755 "$CMUX_TUI_CLIENT_LOCAL" "$DEST"
+  install_binary "$CMUX_TUI_CLIENT_LOCAL"
   verify_probe
+  check_acpmux
   echo "Installed local cmux-tui client at $DEST"
   exit 0
 fi
@@ -221,12 +256,13 @@ case "$ARCH" in
     VERIFY_ARCHS=(arm64 x86_64)
     ;;
 esac
-install -m 755 "$CLIENT" "$DEST"
+install_binary "$CLIENT"
 # One arch per invocation: some lipo builds (Xcode 27 beta 4) consume only one
 # arch after -verify_arch and read the second as an extra input file, failing
 # with "requires exactly one input file".
 for arch in "${VERIFY_ARCHS[@]}"; do lipo "$DEST" -verify_arch "$arch"; done
 verify_probe
+check_acpmux
 # Bootstrap payloads share the signed client's exact build. End-user SSH hosts
 # need neither Node/npm nor access to an artifact server, and the client verifies
 # these hashes again before uploading the selected platform executable.

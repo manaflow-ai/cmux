@@ -15,7 +15,13 @@ import SwiftUI
 @MainActor
 final class AppOnboardingServices: OnboardingServices {
     unowned let owner: OnboardingService
-    private var services: AppServices { owner.services }
+    var services: AppServices { owner.services }
+    /// Workspaces `openProjects` and `resumeChats` opened, by folder path,
+    /// once their window lists them; and the chats waiting for one.
+    var folderWorkspaces: [String: String] = [:]
+    var waitingChats: [String: [AgentChat]] = [:]
+    /// Folders whose workspace was asked for and isn't listed yet.
+    var openingFolders: Set<String> = []
 
     init(owner: OnboardingService) {
         self.owner = owner
@@ -69,6 +75,46 @@ final class AppOnboardingServices: OnboardingServices {
             let currentDensity = (try? await settings.file.value(at: ["appearance", "density"]))?
                 .stringValue.flatMap(Density.init(rawValue:)) ?? .compact
             if density != currentDensity { try? await settings.setDensity(density) }
+        }
+    }
+
+    func scanAgentProjects() async -> [AgentProject] {
+        await Task.detached { AgentProjectScan.live().run() }.value
+    }
+
+    func chooseFolder() async -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        // A sheet on the onboarding window, so the step stays in front and one panel opens at a time.
+        let response = await withCheckedContinuation { done in
+            if let window = owner.controller?.window {
+                panel.beginSheetModal(for: window) { done.resume(returning: $0) }
+            } else {
+                panel.begin { done.resume(returning: $0) }
+            }
+        }
+        return response == .OK ? panel.url : nil
+    }
+
+    /// One workspace per folder, named after it, in the current window
+    /// (a new one when none is open). They are created one after another so
+    /// the sidebar keeps the list's order; any macOS privacy prompts for
+    /// Desktop or Documents come now, together, as the step said.
+    func openProjects(_ folders: [URL]) {
+        guard let windows = services.windows else { return }
+        let target = windows.targetWindow(preferring: windows.active?.state.id)
+        // Every folder counts as opening now, so chats picked meanwhile wait for it.
+        let spawns = folders.map { ($0, folderSpawn($0)) }
+        Task {
+            for (folder, spawn) in spawns {
+                do {
+                    _ = try await windows.createWorkspace(spawn, into: target)
+                } catch {
+                    folderFailed(folder, error)
+                }
+            }
         }
     }
 

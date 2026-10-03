@@ -559,7 +559,7 @@ def fleet(busy=0, queued=0, age=2, **kwargs) -> dict:
 
 def owned_choice(snap, *, owned="1", machines=11, **kwargs):
     kwargs.setdefault("owned_slots", json.dumps({MINI: machines}))
-    # A compile-only run: admission beside the Claude wrapper and remote daemon lanes.
+    # A three-job run: admission beside two side lanes.
     kwargs.setdefault("jobs", 3)
     return choose(snap, pins=OWNED_PINS, owned=owned, **kwargs)
 
@@ -603,12 +603,12 @@ class OwnedPools(unittest.TestCase):
             # unknown run and one that took 2 minis.
             return pool.Routed(unknown=5) if len(windows) == 1 else pool.Routed(unknown=1, owned={MINI: 2})
 
-        choice = owned_choice(fleet(busy=0), live_owned={MINI: 5}, jobs=1, routed=routed)
-        # 5 idle - 2 taken - 1 replayed run * REPLAYED_RUN_JOBS(3) = 0 < 1: Blacksmith.
+        choice = owned_choice(fleet(busy=0), live_owned={MINI: 4}, jobs=1, routed=routed)
+        # 4 idle - 2 taken - 1 replayed run * REPLAYED_RUN_JOBS(2) = 0 < 1: Blacksmith.
         self.assertEqual(choice.runner, LARGE)
         self.assertEqual(windows[1], (NOW - dt.timedelta(minutes=pool.DEFAULT_JOB_MINUTES)).strftime("%Y-%m-%dT%H:%M:%SZ"))
         windows.clear()
-        self.assertEqual(owned_choice(fleet(busy=0), live_owned={MINI: 6}, jobs=1, routed=routed).runner, MINI)
+        self.assertEqual(owned_choice(fleet(busy=0), live_owned={MINI: 5}, jobs=1, routed=routed).runner, MINI)
 
     def test_main_reads_the_runners_only_with_the_route_token(self):
         fresh = fleet(busy=11)
@@ -775,7 +775,7 @@ class OwnedPools(unittest.TestCase):
         self.assertFalse(fork.runner.startswith("glaeda-"))
         # The workflows ask who started a later re-run: only github-actions[bot]'s goes to Blacksmith.
         self.assertIn("github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]'",
-                      (WORKFLOWS / "ci.yml").read_text())
+                      (WORKFLOWS / "remote-daemon.yml").read_text())
         # main() reads the attempt and the actor Actions sets on every step.
         fresh = snap
         fresh["generated_at"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -839,23 +839,19 @@ class OwnedPools(unittest.TestCase):
 
     def test_a_runs_peak_comes_from_its_routing(self):
         def jobs(**flags):
-            base = dict(macos="true", full_suite="false", claude_wrapper="false", cli="false",
-                        remote_daemon="false")
+            base = dict(macos="true", full_suite="false", remote_daemon="false")
             return pool.run_jobs(**{**base, **flags})
         self.assertEqual(jobs(), 1)
-        self.assertEqual(jobs(cli="true", remote_daemon="true"), 2)
-        # A CLI change adds cli-product-tests after admission, on its machine.
-        self.assertEqual(jobs(cli="true"), 1)
-        # Full suite: cli-product-tests after admission, beside the two side
-        # lanes; the package lane joins them only when the suite builds no
-        # Release helper, and MAX_RUN_JOBS counts it.
-        self.assertEqual(jobs(full_suite="true", cli="true", remote_daemon="true"), 3)
-        self.assertEqual(jobs(full_suite="true", cli="true", remote_daemon="true", swift_packages="true",
+        self.assertEqual(jobs(remote_daemon="true"), 2)
+        # Full suite: cli-product-tests after admission, on its machine, beside
+        # the remote daemon lane; the package lane joins them only when the
+        # suite builds no Release helper, and MAX_RUN_JOBS counts it.
+        self.assertEqual(jobs(full_suite="true"), 1)
+        self.assertEqual(jobs(full_suite="true", remote_daemon="true"), 2)
+        self.assertEqual(jobs(full_suite="true", remote_daemon="true", swift_packages="true",
                               release_build="false"), pool.MAX_RUN_JOBS)
-        self.assertEqual(pool.MAX_RUN_JOBS, 4)
-        # A CLI-only run still compiles, then tests the bundled CLI.
-        self.assertEqual(jobs(macos="false", cli="true"), 1)
-        self.assertEqual(jobs(macos="false", claude_wrapper="true", cli="true"), 2)
+        self.assertEqual(pool.MAX_RUN_JOBS, 3)
+        self.assertEqual(jobs(macos="false", remote_daemon="true"), 1)
         self.assertEqual(jobs(macos="false"), 0)
 
     def test_committed_peaks_count_jobs_not_created_yet(self):
@@ -871,13 +867,14 @@ class OwnedPools(unittest.TestCase):
 
     def test_replayed_runs_are_charged_a_compile_only_peak(self):
         # A run created since the snapshot has an unknown peak: any that could
-        # have taken the pool is assumed to, and charged REPLAYED_RUN_JOBS (3).
-        self.assertEqual(pool.REPLAYED_RUN_JOBS, 3)
-        # 11 machines: three newer runs take 9, leaving 2, too few for this
-        # 3-job run; two newer runs leave 5.
-        self.assertEqual(owned_choice(fleet(), routed=3).runner, LARGE)
-        self.assertEqual(owned_choice(fleet(), routed=2).runner, MINI)
-        self.assertEqual(owned_choice(fleet(), routed=2, jobs=6).runner, LARGE)
+        # have taken the pool is assumed to, and charged REPLAYED_RUN_JOBS (2):
+        # admission beside the remote daemon lane.
+        self.assertEqual(pool.REPLAYED_RUN_JOBS, 2)
+        # 11 machines: five newer runs take 10, leaving 1, too few for this
+        # 3-job run; four newer runs leave 3.
+        self.assertEqual(owned_choice(fleet(), routed=5).runner, LARGE)
+        self.assertEqual(owned_choice(fleet(), routed=4).runner, MINI)
+        self.assertEqual(owned_choice(fleet(), routed=4, jobs=4).runner, LARGE)
         self.assertEqual(owned_choice(fleet(busy=10), routed=1).runner, LARGE)
 
     def test_newer_runs_with_known_routes_are_charged_what_they_took(self):
@@ -892,7 +889,7 @@ class OwnedPools(unittest.TestCase):
         self.assertIn(f"3 machine(s) newer runs took on {MINI}", choice.reason)
         self.assertEqual(owned_choice(fleet(), machines=5, jobs=3, routed=known).runner, LARGE)
         # A run still picking is replayed as before, on top of what is known.
-        self.assertEqual(owned_choice(fleet(), machines=5, jobs=2,
+        self.assertEqual(owned_choice(fleet(), machines=5, jobs=3,
                                       routed=pool.Routed(unknown=1, owned={MINI: 1})).runner, LARGE)
 
     def test_runs_off_the_owned_pools_still_queue_on_blacksmith(self):
@@ -1107,11 +1104,11 @@ class OwnedPools(unittest.TestCase):
 
 
 def routing(**flags):
-    base = dict(macos="true", full_suite="false", claude_wrapper="false", cli="false", remote_daemon="false")
+    base = dict(macos="true", full_suite="false", remote_daemon="false")
     return pool.run_plan(**{**base, **flags})
 
 
-FULL = dict(full_suite="true", cli="true", remote_daemon="true")
+FULL = dict(full_suite="true", remote_daemon="true")
 
 
 class PerJobPlacement(unittest.TestCase):
@@ -1121,24 +1118,24 @@ class PerJobPlacement(unittest.TestCase):
         plan = routing(**FULL)
         self.assertTrue(plan.admission)
         self.assertEqual(plan.after, ("cli-product",))
-        self.assertEqual(plan.side, ("claude-wrapper", "remote-daemon"))
-        self.assertEqual(plan.peak, 3)
-        # With no Release helper the package lane is a third side lane: the most any run holds.
+        self.assertEqual(plan.side, ("remote-daemon",))
+        self.assertEqual(plan.peak, 2)
+        # With no Release helper the package lane is a second side lane: the most any run holds.
         self.assertEqual(routing(**FULL, release_build="false").peak, pool.MAX_RUN_JOBS)
-        # A macOS change without the full suite or a CLI change runs nothing after admission.
+        # A macOS change without the full suite runs nothing after admission.
         self.assertEqual(routing().after, ())
-        # A CLI-only run compiles, then runs cli-product-tests; nothing beside it.
-        cli_only = routing(macos="false", cli="true")
-        self.assertEqual((cli_only.admission, cli_only.after, cli_only.side), (True, ("cli-product",), ()))
+        # No macOS change: no admission and nothing after it.
+        idle = routing(macos="false")
+        self.assertEqual((idle.admission, idle.after, idle.side), (False, (), ()))
 
     def test_the_package_lane_is_a_side_lane_only_without_the_release_helper(self):
         # A package change under the compile-only policy: no helper build.
         routed = routing(macos="false", swift_packages="true", release_build="true")
         self.assertEqual((routed.admission, routed.side), (False, ("swift-package",)))
         self.assertEqual(pool.place(routed, 1), (("swift-package",), 1))
-        beside = routing(swift_packages="true", release_build="true", claude_wrapper="true")
-        self.assertEqual(beside.side, ("claude-wrapper", "swift-package"))
-        self.assertEqual(pool.place(beside, 3), (("admission", "claude-wrapper", "swift-package"), 3))
+        beside = routing(swift_packages="true", release_build="true", remote_daemon="true")
+        self.assertEqual(beside.side, ("remote-daemon", "swift-package"))
+        self.assertEqual(pool.place(beside, 3), (("admission", "remote-daemon", "swift-package"), 3))
         # A full suite that checks the Release build builds the SDK 15 helper
         # first, which only Blacksmith's macOS 15 image can: not placed.
         self.assertNotIn("swift-package", routing(**FULL, swift_packages="true", release_build="true").side)
@@ -1157,7 +1154,7 @@ class PerJobPlacement(unittest.TestCase):
     def test_main_places_the_package_lane(self):
         out = self.output(busy=0, RUN_MACOS="false", RUN_SWIFT_PACKAGES="true", RUN_RELEASE_BUILD="true")
         self.assertEqual((out["runner"], out["owned_jobs"], out["jobs"]), (MINI, " swift-package ", "1"))
-        full = self.output(busy=0, RUN_FULL_SUITE="true", RUN_CLI="true", RUN_SWIFT_PACKAGES="true",
+        full = self.output(busy=0, RUN_FULL_SUITE="true", RUN_SWIFT_PACKAGES="true",
                            RUN_RELEASE_BUILD="true")
         self.assertNotIn(" swift-package ", full["owned_jobs"])
 
@@ -1166,11 +1163,10 @@ class PerJobPlacement(unittest.TestCase):
         self.assertEqual(pool.place(plan, 0), ((), 0))
         # cli-product-tests reuses admission's machine once it finishes.
         self.assertEqual(pool.place(plan, 1), (("admission", "cli-product"), 1))
-        self.assertEqual(pool.place(plan, 2), (("admission", "cli-product", "remote-daemon"), 2))
-        everything = ("admission", "cli-product", "remote-daemon", "claude-wrapper")
-        self.assertEqual(pool.place(plan, 3), (everything, 3))
-        self.assertEqual(pool.place(plan, 12), (everything, 3))
-        self.assertEqual(pool.owned_peak(plan), 3)
+        everything = ("admission", "cli-product", "remote-daemon")
+        self.assertEqual(pool.place(plan, 2), (everything, 2))
+        self.assertEqual(pool.place(plan, 12), (everything, 2))
+        self.assertEqual(pool.owned_peak(plan), 2)
         # A run without admission places its side lanes alone.
         self.assertEqual(pool.place(routing(macos="false", remote_daemon="true"), 1), (("remote-daemon",), 1))
 
@@ -1246,18 +1242,19 @@ class PerJobPlacement(unittest.TestCase):
             return dict(line.split("=", 1) for line in out.read_text().splitlines())
 
     def test_main_names_the_owned_jobs_and_marks_their_peak(self):
-        full = {"RUN_FULL_SUITE": "true", "RUN_CLI": "true", "RUN_REMOTE_DAEMON": "true"}
-        partial = self.output(busy=9, **full)
-        self.assertEqual((partial["runner"], partial["retry_runner"]), (MINI, LARGE))
-        self.assertEqual(partial["owned_jobs"], " admission cli-product remote-daemon ")
+        full = {"RUN_FULL_SUITE": "true", "RUN_REMOTE_DAEMON": "true"}
+        whole = self.output(busy=9, **full)
+        self.assertEqual((whole["runner"], whole["retry_runner"]), (MINI, LARGE))
+        self.assertEqual(whole["owned_jobs"], " admission cli-product remote-daemon ")
         # The marker (and so the janitor) counts the owned machines placed.
-        self.assertEqual(partial["jobs"], "2")
-        # 1 free machine for a 3-machine run: admission and the job after it on its machine.
+        self.assertEqual(whole["jobs"], "2")
+        # 1 free machine for a 2-machine run: admission and the job after it on its machine.
         least = self.output(busy=10, **full)
+        self.assertEqual((least["runner"], least["retry_runner"]), (MINI, LARGE))
         self.assertEqual((least["owned_jobs"], least["jobs"]), (" admission cli-product ", "1"))
         # Split off: the whole-run rule over the owned-eligible jobs only.
-        self.assertEqual(self.output(busy=8, split="", **full)["runner"], MINI)
-        off = self.output(busy=9, split="", **full)
+        self.assertEqual(self.output(busy=9, split="", **full)["runner"], MINI)
+        off = self.output(busy=10, split="", **full)
         self.assertEqual((off["runner"], off["owned_jobs"]), (LARGE, ""))
 
 
@@ -1429,7 +1426,7 @@ class QueueBehindBusyRunners(unittest.TestCase):
         for rounds, young in (("", True), ("", False), ("2", True), ("3", True)):
             limit = 12 * (1 + int(rounds or 1))
             placed, runs = 0, []
-            for _ in range(12):
+            for _ in range(16):
                 peaks = sum(runs)
                 now = sum(min(peak, pool.REPLAYED_RUN_JOBS) for peak in runs) if young else peaks
                 routed = pool.Routed(owned={MINI: peaks}, owned_now={MINI: now}) if runs else 0
@@ -1471,10 +1468,10 @@ class QueueBehindBusyRunners(unittest.TestCase):
         self.assertEqual(pool.pick(load, added, order, 0, jobs=1, queue_rounds=1).label, MINI)
         self.assertEqual(pool.pick(load, added, order, 0, jobs=1, queue_rounds=1,
                                    compared_jobs=pool.REPLAYED_RUN_JOBS).label, MINI)
-        # So the replay charges the minis REPLAYED_RUN_JOBS, and this run's 3
-        # jobs find 2 places left.
-        self.assertIn("after replaying 1 newer run", owned_choice(snap, routed=1, queue_rounds="").reason)
-        self.assertEqual(owned_choice(snap, routed=1, queue_rounds="").runner, LARGE)
+        # So the replay charges the minis REPLAYED_RUN_JOBS, and this run's 4
+        # jobs find 3 places left.
+        self.assertIn("after replaying 1 newer run", owned_choice(snap, routed=1, queue_rounds="", jobs=4).reason)
+        self.assertEqual(owned_choice(snap, routed=1, queue_rounds="", jobs=4).runner, LARGE)
 
     def test_live_busy_fleet_queues_within_its_rounds(self):
         busy = fleet(busy=0, small=21, large=6, old=4)
@@ -1653,9 +1650,9 @@ class RootRunners(unittest.TestCase):
         # Admission then cli-product-tests hold a root runner; the side lanes do not.
         self.assertEqual(pool.root_peak(plan), 1)
         self.assertEqual(pool.place(plan, 12, root_budget=1),
-                         (("admission", "cli-product", "remote-daemon", "claude-wrapper"), 3))
+                         (("admission", "cli-product", "remote-daemon"), 2))
         # No root runner free: only the side lanes take the pool.
-        self.assertEqual(pool.place(plan, 12, root_budget=0), (("remote-daemon", "claude-wrapper"), 2))
+        self.assertEqual(pool.place(plan, 12, root_budget=0), (("remote-daemon",), 1))
         self.assertEqual(pool.place(plan, 12, root_budget=None), pool.place(plan, 12))
 
     def test_a_pool_fits_the_whole_run_only_with_its_root_runners_free(self):
@@ -1735,7 +1732,7 @@ class RootRunners(unittest.TestCase):
         self.assertEqual(owned_choice(fleet(busy=40), owned_slots=slots, root_jobs=1).root_runner, "")
 
     def test_gui_runners_take_the_gui_jobs_off_the_root_budget(self):
-        plan = pool.run_plan(macos="true", full_suite="true", claude_wrapper=None, cli="true", remote_daemon=None)
+        plan = pool.run_plan(macos="true", full_suite="true", remote_daemon="true")
         keys = ("admission", *plan.after)
         self.assertEqual(pool.root_held(plan, keys), len(plan.after))
         self.assertEqual(pool.root_held(plan, keys, gui_runners=True), 1,
@@ -1743,7 +1740,7 @@ class RootRunners(unittest.TestCase):
         self.assertEqual(pool.root_held(plan, ("admission", "cli-product"), gui_runners=True), 1)
         self.assertEqual(pool.root_held(plan, ("cli-product",), gui_runners=True), 0)
         # No root runner free: only the side lane fits; with gui runners admission still needs one.
-        self.assertEqual(pool.place(plan, 20, root_budget=0), (("claude-wrapper",), 1))
+        self.assertEqual(pool.place(plan, 20, root_budget=0), (("remote-daemon",), 1))
         self.assertLessEqual(set(keys), set(pool.place(plan, 20, root_budget=1, gui_runners=True)[0]))
 
     def test_main_writes_the_root_runner(self):
@@ -1759,7 +1756,7 @@ class RootRunners(unittest.TestCase):
                    "POOL_OWNED_SPLIT": "1", "OWNED_SLOTS": '{"std": 40, "root-std": 10}', "POOL_QUEUE_ROUNDS": "0",
                    "CMUX_CI_XCODE_APP_PR": PR_XCODE, "CMUX_CI_XCODE_APP_MACOS_15": XCODE_15,
                    "GITHUB_RUN_ATTEMPT": "1", "GITHUB_OUTPUT": str(out), "RUN_MACOS": "true",
-                   "RUN_FULL_SUITE": "true", "RUN_CLI": "true", "RUN_REMOTE_DAEMON": "true"}
+                   "RUN_FULL_SUITE": "true", "RUN_REMOTE_DAEMON": "true"}
             with unittest.mock.patch("sys.stdout", io.StringIO()):
                 pool.main(["--snapshot", str(snapshot)], env)
             outputs = dict(line.split("=", 1) for line in out.read_text().splitlines())
@@ -1767,11 +1764,11 @@ class RootRunners(unittest.TestCase):
         # The side lanes take the side runners: 30 of the 40 machines.
         self.assertEqual(outputs["side_runner"], SIDE_MINI)
         self.assertEqual(outputs["gui_runner"], "", "no gui count: the gui-token jobs keep the root label")
-        # Three root runners free: the whole run, admission and cli-product-tests beside every side lane.
-        self.assertEqual(outputs["owned_jobs"], " admission cli-product remote-daemon claude-wrapper ")
-        self.assertEqual(outputs["jobs"], "3")
-        # Four owned jobs on three machines: cli-product-tests after admission reuses its machine.
-        self.assertEqual(outputs["placed"], "4")
+        # Root runners free: the whole run, admission and cli-product-tests beside the side lane.
+        self.assertEqual(outputs["owned_jobs"], " admission cli-product remote-daemon ")
+        self.assertEqual(outputs["jobs"], "2")
+        # Three owned jobs on two machines: cli-product-tests after admission reuses its machine.
+        self.assertEqual(outputs["placed"], "3")
 
     def test_the_janitor_counts_root_jobs_toward_both_labels(self):
         def job(label, status):
@@ -1919,13 +1916,13 @@ class WarmAffinity(unittest.TestCase):
     def test_side_lanes_take_the_light_side_runners_when_enough_are_idle(self):
         light_side, light_root = pool.side_label(LIGHT), pool.root_label(LIGHT)
         slots = '{"std": 40, "root-std": 10, "light": 4, "root-light": 2}'
-        lanes = {"RUN_CLAUDE_WRAPPER": "true", "RUN_REMOTE_DAEMON": "true"}
+        lanes = {"RUN_REMOTE_DAEMON": "true", "RUN_SWIFT_PACKAGES": "true"}
         std = [live_runner(1, MINI, ROOT_MINI), live_runner(2, MINI, SIDE_MINI), live_runner(3, MINI, SIDE_MINI)]
         idle = [live_runner(21, LIGHT, light_side), live_runner(22, LIGHT, light_side), live_runner(23, LIGHT, light_root)]
         values = self.outputs(std + idle, slots=slots, extra=lanes)
         self.assertEqual((values["runner"], values["light_side_runner"], values["light_side_jobs"]),
-                         (MINI, light_side, " claude-wrapper remote-daemon "))
-        for key in (" admission ", " claude-wrapper ", " remote-daemon "):
+                         (MINI, light_side, " remote-daemon swift-package "))
+        for key in (" admission ", " remote-daemon ", " swift-package "):
             self.assertIn(key, values["owned_jobs"])
         # The std pool holds only admission: the side lanes are not its machines.
         self.assertEqual(values["jobs"], "1")
@@ -1933,21 +1930,21 @@ class WarmAffinity(unittest.TestCase):
         one = [live_runner(21, LIGHT, light_side), live_runner(22, LIGHT, light_side, busy=True)]
         values = self.outputs(std + one, slots=slots, extra=lanes)
         self.assertEqual((values["runner"], values["side_runner"], values["light_side_runner"],
-                          values["light_side_jobs"]), (MINI, SIDE_MINI, light_side, " claude-wrapper "))
-        for key in (" admission ", " claude-wrapper ", " remote-daemon "):
+                          values["light_side_jobs"]), (MINI, SIDE_MINI, light_side, " remote-daemon "))
+        for key in (" admission ", " remote-daemon ", " swift-package "):
             self.assertIn(key, values["owned_jobs"])
         self.assertEqual(values["jobs"], "2")
-        self.assertIn("claude-wrapper take `" + light_side + "`", values["summary"])
+        self.assertIn("remote-daemon take `" + light_side + "`", values["summary"])
         # No light side runner online: the std side label as before.
         values = self.outputs(std, slots=slots, extra=lanes)
         self.assertEqual((values["runner"], values["side_runner"], values["light_side_jobs"]),
                          (MINI, SIDE_MINI, ""))
-        self.assertIn(" claude-wrapper ", values["owned_jobs"])
+        self.assertIn(" swift-package ", values["owned_jobs"])
         # The runners read live decide, not CI_OWNED_POOL_SLOTS: a variable that gives the light pool no
         # machines beyond its root runners no longer keeps the lanes off the idle light side runners.
         values = self.outputs(std + idle, slots='{"std": 40, "root-std": 10, "light": 2, "root-light": 2}',
                               extra=lanes)
-        self.assertEqual(values["light_side_jobs"], " claude-wrapper remote-daemon ")
+        self.assertEqual(values["light_side_jobs"], " remote-daemon swift-package ")
         # A retry attempt keeps its own route.
         self.assertEqual(self.outputs(std + idle, slots=slots, attempt="2", extra=lanes)["light_side_jobs"], "")
 
@@ -1956,12 +1953,12 @@ class WarmAffinity(unittest.TestCase):
         # before it still do, and it takes the picked pool's side label.
         light_side, light_root = pool.side_label(LIGHT), pool.root_label(LIGHT)
         slots = '{"std": 40, "root-std": 10, "light": 4, "root-light": 2}'
-        lanes = {"RUN_FULL_SUITE": "true", "RUN_RELEASE_BUILD": "true", "RUN_CLAUDE_WRAPPER": "true"}
+        lanes = {"RUN_FULL_SUITE": "true", "RUN_RELEASE_BUILD": "true", "RUN_REMOTE_DAEMON": "true"}
         std = [live_runner(1, MINI, ROOT_MINI), live_runner(2, MINI, SIDE_MINI), live_runner(3, MINI, SIDE_MINI)]
         idle = [live_runner(21, LIGHT, light_side), live_runner(22, LIGHT, light_side), live_runner(23, LIGHT, light_root)]
         values = self.outputs(std + idle, slots=slots, extra=lanes)
         self.assertEqual((values["runner"], values["side_runner"], values["light_side_runner"],
-                          values["light_side_jobs"]), (MINI, SIDE_MINI, light_side, " claude-wrapper "))
+                          values["light_side_jobs"]), (MINI, SIDE_MINI, light_side, " remote-daemon "))
         self.assertIn(" release-build ", values["owned_jobs"])
         self.assertEqual(pool.light_side_lanes(pool.RunJobs(False, (), ("release-build",)), idle,
                                                {LIGHT: 4, light_root: 2}, PR_XCODE), ("", ()))
@@ -1976,7 +1973,7 @@ class WarmAffinity(unittest.TestCase):
         slots = '{"std": 40, "root-std": 10, "light": 4, "root-light": 2}'
         idle = [live_runner(21, LIGHT, light_side), live_runner(22, LIGHT, light_side), live_runner(23, LIGHT, light_root),
                 live_runner(24, LIGHT, light_root)]
-        values = self.outputs(idle, slots=slots, extra={"RUN_CLAUDE_WRAPPER": "true", "RUN_REMOTE_DAEMON": "true",
+        values = self.outputs(idle, slots=slots, extra={"RUN_REMOTE_DAEMON": "true", "RUN_SWIFT_PACKAGES": "true",
                                                         "POOL_ORDER": LIGHT})
         self.assertEqual((values["runner"], values["light_side_runner"], values["jobs"]), (LIGHT, light_side, "3"))
 
@@ -1988,10 +1985,10 @@ class WarmAffinity(unittest.TestCase):
                 live_runner(3, MINI, SIDE_MINI, busy=True)]
         idle = [live_runner(21, LIGHT, light_side), live_runner(22, LIGHT, light_side)]
         values = self.outputs(busy + idle, slots=slots, rounds="0",
-                              extra={"RUN_MACOS": "false", "RUN_CLAUDE_WRAPPER": "true", "RUN_REMOTE_DAEMON": "true",
+                              extra={"RUN_MACOS": "false", "RUN_REMOTE_DAEMON": "true", "RUN_SWIFT_PACKAGES": "true",
                                      "POOL_ORDER": f"{MINI},{SMALL}"})
         self.assertEqual((values["runner"], values["light_side_runner"], values["jobs"]), (MINI, light_side, "0"))
-        self.assertIn(" claude-wrapper ", values["owned_jobs"])
+        self.assertIn(" swift-package ", values["owned_jobs"])
         # A 0-machine marker reserves nothing.
         artifact = {"name": "macos-pool-persistent-7-1-0p2-" + MINI}
         self.assertEqual(pool.run_marker([artifact], {"id": 7, "run_attempt": 1}), (MINI, 0))
@@ -2309,7 +2306,8 @@ class Wiring(unittest.TestCase):
             self.assertLess(ids.index(step_id), ids.index("macos-pool"), step_id)
         env = changes["steps"][ids.index("macos-pool")]["env"]
         self.assertEqual(env["RUN_FULL_SUITE"], "${{ steps.suite.outputs.full_suite }}")
-        self.assertEqual(env["RUN_CLI"], "${{ steps.detect.outputs.cli }}")
+        self.assertNotIn("RUN_CLI", env)
+        self.assertNotIn("RUN_CLAUDE_WRAPPER", env)
         self.assertNotIn("OWNED_JOBS_PER_RUN", env)
         self.assertEqual(changes["outputs"]["macos_pr_retry_runner"], "${{ steps.macos-pool.outputs.retry_runner }}")
 
@@ -2319,10 +2317,6 @@ class Wiring(unittest.TestCase):
 
     def test_every_pr_route_in_the_run_reads_the_choice(self):
         expected = {
-            # The Claude wrapper, a side lane: the light side label when the picker put it there, else the side
-            # label first.
-            "ci.yml": "(contains(needs.changes.outputs.macos_pr_light_side_jobs, ' claude-wrapper ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner) || needs.changes.outputs.macos_pr_runner "
-                      "|| vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'",
             # Compile admission (and its CMUX_PRODUCT_RUNNER mirror) tests its
             # own owned_jobs key and is a root job; the side lanes are not.
             "ci-macos.yml": {warm_lane(), warm_lane("[0]")},
@@ -2340,18 +2334,8 @@ class Wiring(unittest.TestCase):
                                          "|| (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, "
                                          "' cli-product ')) && inputs.pr_retry_runner "
                                          "|| inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}")
-        wrapper = self.workflow("ci.yml")["jobs"]["claude-wrapper"]["runs-on"]
-        self.assertNotIn("run_attempt == 2", wrapper)
-        self.assertIn("github.event_name == 'pull_request' && "
-                      "(github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(needs.changes.outputs.macos_pr_owned_jobs, "
-                      "' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner", wrapper)
-        # Main's dispatch takes the side label only where the picker placed the wrapper.
-        # Attempts 1 and 2, as the picker's LAST_OWNED_ATTEMPT (the janitor charges both).
-        self.assertIn("|| github.event_name == 'workflow_dispatch' && "
-                      "github.run_attempt <= 2 && "
-                      "contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && "
-                      "(needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner) "
-                      "|| vars.CI_PAID_MACOS_OVERFLOW == '1'", wrapper)
+        # The Claude wrapper lane went with the wrapper; ci.yml runs no Mac job of its own.
+        self.assertNotIn("claude-wrapper", self.workflow("ci.yml")["jobs"])
 
     def test_callers_pass_the_choice(self):
         jobs = self.workflow("ci.yml")["jobs"]
@@ -2381,7 +2365,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(jobs["macos"]["with"]["pr_admission_runner"],
                          "${{ needs.changes.outputs.macos_pr_admission_runner }}")
         self.assertNotIn("pr_admission_runner", jobs["remote-daemon"]["with"])
-        for name in ("macos", "remote-daemon", "claude-wrapper"):
+        for name in ("macos", "remote-daemon"):
             needs = jobs[name]["needs"]
             self.assertIn("changes", [needs] if isinstance(needs, str) else needs, name)
 
@@ -2539,24 +2523,24 @@ class Wiring(unittest.TestCase):
         self.assertEqual(pool.RELEASE_BUILD_JOB, "release-build")
 
     def test_release_build_is_a_side_lane_of_a_full_suite_with_release_build(self):
-        full = dict(macos="true", full_suite="true", claude_wrapper="true", cli="true", remote_daemon="false")
+        full = dict(macos="true", full_suite="true", remote_daemon="true")
         plan = pool.run_plan(**full, swift_packages="true", release_build="true")
         # The helper build keeps swift-package-tests on Blacksmith; release-build takes its place.
-        self.assertEqual(plan.side, ("claude-wrapper", "release-build"))
+        self.assertEqual(plan.side, ("remote-daemon", "release-build"))
         self.assertNotIn("release-build", pool.run_plan(**full, swift_packages="true", release_build="false").side)
         self.assertNotIn("release-build", pool.run_plan(**full, swift_packages="true").side)
         self.assertNotIn("release-build", pool.run_plan(**{**full, "full_suite": "false"},
                                                           release_build="true").side)
-        # Still at most three side lanes, so the most machines a run holds is unchanged.
-        self.assertLessEqual(pool.run_plan(**{**full, "remote_daemon": "true"}, swift_packages="true",
+        # Still at most two side lanes, so the most machines a run holds is unchanged.
+        self.assertLessEqual(pool.run_plan(**full, swift_packages="true",
                                            release_build="true").peak, pool.MAX_RUN_JOBS)
         keys, held = pool.place(plan, plan.peak)
         self.assertIn("release-build", keys)
         self.assertEqual(held, plan.peak)
         # Behind the root jobs and cli-product, ahead of the light side lanes.
-        order = sorted(("claude-wrapper", "remote-daemon", "release-build", "cli-product", "admission"),
+        order = sorted(("swift-package", "remote-daemon", "release-build", "cli-product", "admission"),
                        key=pool.priority)
-        self.assertEqual(order, ["admission", "cli-product", "release-build", "remote-daemon", "claude-wrapper"])
+        self.assertEqual(order, ["admission", "cli-product", "release-build", "remote-daemon", "swift-package"])
         self.assertIn("release-build", pool.SIDE_LANE_JOBS)
 
     def test_the_picker_reads_the_package_lane_routing(self):
@@ -2715,15 +2699,14 @@ class MainFullSuite(unittest.TestCase):
                    "POOL_OWNED": "1", "POOL_OWNED_SPLIT": "1", "OWNED_SLOTS": '{"std": 36, "root-std": 14}',
                    "CMUX_CI_XCODE_APP_PR": PR_XCODE, "CMUX_CI_XCODE_APP_MACOS_15": XCODE_15,
                    "GITHUB_RUN_ATTEMPT": "1", "GITHUB_OUTPUT": str(out), "RUN_MACOS": "true",
-                   "RUN_FULL_SUITE": "true", "RUN_CLI": "true", "RUN_CLAUDE_WRAPPER": "true",
-                   "RUN_REMOTE_DAEMON": "true"}
+                   "RUN_FULL_SUITE": "true", "RUN_REMOTE_DAEMON": "true"}
             with unittest.mock.patch("sys.stdout", io.StringIO()):
                 self.assertEqual(pool.main(["--snapshot", str(snapshot)], env), 0)
             values = dict(line.split("=", 1) for line in out.read_text().splitlines())
-            # Admission and cli-product-tests on one machine, plus the Claude wrapper and the remote daemon.
+            # Admission and cli-product-tests on one machine, plus the remote daemon.
             self.assertEqual((values["runner"], values["persistent"], values["root_runner"], values["jobs"]),
-                             (MINI, "true", ROOT_MINI, "3"))
-            self.assertEqual(values["owned_jobs"], " admission cli-product remote-daemon claude-wrapper ")
+                             (MINI, "true", ROOT_MINI, "2"))
+            self.assertEqual(values["owned_jobs"], " admission cli-product remote-daemon ")
             self.assertTrue(values["retry_runner"].startswith("blacksmith-"))
             # A dispatch on another branch writes the default route.
             env.update(GITHUB_REF="refs/heads/topic")
@@ -3784,7 +3767,7 @@ class LiveIdleRunners(unittest.TestCase):
         # their jobs are on the runners already.
         unknown = pool.Routed(unknown=4, live_now={}, live_runs={}, live_unknown=0)
         self.assertEqual(owned_choice(busy, **dict(kwargs, routed=unknown)).runner, MINI)
-        self.assertEqual(owned_choice(busy, **dict(kwargs, routed=dataclasses.replace(unknown, live_unknown=3))).runner,
+        self.assertEqual(owned_choice(busy, **dict(kwargs, routed=dataclasses.replace(unknown, live_unknown=4))).runner,
                          LARGE)
         # A fork run still needs the janitor's copied settings.
         self.assertEqual(choose(None, head="someone/cmux", default="", pins={}, live_owned={MINI: 9}).runner, "")

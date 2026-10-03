@@ -62,29 +62,27 @@ ensure_parent() {
   git fetch --no-tags --no-write-fetch-head --depth=2 "$remote" "$(git rev-parse HEAD)" || true
 }
 
+# A package whose manifest names GhosttyKit.xcframework has a binaryTarget on
+# the xcframework at the repository root: the lane downloads it first, and its
+# `swift test` may exit 1 on a cosmetic binaryTarget diagnostic (test_package).
+references_ghosttykit() {
+  local dir
+  dir="$(find Packages -mindepth 2 -maxdepth 2 -type d -name "$1" -print -quit)"
+  [ -n "$dir" ] && grep -q 'GhosttyKit\.xcframework' "$dir/Package.swift" 2>/dev/null
+}
+
 select_packages() {
   PACKAGES=(
     CMUXAuthCore
-    CmuxCore
     CmuxAgentChat
     CmuxAuthRuntime
     CmuxWorkspacePresence
     CmuxIrohTransport
     CmuxIrxTransport
-    CmuxControlSocket
-    CmuxFoundation
     CmuxMobileTerminalKit
     CmuxMobileWorkspace
-    CmuxSettings
-    CmuxSudoBroker
-    CmuxTerminalCore
-    CmuxTerminalImport
     CmuxUpdater
-    CMUXAgentLaunch
-    CmuxAgentJournal
-    CMUXDebugLog
     CmuxPhonePush
-    CmuxSimulator
   )
 
   changed="$work/changed-files.txt"
@@ -111,11 +109,12 @@ select_packages() {
   output "selected_packages=$selected"
   output "selected_count=$count"
 
-  if grep -qxE 'CmuxTerminalCore' "$selected"; then
-    needs_ghosttykit=true
-  else
-    needs_ghosttykit=false
-  fi
+  needs_ghosttykit=false
+  while IFS= read -r pkg; do
+    if [ -n "$pkg" ] && references_ghosttykit "$pkg"; then
+      needs_ghosttykit=true
+    fi
+  done < "$selected"
   output "needs_ghosttykit=$needs_ghosttykit"
   echo "Selected $count of ${#PACKAGES[@]} Swift packages."
 }
@@ -186,13 +185,6 @@ package_args() {
     return 1
   fi
   swift_test_args=(--package-path "$pkgdir")
-  # Preserve the notification workflow's warning gate without a
-  # second package build or changing the existing startup retry.
-  case "$pkg" in
-    CMUXAgentLaunch|CmuxAgentJournal)
-      swift_test_args+=(-Xswiftc -warnings-as-errors)
-      ;;
-  esac
 }
 
 # One package's build, for prebuild_packages. It never fails the lane: a
@@ -239,8 +231,8 @@ run_package_tests() {
   # convergence, etc.) are a real CI gate, not just compiled.
   # Scoped to packages that build headlessly via SwiftPM (no GhosttyKit /
   # app-target dependency). Add a package here once its `swift test`
-  # is confirmed to resolve standalone. The GhosttyKit-referencing
-  # package (CmuxTerminalCore) is the exception: their binaryTarget only needs the
+  # is confirmed to resolve standalone. A GhosttyKit-referencing
+  # package (references_ghosttykit) is the exception: its binaryTarget only needs the
   # xcframework present at the repo root (downloaded earlier in this
   # lane), and their test runners link a C stub for the @_silgen_name
   # symbol instead of the GhosttyKit archive.
@@ -289,17 +281,40 @@ run_package_tests() {
   # after it. test_package returns the package's status instead of
   # exiting; the summary at the end fails the lane.
   prebuild_packages
+  run_default_package_test() {
+    # Blacksmith macOS runners intermittently abort a package's
+    # test runner at startup (signal 5/6 immediately after "Build
+    # complete!", zero test output). That is a runner flake, not a
+    # test failure: retry exactly once, and only when no test
+    # output was emitted.
+    run_swift_test
+    if [ "$test_status" -ne 0 ] \
+      && grep -Fq 'Build complete!' "$log" \
+      && grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' "$log" \
+      && ! grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )' "$log"; then
+      echo "Test runner crashed at startup (runner flake); retrying $pkg once."
+      run_swift_test
+    fi
+    if [ "$test_status" -ne 0 ]; then
+      return "$test_status"
+    fi
+    python3 scripts/ci/require_swift_test_execution.py --log "$log" || return $?
+  }
   test_package() {
     local pkg="$1"
     package_args "$pkg" || return 1
     case "$pkg" in
-    # CmuxFoundation has several process-tree suites whose child
-    # fixtures share global process resources; run each suite in its
-    # own Swift Testing process just like the auth/transport suites.
-    CmuxAgentChat|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport|CmuxIrxTransport)
+    # These packages have process-tree suites whose child fixtures
+    # share global process resources; run each suite in its own Swift
+    # Testing process.
+    CmuxAgentChat|CmuxAuthRuntime|CmuxIrohTransport|CmuxIrxTransport)
       ./scripts/ci/run-swift-testing-suites.sh "$pkgdir" || return $?
       ;;
-    CmuxTerminalCore)
+    *)
+      if ! references_ghosttykit "$pkg"; then
+        run_default_package_test
+        return $?
+      fi
       run_swift_test
       if [ "$test_status" -ne 0 ]; then
         if [ "$test_status" -eq 1 ] \
@@ -315,25 +330,6 @@ run_package_tests() {
       else
         python3 scripts/ci/require_swift_test_execution.py --log "$log" || return $?
       fi
-      ;;
-    *)
-      # Blacksmith macOS runners intermittently abort a package's
-      # test runner at startup (signal 5/6 immediately after "Build
-      # complete!", zero test output). That is a runner flake, not a
-      # test failure: retry exactly once, and only when no test
-      # output was emitted.
-      run_swift_test
-      if [ "$test_status" -ne 0 ] \
-        && grep -Fq 'Build complete!' "$log" \
-        && grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' "$log" \
-        && ! grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )' "$log"; then
-        echo "Test runner crashed at startup (runner flake); retrying $pkg once."
-        run_swift_test
-      fi
-      if [ "$test_status" -ne 0 ]; then
-        return "$test_status"
-      fi
-      python3 scripts/ci/require_swift_test_execution.py --log "$log" || return $?
       ;;
     esac
   }

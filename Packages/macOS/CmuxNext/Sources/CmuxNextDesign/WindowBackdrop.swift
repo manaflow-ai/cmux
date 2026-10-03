@@ -8,12 +8,13 @@ public import CoreGraphics
 /// The window is non-opaque for every material other than
 /// ``WindowMaterial/opaque``, with a white background at alpha 0.001 (not
 /// clear, so it keeps its shadow and hit
-/// testing). The material view blurs by itself, so the CGS radius blur
-/// (`ghostty_set_window_background_blur`) is never applied on top of it.
+/// testing). A frosted window takes its blur as the window's CGS radius
+/// (``windowBlurRadius``, 0 for every other material), so only Liquid
+/// Glass hosts a material view, which blurs by itself.
 ///
 /// ```swift
 /// let backdrop = WindowBackdrop(themeTokens, reduceTransparency: false)
-/// if backdrop.material == .frosted { /* host an NSVisualEffectView */ }
+/// window.setBackgroundBlurRadius(backdrop.windowBlurRadius)
 /// ```
 public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// The one material behind the window's content.
@@ -31,6 +32,11 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// translucent sheet and every layer above it stays clear, so the
     /// terminal shows the background at the configured opacity once.
     public var panesPaintBackground: Bool { isOpaque }
+    /// The behind-window blur radius the window takes for this backdrop
+    /// (``NSWindow/setBackgroundBlurRadius(_:)``): frosted's own `background-blur` radius, and
+    /// 0 for every other material, which clears an earlier frost (glass
+    /// blurs in its own view; see-through and opaque have none).
+    public let windowBlurRadius: Int
 
     /// The backdrop for one resolved opacity and blur.
     ///
@@ -56,6 +62,7 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
         }
         self.material = material
         tintOpacity = material == .opaque ? 1 : opacity
+        windowBlurRadius = material == .frosted ? backgroundBlur : 0
     }
 
     /// The window the tokens' resolved opacity and blur describe: the one

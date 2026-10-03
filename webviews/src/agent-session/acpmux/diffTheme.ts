@@ -189,8 +189,8 @@ export const treeUnsafeCSS = /* css */ `
   --trees-fg-override: ${c.fg};
   --trees-fg-muted-override: ${c.muted};
   --trees-selected-fg-override: ${c.fg};
-  --trees-selected-bg-override: ${c.selected};
-  --trees-bg-muted-override: ${c.selected};
+  --trees-selected-bg-override: color-mix(in srgb, ${c.fg} 10%, transparent);
+  --trees-bg-muted-override: color-mix(in srgb, ${c.fg} 5%, transparent);
   --trees-padding-inline-override: 8px;
   --trees-item-margin-x-override: 0px;
   --trees-item-padding-x-override: 2px;

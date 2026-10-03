@@ -44,10 +44,10 @@ describe("spaces prototype", () => {
 
   test("a closed session is restored in the current space", () => {
     const atlas = switchSpace(seedSpaces, "space-atlas");
-    const { spaces, jumped } = openFromHistoryInSpaces(atlas, { sessionId: "mock-ci-cache" });
+    const { spaces, jumped } = openFromHistoryInSpaces(atlas, { sessionId: "mock-release-notes" });
     expect(jumped).toBe(false);
     expect(spaces.activeId).toBe("space-atlas");
-    expect(findOpen(activeSpace(spaces).stack, "mock-ci-cache")).toBeDefined();
+    expect(findOpen(activeSpace(spaces).stack, "mock-release-notes")).toBeDefined();
   });
 });
 

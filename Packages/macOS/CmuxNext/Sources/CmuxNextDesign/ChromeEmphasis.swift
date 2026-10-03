@@ -1,7 +1,7 @@
 public import CoreGraphics
 
-/// How an unfocused pane's tabs draw subtler (a Debug Settings prototype
-/// switch; `fade` is the default).
+/// How an unfocused pane's tabs draw subtler (`focus.inactiveTabStyle` in
+/// cmux.json; `fade` is the default).
 public nonisolated enum InactiveTabStyle: String, Sendable, CaseIterable, Codable, TunableChoice {
     /// Text, icons and pill fills fade toward the background by the strength.
     case fade

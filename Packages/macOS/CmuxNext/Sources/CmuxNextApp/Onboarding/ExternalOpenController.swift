@@ -1,19 +1,25 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextOnboarding
 
 /// Opens what macOS hands cmux as the default browser, the `ssh:` and
 /// `x-man-page:` handler, a script's opener or the Finder service: a tab in
-/// the current window's focused pane, per `ExternalOpenRouter`. Requests that
-/// arrive before a window has content (a cold launch by a link) wait and run
-/// when the first window shows its workspace.
+/// the current window's focused pane, per `ExternalOpenRouter`. A link in
+/// this build's scheme (`cmux://tab/…`) runs `link.open`, the one path every
+/// link takes. Requests that arrive before a window has content (a cold
+/// launch by a link) wait and run when the first window shows its workspace.
 @MainActor
 final class ExternalOpenController {
     unowned let services: AppServices
-    let router = ExternalOpenRouter()
+    let router: ExternalOpenRouter
     private(set) var pending: [ExternalOpenRoute] = []
 
     init(services: AppServices) {
         self.services = services
+        // Cloud auth's own matcher, so every callback form it accepts
+        // (host or path) reaches sign-in, never `link.open`.
+        let auth = services.cloud.auth
+        router = ExternalOpenRouter(linkScheme: services.linkScheme, isAuthCallback: { auth.isCallback($0) })
     }
 
     /// Returns false for a URL cmux does not open (the caller refuses it).
@@ -53,8 +59,14 @@ final class ExternalOpenController {
             if windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
             return
         }
-        deliver(route, to: pane)
-        windows.bringToFront(controller)
+        if case .deepLink(let url) = route {
+            // The user clicked it in another app: their run, which brings
+            // cmux forward. link.open refuses what it cannot open with a reason.
+            services.registry.perform("link.open", invocation: ActionInvocation(arguments: ["url": .string(url.absoluteString)]))
+        } else {
+            deliver(route, to: pane)
+            windows.bringToFront(controller)
+        }
         if !services.environment.noActivate { NSApp.activate() }
     }
 
@@ -70,8 +82,28 @@ final class ExternalOpenController {
         switch route {
         case .browserTab(let url): pane.newBrowserTab(url: url)
         case .terminal(let cwd, let command): pane.newTerminalTab(cwd: cwd, typing: command.map { $0 + "\n" })
-        case .unsupported: return
+        case .deepLink, .unsupported: return
         }
+    }
+}
+
+/// Where `AppDelegate` sends a URL macOS hands cmux: the sign-in callback
+/// goes to Cloud auth first (`<scheme>://auth-callback` and the path forms
+/// auth accepts), so it never reaches `link.open`; everything else goes to
+/// `ExternalOpenController`, which refuses what it does not open.
+enum OpenedURLRouting {
+    enum Destination: Equatable {
+        /// Cloud auth's `handleCallback`.
+        case auth
+        /// `ExternalOpenController` opened it (a tab, or `link.open`).
+        case opened
+        /// Nothing cmux opens.
+        case ignored
+    }
+
+    static func route(_ url: URL, isAuthCallback: (URL) -> Bool, open: (URL) -> Bool) -> Destination {
+        if isAuthCallback(url) { return .auth }
+        return open(url) ? .opened : .ignored
     }
 }
 

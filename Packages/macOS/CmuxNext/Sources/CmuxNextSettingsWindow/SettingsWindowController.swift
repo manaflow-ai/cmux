@@ -62,6 +62,12 @@ public final class SettingsWindowController: NSWindowController, NSWindowDelegat
         model.cancelRecording()
         onClose?()
     }
+
+    /// Recording stops when the window loses the keys, so the system-wide
+    /// hot keys it suspended do not stay off behind another window or app.
+    public func windowDidResignKey(_ notification: Notification) {
+        model.cancelRecording()
+    }
 }
 
 /// The hosting view; it repaints the window background with the scope's

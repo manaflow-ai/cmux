@@ -11,6 +11,7 @@ enum BrowserHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         bindPage(into: registry, context: context)
         bindSplits(into: registry, context: context)
+        bindLinkHints(into: registry, context: context)
         bindUnavailable(registry)
     }
 
@@ -74,26 +75,57 @@ enum BrowserHandlers {
     private static func bindSplits(into registry: ActionRegistry, context: AppActionContext) {
         for (id, direction) in [("splitBrowserRight", SplitDirection.right), ("splitBrowserDown", .down)] {
             registry.bind(ActionID(rawValue: id), requires: DaemonCapabilities.shared.frontendBrowserTabs, daemon: context.daemon, run: { invocation in
+                try splitBrowser(from: try context.pane(invocation), direction: direction, context: context)
+            })
+        }
+    }
+
+    /// A new app-rendered browser tab in a new split beside `pane`: the
+    /// default engine at `url` in browser profile `profile`, else the
+    /// new-tab page with its address bar focused; with `url` the page takes
+    /// focus.
+    static func splitBrowser(from pane: PaneController, direction: SplitDirection, url: URL? = nil, profile: String? = nil,
+                             context: AppActionContext) throws {
+        let handle = pane.pane.handle
+        let connection = try context.requireConnection()
+        let browserTabs = context.services.cache.browserTabs!
+        // The default engine (never refused: no engine is requested).
+        guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
+        let intent = pane.workspace?.beginFocusIntent()
+        let address = url?.absoluteString ?? context.services.newTabAddress(for: choice)
+        Task {
+            do {
+                let surface = try await browserTabs.open(choice, in: handle, url: address, profile: profile)
+                try await connection.split(handle, direction: direction, movingTab: surface)
+                // The new pane takes focus (its address bar the keyboard
+                // for a new-tab page). The daemon may report the tab in the
+                // source pane before the move: land only in the new pane.
+                pane.workspace?.expectFocus(on: surface, target: url == nil ? .addressBar : .content, awayFrom: pane.paneKey,
+                                            generation: intent)
+            } catch {
+                context.daemon.logger.error("split-browser failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    /// `f` and `F` in a Chromium page (`LinkHintController`).
+    private static func bindLinkHints(into registry: ActionRegistry, context: AppActionContext) {
+        for (id, mode) in [("browserLinkHints", LinkHintSession.Mode.follow), ("browserLinkHintsNewSplit", .newSplit)] {
+            registry.bind(ActionID(rawValue: id), run: { invocation in
                 let pane = try context.pane(invocation)
-                let handle = pane.pane.handle
-                let connection = try context.requireConnection()
-                let browserTabs = context.services.cache.browserTabs!
-                // The default engine (never refused: no engine is requested).
-                guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
-                let intent = pane.workspace?.beginFocusIntent()
-                let address = context.services.newTabAddress(for: choice)
-                Task {
-                    do {
-                        let surface = try await browserTabs.open(choice, in: handle, url: address)
-                        try await connection.split(handle, direction: direction, movingTab: surface)
-                        // The new pane takes focus and its address bar the keyboard.
-                        // The daemon may report the tab in the source pane
-                        // before the move: land only in the new pane.
-                        pane.workspace?.expectFocus(on: surface, target: .addressBar, awayFrom: pane.paneKey, generation: intent)
-                    } catch {
-                        context.daemon.logger.error("split-browser failed: \(String(describing: error), privacy: .public)")
-                    }
-                }
+                let entry = try context.page(invocation)
+                guard let tab = entry.tab as? CEFTab else { throw ActionFailure(message: LinkHintStrings.engine) }
+                let services = context.services
+                let controller = services.windowController(showing: pane)
+                let tabKey = services.cache.key(of: tab)
+                // Links stay in the page's browser profile.
+                let profile = tabKey.flatMap(services.cache.tabModel).map(services.browserProfiles.profileID(ofTab:))
+                services.linkHints.start(mode, tab: tab, window: controller?.window, isFocused: { [weak controller] in
+                    guard let controller, case .browserPage(_, let shown) = controller.focus.state.resolved else { return false }
+                    return shown == tabKey && KeyRouter.allows(.content, focus: controller.focus.state)
+                }, openInSplit: { url in
+                    try? splitBrowser(from: pane, direction: .right, url: url, profile: profile, context: context)
+                }, notice: { [weak chrome = entry.chrome] text in chrome?.showNotice(text) })
             })
         }
     }

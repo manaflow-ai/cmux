@@ -1,5 +1,16 @@
-"""Python port of CmuxTheme ThemeTokens.derive (ThemeTokens.swift) and ChromeEmphasis.emphasized."""
-import json, math
+"""Python port of CmuxTheme ThemeTokens.derive (ThemeTokens.swift) and ChromeEmphasis.emphasized.
+
+Hex output rounds each channel half away from zero, as Swift's .rounded() does in
+ThemeRGB.description (0.30 * 255 = 76.5 -> 77 = 0x4D). Do not use Python round(),
+which rounds half to even.
+
+usage: derive_theme_tokens.py [OUT.json]   (stdout when no path is given)
+"""
+import json, math, sys
+FADE_STEP=0.02      # ChromeEmphasis.swift ThemeTokens.emphasized: fade() steps the fraction down by 0.02
+READABLE_STEP=0.02  # ThemeTokens.readable: steps toward white or black by 0.02
+MUTED_STEP=0.01     # ThemeTokens.muted: steps the mix fraction down by 0.01
+def ch(v): return int(math.floor(v*255+0.5))  # Swift (v * 255).rounded(), v >= 0
 def clamp(v): return min(max(v,0.0),1.0)
 class C:
     def __init__(s,r,g,b,a=1.0): s.r,s.g,s.b,s.a=clamp(r),clamp(g),clamp(b),clamp(a)
@@ -15,22 +26,22 @@ class C:
     def wa(s,a): return C(s.r,s.g,s.b,a)
     def comp(s,base): return base.mixed(s.wa(1),s.a).wa(1)
     def css(s):
-        h='#%02X%02X%02X'%(round(s.r*255),round(s.g*255),round(s.b*255))
-        return h if s.a>=1 else h+'%02X'%round(s.a*255)
+        h='#%02X%02X%02X'%(ch(s.r),ch(s.g),ch(s.b))
+        return h if s.a>=1 else h+'%02X'%ch(s.a)
 BLACK,WHITE=C(0,0,0),C(1,1,1)
 def readable(c,surf,m):
     if c.contrast(surf)>=m: return c
     pole=WHITE if surf.lum()<0.18 else BLACK
     step=0.0; cand=c
     while step<1 and cand.contrast(surf)<m:
-        step+=0.02; cand=c.mixed(pole,step)
+        step+=READABLE_STEP; cand=c.mixed(pole,step)
     return cand
 def muted(c,target,limit,surf,m):
     f=limit
     while f>0:
         cand=c.mixed(target,f)
         if cand.contrast(surf)>=m: return cand
-        f-=0.01
+        f-=MUTED_STEP
     return c
 GHOSTTY_DEFAULT_PAL=[0x1D1F21,0xCC6666,0xB5BD68,0xF0C674,0x81A2BE,0xB294BB,0x8ABEB7,0xC5C8C6,0x666666,0xD54E53,0xB9CA4A,0xE7C547,0x7AA6DA,0xC397D8,0x70C0B1,0xEAEAEA]
 def derive(bg,fg,pal,sel=None,opacity=1.0):
@@ -48,6 +59,7 @@ def derive(bg,fg,pal,sel=None,opacity=1.0):
     t=dict(windowBackground=surf,sidebarBackground=surf,contentBackground=surf,
       chromeBackground=bg.mixed(fg,0.05 if dark else 0.035),elevatedBackground=bg.mixed(fg,0.07 if dark else 0.02),
       stripBackground=bg.mixed(BLACK,0.22 if dark else 0.05).wa(opacity),
+      sidebarStep=fg.wa(0.04),stripStep=BLACK.wa(0.22 if dark else 0.05),
       textPrimary=primary,textSecondary=secondary,textTertiary=tertiary,hoverFill=hover,selectionFill=selection,
       secondarySelectionFill=fg.wa(0.07 if dark else 0.055),pressedFill=pressed,badgeFill=fg.wa(0.14 if dark else 0.10),
       separator=fg.wa(0.08 if dark else 0.07),paneBorder=fg.wa(0.07 if dark else 0.09),focusRing=fg.wa(0.40),
@@ -59,7 +71,7 @@ def emphasized(t,style,s):
     t=dict(t); page=t['contentBackground'].wa(1)
     def fade(c,f,floor):
         target=min(floor,c.contrast(page))
-        while f>0 and c.mixed(page,f).contrast(page)<target: f-=0.02
+        while f>0 and c.mixed(page,f).contrast(page)<target: f-=FADE_STEP
         return c.mixed(page,max(f,0))
     p,se,te,sel,hov=t['textPrimary'],t['textSecondary'],t['textTertiary'],t['selectionFill'],t['hoverFill']
     if style=='fade':
@@ -88,6 +100,7 @@ for k,v in THEMES.items():
        'focusRing':{lvl:t['focusRing'].wa(a).css() for lvl,a in (('subtle',0.20),('standard',0.55),('strong',0.85))},
        'inactiveTabs':{st:{n:emphasized(t,st,0.35)[n].css() for n in ('textPrimary','textSecondary','textTertiary','selectionFill','hoverFill')} for st in ('fade','tonal','quiet')}}
     out[k]=e
-json.dump(out,open('/tmp/specvis/out/themes.json','w'),indent=1)
-print(json.dumps(out['appleSystemDark']['tokens'],indent=0)[:900])
-print(out['appleSystemDark']['composited']['selectionFill'], out['appleSystemLight']['composited']['selectionFill'])
+if len(sys.argv)>1:
+    json.dump(out,open(sys.argv[1],'w'),indent=1)
+else:
+    json.dump(out,sys.stdout,indent=1); print()

@@ -6,7 +6,7 @@ extension DaemonConnection {
     func requestNew<R: DaemonRequest>(_ request: R) async throws -> R.Response {
         do {
             return try await self.request(request)
-        } catch DaemonError.command(let cmd, let message, _) where message.contains("unknown variant") {
+        } catch DaemonError.command(let cmd, let message, _, _, _) where message.contains("unknown variant") {
             throw DaemonError.missingCapabilities([cmd])
         }
     }

@@ -71,8 +71,12 @@ extension CEFTab {
             emit(.close)
         case .navigationReroute(_, let url, _):
             if let url = URL(string: url) { emit(.rerouteStore(url)) }
-        case .keyUnhandled(_, let keyCode):
-            if keyCode == 0x1B { emit(.unhandledEscape) }
+        case .keyUnhandled(_, let keyCode, let shift):
+            if keyCode == 0x1B {
+                emit(.unhandledEscape)
+            } else if let key = BrowserPageKey(windowsKeyCode: keyCode, shift: shift) {
+                emit(.unhandledKey(key))
+            }
         case .takeFocus(_, let forward):
             emit(.takeFocus(forward: forward))
         case .renderTerminated(_, let status, let code, _):

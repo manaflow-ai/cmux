@@ -1050,6 +1050,10 @@ def _validate_catalog_type(
                 "types.StreamError.fields.details",
                 "errors.operation.failed.details.fields.extra.values",
                 "operations.frontend_projection.put.params.fields.projection",
+                # The app's own window state, opaque to the daemon like a
+                # frontend projection (OWNERSHIP-PRINCIPLES window records).
+                "types.WindowRecordSnapshot.fields.record",
+                "operations.window_record.put.params.fields.record",
             }
             is_explicit_extra = (
                 context.startswith("types.")
@@ -1907,7 +1911,10 @@ def _operation_catalog(
         if (
             not isinstance(create_fields, dict)
             or set(create_fields)
-            != {"name", "initial_content", "correlation_key", "expected_revision"}
+            != {"name", "initial_content", "correlation_key", "expected_revision", "ephemeral"}
+            or create_fields.get("ephemeral", {}).get("required") is not False
+            or create_fields.get("ephemeral", {}).get("type")
+            != {"kind": "primitive", "name": "boolean"}
             or create_fields.get("name", {}).get("required") is not False
             or create_fields.get("name", {}).get("type")
             != {"kind": "primitive", "name": "string"}
@@ -1923,7 +1930,7 @@ def _operation_catalog(
                 diagnostics,
                 path,
                 text,
-                "workspace.create params must be optional name, correlation_key, and expected_revision plus required initial_content",
+                "workspace.create params must be optional name, ephemeral, correlation_key, and expected_revision plus required initial_content",
                 "workspace.create",
             )
 

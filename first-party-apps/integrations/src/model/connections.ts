@@ -2,7 +2,7 @@
 // integrations.ts, owner ConnectionDO). The app never stores a second copy:
 // it renders what `integration.list` returns and re-reads on change events.
 
-import type { CatalogKind } from "../core/types.ts"
+import type { CatalogKind } from "@cmux/integrations-core"
 import { t } from "../l10n.ts"
 import { providerInfo, type ProviderId } from "./providers.ts"
 

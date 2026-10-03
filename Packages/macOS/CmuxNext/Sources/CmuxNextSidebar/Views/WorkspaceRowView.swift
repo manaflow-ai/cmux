@@ -12,6 +12,11 @@ final class WorkspaceRowView: SidebarRowView {
     private let badge = UnreadBadgeView()
     let closeButton = SidebarIconButton(symbol: "xmark", pointSize: { Metrics.smallIconSize - Metrics.space2 }, weight: .bold, label: Strings.closeButton)
 
+    /// Progress under the row (`SidebarWorkspace.progress`): a track and a
+    /// fill; an indeterminate one fills the whole track, dimmed.
+    private let progressTrack = CALayer()
+    private let progressFill = CALayer()
+    private var progress: SidebarProgress?
     private var hasSubtitle = false
     private var grouped = false
     private var iconKind: WorkspaceIcon?
@@ -25,6 +30,9 @@ final class WorkspaceRowView: SidebarRowView {
         super.init(key: key)
         title.font = SidebarStyle.titleFont
         [icon, title, subtitle, activity, badge, closeButton].forEach(addSubview)
+        progressTrack.addSublayer(progressFill)
+        progressTrack.isHidden = true
+        layer?.addSublayer(progressTrack)
         closeButton.isHidden = true
         closeButton.onPress = { [weak self] in self?.onClose?() }
     }
@@ -63,6 +71,7 @@ final class WorkspaceRowView: SidebarRowView {
         hasSubtitle = ws.liveDetail != nil
         activity.configure(ws.activity, style: ws.activityStyle)
         badge.configure(ws.unread)
+        progress = ws.progress
         // The workspace hover card shows the cwd (and CPU and memory).
         toolTip = nil
         setAccessibilityElement(true)
@@ -76,6 +85,7 @@ final class WorkspaceRowView: SidebarRowView {
         var parts = [ws.title]
         if let s = ws.liveDetail { parts.append(s) }
         if let s = ws.subtitle, !s.isEmpty { parts.append(s) }
+        if let value = ws.progress?.value { parts.append(Strings.progressPercent(Int((value * 100).rounded()))) }
         switch ws.unread {
         case let .count(n) where n > 0: parts.append(Strings.unreadCount(n))
         case .dot: parts.append(Strings.unreadDot)
@@ -186,7 +196,26 @@ final class WorkspaceRowView: SidebarRowView {
             title.frame = NSRect(x: textX + inset, y: (b.height - th) / 2, width: titleWidth, height: th)
             subtitle.isHidden = true
         }
+        layoutProgress(x: textX, width: max(0, b.width - Metrics.space3 - textX), bottom: b.maxY)
         needsDisplay = true
+    }
+
+    private func layoutProgress(x: CGFloat, width: CGFloat, bottom: CGFloat) {
+        guard let progress else {
+            progressTrack.isHidden = true
+            return
+        }
+        let height: CGFloat = 2
+        progressTrack.isHidden = false
+        progressTrack.frame = CGRect(x: x, y: isFlipped ? bottom - height - 1 : 1, width: width, height: height)
+        progressTrack.cornerRadius = height / 2
+        progressFill.frame = CGRect(x: 0, y: 0, width: width * (progress.value ?? 1), height: height)
+        progressFill.cornerRadius = height / 2
+        performWithTheme {
+            progressTrack.backgroundColor = Palette.textTertiary.withAlphaComponent(0.25).cgColor
+            let color = progress.isError ? Palette.danger : Palette.accent
+            progressFill.backgroundColor = (progress.value == nil ? color.withAlphaComponent(0.4) : color).cgColor
+        }
     }
 }
 

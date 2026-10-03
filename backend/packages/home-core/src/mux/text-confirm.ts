@@ -1,6 +1,6 @@
 import type { Principal, ReduceContext, ReduceResult, RowWrite } from "../conversation/engine-types.ts"
 import { rowsOf } from "../conversation/engine-types.ts"
-import { isOwnerApp, type ConfirmLevel } from "./confirm-level.ts"
+import { USER_APP_KINDS, type ConfirmLevel } from "./confirm-level.ts"
 
 /**
  * In-app confirmation for risky actions a Chief was asked to do by text
@@ -31,7 +31,7 @@ export type Channel = "app" | "text"
  * what a stolen number would change first), plus any action flagged irreversible.
  */
 const STRICT_RISKS: ReadonlySet<RiskClass> = new Set(["destructive", "money", "send-external", "access"])
-/** `level` must come from `levelOf(head)` (it applies the locks); never pass a stored field directly. */
+/** `level` must come from `chiefLevelOf(head)` (the owner's level from UserDO, locks applied there). */
 export const needsConfirmation = (input: { readonly channel: Channel; readonly risk: RiskClass; readonly irreversible?: boolean; readonly level: ConfirmLevel }): boolean => {
   if (input.channel !== "text") return false
   const level = input.level
@@ -69,6 +69,11 @@ type Params = Readonly<Record<string, unknown>>
 const str = (v: unknown, max = 256): v is string => typeof v === "string" && v.length > 0 && v.length <= max
 const RISKS = new Set<RiskClass>(["read", "mutate-own", "mutate-shared", "execute", "send-external", "money", "destructive", "access"])
 export const CONFIRM_OPS = new Set(["mux.confirm.request", "mux.confirm.decide", "mux.confirm.consume"])
+
+const isOwnerApp = (head: { readonly owner_user: string | null }, p: Principal): boolean =>
+  (p.kind === "session" || (p.kind === "install" && !p.agent && USER_APP_KINDS.has(p.install_kind ?? ""))) &&
+  head.owner_user !== null &&
+  userOf(p) === head.owner_user
 
 const userOf = (p: Principal) => (p.user ? (p.user.startsWith("user_") ? p.user : `user_${p.user}`) : null)
 

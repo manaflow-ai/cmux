@@ -214,7 +214,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // now that the content is installed, re-applies it.
         controller.sendTopology()
         if let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) }
-        services.windows.stateDidChange(state)
+        services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
         services.windows.contentDidAppear(self)
     }
@@ -260,8 +260,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func windowWillBeginSheet(_ notification: Notification) { focus.send(.overlayOpened(.sheet)) }
     func windowDidEndSheet(_ notification: Notification) { focus.send(.overlayClosed(.sheet)) }
 
-    func windowDidMove(_ notification: Notification) { services.windows.stateDidChange(state) }
-    func windowDidEndLiveResize(_ notification: Notification) { services.windows.stateDidChange(state) }
+    func windowDidMove(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
+    func windowDidEndLiveResize(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
 
     private var badgeObservation: Task<Void, Never>?
 

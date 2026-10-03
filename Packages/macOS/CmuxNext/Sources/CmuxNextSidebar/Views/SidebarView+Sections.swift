@@ -41,7 +41,8 @@ extension SidebarView {
         // sidebar keeps only its workspace list.
         let (above, below) = DesignSettings.shared.rail == .off
             ? model.layout.bands(room: model.activeProfileID?.rawValue) : ([], [])
-        let bands = (above: above.hidingItems(hidden), below: below.hidingItems(hidden))
+        let apps = model.suppressedApps
+        let bands = (above: above.presenting(hidingItems: hidden, apps: apps), below: below.presenting(hidingItems: hidden, apps: apps))
         let look = SidebarSectionTunables.currentLook
         let metrics = SidebarRegionMetrics.standard
         func content(_ sections: [LayoutSection]) -> SidebarRegionView.Content {

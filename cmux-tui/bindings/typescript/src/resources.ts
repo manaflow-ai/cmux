@@ -3602,6 +3602,36 @@ export class Screen extends Handle<ScreenId, ScreenSnapshot> {
     return this.rename(null, options);
   }
 
+  /**
+   * Pins, unpins, or resizes one viewport column (`column.update`). `column`
+   * is the column's split ID. Set `sticky`, `width`, or both; `edge` and
+   * `mode` apply only with `sticky: true`.
+   */
+  updateColumn(
+    column: string,
+    update: {
+      sticky?: boolean;
+      edge?: "left" | "right";
+      mode?: "docked" | "overlay";
+      width?: number;
+    },
+    options: MutationOptions = {},
+  ): Promise<MutationResult<Screen>> {
+    const fields: Record<string, unknown> = { ...this.params(), column };
+    for (const [name, value] of Object.entries(update)) {
+      if (value !== undefined) {
+        fields[name] = value;
+      }
+    }
+    return this.client[mutateOperation](
+      operations.screenColumnUpdate,
+      fields,
+      options,
+      screenSnapshot,
+      (snapshot) => this.acceptSnapshot(snapshot),
+    );
+  }
+
   focus(options: MutationOptions = {}): Promise<MutationResult<Screen>> {
     return this.client[mutateOperation](
       operations.screenFocus,

@@ -2,12 +2,18 @@
 // outside Pierre's diff so collapsing or marking a file keeps the focused button.
 import React from "react";
 import type { DiffEdit, TurnFile } from "../diff";
-import { ChevronDown, Eye, FileTypeIcon } from "../changeIcons";
+import { ChevronDown, Code, Eye, FileTypeIcon, OpenTab } from "../changeIcons";
 import { Counts } from "./Counts";
 import { FileMenu } from "./FileMenu";
 
 export type FileView = { collapsed: boolean; viewed: boolean };
-export type FileActions = { toggleCollapsed: (path: string) => void; toggleViewed: (path: string) => void };
+/// Where the host opens a changed file: a tab beside the agent, or the editor app.
+export type OpenTarget = "tab" | "editor";
+export type FileActions = {
+  toggleCollapsed: (path: string) => void;
+  toggleViewed: (path: string) => void;
+  openFile: (path: string, where: OpenTarget) => void;
+};
 
 export function FileHeader({
   file,
@@ -53,11 +59,35 @@ export function FileHeader({
       >
         <Eye />
       </button>
+      {/* A deleted file has nothing on disk to open. */}
+      {!file.deleted && (
+        <>
+          <button
+            type="button"
+            className="acpmux-fh-btn"
+            aria-label={`Open ${file.displayPath} in a tab`}
+            title="Open file in a tab"
+            onClick={() => on.openFile(file.path, "tab")}
+          >
+            <OpenTab />
+          </button>
+          <button
+            type="button"
+            className="acpmux-fh-btn"
+            aria-label={`Open ${file.displayPath} in the editor`}
+            title="Open in editor"
+            onClick={() => on.openFile(file.path, "editor")}
+          >
+            <Code />
+          </button>
+        </>
+      )}
       <FileMenu
         path={file.path}
         name={file.displayPath}
         collapsed={view.collapsed}
         onToggleCollapsed={() => on.toggleCollapsed(file.path)}
+        onOpenInTab={file.deleted ? undefined : () => on.openFile(file.path, "tab")}
       />
     </div>
   );

@@ -1288,6 +1288,23 @@ func (s *Screen) Rename(ctx context.Context, options ScreenRenameOptions) (Mutat
 		"screen snapshot", s.cache, s,
 	)
 }
+func (s *Screen) UpdateColumn(ctx context.Context, options ScreenColumnUpdateOptions) (MutationResult[*Screen], error) {
+	input := s.route.params()
+	input["column"] = options.Column
+	if options.Sticky != nil {
+		input["sticky"] = *options.Sticky
+	}
+	putOptionalString(input, "edge", options.Edge)
+	putOptionalString(input, "mode", options.Mode)
+	if options.Width != nil {
+		input["width"] = *options.Width
+	}
+	merge(input, options.Extra)
+	return mutationHandle(
+		ctx, s.client, wirev2.ScreenColumnUpdate, input, options.MutationOptions,
+		"screen snapshot", s.cache, s,
+	)
+}
 func (s *Screen) Focus(ctx context.Context, options ScreenFocusOptions) (MutationResult[*Screen], error) {
 	input := s.route.params()
 	merge(input, options.Extra)

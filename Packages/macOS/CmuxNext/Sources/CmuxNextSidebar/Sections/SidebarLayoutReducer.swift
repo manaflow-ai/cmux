@@ -64,8 +64,10 @@ public nonisolated enum SidebarLayoutReducer {
         case .workspaces:
             // L1: exactly one, and it holds no items.
             throw SidebarLayoutReject.workspacesRequired
+        case .app:
+            guard section.owningAppID != nil, section.items.isEmpty else { throw SidebarLayoutReject.invalidContribution }
         case .items:
-            break
+            guard section.contribution == nil else { throw SidebarLayoutReject.invalidContribution }
         }
         try validate(title: section.title)
         try validate(maxRows: section.maxRows)
@@ -130,7 +132,7 @@ public nonisolated enum SidebarLayoutReducer {
 
     private static func addItem(_ item: LayoutItem, to id: LayoutSectionID, at index: Int, in sections: inout [LayoutSection]) throws {
         guard let s = sections.firstIndex(where: { $0.id == id }) else { throw SidebarLayoutReject.unknownSection }
-        guard sections[s].content == .items else { throw SidebarLayoutReject.workspacesRequired }
+        try ensureItems(sections[s])
         guard locate(item.id, in: sections) == nil, !sections.contains(where: { $0.id.rawValue == item.id.rawValue })
         else { throw SidebarLayoutReject.duplicateID }
         // L3: pinning a reference twice into one section is a no-op.
@@ -143,7 +145,7 @@ public nonisolated enum SidebarLayoutReducer {
     private static func moveItem(_ id: LayoutItemID, to target: LayoutSectionID, at index: Int, in sections: inout [LayoutSection]) throws {
         guard let (s, i) = locate(id, in: sections) else { throw SidebarLayoutReject.unknownItem }
         guard let t = sections.firstIndex(where: { $0.id == target }) else { throw SidebarLayoutReject.unknownSection }
-        guard sections[t].content == .items else { throw SidebarLayoutReject.workspacesRequired }
+        try ensureItems(sections[t])
         let item = sections[s].items[i]
         if t != s, sections[t].items.contains(where: { $0.ref == item.ref }) { throw SidebarLayoutReject.duplicateRef }
         sections[s].items.remove(at: i)
@@ -159,6 +161,14 @@ public nonisolated enum SidebarLayoutReducer {
     }
 
     // MARK: Validation
+
+    private static func ensureItems(_ section: LayoutSection) throws {
+        switch section.content {
+        case .items: return
+        case .workspaces: throw SidebarLayoutReject.workspacesRequired
+        case .app: throw SidebarLayoutReject.itemsNotAllowed
+        }
+    }
 
     private static func validate(title: String?) throws {
         guard let title else { return }

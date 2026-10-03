@@ -40,6 +40,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var activity: StatusIndicatorState
     /// The winning report's style hint (`cmux status set --style`).
     public var activityStyle: StatusIndicatorStyle?
+    /// Determinate or indeterminate bar under the row: the workspace's
+    /// reported progress, else a terminal's OSC 9;4 progress.
+    public var progress: SidebarProgress?
 
     public init(
         id: WorkspaceID,
@@ -50,7 +53,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         icon: WorkspaceIcon? = nil,
         unread: UnreadState = .none,
         activity: StatusIndicatorState = .idle,
-        activityStyle: StatusIndicatorStyle? = nil
+        activityStyle: StatusIndicatorStyle? = nil,
+        progress: SidebarProgress? = nil
     ) {
         self.id = id
         self.machineID = machineID
@@ -61,6 +65,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.unread = unread
         self.activity = activity
         self.activityStyle = activityStyle
+        self.progress = progress
     }
 }
 

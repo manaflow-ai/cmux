@@ -44,6 +44,19 @@ import Testing
             == .deny(.notAllowlisted("surface.send_text")))
     }
 
+    /// `link.open` (deep links) navigates this Mac's windows, so a remote
+    /// session must never drive it: not as a method name, and not through
+    /// `action.run`, the v2 method that runs catalog actions by id.
+    @Test func linkOpenCanNeverBeRelayed() {
+        let policy = RemoteRelayPolicy(allowed: ["link.open", "action.run", "link.open_url", "cmux.link.open"])
+        #expect(policy.allowed.isEmpty, "a method that opens a link or runs an action can never be allowlisted")
+        let tab = "cmux://tab/tab_0123456789abcdef0123456789abcdef"
+        #expect(RemoteRelayPolicy.denyAll.decide(method: "link.open", params: ["url": .string(tab)], owned: owned)
+            == .deny(.notAllowlisted("link.open")))
+        #expect(policy.decide(method: "action.run", params: ["action": .string("link.open"), "args": .object(["url": .string(tab)])],
+                              owned: owned) == .deny(.notAllowlisted("action.run")))
+    }
+
     @Test func remoteBrowserRecordsOpenOnlyWebPages() {
         #expect(RemoteRelayPolicy.remoteBrowserURL("https://example.com/a")?.absoluteString == "https://example.com/a")
         #expect(RemoteRelayPolicy.remoteBrowserURL("http://build-box:3000/")?.absoluteString == "http://build-box:3000/")

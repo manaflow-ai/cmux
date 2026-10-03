@@ -4,7 +4,7 @@ name: cmux-next
 # (Packages/macOS/CmuxNext). `swift test` runs the package's Swift Testing
 # suites in-process; it never builds or launches a cmux DEV app. The checks
 # are the AGENT-BRIEF merge gate: god files, main-thread concurrency and the
-# string tables (the CmuxNext catalogs, InfoPlist and the CLI table).
+# string tables (the CmuxNext catalogs and InfoPlist).
 
 on:
   pull_request:
@@ -21,11 +21,13 @@ on:
       - Packages/iOS/**
       - cmux-tui/**
       - CLI/**
+      - cmuxCLITests/**
+      - cmuxCLITestSupport/**
+      - Resources/Localizable.xcstrings
       - web/**
       - scripts/ghosttykit-checksums.txt
       - ghostty
       - Resources/InfoPlist.xcstrings
-      - Resources/Localizable.xcstrings
       - scripts/cmux-next/check-*.sh
       - scripts/cmux-next/cmux-code-mode-runner
       - scripts/cmux-next/cmux-code-mode-macos-profile
@@ -56,12 +58,14 @@ on:
       - Packages/iOS/**
       - cmux-tui/**
       - CLI/**
+      - cmuxCLITests/**
+      - cmuxCLITestSupport/**
+      - Resources/Localizable.xcstrings
       - web/**
       - scripts/ghosttykit-checksums.txt
       - ghostty
       - scripts/download-prebuilt-ghosttykit.sh
       - Resources/InfoPlist.xcstrings
-      - Resources/Localizable.xcstrings
       - scripts/cmux-next/check-*.sh
       - scripts/cmux-next/cmux-code-mode-runner
       - scripts/cmux-next/cmux-code-mode-macos-profile
@@ -210,6 +214,11 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-no-godfiles.sh --only rust "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
+      - name: No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
+        id: no-swift-cli
+        continue-on-error: true
+        run: scripts/cmux-next/check-no-swift-cli.sh "$GITHUB_WORKSPACE"
+
       - name: Main-thread concurrency
         id: concurrency
         continue-on-error: true
@@ -242,6 +251,7 @@ jobs:
           OUTCOMES: |
             ${{ steps.godfiles-swift.outcome }}|God files and types (Swift)
             ${{ steps.godfiles-rust.outcome }}|God files (cmux-tui Rust)
+            ${{ steps.no-swift-cli.outcome }}|No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
             ${{ steps.concurrency.outcome }}|Main-thread concurrency
             ${{ steps.crash-safety.outcome }}|Crash safety
             ${{ steps.l10n.outcome }}|String tables (21 languages)
@@ -352,20 +362,36 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --skip CmuxNextControlTests --skip CmuxNextBrowserAutomationTests --skip TerminalAttachDriverStressTests
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --skip CmuxNextControlTests --skip CmuxNextBrowserAutomationTests --skip TerminalAttachDriverStressTests --skip ActionRunWaitTests --skip DaemonClosedHistoryTests --skip EphemeralWorkspaceTests --skip StateMutationRoutingTests
 
+      # Like the steps below, runs whenever the build succeeded, even after a
+      # failed test step, so one red step does not hide the others.
       - name: Run control package tests
+        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}
         timeout-minutes: 20
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter CmuxNextControlTests
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter CmuxNextControlTests --skip CLISurfaceParityTests
+
+      # These socket/readiness and CLI parity tests assert routing, not scheduler
+      # throughput. Concurrent app/catalog setup can occupy the main actor longer
+      # than their real request deadlines. Keep those deadlines and assertions,
+      # but run these suites alone and one test at a time, including action retries.
+      - name: Run daemon routing and CLI parity tests
+        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}
+        timeout-minutes: 10
+        working-directory: Packages/macOS/CmuxNext
+        env:
+          CMUX_NEXT_TEST_HANG_SECONDS: "480"
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter 'ActionRunWaitTests|DaemonClosedHistoryTests|EphemeralWorkspaceTests|StateMutationRoutingTests|CLISurfaceParityTests'
 
       # The WebKit driver tests drive real WKWebViews against wall-clock load
-      # deadlines through main-actor navigation callbacks. They run after the
-      # control tests, in a process of their own: the package's other main-actor tests do not delay
-      # those callbacks, and a WebKit failure does not skip the control tests.
+      # deadlines through main-actor navigation callbacks. They run in a
+      # process of their own, so the package's other main-actor tests do not
+      # delay those callbacks.
       - name: Run WebKit driver package tests
+        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}
         timeout-minutes: 10
         working-directory: Packages/macOS/CmuxNext
         env:
@@ -470,6 +496,21 @@ jobs:
           test "$(uname -s)" = Darwin
           test -x /usr/bin/sandbox-exec
           scripts/cmux-next/test-code-mode-macos-sandbox.sh
+
+  # A green Release compile on a feat-cmux-next push may move the protected
+  # `nightly-next` branch, which publishes the cmux-next NIGHTLY track
+  # (debounced; see nightly-next-promote.yml).
+  promote-nightly-next:
+    needs: release-compile
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile.result == 'success'
+    permissions:
+      contents: read
+      checks: read
+      actions: read
+    uses: ./.github/workflows/nightly-next-promote.yml
+    with:
+      sha: ${{ github.sha }}
+    secrets: inherit
 
   cmux-scheme-compile:
     needs: macos-placement

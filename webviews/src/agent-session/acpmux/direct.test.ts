@@ -8,6 +8,7 @@ import {
   settleOptimisticPrompt,
 } from "./direct";
 import type { EventRecord } from "./direct";
+import { AcpWireLog } from "./wire";
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { isNewChat } from "./EmptyState";
 
@@ -17,6 +18,8 @@ describe("direct acpmux event helpers", () => {
       {
         sessionId: "selected",
         permissionId: "permission-1",
+        groupId: "group-1",
+        turnId: "turn-1",
         request: {
           sessionId: "agent-request-id",
           toolCall: { title: "Run command", kind: "execute" },
@@ -26,6 +29,8 @@ describe("direct acpmux event helpers", () => {
       "selected",
     );
     expect(permission?.permissionId).toBe("permission-1");
+    expect(permission?.groupId).toBe("group-1");
+    expect(permission?.turnId).toBe("turn-1");
     expect(permission?.options[0]?.id).toBe("yes");
   });
 
@@ -125,11 +130,11 @@ class ScriptedSocket {
     this.reply(request!, result);
   }
   /// Answers a held request with a JSON-RPC error.
-  fail(method: string) {
+  fail(method: string, error: { code?: number; message?: string; data?: unknown } = { message: `${method} failed` }) {
     const index = this.waiting.findIndex((request) => request.method === method);
     if (index < 0) throw new Error(`no ${method} request is waiting`);
     const [request] = this.waiting.splice(index, 1);
-    this.onmessage?.({ data: JSON.stringify({ id: request!.id, error: { message: `${method} failed` } }) });
+    this.onmessage?.({ data: JSON.stringify({ id: request!.id, error }) });
   }
   notify(method: string, params: unknown) {
     this.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method, params }) });
@@ -199,6 +204,156 @@ describe("direct client session state", () => {
 
   const connect = () => AcpmuxDirectClient.connect(host, (snapshot) => snapshots.push(snapshot));
 
+  test("grouped permissions reconcile on attach, suppress duplicate requests and keep interactive asks", async () => {
+    const operations = [
+      "_acpmux/permission_groups",
+      "_acpmux/permission_group_respond",
+      "_acpmux/permission_chat_revoke",
+    ];
+    const group = {
+      groupId: "g",
+      sessionId: "a",
+      turnId: "t",
+      revision: 3,
+      state: "pending",
+      decision: null,
+      decisions: ["allow_once", "allow_chat", "deny"],
+      items: [
+        {
+          permissionId: "grouped",
+          state: "pending",
+          request: {
+            toolCall: { kind: "edit", title: "Write app" },
+            options: [
+              { optionId: "yes", kind: "allow_once" },
+              { optionId: "no", kind: "reject_once" },
+            ],
+          },
+        },
+      ],
+    };
+    let reads = 0;
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "initialize") return { _meta: { acpmux: { operations } } };
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }, { sessionId: "b" }] };
+      if (method === "_acpmux/attach")
+        return {
+          ...attachReply(params.sessionId),
+          session: {
+            sessionId: params.sessionId,
+            pending: [
+              { permissionId: "grouped", request: { toolCall: { title: "Write app" }, options: [] } },
+              { permissionId: "question", request: { toolCall: { title: "Choose a target" }, options: [] } },
+            ],
+          },
+        };
+      if (method === "_acpmux/permission_groups") {
+        reads++;
+        return {
+          groups: params.sessionId === "a" ? [group] : [],
+          chatAllowance: { active: false, expires: "session_stop_or_daemon_restart" },
+          coverage: { label: "acp_requests_only", isolation: "unverified", detail: "ACP only" },
+          batching: { windowMs: 100, maxItems: 32, maxPendingGroups: 64, maxReceipts: 64 },
+        };
+      }
+      return {};
+    };
+    const client = await connect();
+    expect(latest().permissionGroups?.groups[0]?.groupId).toBe("g");
+    expect(latest().permission?.permissionId).toBe("question");
+    ScriptedSocket.current.notify("_acpmux/permission_pending", {
+      sessionId: "a",
+      permissionId: "grouped",
+      groupId: "g",
+      turnId: "t",
+      request: { options: [] },
+    });
+    expect(latest().permission?.permissionId).toBe("question");
+    ScriptedSocket.current.notify("_acpmux/event", {
+      sessionId: "a",
+      seq: 9,
+      at: 9,
+      dir: "mux",
+      kind: "permission_group",
+      msg: { group },
+    });
+    await settle();
+    expect(reads).toBeGreaterThan(1);
+    ScriptedSocket.current.notify("_acpmux/event", {
+      sessionId: "a",
+      seq: 10,
+      at: 10,
+      dir: "mux",
+      kind: "permission_decision",
+      msg: { permissionId: "question" },
+    });
+    ScriptedSocket.held.add("_acpmux/permission_groups");
+    ScriptedSocket.current.notify("_acpmux/event", {
+      sessionId: "a",
+      seq: 11,
+      at: 11,
+      dir: "mux",
+      kind: "permission_group",
+      msg: { group },
+    });
+    await settle();
+    ScriptedSocket.current.fail("_acpmux/permission_groups", {
+      code: -32601,
+      message: "Unsupported",
+      data: { reason: "operation.unsupported" },
+    });
+    await settle();
+    expect(latest().permissionGroups?.supported).toBe(false);
+    expect(latest().permission?.permissionId).toBe("grouped");
+    ScriptedSocket.held.delete("_acpmux/permission_groups");
+    await client.select("b");
+    expect(latest().permissionGroups?.groups).toEqual([]);
+    client.close();
+  });
+
+  test("an unavailable group read retains an individual interactive ask from the attach snapshot", async () => {
+    ScriptedSocket.held.add("_acpmux/permission_groups");
+    ScriptedSocket.respond = ({ method }) => {
+      if (method === "initialize")
+        return {
+          _meta: {
+            acpmux: {
+              operations: [
+                "_acpmux/permission_groups",
+                "_acpmux/permission_group_respond",
+                "_acpmux/permission_chat_revoke",
+              ],
+            },
+          },
+        };
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }] };
+      if (method === "_acpmux/attach")
+        return {
+          events: [],
+          session: {
+            sessionId: "a",
+            pending: [
+              { permissionId: "grouped", groupId: "g", turnId: "t", request: { options: [] } },
+              {
+                permissionId: "question",
+                groupId: null,
+                turnId: null,
+                request: { toolCall: { title: "Choose a target" }, options: [] },
+              },
+            ],
+          },
+        };
+      return {};
+    };
+    const connecting = connect();
+    await settle();
+    ScriptedSocket.current.fail("_acpmux/permission_groups", { code: -32000, message: "The owner is unavailable." });
+    const client = await connecting;
+    expect(latest().permission?.permissionId).toBe("question");
+    expect(latest().permissionGroups?.ready).toBe(false);
+    client.close();
+  });
+
   test("a fresh session whose first kept record is its command list is a new chat with its folder", async () => {
     const commands: EventRecord = {
       sessionId: "a",
@@ -233,6 +388,39 @@ describe("direct client session state", () => {
     expect(latest().canLoadOlder).toBe(true);
     expect(latest().summary?.cwd).toBe("/Users/me/harness-research");
     expect(isNewChat(latest())).toBe(true);
+    client.close();
+  });
+
+  test("a linked session the daemon lacks is refused, not replaced by the latest chat, and marks nothing seen", async () => {
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a", unread: true }, { sessionId: "b" }] };
+      if (method === "_acpmux/attach") return attachReply(params.sessionId);
+      return {};
+    };
+    const client = await AcpmuxDirectClient.connect(
+      { ...host, sessionId: "bogus", sessionMustExist: true },
+      (snapshot) => snapshots.push(snapshot),
+    );
+    await settle();
+    expect(latest().sessionId).toBeUndefined();
+    expect(latest().missingSession).toBe("bogus");
+    expect(latest().rows).toEqual([]);
+    expect(ScriptedSocket.current.sent.map((request) => request.method)).not.toContain("_acpmux/attach");
+    expect(latest().sessions.find((session) => session.sessionId === "a")?.unread).toBe(true);
+    // Choosing a chat afterwards clears the notice.
+    await client.select("b");
+    await settle();
+    expect(latest().missingSession).toBeUndefined();
+    client.close();
+  });
+
+  test("without the link's strictness a missing session still falls back to the latest chat", async () => {
+    const client = await AcpmuxDirectClient.connect({ ...host, sessionId: "bogus" }, (snapshot) =>
+      snapshots.push(snapshot),
+    );
+    await settle();
+    expect(latest().sessionId).toBe("a");
+    expect(latest().missingSession).toBeUndefined();
     client.close();
   });
 
@@ -276,6 +464,72 @@ describe("direct client session state", () => {
     await client.create("codex");
     const news = ScriptedSocket.current.sent.filter((request) => request.method === "session/new");
     expect(news.map((request) => request.params.cwd)).toEqual(["/work/app", undefined]);
+  });
+
+  test("a resumed chat is adopted on connect, once, without the inherited cwd", async () => {
+    const adopt = { harness: "claude", agentSessionId: "0a1b2c3d" };
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [] };
+      if (method === "session/new")
+        return {
+          sessionId: "adopted",
+          _meta: { acpmux: { agentSessionId: params._meta.acpmux.adopt?.agentSessionId } },
+        };
+      if (method === "_acpmux/attach") return { session: { sessionId: params.sessionId, status: "idle" }, events: [] };
+      return {};
+    };
+    const client = await AcpmuxDirectClient.connect(
+      { ...host, sessionId: undefined, newSession: true, cwd: "/work/app", adopt },
+      (snapshot) => snapshots.push(snapshot),
+    );
+    const news = ScriptedSocket.current.sent.filter((request) => request.method === "session/new");
+    expect(news.map((request) => request.params)).toEqual([
+      { mcpServers: [], _meta: { acpmux: { harness: "claude", adopt } } },
+    ]);
+    expect(snapshots.at(-1)?.summary?.sessionId).toBe("adopted");
+    expect(client.adopted).toBe("adopted");
+    expect(await client.ensureSession()).toBe("adopted");
+    expect(ScriptedSocket.current.sent.filter((request) => request.method === "session/new")).toHaveLength(1);
+  });
+
+  test("a daemon that can't adopt gets its fresh session removed and the pane says so", async () => {
+    ScriptedSocket.respond = ({ method }) => {
+      if (method === "_acpmux/watch") return { sessions: [] };
+      if (method === "session/new") return { sessionId: "fresh", _meta: { acpmux: { agentSessionId: "its-own" } } };
+      return {};
+    };
+    const client = await AcpmuxDirectClient.connect(
+      { ...host, sessionId: undefined, newSession: true, adopt: { harness: "codex", agentSessionId: "01999a2b" } },
+      (snapshot) => snapshots.push(snapshot),
+    );
+    expect(client.adopted).toBeUndefined();
+    const kills = ScriptedSocket.current.sent.filter((request) => request.method === "_acpmux/kill");
+    expect(kills.map((request) => request.params)).toEqual([{ sessionId: "fresh", purge: true }]);
+    expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/attach")).toBe(false);
+    const last = snapshots.at(-1);
+    expect(last?.connection).toBe("connected");
+    expect(last?.rows.at(-1)).toMatchObject({
+      kind: "notice",
+      text: "Couldn't resume this chat: this acpmux can't resume chats",
+    });
+  });
+
+  test("a socket that drops while adopting fails the connect instead of claiming the chat can't resume", async () => {
+    ScriptedSocket.respond = ({ method }) => (method === "_acpmux/watch" ? { sessions: [] } : {});
+    ScriptedSocket.held = new Set(["session/new"]);
+    const connecting = AcpmuxDirectClient.connect(
+      { ...host, sessionId: undefined, newSession: true, adopt: { harness: "claude", agentSessionId: "0a1b2c3d" } },
+      (snapshot) => snapshots.push(snapshot),
+    );
+    for (let tries = 0; tries < 20 && ScriptedSocket.current?.waiting.length === 0; tries += 1) await settle();
+    ScriptedSocket.current.drop();
+    expect(
+      await connecting.then(
+        () => "connected",
+        () => "rejected",
+      ),
+    ).toBe("rejected");
+    expect(snapshots.flatMap((snapshot) => snapshot.rows).some((row) => row.kind === "notice")).toBe(false);
   });
 
   test("a chat started in a chosen project leaves the inherited cwd for the next default chat", async () => {
@@ -348,6 +602,43 @@ describe("direct client session state", () => {
     await settle();
     expect(latest().sessionId).toBe("b");
     expect(unread()).toEqual({ b: false });
+    client.close();
+  });
+
+  test("the wire log records each request, its reply and a dropped socket", async () => {
+    const wire = new AcpWireLog();
+    const client = await AcpmuxDirectClient.connect(
+      host,
+      (snapshot) => snapshots.push(snapshot),
+      undefined,
+      undefined,
+      undefined,
+      wire,
+    );
+    ScriptedSocket.current.notify("session/update", {
+      sessionId: "a",
+      update: { sessionUpdate: "agent_message_chunk" },
+    });
+    const requests = wire.entries().filter((entry) => entry.kind === "request");
+    const methods = requests.map((entry) => entry.method);
+    expect(methods.slice(0, 3)).toEqual(["initialize", "_acpmux/watch", "_acpmux/attach"]);
+    // Every request that was answered pairs with its reply and its latency.
+    const replies = wire.entries().filter((entry) => entry.kind === "response");
+    expect(replies.length).toBeGreaterThanOrEqual(3);
+    expect(replies.map((entry) => entry.method)).toEqual(
+      replies.map((reply) => requests.find((request) => request.id === reply.id)?.method),
+    );
+    expect(replies.every((entry) => typeof entry.latencyMs === "number")).toBe(true);
+    expect(wire.entries().at(-1)).toMatchObject({ dir: "in", kind: "notification", method: "session/update" });
+    const lifecycle = () =>
+      wire
+        .entries()
+        .filter((entry) => entry.kind === "lifecycle")
+        .map((entry) => entry.event);
+    expect(lifecycle()).toEqual(["connecting", "open", "connected"]);
+    expect(JSON.stringify(wire.entries())).not.toContain("token=t");
+    ScriptedSocket.current.drop();
+    expect(lifecycle().slice(3)).toEqual(["close", "reconnect scheduled"]);
     client.close();
   });
 
@@ -1037,5 +1328,142 @@ describe("direct client session state", () => {
     await connect();
     await settle();
     expect(latest().rows.filter((row) => row.kind === "assistant")).toEqual([]);
+  });
+});
+
+/// acpmux serves no git methods, so the changes view's reads go to the native host, which runs
+/// them on the session host in the selected session's folder.
+describe("direct client git reads", () => {
+  const realSocket = globalThis.WebSocket;
+  const host = {
+    protocolVersion: 1,
+    transport: "acpmux-websocket",
+    endpoint: "ws://127.0.0.1:4100/acp",
+    token: "t",
+    sessionId: "a",
+  } as const;
+  let posted: { method: string; params: Record<string, unknown> }[];
+  let answer: (method: string) => unknown;
+  const folders: Record<string, string | undefined> = { a: "/work/a", b: "/work/b" };
+
+  beforeEach(() => {
+    posted = [];
+    answer = (method) => ({ ok: true, value: { method } });
+    ScriptedSocket.held = new Set();
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }, { sessionId: "b", cwd: folders.b }] };
+      if (method === "_acpmux/attach")
+        return { session: { sessionId: params.sessionId, status: "idle", cwd: folders[params.sessionId] }, events: [] };
+      return {};
+    };
+    (globalThis as any).WebSocket = ScriptedSocket;
+    (globalThis as any).window ??= globalThis;
+    (globalThis as any).webkit = {
+      messageHandlers: {
+        agentSession: {
+          postMessage(message: { method: string; params: Record<string, unknown> }) {
+            posted.push({ method: message.method, params: message.params });
+            return Promise.resolve(answer(message.method));
+          },
+        },
+      },
+    };
+  });
+  afterEach(() => {
+    (globalThis as any).WebSocket = realSocket;
+    delete (globalThis as any).webkit;
+    folders.a = "/work/a";
+  });
+
+  const connect = () => AcpmuxDirectClient.connect(host, () => {});
+  const gitSent = () => ScriptedSocket.current.sent.filter((request) => request.method.startsWith("git."));
+
+  test("a scope and the status go to the native host with the selected session's folder", async () => {
+    const client = await connect();
+    await settle();
+    expect(await client.gitDiff("staged")).toEqual({ method: "git.diff" });
+    expect(await client.gitStatus()).toEqual({ method: "git.status" });
+    await client.select("b");
+    await settle();
+    await client.gitDiff("branch");
+    expect(posted).toEqual([
+      { method: "git.diff", params: { cwd: "/work/a", scope: "staged", include_patch: true } },
+      { method: "git.status", params: { cwd: "/work/a" } },
+      { method: "git.diff", params: { cwd: "/work/b", scope: "branch", include_patch: true } },
+    ]);
+    expect(gitSent()).toEqual([]);
+    client.close();
+  });
+
+  test("the host's refusal rejects with its message", async () => {
+    answer = () => ({ ok: false, error: { code: "git_failed", userMessage: "The changes could not be read." } });
+    const client = await connect();
+    await settle();
+    await expect(client.gitDiff("uncommitted")).rejects.toThrow("The changes could not be read.");
+    client.close();
+  });
+
+  test("the host's structured error reaches the changes view with its origin and fields", async () => {
+    const userMessage = "The changes could not be read.";
+    answer = (method) =>
+      method === "git.diff"
+        ? {
+            ok: false,
+            error: {
+              code: "resource.not_found",
+              userMessage,
+              details: { path: "/work/a" },
+              retryable: false,
+              origin: "session_host",
+            },
+          }
+        : { ok: false, error: { code: "native.not_connected", userMessage, origin: "native" } };
+    const client = await connect();
+    await settle();
+    await expect(client.gitDiff("staged")).rejects.toMatchObject({
+      name: "NativeError",
+      message: userMessage,
+      code: "resource.not_found",
+      details: { path: "/work/a" },
+      retryable: false,
+      origin: "session_host",
+    });
+    await expect(client.gitStatus()).rejects.toMatchObject({
+      name: "NativeError",
+      message: userMessage,
+      code: "native.not_connected",
+      origin: "native",
+    });
+    client.close();
+  });
+
+  test("a session with no known folder rejects without asking anyone", async () => {
+    folders.a = undefined;
+    const client = await connect();
+    await settle();
+    await expect(client.gitDiff("uncommitted")).rejects.toThrow("no working folder");
+    await expect(client.gitStatus()).rejects.toThrow("no working folder");
+    expect(posted).toEqual([]);
+    expect(gitSent()).toEqual([]);
+    client.close();
+  });
+
+  test("a cloud session's folder is not read on this Mac", async () => {
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a", hostKind: "cloud", cwd: "/workspace" }] };
+      if (method === "_acpmux/attach")
+        return {
+          session: { sessionId: params.sessionId, status: "idle", hostKind: "cloud", cwd: "/workspace" },
+          events: [],
+        };
+      return {};
+    };
+    const client = await connect();
+    await settle();
+    await expect(client.gitDiff("uncommitted")).rejects.toThrow("runs on another machine");
+    await expect(client.gitStatus()).rejects.toThrow("runs on another machine");
+    expect(posted).toEqual([]);
+    expect(gitSent()).toEqual([]);
+    client.close();
   });
 });

@@ -58,8 +58,9 @@ enum WorkspaceStructureHandlers {
                 let key = WorkspaceKey(rawValue: id)
                 try await WorkspaceBlueprintBuilder(connection: connection, key: key, browsers: withBrowsers, defaultEngine: engine).build(blueprint)
                 if metadata, blueprint.color != nil || blueprint.icon != nil {
-                    _ = try await connection.setWorkspaceMetadata(key, color: blueprint.color.map { .set($0) } ?? .unchanged,
-                                                                  icon: blueprint.icon.map { .set($0) } ?? .unchanged)
+                    try await connection.state.setWorkspaceIdentity(key, resource: daemon.store.stateResourceID(workspace: key),
+                                                              color: blueprint.color.map { .set($0) } ?? .unchanged,
+                                                              icon: blueprint.icon.map { .set($0) } ?? .unchanged)
                 }
                 return nil
             } catch {
@@ -85,7 +86,8 @@ enum WorkspaceStructureHandlers {
         guard daemon.supports(DaemonCapabilities.shared.workspaceMetadata) else {
             throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.shared.workspaceMetadata))
         }
-        daemon.send("set-workspace-metadata") { _ = try await $0.setWorkspaceMetadata(key, icon: update) }
+        let resource = daemon.store.stateResourceID(workspace: key)
+        daemon.send("set-workspace-metadata") { try await $0.state.setWorkspaceIdentity(key, resource: resource, icon: update) }
     }
 
     // MARK: Merge and pane moves
@@ -122,7 +124,7 @@ enum WorkspaceStructureHandlers {
         let rest = Array(pane.tabs.dropFirst())
         let services = context.services
         // Read before the await: whether this run may change the view.
-        let allowed = services.viewChangeAllowed
+        let allowed = ActionRunScope.viewChangeAllowed()
         services.registry.track(Task {
             guard let key = await TabMoves.toNewWorkspace(first, services: services) else { return "move-tab-to-new-workspace failed (see the app log)" }
             guard let workspace, let state = services.windows.registry.value.owner(of: workspace.id).flatMap({ services.windows.states[$0] })

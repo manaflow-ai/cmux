@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextDesign
 
 /// Applies reducer effects to the real world (AppKit, WebKit, CEF, layout,
@@ -33,6 +34,9 @@ final class FocusCoordinator {
         case reduced(FocusEvent, before: FocusState, after: FocusState)
         /// A responder report dropped as the echo of the applier's own change.
         case suppressedResponder(FocusEvent.Responder)
+        /// A focus or selection change dropped: the action run sending it
+        /// may not change this client's view (`ActionRunScope.viewChangeAllowed()`).
+        case refusedByRun(FocusEvent)
     }
 
     /// Called after every reduction, before its effects run.
@@ -41,6 +45,14 @@ final class FocusCoordinator {
     var settledObserver: ((FocusState) -> Void)?
 
     func send(_ event: FocusEvent) {
+        // An action run that may not change this client's view (a CLI,
+        // script, agent or remote run without `focus: true`) never moves
+        // focus or selection, nor bumps the intent generation, which would
+        // void the user's own pending expectation (OWNERSHIP-PRINCIPLES.md).
+        if event.changesView, !ActionRunScope.viewChangeAllowed() {
+            observer?(.refusedByRun(event))
+            return
+        }
         queue.append(event)
         guard !isRunning else { return }
         isRunning = true
