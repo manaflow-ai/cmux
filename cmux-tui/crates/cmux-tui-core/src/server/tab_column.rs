@@ -23,11 +23,16 @@ pub(super) struct MoveTabToColumnParams {
     transaction: Option<String>,
 }
 
-pub(super) fn move_tab_to_column(mux: &Mux, params: MoveTabToColumnParams) -> anyhow::Result<Value> {
-    let MoveTabToColumnParams { surface, pane, screen, after_column, width, sticky, transaction } = params;
+pub(super) fn move_tab_to_column(
+    mux: &Arc<Mux>,
+    params: MoveTabToColumnParams,
+) -> anyhow::Result<Value> {
+    let MoveTabToColumnParams { surface, pane, screen, after_column, width, sticky, transaction } =
+        params;
     validate_client_transaction(transaction.as_deref())?;
     get_surface(mux, surface)?;
     let anchor = column_anchor(mux, pane, screen)?;
-    let outcome = mux.move_tab_to_column(surface, anchor, after_column, width, sticky, transaction)?;
+    let outcome =
+        mux.move_tab_to_column(surface, anchor, after_column, width, sticky, transaction)?;
     Ok(tab_drag_outcome_json(&outcome))
 }

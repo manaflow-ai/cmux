@@ -7,8 +7,7 @@
 //! into `resource_column_docks`, a table with its own `CREATE TABLE IF NOT
 //! EXISTS` that older builds ignore (they read such a column as an ordinary
 //! one). It is written in the same transaction as the screen row and
-//! overlaid on the viewport at load. Rows of closed screens are inert (the
-//! load reads live screens only) and are replaced on the screen's next write.
+//! overlaid on the viewport at load. Closing a screen deletes its rows.
 
 use super::*;
 use crate::model::{ColumnSticky, StickyEdge, StickyMode};
@@ -50,6 +49,16 @@ fn write_column_docks(
     Ok(())
 }
 
+/// Deletes a closed screen's docks, in the transaction that closes it.
+pub(super) fn delete_column_docks(
+    transaction: &Transaction<'_>,
+    screen_id: &str,
+) -> anyhow::Result<()> {
+    transaction
+        .execute("DELETE FROM resource_column_docks WHERE screen_id = ?1", params![screen_id])?;
+    Ok(())
+}
+
 /// The screen's top and bottom docks as `(column id, edge, mode)`, sorted.
 fn desired_docks(screen: &RegistryScreen) -> Vec<(String, String, String)> {
     let mut docks: Vec<_> = screen
@@ -87,6 +96,11 @@ pub(super) fn column_docks_match(
 /// `screens` with each column's top or bottom dock restored from
 /// `resource_column_docks`. A row naming an unknown column or a bad value is
 /// ignored, and a column that already carries a left or right flag keeps it.
+///
+/// An older build reads a docked column as an ordinary one and may pin
+/// other columns meanwhile. A dock is restored only while its edge is free
+/// and another column still scrolls; otherwise the dock is dropped (and its
+/// row on the screen's next write), never a side pin the older build set.
 pub(super) fn with_column_docks(
     connection: &Connection,
     mut screens: Vec<RegistryScreen>,
@@ -110,13 +124,21 @@ pub(super) fn with_column_docks(
         if !edge.is_band() {
             continue;
         }
-        let column = screens
-            .iter_mut()
-            .filter(|screen| screen.public_id.as_str() == screen_id)
-            .flat_map(|screen| screen.viewport.columns.iter_mut())
-            .find(|column| column.id.as_str() == column_id && column.sticky.is_none());
-        if let Some(column) = column {
-            column.sticky = Some(ColumnSticky { edge, mode });
+        let Some(screen) = screens.iter_mut().find(|screen| screen.public_id.as_str() == screen_id)
+        else {
+            continue;
+        };
+        let columns = &mut screen.viewport.columns;
+        let edge_taken = columns.iter().any(|column| column.sticky.is_some_and(|s| s.edge == edge));
+        let Some(index) = columns.iter().position(|column| column.id.as_str() == column_id) else {
+            continue;
+        };
+        let other_scrolls = columns
+            .iter()
+            .enumerate()
+            .any(|(other, column)| other != index && column.sticky.is_none());
+        if columns[index].sticky.is_none() && !edge_taken && other_scrolls {
+            columns[index].sticky = Some(ColumnSticky { edge, mode });
         }
     }
     Ok(screens)

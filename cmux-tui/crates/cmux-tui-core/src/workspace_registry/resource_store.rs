@@ -4021,6 +4021,7 @@ fn tombstone_resource_screen(
         require_known_resource(transaction, screen_id, "screen")?;
         return Ok(());
     };
+    screen_rows::delete_column_docks(transaction, screen_id)?;
     let panes = {
         let mut statement = transaction.prepare(
             "SELECT public_id FROM resource_panes
