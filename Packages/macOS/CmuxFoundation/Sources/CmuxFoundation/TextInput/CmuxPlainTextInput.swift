@@ -1,4 +1,5 @@
 public import AppKit
+import ObjectiveC.runtime
 
 /// The one place cmux turns off macOS typing substitutions, so every text
 /// editor saves exactly the characters that were typed
@@ -21,6 +22,8 @@ public import AppKit
 /// A user can still turn a substitution back on for one view from
 /// Edit › Substitutions.
 public struct CmuxPlainTextInput {
+    @MainActor
+    private static var fieldEditorHookInstalled = false
     public init() {}
     /// The `UserDefaults` keys AppKit reads when it creates a text view. The
     /// app's own domain takes precedence over the system-wide settings.
@@ -35,8 +38,29 @@ public struct CmuxPlainTextInput {
 
     /// Turns the substitutions off for text views created after this call.
     /// Call once at launch, before any window exists.
+    @MainActor
     public static func installAppDefaults(_ defaults: UserDefaults) {
         defaults.register(defaults: Dictionary(uniqueKeysWithValues: substitutionDefaultsKeys.map { ($0, false) }))
+        installFieldEditorHook()
+    }
+
+    @MainActor
+    private static func installFieldEditorHook() {
+        guard !fieldEditorHookInstalled,
+              let original = class_getInstanceMethod(NSWindow.self, #selector(NSWindow.fieldEditor(_:for:))),
+              let replacement = class_getInstanceMethod(NSWindow.self, #selector(NSWindow.cmux_fieldEditor(_:for:))) else {
+            return
+        }
+        method_exchangeImplementations(original, replacement)
+        fieldEditorHookInstalled = true
+    }
+}
+
+private extension NSWindow {
+    @objc dynamic func cmux_fieldEditor(_ createFlag: Bool, for object: Any?) -> NSTextView? {
+        let editor = cmux_fieldEditor(createFlag, for: object)
+        editor?.cmuxDisableTypingSubstitutions()
+        return editor
     }
 }
 
