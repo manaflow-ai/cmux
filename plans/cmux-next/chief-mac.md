@@ -173,3 +173,38 @@ Done when: a tagged build answers in Home with no `CMUX_NEXT_MUX_HOST`; the corp
 - Compaction keeps the acpmux summarizer session (`MUX_COMPACT_HARNESS`, model `haiku`). Model
   calls in tests go through the subrouter only.
 - PATH for the Chief's tools stays the phase A stand-in until D26 (daemon login environment).
+
+## 9. Chief records in UserDO (for the backend lead)
+
+Record `chief` in `UserDO`, keyed by chief id. All fields are per user; P1 needs no per-install
+field (the Mac's local Chief is the participant `agent_mux` of that install's local owner, mapped at
+promote time to the user's default chief).
+
+| field | type | null | writer | note |
+| --- | --- | --- | --- | --- |
+| `id` | `agent_<26 base32>` | no | UserDO at create | never reused |
+| `owner_user` | `user_<id>` | no | UserDO at create | immutable |
+| `display_name` | string, 1...100 chars | no | user (`chief.create`, `chief.update`) | default "Chief" |
+| `is_default` | bool | no | user; UserDO keeps exactly one true | texts (H9) and promote use the default |
+| `brain` | `"cloud"` | no | UserDO at create | the brain that answers this chief's cloud conversations; only `"cloud"` in P1 (the Mac brain answers local conversations only) |
+| `main_conversation` | `conv_<26>` | yes | UserDO when it creates the chief's main conversation | |
+| `harness` | string | yes | user | null = deployment default |
+| `rev` | u64 | no | UserDO | +1 per committed op |
+| `created_at`, `updated_at` | RFC 3339 ms | no | UserDO | |
+| `archived_at` | RFC 3339 ms | yes | UserDO on `chief.archive` | |
+
+Ops (actor: the user's principal, from any install; the Mac Chief actor and the cloud MuxDO write
+none of these fields in P1, they only read `id`, `is_default` and `main_conversation`):
+
+| op | params | idempotency key | risk class | rules |
+| --- | --- | --- | --- | --- |
+| `chief.create` | `display_name?`, `is_default?` | required; the first default chief uses the fixed key `chief-default` | normal | the first chief of a user is the default |
+| `chief.update` | `chief`, `expected_rev`, `display_name?`, `is_default?`, `harness?`, `archived?` (false only: restore) | required | normal | setting `is_default` clears it on the old default in the same commit |
+| `chief.archive` | `chief`, `expected_rev` | required | destructive (text confirmation per H10, H11) | refused for the default chief (`chief_is_default`) |
+
+Retention: an archived chief stays readable and restorable (`chief.update` with `archived: false`)
+for 30 days, then becomes a tombstone `{id, owner_user, archived_at}` kept forever so the id is never
+reused; its conversations keep the participant (marked left). Memory deletion follows P2's memory
+owner, not this record.
+
+Presence: the Mac Chief does not need presence or the presence key.
