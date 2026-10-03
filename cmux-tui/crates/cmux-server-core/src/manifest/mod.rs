@@ -17,10 +17,12 @@
 //! Unknown fields are ignored so a newer manifest stays readable; anything a
 //! machine must understand raises `min_cmux_version` instead.
 
+mod format;
 mod semver;
 mod time;
 mod validate;
 
+pub use format::{FORMAT_SNIFF_LEN, PackageFormat};
 pub use semver::SemVer;
 pub use time::parse_rfc3339_utc_ms;
 pub use validate::{Version, parse_version, valid_sha256};
