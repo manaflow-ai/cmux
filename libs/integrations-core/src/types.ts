@@ -1,7 +1,8 @@
-// Shared types of the integration catalog core (src/core). The core is pure
-// TypeScript with no cmux globals so it can move unchanged into a backend
-// package (README, "Code placement"). Files marked "Adapted from executor"
-// carry upstream code under the MIT License (see LICENSE-executor).
+// Shared types of @cmux/integrations-core. The package is pure TypeScript with
+// no cmux globals and no runtime dependencies, so the integrations app and the
+// backend gateway run the same code (README, "Adoption by the backend"). Files
+// marked "Adapted from executor" carry upstream code under the MIT License
+// (see LICENSE and NOTICE).
 
 /** Per-tool policy: run without asking, ask the user each call, or never run. */
 export type ToolAction = "allow" | "ask" | "block"
