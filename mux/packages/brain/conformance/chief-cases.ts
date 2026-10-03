@@ -690,6 +690,25 @@ function turnCases(): CorpusCase[] {
   }
 
   {
+    const c = new CaseBuilder("log identity: a legacy host.json (no acpmuxLog) for the same session adopts the identity without a reset", {
+      defaultConversation: "conv_a",
+      muxSessionId: MUX_SESSION,
+      acpmuxSeq: 4,
+    });
+    c.step({ kind: "daemon_connected", conversation: summary("conv_a") }, []);
+    c.step(
+      { kind: "acpmux_connected", session_id: MUX_SESSION, sessions: [], events: [ev(5, "turn_started"), chunk(6, "after upgrade"), ev(7, "turn_end")], log_id: T0 + 500 } as Input,
+      ["persist", "typing", "conversation_op", "typing", "list_conversations"],
+      (e) => {
+        c.check(opKey(c, e) === `turn:${MUX_SESSION}:5`, `plain key, got ${opKey(c, e)}`);
+        const state = c.persisted(e) as HostStateData & { acpmuxEpoch?: number; acpmuxLog?: number };
+        c.check(state.acpmuxEpoch === undefined && state.acpmuxLog === T0 + 500 && state.acpmuxSeq === 7, "adopted, no reset");
+      },
+    );
+    cases.push(c.end());
+  }
+
+  {
     const created = T0 + 10;
     const c = new CaseBuilder("log identity: a session the host created keeps plain keys, even though its log already holds the created event", {
       defaultConversation: "conv_a",
