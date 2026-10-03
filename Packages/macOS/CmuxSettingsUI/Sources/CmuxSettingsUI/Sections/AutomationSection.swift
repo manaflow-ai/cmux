@@ -30,7 +30,8 @@ public struct AutomationSection: View {
     @State private var portRangeModel: DefaultsValueModel<Int>
     @State private var socketPolicyResolution: SocketControlPolicyResolution
     @State private var subrouterStatus: SubrouterAutoResumeStatus?
-    @State private var subrouterBusy = false
+    @State private var subrouterRefreshing = false
+    @State private var subrouterChanging = false
     @State private var socketPasswordDraft: String = ""
     @State private var socketPasswordStatus: SocketPasswordStatus?
     @State private var showOpenAccessConfirmation: Bool = false
@@ -177,14 +178,12 @@ public struct AutomationSection: View {
                 Text(subrouterStatusText)
                     .cmuxFont(.caption)
                     .foregroundStyle(.secondary)
-                Button(subrouterBusy
-                    ? String(localized: "settings.automation.subrouter.checking", defaultValue: "Checking…")
-                    : String(localized: "settings.automation.subrouter.refresh", defaultValue: "Refresh")) {
+                Button(String(localized: "settings.automation.subrouter.refresh", defaultValue: "Refresh")) {
                     Task { await refreshSubrouterStatus() }
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .disabled(subrouterBusy)
+                .disabled(subrouterRefreshing)
                 .accessibilityIdentifier("SettingsSubrouterRefreshButton")
                 Spacer(minLength: 0)
             }
@@ -246,23 +245,44 @@ public struct AutomationSection: View {
             ))
             .labelsHidden()
             .controlSize(.small)
-            .disabled(!available || subrouterBusy)
+            .disabled(!available || subrouterChanging)
             .accessibilityIdentifier(identifier)
         }
     }
 
+    /// Re-reads Subrouter's state. The button keeps its label; the status line
+    /// is what changes.
     private func refreshSubrouterStatus() async {
-        guard !subrouterBusy else { return }
-        subrouterBusy = true
+        guard !subrouterRefreshing else { return }
+        subrouterRefreshing = true
         subrouterStatus = await hostActions.subrouterAutoResumeStatus()
-        subrouterBusy = false
+        subrouterRefreshing = false
     }
 
+    /// Changes one agent's switch. The switch moves at once; only a failure
+    /// changes the status line, which then explains it.
     private func setSubrouterAutoResume(_ agent: SubrouterAutoResumeAgent, enabled: Bool) async {
-        guard !subrouterBusy else { return }
-        subrouterBusy = true
-        subrouterStatus = await hostActions.setSubrouterAutoResume(agent, enabled: enabled)
-        subrouterBusy = false
+        guard !subrouterChanging else { return }
+        subrouterChanging = true
+        let previous = subrouterStatus
+        if var optimistic = subrouterStatus {
+            switch agent {
+            case .claude: optimistic.claudeEnabled = enabled
+            case .codex: optimistic.codexEnabled = enabled
+            }
+            subrouterStatus = optimistic
+        }
+        let result = await hostActions.setSubrouterAutoResume(agent, enabled: enabled)
+        if result.availability == .available || previous == nil {
+            subrouterStatus = result
+        } else {
+            // Keep the switches as Subrouter last reported them and show why
+            // the change did not apply.
+            var failed = previous!
+            failed.availability = result.availability
+            subrouterStatus = failed
+        }
+        subrouterChanging = false
     }
 
     /// Thin native exposure of the existing JSON-backed automation engine.
