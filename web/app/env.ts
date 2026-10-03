@@ -126,7 +126,7 @@ const irohMinterUrl = z.string().url().superRefine((value, context) => {
     });
   }
 });
-const publicationAuthOrigin = z.string().url().superRefine((value, context) => {
+const bareHttpsOrigin = (name: string) => z.string().url().superRefine((value, context) => {
   let parsed: URL | null = null;
   try {
     parsed = new URL(value);
@@ -146,10 +146,12 @@ const publicationAuthOrigin = z.string().url().superRefine((value, context) => {
     context.addIssue({
       code: z.ZodIssueCode.custom,
       message:
-        "CMUX_VM_PUBLICATION_AUTH_ORIGIN must be a bare https:// origin with no path, query, or credentials",
+        `${name} must be a bare https:// origin with no path, query, or credentials`,
     });
   }
 });
+const publicationAuthOrigin = bareHttpsOrigin("CMUX_VM_PUBLICATION_AUTH_ORIGIN");
+const publicationForwardAuthOrigin = bareHttpsOrigin("CMUX_VM_PUBLICATION_FORWARD_AUTH_ORIGIN");
 const irohBindingLimit = z.string().regex(/^[1-9][0-9]{0,3}$/).superRefine((value, context) => {
   if (Number(value) > 4_096) {
     context.addIssue({
@@ -332,6 +334,10 @@ export const env = createEnv({
     // pushed to Freestyle as the account-wide forward-auth target. It is never
     // derived from a request; protected publications fail closed without it.
     CMUX_VM_PUBLICATION_AUTH_ORIGIN: publicationAuthOrigin.optional(),
+    // Optional origin Freestyle calls for forward-auth when it differs from
+    // the sign-in origin, e.g. a tunnel to a development stack the edge can't
+    // reach. Unset in production: the auth origin serves both.
+    CMUX_VM_PUBLICATION_FORWARD_AUTH_ORIGIN: publicationForwardAuthOrigin.optional(),
     // Zone generated Cloud VM publication hostnames are minted under
     // (<random>.<zone>). The CMUX Freestyle account must own it: verify the
     // zone, CNAME `*` to the Freestyle edge, delegate `_acme-challenge`, and
@@ -551,6 +557,10 @@ export const env = createEnv({
     CMUX_VM_PUBLICATION_AUTH_ORIGIN: trimEnv(
       process.env.CMUX_VM_PUBLICATION_AUTH_ORIGIN,
     ),
+    // Blank (as in .env.example) means unset, not an invalid origin.
+    CMUX_VM_PUBLICATION_FORWARD_AUTH_ORIGIN: trimEnv(
+      process.env.CMUX_VM_PUBLICATION_FORWARD_AUTH_ORIGIN,
+    ) || undefined,
     CMUX_VM_PUBLICATION_GENERATED_DOMAIN: trimEnv(
       process.env.CMUX_VM_PUBLICATION_GENERATED_DOMAIN,
     ),

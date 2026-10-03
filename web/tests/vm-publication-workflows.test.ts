@@ -1901,6 +1901,20 @@ describe("Cloud VM publication REST adapters", () => {
     }
   });
 
+  test("an edge-only forward-auth origin overrides the target and fails closed when malformed", () => {
+    const secret = "a-secret-long-enough-for-the-provider";
+    expect(publicationForwardAuthConfig({
+      CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET: secret,
+      CMUX_VM_PUBLICATION_AUTH_ORIGIN: "https://cmux-dev.example.ts.net:4252",
+      CMUX_VM_PUBLICATION_FORWARD_AUTH_ORIGIN: "https://edge-tunnel.example.com",
+    })).toEqual({ url: "https://edge-tunnel.example.com/api/freestyle/forward-auth", serviceToken: secret });
+    expect(publicationForwardAuthConfig({
+      CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET: secret,
+      CMUX_VM_PUBLICATION_AUTH_ORIGIN: "https://cmux.com",
+      CMUX_VM_PUBLICATION_FORWARD_AUTH_ORIGIN: "http://edge-tunnel.example.com",
+    })).toEqual({ url: "", serviceToken: secret });
+  });
+
   test("resolves the requested team before authenticating a publication mutation", async () => {
     const verified: unknown[] = [];
     const verify: Parameters<typeof withAuthedPublicationApiRoute>[3] = async (_request, options) => {
