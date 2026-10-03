@@ -85,13 +85,19 @@ import CmuxGit
 
         host.terminalTypingActive = true
         await reader.openGate()
-        await clock.waitForSleeper()
+        #expect(await waitUntil("deferred snapshot retry sleeper") {
+            await clock.recordedDurations.count >= 2
+        })
         #expect(host.workspaces[0].state.panels[panelId]?.branch == nil)
 
         host.terminalTypingActive = false
-        await clock.resumeNext()
-        await clock.waitForSleeper()
-        await clock.resumeNext()
+        let clockDriver = Task { @MainActor in
+            while !Task.isCancelled {
+                await clock.resumeNext()
+                try? await Task.sleep(for: .milliseconds(1))
+            }
+        }
+        defer { clockDriver.cancel() }
         #expect(await reader.waitForProbe(count: 2))
         #expect(await waitUntil {
             host.workspaces[0].state.panels[panelId]?.branch?.branch == "local-main"

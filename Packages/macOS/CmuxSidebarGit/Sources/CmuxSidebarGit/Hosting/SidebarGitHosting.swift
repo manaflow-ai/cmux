@@ -108,9 +108,6 @@ public protocol SidebarGitHosting: AnyObject {
 }
 
 extension SidebarGitHosting {
-    func terminalTypingIsActive(within interval: TimeInterval) -> Bool { false }
-    func terminalTypingQuietDelay(for interval: TimeInterval) -> TimeInterval { 0 }
-
     func shouldSkipLocalGitMetadata(workspaceId: UUID, panelId: UUID) -> Bool {
         isRemoteWorkspace(workspaceId) == true &&
             (isRemoteTerminalPanel(workspaceId: workspaceId, panelId: panelId) ||
