@@ -309,7 +309,7 @@ through the coordinator.
 
 Rail by default (Leo, 2026-10-03: keep Home and the App Store, but tuck them into a skinny strip like
 the Codex app). `window.rail` defaults to "leading": the rail sits at the window's leading edge and
-the sidebar beside it is an inset panel (rounded top leading corner, the theme's `sidebarStep` fill
+the sidebar beside it is an inset panel (rounded top leading corner, the theme's `stripStep` fill
 over the backdrop), starting directly with the workspace list. The rail draws the sticky bands: the
 top band from the top, the bottom band pinned to the bottom. In the rail look a section's
 `max_rows` caps its buttons; the rest go under a More ("...") button placed after that section's

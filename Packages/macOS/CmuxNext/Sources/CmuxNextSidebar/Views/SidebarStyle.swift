@@ -18,6 +18,11 @@ enum SidebarStyle {
     static var toolbarButtonSize: CGFloat { Metrics.sidebarHeaderHeight }
     static var indicatorSize: CGFloat { Metrics.smallIconSize - Metrics.space1 }
     static var dotSize: CGFloat { Metrics.space3 }
+    /// A window rail button's glyph box and glyph (the Codex rail's 15pt
+    /// glyphs on 32pt tiles), and its tile's rounding.
+    static var railIconBox: CGFloat { Metrics.iconSize + Metrics.space3 }
+    static var railGlyphSize: CGFloat { Metrics.iconSize + 1 }
+    static var railTileCornerRadius: CGFloat { Metrics.itemCornerRadius + Metrics.space1 }
     static var badgeHeight: CGFloat { Metrics.iconSize }
     static var searchHeight: CGFloat { Metrics.sidebarRowHeight }
     static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }

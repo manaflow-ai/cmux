@@ -2,8 +2,9 @@ import AppKit
 import CmuxNextDesign
 
 /// The sidebar's inset panel beside the leading rail (Leo, 2026-10-03, the
-/// Codex app's skinny strip): one tonal step over the window's backdrop
-/// (`Palette.sidebarStep`, from the terminal theme like every chrome
+/// Codex app's skinny strip): one tonal step darker than the window's
+/// backdrop, like the Codex panel under its lighter rail (`Palette.stripStep`,
+/// the tab strip's shade, from the terminal theme like every chrome
 /// color), with only its top leading corner rounded where it meets the
 /// rail and the top row. It paints no material of its own: the step is
 /// translucent, so a see-through window stays one backdrop under it, and
@@ -38,7 +39,7 @@ final class WindowSidebarPanelView: NSView {
     func paint() {
         guard let layer else { return }
         layer.cornerRadius = Metrics.panelCornerRadius
-        performWithTheme { layer.backgroundColor = Palette.sidebarStep.cgColor }
+        performWithTheme { layer.backgroundColor = Palette.stripStep.cgColor }
     }
 
     override func viewDidChangeEffectiveAppearance() {
