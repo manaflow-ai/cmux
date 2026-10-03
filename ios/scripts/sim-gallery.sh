@@ -46,11 +46,15 @@ settle 2; shot home-preview-dark
 xcrun simctl ui "$udid" appearance light
 fi
 
+# The mock host restores a Ghostty-encoded snapshot (grid generation 1), then
+# after 10 s changes the grid (generation 2) and sends a new snapshot.
 SIMCTL_CHILD_CMUX_IOS_HOME_PREVIEW=1 SIMCTL_CHILD_CMUX_IOS_TERMINAL_PREVIEW=1 \
+  SIMCTL_CHILD_CMUX_IOS_TERMINAL_GRID_CHANGE_SECONDS=10 \
   xcrun simctl launch --terminate-running-process "$udid" "$bundle" >/dev/null
 settle 6; shot terminal-mock-dark
+settle 12; shot terminal-grid-change
 tc="$(xcrun simctl get_app_container "$udid" "$bundle" data)"
-cp "$tc/Library/Caches/cmux-gallery/terminal.json" "$out/" 2>/dev/null || true
+cp "$tc"/Library/Caches/cmux-gallery/terminal*.json "$out/" 2>/dev/null || true
 [[ "${SIM_GALLERY_ONLY:-}" == terminal ]] && { ls -1 "$out"; exit 0; }
 
 SIMCTL_CHILD_CMUX_IOS_HOME_PREVIEW=1 SIMCTL_CHILD_CMUX_IOS_GALLERY=1 \

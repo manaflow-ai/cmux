@@ -85,11 +85,7 @@ final class RootViewController: UIViewController {
         if ProcessInfo.processInfo.environment["CMUX_IOS_TERMINAL_PREVIEW"] == "1" {
             let terminal = DevTerminal.make()
             navigation.pushViewController(terminal, animated: false)
-            Task { @MainActor in
-                // Capture once the snapshot had time to arrive (debug capture only).
-                try? await Task.sleep(for: .seconds(3))
-                DevTerminal.writeDiagnostics(terminal)
-            }
+            DevTerminal.captureDiagnostics(terminal)
         }
         #endif
     }
