@@ -1,0 +1,8 @@
+# Lane: remote-desktop
+
+## Active streams
+- Remote desktop (lane 17, P10): plan plans/cmux-next/remote-desktop.md; pure crates cmux-tui/crates/cmux-rd-proto + cmux-rd-core (in the cmux-tui workspace); Linux host engine cmux-tui/crates/cmux-rd-host (its own Cargo workspace, excluded from cmux-tui: links openh264 from source, optional GPL x264 behind the off-by-default `x264` feature; never linked into the MIT `cmux` binary); Mac remote view module CmuxNextRemoteView (in progress). Datagrams on overlay port 4103 (service `remote-desktop`) once lane 12's datagram service lands; until then UDP or one TCP stream.
+
+## Landed
+- 2026-10-03 (this push) cmux-tui (crate-only slot granted by the coordinator): new crate cmux-tui/crates/cmux-rd-host (`cmux-rd host|bench|testapp`) and `exclude = [..., "crates/cmux-rd-host"]` in cmux-tui/Cargo.toml; no cmux-tui workspace crate or Cargo.lock change except fixes in cmux-rd-proto/cmux-rd-core found by measurement: frames above one FEC block go without parity (up to 4096 data shards; WIRE CHANGE, receivers from older trees refuse such frames), one minimum-delay sample per feedback in CC, 1 Mbit/s floor, shards of another length refused, 32 MB pending budget. Three review rounds clean. Phase-1 gap: the host trusts hello claims, so it runs only on loopback or a single-tenant overlay until the lane 12 link token. Licensing: MIT by default (openh264); x264 is opt-in and makes the binary GPL; openh264 from source carries no Cisco patent coverage (README). Measured (1080p, software encode): loopback Testbox G2G p50 3.6 ms (marker), in-VPC Freestyle 4 vCPU p50 10.4 / p95 14.1 ms over UDP (remote desktop lead)
+- 2026-10-03 eb7f6b40d99 cmux-tui (crate-only window): cmux-rd-proto + cmux-rd-core landed (remote desktop lead)
