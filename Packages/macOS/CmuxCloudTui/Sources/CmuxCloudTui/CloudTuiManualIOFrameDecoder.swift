@@ -19,6 +19,7 @@ public struct CloudTuiManualIOFrameDecoder: Sendable {
             return decodeEvent(event, object: object)
         }
         guard let requestID = Self.uint64(object["id"]),
+              requestID != 0,
               let ok = object["ok"] as? Bool else {
             return nil
         }
