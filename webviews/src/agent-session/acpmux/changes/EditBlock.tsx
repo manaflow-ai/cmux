@@ -2,10 +2,12 @@
 import React, { useMemo } from "react";
 import { getFiletypeFromFileName, getSingularPatch, setLanguageOverride } from "@pierre/diffs";
 import { FileDiff, useStableCallback } from "@pierre/diffs/react";
-import { editPatch, type DiffEdit, type TurnFile } from "../diff";
+import { editPatch, hunkKey, type DiffEdit, type TurnFile } from "../diff";
 import { isHighlighted } from "../shikiLanguages";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS } from "../diffTheme";
 import { FileHeader, type FileActions, type FileView } from "./FileHeader";
+import { HunkActions } from "./HunkActions";
+import { hunkAnchor, type FocusAfter, type HunkAnchor, type HunkReview } from "./hunkReview";
 
 export type DiffLayout = "unified" | "split";
 
@@ -22,6 +24,8 @@ export function EditBlock({
   view,
   on,
   onPainted,
+  review,
+  focusAfter,
 }: {
   file: TurnFile;
   edit: DiffEdit;
@@ -31,6 +35,9 @@ export function EditBlock({
   view: FileView;
   on: FileActions;
   onPainted: () => void;
+  /// Hunk review, when the view offers it: each hunk gets Reject and Accept as a line annotation.
+  review?: HunkReview;
+  focusAfter?: FocusAfter;
 }) {
   // A language the bundle can't highlight shows as plain text; Pierre throws for it otherwise.
   // Each transcript update rebuilds the turn's files; the patch text is compared so an
@@ -42,6 +49,16 @@ export function EditBlock({
     return highlighted ? parsed : setLanguageOverride(parsed, "text");
   }, [patch, highlighted]);
   const afterRender = useStableCallback(onPainted);
+  const reviewing = review !== undefined;
+  const annotations = useMemo(
+    () =>
+      reviewing
+        ? edit.hunks.flatMap(
+            (hunk, hunkIndex) => hunkAnchor(hunk, hunkKey(file, index, hunkIndex), file, edit.numbered) ?? [],
+          )
+        : [],
+    [reviewing, edit, file, index],
+  );
   const options = useMemo(
     () => ({
       theme: { dark: AGENT_DIFF_THEME, light: AGENT_DIFF_THEME_LIGHT },
@@ -71,7 +88,25 @@ export function EditBlock({
       {!view.collapsed && edit.hunks.length === 0 && (
         <div className="acpmux-diff-empty-edit">{file.binary ? "Binary file not shown" : "No line changes"}</div>
       )}
-      {showDiff && <FileDiff className="acpmux-diff-pierre" fileDiff={fileDiff} options={options} />}
+      {showDiff && (
+        <FileDiff<HunkAnchor>
+          className="acpmux-diff-pierre"
+          fileDiff={fileDiff}
+          options={options}
+          lineAnnotations={annotations}
+          renderAnnotation={(annotation) => {
+            const anchor = annotation.metadata;
+            return review && focusAfter && anchor ? (
+              <HunkActions
+                anchor={anchor}
+                decision={review.decisions.get(anchor.key)}
+                onDecide={(decision) => review.decide(anchor.key, decision)}
+                focusAfter={focusAfter}
+              />
+            ) : null;
+          }}
+        />
+      )}
     </div>
   );
 }

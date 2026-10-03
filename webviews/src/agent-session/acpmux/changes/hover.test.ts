@@ -73,6 +73,10 @@ const CONTROLS = [
   ".acpmux-review-changes",
   "button.acpmux-edited-file",
   ".acpmux-edited-more",
+  ".acpmux-hunk-undo",
+  ".acpmux-hunk-reject",
+  ".acpmux-hunk-accept",
+  ".acpmux-revert-send",
 ];
 /// Menu rows show focus with the hover fill rather than a ring, as native menus do.
 const FOCUS_BY_FILL = new Set([".acpmux-file-menu-item"]);

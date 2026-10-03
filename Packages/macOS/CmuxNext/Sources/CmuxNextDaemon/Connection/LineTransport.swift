@@ -355,7 +355,8 @@ final class LineTransport: Sendable {
             if case .reply(_, let slot) = waiter { slot.resolve(.success(Response(line: line, eventBarrier: barrier))) }
             return
         }
-        let error = DaemonError.command(cmd: waiter.cmd, message: envelope.error ?? "unknown error", code: envelope.errorCode)
+        let error = DaemonError.command(cmd: waiter.cmd, message: envelope.error ?? "unknown error", code: envelope.errorCode,
+                                        details: envelope.errorDetails, retryable: envelope.retryable)
         switch waiter {
         case .reply(_, let slot): slot.resolve(.failure(error))
         case .discard(_, let onError): onError?(error)

@@ -63,11 +63,15 @@ final class AgentTabStore {
     private var linkedSessions: Set<String> = []
     /// A link's turn for a tab whose view is not made yet.
     private var pendingTurns: [String: String] = [:]
+    /// The tabs' git reads on the local session host (AgentPaneGitReads.swift);
+    /// nil answers the page `native.not_connected`.
+    private let git: AgentPaneGitLink?
 
     init(tag: String?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
-         linkScheme: String? = nil) {
+         linkScheme: String? = nil, git: AgentPaneGitLink? = nil) {
         actionRegistry = registry
         self.linkScheme = linkScheme
+        self.git = git
         if environment["CMUX_NEXT_AGENT_PANE_MOCK"] == "1" {
             host = MockAgentPaneHost()
         } else {
@@ -223,6 +227,8 @@ final class AgentTabStore {
         model.onEditShortcut = { [weak self] kind in self?.newTabPages[key]?.handler.editShortcut(kind) }
         model.onSetDefaultKind = { [weak self] kind in self?.newTabPages[key]?.handler.setDefaultKind(kind) }
         model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
+        // A local session's folder is read by the local session host; the page refuses cloud sessions.
+        if let git { model.onGit = { request in try await git.read(request) } }
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate) else { return nil }
         view.customization = customization.current
         view.shortcuts = shortcuts

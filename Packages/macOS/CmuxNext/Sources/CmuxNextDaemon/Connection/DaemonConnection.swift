@@ -154,11 +154,11 @@ public actor DaemonConnection {
     }
 
     /// Sends one `cmux.protocol/2` resource request (`ResourceRequestEnvelope`)
-    /// on the control socket and decodes its `result`.
+    /// on the control socket and decodes its `result`; `timeout` replaces the request deadline.
     func resourceRequest<R: Decodable>(_ envelope: @escaping @Sendable (UInt64) -> ResourceRequestEnvelope,
-                                       as type: R.Type) async throws -> R {
+                                       as type: R.Type, timeout: Duration? = nil) async throws -> R {
         guard case .ready(let transport, _) = phase else { throw DaemonError.notConnected }
-        let response = try await transport.request(cmd: envelope(0).operation, timeout: configuration.requestTimeout) { id in
+        let response = try await transport.request(cmd: envelope(0).operation, timeout: timeout ?? configuration.requestTimeout) { id in
             try envelope(id).line()
         }
         return try ResourceRequestEnvelope.decodeResult(R.self, from: response.line)
