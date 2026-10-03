@@ -41,8 +41,9 @@ const invalid = (message: string, details?: unknown) => reject("policy.invalid",
 /**
  * Whether the team can serve SSO sign-in now: an active connection that serves at least one of the
  * team's verified domains (the condition sign-in discovery and the OIDC callback need). Enforced SSO
- * is accepted only while this holds, and the sign-in gate applies it only while this holds, so a
- * disabled connection or a lapsed domain never locks the team's users out.
+ * is accepted only while this holds. The sign-in gate applies it to a user bound by email domain
+ * only while a connection serves that very domain (TeamDO.signInRules), so a disabled connection or
+ * a lapsed or unserved domain never locks its users out.
  */
 export const ssoServable = (state: SsoState): boolean =>
   Object.values(state.sso_connections ?? {}).some((c) => c.state === "active" && c.domains.some((d) => state.domains?.[d]?.state === "verified"))

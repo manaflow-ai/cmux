@@ -322,14 +322,17 @@ export class TeamDO extends OwnerDO<TeamState> {
    * team's SSO (sso.enforce with mode enforced, while an active connection serves a verified domain;
    * owners exempt unless sso.enforceForOwners), the minimum client version, and the agent classes
    * grants may be minted for. `user` need not be a member: the Worker also asks the team that owns
-   * the user's email domain (policy-gate.ts). Read by the Worker, cached briefly.
+   * the user's email `domain` (policy-gate.ts), which binds only while a connection serves that
+   * domain. Read by the Worker, cached briefly.
    */
-  async signInRules(entity: string, user: string): Promise<SignInRules> {
+  async signInRules(entity: string, user: string, domain?: string): Promise<SignInRules> {
     const state = this.bind(entity).currentState
     const policy = currentPolicy(state).values as PolicyValues
     const values = policy as Record<string, { value: unknown } | undefined>
     const role = state.members?.[user]?.role
-    const enforce = enforcedOn(policy, "sso.enforce") && ssoServable(state)
+    // Bound by its email domain: only while an active connection serves that very domain, or its user could never sign in.
+    const servable = domain === undefined ? ssoServable(state) : connectionForDomain(state, domain) !== undefined
+    const enforce = enforcedOn(policy, "sso.enforce") && servable
     const owners = enforcedOn(policy, "sso.enforceForOwners")
     const min = values["updates.minimumVersion"]?.value
     const classes = values["agents.allowedClasses"]?.value

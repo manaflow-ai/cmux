@@ -19,12 +19,12 @@ import type { SignInRules } from "./team-do.ts"
 const TTL_MS = 30_000
 const cache = new Map<string, { at: number; rules: SignInRules }>()
 
-export const signInRules = async (env: Env, team: string, user: string): Promise<SignInRules> => {
-  const key = `${team}\u0000${user}`
+export const signInRules = async (env: Env, team: string, user: string, domain?: string): Promise<SignInRules> => {
+  const key = `${team}\u0000${user}\u0000${domain ?? ""}`
   const hit = cache.get(key)
   if (hit && Date.now() - hit.at < TTL_MS) return hit.rules
-  const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team)) as unknown as { signInRules(e: string, u: string): Promise<SignInRules> }
-  const rules = await stub.signInRules(team, user)
+  const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team)) as unknown as { signInRules(e: string, u: string, d?: string): Promise<SignInRules> }
+  const rules = await stub.signInRules(team, user, domain)
   if (cache.size > 5000) cache.clear()
   cache.set(key, { at: Date.now(), rules })
   return rules
@@ -57,11 +57,11 @@ const domainOwner = async (env: Env, domain: string): Promise<string | null> => 
  * an install's from our signed token (UserDO's record at mint). Any email counts, verified or not:
  * an unverified address in the domain only makes its holder stricter, never looser.
  */
-export const ssoTeams = async (env: Env, p: Principal): Promise<Array<string>> => {
-  const teams = p.team ? [p.team] : []
+export const ssoTeams = async (env: Env, p: Principal): Promise<Array<{ team: string; domain?: string }>> => {
+  const teams: Array<{ team: string; domain?: string }> = p.team ? [{ team: p.team }] : []
   const domain = p.kind === "install" ? p.email_domain : p.kind === "session" ? emailDomainOf(p.email) : undefined
   const owner = domain ? await domainOwner(env, domain) : null
-  if (owner && !teams.includes(owner)) teams.push(owner)
+  if (owner && owner !== p.team) teams.push({ team: owner, domain: domain! })
   return teams
 }
 
@@ -91,7 +91,7 @@ export const withSsoSession = async (env: Env, principal: Principal, team: strin
  */
 export const withAnySsoSession = async (env: Env, principal: Principal): Promise<Principal> => {
   if (principal.kind !== "session" || principal.sso_team !== undefined || !principal.stack_session) return principal
-  for (const team of await ssoTeams(env, principal)) {
+  for (const { team } of await ssoTeams(env, principal)) {
     const p = await withSsoSession(env, principal, team)
     if (p.sso_team !== undefined) return p
   }
@@ -106,8 +106,8 @@ export const withAnySsoSession = async (env: Env, principal: Principal): Promise
 export const ssoGate = async (env: Env, principal: Principal): Promise<{ principal: Principal; refusal?: GateRefusal }> => {
   if ((principal.kind !== "session" && principal.kind !== "install") || !principal.user) return { principal }
   let p = principal
-  for (const team of await ssoTeams(env, principal)) {
-    const rules = await signInRules(env, team, principal.user)
+  for (const { team, domain } of await ssoTeams(env, principal)) {
+    const rules = await signInRules(env, team, principal.user, domain)
     if (!rules.sso_required) continue
     if (p.kind === "session" && p.sso_team === undefined) p = await withSsoSession(env, p, team)
     const refusal = ssoRefusal(p, rules, team)

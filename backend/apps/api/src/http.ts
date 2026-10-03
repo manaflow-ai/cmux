@@ -224,10 +224,18 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const p = yield* principalFor("cloud:TeamDO", principal)
           return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).sshOp(p.team!, p, frame)), catch: unreachable })
         }
+        // install.register and server pairing bind the new install to the SSO team whose sign-in created this session (P17-4). The
+        // Stack session id only finds that team; owners never receive it (their ledgers record the principal).
+        let submitter = principal
+        if ((payload.op === "install.register" || payload.op === "server.pair.approve") && shape.stack_session && !principal.sso_team) {
+          const stackSession = shape.stack_session
+          const found = yield* Effect.promise(() => withAnySsoSession(env, { ...principal, stack_session: stackSession }))
+          if (found.sso_team) submitter = { ...principal, sso_team: found.sso_team }
+        }
         // cmux server pairing: several owners in order (UserDO install, TeamDO host, PairingDO), each keyed by the code.
         if (payload.op === "server.pair.approve") {
           return yield* Effect.tryPromise({
-            try: () => pairApprove(env, principal, frame, (owner, p, f) => Effect.runPromise(submitTo(owner, p, f))),
+            try: () => pairApprove(env, submitter, frame, (owner, p, f) => Effect.runPromise(submitTo(owner, p, f))),
             catch: unreachable
           })
         }
@@ -301,14 +309,6 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
             catch: unreachable
           })
           return toResponse(payload.op, home.frames)
-        }
-        // install.register binds the install to the SSO team whose sign-in created this session (P17-4). The
-        // Stack session id only finds that team; owners never receive it (their ledgers record the principal).
-        let submitter = principal
-        if (payload.op === "install.register" && shape.stack_session && !principal.sso_team) {
-          const stackSession = shape.stack_session
-          const found = yield* Effect.promise(() => withAnySsoSession(env, { ...principal, stack_session: stackSession }))
-          if (found.sso_team) submitter = { ...principal, sso_team: found.sso_team }
         }
         const { frames } = yield* submitTo(def.owner, submitter, frame)
         const response = toResponse(payload.op, frames)

@@ -28,7 +28,8 @@ export const issuer = (env: Env) => `https://cmux-api/${env.ENVIRONMENT}`
  */
 export const emailDomainOf = (email: string | null | undefined): string | undefined => {
   const at = email ? email.lastIndexOf("@") : -1
-  let domain = at > 0 ? email!.slice(at + 1).trim().toLowerCase() : ""
+  // One trailing dot (an absolute DNS name) names the same domain.
+  let domain = at > 0 ? email!.slice(at + 1).trim().toLowerCase().replace(/\.$/, "") : ""
   try {
     if (domain && !/^[\x00-\x7f]*$/.test(domain)) domain = new URL(`http://${domain}`).hostname
   } catch {
