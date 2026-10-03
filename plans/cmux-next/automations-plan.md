@@ -43,6 +43,14 @@ Abuse defaults (A18, accepted): CPU 10 s and 1,000 subrequests per invocation, 2
 - DECISION (coordinator, 2026-10-03, review P3 b): CPU of a re-entry after a Workflow sleep, event wait or engine restart is real tenant CPU that we pay for, and it COUNTS. Every harness call is one metered invocation. This includes a call whose tenant bundle throws while it loads, and the module-evaluation CPU of the first call in each isolate (both are real tenant CPU). The harness class is frozen before tenant code loads (review P1: tenant code could otherwise replace `run` through `import "./harness.js"`).
 - Slices 1 and 3: real code.storage reads (commit check, bundle fetch) are tested only against a fake; no staging secret yet. Also unverified: code.storage accepts `_` in repository names (team ids contain it).
 
+## 2b. Slice 4 as built (2026-10-03)
+
+- Egress: the code body lists hosts (`egress`, max 20, exact or `*.domain`); no list = no network. `AutomationEgress` (globalOutbound) allows HTTPS on 443 to listed hosts only, 600 requests per team per minute (`UsageMeterDO.egress`, fixed window, a refused request records nothing), nothing at the hard cap, one `egress.requests` record per request (priced 0 today). It rebuilds the request without `cf` options and does not follow redirects. The egress list is part of the loader id.
+- env.cmux: `CmuxCaps` (RpcTarget, closed when the invocation ends) with `op`, `log`, `metric`. The automation acts as an `agent` principal (`automation:<id>`, its team, classes read and execute) for the ops in protocol `automation-caps.ts`: automation.list, automation.get, automation.runs.list, automation.run, usage.summary. A mutation needs an explicit idempotency key (`cap:<run>:<key>`); a position-based default key would be wrong because cached steps skip their callbacks on replay. Types: generated `clients/ts/cloud/src/automation-cmux.ts` (`Cmux`).
+- op step (P13): `{type: op, op, params}` in a steps body; params decode with the op's schema at create and update; the step runs in a durable step keyed `step:<run>:<i>`.
+- Not in this slice: `state` (needs AutomationStateDO and a DO tag), `model` (CodeRouter), `mux.send`, `machine.run`, capability-call metering (`capability.calls`), and the CLI `init` writing `cmux.d.ts` into the team repo (slice 8).
+- UNVERIFIED: the egress gateway on staging against the real network (tests use a seam for the upstream); `automation.run` from automations can chain runs, bounded only by the run-creation limits and the cap.
+
 ## 3. Who I need
 
 - Backend lead (via main): migration tag v11 for `UsageMeterDO` now and a later tag for `AutomationStateDO`; new wrangler bindings (`worker_loaders`, egress and tail entrypoints, a rate-limit namespace block for run creations); staging secrets for code.storage, ClickHouse and Stripe TEST.
