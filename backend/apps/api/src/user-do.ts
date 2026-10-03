@@ -1,4 +1,4 @@
-import type { Domain, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
+import type { Domain, EventFrame, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
 import { inbox as homeInbox } from "@cmux/home-core"
 import { challengeMessagePrefix, type PushTarget } from "@cmux/protocol"
 import { verifyInstallSignature, type InstallClaims } from "./auth.ts"
@@ -110,6 +110,12 @@ export class UserDO extends OwnerDO<UserState> {
     if (principal.kind === "session" || !state.push_targets) return state
     const own = Object.fromEntries(Object.entries(state.push_targets).filter(([, t]) => t.install === principal.install))
     return { ...state, push_targets: own }
+  }
+
+  /** Push-target events carry a device token: only the session and the install that owns it receive them. */
+  protected override mayReceive(_state: UserState, event: EventFrame, principal: Principal): boolean {
+    if (!event.op.startsWith("push.target.")) return true
+    return principal.kind === "session" || (principal.install !== undefined && event.actor.install === principal.install)
   }
 
   protected maySubscribe(state: UserState, principal: Principal): boolean {
