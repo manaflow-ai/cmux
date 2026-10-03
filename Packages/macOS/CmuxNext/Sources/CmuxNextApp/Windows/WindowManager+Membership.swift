@@ -211,8 +211,6 @@ extension WindowManager {
     /// with its workspaces (restorable by a Dock click).
     /// An incognito window closes for good: its workspaces close too.
     func userClosed(_ id: String) {
-        let snapshots = services.sidebarSnapshots
-        Task { await snapshots.forget(window: id) }
         let changes = transition { $0.close(id) }
         discard(changes.discarded)
     }

@@ -346,10 +346,8 @@ final class SidebarListView: NSView {
         }
     }
 
-    /// The selectable rows in visual order (placeholders left out).
     var visibleWorkspaceOrder: [WorkspaceID] {
-        let placeholders = Set(model.sections.flatMap(\.workspaces).filter { $0.rowState == .placeholder }.map(\.id))
-        return displayed.rows.compactMap { if case let .workspace(id) = $0.key, !placeholders.contains(id) { id } else { nil } }
+        displayed.rows.compactMap { if case let .workspace(id) = $0.key { id } else { nil } }
     }
 
     // MARK: - Hover

@@ -40,9 +40,6 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var activity: StatusIndicatorState
     /// The winning report's style hint (`cmux status set --style`).
     public var activityStyle: StatusIndicatorStyle?
-    /// Live daemon data, a saved row drawn before the daemon answered, or a
-    /// placeholder (`SidebarRowState`).
-    public var rowState: SidebarRowState
 
     public init(
         id: WorkspaceID,
@@ -53,8 +50,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         icon: WorkspaceIcon? = nil,
         unread: UnreadState = .none,
         activity: StatusIndicatorState = .idle,
-        activityStyle: StatusIndicatorStyle? = nil,
-        rowState: SidebarRowState = .live
+        activityStyle: StatusIndicatorStyle? = nil
     ) {
         self.id = id
         self.machineID = machineID
@@ -65,7 +61,6 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.unread = unread
         self.activity = activity
         self.activityStyle = activityStyle
-        self.rowState = rowState
     }
 }
 

@@ -35,8 +35,6 @@ extension SidebarBridge {
         if usesPersonalOrganization, handlePersonal(intent) { return }
         switch intent {
         case .select(let id):
-            // A placeholder row is no workspace: never claimed or shown.
-            guard !model.isPlaceholder(id) else { return }
             model.apply(intent)
             services.windows.show(workspaceID: id.rawValue, in: state)
         case .reorder(let ids, let position):
