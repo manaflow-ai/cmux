@@ -568,6 +568,986 @@
     },
     {
       "accepts" : [
+        "@",
+        "#",
+        ">",
+        ",",
+        "?",
+        "!",
+        "/",
+        ";",
+        ":",
+        "%",
+        "&",
+        "+",
+        "=",
+        "~",
+        "$",
+        "^",
+        "*",
+        ".",
+        "none"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : null,
+            "text" : "@"
+          },
+          "value" : "@"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "#"
+          },
+          "value" : "#"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : ">"
+          },
+          "value" : ">"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : ","
+          },
+          "value" : ","
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "?"
+          },
+          "value" : "?"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "!"
+          },
+          "value" : "!"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "/"
+          },
+          "value" : "/"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : ";"
+          },
+          "value" : ";"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : ":"
+          },
+          "value" : ":"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "%"
+          },
+          "value" : "%"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "&"
+          },
+          "value" : "&"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "+"
+          },
+          "value" : "+"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "="
+          },
+          "value" : "="
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "~"
+          },
+          "value" : "~"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "$"
+          },
+          "value" : "$"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "^"
+          },
+          "value" : "^"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "*"
+          },
+          "value" : "*"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "."
+          },
+          "value" : "."
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.prefixNone",
+            "text" : "None"
+          },
+          "value" : "none"
+        }
+      ],
+      "default" : "@",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.palette",
+        "text" : "Command Palette"
+      },
+      "help" : {
+        "key" : "settings.palette.prefix.help",
+        "text" : "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "palette.scopes.tabs.prefix",
+      "keywords" : [
+        "palette",
+        "prefix",
+        "scope",
+        "tabs"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "palette",
+        "scopes",
+        "tabs",
+        "prefix"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.palette.prefix.tabs",
+        "text" : "Tabs Prefix"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "@",
+        "#",
+        ">",
+        ",",
+        "?",
+        "!",
+        "/",
+        ";",
+        ":",
+        "%",
+        "&",
+        "+",
+        "=",
+        "~",
+        "$",
+        "^",
+        "*",
+        ".",
+        "none"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : null,
+            "text" : "@"
+          },
+          "value" : "@"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "#"
+          },
+          "value" : "#"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : ">"
+          },
+          "value" : ">"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : ","
+          },
+          "value" : ","
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "?"
+          },
+          "value" : "?"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "!"
+          },
+          "value" : "!"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "/"
+          },
+          "value" : "/"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : ";"
+          },
+          "value" : ";"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : ":"
+          },
+          "value" : ":"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "%"
+          },
+          "value" : "%"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "&"
+          },
+          "value" : "&"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "+"
+          },
+          "value" : "+"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "="
+          },
+          "value" : "="
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "~"
+          },
+          "value" : "~"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "$"
+          },
+          "value" : "$"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "^"
+          },
+          "value" : "^"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "*"
+          },
+          "value" : "*"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "."
+          },
+          "value" : "."
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.prefixNone",
+            "text" : "None"
+          },
+          "value" : "none"
+        }
+      ],
+      "default" : "#",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.palette",
+        "text" : "Command Palette"
+      },
+      "help" : {
+        "key" : "settings.palette.prefix.help",
+        "text" : "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "palette.scopes.workspaces.prefix",
+      "keywords" : [
+        "palette",
+        "prefix",
+        "scope",
+        "workspaces"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "palette",
+        "scopes",
+        "workspaces",
+        "prefix"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.palette.prefix.workspaces",
+        "text" : "Workspaces Prefix"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "@",
+        "#",
+        ">",
+        ",",
+        "?",
+        "!",
+        "/",
+        ";",
+        ":",
+        "%",
+        "&",
+        "+",
+        "=",
+        "~",
+        "$",
+        "^",
+        "*",
+        ".",
+        "none"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : null,
+            "text" : "@"
+          },
+          "value" : "@"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "#"
+          },
+          "value" : "#"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : ">"
+          },
+          "value" : ">"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : ","
+          },
+          "value" : ","
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "?"
+          },
+          "value" : "?"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "!"
+          },
+          "value" : "!"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "/"
+          },
+          "value" : "/"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : ";"
+          },
+          "value" : ";"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : ":"
+          },
+          "value" : ":"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "%"
+          },
+          "value" : "%"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "&"
+          },
+          "value" : "&"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "+"
+          },
+          "value" : "+"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "="
+          },
+          "value" : "="
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "~"
+          },
+          "value" : "~"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "$"
+          },
+          "value" : "$"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "^"
+          },
+          "value" : "^"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "*"
+          },
+          "value" : "*"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "."
+          },
+          "value" : "."
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.prefixNone",
+            "text" : "None"
+          },
+          "value" : "none"
+        }
+      ],
+      "default" : ">",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.palette",
+        "text" : "Command Palette"
+      },
+      "help" : {
+        "key" : "settings.palette.prefix.help",
+        "text" : "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "palette.scopes.commands.prefix",
+      "keywords" : [
+        "palette",
+        "prefix",
+        "scope",
+        "commands"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "palette",
+        "scopes",
+        "commands",
+        "prefix"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.palette.prefix.commands",
+        "text" : "Commands Prefix"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "@",
+        "#",
+        ">",
+        ",",
+        "?",
+        "!",
+        "/",
+        ";",
+        ":",
+        "%",
+        "&",
+        "+",
+        "=",
+        "~",
+        "$",
+        "^",
+        "*",
+        ".",
+        "none"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : null,
+            "text" : "@"
+          },
+          "value" : "@"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "#"
+          },
+          "value" : "#"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : ">"
+          },
+          "value" : ">"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : ","
+          },
+          "value" : ","
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "?"
+          },
+          "value" : "?"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "!"
+          },
+          "value" : "!"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "/"
+          },
+          "value" : "/"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : ";"
+          },
+          "value" : ";"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : ":"
+          },
+          "value" : ":"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "%"
+          },
+          "value" : "%"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "&"
+          },
+          "value" : "&"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "+"
+          },
+          "value" : "+"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "="
+          },
+          "value" : "="
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "~"
+          },
+          "value" : "~"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "$"
+          },
+          "value" : "$"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "^"
+          },
+          "value" : "^"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "*"
+          },
+          "value" : "*"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "."
+          },
+          "value" : "."
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.prefixNone",
+            "text" : "None"
+          },
+          "value" : "none"
+        }
+      ],
+      "default" : ",",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.palette",
+        "text" : "Command Palette"
+      },
+      "help" : {
+        "key" : "settings.palette.prefix.help",
+        "text" : "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "palette.scopes.settings.prefix",
+      "keywords" : [
+        "palette",
+        "prefix",
+        "scope",
+        "settings"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "palette",
+        "scopes",
+        "settings",
+        "prefix"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.palette.prefix.settings",
+        "text" : "Settings Prefix"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "@",
+        "#",
+        ">",
+        ",",
+        "?",
+        "!",
+        "/",
+        ";",
+        ":",
+        "%",
+        "&",
+        "+",
+        "=",
+        "~",
+        "$",
+        "^",
+        "*",
+        ".",
+        "none"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : null,
+            "text" : "@"
+          },
+          "value" : "@"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "#"
+          },
+          "value" : "#"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : ">"
+          },
+          "value" : ">"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : ","
+          },
+          "value" : ","
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "?"
+          },
+          "value" : "?"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "!"
+          },
+          "value" : "!"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "/"
+          },
+          "value" : "/"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : ";"
+          },
+          "value" : ";"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : ":"
+          },
+          "value" : ":"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "%"
+          },
+          "value" : "%"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "&"
+          },
+          "value" : "&"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "+"
+          },
+          "value" : "+"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "="
+          },
+          "value" : "="
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "~"
+          },
+          "value" : "~"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "$"
+          },
+          "value" : "$"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "^"
+          },
+          "value" : "^"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "*"
+          },
+          "value" : "*"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "."
+          },
+          "value" : "."
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.prefixNone",
+            "text" : "None"
+          },
+          "value" : "none"
+        }
+      ],
+      "default" : "?",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.palette",
+        "text" : "Command Palette"
+      },
+      "help" : {
+        "key" : "settings.palette.prefix.help",
+        "text" : "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "palette.scopes.scopes.prefix",
+      "keywords" : [
+        "palette",
+        "prefix",
+        "scope",
+        "scopes"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "palette",
+        "scopes",
+        "scopes",
+        "prefix"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.palette.prefix.scopes",
+        "text" : "Scope List Prefix"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "even",
         "halve"
       ],
@@ -4224,7 +5204,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "c23da4e5d1551da2e148376009224cc4847dd53270837a09add5fea95cec9315",
+  "schema_hash" : "c3a05da8389b0518cee7b8d45e2be48be0438b404912d991591051b71b8f1c31",
   "sections" : [
     {
       "id" : "general",
