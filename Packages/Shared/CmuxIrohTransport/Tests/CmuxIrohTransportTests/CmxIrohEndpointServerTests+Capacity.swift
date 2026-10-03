@@ -5,7 +5,7 @@ import Testing
 
 extension CmxIrohEndpointServerTests {
     @Test
-    func fullServerRejectsReconnectCandidateWithoutDisruptingActiveConnection() async throws {
+    func fullServerAdmitsOwnIdentityReplacementButRejectsOtherIdentities() async throws {
         let localIdentity = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "8", count: 64)
         )
@@ -53,33 +53,44 @@ extension CmxIrohEndpointServerTests {
             remoteIdentity: newIdentity,
             bidirectionalStreams: []
         )
-        var replacementCloses = await replacement.closeEvents().makeAsyncIterator()
+        var activeCloses = await active.closeEvents().makeAsyncIterator()
         var newcomerCloses = await newcomer.closeEvents().makeAsyncIterator()
 
         await server.start()
         await endpoint.enqueue(active)
         #expect(await started.next().identity == activeIdentity)
 
+        // At full capacity a reconnect from the SAME authenticated identity
+        // replaces its own never-usable predecessor instead of being refused:
+        // capacity held by a dead connection must not refuse its owner.
         await endpoint.enqueue(replacement)
-        for _ in 0 ..< 100 {
-            let startedCount = await started.recordedCount()
-            let replacementCloseCount = await replacement.observedCloseCallCount()
-            guard startedCount == 1, replacementCloseCount == 0 else { break }
-            await Task.yield()
+        let replacementDeadline = ContinuousClock().now.advanced(by: .seconds(1))
+        while ContinuousClock().now < replacementDeadline {
+            if await started.recordedCount() == 2,
+               await active.observedCloseCallCount() == 1 {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(1))
         }
-        #expect(await started.recordedCount() == 1)
-        let replacementCloseCount = await replacement.observedCloseCallCount()
-        #expect(replacementCloseCount == 1)
-        if replacementCloseCount == 1 {
-            let replacementClose = try #require(await replacementCloses.next())
-            #expect(replacementClose.reason == "connection_capacity")
+        let startedCount = await started.recordedCount()
+        let activeCloseCount = await active.observedCloseCallCount()
+        #expect(startedCount == 2)
+        #expect(activeCloseCount == 1)
+        if startedCount == 2 {
+            #expect(await started.next().identity == activeIdentity)
         }
-        #expect(await active.observedCloseCallCount() == 0)
+        if activeCloseCount == 1 {
+            let activeClose = try #require(await activeCloses.next())
+            #expect(activeClose.reason == "superseded_unready_connection")
+        }
+        #expect(await replacement.observedCloseCallCount() == 0)
 
+        // A DIFFERENT identity can never preempt an occupied slot.
         await endpoint.enqueue(newcomer)
         await newcomer.waitUntilClosed()
         let newcomerClose = try #require(await newcomerCloses.next())
         #expect(newcomerClose.reason == "connection_capacity")
+        #expect(await replacement.observedCloseCallCount() == 0)
 
         await connectionLifetime.releaseAll()
         await server.stop()
