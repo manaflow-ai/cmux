@@ -86,6 +86,36 @@ import Testing
             == "https://files.cmux.com/nightly/feed.xml")
     }
 
+    /// The cmux-next track (same bundle id as NIGHTLY) reads only its own feed host and
+    /// never resolves to main's NIGHTLY feed, for either architecture or file name.
+    @Test func nightlyNextFeedStaysOnItsOwnHost() {
+        for architecture in [UpdateHostArchitecture.arm64, .x86_64] {
+            let resolver = UpdateFeedResolver(hostArchitecture: architecture)
+            for name in ["appcast.xml", "appcast-universal.xml", "appcast-\(architecture.rawValue).xml"] {
+                let resolution = resolver.resolve(infoFeedURL: "https://files-next.cmux.com/nightly-next/\(name)")
+                #expect(resolution.channel == .nightlyNext)
+                #expect(resolution.isNightly)
+                #expect(!resolution.usedFallback)
+                #expect(resolution.url == "https://files-next.cmux.com/nightly-next/appcast-\(architecture.rawValue).xml")
+                #expect(!resolution.url.contains("files.cmux.com"))
+                #expect(!resolution.url.contains("/nightly/"))
+            }
+        }
+    }
+
+    /// cmux-next items carry sparkle:channel cmux-next. Only the cmux-next feed allows it, so
+    /// main's NIGHTLY, RC and stable updaters ignore such items even if they fetched them.
+    @Test func onlyTheNightlyNextFeedAllowsTheCmuxNextSparkleChannel() {
+        let resolver = UpdateFeedResolver()
+        #expect(resolver.resolve(infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast.xml")
+            .channel.allowedSparkleChannels == ["cmux-next"])
+        for feed in ["https://files.cmux.com/nightly/appcast.xml", "https://files.cmux.com/rc/appcast.xml",
+                     "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml"] {
+            #expect(resolver.resolve(infoFeedURL: feed).channel.allowedSparkleChannels.isEmpty, "\(feed)")
+        }
+        #expect(resolver.resolve(infoFeedURL: nil).channel.allowedSparkleChannels.isEmpty)
+    }
+
     /// Stable stays universal: its feed URL is never rewritten per architecture.
     @Test func stableFeedIsNotRewrittenPerArchitecture() {
         let resolver = UpdateFeedResolver(hostArchitecture: .x86_64)

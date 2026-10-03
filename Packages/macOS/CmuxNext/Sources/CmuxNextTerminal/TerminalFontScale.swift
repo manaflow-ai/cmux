@@ -17,10 +17,21 @@ extension GhosttyRuntime {
 }
 
 /// A terminal's font size as a scale of the configured size: Ghostty's font
-/// size callback reports it to `observe`, and
-/// `apply` sets it back (a tab record's zoom on another launch or Mac).
+/// size callback reports it to `observe`, and `apply` sets it back (a tab
+/// record's zoom on another launch or Mac).
+///
+/// ```swift
+/// TerminalFontScale(session.surfaceView).apply(zoom)
+/// ```
 @MainActor
-public enum TerminalFontScale {
+public struct TerminalFontScale {
+    /// The terminal whose font this scales.
+    let view: TerminalSurfaceView
+
+    public init(_ view: TerminalSurfaceView) {
+        self.view = view
+    }
+
     /// The scale `points` is of the configured size; nil at the configured size.
     nonisolated static func scale(points: Double, adjusted: Bool, base: Double?) -> Double? {
         guard adjusted, let base, base > 0, points > 0 else { return nil }
@@ -28,23 +39,23 @@ public enum TerminalFontScale {
         return abs(scale - 1) < 0.001 ? nil : scale
     }
 
-    /// Sets `view`'s font to `scale` of the configured size (nil: the
+    /// Sets the view's font to `scale` of the configured size (nil: the
     /// configured size). Returns false when Ghostty refused it.
     @discardableResult
-    public static func apply(_ scale: Double?, to view: TerminalSurfaceView) -> Bool {
+    public func apply(_ scale: Double?) -> Bool {
         guard let scale, abs(scale - 1) >= 0.001 else { return view.performBindingAction("reset_font_size") }
         guard let base = GhosttyRuntime.shared.configuredFontSize else { return false }
         let points = (base * min(max(scale, 0.25), 5) * 100).rounded() / 100
         return view.performBindingAction("set_font_size:\(points)")
     }
 
-    /// Calls `handler` with `view`'s font scale after each font size change.
-    public static func observe(_ view: TerminalSurfaceView, _ handler: @escaping (Double?) -> Void) {
+    /// Calls `handler` with the view's font scale after each font size change.
+    public func observe(_ handler: @escaping (Double?) -> Void) {
         view.bridge.takeUnretainedValue().onFontScaleChange = handler
     }
 
-    /// Installs the font size callback on `view`'s current surface.
-    static func installCallback(on view: TerminalSurfaceView) {
+    /// Installs the font size callback on the view's current surface.
+    func installCallback() {
         guard let surface = view.surface else { return }
         _ = ghostty_surface_set_font_size_action_callback(surface, ghosttyFontSizeAction, view.bridge.toOpaque())
     }
