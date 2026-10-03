@@ -279,7 +279,7 @@ final class WindowManager {
     /// `body` keeps the view-change permission of the run that called this.
     func afterNextContent(in controller: WindowController, showing workspaceID: String, _ body: @escaping () -> Void) {
         let run = ActionRunScope.current
-        contentWaiters[controller.state.id, default: []].append((workspaceID, { ViewChangePolicy.carrying(run, body) }))
+        contentWaiters[controller.state.id, default: []].append((workspaceID, { ActionRunScope.carrying(run, body) }))
     }
 
     /// The window installed its first workspace content: a window kept off
@@ -310,7 +310,7 @@ final class WindowManager {
     /// `CMUX_NEXT_NO_ACTIVATE=1`).
     /// An action run without view-change permission brings nothing forward.
     func bringToFront(_ controller: WindowController) {
-        guard ViewChangePolicy.allowed() else { return }
+        guard ActionRunScope.viewChangeAllowed() else { return }
         if awaitingContent[controller.state.id] != nil {
             awaitingContent[controller.state.id] = true
             return

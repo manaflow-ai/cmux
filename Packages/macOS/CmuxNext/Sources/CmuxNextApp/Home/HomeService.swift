@@ -193,7 +193,7 @@ final class HomeService {
             do {
                 let result = try await ConversationClient(connection).op(request)
                 session?.acknowledge(send.clientMsgID, result: result)
-            } catch DaemonError.command(_, let message, let code) where code == "conversation_rejected" {
+            } catch DaemonError.command(_, let message, let code, _, _) where code == "conversation_rejected" {
                 session?.reject(send.clientMsgID, reason: message)
             } catch {
                 self?.logger.info("conversation-op deferred to the next connection: \(String(describing: error), privacy: .public)")

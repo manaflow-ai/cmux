@@ -7573,6 +7573,17 @@
       "palette" : "offered"
     },
     {
+      "cli" : "liveInput",
+      "cli_name" : "terminal scroll-to-selection",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "id" : "terminal.scrollToSelection",
+      "mcp" : "liveInput",
+      "palette" : "offered"
+    },
+    {
       "cli" : "focusMove",
       "cli_name" : "history back",
       "context_menu" : "focusMove",

@@ -5,7 +5,7 @@
 /// every task the handler starts inherits it and an async continuation of
 /// the run (after a daemon reply) still sees its own permission. Code that
 /// changes focus, selection, the shown workspace or the key window asks
-/// ``ViewChangePolicy/allowed()`` instead of reading a flag that is only
+/// ``ActionRunScope/viewChangeAllowed()`` instead of reading a flag that is only
 /// true for the synchronous extent of a run.
 public nonisolated struct ActionRunScope: Sendable, Hashable {
     /// The run whose handler (or a task it started) is running, or nil
@@ -38,18 +38,18 @@ public nonisolated struct ActionRunScope: Sendable, Hashable {
 
 /// The one question every focus, selection, shown-workspace and key-window
 /// change asks before it happens.
-public nonisolated enum ViewChangePolicy {
+public extension ActionRunScope {
     /// Whether the code running now may change this client's view: the
     /// current run's permission, else true (no run: a direct gesture of
     /// this client's user).
-    public static func allowed() -> Bool {
+    nonisolated static func viewChangeAllowed() -> Bool {
         ActionRunScope.current?.allowsViewChange ?? true
     }
 
     /// Runs `body` with `scope` bound. For a callback stored by a run and
     /// called later outside its task tree (a store waiter, a placement
     /// continuation): it keeps the permission of the run that stored it.
-    public static func carrying<T>(_ scope: ActionRunScope?, _ body: () throws -> T) rethrows -> T {
+    nonisolated static func carrying<T>(_ scope: ActionRunScope?, _ body: () throws -> T) rethrows -> T {
         try ActionRunScope.$current.withValue(scope, operation: body)
     }
 }

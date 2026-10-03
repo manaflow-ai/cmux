@@ -118,7 +118,7 @@ extension WindowManager {
     /// else in `state`'s window, which takes it.
     /// An action run without view-change permission shows nothing.
     func show(workspaceID: String, in state: WindowState) {
-        guard ViewChangePolicy.allowed() else { return }
+        guard ActionRunScope.viewChangeAllowed() else { return }
         let value = registry.value
         if let owner = value.owner(of: workspaceID), owner != state.id, value.window(owner)?.isOpen == true,
            let target = controller(for: owner) {
@@ -137,7 +137,7 @@ extension WindowManager {
     /// showing it.
     func reveal(workspaceID: String) -> WindowController? {
         let value = registry.value
-        let shows = ViewChangePolicy.allowed()
+        let shows = ActionRunScope.viewChangeAllowed()
         if let owner = value.owner(of: workspaceID), value.window(owner)?.isOpen == true, let target = controller(for: owner) {
             if shows { select(workspaceID, in: target.state) }
             return target
@@ -158,7 +158,7 @@ extension WindowManager {
     /// (Option on a drop, or a move this client's user did not start).
     func claim(workspaceID: String, in state: WindowState, select requested: Bool = true) {
         // An action run without view-change permission never shows it.
-        let shows = requested && ViewChangePolicy.allowed()
+        let shows = requested && ActionRunScope.viewChangeAllowed()
         if registry.value.crossesIncognito([workspaceID], to: state.id) {
             services.registry.refuse(RefusalStrings.incognitoMismatch)
             return
@@ -180,7 +180,7 @@ extension WindowManager {
     /// window and a normal one is refused with a message).
     @discardableResult
     func moveWorkspaces(_ ids: [String], toWindow windowID: String, select: Bool = true) -> Bool {
-        let select = select && ViewChangePolicy.allowed()
+        let select = select && ActionRunScope.viewChangeAllowed()
         guard registry.value.window(windowID)?.isOpen == true, !ids.isEmpty else { return false }
         if registry.value.crossesIncognito(ids, to: windowID) {
             services.registry.refuse(RefusalStrings.incognitoMismatch)
@@ -204,7 +204,7 @@ extension WindowManager {
                     incognito: Bool = false, behind: Bool = false) -> WindowController? {
         // A window an action run without view-change permission opens
         // appears behind, never key.
-        let behind = behind || !ViewChangePolicy.allowed()
+        let behind = behind || !ActionRunScope.viewChangeAllowed()
         let kinds = Set(workspaces.compactMap { registry.value.owner(of: $0) }.map(registry.value.isIncognito))
         if kinds.count > 1 || (incognito && kinds == [false]) {
             services.registry.refuse(RefusalStrings.incognitoMismatch)

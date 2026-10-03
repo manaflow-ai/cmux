@@ -226,3 +226,39 @@ export function editPatch(file: TurnFile, edit: DiffEdit): string {
   }
   return `${lines.join("\n")}\n`;
 }
+
+/// A hunk's identity within a turn: the tool call, its file, which of that call's edits to the
+/// file it is in, and its place in that edit. Counting within the call keeps the key when an
+/// earlier call's diff arrives late.
+export const hunkKey = (file: TurnFile, editIndex: number, hunkIndex: number) => {
+  const toolId = file.edits[editIndex]!.toolId;
+  const inCall = file.edits.slice(0, editIndex).filter((edit) => edit.toolId === toolId).length;
+  return `${toolId}\u0000${file.path}\u0000${inCall}\u0000${hunkIndex}`;
+};
+
+/// One hunk as unified diff text, under the full path the tool call reported, so the agent
+/// finds the file. Ranges use the edit's line numbers when they are known; a bare fragment
+/// has none, and its context lines place it.
+export function hunkPatch(file: TurnFile, edit: DiffEdit, hunk: DiffHunk): string {
+  const oldLines = hunk.lines.filter((line) => line.type !== "add");
+  const newLines = hunk.lines.filter((line) => line.type !== "del");
+  const range = (lines: DiffLine[], key: "oldLine" | "newLine") => `${lines[0]?.[key] ?? 0},${lines.length}`;
+  const header = edit.numbered ? `@@ -${range(oldLines, "oldLine")} +${range(newLines, "newLine")} @@` : "@@";
+  const body = hunk.lines.map((line) => `${line.type === "add" ? "+" : line.type === "del" ? "-" : " "}${line.text}`);
+  return [`--- ${file.path}`, `+++ ${file.path}`, header, ...body].join("\n");
+}
+
+/// The prompt that asks the agent to undo the hunks the reader rejected and keep the rest.
+export function rejectionPrompt(patches: string[], note?: string): string {
+  const intro =
+    patches.length === 1
+      ? "I reviewed your changes and rejected this one. Please revert it and keep your other changes:"
+      : `I reviewed your changes and rejected these ${patches.length}. Please revert them and keep your other changes:`;
+  // A fence longer than any backtick run in the patches, so code containing one cannot close it.
+  const longest = Math.max(
+    0,
+    ...patches.map((patch) => Math.max(0, ...(patch.match(/`+/g) ?? []).map((run) => run.length))),
+  );
+  const fence = "`".repeat(Math.max(3, longest + 1));
+  return [intro, "", `${fence}diff`, patches.join("\n"), fence, ...(note?.trim() ? ["", note.trim()] : [])].join("\n");
+}

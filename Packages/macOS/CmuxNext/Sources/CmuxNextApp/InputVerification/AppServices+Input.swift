@@ -68,6 +68,7 @@ extension AppServices {
         var sinceCheckpoint = Int.max
         controller.focus.settledObserver = { [weak self, weak controller] state in
             self?.notifications.focusDidSettle(state)
+            self?.keyRouter.focusDidSettle(state, in: controller?.window)
             if let controller {
                 self?.windows.recordSaver.focusDidSettle(controller.state, pane: state.pane)
                 self?.locationTrail.focusDidSettle(state, in: controller)

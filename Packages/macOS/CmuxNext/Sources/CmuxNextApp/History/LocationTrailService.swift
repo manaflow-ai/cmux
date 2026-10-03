@@ -104,7 +104,7 @@ final class LocationTrailService {
     /// selected and its pane takes focus.
     private func focus(_ location: HistoryLocation) -> Bool {
         // A run without view-change permission (automation) moves nothing.
-        guard ViewChangePolicy.allowed() else { return false }
+        guard ActionRunScope.viewChangeAllowed() else { return false }
         return services.revealTab(location.key.tab)
     }
 
@@ -167,7 +167,7 @@ final class LocationTrailService {
             do {
                 stored = try await connection.putFrontendProjection(subject: Self.subject, schemaVersion: Self.schemaVersion,
                                                                     projection: value, expectedRevision: revision)
-            } catch DaemonError.command(_, let message, _) where message.contains("revision conflict") {
+            } catch DaemonError.command(_, let message, _, _, _) where message.contains("revision conflict") {
                 stored = try await connection.putFrontendProjection(subject: Self.subject, schemaVersion: Self.schemaVersion,
                                                                     projection: value)
             }

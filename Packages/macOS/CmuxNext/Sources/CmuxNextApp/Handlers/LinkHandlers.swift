@@ -17,7 +17,7 @@ enum LinkHandlers {
             // Read before anything moves: a run this client's user did not
             // start (a script, an agent) still navigates, as it asked, but
             // never takes the key window.
-            let background = invocation["background"]?.boolValue == true || !ViewChangePolicy.allowed()
+            let background = invocation["background"]?.boolValue == true || !ActionRunScope.viewChangeAllowed()
             try DeepLinkNavigator(services: services).open(link, background: background)
         })
         registry.bind("palette.copyWorkspaceLink", run: { invocation in
