@@ -65,7 +65,10 @@ fn fork_of_running_machine_stops_old_host_before_dropping_identity() {
     assert_eq!(names(&m.step(Input::StopDeadline)), ["kill-daemon"]);
     let rest = m.step(Input::DaemonExited { lived_ms: 1 });
     let rest_names = names(&rest);
-    assert_eq!(&rest_names[..5], ["disarm-stop-deadline", "drop-remote-identity", "write-bound", "spawn-daemon", "announce"]);
+    assert_eq!(
+        &rest_names[..5],
+        ["disarm-stop-deadline", "drop-remote-identity", "write-bound", "spawn-daemon", "announce"]
+    );
     // The deferred observation read bound=parent before the bind wrote
     // the file; it must not start a second bind.
     assert!(!rest.iter().any(|a| matches!(a, Action::Reseed(_))), "{rest:?}");
@@ -79,7 +82,14 @@ fn bake_id_parks_and_stops_terminal_hosts_after_the_host_exits() {
     let park = m.step(obs(Some("b"), Some("b"), Some("b")));
     assert_eq!(
         names(&park),
-        ["notify", "stop-roles", "park-housekeeping", "disarm-rearm", "remove-driver-file", "terminate-daemon"]
+        [
+            "notify",
+            "stop-roles",
+            "park-housekeeping",
+            "disarm-rearm",
+            "remove-driver-file",
+            "terminate-daemon"
+        ]
     );
     let exited = m.step(Input::DaemonExited { lived_ms: 1 });
     assert_eq!(names(&exited), ["disarm-stop-deadline", "stop-terminal-hosts"]);
@@ -120,7 +130,10 @@ fn crash_loop_backs_off_and_healthy_run_resets() {
     m.step(obs(None, None, None));
     assert_eq!(m.step(Input::DaemonExited { lived_ms: 5 }), [Action::SpawnDaemon]);
     assert_eq!(m.step(Input::DaemonExited { lived_ms: 5 }), [Action::ArmBackoff(500)]);
-    assert!(m.step(Input::DaemonExited { lived_ms: 5 }).is_empty(), "no host is running in backoff");
+    assert!(
+        m.step(Input::DaemonExited { lived_ms: 5 }).is_empty(),
+        "no host is running in backoff"
+    );
     assert_eq!(m.step(Input::BackoffElapsed), [Action::SpawnDaemon]);
     assert_eq!(m.step(Input::DaemonExited { lived_ms: 5 }), [Action::ArmBackoff(1_000)]);
     m.step(Input::BackoffElapsed);

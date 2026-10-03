@@ -49,12 +49,15 @@ impl Epoll {
     pub fn add(&self, fd: RawFd, token: u64) -> io::Result<()> {
         let mut event = libc::epoll_event { events: libc::EPOLLIN as u32, u64: token };
         // SAFETY: `event` outlives the call.
-        cvt(unsafe { libc::epoll_ctl(self.0.as_raw_fd(), libc::EPOLL_CTL_ADD, fd, &mut event) }).map(drop)
+        cvt(unsafe { libc::epoll_ctl(self.0.as_raw_fd(), libc::EPOLL_CTL_ADD, fd, &mut event) })
+            .map(drop)
     }
 
     pub fn remove(&self, fd: RawFd) {
         // SAFETY: a null event is allowed for EPOLL_CTL_DEL.
-        unsafe { libc::epoll_ctl(self.0.as_raw_fd(), libc::EPOLL_CTL_DEL, fd, std::ptr::null_mut()) };
+        unsafe {
+            libc::epoll_ctl(self.0.as_raw_fd(), libc::EPOLL_CTL_DEL, fd, std::ptr::null_mut())
+        };
     }
 
     /// Blocks until at least one descriptor is ready; returns the tokens.
@@ -99,9 +102,13 @@ impl TimerFd {
     }
 
     fn settime(&self, flags: libc::c_int, value: libc::timespec) -> io::Result<()> {
-        let spec = libc::itimerspec { it_interval: libc::timespec { tv_sec: 0, tv_nsec: 0 }, it_value: value };
+        let spec = libc::itimerspec {
+            it_interval: libc::timespec { tv_sec: 0, tv_nsec: 0 },
+            it_value: value,
+        };
         // SAFETY: `spec` outlives the call; the old value is not requested.
-        cvt(unsafe { libc::timerfd_settime(self.raw(), flags, &spec, std::ptr::null_mut()) }).map(drop)
+        cvt(unsafe { libc::timerfd_settime(self.raw(), flags, &spec, std::ptr::null_mut()) })
+            .map(drop)
     }
 
     /// Arms an absolute deadline ten years ahead with
@@ -159,7 +166,8 @@ impl SignalFd {
                 libc::sigaddset(set.as_mut_ptr(), *signal);
             }
             cvt(libc::pthread_sigmask(libc::SIG_BLOCK, set.as_ptr(), std::ptr::null_mut()))?;
-            owned(libc::signalfd(-1, set.as_ptr(), libc::SFD_NONBLOCK | libc::SFD_CLOEXEC)).map(Self)
+            owned(libc::signalfd(-1, set.as_ptr(), libc::SFD_NONBLOCK | libc::SFD_CLOEXEC))
+                .map(Self)
         }
     }
 
@@ -221,12 +229,17 @@ impl Inotify {
             while at + header <= n {
                 // SAFETY: the kernel wrote a whole event header at `at`;
                 // read_unaligned copes with the byte buffer's alignment.
-                let event: libc::inotify_event = unsafe { std::ptr::read_unaligned(buf[at..].as_ptr().cast()) };
+                let event: libc::inotify_event =
+                    unsafe { std::ptr::read_unaligned(buf[at..].as_ptr().cast()) };
                 let name_start = at + header;
                 let name_end = (name_start + event.len as usize).min(n);
                 let raw = &buf[name_start..name_end];
                 let name = raw.split(|b| *b == 0).next().unwrap_or_default().to_vec();
-                out.push(InotifyEvent { wd: event.wd, mask: event.mask, name: OsString::from_vec(name) });
+                out.push(InotifyEvent {
+                    wd: event.wd,
+                    mask: event.mask,
+                    name: OsString::from_vec(name),
+                });
                 at = name_end;
             }
         }
@@ -249,7 +262,8 @@ impl Netlink {
             ))?;
             let mut addr: libc::sockaddr_nl = std::mem::zeroed();
             addr.nl_family = libc::AF_NETLINK as libc::sa_family_t;
-            addr.nl_groups = (libc::RTMGRP_LINK | libc::RTMGRP_IPV4_IFADDR | libc::RTMGRP_IPV6_IFADDR) as u32;
+            addr.nl_groups =
+                (libc::RTMGRP_LINK | libc::RTMGRP_IPV4_IFADDR | libc::RTMGRP_IPV6_IFADDR) as u32;
             cvt(libc::bind(
                 fd.as_raw_fd(),
                 (&raw const addr).cast(),
@@ -293,7 +307,13 @@ impl PidFd {
     pub fn signal(&self, signal: libc::c_int) -> io::Result<()> {
         // SAFETY: pidfd_send_signal with no siginfo.
         let ret = unsafe {
-            libc::syscall(libc::SYS_pidfd_send_signal, self.raw(), signal, std::ptr::null::<libc::siginfo_t>(), 0)
+            libc::syscall(
+                libc::SYS_pidfd_send_signal,
+                self.raw(),
+                signal,
+                std::ptr::null::<libc::siginfo_t>(),
+                0,
+            )
         };
         cvt(ret as libc::c_int).map(drop)
     }

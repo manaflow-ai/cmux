@@ -34,10 +34,15 @@ pub enum ArmError {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum RearmOutcome {
-    Armed { attempts: u32 },
+    Armed {
+        attempts: u32,
+    },
     /// The caller disarms the timer (so it cannot stay readable) and tries
     /// again on the next wake of any kind. Never a crash.
-    GaveUp { attempts: u32, last: ArmError },
+    GaveUp {
+        attempts: u32,
+        last: ArmError,
+    },
 }
 
 /// Re-arms the clock-set timer: `arm` until it succeeds, calling `drain`

@@ -9,7 +9,7 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
+use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -36,7 +36,8 @@ fn metadata_server(id: Arc<Mutex<String>>) -> String {
                 let _ = stream.write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n");
                 continue;
             };
-            let response = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}", body.len());
+            let response =
+                format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}", body.len());
             let _ = stream.write_all(response.as_bytes());
         }
     });
@@ -60,7 +61,8 @@ impl Harness {
         let home = dir.path().join("home");
         fs::create_dir_all(&root).unwrap();
         fs::create_dir_all(home.join(".local/state/cmux/remote/sessions/cloud/auth")).unwrap();
-        fs::write(home.join(".local/state/cmux/remote/sessions/cloud/auth/identity.json"), "{}").unwrap();
+        fs::write(home.join(".local/state/cmux/remote/sessions/cloud/auth/identity.json"), "{}")
+            .unwrap();
         let bin = dir.path().join("bin/cmux-tui");
         fs::create_dir_all(bin.parent().unwrap()).unwrap();
         let daemon_log = dir.path().join("daemon.log");
@@ -76,12 +78,24 @@ impl Harness {
     }
 
     fn start(&self, log: &Path) -> Child {
+        let out = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.root.parent().unwrap().join("agent.out"))
+            .unwrap();
         let me = String::from_utf8(Command::new("id").arg("-un").output().unwrap().stdout).unwrap();
         Command::new(env!("CARGO_BIN_EXE_cmux-host"))
             .arg("run")
             .arg("--root")
             .arg(&self.root)
-            .args(["--metadata", &self.metadata, "--metadata-attempts", "2", "--daemon-user", me.trim()])
+            .args([
+                "--metadata",
+                &self.metadata,
+                "--metadata-attempts",
+                "2",
+                "--daemon-user",
+                me.trim(),
+            ])
             .arg("--daemon-home")
             .arg(&self.home)
             .arg("--daemon-bin")
@@ -92,6 +106,12 @@ impl Harness {
             .env("FAKE_DAEMON_LOG", &self.daemon_log)
             .env_remove("CMUX_TUI_REMOTE_WS_BIND")
             .env_remove("NOTIFY_SOCKET")
+            // The agent's and the fake session host's output go to a file,
+            // never to the test harness's pipes (an orphaned `sleep` would
+            // hold them open).
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(out.try_clone().unwrap()))
+            .stderr(Stdio::from(out))
             .spawn()
             .unwrap()
     }
@@ -141,10 +161,33 @@ fn alive(pid: u32) -> bool {
         && !fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default().contains(") Z ")
 }
 
-fn terminate(child: &mut Child) {
+/// An agent process killed on drop (a failed assertion never leaks it).
+struct AgentProc(Child);
+
+impl Drop for AgentProc {
+    fn drop(&mut self) {
+        if matches!(self.0.try_wait(), Ok(None)) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+}
+
+impl Drop for Harness {
+    fn drop(&mut self) {
+        if let Some(pid) = self.status().and_then(|s| s.daemon_pid)
+            && alive(pid)
+        {
+            // SAFETY: cleanup of the fake session host this test started.
+            unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
+        }
+    }
+}
+
+fn terminate(agent: &mut AgentProc) {
     // SAFETY: plain kill of our own child.
-    unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
-    let status = child.wait().unwrap();
+    unsafe { libc::kill(agent.0.id() as libc::pid_t, libc::SIGTERM) };
+    let status = agent.0.wait().unwrap();
     assert!(status.success(), "agent exit {status}");
 }
 
@@ -152,7 +195,7 @@ fn terminate(child: &mut Child) {
 fn agent_binds_parks_adopts_and_restarts() {
     let h = Harness::new();
     let log = h.root.parent().unwrap().join("actions.log");
-    let mut agent = h.start(&log);
+    let mut agent = AgentProc(h.start(&log));
 
     // First bind, in the contract order.
     wait_until("first spawn", || lines(&log).iter().any(|l| l == "spawn-daemon"));
@@ -166,7 +209,9 @@ fn agent_binds_parks_adopts_and_restarts() {
     assert_eq!(fs::read_to_string(h.at("/etc/cmux/daemon-instance-id")).unwrap(), "vm-a\n");
     assert!(!h.home.join(".local/state/cmux/remote/sessions/cloud/auth").exists());
     wait_until("rekey job", || h.at("/etc/machine-id").is_file());
-    wait_until("daemon argv", || fs::read_to_string(&h.daemon_log).unwrap_or_default().contains("server start"));
+    wait_until("daemon argv", || {
+        fs::read_to_string(&h.daemon_log).unwrap_or_default().contains("server start")
+    });
     let argv = fs::read_to_string(&h.daemon_log).unwrap();
     assert!(
         argv.contains(
@@ -209,17 +254,18 @@ fn agent_binds_parks_adopts_and_restarts() {
 
     // Restart: adopt, do not spawn a second host.
     let log2 = h.root.parent().unwrap().join("actions2.log");
-    let mut agent = h.start(&log2);
+    let mut agent = AgentProc(h.start(&log2));
     wait_until("adopt", || lines(&log2).iter().any(|l| l == &format!("adopt-daemon pid={pid}")));
     wait_until("status after adopt", || h.status().is_some_and(|s| s.daemon_pid == Some(pid)));
-    assert!(!lines(&log2).iter().any(|l| l == "spawn-daemon" || l.starts_with("reseed")), "{:#?}", lines(&log2));
+    assert!(
+        !lines(&log2).iter().any(|l| l == "spawn-daemon" || l.starts_with("reseed")),
+        "{:#?}",
+        lines(&log2)
+    );
 
     // Crash: the adopted host dies; the agent restarts it.
     // SAFETY: kill of the fake session host this test started.
     unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
     wait_until("restart", || h.status().is_some_and(|s| s.daemon_pid.is_some_and(|p| p != pid)));
-    let new_pid = h.status().unwrap().daemon_pid.unwrap();
     terminate(&mut agent);
-    // SAFETY: cleanup of the fake session host.
-    unsafe { libc::kill(new_pid as libc::pid_t, libc::SIGTERM) };
 }

@@ -7,7 +7,9 @@ use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
-use crate::daemon_spec::{is_session_host_argv, is_terminal_host_argv, record_host_pid, split_cmdline};
+use crate::daemon_spec::{
+    is_session_host_argv, is_terminal_host_argv, record_host_pid, split_cmdline,
+};
 use crate::linux::fds::PidFd;
 
 fn cmdline(pid: u32) -> Option<Vec<String>> {
@@ -91,7 +93,9 @@ pub fn stop_terminal_hosts(uid: u32, keep: &[u32]) -> Vec<u32> {
             continue;
         }
         let Ok(pidfd) = PidFd::open(pid) else { continue };
-        if cmdline(pid).is_some_and(|argv| is_terminal_host_argv(&argv)) && pidfd.signal(libc::SIGKILL).is_ok() {
+        if cmdline(pid).is_some_and(|argv| is_terminal_host_argv(&argv))
+            && pidfd.signal(libc::SIGKILL).is_ok()
+        {
             killed.push(pid);
         }
     }

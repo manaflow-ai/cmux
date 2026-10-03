@@ -36,9 +36,12 @@ fn parse_run(args: &[String], self_argv: Vec<String>) -> Result<Config, String> 
         let mut value = || it.next().cloned().ok_or_else(|| format!("{arg} needs a value"));
         match arg.as_str() {
             "--root" => cfg.paths = Paths::new(value()?),
-            "--metadata" => cfg.metadata_addr = value()?.parse().map_err(|e| format!("--metadata: {e}"))?,
+            "--metadata" => {
+                cfg.metadata_addr = value()?.parse().map_err(|e| format!("--metadata: {e}"))?;
+            }
             "--metadata-attempts" => {
-                cfg.metadata_attempts = value()?.parse().map_err(|e| format!("--metadata-attempts: {e}"))?;
+                cfg.metadata_attempts =
+                    value()?.parse().map_err(|e| format!("--metadata-attempts: {e}"))?;
             }
             "--daemon-user" => cfg.daemon.user = Some(value()?),
             "--daemon-home" => cfg.daemon.home = Some(PathBuf::from(value()?)),
@@ -86,7 +89,9 @@ fn status_verb(args: &[String]) -> ExitCode {
         }
         None => {
             if json {
-                println!("{{\"error\":\"not_found\",\"message\":\"cmux host is not running on this machine\"}}");
+                println!(
+                    "{{\"error\":\"not_found\",\"message\":\"cmux host is not running on this machine\"}}"
+                );
             } else {
                 eprintln!("cmux host is not running on this machine");
             }
@@ -168,7 +173,9 @@ fn rekey_verb(args: &[String]) -> ExitCode {
         Err(e) => return usage(&e),
     };
     let [id] = rest.as_slice() else { return usage("rekey takes one instance id") };
-    let Some(id) = crate::metadata::valid_instance_id(id) else { return usage("invalid instance id") };
+    let Some(id) = crate::metadata::valid_instance_id(id) else {
+        return usage("invalid instance id");
+    };
     match crate::linux::identity::rekey(&paths, &id) {
         Ok(()) => code(0),
         Err(e) => {
@@ -195,7 +202,17 @@ mod tests {
     #[test]
     fn run_flags_parse() {
         let cfg = parse_run(
-            &s(&["--root", "/tmp/r", "--metadata", "127.0.0.1:9", "--daemon-user", "u", "--no-announce", "--rearm-delay-ms", "5"]),
+            &s(&[
+                "--root",
+                "/tmp/r",
+                "--metadata",
+                "127.0.0.1:9",
+                "--daemon-user",
+                "u",
+                "--no-announce",
+                "--rearm-delay-ms",
+                "5",
+            ]),
             vec![],
         )
         .unwrap();

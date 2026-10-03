@@ -108,10 +108,15 @@ fn binds_once_across_repeated_resume_signals() {
     let order: Vec<&str> = ran
         .iter()
         .map(String::as_str)
-        .filter(|a| matches!(*a, "reseed" | "drop-remote-identity" | "write-bound" | "spawn-daemon"))
+        .filter(|a| {
+            matches!(*a, "reseed" | "drop-remote-identity" | "write-bound" | "spawn-daemon")
+        })
         .collect();
     assert_eq!(order, ["reseed", "drop-remote-identity", "write-bound", "spawn-daemon"]);
-    assert_eq!(*events.0.borrow(), ["start:vm-1", "bound", "resumed", "resumed", "shutdown", "stop"]);
+    assert_eq!(
+        *events.0.borrow(),
+        ["start:vm-1", "bound", "resumed", "resumed", "shutdown", "stop"]
+    );
 }
 
 #[test]
@@ -132,7 +137,10 @@ fn failed_spawn_backs_off_instead_of_spinning() {
 #[test]
 fn bake_file_parks_without_spawning() {
     let events = Events::default();
-    let mut fake = Fake::new(vec![vec![Wake::BakeFile], vec![Wake::ClockSet]], vec![Some("b"), Some("b"), Some("b")]);
+    let mut fake = Fake::new(
+        vec![vec![Wake::BakeFile], vec![Wake::ClockSet]],
+        vec![Some("b"), Some("b"), Some("b")],
+    );
     fake.bound = Some("b".to_owned());
     let mut agent = agent(fake, &events);
     // First observation: bound; then the bake file appears.

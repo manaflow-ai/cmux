@@ -18,9 +18,9 @@ use std::time::Instant;
 use crate::agent::{Exit, Platform, Wake};
 use crate::announce::{arping_args, is_announce_target};
 use crate::config::{
-    AGENT_DIR, BAKE_FILE_NAME, BAKE_INSTANCE_FILE, BOUND_INSTANCE_FILE, Config, DAEMON_PID_FILE, DRIVER_FILE_NAME,
-    ETC_DIR, GHOSTTY_VERSION_FILE, HOUSEKEEPING_TIMERS, LAYOUT_MARKER_FILE, RUN_DIR, STATUS_FILE, STOP_GRACE,
-    TEMPLATE_BOUND_FILE, TEMPLATE_READY_FILE,
+    AGENT_DIR, BAKE_FILE_NAME, BAKE_INSTANCE_FILE, BOUND_INSTANCE_FILE, Config, DAEMON_PID_FILE,
+    DRIVER_FILE_NAME, ETC_DIR, GHOSTTY_VERSION_FILE, HOUSEKEEPING_TIMERS, LAYOUT_MARKER_FILE,
+    RUN_DIR, STATUS_FILE, STOP_GRACE, TEMPLATE_BOUND_FILE, TEMPLATE_READY_FILE,
 };
 use crate::daemon_spec::{DaemonLayout, daemon_spec, ghostty_version};
 use crate::machine::{Action, Input, Observation};
@@ -133,7 +133,9 @@ impl LinuxPlatform {
             RearmOutcome::GaveUp { attempts, last } => {
                 let _ = self.clock.disarm();
                 self.clock_armed = false;
-                eprintln!("cmux-host: clock-set timer re-arm gave up after {attempts} attempts ({last:?})");
+                eprintln!(
+                    "cmux-host: clock-set timer re-arm gave up after {attempts} attempts ({last:?})"
+                );
             }
         }
     }
@@ -150,13 +152,19 @@ impl LinuxPlatform {
         for event in self.inotify.read_events()? {
             if event.mask & libc::IN_Q_OVERFLOW != 0 {
                 out.push(Wake::DriverFile);
-            } else if event.mask & libc::IN_IGNORED != 0 && (event.wd == self.wd_run || event.wd == self.wd_etc) {
+            } else if event.mask & libc::IN_IGNORED != 0
+                && (event.wd == self.wd_run || event.wd == self.wd_etc)
+            {
                 // The directory was removed: recreate it and watch again.
                 let dir = if event.wd == self.wd_run { RUN_DIR } else { ETC_DIR };
                 let path = self.cfg.paths.at(dir);
                 fs::create_dir_all(&path)?;
                 let wd = self.inotify.watch_dir(&path)?;
-                if dir == RUN_DIR { self.wd_run = wd } else { self.wd_etc = wd }
+                if dir == RUN_DIR {
+                    self.wd_run = wd;
+                } else {
+                    self.wd_etc = wd;
+                }
                 out.push(Wake::DriverFile);
             } else if event.wd == self.wd_run && event.name == DRIVER_FILE_NAME {
                 out.push(Wake::DriverFile);
@@ -171,8 +179,13 @@ impl LinuxPlatform {
         let bind = self.cfg.remote_ws_bind.clone();
         let paths = self.cfg.paths.clone();
         let layout = self.layout()?.clone();
-        let _ = identity::write_atomic(&paths.at(LAYOUT_MARKER_FILE), format!("{}\n", layout.kind.as_str()).as_bytes(), 0o644);
-        let version = ghostty_version(fs::read_to_string(paths.at(GHOSTTY_VERSION_FILE)).ok().as_deref());
+        let _ = identity::write_atomic(
+            &paths.at(LAYOUT_MARKER_FILE),
+            format!("{}\n", layout.kind.as_str()).as_bytes(),
+            0o644,
+        );
+        let version =
+            ghostty_version(fs::read_to_string(paths.at(GHOSTTY_VERSION_FILE)).ok().as_deref());
         let spec = daemon_spec(&layout, &version, &bind, &paths.at(TEMPLATE_BOUND_FILE));
         let child = spawn::spawn_daemon(&spec)?;
         let pid = child.id();
@@ -204,7 +217,9 @@ impl LinuxPlatform {
         }
         let mut started = 0;
         for (name, addr) in ipv4_addresses() {
-            if is_announce_target(&name, addr) && self.job("arping", &arping_args(&name, addr), JobKind::Announce, false).is_ok() {
+            if is_announce_target(&name, addr)
+                && self.job("arping", &arping_args(&name, addr), JobKind::Announce, false).is_ok()
+            {
                 started += 1;
             }
         }
@@ -217,7 +232,12 @@ impl LinuxPlatform {
             argv.push(std::env::current_exe()?.display().to_string());
         }
         let program = argv.remove(0);
-        argv.extend(["rekey".to_owned(), "--root".to_owned(), self.cfg.paths.root().display().to_string(), id.to_owned()]);
+        argv.extend([
+            "rekey".to_owned(),
+            "--root".to_owned(),
+            self.cfg.paths.root().display().to_string(),
+            id.to_owned(),
+        ]);
         let child = spawn::spawn_job(PathBuf::from(program).as_path(), &argv, true)?;
         self.jobs.push(Job { child, kind: JobKind::Other });
         Ok(None)
@@ -241,7 +261,9 @@ impl LinuxPlatform {
         args.extend(HOUSEKEEPING_TIMERS);
         self.systemd(&args, false)?;
         if spawn::has_systemd(&self.cfg.paths) {
-            let _ = std::process::Command::new("systemd-analyze").args(["service-watchdogs", "no"]).status();
+            let _ = std::process::Command::new("systemd-analyze")
+                .args(["service-watchdogs", "no"])
+                .status();
         }
         Ok(None)
     }
@@ -250,7 +272,10 @@ impl LinuxPlatform {
         if !spawn::has_systemd(&self.cfg.paths) {
             return Ok(None);
         }
-        let script = format!("systemd-analyze service-watchdogs yes; systemctl start {}", HOUSEKEEPING_TIMERS.join(" "));
+        let script = format!(
+            "systemd-analyze service-watchdogs yes; systemctl start {}",
+            HOUSEKEEPING_TIMERS.join(" ")
+        );
         self.job("/bin/sh", &["-c".to_owned(), script], JobKind::Other, true)?;
         Ok(None)
     }
@@ -273,7 +298,8 @@ impl LinuxPlatform {
         let bytes = path.as_encoded_bytes();
         let sent = if let Some(name) = bytes.strip_prefix(b"@") {
             use std::os::linux::net::SocketAddrExt;
-            std::os::unix::net::SocketAddr::from_abstract_name(name).and_then(|addr| socket.send_to_addr(b"READY=1", &addr))
+            std::os::unix::net::SocketAddr::from_abstract_name(name)
+                .and_then(|addr| socket.send_to_addr(b"READY=1", &addr))
         } else {
             socket.send_to(b"READY=1", &path)
         };
@@ -347,7 +373,11 @@ impl Platform for LinuxPlatform {
                     T_SIGNAL => {
                         for signal in self.signals.read_all()? {
                             let signal = signal as libc::c_int;
-                            wakes.push(if signal == libc::SIGCHLD { Wake::ProcessExit } else { Wake::Terminate });
+                            wakes.push(if signal == libc::SIGCHLD {
+                                Wake::ProcessExit
+                            } else {
+                                Wake::Terminate
+                            });
                         }
                     }
                     T_REARM => {
@@ -378,7 +408,9 @@ impl Platform for LinuxPlatform {
     fn reap(&mut self) -> Vec<Exit> {
         let mut exits = Vec::new();
         let daemon_done = match self.daemon.as_mut() {
-            Some(Daemon { child: Some(child), .. }) => matches!(child.try_wait(), Ok(Some(_)) | Err(_)),
+            Some(Daemon { child: Some(child), .. }) => {
+                matches!(child.try_wait(), Ok(Some(_)) | Err(_))
+            }
             Some(Daemon { child: None, pidfd, .. }) => pidfd.exited(),
             None => false,
         };
@@ -408,7 +440,8 @@ impl Platform for LinuxPlatform {
 
     fn adopt_daemon(&mut self) -> Option<u32> {
         let layout = self.layout().ok()?.clone();
-        let (pid, pidfd) = procs::find_session_host(&self.cfg.paths.at(DAEMON_PID_FILE), &layout.bin, layout.uid)?;
+        let (pid, pidfd) =
+            procs::find_session_host(&self.cfg.paths.at(DAEMON_PID_FILE), &layout.bin, layout.uid)?;
         self.epoll.add(pidfd.raw(), T_DAEMON).ok()?;
         self.daemon = Some(Daemon { pid, pidfd, child: None, started: Instant::now() });
         Some(pid)
@@ -434,19 +467,25 @@ impl Platform for LinuxPlatform {
             Action::StopTerminalHosts => self.stop_terminal_hosts(),
             Action::Announce => self.announce(),
             Action::Rekey(id) => self.rekey(id),
-            Action::RestartPromptSync => self.systemd(&["--no-block", "restart", "cmux-prompt-sync.service"], true),
+            Action::RestartPromptSync => {
+                self.systemd(&["--no-block", "restart", "cmux-prompt-sync.service"], true)
+            }
             Action::ArmRearm => self.rearm.arm_after(self.cfg.rearm_delay).map(|()| None),
             Action::DisarmRearm => self.rearm.disarm().map(|()| None),
             Action::RearmHousekeeping => self.rearm_housekeeping(),
             Action::ParkHousekeeping => self.park_housekeeping(),
-            Action::ArmBackoff(ms) => self.backoff.arm_after(std::time::Duration::from_millis(*ms)).map(|()| None),
+            Action::ArmBackoff(ms) => {
+                self.backoff.arm_after(std::time::Duration::from_millis(*ms)).map(|()| None)
+            }
             Action::DisarmBackoff => self.backoff.disarm().map(|()| None),
             Action::RemoveDriverFile => identity::remove_driver_file(&paths).map(|()| None),
             Action::Ready => {
                 self.notify_ready();
                 Ok(None)
             }
-            Action::StartRoles(_) | Action::StopRoles | Action::Notify(_) | Action::Exit => Ok(None),
+            Action::StartRoles(_) | Action::StopRoles | Action::Notify(_) | Action::Exit => {
+                Ok(None)
+            }
         }
     }
 

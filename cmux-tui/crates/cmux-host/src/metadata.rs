@@ -45,7 +45,10 @@ impl InstanceIdSource for Mmds {
         )?;
         let token = token.trim();
         if token.is_empty() || !token.bytes().all(|b| b.is_ascii_graphic()) {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "metadata token is not a header value"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "metadata token is not a header value",
+            ));
         }
         let get = format!(
             "GET /latest/meta-data/instance-id HTTP/1.1\r\nHost: 169.254.169.254\r\nX-aws-ec2-metadata-token: {token}\r\nConnection: close\r\n\r\n"
@@ -113,7 +116,8 @@ fn parse_response(raw: &[u8]) -> io::Result<(u16, String)> {
     if status != 200 {
         return Err(io::Error::other(format!("metadata status {status}")));
     }
-    let body = String::from_utf8(raw[end + 4..].to_vec()).map_err(|_| bad("metadata body is not UTF-8"))?;
+    let body = String::from_utf8(raw[end + 4..].to_vec())
+        .map_err(|_| bad("metadata body is not UTF-8"))?;
     Ok((status, body))
 }
 
@@ -184,7 +188,10 @@ mod tests {
             Ok("i-1\n/../x".to_owned()),
             Ok(" vm-abc.1_2 \n".to_owned()),
         ]);
-        assert_eq!(read_instance_id(&mut src, 5), IdRead { instance_id: Some("vm-abc.1_2".to_owned()), attempts: 3 });
+        assert_eq!(
+            read_instance_id(&mut src, 5),
+            IdRead { instance_id: Some("vm-abc.1_2".to_owned()), attempts: 3 }
+        );
         let mut empty = Script(vec![Ok(String::new()), Ok("  ".to_owned())]);
         assert_eq!(read_instance_id(&mut empty, 2), IdRead { instance_id: None, attempts: 2 });
         assert_eq!(valid_instance_id(&"a".repeat(129)), None);
@@ -202,7 +209,8 @@ mod tests {
                 let mut buf = [0u8; 2048];
                 let n = s.read(&mut buf).unwrap();
                 seen.push(String::from_utf8_lossy(&buf[..n]).into_owned());
-                let resp = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{reply}", reply.len());
+                let resp =
+                    format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{reply}", reply.len());
                 s.write_all(resp.as_bytes()).unwrap();
             }
             seen

@@ -39,7 +39,9 @@ pub enum Wake {
 /// A reaped process the machine cares about.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Exit {
-    Daemon { lived_ms: u64 },
+    Daemon {
+        lived_ms: u64,
+    },
     /// The last announce helper exited.
     Announce,
 }
@@ -92,7 +94,9 @@ impl ActionLog {
 
 fn describe(action: &Action) -> String {
     match action {
-        Action::Reseed(id) | Action::WriteBound(id) | Action::Rekey(id) => format!("{} id={id}", action.name()),
+        Action::Reseed(id) | Action::WriteBound(id) | Action::Rekey(id) => {
+            format!("{} id={id}", action.name())
+        }
         Action::ArmBackoff(ms) => format!("{} ms={ms}", action.name()),
         Action::Notify(event) => format!("{} event={}", action.name(), event_name(event)),
         Action::StartRoles(id) => format!("{} id={}", action.name(), id.as_deref().unwrap_or("-")),
@@ -139,7 +143,9 @@ impl<P: Platform> Agent<P> {
             self.log.line(&format!("adopt-daemon pid={pid}"));
         }
         let first = self.platform.observe();
-        if self.dispatch([Input::Boot { adopted_daemon: adopted.is_some() }, Input::Observed(first)]) {
+        if self
+            .dispatch([Input::Boot { adopted_daemon: adopted.is_some() }, Input::Observed(first)])
+        {
             return Ok(());
         }
         loop {
@@ -166,10 +172,12 @@ impl<P: Platform> Agent<P> {
                 }
                 Wake::DriverFile | Wake::BakeFile => observe = true,
                 Wake::Terminate => terminate = true,
-                Wake::ProcessExit => inputs.extend(self.platform.reap().into_iter().map(|exit| match exit {
-                    Exit::Daemon { lived_ms } => Input::DaemonExited { lived_ms },
-                    Exit::Announce => Input::AnnounceDone,
-                })),
+                Wake::ProcessExit => {
+                    inputs.extend(self.platform.reap().into_iter().map(|exit| match exit {
+                        Exit::Daemon { lived_ms } => Input::DaemonExited { lived_ms },
+                        Exit::Announce => Input::AnnounceDone,
+                    }));
+                }
                 Wake::Rearm => inputs.push(Input::RearmElapsed),
                 Wake::Backoff => inputs.push(Input::BackoffElapsed),
                 Wake::StopDeadline => inputs.push(Input::StopDeadline),

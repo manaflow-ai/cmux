@@ -134,7 +134,10 @@ pub fn is_session_host_argv(argv: &[String], bin: &Path) -> bool {
     (0..=1).any(|i| {
         argv.get(i).is_some_and(|a| a == bin)
             && argv.len() >= i + 1 + IDENTITY_ARGS.len()
-            && argv[i + 1..i + 1 + IDENTITY_ARGS.len()].iter().zip(IDENTITY_ARGS).all(|(a, b)| a == b)
+            && argv[i + 1..i + 1 + IDENTITY_ARGS.len()]
+                .iter()
+                .zip(IDENTITY_ARGS)
+                .all(|(a, b)| a == b)
     })
 }
 
@@ -183,7 +186,12 @@ mod tests {
 
     #[test]
     fn user_layout_matches_the_shell_command() {
-        let spec = daemon_spec(&layout(LayoutKind::User), "1.2.3", "[::]:1337", Path::new("/run/cmux/bound"));
+        let spec = daemon_spec(
+            &layout(LayoutKind::User),
+            "1.2.3",
+            "[::]:1337",
+            Path::new("/run/cmux/bound"),
+        );
         assert_eq!(spec.program, PathBuf::from("/home/cmux/.cmux/bin/cmux-tui"));
         assert_eq!(
             spec.args,
@@ -220,7 +228,12 @@ mod tests {
 
     #[test]
     fn root_layout_sets_no_user_names() {
-        let spec = daemon_spec(&layout(LayoutKind::Root), "", DEFAULT_REMOTE_WS_BIND, Path::new("/run/cmux/bound"));
+        let spec = daemon_spec(
+            &layout(LayoutKind::Root),
+            "",
+            DEFAULT_REMOTE_WS_BIND,
+            Path::new("/run/cmux/bound"),
+        );
         assert!(spec.set_env.iter().all(|(k, _)| k != "USER" && k != "SHELL"));
         assert_eq!(spec.cwd, PathBuf::from("/root"));
         assert_eq!(ghostty_version(Some("1.3.0\n\n")), "1.3.0");
@@ -231,12 +244,29 @@ mod tests {
     fn argv_matching_is_element_wise() {
         let bin = Path::new("/home/cmux/.cmux/bin/cmux-tui");
         let argv = |s: &str| split_cmdline(s.replace(' ', "\0").as_bytes());
-        assert!(is_session_host_argv(&argv("/home/cmux/.cmux/bin/cmux-tui server start --session cloud --remote-ws x"), bin));
-        assert!(is_session_host_argv(&argv("/bin/sh /home/cmux/.cmux/bin/cmux-tui server start --session cloud"), bin));
-        assert!(!is_session_host_argv(&argv("sh -c /home/cmux/.cmux/bin/cmux-tui server start --session cloud"), bin));
-        assert!(!is_session_host_argv(&argv("/home/cmux/.cmux/bin/cmux-tui server start --session other"), bin));
-        assert!(!is_session_host_argv(&argv("/usr/bin/cmux-tui server start --session cloud"), bin));
-        assert!(is_terminal_host_argv(&argv("/home/cmux/.cmux/bin/cmux-tui __terminal-host --bootstrap-stdio")));
+        assert!(is_session_host_argv(
+            &argv("/home/cmux/.cmux/bin/cmux-tui server start --session cloud --remote-ws x"),
+            bin
+        ));
+        assert!(is_session_host_argv(
+            &argv("/bin/sh /home/cmux/.cmux/bin/cmux-tui server start --session cloud"),
+            bin
+        ));
+        assert!(!is_session_host_argv(
+            &argv("sh -c /home/cmux/.cmux/bin/cmux-tui server start --session cloud"),
+            bin
+        ));
+        assert!(!is_session_host_argv(
+            &argv("/home/cmux/.cmux/bin/cmux-tui server start --session other"),
+            bin
+        ));
+        assert!(!is_session_host_argv(
+            &argv("/usr/bin/cmux-tui server start --session cloud"),
+            bin
+        ));
+        assert!(is_terminal_host_argv(&argv(
+            "/home/cmux/.cmux/bin/cmux-tui __terminal-host --bootstrap-stdio"
+        )));
         assert!(!is_terminal_host_argv(&argv("grep __terminal-host")));
         assert!(!is_terminal_host_argv(&argv("/tmp/cmux-tui-evil server")));
     }

@@ -16,8 +16,8 @@ use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config::{
-    BOUND_INSTANCE_FILE, CLONE_STARTED_FILE, DBUS_MACHINE_ID_FILE, DRIVER_FILE_NAME, ETC_DIR, MACHINE_ID_FILE, Paths,
-    RANDOM_SEED_FILE, RUN_DIR, SSH_DIR,
+    BOUND_INSTANCE_FILE, CLONE_STARTED_FILE, DBUS_MACHINE_ID_FILE, DRIVER_FILE_NAME, ETC_DIR,
+    MACHINE_ID_FILE, Paths, RANDOM_SEED_FILE, RUN_DIR, SSH_DIR,
 };
 use crate::linux::spawn::{has_systemd, which};
 
@@ -263,7 +263,10 @@ mod tests {
         rekey(&paths, "vm-1").unwrap();
         let first = fs::read_to_string(paths.at(MACHINE_ID_FILE)).unwrap();
         assert_eq!(first.trim().len(), 32);
-        assert_eq!(fs::read_link(paths.at(DBUS_MACHINE_ID_FILE)).unwrap(), PathBuf::from(MACHINE_ID_FILE));
+        assert_eq!(
+            fs::read_link(paths.at(DBUS_MACHINE_ID_FILE)).unwrap(),
+            PathBuf::from(MACHINE_ID_FILE)
+        );
         assert_eq!(fs::metadata(paths.at(RANDOM_SEED_FILE)).unwrap().len(), 512);
         rekey(&paths, "vm-1").unwrap();
         assert_ne!(fs::read_to_string(paths.at(MACHINE_ID_FILE)).unwrap(), first);

@@ -11,7 +11,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
 use crate::config::{Config, Paths};
-use crate::daemon_spec::{DaemonLayout, DaemonSpec, LayoutKind, ROOT_HOME, WORK_HOME, WORK_USER, binary_path};
+use crate::daemon_spec::{
+    DaemonLayout, DaemonSpec, LayoutKind, ROOT_HOME, WORK_HOME, WORK_USER, binary_path,
+};
 
 /// A passwd entry.
 pub struct User {
@@ -29,7 +31,9 @@ pub fn lookup_user(name: &str) -> Option<User> {
     let mut result: *mut libc::passwd = std::ptr::null_mut();
     // SAFETY: every pointer is valid for the call; `result` is set to
     // `pwd` on success.
-    let rc = unsafe { libc::getpwnam_r(cname.as_ptr(), pwd.as_mut_ptr(), buf.as_mut_ptr(), buf.len(), &mut result) };
+    let rc = unsafe {
+        libc::getpwnam_r(cname.as_ptr(), pwd.as_mut_ptr(), buf.as_mut_ptr(), buf.len(), &mut result)
+    };
     if rc != 0 || result.is_null() {
         return None;
     }
@@ -37,7 +41,12 @@ pub fn lookup_user(name: &str) -> Option<User> {
     // live in `buf`.
     let pwd = unsafe { pwd.assume_init() };
     let home = unsafe { CStr::from_ptr(pwd.pw_dir) }.to_string_lossy().into_owned();
-    Some(User { name: name.to_owned(), uid: pwd.pw_uid, gid: pwd.pw_gid, home: PathBuf::from(home) })
+    Some(User {
+        name: name.to_owned(),
+        uid: pwd.pw_uid,
+        gid: pwd.pw_gid,
+        home: PathBuf::from(home),
+    })
 }
 
 /// The name of the effective user.
@@ -47,7 +56,13 @@ pub fn current_user_name() -> Option<String> {
         let mut pwd = std::mem::MaybeUninit::<libc::passwd>::uninit();
         let mut buf = vec![0 as libc::c_char; 16 * 1024];
         let mut result: *mut libc::passwd = std::ptr::null_mut();
-        let rc = libc::getpwuid_r(libc::geteuid(), pwd.as_mut_ptr(), buf.as_mut_ptr(), buf.len(), &mut result);
+        let rc = libc::getpwuid_r(
+            libc::geteuid(),
+            pwd.as_mut_ptr(),
+            buf.as_mut_ptr(),
+            buf.len(),
+            &mut result,
+        );
         if rc != 0 || result.is_null() {
             return None;
         }
@@ -63,7 +78,8 @@ fn group_list(name: &str, gid: u32) -> Vec<u32> {
         let mut groups = vec![0 as libc::gid_t; count as usize];
         let before = count;
         // SAFETY: `groups` has `count` entries; the call updates `count`.
-        let rc = unsafe { libc::getgrouplist(cname.as_ptr(), gid, groups.as_mut_ptr(), &mut count) };
+        let rc =
+            unsafe { libc::getgrouplist(cname.as_ptr(), gid, groups.as_mut_ptr(), &mut count) };
         if rc >= 0 {
             groups.truncate(count.max(0) as usize);
             return groups;
@@ -87,8 +103,9 @@ fn layout_for(user: &User, kind: LayoutKind, home: PathBuf, bin: PathBuf) -> Dae
 }
 
 fn on_path(program: &str) -> bool {
-    std::env::var_os("PATH")
-        .is_some_and(|path| std::env::split_paths(&path).any(|dir| is_executable(&dir.join(program))))
+    std::env::var_os("PATH").is_some_and(|path| {
+        std::env::split_paths(&path).any(|dir| is_executable(&dir.join(program)))
+    })
 }
 
 pub fn is_executable(path: &Path) -> bool {
@@ -120,11 +137,17 @@ pub fn select_layout(cfg: &Config) -> io::Result<DaemonLayout> {
         return Ok(layout_for(&user, kind, home, bin));
     }
     let work = lookup_user(WORK_USER).filter(|_| {
-        on_path("setpriv") && as_work_user(&["test", "-w", WORK_HOME]) && as_work_user(&["sudo", "-n", "true"])
+        on_path("setpriv")
+            && as_work_user(&["test", "-w", WORK_HOME])
+            && as_work_user(&["sudo", "-n", "true"])
     });
     let (user, kind, home) = match work {
         Some(user) => (user, LayoutKind::User, PathBuf::from(WORK_HOME)),
-        None => (lookup_user("root").ok_or_else(|| io::Error::other("no root user"))?, LayoutKind::Root, PathBuf::from(ROOT_HOME)),
+        None => (
+            lookup_user("root").ok_or_else(|| io::Error::other("no root user"))?,
+            LayoutKind::Root,
+            PathBuf::from(ROOT_HOME),
+        ),
     };
     let bin = cfg.daemon.bin.clone().unwrap_or_else(|| binary_path(&home));
     Ok(layout_for(&user, kind, home, bin))
@@ -159,7 +182,8 @@ pub fn spawn_daemon(spec: &DaemonSpec) -> io::Result<Child> {
     }
     command.envs(spec.set_env.iter().map(|(k, v)| (k, v)));
     // SAFETY: geteuid has no preconditions.
-    let drop_to = (spec.uid != unsafe { libc::geteuid() }).then(|| (spec.uid, spec.gid, spec.groups.clone()));
+    let drop_to =
+        (spec.uid != unsafe { libc::geteuid() }).then(|| (spec.uid, spec.gid, spec.groups.clone()));
     // SAFETY: the closure makes only async-signal-safe calls and allocates
     // nothing (the group list is moved in before fork).
     unsafe {
@@ -168,13 +192,12 @@ pub fn spawn_daemon(spec: &DaemonSpec) -> io::Result<Child> {
             if libc::setsid() < 0 {
                 return Err(io::Error::last_os_error());
             }
-            if let Some((uid, gid, groups)) = &drop_to {
-                if libc::setgroups(groups.len(), groups.as_ptr()) < 0
+            if let Some((uid, gid, groups)) = &drop_to
+                && (libc::setgroups(groups.len(), groups.as_ptr()) < 0
                     || libc::setgid(*gid) < 0
-                    || libc::setuid(*uid) < 0
-                {
-                    return Err(io::Error::last_os_error());
-                }
+                    || libc::setuid(*uid) < 0)
+            {
+                return Err(io::Error::last_os_error());
             }
             Ok(())
         });
