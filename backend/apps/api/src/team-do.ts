@@ -303,7 +303,8 @@ export class TeamDO extends OwnerDO<TeamState> {
     if (!reply || reply.t !== "result") return { ok: false, code: reply && reply.t === "reject" ? reply.code : "owner.unreachable", message: reply && reply.t === "reject" ? reply.message : "no reply" }
     const value = reply.value as { id: string } | ServerEnrollRefused
     if ("refused" in value) {
-      await this.flushServerRevocations(entity)
+      // Push this install's revocation now unless pushes are backing off; the alarm retries the rest.
+      if (this.revokeRetryAt === null || Date.now() >= this.revokeRetryAt) await this.flushServerRevocations(entity, value.install)
       return { ok: false, code: "auth.forbidden", message: value.message, refused: true }
     }
     return { ok: true, host: value.id }
@@ -321,12 +322,13 @@ export class TeamDO extends OwnerDO<TeamState> {
    * Pushes every pending server install revocation to its owner's UserDO
    * (`install.revoke_by_team`, which also closes the install's sockets), then
    * records the confirmation. Called by the Worker right after `server.revoke`
-   * and by the alarm until it succeeds. Returns the installs revoked now.
+   * and by the alarm until it succeeds (`only`: one install, after a refused
+   * enrollment). Returns the installs revoked now.
    */
-  async flushServerRevocations(entity: string): Promise<{ revoked: Array<string> }> {
+  async flushServerRevocations(entity: string, only?: string): Promise<{ revoked: Array<string> }> {
     if (!entity) return { revoked: [] }
     const engine = this.bind(entity)
-    const pending = Object.values(engine.currentState.server_revocations ?? {})
+    const pending = Object.values(engine.currentState.server_revocations ?? {}).filter((r) => only === undefined || r.install === only)
     const revoked: Array<string> = []
     for (const r of pending) {
       const user = this.userOwner(r.owner_user)

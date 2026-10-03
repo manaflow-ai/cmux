@@ -105,10 +105,15 @@ const fail = (op: string, key: string, code: string, message: string, retryable 
 /** A user-origin session only: never an install token, never an agent acting through one. */
 const isHumanSession = (p: Principal) => p.kind === "session" && !p.agent && Boolean(p.user)
 
-/** Per-user limit on preview and approve (code guessing), on the pairing namespace with user keys. */
-const pairLimited = async (env: Env, principal: Principal): Promise<boolean> => {
+/**
+ * Per-user limits on the pairing namespace (user keys). `user` bounds preview
+ * and approve (code guessing); `user-retry` is spent only after `user` refused,
+ * by an approve that may be a retry of the caller's own claim, so a retry is
+ * never blocked by the guessing budget and PairingDO wakes stay bounded.
+ */
+const pairLimited = async (env: Env, principal: Principal, bucket: "user" | "user-retry" = "user"): Promise<boolean> => {
   if (!env.PAIR_BEGIN_LIMIT) return true
-  const { success } = await env.PAIR_BEGIN_LIMIT.limit({ key: `user:${principal.user}` })
+  const { success } = await env.PAIR_BEGIN_LIMIT.limit({ key: `${bucket}:${principal.user}` })
   return success
 }
 
@@ -146,17 +151,23 @@ export const pairApprove = async (
   const name = typeof params.name === "string" && params.name.length >= 1 && params.name.length <= 80 ? params.name : null
   if (!name) return fail(op, frame.idempotency_key, "validation.invalid", "name must be 1 to 80 characters")
   const team = principal.team!
-  // Role first: an approver who may not add servers writes nothing anywhere.
-  if (!(await env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).canEnrollServer(team, principal))) {
-    return fail(op, frame.idempotency_key, "auth.forbidden", "only team owners and admins may add a server")
-  }
   const stub = pairingStub(env, code)
-  // A retry of this approver's own claim spends no unit; every other attempt (a guess at a code) spends one.
-  if (!(await stub.claimedBy(code, principal.user!, Date.now())) && !(await pairLimited(env, principal))) {
-    return fail(op, frame.idempotency_key, "auth.forbidden", "too many pairing requests, try again in a minute", true)
+  const now = Date.now()
+  // Limit before any PairingDO wakes. When the guessing budget is spent, a retry of the caller's own
+  // claim may still pass on the retry budget; only then is PairingDO asked (read only).
+  let mine: boolean | undefined
+  if (!(await pairLimited(env, principal))) {
+    mine = (await pairLimited(env, principal, "user-retry")) && (await stub.claimedBy(code, principal.user!, now))
+    if (!mine) return fail(op, frame.idempotency_key, "auth.forbidden", "too many pairing requests, try again in a minute", true)
+  }
+  // Role first: an approver who may not add servers writes nothing anywhere. One exception: the
+  // approver already claimed this code (an earlier attempt may have registered the install), so the
+  // retry goes on and TeamDO refuses in one commit with the install's revocation, then the code is spent.
+  if (!(await env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).canEnrollServer(team, principal))) {
+    if (!(mine ?? (await stub.claimedBy(code, principal.user!, now)))) return fail(op, frame.idempotency_key, "auth.forbidden", "only team owners and admins may add a server")
   }
   // Claim before any write: concurrent approvals by different users cannot both register an install and a host.
-  const claimed = await stub.claim(code, principal.user!, Date.now())
+  const claimed = await stub.claim(code, principal.user!, now)
   if (!claimed.ok) {
     return claimed.reason === "unknown" ? fail(op, frame.idempotency_key, "selector.not_found", "pairing code expired or unknown") : fail(op, frame.idempotency_key, "auth.forbidden", "pairing code already used")
   }

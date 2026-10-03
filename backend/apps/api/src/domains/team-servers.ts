@@ -102,7 +102,7 @@ const refuseEnrollment = (state: TeamState, ctx: ReduceContext, v: { install: st
   if (state.server_revocations?.[v.install]) return { ok: true, state, value, changed: false }
   const pending: ServerRevocation = { install: v.install, owner_user: v.owner_user, by: v.approved_by, at: ctx.now }
   const next = { ...state, server_revocations: { ...(state.server_revocations ?? {}), [v.install]: pending } }
-  const a = appendAudit(next, state.team!.id, ctx, "server.enrolled", `server ${v.name} not paired: the approver may no longer add servers`, {
+  const a = appendAudit(next, state.team!.id, ctx, "server.enroll_refused", `server ${v.name} not paired: the approver may no longer add servers`, {
     install: v.install,
     approved_by: v.approved_by,
     refused: true
