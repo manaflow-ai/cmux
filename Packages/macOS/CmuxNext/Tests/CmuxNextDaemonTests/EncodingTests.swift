@@ -128,6 +128,9 @@ import Testing
         #expect(workspace["cmd"] == .string("move-tab-to-new-workspace"))
         #expect(workspace["group"] == .string("g"))
         #expect(workspace["transaction"] == nil)
+        // `name` only when given (`tab-workspace-name-v1`; older daemons refuse unknown fields).
+        #expect(workspace["name"] == nil)
+        #expect(try object(MoveTabToNewWorkspaceRequest(surface: 3, name: "vim"))["name"] == .string("vim"))
         // A browser respawn names the page, engine and profile; never the dragged tab's URL.
         let respawn = try object(MoveTabToSplitRespawnRequest(
             surface: 3, pane: 4, edge: .right, respawn: .browser(url: "chrome://newtab/", engine: .cef, profileID: "work")))

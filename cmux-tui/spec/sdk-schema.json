@@ -14531,6 +14531,16 @@
       "nullable": true,
       "default": null
      },
+     "name": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "tab-workspace-name-v1"
+     },
      "transaction": {
       "type": {
        "kind": "scalar",
