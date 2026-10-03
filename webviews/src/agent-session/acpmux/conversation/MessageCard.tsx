@@ -5,7 +5,7 @@ import { useState } from "react";
 import { t } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import type { AgentMessage } from "./agentMessages";
-import { ArrowRight, ChevronRight, Envelope, Spinner } from "./icons";
+import { ArrowRight, ChevronDown, ChevronRight, Envelope, Spinner } from "./icons";
 import { isFailed, isRunning } from "./toolGroups";
 
 export function MessageCard({ item, message }: { item: AcpmuxActivity; message: AgentMessage }) {
@@ -13,7 +13,9 @@ export function MessageCard({ item, message }: { item: AcpmuxActivity; message: 
   const tool = item.tool!;
   const from = message.from ?? t("message.self");
   const to = message.to ?? t("message.unknown");
-  const preview = message.text.split("\n").find((line) => line.trim()) ?? "";
+  // Two lines show closed; a longer message gets Show more. Lines are a guess without layout:
+  // a break or ~140 characters (two lines of the card at the column's width) counts as more.
+  const long = message.text.split("\n").length > 2 || message.text.length > 140;
   const failed = isFailed(tool);
   // What the send printed (a delivery receipt, or why it failed), under the opened message.
   const output = tool.output?.replace(/\n$/, "");
@@ -23,10 +25,9 @@ export function MessageCard({ item, message }: { item: AcpmuxActivity; message: 
         type="button"
         className="cv-message__head"
         aria-expanded={open}
-        // The route reads as a sentence; the arrow is a glyph a screen reader skips.
-        aria-label={[t("message.label", { from, to }), preview, failed ? t("tools.failed") : ""]
-          .filter(Boolean)
-          .join(". ")}
+        // The route reads as a sentence (the arrow is a glyph a screen reader skips); the message
+        // itself is the text below, outside the button, so it stays selectable.
+        aria-label={[t("message.label", { from, to }), failed ? t("tools.failed") : ""].filter(Boolean).join(". ")}
         onClick={() => setOpen((value) => !value)}
       >
         <span className="cv-message__route">
@@ -42,9 +43,14 @@ export function MessageCard({ item, message }: { item: AcpmuxActivity; message: 
             className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
           />
         </span>
-        {!open && <span className="cv-message__preview">{preview || t("message.noText")}</span>}
       </button>
-      {open && <div className="cv-message__body">{message.text || t("message.noText")}</div>}
+      <div className={`cv-message__body${open ? "" : " is-clamped"}`}>{message.text || t("message.noText")}</div>
+      {long && (
+        <button type="button" className="cv-message__more" onClick={() => setOpen((value) => !value)}>
+          {t(open ? "message.less" : "message.more")}
+          <ChevronDown size={12} className={`cv-rotor${open ? " is-flipped" : ""}`} />
+        </button>
+      )}
       {open && output && <pre className="cv-tool-output">{output}</pre>}
     </div>
   );

@@ -40,9 +40,15 @@ describe("grouped tool rows", () => {
     const html = renderToStaticMarkup(
       createElement(MessageCard, { item: command(line), message: commandMessage(line)! }),
     );
-    expect(html).toContain('aria-label="Message from cc-pane-transcript to cc-next-ci. Landed #17079"');
+    expect(html).toContain('aria-label="Message from cc-pane-transcript to cc-next-ci"');
     expect(html).toContain("Coordinator");
-    expect(html).toContain('<span class="cv-message__preview">Landed #17079</span>');
+    // Two lines show until the card opens; a two-line message needs no Show more.
+    expect(html).toContain('<div class="cv-message__body is-clamped">Landed #17079\nNext: items 4+5</div>');
+    expect(html).not.toContain("Show more");
+    const long = `tell-coordinator "${"word ".repeat(40)}"`;
+    expect(
+      renderToStaticMarkup(createElement(MessageCard, { item: command(long), message: commandMessage(long)! })),
+    ).toContain("Show more");
     expect(html).not.toContain("tell-coordinator --from");
   });
 });
