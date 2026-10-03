@@ -61,3 +61,14 @@ New projection tables that search reads need the same GRANT.
    destructive).
 3. Automations dogfood hard cap: $25 per team per UTC month (automations lead enforces; backend
    reviews the meter).
+
+## Drizzle, step 1 (2026-10-03)
+
+`backend/db/schema/index.ts` is the Drizzle schema, pulled from the database the committed
+migrations build; `test-pg/drizzle-schema.test.ts` pulls again in CI and fails on any difference
+(checked: an added column fails it). `drizzle/` holds the generate snapshots (baseline 0000, never
+applied); schema changes follow `backend/db/drizzle/README.md` and still land as reviewed
+`migrations/NNNN_*.sql` through the apply gate. Not modeled: the hash-partitioned
+`home_message_search` (raw SQL in 0006 and home-search.ts). Next steps: move the projection
+writes (apps/api/src/projection.ts) and the other queries to Drizzle query builders, one table group
+per commit, each with the existing tests.
