@@ -1,4 +1,4 @@
-import CmuxRTCLink
+@testable import CmuxRTCLink
 import CmuxRTCSignal
 import Foundation
 import Testing
@@ -91,6 +91,27 @@ struct RTCLinkLoopbackTests {
             if got.count == 3 { break }
         }
         #expect(got == [Data(#"{"id":1}"#.utf8), big, Data(#"{"id":2}"#.utf8)])
+    }
+
+    @Test func loopbackPathIsDirect() async throws {
+        let pair = Pair()
+        defer { pair.close() }
+        _ = try await pair.open("daemon")
+        #expect(await pair.phone.selectedPathKind() == .direct)
+    }
+
+    @Test func pathKindReadsTheSelectedPair() {
+        let stats: [String: RTCLinkStat] = [
+            "T1": RTCLinkStat(type: "transport", values: ["selectedCandidatePairId": "P1"]),
+            "P1": RTCLinkStat(type: "candidate-pair", values: ["localCandidateId": "L", "remoteCandidateId": "R", "state": "succeeded"]),
+            "L": RTCLinkStat(type: "local-candidate", values: ["candidateType": "relay"]),
+            "R": RTCLinkStat(type: "remote-candidate", values: ["candidateType": "srflx"]),
+        ]
+        #expect(RTCLinkPeer.pathKind(in: stats) == .relay)
+        var direct = stats
+        direct["L"] = RTCLinkStat(type: "local-candidate", values: ["candidateType": "host"])
+        #expect(RTCLinkPeer.pathKind(in: direct) == .direct)
+        #expect(RTCLinkPeer.pathKind(in: [:]) == .unknown)
     }
 
     @Test func severalChannelsAreIndependent() async throws {

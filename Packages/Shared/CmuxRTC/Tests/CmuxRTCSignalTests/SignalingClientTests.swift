@@ -159,17 +159,17 @@ private struct ImmediateClock: Clock {
 struct SignalingClientTests {
     @Test func codecRoundTripsTheBackendFrames() throws {
         let hello = RTCHello(role: .client, peer: "phone-0001", name: "iPhone", tag: "rtc", platform: "ios", appVersion: "1.0")
-        let encoded = try #require(try JSONSerialization.jsonObject(with: Data(RTCFrameCodec.encode(hello).utf8)) as? [String: String])
+        let encoded = try #require(try JSONSerialization.jsonObject(with: Data(hello.encodedFrame.utf8)) as? [String: String])
         #expect(encoded == ["t": "rtc.hello", "role": "client", "peer": "phone-0001", "name": "iPhone", "tag": "rtc", "platform": "ios", "app_version": "1.0"])
 
-        let hosts = RTCFrameCodec.decode(#"{"t":"rtc.hosts","hosts":[{"peer":"host-1-abcd","name":"Studio","tag":"rtc","platform":"macos","app_version":"0.1","since":5}]}"#)
+        let hosts = RTCServerFrame(decoding: #"{"t":"rtc.hosts","hosts":[{"peer":"host-1-abcd","name":"Studio","tag":"rtc","platform":"macos","app_version":"0.1","since":5}]}"#)
         #expect(hosts == .hosts([RTCHostInfo(peer: "host-1-abcd", name: "Studio", tag: "rtc", platform: "macos", appVersion: "0.1", since: 5)]))
 
-        let signal = RTCFrameCodec.decode(#"{"t":"rtc.signal","from":"host-1-abcd","from_role":"host","session":"s1234567","kind":"candidate","candidate":"c","sdp_mid":"0","sdp_mline_index":0}"#)
+        let signal = RTCServerFrame(decoding: #"{"t":"rtc.signal","from":"host-1-abcd","from_role":"host","session":"s1234567","kind":"candidate","candidate":"c","sdp_mid":"0","sdp_mline_index":0}"#)
         #expect(signal == .signal(RTCSignalMessage(peer: "host-1-abcd", peerRole: .host, session: "s1234567", kind: .candidate, candidate: "c", sdpMid: "0", sdpMLineIndex: 0)))
-        #expect(RTCFrameCodec.decode(#"{"t":"welcome","principal":{}}"#) == nil)
+        #expect(RTCServerFrame(decoding: #"{"t":"welcome","principal":{}}"#) == nil)
 
-        let out = try #require(try JSONSerialization.jsonObject(with: Data(RTCFrameCodec.encode(RTCSignalMessage(peer: "host-1-abcd", session: "s1234567", kind: .offer, sdp: "v=0")).utf8)) as? [String: String])
+        let out = try #require(try JSONSerialization.jsonObject(with: Data(RTCSignalMessage(peer: "host-1-abcd", session: "s1234567", kind: .offer, sdp: "v=0").encodedFrame.utf8)) as? [String: String])
         #expect(out == ["t": "rtc.signal", "to": "host-1-abcd", "session": "s1234567", "kind": "offer", "sdp": "v=0"])
     }
 

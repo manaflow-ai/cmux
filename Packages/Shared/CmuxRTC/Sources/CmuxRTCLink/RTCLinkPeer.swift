@@ -19,6 +19,21 @@ public enum RTCLinkState: Sendable, Equatable {
     case closed
 }
 
+/// How the selected ICE candidate pair reaches the other device.
+public enum RTCLinkPathKind: String, Sendable, Equatable, Codable {
+    /// Host, server-reflexive or peer-reflexive candidates on both ends (LAN or NAT traversal).
+    case direct
+    /// At least one end is a TURN relay candidate.
+    case relay
+    case unknown
+}
+
+/// One stats entry reduced to strings (what `selectedPathKind` reads).
+struct RTCLinkStat: Sendable, Equatable {
+    var type: String
+    var values: [String: String]
+}
+
 /// A received video track (a Mac view streamed to the phone).
 public struct RTCLinkVideoTrack: @unchecked Sendable {
     /// The media stream id the sender chose (`view:<id>`).
@@ -26,19 +41,17 @@ public struct RTCLinkVideoTrack: @unchecked Sendable {
     public let track: RTCVideoTrack
 }
 
-/// libwebrtc wants one factory per process.
-public enum RTCLinkRuntime {
-    public nonisolated(unsafe) static let factory: RTCPeerConnectionFactory = {
-        RTCInitializeSSL()
-        return RTCPeerConnectionFactory(encoderFactory: RTCDefaultVideoEncoderFactory(), decoderFactory: RTCDefaultVideoDecoderFactory())
-    }()
-}
-
 /// One WebRTC peer connection between a phone and a Mac. Perfect negotiation: the phone is polite
 /// (it yields on an offer collision), the Mac is impolite. Candidates trickle through `onSignal`
 /// and are buffered on receipt until the remote description is set. Data channels are in-band
 /// (ordered, reliable); the answering side receives them on `incomingChannels`.
 public final class RTCLinkPeer: NSObject, @unchecked Sendable {
+    /// libwebrtc wants one factory per process.
+    nonisolated(unsafe) static let factory: RTCPeerConnectionFactory = {
+        RTCInitializeSSL()
+        return RTCPeerConnectionFactory(encoderFactory: RTCDefaultVideoEncoderFactory(), decoderFactory: RTCDefaultVideoDecoderFactory())
+    }()
+
     public let polite: Bool
     public nonisolated let states: AsyncStream<RTCLinkState>
     public nonisolated let incomingChannels: AsyncStream<RTCByteChannel>
@@ -64,7 +77,7 @@ public final class RTCLinkPeer: NSObject, @unchecked Sendable {
         super.init()
         let config = Self.configuration(ice)
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
-        connection = RTCLinkRuntime.factory.peerConnection(with: config, constraints: constraints, delegate: self)
+        connection = Self.factory.peerConnection(with: config, constraints: constraints, delegate: self)
         stateContinuation.yield(.new)
     }
 
@@ -167,6 +180,38 @@ public final class RTCLinkPeer: NSObject, @unchecked Sendable {
         }
     }
 
+    /// The kind of path ICE selected, read from the peer connection's stats: `.relay` when either
+    /// end of the selected candidate pair is a TURN relay candidate, `.direct` for host, srflx or
+    /// prflx pairs, `.unknown` before a pair is selected or after close.
+    public func selectedPathKind() async -> RTCLinkPathKind {
+        let connection: RTCPeerConnection? = queue.sync { closed ? nil : self.connection }
+        guard let connection else { return .unknown }
+        let report: RTCStatisticsReport = await withCheckedContinuation { c in
+            connection.statistics { c.resume(returning: $0) }
+        }
+        return Self.pathKind(in: report.statistics.mapValues { stat in
+            RTCLinkStat(type: stat.type, values: stat.values.compactMapValues { value in
+                (value as? NSString).map { $0 as String } ?? (value as? NSNumber).map { $0.stringValue }
+            })
+        })
+    }
+
+    /// Pure stats walk (tested without libwebrtc): transport.selectedCandidatePairId, else the
+    /// nominated succeeded pair; then the two candidates' `candidateType`.
+    static func pathKind(in stats: [String: RTCLinkStat]) -> RTCLinkPathKind {
+        var pairID = stats.values.first { $0.type == "transport" }?.values["selectedCandidatePairId"]
+        if pairID == nil {
+            pairID = stats.first { $0.value.type == "candidate-pair" && $0.value.values["state"] == "succeeded" && $0.value.values["nominated"] != "0" }?.key
+        }
+        guard let pairID, let pair = stats[pairID],
+              let local = pair.values["localCandidateId"].flatMap({ stats[$0] }),
+              let remote = pair.values["remoteCandidateId"].flatMap({ stats[$0] })
+        else { return .unknown }
+        let types = [local.values["candidateType"], remote.values["candidateType"]]
+        if types.contains("relay") { return .relay }
+        return types.allSatisfy({ $0 != nil }) ? .direct : .unknown
+    }
+
     public func close() {
         queue.async { [self] in
             guard !closed else { return }
@@ -183,8 +228,8 @@ public final class RTCLinkPeer: NSObject, @unchecked Sendable {
 
     /// Adds an outgoing video track in media stream `streamID`; renegotiates.
     public func addVideoSender(streamID: String) -> RTCLinkVideoSender {
-        let source = RTCLinkRuntime.factory.videoSource()
-        let track = RTCLinkRuntime.factory.videoTrack(with: source, trackId: streamID)
+        let source = Self.factory.videoSource()
+        let track = Self.factory.videoTrack(with: source, trackId: streamID)
         let sender = connection.add(track, streamIds: [streamID])
         queue.async { [self] in senders[streamID] = sender }
         return RTCLinkVideoSender(source: source, track: track)

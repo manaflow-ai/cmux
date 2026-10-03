@@ -84,11 +84,11 @@ public actor SignalingClient {
     /// session restarts negotiation when the socket returns).
     public func send(_ message: RTCSignalMessage) async throws {
         guard let socket else { throw RTCSignalingError.offline }
-        try await socket.send(RTCFrameCodec.encode(message))
+        try await socket.send(message.encodedFrame)
     }
 
     public func refreshHosts() async {
-        try? await socket?.send(RTCFrameCodec.encodeHostsRequest())
+        try? await socket?.send(RTCServerFrame.hostsRequestFrame)
     }
 
     private var wireURL: URL {
@@ -108,7 +108,7 @@ public actor SignalingClient {
                 forceRefresh = false
                 let socket = try await transport.open(url: wireURL, protocols: ["cmux.wire.v1", "bearer.\(bearer)"])
                 self.socket = socket
-                try await socket.send(RTCFrameCodec.encode(hello))
+                try await socket.send(hello.encodedFrame)
                 reason = try await receive(on: socket, onWelcome: { attempt = 0 })
             } catch is CancellationError {
                 break
@@ -142,7 +142,7 @@ public actor SignalingClient {
         defer { pinger.cancel() }
         while true {
             let text = try await socket.receive()
-            guard let frame = RTCFrameCodec.decode(text) else { continue }
+            guard let frame = RTCServerFrame(decoding: text) else { continue }
             switch frame {
             case .welcome:
                 onWelcome()

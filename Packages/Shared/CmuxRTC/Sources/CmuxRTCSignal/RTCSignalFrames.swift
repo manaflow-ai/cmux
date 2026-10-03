@@ -96,29 +96,39 @@ public enum RTCServerFrame: Sendable, Equatable {
     case error(code: String, session: String?, peer: String?)
 }
 
-/// JSON codec for the `rtc.*` frames (backend/apps/api/src/rtc-signal.ts). Frames of other
-/// types on the same socket (the owner's `welcome`, ledger events) decode to nil.
-public enum RTCFrameCodec {
-    public static func encode(_ hello: RTCHello) -> String {
-        json([
-            "t": "rtc.hello", "role": hello.role.rawValue, "peer": hello.peer, "name": hello.name,
-            "tag": hello.tag, "platform": hello.platform, "app_version": hello.appVersion,
+// JSON wire forms of the `rtc.*` frames (backend/apps/api/src/rtc-signal.ts), as extensions on
+// the frame types per the package conventions.
+
+extension RTCHello {
+    /// The `rtc.hello` frame announcing this device.
+    public var encodedFrame: String {
+        rtcJSON([
+            "t": "rtc.hello", "role": role.rawValue, "peer": peer, "name": name,
+            "tag": tag, "platform": platform, "app_version": appVersion,
         ])
     }
+}
 
-    public static func encodeHostsRequest() -> String { json(["t": "rtc.hosts"]) }
-
-    public static func encode(_ m: RTCSignalMessage) -> String {
-        var frame: [String: Any] = ["t": "rtc.signal", "to": m.peer, "session": m.session, "kind": m.kind.rawValue]
-        if let sdp = m.sdp { frame["sdp"] = sdp }
-        if let candidate = m.candidate { frame["candidate"] = candidate }
-        if let mid = m.sdpMid { frame["sdp_mid"] = mid }
-        if let index = m.sdpMLineIndex { frame["sdp_mline_index"] = Int(index) }
-        if let reason = m.reason { frame["reason"] = reason }
-        return json(frame)
+extension RTCSignalMessage {
+    /// The `rtc.signal` frame addressed to `peer`.
+    public var encodedFrame: String {
+        var frame: [String: Any] = ["t": "rtc.signal", "to": peer, "session": session, "kind": kind.rawValue]
+        if let sdp { frame["sdp"] = sdp }
+        if let candidate { frame["candidate"] = candidate }
+        if let sdpMid { frame["sdp_mid"] = sdpMid }
+        if let sdpMLineIndex { frame["sdp_mline_index"] = Int(sdpMLineIndex) }
+        if let reason { frame["reason"] = reason }
+        return rtcJSON(frame)
     }
+}
 
-    public static func decode(_ text: String) -> RTCServerFrame? {
+extension RTCServerFrame {
+    /// The client frame asking for the current host list.
+    public static let hostsRequestFrame = #"{"t":"rtc.hosts"}"#
+
+    /// Decodes one socket frame; nil for frames of other kinds on the same socket (the owner's
+    /// `welcome`, ledger events).
+    public init?(decoding text: String) {
         guard let data = text.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = object["t"] as? String
@@ -126,19 +136,19 @@ public enum RTCFrameCodec {
         switch type {
         case "rtc.welcome":
             guard let peer = object["peer"] as? String else { return nil }
-            return .welcome(peer: peer)
+            self = .welcome(peer: peer)
         case "rtc.hosts":
             guard let raw = object["hosts"],
                   let hostsData = try? JSONSerialization.data(withJSONObject: raw),
                   let hosts = try? JSONDecoder().decode([RTCHostInfo].self, from: hostsData)
             else { return nil }
-            return .hosts(hosts)
+            self = .hosts(hosts)
         case "rtc.signal":
             guard let from = object["from"] as? String,
                   let session = object["session"] as? String,
                   let kind = (object["kind"] as? String).flatMap(RTCSignalKind.init(rawValue:))
             else { return nil }
-            return .signal(RTCSignalMessage(
+            self = .signal(RTCSignalMessage(
                 peer: from,
                 peerRole: (object["from_role"] as? String).flatMap(RTCRole.init(rawValue:)),
                 session: session,
@@ -150,14 +160,15 @@ public enum RTCFrameCodec {
                 reason: object["reason"] as? String
             ))
         case "rtc.error":
-            return .error(code: object["code"] as? String ?? "unknown", session: object["session"] as? String, peer: object["to"] as? String)
+            self = .error(code: object["code"] as? String ?? "unknown", session: object["session"] as? String, peer: object["to"] as? String)
         default:
             return nil
         }
     }
+}
 
-    private static func json(_ object: [String: Any]) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return "{}" }
-        return String(decoding: data, as: UTF8.self)
-    }
+/// Sorted-keys JSON for the frame encoders above.
+private func rtcJSON(_ object: [String: Any]) -> String {
+    guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return "{}" }
+    return String(decoding: data, as: UTF8.self)
 }
