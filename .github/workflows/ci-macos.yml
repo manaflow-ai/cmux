@@ -903,10 +903,10 @@ jobs:
           fi
           if [ "$status" -ne 0 ] && grep -Eq "unable to open dependencies file|CAS error: No such file or directory" "$compile_log"; then
             # An adopted DerivedData tree can retain an incomplete Swift
-            # dependency graph or package artifact after a cancelled or
+            # dependency graph or compile CAS entry after a cancelled or
             # interrupted compile. Xcode then fails late with no source
-            # diagnostic. Drop the job-local build state and retry once from
-            # a fresh package resolve; real compiler errors still fail.
+            # diagnostic. Drop the job-local build state and retry once;
+            # real compiler errors still fail.
             echo "::warning::stale DerivedData dependency output detected; retrying compile from a clean tree"
             compile_workers_running() {
               local compiler pgrep_status
