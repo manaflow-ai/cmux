@@ -124,7 +124,7 @@ struct GitHubFeedSourceTests {
         #expect(source.githubDetail(for: ownerItem)?.title == "Review")
     }
 
-    @Test func localAdapterPostsIntoTheExistingFeedModel() {
+    @Test func localAdapterPostsAndTriagesThroughTheSameOwner() async {
         let primary = MockFeedSource(snapshot: FeedSnapshot(revision: 0, user: "usr_test", device: "Mac", items: []))
         let adapter = LocalFeedSourceAdapter(primary: primary)
         let model = FeedModel(source: adapter, clock: { self.now })
@@ -136,6 +136,9 @@ struct GitHubFeedSourceTests {
         )
         adapter.post(item)
         #expect(model.item("fi_github") == item)
+        model.archive([item.id])
+        await Task.yield()
+        #expect(model.item(item.id)?.archivedAt == self.now)
     }
 
     private static func notification(id: String, reason: String, title: String, number: Int) -> GitHubNotification {
