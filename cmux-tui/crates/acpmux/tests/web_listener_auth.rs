@@ -150,9 +150,9 @@ async fn a_dev_origin_is_accepted_only_when_the_daemon_was_given_it() {
     config.dev_origins = vec!["http://127.0.0.1:4176".into()];
     let store = acpmux::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub: Arc<Hub> = Hub::new(config, store);
-    let listener = bind_ws("127.0.0.1:0").await.unwrap();
-    let port = listener.local_addr().unwrap().port();
-    tokio::spawn(serve_ws(hub, listener, TOKEN.into()));
+    let bound = bind_ws("127.0.0.1:0").await.unwrap();
+    let port = bound.local_addr().unwrap().port();
+    tokio::spawn(serve_ws(hub, bound, TOKEN.into()));
     let host = format!("127.0.0.1:{port}");
     let query = format!("?token={TOKEN}");
     assert_eq!(status(port, upgrade(&query, &host, Some("http://127.0.0.1:4176"))).await, 101);
