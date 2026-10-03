@@ -4,13 +4,13 @@ public import CmuxNextActions
 /// ref whose action is `action`, else the row's first (primary) one. A row
 /// without refs is refused: its closures have no origin check.
 public struct PaletteRunSelection {
-    public init() {}
+    public nonisolated init() {}
     public enum Failure: Error, Sendable, Equatable {
         case unknownScope
         case refused(PaletteRunRefusal)
     }
 
-    public func pick(_ refs: [PaletteActionRef], title: String, item: String,
+    public nonisolated func pick(_ refs: [PaletteActionRef], title: String, item: String,
                             action: String?) throws(PaletteRunRefusal) -> PaletteActionRef {
         guard let first = refs.first else { throw .untyped(title: title) }
         guard let action, !action.isEmpty else { return first }

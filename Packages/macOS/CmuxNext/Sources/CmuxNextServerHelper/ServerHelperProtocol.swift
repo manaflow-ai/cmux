@@ -15,36 +15,36 @@ public import Foundation
 }
 
 public struct ServerHelperConstants {
-    public init() {}
+    public nonisolated init() {}
     /// The LaunchDaemon plist in `Contents/Library/LaunchDaemons` of the app.
-    public let plistName = "com.cmux.server.helper.plist"
+    public nonisolated let plistName = "com.cmux.server.helper.plist"
     /// The helper executable inside the app bundle (signed with the other
     /// `libexec` helpers by scripts/sign-cmux-bundle.sh).
-    public let bundleProgram = "Contents/Resources/libexec/cmux-server-helper"
-    public let protocolVersion = 1
+    public nonisolated let bundleProgram = "Contents/Resources/libexec/cmux-server-helper"
+    public nonisolated let protocolVersion = 1
 
     /// The launchd label and Mach service of the helper that `appBundleID`
     /// carries. Each tagged build has its own, so two builds never share a
     /// helper. Nil when the bundle id is not a plain reverse-DNS name.
-    public func machServiceName(appBundleID: String) -> String? {
+    public nonisolated func machServiceName(appBundleID: String) -> String? {
         isPlainIdentifier(appBundleID) ? appBundleID + ".server-helper" : nil
     }
 
     /// Letters, digits, dots and hyphens only, so the value can sit inside a
     /// code-signing requirement string without quoting tricks.
-    public func isPlainIdentifier(_ value: String) -> Bool {
+    public nonisolated func isPlainIdentifier(_ value: String) -> Bool {
         !value.isEmpty && value.count <= 155 && !value.hasPrefix(".") && !value.hasSuffix(".")
             && value.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") }
     }
 
-    func isPlainTeam(_ value: String) -> Bool {
+    nonisolated func isPlainTeam(_ value: String) -> Bool {
         !value.isEmpty && value.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) }
     }
 
     /// The requirement the helper puts on its client: the exact app bundle
     /// that carries it, signed by the helper's own team. Nil without a team
     /// (an unsigned or ad hoc helper accepts nobody).
-    public func clientRequirement(teamID: String?, appBundleID: String) -> String? {
+    public nonisolated func clientRequirement(teamID: String?, appBundleID: String) -> String? {
         guard let teamID, isPlainTeam(teamID), isPlainIdentifier(appBundleID) else { return nil }
         return "anchor apple generic and certificate leaf[subject.OU] = \"\(teamID)\" and identifier \"\(appBundleID)\""
     }
@@ -52,12 +52,12 @@ public struct ServerHelperConstants {
     /// The code-signing identifier of the helper executable. codesign derives
     /// it from the file name, so the build phase and scripts/sign-cmux-bundle.sh
     /// produce the same value.
-    public let helperIdentifier = "cmux-server-helper"
+    public nonisolated let helperIdentifier = "cmux-server-helper"
 
     /// The requirement the app puts on the helper it connects to: the helper
     /// executable signed by the app's own team. The per-build Mach service
     /// name keeps builds apart.
-    public func helperRequirement(teamID: String?) -> String? {
+    public nonisolated func helperRequirement(teamID: String?) -> String? {
         guard let teamID, isPlainTeam(teamID) else { return nil }
         return "anchor apple generic and certificate leaf[subject.OU] = \"\(teamID)\" and identifier \"\(helperIdentifier)\""
     }

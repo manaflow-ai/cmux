@@ -12,9 +12,9 @@ public import Foundation
 /// carries values the Swift validator accepts and refuses, so another
 /// validator can prove it agrees.
 public struct SettingsSchemaExport {
-    public init() {}
+    public nonisolated init() {}
     /// Format version of the file; bump on an incompatible change.
-    public let version = 1
+    public nonisolated let version = 1
 
     /// A key the export names that the string catalog does not have.
     public struct MissingKeys: Error, CustomStringConvertible {
@@ -23,7 +23,7 @@ public struct SettingsSchemaExport {
     }
 
     /// The keys of a string catalog (`.xcstrings` JSON).
-    public func catalogKeys(xcstrings data: Data) throws -> Set<String> {
+    public nonisolated func catalogKeys(xcstrings data: Data) throws -> Set<String> {
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let strings = root["strings"] as? [String: Any]
         else { throw CocoaError(.coderReadCorrupt) }
@@ -32,7 +32,7 @@ public struct SettingsSchemaExport {
 
     /// The export document as pretty, key-sorted JSON with a trailing newline.
     /// Throws `MissingKeys` when a text names a key `catalog` lacks.
-    public func json(catalog: Set<String>) throws -> String {
+    public nonisolated func json(catalog: Set<String>) throws -> String {
         var missing: Set<String> = []
         func text(_ text: String, _ key: String?) -> [String: Any] {
             if let key, !catalog.contains(key) { missing.insert(key) }
@@ -54,7 +54,7 @@ public struct SettingsSchemaExport {
         return String(decoding: data, as: UTF8.self) + "\n"
     }
 
-    func row(for descriptor: SettingDescriptor, text: (String, String?) -> [String: Any]) -> [String: Any] {
+    nonisolated func row(for descriptor: SettingDescriptor, text: (String, String?) -> [String: Any]) -> [String: Any] {
         let keys = descriptor.textKeys
         var row: [String: Any] = [
             "key": descriptor.id,
@@ -108,7 +108,7 @@ public struct SettingsSchemaExport {
         return row
     }
 
-    func range(_ number: SettingNumber) -> [String: Any] {
+    nonisolated func range(_ number: SettingNumber) -> [String: Any] {
         let unit: String = switch number.unit {
         case .points: "points"
         case .seconds: "seconds"
@@ -121,7 +121,7 @@ public struct SettingsSchemaExport {
     }
 
     /// `JSONValue` as a Foundation JSON object.
-    func foundation(_ value: JSONValue) -> Any {
+    nonisolated func foundation(_ value: JSONValue) -> Any {
         switch value {
         case .null: NSNull()
         case .bool(let bool): bool

@@ -5,7 +5,7 @@ public import Foundation
 /// and rewrites the remaining NAL units with 4-byte big-endian lengths
 /// (the form VideoToolbox decodes).
 public struct RemoteAnnexB {
-    public init() {}
+    public nonisolated init() {}
     public struct Parsed: Sendable, Equatable {
         /// H.264: [SPS, PPS]. HEVC: [VPS, SPS, PPS]. Empty when the access
         /// unit carries none (every non-key frame).
@@ -22,7 +22,7 @@ public struct RemoteAnnexB {
     /// Ranges of the NAL units in `bytes`, start codes removed. Accepts 3- and
     /// 4-byte start codes; trailing zero bytes before a start code belong to
     /// the start code.
-    public func nalRanges(_ bytes: [UInt8]) -> [Range<Int>] {
+    public nonisolated func nalRanges(_ bytes: [UInt8]) -> [Range<Int>] {
         var starts: [(code: Int, nal: Int)] = []
         var i = 0
         let n = bytes.count
@@ -51,11 +51,11 @@ public struct RemoteAnnexB {
         return ranges
     }
 
-    public func parse(_ data: Data, codec: RemoteVideoCodec) -> Parsed {
+    public nonisolated func parse(_ data: Data, codec: RemoteVideoCodec) -> Parsed {
         parse([UInt8](data), codec: codec)
     }
 
-    public func parse(_ bytes: [UInt8], codec: RemoteVideoCodec) -> Parsed {
+    public nonisolated func parse(_ bytes: [UInt8], codec: RemoteVideoCodec) -> Parsed {
         var parsed = Parsed()
         parsed.lengthPrefixed.reserveCapacity(bytes.count + 16)
         var vps: [UInt8]?
@@ -83,7 +83,7 @@ public struct RemoteAnnexB {
         return parsed
     }
 
-    private func appendLengthPrefixed(_ nal: ArraySlice<UInt8>, to out: inout [UInt8]) {
+    private nonisolated func appendLengthPrefixed(_ nal: ArraySlice<UInt8>, to out: inout [UInt8]) {
         let length = UInt32(nal.count)
         out.append(UInt8(length >> 24))
         out.append(UInt8((length >> 16) & 0xFF))

@@ -14,7 +14,7 @@ public nonisolated enum RemoteKeyboardMode: String, Sendable, Hashable, CaseIter
 /// The routing and containment rules for one key event. Pure: the capture
 /// view asks it and acts on the answer.
 public struct RemoteKeyboardPolicy {
-    public init() {}
+    public nonisolated init() {}
     public enum Route: Sendable, Equatable {
         /// Handle in the viewer (system and cmux shortcuts): never sent.
         case local
@@ -29,7 +29,7 @@ public struct RemoteKeyboardPolicy {
     /// Routes a key down. `isLocalShortcut` is the App's matcher for cmux
     /// shortcuts (KeyboardShortcutSettings); it applies only while system
     /// shortcuts stay local.
-    public func route(
+    public nonisolated func route(
         keyCode: UInt16,
         modifiers: NSEvent.ModifierFlags,
         mode: RemoteKeyboardMode,
@@ -56,7 +56,7 @@ public struct RemoteKeyboardPolicy {
     /// and input source switching, Mission Control and Spaces, and the
     /// app-level Cmd-Q / Cmd-H / Cmd-M. cmux's own shortcuts (Cmd-W, Cmd-T
     /// ...) come from the App's matcher, so a rebinding follows the user.
-    public func isSystemShortcut(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> Bool {
+    public nonisolated func isSystemShortcut(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> Bool {
         let flags = modifiers.intersection([.command, .control, .option, .shift])
         switch keyCode {
         case KeyCode.tab, KeyCode.grave:
@@ -76,7 +76,7 @@ public struct RemoteKeyboardPolicy {
 
     /// Whether the key can produce text: no Command or Control, and not a
     /// navigation, editing or function key.
-    public func typesText(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> Bool {
+    public nonisolated func typesText(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> Bool {
         if !modifiers.intersection([.command, .control]).isEmpty { return false }
         guard let usage = RemoteHIDKeyMap().usage(forKeyCode: keyCode) else { return false }
         let id = usage & 0xFFFF
@@ -90,7 +90,7 @@ public struct RemoteKeyboardPolicy {
         }
     }
 
-    enum KeyCode {
+    nonisolated enum KeyCode {
         static let tab: UInt16 = 0x30
         static let grave: UInt16 = 0x32
         static let space: UInt16 = 0x31
