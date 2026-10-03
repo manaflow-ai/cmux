@@ -261,7 +261,12 @@ fn previous_window(path: &Path, started_at_ms: u64) -> anyhow::Result<Option<(u6
     }
     let Ok(start) = value.parse::<u64>() else { return Ok(None) };
     let end = started_at_ms.max(start);
-    write_marker(path, &format!("{start}..{end}"))?;
+    // The window is known now; closing it in the file only helps the owner
+    // after this one, so a failed rewrite keeps the window. The next owner
+    // then closes it at its own start, which the window limit bounds.
+    if let Err(error) = write_marker(path, &format!("{start}..{end}")) {
+        eprintln!("cmux-tui: could not close the previous session shutdown window: {error:#}");
+    }
     Ok(Some((start, end)))
 }
 
