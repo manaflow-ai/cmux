@@ -491,10 +491,12 @@ export class Core {
     });
   }
 
-  /** Records an outstanding prompt with the next order (one more than any outstanding one). */
+  /** Records an outstanding prompt with the next order (one more than any outstanding one); one already outstanding keeps its order. */
   private recordPrompt(promptId: string, entry: { conversation: string; text: string; seq?: number }): void {
+    // An outstanding prompt recorded again keeps its place.
+    const kept = this.state.prompts[promptId]?.order;
     const last = Math.max(0, ...Object.values(this.state.prompts).map((p) => p.order ?? 0));
-    this.state.prompts[promptId] = { ...entry, order: last + 1 };
+    this.state.prompts[promptId] = { ...entry, order: kept ?? last + 1 };
   }
 
   /** Emits the prompt for an outstanding entry; false without a session. */
