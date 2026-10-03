@@ -17,10 +17,16 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// most ``maximumPacingFrames``; the pane picks its rendering rate from them.
     case framePacing([Double])
     /// The new tab page chose a terminal or browser: replace the tab with
-    /// one, running or opening `text` (a command, a URL or a search).
-    case openTab(AgentPaneTabKind, text: String)
+    /// one, running or opening `text` (a command, a URL or a search), a
+    /// terminal in `cwd` when the page picked a folder.
+    case openTab(AgentPaneTabKind, text: String, cwd: String? = nil)
+    /// The location bar picked an open tab or workspace: go there.
+    case jump(AgentPaneJumpTarget, id: String)
     /// The new tab page asked to change a kind's New shortcut.
     case editShortcut(AgentPaneTabKind)
+    /// The new tab page's "default: X" toggle: what Cmd-T opens
+    /// (`tabs.newTabKind`; the App checks the value).
+    case setDefaultKind(String)
     /// The page reports whether repository checkpoint actions are available so
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)
@@ -30,6 +36,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `file.open` with `{path, where}`: a changed file from the changes view,
     /// in a tab beside the agent or in the text editor.
     case openFile(path: String, target: AgentPaneFileTarget)
+    /// The quick panel's page: Esc hides the panel, keeping its draft.
+    case quickDismiss
+    /// The quick panel's page: open its chat in the main window and hide
+    /// the panel. `{sessionId}` is optional; without it the host uses the
+    /// session the page last persisted.
+    case quickOpenInWindow(sessionId: String?)
     case unsupported(String)
 
     public static let maximumPacingFrames = 640
@@ -69,7 +81,21 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         case "tab.open":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)), kind != .agent {
                 let text = params?["text"] as? String ?? ""
-                self = .openTab(kind, text: String(text.prefix(Self.maximumOpenTabText)))
+                let cwd = (params?["cwd"] as? String).flatMap { $0.isEmpty ? nil : String($0.prefix(Self.maximumOpenTabText)) }
+                self = .openTab(kind, text: String(text.prefix(Self.maximumOpenTabText)), cwd: kind == .terminal ? cwd : nil)
+            } else {
+                self = .unsupported(method)
+            }
+        case "tab.jump":
+            if let target = (params?["target"] as? String).flatMap(AgentPaneJumpTarget.init(rawValue:)),
+               let id = params?["id"] as? String, !id.isEmpty, id.count <= 256 {
+                self = .jump(target, id: id)
+            } else {
+                self = .unsupported(method)
+            }
+        case "tab.setDefaultKind":
+            if let kind = params?["kind"] as? String, !kind.isEmpty, kind.count <= 32 {
+                self = .setDefaultKind(kind)
             } else {
                 self = .unsupported(method)
             }
@@ -86,6 +112,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             } else {
                 self = .unsupported(method)
             }
+        case "quick.dismiss": self = .quickDismiss
+        case "quick.openInWindow":
+            let id = params?["sessionId"] as? String
+            self = .quickOpenInWindow(sessionId: id?.isEmpty == false ? id : nil)
         case "dictation.toggle": self = .dictation(.toggle)
         case "dictation.start": self = .dictation(.start)
         case "dictation.stop": self = .dictation(.stop)
@@ -130,8 +160,18 @@ public nonisolated enum AgentPaneReply {
         if let cwd = handshake.cwd { value["cwd"] = cwd }
         if let draft = handshake.draft { value["draft"] = draft }
         if let prompt = handshake.prompt { value["prompt"] = prompt }
+        if let adopt = handshake.adopt { value["adopt"] = adopt.reply }
+        if let surface = handshake.surface { value["surface"] = surface.rawValue }
+        if let linkScheme = handshake.linkScheme { value["linkScheme"] = linkScheme }
+        if let sessionMustExist = handshake.sessionMustExist { value["sessionMustExist"] = sessionMustExist }
+        if let revealTurn = handshake.revealTurn { value["revealTurn"] = revealTurn }
         value["handoffStrings"] = AgentPaneHandoffStrings().values
         value["checkpointStrings"] = AgentPaneCheckpointStrings().values
         return success(value)
     }
+}
+
+/// What the location bar can jump to (`tab.jump`).
+public nonisolated enum AgentPaneJumpTarget: String, Sendable {
+    case tab, workspace
 }

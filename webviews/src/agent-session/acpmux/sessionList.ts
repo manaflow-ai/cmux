@@ -112,6 +112,11 @@ export function projectLabel(cwd: string | undefined): string {
   return parts[parts.length - 1] ?? trimmed;
 }
 
+/** A folder for display, with a home folder's prefix written `~` as a shell prompt does. */
+export function homePath(path: string): string {
+  return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
+}
+
 /** Newest first. */
 function byRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
   return [...sessions].sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0));

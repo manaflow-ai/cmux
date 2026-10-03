@@ -4,7 +4,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 
 // Tab moves out of the pane (split, column, workspace, window), unread
-// state, per-kind tab verbs, and identifier copies.
+// state, per-kind tab verbs, and identifier copies (links: LinkHandlers).
 extension TabHandlers {
     static func bindMoreActions(into registry: ActionRegistry, context ctx: AppActionContext) {
         bindLayoutMoves(registry, ctx)
@@ -106,9 +106,6 @@ extension TabHandlers {
             guard let (tab, _) = ctx.daemonTab(invocation) else { return }
             copy("surface_id=\(tab.id)")
         })
-        let noLinks = RefusalStrings.deepLinksUnported
-        registry.bindUnavailable("palette.copyPaneLink", reason: noLinks)
-        registry.bindUnavailable("palette.copySurfaceLink", reason: noLinks)
     }
 
     private static func copy(_ text: String) {

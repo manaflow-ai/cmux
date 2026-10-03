@@ -88,6 +88,35 @@ class MockBridge {
         this.snapshot = { ...this.snapshot, isWorking: false };
         this.emit();
         break;
+      case "chat.permission_group.respond": {
+        const state = this.snapshot.permissionGroups;
+        if (state) {
+          const decision = message.params?.decision as "allow_once" | "allow_chat" | "deny";
+          this.snapshot = {
+            ...this.snapshot,
+            permissionGroups: {
+              ...state,
+              chatAllowance: decision === "allow_chat" || state.chatAllowance,
+              groups: state.groups.map((group) =>
+                group.groupId === message.params?.groupId
+                  ? {
+                      ...group,
+                      state: "resolved",
+                      decision,
+                      items: group.items.map((item) => ({ ...item, state: "resolved" })),
+                    }
+                  : group,
+              ),
+            },
+          };
+          this.emit();
+        }
+        return { ok: true, value: null };
+      }
+      case "chat.permission_chat.revoke":
+        if (this.snapshot.permissionGroups) this.snapshot.permissionGroups.chatAllowance = false;
+        this.emit();
+        return { ok: true, value: null };
       case "chat.permission":
         this.snapshot = { ...this.snapshot, permission: undefined };
         this.emit();

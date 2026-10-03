@@ -25,7 +25,7 @@ struct WindowRootMaterialTests {
         let root = WindowRootView(sidebar: SidebarContainerView(model: model),
                                   rail: WindowRailView(model: model, registry: ActionBindingCoverageTests.boundServices().registry),
                                   reduceTransparency: { reduceTransparency.on },
-                                  applyWindowBlur: { _ in })
+                                  applyWindowBlur: { _, _ in })
         let room = ThemeScope(level: .room)
         room.setOverride(ThemeSpec("Catppuccin Mocha")!, input: input, animated: false)
         room.root(root)
@@ -75,7 +75,7 @@ struct WindowRootMaterialTests {
     func aFrostedRootHostsOnlyTheTint(opacity: Double, blur: Int) throws {
         let (root, room) = makeRoot(input(opacity: opacity, blur: blur))
         #expect(root.backdrop.material == .frosted)
-        #expect(root.backdrop.setsWindowBlurRadius)
+        #expect(root.backdrop.windowBlurRadius == blur)
         #expect(rootMaterialViews(root).isEmpty)
         #expect(root.layer?.backgroundColor == nil)
         let tint = try #require(root.backdropView.tintColor)
