@@ -77,3 +77,33 @@ export const PromoteIcon = () => (
     <path d="M12.75 9.5v2.25a1.5 1.5 0 0 1-1.5 1.5h-7a1.5 1.5 0 0 1-1.5-1.5v-7a1.5 1.5 0 0 1 1.5-1.5H6.5" />
   </Glyph>
 );
+
+/** Row detail settings: three sliders. */
+export const SlidersIcon = () => (
+  <Glyph>
+    <path d="M3 4.5h10M3 8h10M3 11.5h10" />
+    <circle cx="10" cy="4.5" r="1.4" fill="var(--agent-page-bg, Canvas)" />
+    <circle cx="5.5" cy="8" r="1.4" fill="var(--agent-page-bg, Canvas)" />
+    <circle cx="9" cy="11.5" r="1.4" fill="var(--agent-page-bg, Canvas)" />
+  </Glyph>
+);
+
+/** A pull request, row-detail sized. */
+export const PullRequestIcon = ({ size = 12 }: { size?: number }) => (
+  <Glyph size={size}>
+    <circle cx="4.5" cy="3.75" r="1.5" />
+    <circle cx="4.5" cy="12.25" r="1.5" />
+    <circle cx="11.5" cy="12.25" r="1.5" />
+    <path d="M4.5 5.25v5.5M11.5 10.75V6.5a2 2 0 0 0-2-2H7.5M9 3 7.5 4.5 9 6" />
+  </Glyph>
+);
+
+/** A branch, row-detail sized. */
+export const BranchIcon = ({ size = 12 }: { size?: number }) => (
+  <Glyph size={size}>
+    <circle cx="5" cy="3.75" r="1.5" />
+    <circle cx="5" cy="12.25" r="1.5" />
+    <circle cx="11" cy="5.5" r="1.5" />
+    <path d="M5 5.25v5.5M11 7c0 2.4-2 3.1-6 3.75" />
+  </Glyph>
+);

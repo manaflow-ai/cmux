@@ -29,8 +29,12 @@ public final class SettingsWindowController: NSWindowController, NSWindowDelegat
         window.model = model
         super.init(window: window)
         window.delegate = self
-        window.contentView = SettingsContentView(rootView: SettingsRootView(model: model))
+        // Theme and background first: changing the window background while
+        // AppKit installs the content view puts the content above the
+        // titlebar, which hides the close button (lane 20).
         setThemeScope(SettingsTheme.shared.scope)
+        window.backgroundColor = SettingsTheme.shared.scope.perform { Palette.utilityWindowBackground }
+        window.contentView = SettingsContentView(rootView: SettingsRootView(model: model))
     }
 
     /// Draws the window in `scope`: the App passes the scope of the main
@@ -84,7 +88,8 @@ final class SettingsContentView: NSHostingView<SettingsRootView> {
     }
 
     private func applyColors() {
-        performWithTheme { window?.backgroundColor = Palette.utilityWindowBackground }
+        let color = performWithTheme { Palette.utilityWindowBackground }
+        if let window, window.backgroundColor != color { window.backgroundColor = color }
     }
 }
 

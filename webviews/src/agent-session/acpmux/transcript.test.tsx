@@ -1066,6 +1066,75 @@ describe("acpmux host handshake", () => {
       delete host.cmuxAcpmuxRegistry;
     }
   });
+
+  /// acpmux serves no git methods: the changes view's reads reach Swift with the session's folder.
+  test("the changes view reads git from the native host in the selected session's folder", async () => {
+    class FolderSocket extends FakeSocket {
+      static git: string[] = [];
+      override send(raw: string) {
+        const { id, method } = JSON.parse(raw) as { id: number; method: string };
+        if (method.startsWith("git.")) FolderSocket.git.push(method);
+        const session = { sessionId: "s", cwd: "/work/app" };
+        const result =
+          method === "_acpmux/watch"
+            ? { sessions: [session] }
+            : method === "_acpmux/attach"
+              ? { session, events: [] }
+              : method.startsWith("git.")
+                ? { files: [] }
+                : {};
+        queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ id, result }) }));
+      }
+    }
+    FakeSocket.made = [];
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window & Record<string, unknown>;
+    const realSocket = globals.WebSocket;
+    const asked: { method: string; params: Record<string, unknown> }[] = [];
+    globals.WebSocket = FolderSocket;
+    host.webkit = {
+      messageHandlers: {
+        agentSession: {
+          postMessage(message: { method: string; params: Record<string, unknown> }) {
+            if (message.method !== "ready") {
+              asked.push({ method: message.method, params: message.params });
+              return Promise.resolve({ ok: true, value: { scope: "staged", files: [] } });
+            }
+            return Promise.resolve({
+              ok: true,
+              value: {
+                protocolVersion: 1,
+                transport: "acpmux-websocket",
+                endpoint: "ws://127.0.0.1:4100/acp",
+                token: "t",
+                sessionId: "s",
+              },
+            });
+          },
+        },
+      },
+    };
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      for (let tries = 0; tries < 100 && !host.cmuxAcpmuxActions; tries += 1)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+      for (let tries = 0; tries < 10; tries += 1) await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+      expect(await host.cmuxAcpmuxActions!["git.diff"]!({ scope: "staged" })).toEqual({ scope: "staged", files: [] });
+      await host.cmuxAcpmuxActions!["git.status"]!({});
+      // The checkpoint control also asks for `git.capabilities`; this test is about the reads.
+      expect(asked.filter((entry) => entry.method === "git.diff" || entry.method === "git.status")).toEqual([
+        { method: "git.diff", params: { cwd: "/work/app", scope: "staged", include_patch: true } },
+        { method: "git.status", params: { cwd: "/work/app" } },
+      ]);
+      expect(FolderSocket.git).toEqual([]);
+    } finally {
+      await act(async () => root.unmount());
+      globals.WebSocket = realSocket;
+      delete host.webkit;
+      delete host.cmuxAcpmuxRegistry;
+      FakeSocket.made = [];
+    }
+  });
 });
 
 describe("acpmux turn diff", () => {
@@ -2799,6 +2868,83 @@ describe("acpmux edit diffs", () => {
     } finally {
       await act(async () => root.unmount());
       restore();
+    }
+  });
+});
+
+describe("acpmux hunk review", () => {
+  test("rejected hunks go to the agent as one revert prompt, and are marked requested", async () => {
+    const { DiffPanel } = await import("./DiffPanel");
+    const { turnFiles } = await import("./diff");
+    const files = turnFiles([
+      {
+        id: "activity-1",
+        version: 1,
+        at: 1,
+        kind: "activity",
+        items: [
+          {
+            kind: "tool",
+            text: "Edit",
+            tool: {
+              id: "t1",
+              title: "Edit",
+              kind: "edit",
+              status: "completed",
+              diffs: [{ path: "/repo/a.ts", oldText: "one\ntwo\n", newText: "one\n2\n", line: 4 }],
+            },
+          },
+        ],
+      },
+    ]);
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const decisions = new Map<string, "accepted" | "rejected" | "requested">();
+    const sent: { keys: string[]; prompt: string }[] = [];
+    const render = () =>
+      root.render(
+        createElement(DiffPanel, {
+          files,
+          onClose: () => {},
+          review: {
+            decisions: new Map(decisions),
+            decide: (key: string, decision?: "accepted" | "rejected" | "requested") => {
+              if (decision) decisions.set(key, decision);
+              else decisions.delete(key);
+              void act(async () => render());
+            },
+            requestRevert: (keys: string[], prompt: string) => {
+              sent.push({ keys, prompt });
+              for (const key of keys) decisions.set(key, "requested");
+              void act(async () => render());
+            },
+          },
+        }),
+      );
+    const document = dom.window.document;
+    const click = (node: Element) =>
+      act(async () => {
+        node.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      });
+    try {
+      await act(async () => render());
+      for (let tries = 0; tries < 50 && !document.querySelector(".acpmux-hunk-reject"); tries += 1)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+      expect(document.querySelector(".acpmux-hunk-reject")?.getAttribute("aria-label")).toBe(
+        "Reject change at a.ts line 5",
+      );
+      await click(document.querySelector(".acpmux-hunk-reject")!);
+      expect(document.querySelector(".acpmux-hunk-actions")?.textContent).toBe("RejectedUndo");
+      // The pressed button is gone; focus moves to the Undo that replaced it.
+      expect(document.activeElement?.textContent).toBe("Undo");
+      expect(document.querySelector(".acpmux-revert-count")?.textContent).toBe("1 change rejected");
+      await click([...document.querySelectorAll(".acpmux-revert-send")][0]);
+      expect(sent.length).toBe(1);
+      expect(sent[0].prompt).toContain("--- /repo/a.ts\n+++ /repo/a.ts\n@@ -4,2 +4,2 @@\n one\n-two\n+2");
+      expect(document.querySelector(".acpmux-hunk-actions")?.textContent).toBe("Revert requested");
+      expect(document.querySelector(".acpmux-revert-bar")).toBeNull();
+      expect(document.activeElement?.getAttribute("aria-label")).toBe("Back to transcript");
+    } finally {
+      await act(async () => root.unmount());
     }
   });
 });

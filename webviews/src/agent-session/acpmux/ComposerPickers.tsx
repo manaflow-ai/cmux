@@ -584,6 +584,12 @@ export const AtIcon = () => (
     <path d="M10.4 8v.9a1.8 1.8 0 0 0 3.6 0V8A6 6 0 1 0 11 13.2" />
   </Icon>
 );
+export const MicIcon = () => (
+  <Icon>
+    <rect x="5.5" y="1.5" width="5" height="8.5" rx="2.5" />
+    <path d="M3 7.5a5 5 0 0 0 10 0M8 12.5V15" />
+  </Icon>
+);
 export const SlashIcon = () => (
   <Icon>
     <path d="M10.5 2.5 5.5 13.5" />

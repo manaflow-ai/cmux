@@ -10,6 +10,7 @@ import { ChevronLeft, CollapseAll, Panels, SplitView, Wrap } from "./changeIcons
 import { ChangedFilesTree } from "./changes/ChangedFilesTree";
 import { Counts } from "./changes/Counts";
 import { EditBlock, type DiffLayout } from "./changes/EditBlock";
+import type { HunkReview } from "./changes/hunkReview";
 import type { FileActions, OpenTarget } from "./changes/FileHeader";
 import { LoadState } from "./changes/LoadState";
 import { applyCommand } from "./changes/applyCommand";
@@ -17,6 +18,7 @@ import { BranchPill } from "./changes/BranchPill";
 import { copyText } from "./conversation/clipboard";
 import { changeSetFiles, type ChangeScope, type ChangesSource } from "./changes/model";
 import { OptionsMenu, type OptionsRow } from "./changes/OptionsMenu";
+import { RevertBar } from "./changes/RevertBar";
 import { ScopeMenu } from "./changes/ScopeMenu";
 import { TrackedOnlyBanner } from "./changes/TrackedOnlyBanner";
 import { useScopeChanges } from "./changes/useScopeChanges";
@@ -44,7 +46,8 @@ function store(key: string, value: string) {
 type Tool = "collapse" | "wrap" | "split" | "tree";
 
 /// The changes one turn's tool calls made, file by file, or a git scope of the session's
-/// repository from `source`. Read-only; Back or Escape returns to the transcript.
+/// repository from `source`. Back or Escape returns to the transcript. With `review`, the last
+/// turn's hunks can each be accepted or rejected, and the rejected ones sent back to the agent.
 export function DiffPanel({
   files: turnFiles,
   initialPath,
@@ -53,6 +56,7 @@ export function DiffPanel({
   onOpenFile,
   checkpointAction,
   checkpointReview,
+  review,
 }: {
   files: TurnFile[];
   initialPath?: string;
@@ -62,6 +66,7 @@ export function DiffPanel({
   onOpenFile?: (path: string, where: OpenTarget) => Promise<unknown>;
   checkpointAction?: React.ReactNode;
   checkpointReview?: React.ReactNode;
+  review?: HunkReview;
 }) {
   registerAgentDiffTheme();
   const [scope, setScope] = useState<ChangeScope>("lastTurn");
@@ -83,6 +88,9 @@ export function DiffPanel({
   const [selected, setSelected] = useState<string | undefined>(initialPath ?? files[0]?.path);
   const body = useRef<HTMLDivElement>(null);
   const back = useRef<HTMLButtonElement>(null);
+  const focusAfter = useRef<string | undefined>(undefined);
+  // Decisions are keyed by the turn's tool calls, so only the last turn's hunks are reviewed.
+  const hunkReview = scope === "lastTurn" ? review : undefined;
   const totals = useMemo(
     () =>
       files.reduce(
@@ -141,7 +149,7 @@ export function DiffPanel({
   useEffect(() => {
     const close = (event: KeyboardEvent) => {
       const focus = document.activeElement;
-      if (event.key !== "Escape" || focus instanceof HTMLInputElement) return;
+      if (event.key !== "Escape" || event.defaultPrevented || focus instanceof HTMLInputElement) return;
       if (!focus || focus === document.body || panel.current?.contains(focus)) onClose();
     };
     window.addEventListener("keydown", close);
@@ -317,6 +325,8 @@ export function DiffPanel({
                   view={{ collapsed: collapsed.has(file.path), viewed: viewed.has(file.path) }}
                   on={on}
                   onPainted={onPainted}
+                  review={hunkReview}
+                  focusAfter={focusAfter}
                 />
               )),
             )
@@ -328,6 +338,7 @@ export function DiffPanel({
           </nav>
         )}
       </div>
+      {hunkReview && <RevertBar files={files} review={hunkReview} onSent={() => back.current?.focus()} />}
     </section>
   );
 }

@@ -41,10 +41,12 @@ export const seedStack: Stack = {
       "ws-flicker",
       agent("mock-sidebar-flicker", "Fix sidebar flicker on theme change"),
       terminal("t-flicker", "hearty-beige-elk"),
+      agent("mock-ime", "Fix IME composition in the terminal"),
     ),
     workspace(
       "ws-tabstrip",
       agent("mock-tab-strip", "Review the terminal tab strip"),
+      agent("mock-ci-cache", "Investigate CI cache misses"),
       browser("b-tabstrip", "Tab strip spec", "github.com/manaflow-ai/cmux/issues/16620"),
     ),
     workspace("ws-dev", terminal("t-dev", "cmux · bun run dev"), browser("b-dev", "cmux dev", "localhost:5173")),
