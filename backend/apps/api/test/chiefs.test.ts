@@ -68,3 +68,39 @@ describe("chief records", { timeout: 60_000 }, () => {
     expect(view.level).toBe("strict")
   })
 })
+
+describe("conversation.import (promote a Mac conversation)", { timeout: 60_000 }, () => {
+  it("imports a chief conversation in batches, refuses foreign agents and derived-id spoofing, then commits", async () => {
+    const t = await sessionToken("import-owner")
+    const user = (await op(t, "user.ensure", {})).json.value.id as string
+    const chief = (await op(t, "chief.create", {}, "chief-default")).json.value
+    const source = { kind: "mac", host: "inst_mac1", local_id: "conv_LOCAL1" }
+    const me = { id: user, kind: "human", display_name: "Me" }
+    const agent = { id: chief.id, kind: "agent", display_name: "Chief", agent_class: "mux" }
+    const msg = (seq: number, author: string, text: string) => ({ id: `msg_l${seq}`, seq, client_msg_id: `c${seq}`, author, parts: [{ type: "text", text }], created_at: `2026-09-21T13:13:2${seq}.000Z` })
+
+    // An agent the caller does not own is refused by the reach policy.
+    const foreign = await op(t, "conversation.import", { source, kind: "chief", participants: [me, { ...agent, id: "agent_00000000000000000000000000" }], messages: [] })
+    expect(foreign.json.ok).toBe(false)
+
+    const first = await op(t, "conversation.import", { source, kind: "chief", participants: [me, agent], messages: [msg(1, user, "start"), msg(2, chief.id, "hi")] })
+    expect(first.json.error).toBeUndefined()
+    const id = first.json.value.id as string
+    expect(id).toMatch(/^conv_[0-9A-HJKMNP-TV-Z]{26}$/)
+    expect(first.json.value.last_seq).toBe(2)
+    // Same source again: no-op on the same object.
+    expect((await op(t, "conversation.import", { source, kind: "chief", participants: [me, agent], messages: [] })).json.ok).toBe(true)
+    // Before commit other ops are refused.
+    expect((await op(t, "message.send", { conversation: id, client_msg_id: "x1", parts: [{ type: "text", text: "early" }] }, "x1")).json.error.code).toBe("importing")
+    expect((await op(t, "conversation.import", { id, after_seq: 2, messages: [msg(3, user, "more")] })).json.ok).toBe(true)
+    expect((await op(t, "conversation.import", { id, after_seq: 2, messages: [msg(3, user, "dup")] })).json.error.code).toBe("import_out_of_order")
+    // Another user cannot continue or commit it.
+    const other = await sessionToken("import-other")
+    await op(other, "user.ensure", {})
+    expect((await op(other, "conversation.import.commit", { id, last_seq: 3 })).json.ok).toBe(false)
+    expect((await op(t, "conversation.import.commit", { id, last_seq: 3 })).json.ok).toBe(true)
+    const history = await call("/v1/read", t, { op: "conversation.history", params: { conversation: id, limit: 10 } })
+    expect(history.json.value.messages.map((m: { parts: Array<{ text: string }> }) => m.parts[0]!.text)).toEqual(["start", "hi", "more"])
+    expect((await op(t, "message.send", { conversation: id, client_msg_id: "x2", parts: [{ type: "text", text: "after" }] }, "x2")).json.ok).toBe(true)
+  })
+})

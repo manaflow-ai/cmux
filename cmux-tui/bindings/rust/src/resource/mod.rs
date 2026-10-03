@@ -3,13 +3,19 @@ mod handles;
 mod id;
 mod journal_plugin;
 mod model;
+mod operation_class;
 mod ops;
 mod options;
 mod stream;
 mod typed_stream;
 mod wire;
 
+pub(crate) use client::decode_protocol_error;
 pub use client::{Client, Config};
+pub use handles::state_ops::{
+    ColumnEdge, ColumnMode, TAB_HISTORY_MAX_URLS, TabUpdateOptions, WINDOW_RECORD_MAX_BYTES,
+    WindowRecordDeleteResult, WindowRecordSnapshot, WorkspaceUpdateOptions,
+};
 pub use handles::{
     Agent, Browser, ConnectedClient, FrontendProjection, Machine, Notification, PairingRequest,
     Pane, Screen, Session, SessionCreation, SidebarView, Tab, Terminal, Workspace,
@@ -43,6 +49,7 @@ pub use model::{
     TypedStreamItem, ViewAttachmentOutcome, ViewerReleaseResult, ViewerResizeResult,
     WorkspaceSnapshot,
 };
+pub(crate) use options::validate_idempotency_key;
 pub use options::{
     AgentListOptions, AgentReportOptions, AgentSource, AgentState, BrowserAttachOptions,
     BrowserCreateOptions, BrowserKeyKind, BrowserKeyOptions, BrowserMouseButton, BrowserMouseKind,

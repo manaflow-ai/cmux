@@ -38,6 +38,14 @@ public nonisolated enum ActionSurfaceExport {
             shortcut = wire
         }
         row["default_shortcut"] = shortcut
+        let category = descriptor.category
+        row["palette_section"] = [
+            "id": category.paletteSectionID,
+            "title_key": category.titleKey,
+            "title_table": category.titleTable,
+            "title": titles.entry(key: category.titleKey, table: category.titleTable)?.english ?? category.title,
+            "order": category.paletteSectionOrder,
+        ] as [String: Any]
         row["default_chord"] = descriptor.defaultChord.map { [wireShortcut($0.first), wireShortcut($0.second)] as Any } ?? NSNull()
         return row
     }

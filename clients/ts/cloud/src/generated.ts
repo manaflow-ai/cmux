@@ -1098,6 +1098,32 @@ export interface CloudOps {
       readonly revision: string
     }
   }
+  /** Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. */
+  readonly "conversation.import": {
+    readonly params: {
+      readonly id?: ConversationId
+      readonly source?: {
+        readonly kind: "mac"
+        readonly host: string
+        readonly local_id: string
+      }
+      readonly kind?: "group" | "chief"
+      readonly title?: string
+      readonly participants?: ReadonlyArray<HomeParticipantInput>
+      readonly after_seq?: number
+      readonly messages: ReadonlyArray<unknown>
+      readonly read_cursors?: unknown
+    }
+    readonly result: HomeConversationCommit
+  }
+  /** Finish an import: read cursors are clamped, normal ops open, each human gets one inbox entry. */
+  readonly "conversation.import.commit": {
+    readonly params: {
+      readonly id: ConversationId
+      readonly last_seq: number
+    }
+    readonly result: HomeConversationCommit
+  }
   /** Change the chief wake policy, agent turn budget or history visibility (conversation owner). */
   readonly "conversation.settings.set": {
     readonly params: {
@@ -2300,6 +2326,8 @@ export const cloudOpMeta = {
   "chief.update": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "conversation.create": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "conversation.history": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
+  "conversation.import": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "conversation.import.commit": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "conversation.settings.set": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "conversation.snapshot": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
   "dm.open": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },

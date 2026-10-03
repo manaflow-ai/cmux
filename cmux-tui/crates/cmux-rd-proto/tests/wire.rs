@@ -120,3 +120,24 @@ proptest! {
         let _ = FrameBody::decode(&bytes);
     }
 }
+
+#[test]
+fn large_frames_without_parity_are_accepted_and_large_fec_blocks_refused() {
+    let header = |count: u16, fec_count: u16, index: u16, kind: DatagramKind| {
+        DatagramHeader {
+            flags: 0,
+            kind,
+            stream: 0,
+            frame: 1,
+            index,
+            count,
+            fec_count,
+            transport_seq: 0,
+        }
+        .encode()
+    };
+    assert!(DatagramHeader::decode(&header(300, 0, 299, DatagramKind::Video)).is_ok());
+    assert!(DatagramHeader::decode(&header(300, 1, 300, DatagramKind::Fec)).is_err());
+    assert!(DatagramHeader::decode(&header(254, 1, 254, DatagramKind::Fec)).is_ok());
+    assert!(DatagramHeader::decode(&header(4097, 0, 0, DatagramKind::Video)).is_err());
+}

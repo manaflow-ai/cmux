@@ -43,5 +43,21 @@ Steps per branch (confirm the branch with `pscale branch show cmux-next <branch>
 5. `pscale role delete cmux-next <branch> <old search-ro id> --org cmux --force --successor postgres`.
 
 Done: development and staging (all checks passed, Hyperdrives use search-ro2, old role deleted).
-Production (branch main, Hyperdrive 6badee5cbb964e9f9c09c6f175a14c85): prepared, waiting for Lawrence's approval.
+Production (branch main, Hyperdrive 6badee5cbb964e9f9c09c6f175a14c85): done 2026-10-03 after the
+coordinator's C-BATCH decision (same SQL and checks; all passed; Hyperdrive uses search-ro2; old
+role deleted with --successor postgres).
 New projection tables that search reads need the same GRANT.
+
+## Queue after stage B (coordinator C-BATCH, 2026-10-03)
+
+1. Drizzle for schema and queries: generated SQL migrations committed, reviewed and applied through
+   the backend:apply-migrations gate; a test proves the Drizzle schema equals today's database
+   (introspect the scratch Postgres after all migrations and diff); raw SQL only where Drizzle is
+   poor (home.search). Starts after conversation.import and the chief records (both done).
+2. Stage C: MailerDO (tag at landing), AddressDO sends (vCard first, allow list fail-closed, kill
+   switch, logged staging sends), invite limits, lane 15 phone-link rules, and
+   `install.enroll_local` (the daemon enrolls as its own install per ownership-v2, with a
+   narrowed grant: read and mutate-own on its own host objects, no send-external, money or
+   destructive).
+3. Automations dogfood hard cap: $25 per team per UTC month (automations lead enforces; backend
+   reviews the meter).

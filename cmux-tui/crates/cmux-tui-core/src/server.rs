@@ -437,6 +437,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         STATE_RESOURCES_CAPABILITY,
         WINDOW_RECORDS_CAPABILITY,
         FRONTEND_BROWSER_OWNER_CAPABILITY,
+        crate::state::frontend_browser_keys::FRONTEND_BROWSER_TAB_KEYS_CAPABILITY,
         crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
@@ -1420,26 +1421,7 @@ enum Command {
     /// `conversation-tabs-v1`: a tab showing one conversation (server/conversation_tabs_wire.rs).
     NewConversationTab(conversation_tabs_wire::NewConversationTabParams),
     /// New browser tab whose page the frontend renders (WebKit or CEF).
-    /// The daemon persists its location and never attaches a CDP target.
-    NewFrontendBrowserTab {
-        url: String,
-        engine: String,
-        #[serde(default)]
-        pane: Option<PaneId>,
-        #[serde(default)]
-        title: Option<String>,
-        #[serde(default)]
-        favicon_url: Option<String>,
-        #[serde(default)]
-        profile_id: Option<String>,
-        /// Install id of the hosting app (the record's only writer).
-        #[serde(default)]
-        owner: Option<String>,
-        #[serde(default)]
-        cols: Option<u16>,
-        #[serde(default)]
-        rows: Option<u16>,
-    },
+    NewFrontendBrowserTab(frontend_browser_history::NewTabParams),
     UpdateFrontendBrowserTab(frontend_browser_history::UpdateTabParams),
     SetFrontendBrowserHistory(frontend_browser_history::SetParams),
     GetFrontendBrowserHistory(frontend_browser_history::GetParams),
@@ -14005,37 +13987,7 @@ fn handle_command_with_cancellation(
         Command::NewConversationTab(params) => {
             conversation_tabs_wire::new_conversation_tab(mux, params)
         }
-        Command::NewFrontendBrowserTab {
-            url,
-            engine,
-            pane,
-            title,
-            favicon_url,
-            profile_id,
-            owner,
-            cols,
-            rows,
-        } => {
-            let record = crate::workspace_registry::FrontendBrowserRecord {
-                engine,
-                url,
-                title,
-                favicon_url,
-                profile_id,
-                owner,
-            };
-            let surface = mux.new_frontend_browser_tab(
-                pane,
-                record,
-                paired_surface_size("new-frontend-browser-tab", cols, rows)?,
-            )?;
-            let identity = surface.resource_identity();
-            Ok(json!({
-                "surface": surface.id,
-                "tab_resource_id": identity.map(|identity| identity.tab_id.as_str()),
-                "content_resource_id": identity.map(|identity| identity.content_id.as_str()),
-            }))
-        }
+        Command::NewFrontendBrowserTab(params) => frontend_browser_history::create(mux, params),
         Command::UpdateFrontendBrowserTab(params) => frontend_browser_history::update(mux, params),
         Command::SetFrontendBrowserHistory(params) => frontend_browser_history::set(mux, params),
         Command::GetFrontendBrowserHistory(params) => frontend_browser_history::get(mux, params),

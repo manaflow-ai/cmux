@@ -5,3 +5,4 @@
 
 ## Landed
 - 2026-10-03 (this commit) plans: settings-react.md (ownership, ops, page design, slices a-f, objections) (settings lead)
+- 2026-10-03 1f08a54bc4c control (catalog lane): stopgap, the app socket settings.set/reset/unset refuse managed keys (`managed`) and schema-invalid values (`invalid_params`), and write schema keys through SettingsController.setSetting (SocketSettingsWriteTests). Slice b of settings-react.md deletes these writers. settings-surfaces.md now points at the daemon config actor.

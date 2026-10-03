@@ -1,4 +1,5 @@
 import CmuxNextApps
+import CmuxNextCodeRouter
 import CmuxNextControl
 import CmuxNextSettings
 import Foundation
@@ -39,23 +40,18 @@ nonisolated struct CodeRouterAppOps: AppHostCapabilityHandler {
         }
     }
 
-    /// Shortens every email-shaped string (`someone@example.com` -> `s…@e…`), keys included.
+    /// Shortens every email-like string, keys included, with the shared
+    /// account redactor (any run holding `@`, `＠`, `﹫`, `%40` or `%2540`).
+    /// Two keys that shorten to the same text keep the first value instead of
+    /// trapping.
     static func redact(_ value: AppJSON) -> AppJSON {
         switch value {
-        case .string(let text): .string(redactEmails(text))
+        case .string(let text): .string(text.redactingEmails())
         case .array(let items): .array(items.map(redact))
-        case .object(let fields): .object(Dictionary(uniqueKeysWithValues: fields.map { (redactEmails($0.key), redact($0.value)) }))
+        case .object(let fields):
+            .object(Dictionary(fields.sorted { $0.key < $1.key }.map { ($0.key.redactingEmails(), redact($0.value)) },
+                               uniquingKeysWith: { first, _ in first }))
         default: value
-        }
-    }
-
-    static func redactEmails(_ text: String) -> String {
-        guard text.contains("@") else { return text }
-        return text.replacing(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/) { match in
-            let parts = match.output.split(separator: "@", maxSplits: 1)
-            let local = parts.first?.first.map(String.init) ?? ""
-            let domain = parts.count > 1 ? parts[1].first.map(String.init) ?? "" : ""
-            return "\(local)…@\(domain)…"
         }
     }
 }

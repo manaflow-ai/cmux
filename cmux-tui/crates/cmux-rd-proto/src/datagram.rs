@@ -6,6 +6,12 @@ pub const VERSION: u8 = 1;
 /// Size of [`DatagramHeader`] on the wire.
 pub const HEADER_LEN: usize = 16;
 
+/// Most shards (data plus parity) of a frame that carries parity: one FEC block.
+pub const MAX_FEC_BLOCK: u32 = 255;
+
+/// Most data shards of a frame without parity (about 4.6 MB at 1136-byte shards).
+pub const MAX_FRAME_SHARDS: u32 = 4096;
+
 /// Header flag bits (low nibble of the first byte).
 pub mod flags {
     /// The frame is an IDR: it references no earlier frame.
@@ -127,7 +133,10 @@ impl DatagramHeader {
         };
         if matches!(kind, DatagramKind::Video | DatagramKind::Fec) {
             let total = u32::from(header.count) + u32::from(header.fec_count);
-            if header.count == 0 || u32::from(header.index) >= total || total > 255 {
+            // A frame with parity is one FEC block (at most 255 shards); a frame without
+            // parity may span up to MAX_FRAME_SHARDS data shards.
+            let limit = if header.fec_count == 0 { MAX_FRAME_SHARDS } else { MAX_FEC_BLOCK };
+            if header.count == 0 || u32::from(header.index) >= total || total > limit {
                 return Err(DecodeError::Invalid("shard index or count"));
             }
             let parity = kind == DatagramKind::Fec;

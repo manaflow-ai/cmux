@@ -224,8 +224,7 @@ public final class PaletteController {
         let createdPanel = panel == nil
         // The document window, never a Chromium page window over it (a child
         // window): hiding gives the keys back to the window, not the page.
-        // `NSApplication.shared`, not `NSApp`: the latter is nil in a
-        // process that never created the application (package tests).
+        // `NSApplication.shared`: `NSApp` is nil in package-test processes.
         let app = NSApplication.shared
         var parent = window ?? app.keyWindow.flatMap { $0 is PalettePanel ? nil : $0 } ?? app.mainWindow
         while let owner = parent?.parent { parent = owner }

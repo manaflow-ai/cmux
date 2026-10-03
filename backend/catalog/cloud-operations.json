@@ -14044,6 +14044,454 @@
         }
       }
     },
+    "conversation.import": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "conversation",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "id": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "ConversationId"
+            }
+          },
+          "source": {
+            "required": false,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "kind": {
+                  "required": true,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "mac"
+                    ]
+                  }
+                },
+                "host": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "max_length": 128
+                  }
+                },
+                "local_id": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "max_length": 128
+                  }
+                }
+              }
+            }
+          },
+          "kind": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "group",
+                "chief"
+              ]
+            }
+          },
+          "title": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 200
+            }
+          },
+          "participants": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "HomeParticipantInput"
+              }
+            }
+          },
+          "after_seq": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "messages": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "json"
+              }
+            }
+          },
+          "read_cursors": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "json"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HomeConversationCommit"
+          }
+        ]
+      },
+      "errors": [
+        "archived",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "conversation_exists",
+        "forbidden",
+        "idempotency.conflict",
+        "import_out_of_order",
+        "importing",
+        "invalid_conversation_id",
+        "kind_forbids",
+        "not_participant",
+        "owner.unreachable",
+        "unknown_conversation",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConversationDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chat import",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "home"
+      },
+      "docs": "Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/ConversationId"
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "mac"
+                ]
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "local_id": {
+                "type": "string",
+                "maxLength": 128
+              }
+            },
+            "required": [
+              "kind",
+              "host",
+              "local_id"
+            ],
+            "additionalProperties": true
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "group",
+              "chief"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "participants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/HomeParticipantInput"
+            },
+            "maxItems": 64
+          },
+          "after_seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "messages": {
+            "type": "array",
+            "maxItems": 500
+          },
+          "read_cursors": {}
+        },
+        "required": [
+          "messages"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
+          "ParticipantId": {
+            "type": "string",
+            "pattern": "^((user|agent)_[A-Za-z0-9_.-]{1,64}|addr_[0-9A-HJKMNP-TV-Z]{26})$",
+            "description": "user_<id>, agent_<name> or addr_<26> (an invited address)."
+          },
+          "HomeParticipantInput": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/ParticipantId"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent"
+                ]
+              },
+              "display_name": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "agent_class": {
+                "type": "string",
+                "enum": [
+                  "mux",
+                  "agent"
+                ]
+              },
+              "owner_user": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "display_name"
+            ],
+            "additionalProperties": true
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/HomeConversationCommit",
+        "$defs": {
+          "MessageId": {
+            "type": "string",
+            "pattern": "^msg_[0-9A-Za-z]{1,64}$"
+          },
+          "HomeConversationCommit": {
+            "type": "object",
+            "properties": {
+              "rev": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "seq": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "message_id": {
+                "$ref": "#/$defs/MessageId"
+              },
+              "change": {}
+            },
+            "required": [
+              "rev",
+              "change"
+            ],
+            "additionalProperties": true,
+            "description": "rev after the op; seq and message_id for a new message; change is the committed Change."
+          }
+        }
+      }
+    },
+    "conversation.import.commit": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "conversation",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "id": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConversationId"
+            }
+          },
+          "last_seq": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HomeConversationCommit"
+          }
+        ]
+      },
+      "errors": [
+        "archived",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "forbidden",
+        "idempotency.conflict",
+        "import_out_of_order",
+        "kind_forbids",
+        "not_participant",
+        "owner.unreachable",
+        "unknown_conversation",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConversationDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chat import commit",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "home"
+      },
+      "docs": "Finish an import: read cursors are clamped, normal ops open, each human gets one inbox entry.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/ConversationId"
+          },
+          "last_seq": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "id",
+          "last_seq"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/HomeConversationCommit",
+        "$defs": {
+          "MessageId": {
+            "type": "string",
+            "pattern": "^msg_[0-9A-Za-z]{1,64}$"
+          },
+          "HomeConversationCommit": {
+            "type": "object",
+            "properties": {
+              "rev": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "seq": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "message_id": {
+                "$ref": "#/$defs/MessageId"
+              },
+              "change": {}
+            },
+            "required": [
+              "rev",
+              "change"
+            ],
+            "additionalProperties": true,
+            "description": "rev after the op; seq and message_id for a new message; change is the committed Change."
+          }
+        }
+      }
+    },
     "conversation.settings.set": {
       "class": "mutation",
       "idempotency": "required",

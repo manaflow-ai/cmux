@@ -13339,6 +13339,15 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "idempotency_key": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
      }
     },
     "additional_properties": false

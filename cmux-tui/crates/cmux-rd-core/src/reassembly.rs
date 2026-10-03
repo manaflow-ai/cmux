@@ -31,6 +31,7 @@ struct Pending {
     first_seen_us: u64,
     flags: u8,
     count: u16,
+    shard_len: Option<usize>,
     shards: Vec<Option<Vec<u8>>>,
 }
 
@@ -45,9 +46,13 @@ pub struct Reassembler {
     finished_through: u32,
     losses: Vec<FrameLoss>,
     need_recovery: bool,
+    pending_bytes: usize,
     /// Recently released frames that a recovery frame may reference.
     released_recent: VecDeque<u32>,
 }
+
+/// Most payload bytes held for incomplete frames; shards beyond it are ignored.
+pub const MAX_PENDING_BYTES: usize = 32 << 20;
 
 /// Most frames waiting for shards at once; datagrams of further frames are ignored.
 pub const MAX_PENDING_FRAMES: usize = 64;
@@ -68,6 +73,7 @@ impl Reassembler {
             finished_through: 0,
             losses: Vec::new(),
             need_recovery: false,
+            pending_bytes: 0,
             released_recent: VecDeque::new(),
         }
     }
@@ -114,13 +120,21 @@ impl Reassembler {
             first_seen_us: now_us,
             flags: header.flags,
             count: header.count,
+            shard_len: None,
             shards: vec![None; total],
         });
+        // Every shard of a frame has the same length (the session's shard size); a shard
+        // of another length is refused, and pending payload bytes are capped.
+        let shard_len_ok = entry.shard_len.is_none_or(|l| l == payload.len());
         if entry.shards.len() == total
             && entry.count == header.count
+            && shard_len_ok
+            && self.pending_bytes + payload.len() <= MAX_PENDING_BYTES
             && let Some(slot) = entry.shards.get_mut(usize::from(header.index))
             && slot.is_none()
         {
+            entry.shard_len = Some(payload.len());
+            self.pending_bytes += payload.len();
             *slot = Some(payload.to_vec());
         }
         self.expire(now_us);
@@ -163,14 +177,14 @@ impl Reassembler {
             .map(|(&f, _)| f)
             .collect();
         for frame in expired {
-            self.pending.remove(&frame);
+            self.take_pending(&frame);
             self.lose(frame);
         }
         // Frames older than a finished frame can never be released in order.
         let stale: Vec<u32> =
             self.pending.range(..=self.finished_through).map(|(&f, _)| f).collect();
         for frame in stale {
-            self.pending.remove(&frame);
+            self.take_pending(&frame);
             self.lose(frame);
         }
     }
@@ -188,6 +202,14 @@ impl Reassembler {
             .map(|(&f, _)| f)
     }
 
+    /// Removes a pending frame and releases its bytes from the budget.
+    fn take_pending(&mut self, frame: &u32) -> Option<Pending> {
+        let p = self.pending.remove(frame)?;
+        let held: usize = p.shards.iter().flatten().map(Vec::len).sum();
+        self.pending_bytes = self.pending_bytes.saturating_sub(held);
+        Some(p)
+    }
+
     fn lose(&mut self, frame: u32) {
         self.losses.push(FrameLoss::Incomplete { frame });
         self.need_recovery = true;
@@ -199,10 +221,10 @@ impl Reassembler {
         while let Some(frame) = self.next_candidate() {
             let older: Vec<u32> = self.pending.range(..frame).map(|(&f, _)| f).collect();
             for f in older {
-                self.pending.remove(&f);
+                self.take_pending(&f);
                 self.lose(f);
             }
-            let Some(mut p) = self.pending.remove(&frame) else { break };
+            let Some(mut p) = self.take_pending(&frame) else { break };
             let count = usize::from(p.count);
             if fec::reconstruct(&mut p.shards, count).is_err() {
                 self.lose(frame);
