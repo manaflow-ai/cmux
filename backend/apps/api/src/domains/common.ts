@@ -225,6 +225,23 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       ] as const
   ),
   [
+    "team.policy.runs_synced",
+    {
+      name: "team.policy.runs_synced",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "team_policy",
+      principals: ["system"],
+      params: Schema.Struct({ version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)), runs_allowed: Schema.Boolean }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: SchedulerDO acknowledged whether the team allows automation runs (agents.allowedClasses run).",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
     "install.revoke_by_team",
     {
       name: "install.revoke_by_team",

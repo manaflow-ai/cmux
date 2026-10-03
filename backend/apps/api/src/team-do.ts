@@ -5,6 +5,7 @@ import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { complianceFor, devicePolicyFor, publicToken } from "./domains/team-enrollment.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
+import { runSyncPending, runSyncPush } from "./domains/team-run-sync.ts"
 import { currentPolicy, enforcedOn, integrationSlice, POLICY_HISTORY_LIMIT, policyAt, ssoServable, type PolicyValues } from "./domains/team-policy.ts"
 import { domainExternal, RESOLVERS, txtAnswers, type DomainReply, type Http } from "./team-domain-external.ts"
 import { nextRecheckAt, RECHECK_MS, txtContains } from "./domains/team-domains.ts"
@@ -94,13 +95,45 @@ export class TeamDO extends OwnerDO<TeamState> {
   private syncRetryAt: number | null = null
   private syncAttempts = 0
 
-  /** Wake while ConnectionDO lacks the current policy version (spec/enterprise.md 4.6). */
+  /** Backoff after a failed run-policy push to SchedulerDO (in memory). */
+  private runSyncRetryAt: number | null = null
+  private runSyncAttempts = 0
+
+  /** Wake while ConnectionDO lacks the current policy version (spec/enterprise.md 4.6) or SchedulerDO lacks the run class. */
   protected override nextWakeAt(state: TeamState, now: number): number | null {
     if (!state.team) return null
     if (Object.keys(state.server_revocations ?? {}).length > 0) return Math.max(now, this.revokeRetryAt ?? now)
-    const recheck = nextRecheckAt(state)
-    const sync = integrationSyncPending(state) || releasePending(state) ? Math.max(now, this.syncRetryAt ?? now) : null
-    return sync === null ? recheck : recheck === null ? sync : Math.min(sync, recheck)
+    const times = [
+      nextRecheckAt(state),
+      integrationSyncPending(state) || releasePending(state) ? Math.max(now, this.syncRetryAt ?? now) : null,
+      runSyncPending(state) ? Math.max(now, this.runSyncRetryAt ?? now) : null
+    ].filter((t): t is number => t !== null)
+    return times.length === 0 ? null : Math.min(...times)
+  }
+
+  /**
+   * Pushes the run class of agents.allowedClasses to SchedulerDO (team-run-sync.ts), then records
+   * the acknowledgement. Idempotent on both sides (keys carry the version and the bit). A failure
+   * backs off and never blocks the integration push.
+   */
+  private async syncRunPolicy(now: number): Promise<void> {
+    const state = this.boundEngine?.currentState
+    if (!state?.team || !runSyncPending(state)) return
+    if (this.runSyncRetryAt !== null && now < this.runSyncRetryAt) return
+    const team = state.team.id
+    const push = runSyncPush(state)
+    try {
+      const stub = this.env.SCHEDULER_DO.get(this.env.SCHEDULER_DO.idFromName(team)) as unknown as { applyRunPolicy(e: string, p: typeof push): Promise<{ ok: boolean; message?: string }> }
+      const r = await stub.applyRunPolicy(team, push)
+      if (!r.ok) throw new Error(r.message ?? "refused")
+      this.requireCommitted(this.submitSystem("team.policy.runs_synced", push, `runs-synced:${push.version}:${push.runs_allowed ? 1 : 0}`))
+      this.runSyncAttempts = 0
+      this.runSyncRetryAt = null
+    } catch (e) {
+      this.runSyncAttempts += 1
+      this.runSyncRetryAt = now + Math.min(5 * 60_000, 1000 * 2 ** this.runSyncAttempts)
+      console.error(JSON.stringify({ msg: "run policy push to SchedulerDO failed", team, error: String(e) }))
+    }
   }
 
   /**
@@ -112,6 +145,7 @@ export class TeamDO extends OwnerDO<TeamState> {
   protected override async onWake(now: number): Promise<void> {
     if (this.revokeRetryAt === null || now >= this.revokeRetryAt) await this.flushServerRevocations(this.boundEngine?.currentState.team?.id ?? "")
     await this.recheckDomains(now)
+    await this.syncRunPolicy(now)
     const engine = this.boundEngine
     let state = engine?.currentState
     if (!state?.team || (!integrationSyncPending(state) && !releasePending(state))) return
