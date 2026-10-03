@@ -222,10 +222,13 @@ public:
     [[nodiscard]] Result<JsonValue> set_workspace_metadata(const SetWorkspaceMetadataRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ShutdownDaemonResult> shutdown_daemon(const ShutdownDaemonRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SidebarPluginResult> sidebar_plugin(const SidebarPluginRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<SnapshotRequestResult> snapshot_request(const SnapshotRequestRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> split(const SplitRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EventStream> subscribe(const SubscribeRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> swap_pane(const SwapPaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalEventsResult> terminal_events(const TerminalEventsRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<TerminalHistoryPagesResult> terminal_history(const TerminalHistoryRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<TerminalReadRangeResult> terminal_read_range(const TerminalReadRangeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalResourcesResult> terminal_resources(const TerminalResourcesRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<LayoutUndoResult> undo_layout(const UndoLayoutRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> ungroup_screen_group(const UngroupScreenGroupRequest& request, RequestOptions options = {});

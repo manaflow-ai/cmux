@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9a93a666e8f059fe58fafce71e3c8f25d47a930c49c9058ed455f3ca46b21d7b. */
+/* cmux-tui mux protocol 12, IR 7df8134084243af1f2fb7eab1f15ab29c9fe1165237c31c95b037c0099a1b75c. */
 
 
 import type * as T from "./types.js";
@@ -66,7 +66,10 @@ export interface AttachSurfaceRequest extends CmuxRequestBase {
   "expected_terminal_id"?: (string) | null;
   "mode"?: ("bytes" | "render") | null;
   "rows"?: (number) | null;
+  "snapshot"?: (string) | null;
+  "snapshot_version"?: (number) | null;
   "surface"?: (T.Id) | null;
+  "viewer_backlog_bytes"?: (bigint) | null;
 }
 export type AttachSurfaceResult = T.EmptyResult;
 
@@ -1705,6 +1708,15 @@ export interface SidebarPluginRequest extends CmuxRequestBase {
   "rows": number;
 }
 
+/** Protocol v12; authority: frontend. */
+export interface SnapshotRequestRequest extends CmuxRequestBase {
+  cmd: "snapshot-request";
+  "have"?: (T.SnapshotRequestHave) | null;
+  "reason"?: (string) | null;
+  "request_id"?: (string) | null;
+  "surface": T.Id;
+}
+
 /** Protocol v5; authority: control. */
 export interface SplitRequest extends CmuxRequestBase {
   cmd: "split";
@@ -1741,6 +1753,26 @@ export type SwapPaneResult = T.EmptyResult;
 export interface TerminalEventsRequest extends CmuxRequestBase {
   cmd: "terminal-events";
   "after_revision"?: bigint;
+}
+
+/** Protocol v12; authority: control. */
+export interface TerminalHistoryRequest extends CmuxRequestBase {
+  cmd: "terminal-history";
+  "before"?: (bigint) | null;
+  "marker_epoch"?: (bigint) | null;
+  "max_bytes"?: (bigint) | null;
+  "surface": T.Id;
+}
+export type TerminalHistoryResult = T.TerminalHistoryPagesResult;
+
+/** Protocol v12; authority: control. */
+export interface TerminalReadRangeRequest extends CmuxRequestBase {
+  cmd: "terminal-read-range";
+  "format"?: (string) | null;
+  "from": T.RowMarkerPoint;
+  "marker_epoch"?: (bigint) | null;
+  "surface": T.Id;
+  "to": T.RowMarkerPoint;
 }
 
 /** Protocol v12; authority: control. */
@@ -2124,10 +2156,13 @@ export type CmuxRequest =
   | SetWorkspaceMetadataRequest
   | ShutdownDaemonRequest
   | SidebarPluginRequest
+  | SnapshotRequestRequest
   | SplitRequest
   | SubscribeRequest
   | SwapPaneRequest
   | TerminalEventsRequest
+  | TerminalHistoryRequest
+  | TerminalReadRangeRequest
   | TerminalResourcesRequest
   | UndoLayoutRequest
   | UngroupScreenGroupRequest
@@ -3602,6 +3637,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "snapshot-request": {
+    request: SnapshotRequestRequest;
+    result: T.SnapshotRequestResult;
+    authority: "frontend";
+    since: 12;
+    capability: "terminal-snapshot-v1";
+    stream: null;
+  };
   "split": {
     request: SplitRequest;
     result: SplitResult;
@@ -3632,6 +3675,22 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 9;
     capability: null;
+    stream: null;
+  };
+  "terminal-history": {
+    request: TerminalHistoryRequest;
+    result: TerminalHistoryResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-snapshot-v1";
+    stream: null;
+  };
+  "terminal-read-range": {
+    request: TerminalReadRangeRequest;
+    result: T.TerminalReadRangeResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-snapshot-v1";
     stream: null;
   };
   "terminal-resources": {

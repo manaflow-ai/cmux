@@ -1,13 +1,14 @@
 //! Safe Rust wrapper around libghostty-vt.
 //!
 //! The terminal engine is the exact same VT parser and state machine used
-//! by the Ghostty app (built from the `ghostty/` submodule), so anything
+//! by the Ghostty app (libghostty-vt built from the `ghostty-next/` submodule), so anything
 //! rendered from this crate matches what a real Ghostty surface would show.
 
 mod key;
 mod kitty;
 mod mouse;
 mod render;
+mod snapshot;
 mod terminal;
 
 /// Raw bindings, re-exported for key/mode constants.
@@ -28,9 +29,16 @@ pub use render::{
     ATTR_STRIKETHROUGH, Cell, CellWidth, ColorSpec, CursorInfo, CursorShape, Dirty,
     KittyGraphicsFrameDelta, RenderFrame, RenderState, StyledRun, UnderlineStyle, rows_to_runs,
 };
+pub use snapshot::{
+    SNAPSHOT_ENVELOPE_LEN, SNAPSHOT_RECORD_HEADER_LEN, SnapshotHistoryPage, SnapshotPhase,
+    SnapshotRecord, primary_history_pages, reencode_ready, snapshot_digest_input,
+    snapshot_envelope_version, snapshot_ready_len, snapshot_records, snapshot_version,
+    tag as snapshot_tag,
+};
 pub use terminal::{
-    Callbacks, ClearHistoryOutcome, KittyGraphicsLimits, KittyImageIdCursors, KittyReplayState,
-    NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, SelectionPoint, SelectionRange, Terminal,
+    Callbacks, ClearHistoryOutcome, HistoryPage, HistoryPages, KittyGraphicsLimits,
+    KittyImageIdCursors, KittyReplayState, MarkerError, NotifyFn, PtyWriteFn, Rgb,
+    SNAPSHOT_CONTINUATION_MAX_BYTES, Screen, Scrollbar, SelectionPoint, SelectionRange, Terminal,
     TerminalColorOverrides, TerminalPointerSemanticSnapshot, TrackedScreenPoint, VtReplay,
     parse_color, parse_palette_entry,
 };

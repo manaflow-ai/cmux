@@ -14,7 +14,7 @@ public final class Commands {
     public static final CommandMetadata ADD_SCREENS_TO_SCREEN_GROUP = new CommandMetadata("add-screens-to-screen-group", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata ADD_TABS_TO_TAB_GROUP = new CommandMetadata("add-tabs-to-tab-group", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata APPLY_LAYOUT = new CommandMetadata("apply-layout", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata ATTACH_SURFACE = new CommandMetadata("attach-surface", Authority.FRONTEND, 5, null, StreamKind.ATTACH, Map.ofEntries(Map.entry("mode", 7L)), Map.ofEntries(Map.entry("cols", "attach-initial-size"), Map.entry("expected_generation", "attach-identity-v1"), Map.entry("expected_terminal_id", "attach-identity-v1"), Map.entry("rows", "attach-initial-size")));
+    public static final CommandMetadata ATTACH_SURFACE = new CommandMetadata("attach-surface", Authority.FRONTEND, 5, null, StreamKind.ATTACH, Map.ofEntries(Map.entry("mode", 7L)), Map.ofEntries(Map.entry("cols", "attach-initial-size"), Map.entry("expected_generation", "attach-identity-v1"), Map.entry("expected_terminal_id", "attach-identity-v1"), Map.entry("rows", "attach-initial-size"), Map.entry("snapshot", "terminal-snapshot-v1"), Map.entry("snapshot_version", "terminal-snapshot-v1"), Map.entry("viewer_backlog_bytes", "terminal-snapshot-v1")));
     public static final CommandMetadata BROWSER_ACTIVATE = new CommandMetadata("browser-activate", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_BACK = new CommandMetadata("browser-back", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_FORWARD = new CommandMetadata("browser-forward", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -191,10 +191,13 @@ public final class Commands {
     public static final CommandMetadata SET_WORKSPACE_METADATA = new CommandMetadata("set-workspace-metadata", Authority.CONTROL, 12, "workspace-metadata-v1", StreamKind.NONE, Map.ofEntries(Map.entry("marked_unread", 12L), Map.entry("pinned", 12L)), Map.ofEntries(Map.entry("marked_unread", "notification-mark-unread-v1"), Map.entry("pinned", "workspace-pin-v1")));
     public static final CommandMetadata SHUTDOWN_DAEMON = new CommandMetadata("shutdown-daemon", Authority.LOCAL_ADMIN, 9, null, StreamKind.NONE, Map.ofEntries(Map.entry("end_terminals", 12L), Map.entry("force", 10L), Map.entry("keep_layout", 12L)), Map.ofEntries(Map.entry("end_terminals", "terminal-reap-v1"), Map.entry("force", "daemon-handoff-force-v1"), Map.entry("keep_layout", "end-terminals-keep-layout-v1")));
     public static final CommandMetadata SIDEBAR_PLUGIN = new CommandMetadata("sidebar-plugin", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata SNAPSHOT_REQUEST = new CommandMetadata("snapshot-request", Authority.FRONTEND, 12, "terminal-snapshot-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SPLIT = new CommandMetadata("split", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("cwd", 12L), Map.entry("env", 12L), Map.entry("keep", 12L), Map.entry("shell_args", 12L), Map.entry("terminal_id", 12L)), Map.ofEntries(Map.entry("cwd", "terminal-env-v1"), Map.entry("env", "terminal-env-v1"), Map.entry("keep", "terminal-reap-v1"), Map.entry("shell_args", "terminal-shell-args-v1"), Map.entry("terminal_id", "terminal-placement-env-v1")));
     public static final CommandMetadata SUBSCRIBE = new CommandMetadata("subscribe", Authority.FRONTEND, 5, null, StreamKind.SUBSCRIBE, Map.ofEntries(Map.entry("surface", 9L), Map.entry("tree_events", 7L)), Map.ofEntries(Map.entry("surface", "surface-subscribe-filter")));
     public static final CommandMetadata SWAP_PANE = new CommandMetadata("swap-pane", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_EVENTS = new CommandMetadata("terminal-events", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata TERMINAL_HISTORY = new CommandMetadata("terminal-history", Authority.CONTROL, 12, "terminal-snapshot-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata TERMINAL_READ_RANGE = new CommandMetadata("terminal-read-range", Authority.CONTROL, 12, "terminal-snapshot-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_RESOURCES = new CommandMetadata("terminal-resources", Authority.CONTROL, 12, "terminal-resources-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UNDO_LAYOUT = new CommandMetadata("undo-layout", Authority.CONTROL, 9, "layout-undo-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UNGROUP_SCREEN_GROUP = new CommandMetadata("ungroup-screen-group", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -403,10 +406,13 @@ public final class Commands {
         values.put("set-workspace-metadata", SET_WORKSPACE_METADATA);
         values.put("shutdown-daemon", SHUTDOWN_DAEMON);
         values.put("sidebar-plugin", SIDEBAR_PLUGIN);
+        values.put("snapshot-request", SNAPSHOT_REQUEST);
         values.put("split", SPLIT);
         values.put("subscribe", SUBSCRIBE);
         values.put("swap-pane", SWAP_PANE);
         values.put("terminal-events", TERMINAL_EVENTS);
+        values.put("terminal-history", TERMINAL_HISTORY);
+        values.put("terminal-read-range", TERMINAL_READ_RANGE);
         values.put("terminal-resources", TERMINAL_RESOURCES);
         values.put("undo-layout", UNDO_LAYOUT);
         values.put("ungroup-screen-group", UNGROUP_SCREEN_GROUP);

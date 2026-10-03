@@ -348,6 +348,8 @@
       "split",
       "swap-pane",
       "terminal-events",
+      "terminal-history",
+      "terminal-read-range",
       "terminal-resources",
       "undo-layout",
       "ungroup-screen-group",
@@ -393,7 +395,8 @@
       "detach-attached-view",
       "url-open-subscribe",
       "url-open-claim",
-      "url-open-result"
+      "url-open-result",
+      "snapshot-request"
     ],
     "local-admin": [
       "server-stats",

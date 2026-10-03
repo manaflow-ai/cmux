@@ -5573,6 +5573,43 @@ Params: `session_id`, `terminal_key` (required), `theme`.
 
 Result: `object{terminal:PersonalTerminal|null, changed:bool}`
 
+### snapshot-request
+
+| Field | Value |
+| --- | --- |
+| name | `snapshot-request` |
+| status | implemented |
+| since | protocol 12, capability `terminal-snapshot-v1` |
+
+Asks the host for one READY `snapshot` on this connection's snapshot attach of
+`surface`. It is the raw form of the terminal channel message
+`snapshot_request` (sync-and-transport.md). A request while a snapshot is
+pending for that viewer collapses into it. A viewer gets at most one requested
+snapshot per 500 ms; an earlier request answers `snapshot_throttled`.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | A PTY surface this connection attached with `snapshot:"ghostsnp"` |
+| `reason` | `string` | optional | `digest_mismatch`, `gap`, `generation_mismatch` or `attach`; informational |
+| `have` | `{generation?, offset?, snapshot_version?}` | optional | A `snapshot_version` other than the host's is `unsupported_version` |
+| `request_id` | `string` | optional | Echoed; repeats while a snapshot is pending collapse |
+
+Result:
+
+```text
+object{status: "accepted" | "collapsed" | "snapshot_throttled", surface, retry_after_ms?, request_id?, reason?}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `not_attached` | This connection has no snapshot attach of `surface` |
+| `unsupported_version` | `have.snapshot_version` differs from the host's |
+| `unknown surface <id>` | Surface id does not exist |
+
 ### scroll-surface
 
 | Field | Value |
@@ -5715,6 +5752,41 @@ this exact connection-local attach stream. Use it with
 `resize-attached-view` and `release-attached-view-size`. When both peers also
 negotiate `view-attachment-detach-v1`, use `detach-attached-view` to close the
 stream without disconnecting or affecting another view of the terminal.
+
+Servers advertising `terminal-snapshot-v1` accept `snapshot:"ghostsnp"` with
+`snapshot_version` on a `mode:"bytes"` PTY attach. When the version equals the
+host's GHOSTSNP version, the stream is `snapshot -> (output | snapshot |
+colors-changed | digest)* -> detached` instead of the replay stream:
+
+- `snapshot {surface, phase:"ready", generation, offset, version, cols, rows,
+  colors, data}`: `data` is the base64 GHOSTSNP READY prefix (envelope through
+  the READY record). The viewer restores it atomically into a fresh terminal.
+- `output` carries `generation` and `offset` (the host's published byte offset
+  after this frame). A viewer drops output whose generation is older than the
+  last snapshot it restored.
+- A grid change, a viewer backlog over `viewer_backlog_bytes`
+  (`terminal.viewerBacklogBytes`, default 262144, clamped to 65536..8388608)
+  and `snapshot-request` reach the viewer as a new `snapshot`; a slow viewer
+  is never disconnected for its backlog. `resized` is never sent.
+- `snapshot` also carries `marker_epoch` and `active_top_marker` (the row
+  marker of the active area's top row), so `terminal-history` pages line up
+  with the restored READY.
+- `digest {surface, generation, offset, version, sha256}` follows 2 s after
+  output goes idle, only when the viewer has every byte up to that offset.
+  `sha256` (hex) covers, for each SCREEN, PAGE and CONTINUATION record of the
+  host's READY encoding in order, the `u16` tag, `u32` payload length and
+  payload, with the SCREEN history extent (payload bytes 4..12) zeroed; the
+  TERMINAL record is excluded because it carries per-device scrollback and
+  pixel sizes. A viewer with the same version hashes its own READY the same
+  way and sends `snapshot-request` on a mismatch.
+- `generation` is the host's grid generation for this terminal: it starts a
+  new value at every resize, host replay replacement and Kitty-limit resync.
+  It is not the `size-state` generation.
+- When the host cannot encode a snapshot (an unfinished escape sequence over
+  1 MiB), it retries at the next output; the viewer stays attached.
+
+Snapshot format version 1 carries no Kitty images. Another `snapshot_version`
+gets the replay stream above (capability fallback).
 
 Browser attach requires `browser-pointer-frame-guard-v1` in both the server's `identify` response and the client's earlier `set-client-info` request. This prevents an older client from rendering browser frames that it cannot address with an authoritative sequence. PTY attach does not require this capability.
 

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 9a93a666e8f059fe58fafce71e3c8f25d47a930c49c9058ed455f3ca46b21d7b.
+// cmux-tui mux protocol 12, IR 7df8134084243af1f2fb7eab1f15ab29c9fe1165237c31c95b037c0099a1b75c.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -79,7 +79,13 @@ pub struct AttachSurfaceRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub snapshot: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub snapshot_version: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub surface: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub viewer_backlog_bytes: Optional<u64>,
 }
 
 #[rustfmt::skip]
@@ -2417,6 +2423,18 @@ pub struct SidebarPluginRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SnapshotRequestRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub have: Optional<T::SnapshotRequestHave>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub reason: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub request_id: Optional<String>,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SplitRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
@@ -2478,6 +2496,33 @@ pub type SwapPaneResult = T::EmptyResult;
 pub struct TerminalEventsRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub after_revision: Option<u64>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalHistoryRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub before: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub marker_epoch: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub max_bytes: Optional<u64>,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type TerminalHistoryResult = T::TerminalHistoryPagesResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalReadRangeRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub format: Optional<String>,
+    pub from: T::RowMarkerPoint,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub marker_epoch: Optional<u64>,
+    pub surface: T::Id,
+    pub to: T::RowMarkerPoint,
 }
 
 #[rustfmt::skip]
@@ -2798,6 +2843,15 @@ impl CmuxClient {
         }
         if !request.rows.is_missing() {
             self.require_capability_field("attach-surface", "attach-initial-size")?;
+        }
+        if !request.snapshot.is_missing() {
+            self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
+        }
+        if !request.snapshot_version.is_missing() {
+            self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
+        }
+        if !request.viewer_backlog_bytes.is_missing() {
+            self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
         }
         self.execute_stream(&ATTACH_SURFACE_METADATA, &request)
     }
@@ -3771,6 +3825,10 @@ impl CmuxClient {
         self.execute(&SIDEBAR_PLUGIN_METADATA, &request)
     }
 
+    pub fn snapshot_request(&mut self, request: SnapshotRequestRequest) -> Result<T::SnapshotRequestResult> {
+        self.execute(&SNAPSHOT_REQUEST_METADATA, &request)
+    }
+
     pub fn split(&mut self, request: SplitRequest) -> Result<SplitResult> {
         if !request.cwd.is_missing() {
             self.require_protocol_field("split", 12)?;
@@ -3812,6 +3870,14 @@ impl CmuxClient {
 
     pub fn terminal_events(&mut self, request: TerminalEventsRequest) -> Result<T::TerminalEventsResult> {
         self.execute(&TERMINAL_EVENTS_METADATA, &request)
+    }
+
+    pub fn terminal_history(&mut self, request: TerminalHistoryRequest) -> Result<TerminalHistoryResult> {
+        self.execute(&TERMINAL_HISTORY_METADATA, &request)
+    }
+
+    pub fn terminal_read_range(&mut self, request: TerminalReadRangeRequest) -> Result<T::TerminalReadRangeResult> {
+        self.execute(&TERMINAL_READ_RANGE_METADATA, &request)
     }
 
     pub fn terminal_resources(&mut self, request: TerminalResourcesRequest) -> Result<T::TerminalResourcesResult> {
