@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -89,6 +90,7 @@ struct SudoRunnerLauncher: SudoRunnerLaunching {
                 Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETPGROUP)
             )
         )
+        try Self.requireSuccess(POSIXSpawnSignalPolicy().apply(to: &attributes))
 
         let arguments = [
             executableURL.path,
