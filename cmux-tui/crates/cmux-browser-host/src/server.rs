@@ -134,7 +134,7 @@ fn peer_actor(stream: &UnixStream) -> String {
 fn peer_uid(stream: &UnixStream) -> Option<libc::uid_t> {
     use std::os::fd::AsRawFd;
     let mut cred = libc::ucred { pid: 0, uid: 0, gid: 0 };
-    let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+    let mut len = size_of::<libc::ucred>() as libc::socklen_t;
     // SAFETY: the fd is an open Unix socket; cred and len describe a valid buffer.
     let rc = unsafe {
         libc::getsockopt(
