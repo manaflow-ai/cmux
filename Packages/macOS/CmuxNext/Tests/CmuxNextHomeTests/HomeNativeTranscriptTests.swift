@@ -246,3 +246,39 @@ import Testing
         #expect(view.field.text == "later")
     }
 }
+
+@MainActor
+@Suite struct HomeContextMenuTests {
+    /// A context menu on a bubble offers Copy for that message, nothing on
+    /// empty space. (The Copy action itself is not run: the user's clipboard stays.)
+    @Test func bubbleMenuOffersCopyOfThatMessage() throws {
+        let me = ParticipantID("user_me")
+        let id = ConversationID("conv_menu")
+        let start = Date(timeIntervalSince1970: 1_790_000_000)
+        var messages: [Message] = []
+        for i in 1...6 {
+            let author: ParticipantID = i % 2 == 0 ? me : ParticipantID("agent_chief")
+            let parts: [MessagePart] = [.text("Message \(i)")]
+            let message = Message(id: MessageID("msg_\(i)"), conversation: id, seq: Seq(i), clientMessageID: IdempotencyKey("key_\(i)"),
+                                  author: author, parts: parts, createdAt: start.addingTimeInterval(TimeInterval(i) * 30))
+            messages.append(message)
+        }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 628, height: 700), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let view = HomeNativeTranscriptView(conversation: id, me: me)
+        window.contentView = view
+        view.layoutSubtreeIfNeeded()
+        let items = CmuxHomeCore.TranscriptWindow(messages: messages).items(pending: [], me: me)
+        view.controller.update(items: items, summary: nil, typing: [], hasOlder: false)
+        view.layoutSubtreeIfNeeded()
+        let hits = view.controller.hits(in: view.bounds)
+        let last = try #require(hits.last)
+        let menu = try #require(view.rowHost.menu(at: CGPoint(x: last.bubble.midX, y: last.bubble.midY)))
+        #expect(menu.items.count == 1)
+        #expect(menu.items.first?.action == #selector(HomeRowHostView.copyMessage(_:)))
+        #expect(view.rowHost.menuHit?.text == "Message 6")
+        #expect(view.rowHost.menu(at: CGPoint(x: 2, y: last.bubble.midY)) == nil)
+    }
+}
