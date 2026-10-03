@@ -171,6 +171,31 @@ struct BrowserReplSessionResourceTests {
         #expect(next?.lines.map(\.text) == ["alive"])
     }
 
+    @Test("Output past the native ceiling goes to a file in the session's temporary directory")
+    func nativeOutputCeilingSpillsToAFile() async throws {
+        let session = makeSession(HeldCookiesDriver())
+        defer { session.close() }
+
+        // 20 MiB straight to the native host, past any runtime output gate.
+        let result = await browserReplWithDeadline(seconds: 60) {
+            await session.evaluate(code: """
+            const line = "x".repeat(1 << 20);
+            for (let i = 0; i < 20; i++) native.print("log", line);
+            native.print("log", "last");
+            """)
+        }
+        let lines = try #require(result?.lines)
+        let retained = lines.reduce(0) { $0 + $1.text.utf8.count + 1 }
+        #expect(retained <= 16 << 20, "retained \(retained) bytes in \(lines.count) lines")
+        let summary = try #require(lines.last?.text)
+        let path = try #require(summary.range(of: "full output: ").map { String(summary[$0.upperBound...]) }, "\(summary)")
+        let temporary = await session.evaluate(code: "native.print('log', native.tmpdir);")
+        #expect(path.hasPrefix((temporary.lines.first?.text ?? "?") + "/"))
+        let spilled = try String(contentsOfFile: path, encoding: .utf8)
+        #expect(spilled.hasSuffix("last\n"))
+        #expect(lines.contains { $0.text.hasPrefix("# output continues in ") })
+    }
+
     @Test("A cell that times out cancels the fetches it started")
     func timeoutCancelsTheCellsFetches() async {
         let driver = HeldCookiesDriver()
