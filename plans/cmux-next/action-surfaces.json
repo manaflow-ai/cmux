@@ -18359,7 +18359,7 @@
     },
     {
       "cli" : "offered",
-      "cli_name" : "tasks open",
+      "cli_name" : "task open",
       "context_menu" : "noObject",
       "context_menus" : [
 
@@ -18369,13 +18369,43 @@
       "id" : "tasks.show",
       "mcp" : "offered",
       "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
       "title" : "Open Tasks",
       "title_key" : "action.tasks.show",
       "title_table" : "TasksActions"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action tasks-new",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tasks.new",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "New Task",
+      "title_key" : "action.tasks.new",
+      "title_table" : "TasksActions"
+    },
+    {
       "cli" : "offered",
-      "cli_name" : "tasks mine",
+      "cli_name" : "task mine",
       "context_menu" : "noObject",
       "context_menus" : [
 
@@ -18385,6 +18415,13 @@
       "id" : "tasks.showMine",
       "mcp" : "offered",
       "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
       "title" : "My Tasks",
       "title_key" : "action.tasks.showMine",
       "title_table" : "TasksActions"
