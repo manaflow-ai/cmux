@@ -43,6 +43,9 @@ VM), never on a Mac: `cargo build --release`.
   the `frontend` actor (the native app's viewer pane); terminal and agent actors are refused
   (P8 slice 3). Until that lands the host is development only and the pane is not in
   Release builds.
+- The parent writes the 64 hex characters into the pipe; the host reads exactly those (no
+  wait for end of file) and refuses a regular file. On loopback the token crosses only the
+  local socket; with `--single-tenant-overlay 1` it relies on the overlay's encryption.
 
 - Development only. By default the host binds loopback (`--bind 127.0.0.1`) and refuses every
   non-loopback peer before it reads the hello. Reach it through SSH or a tunnel. A private

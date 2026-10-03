@@ -297,7 +297,9 @@ pub fn run(opts: &Opts) -> Res<()> {
             udp_port,
             max_datagram: opts.num_or("max-datagram", MAX_DATAGRAM_VPC)?,
             token: match opts.get("token-fd") {
-                Some(fd) => Some(crate::token::Token::read_fd(fd.parse()?)?.to_hex()),
+                Some(fd) => {
+                    Some(crate::wire::SecretHex(crate::token::Token::read_fd(fd.parse()?)?.to_hex()))
+                }
                 None => None,
             },
         },

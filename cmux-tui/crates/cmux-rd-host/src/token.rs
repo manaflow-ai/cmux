@@ -47,28 +47,37 @@ impl Token {
         if fd < 3 {
             return Err("--token-fd must be an inherited pipe (3 or above)".into());
         }
+        // A pipe or socket only: "no file" is enforced, not a convention.
+        // SAFETY: fstat on a descriptor number into a zeroed struct we own.
+        let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: as above.
+        if unsafe { libc::fstat(fd, &mut st) } != 0 {
+            return Err("--token-fd is not an open descriptor".into());
+        }
+        let kind = st.st_mode & libc::S_IFMT;
+        if kind != libc::S_IFIFO && kind != libc::S_IFSOCK {
+            return Err("--token-fd must be a pipe or socket from the parent, not a file".into());
+        }
         // SAFETY: the parent passed this descriptor to us for exactly this read; we own and close it.
         let mut file = unsafe { File::from_raw_fd(fd) };
-        let mut text = String::new();
-        file.by_ref()
-            .take(256)
-            .read_to_string(&mut text)
-            .map_err(|e| format!("reading the token: {e}"))?;
-        Self::from_hex(&text)
+        // Read exactly the 64 hex characters: no wait for end of file, so a parent that keeps
+        // its write end open cannot hang the start.
+        let mut buf = [0u8; TOKEN_LEN * 2];
+        file.read_exact(&mut buf).map_err(|e| format!("reading the token: {e}"))?;
+        let text = std::str::from_utf8(&buf).map_err(|_| "token must be hex".to_string())?;
+        Self::from_hex(text)
     }
 
     /// Constant-time comparison with a hex string from a hello: the time depends only on
     /// the expected length, never on where the first difference is.
     pub fn matches_hex(&self, provided: Option<&str>) -> bool {
-        let Some(provided) = provided else { return false };
-        let provided = provided.as_bytes();
-        let expected = self.to_hex();
-        let expected = expected.as_bytes();
-        let mut diff = u8::from(provided.len() != expected.len());
-        for (i, e) in expected.iter().enumerate() {
-            diff |= e ^ provided.get(i).copied().unwrap_or(0);
+        // Decode first (either hex case), then compare all 32 bytes.
+        let Some(Ok(provided)) = provided.map(Self::from_hex) else { return false };
+        let mut diff = 0u8;
+        for (a, b) in self.0.iter().zip(provided.0.iter()) {
+            diff |= a ^ b;
         }
-        diff == 0
+        std::hint::black_box(diff) == 0
     }
 }
 
@@ -81,6 +90,7 @@ mod tests {
     #[test]
     fn a_hello_without_or_with_a_wrong_token_is_refused() {
         let t = Token::from_hex(HEX).expect("token");
+        assert!(t.matches_hex(Some(&HEX.to_uppercase())));
         assert!(!t.matches_hex(None));
         assert!(!t.matches_hex(Some("")));
         assert!(!t.matches_hex(Some(&HEX[..63])));
@@ -113,6 +123,15 @@ mod tests {
         let t = Token::read_fd(fds[0]).expect("read");
         assert!(t.matches_hex(Some(HEX)));
         assert!(Token::read_fd(0).is_err());
+        // A regular file is refused even with the right content.
+        let path = std::env::temp_dir().join(format!("rd-token-test-{}", std::process::id()));
+        std::fs::write(&path, HEX).expect("write");
+        let f = std::fs::File::open(&path).expect("open");
+        let fd = std::os::fd::IntoRawFd::into_raw_fd(f);
+        assert!(Token::read_fd(fd).is_err());
+        // SAFETY: closing the descriptor we just made.
+        unsafe { libc::close(fd) };
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

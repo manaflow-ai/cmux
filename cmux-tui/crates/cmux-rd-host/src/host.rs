@@ -200,7 +200,7 @@ fn serve_viewer(
         return Err("first message must be hello".into());
     };
     // Before anything else (no session, no frame): the exact per-launch token.
-    if !token.matches_hex(provided.as_deref()) {
+    if !token.matches_hex(provided.as_ref().map(|s| s.0.as_str())) {
         let _ = write_control(&mut stream, &Control::Refused { reason: "BadToken".into() });
         return Ok("refused: missing or wrong session token".into());
     }
