@@ -129,6 +129,13 @@ def observed(runners, pools, *, jobs=4, env=None, runners_error=None):
 class OwnedQueueTests(unittest.TestCase):
     """An owned pool's free runners are its idle runners less the jobs queued on its family."""
 
+    def test_stale_xcode_pool_labels_are_not_eligible(self):
+        stale = runner("stale", ["glaeda-std-xcode-26.3"], busy=False)
+        current = std_runner(0, busy=False)
+        state = observed([stale, current], {}, jobs=1)
+        self.assertNotIn("glaeda-std-xcode-26.3", {pool.label for pool in state.owned})
+        self.assertEqual(picker.pick(state).label, STD)
+
     def test_many_queued_on_light_and_none_free_never_picks_light(self):
         # 2026-10-01 04:15Z: 25 jobs queued on the light family (14 root, 6
         # plain, 5 side), its 3 online runners busy and 1 offline, and every std

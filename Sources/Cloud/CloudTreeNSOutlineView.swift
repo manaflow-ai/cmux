@@ -259,7 +259,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
                 return !controls.isHiddenOrHasHiddenAncestor
             }
             if let actionHost = candidate as? CloudTreePassthroughHostingView,
-               !actionHost.passesThrough {
+               actionHost.acceptsClick(event) {
                 return !actionHost.isHiddenOrHasHiddenAncestor
             }
             view = candidate.superview
@@ -441,12 +441,11 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         onDocumentContentChanged?()
     }
 
-    private func disclosureLeading(atRow row: Int) -> CGFloat {
+    func disclosureLeading(atRow row: Int) -> CGFloat {
         GlobalFontMagnification.scaledSize(
             Self.leadingMargin + CGFloat(max(0, level(forRow: row))) * treeStyle.indentPerLevel
         )
     }
-
     override func frameOfOutlineCell(atRow row: Int) -> NSRect {
         // A machine's tab row opens and closes through its tabs, not a disclosure.
         if let node = item(atRow: row) as? CloudTreeNode, case .machineDetailTabs = node.kind { return .zero }
@@ -483,6 +482,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         }
         let trailing = frame.maxX
         frame.origin.x = panelContentLeading(atRow: row)
+            ?? connectingLeading(atRow: row)
             ?? CloudTreeLayoutMetrics().contentLeading(level: level(forRow: row), style: treeStyle)
         frame.size.width = max(0, trailing - frame.minX)
         return frame

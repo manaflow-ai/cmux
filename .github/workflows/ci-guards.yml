@@ -628,6 +628,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_owned_build_state.py
 
+      - name: Validate canonical root ownership boundary
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_take_canonical_root.py
+
       - name: Validate warm-state distance recording and routing
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_warm_distance.py

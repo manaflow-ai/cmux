@@ -39,6 +39,7 @@ RESERVED = re.compile(r"(?:release|nightly)", re.IGNORECASE)
 RUN_CLASSES = ("std", "light", "xl")
 # glaeda-[root-|side-|gui-]<class>-xcode-<version>: one family of labels on the same machines.
 OWNED_FAMILY = re.compile(r"^glaeda-(?:root-|side-|gui-)?(?P<family>(?:std|light|xl)-xcode-[0-9]+(?:\.[0-9]+)*)$")
+XCODE_VERSION = re.compile(r"(?:^|/)Xcode_(?P<version>[0-9]+(?:\.[0-9]+)*)\.app(?:/|$)")
 
 
 def owned_family(label: str) -> str:
@@ -51,6 +52,13 @@ def owned_order(label: str) -> tuple[int, str]:
     family = owned_family(label)
     owned_class = family.split("-", 1)[0]
     return (RUN_CLASSES.index(owned_class) if owned_class in RUN_CLASSES else len(RUN_CLASSES), label)
+
+
+def owned_matches_xcode(label: str, xcode_app: str) -> bool:
+    """Whether an owned label belongs to the configured PR Xcode lane."""
+    family = owned_family(label)
+    version = XCODE_VERSION.search(xcode_app or "")
+    return bool(family and version and family.endswith(f"-xcode-{version.group('version')}"))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -236,10 +244,13 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
 
     owned: list[Pool] = []
     if runners is not None:
-        labels = set(_slots(env.get("CI_OWNED_POOL_SLOTS")))
+        xcode_app = env.get("CMUX_CI_XCODE_APP_PR", "")
+        labels = {label for label in _slots(env.get("CI_OWNED_POOL_SLOTS"))
+                  if owned_matches_xcode(label, xcode_app)}
         for runner in runners:
             labels.update(str(item.get("name", "")) for item in runner.get("labels", ())
-                          if OWNED.fullmatch(str(item.get("name", ""))))
+                          if OWNED.fullmatch(str(item.get("name", "")))
+                          and owned_matches_xcode(str(item.get("name", "")), xcode_app))
         for label in sorted(labels, key=owned_order):
             online = [runner for runner in runners if runner.get("status") == "online"
                       and any(item.get("name") == label for item in runner.get("labels", ()))]
@@ -249,7 +260,7 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
             queued = sum(count(name, "queued") for name in pools if owned_family(str(name)) == family)
             free = max(0, idle - queued)
             owned.append(Pool(label, len(online), len(online) - idle, queued, free=free,
-                              xcode_app=env.get("CMUX_CI_XCODE_APP_PR", "")))
+                              xcode_app=xcode_app))
     counts = {label: {"running": count(label, "running"), "queued": count(label, "queued"),
                       "reserved": count(label, "reserved_queued")} for label in BLACKSMITH}
     blacksmith = tuple(Pool(label, CAPACITY[label], **counts[label],

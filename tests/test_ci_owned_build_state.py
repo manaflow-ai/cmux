@@ -1192,7 +1192,11 @@ class Wiring(unittest.TestCase):
         import subprocess
         with tempfile.TemporaryDirectory() as tmp:
             env_file, out_file = Path(tmp, "env"), Path(tmp, "out")
+            helper = Path(tmp, "helper-glaeda-canonical-root")
+            helper.write_text("#!/bin/sh\nexit 0\n")
+            helper.chmod(0o755)
             env = {"PATH": os.environ["PATH"], "GITHUB_ENV": str(env_file), "GITHUB_OUTPUT": str(out_file),
+                   "RUNNER_TEMP": tmp, "CMUX_CI_CANONICAL_ROOT_HELPER": str(helper),
                    "CMUX_PRODUCT_RUNNER": runner, "CMUX_OWNED_STATE_ROOT": "/Users/Shared/cmux-build-fleet/ci"}
             if root is not None:
                 env["CMUX_CI_CANONICAL_ROOT"] = root
@@ -1204,11 +1208,15 @@ class Wiring(unittest.TestCase):
     def test_a_second_compile_slot_keeps_its_own_root_and_state(self):
         # The first slot, and every Blacksmith job, keeps the default root and store.
         for runner in ("glaeda-std-xcode-26.6", "blacksmith-6vcpu-macos-26"):
-            self.assertEqual(self.slot(None, runner), (0, "", "root=/private/tmp/cmux-ci\n"))
+            self.assertEqual(self.slot(None, runner), (0, "CMUX_CI_CANONICAL_ROOT=/private/tmp/cmux-ci\n", "root=/private/tmp/cmux-ci\n"))
         code, env, out = self.slot("/private/tmp/cmux-ci-2")
         self.assertEqual(code, 0)
-        self.assertEqual(env, "CMUX_OWNED_PACKAGE_STORE=/Users/Shared/cmux-build-fleet/ci\n"
-                              "CMUX_OWNED_STATE_ROOT=/Users/Shared/cmux-build-fleet/ci/cmux-ci-2\n")
+        self.assertEqual(
+            env,
+            "CMUX_OWNED_PACKAGE_STORE=/Users/Shared/cmux-build-fleet/ci\n"
+            "CMUX_OWNED_STATE_ROOT=/Users/Shared/cmux-build-fleet/ci/cmux-ci-2\n"
+            "CMUX_CI_CANONICAL_ROOT=/private/tmp/cmux-ci-2\n",
+        )
         self.assertEqual(out, "root=/private/tmp/cmux-ci-2\n")
         # Only an owned Mac may move the root, and only to a slot root.
         self.assertNotEqual(self.slot("/private/tmp/cmux-ci-2", "blacksmith-6vcpu-macos-26")[0], 0)

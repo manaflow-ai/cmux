@@ -123,7 +123,10 @@ struct CloudMachineOrderingTests {
         let drag = try fixture.begin("c")
         let press = outline.rect(ofRow: outline.row(forItem: source)).midY
         coordinator.beginMachineLift(drag.session, node: source, in: outline, pressY: press)
-        #expect(!outline.isItemExpanded(try fixture.root("a")) && !outline.isItemExpanded(try fixture.root("b")))
+        let a = try fixture.root("a")
+        let b = try fixture.root("b")
+        #expect(!outline.isItemExpanded(a))
+        #expect(!outline.isItemExpanded(b))
         // A small nudge from the press point: c's row moved up as a and b
         // closed, but only the pointer's travel counts.
         drag.info.draggingLocation = outline.convert(NSPoint(x: 10, y: press + 3), to: nil)
@@ -132,7 +135,8 @@ struct CloudMachineOrderingTests {
         #expect(outline.machineLift.slot == 2, "c keeps its place among a, b and d")
         try fixture.end(drag)
         #expect(fixture.order == ["a", "b", "c", "d"])
-        #expect(outline.isItemExpanded(try fixture.root("a")) && outline.isItemExpanded(try fixture.root("b")))
+        #expect(outline.isItemExpanded(a))
+        #expect(outline.isItemExpanded(b))
     }
 
     @Test("A lifted drag released on its own slot moves nothing and reopens machines")

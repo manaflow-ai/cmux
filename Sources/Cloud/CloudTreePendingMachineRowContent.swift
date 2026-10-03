@@ -16,10 +16,13 @@ struct CloudTreePendingMachineRowContent: View {
         switch style.machineRowLayout {
         case .singleLine:
             CloudTreeMachineBand(style: style) {
-                HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.dotGap) {
+                // Centered, not baseline-aligned: the glyph has no text
+                // baseline, so on a baseline it drops below the name.
+                HStack(alignment: .center, spacing: style.rowGrid.dotGap) {
                     name
                     statusGlyph
                     status
+                        .layoutPriority(1)
                     Spacer(minLength: style.rowGrid.trailingGap)
                 }
             }
@@ -28,7 +31,7 @@ struct CloudTreePendingMachineRowContent: View {
         case .twoLine:
             HStack(alignment: .top, spacing: 0) {
                 VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
-                    HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.dotGap) {
+                    HStack(alignment: .center, spacing: style.rowGrid.dotGap) {
                         name
                         statusGlyph
                     }
