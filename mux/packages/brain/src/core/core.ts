@@ -152,6 +152,8 @@ export class Core {
   private outboxInflight?: string;
   /** When the armed outbox timer fires (cleared when it fires). */
   private outboxTimerAt?: number;
+  /** True while acpmux_connected folds the replay of a reset log: its promptless turns are history. */
+  private resetReplay = false;
 
   constructor(state: Partial<HostStateData> = {}) {
     this.state = plainState(loadState(state));
@@ -489,7 +491,9 @@ export class Core {
       this.sessionInfo.set(session.sessionId, session);
     }
     this.folder = new TurnFolder(this.state.acpmuxSeq);
+    this.resetReplay = cursorReset;
     for (const event of events) this.applyMuxEvent(event);
+    this.resetReplay = false;
     this.acpmuxUp = true;
     // Prompts acpmux may have dropped with an old connection; it dedupes the rest by promptId.
     for (const promptId of Object.keys(this.state.prompts).sort(compare)) this.sendPrompt(promptId);
@@ -509,6 +513,8 @@ export class Core {
         continue;
       }
       const text = output.turn.text.trim() || (output.error ? `(turn failed: ${output.error})` : "");
+      if (!conversation && !output.turn.promptId && this.resetReplay)
+        this.log(`turn ${output.turn.turnSeq} replayed after a reset has no prompt; reply not posted`);
       if (!conversation && output.turn.promptId)
         this.log(`turn ${output.turn.turnSeq} answers prompt ${output.turn.promptId}, which is answered or lost; reply not posted`);
       if (conversation && text) {
@@ -529,11 +535,13 @@ export class Core {
 
   /**
    * Where a turn's typing and reply go: its prompt's conversation, the default
-   * one for a turn without a prompt, and none for a prompt the core no longer
-   * holds (answered, or lost): a replayed old turn posts nothing.
+   * one for a turn without a prompt (none while replaying a reset log), and
+   * none for a prompt the core no longer holds (answered, or lost): a replayed
+   * old turn posts nothing.
    */
   private turnConversation(promptId: string | undefined): string | undefined {
-    if (!promptId) return this.state.defaultConversation || undefined;
+    // A promptless turn in the replay of a reset log was posted (or not) by the log's past.
+    if (!promptId) return this.resetReplay ? undefined : this.state.defaultConversation || undefined;
     const entry = this.state.prompts[promptId];
     if (!entry) return undefined;
     return entry.conversation || this.state.defaultConversation || undefined;
