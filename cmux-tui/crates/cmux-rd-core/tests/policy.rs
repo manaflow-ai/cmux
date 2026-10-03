@@ -412,3 +412,27 @@ fn asking_for_control_keeps_the_view_running_until_consent() {
     );
     assert!(!t.may_inject_input(id, &owner));
 }
+
+#[test]
+fn control_gained_through_an_unattended_grant_ends_when_unattended_is_forbidden() {
+    let mut p = policy();
+    let mut t = SessionTable::new(p.clone());
+    let owner = person("lawrence", "laptop");
+    let id = go(&mut t, "o", Some(&owner), Mode::View, Some("austin"), NOW).expect("start");
+    t.consent(id, Some(Mode::View)).expect("view consent");
+    p.grants.push(Grant {
+        id: "g-own".into(),
+        user: "lawrence".into(),
+        mode: Mode::Control,
+        unattended: true,
+        expires_at_ms: None,
+    });
+    t.set_policy(p.clone(), NOW);
+    assert_eq!(t.set_mode(id, Some(&owner), Mode::Control, Some("austin"), NOW), Ok(SessionState::Active));
+    assert!(t.get(id).is_some_and(|s| !s.pending_control));
+    assert!(t.may_inject_input(id, &owner));
+    p.unattended_allowed = false;
+    t.set_policy(p, NOW);
+    assert_eq!(t.get(id).map(|s| s.state), Some(SessionState::Ended(EndReason::GrantRevoked)));
+    assert!(!t.may_inject_input(id, &owner));
+}

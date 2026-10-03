@@ -96,6 +96,7 @@ impl Reassembler {
         payload: &[u8],
         now_us: u64,
     ) -> Vec<CompleteFrame> {
+        self.expire(now_us);
         let too_far = self.finished_through != 0
             && header.frame > self.finished_through.saturating_add(MAX_FRAME_LEAD);
         let no_room =

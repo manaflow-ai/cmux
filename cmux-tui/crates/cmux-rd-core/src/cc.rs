@@ -151,6 +151,10 @@ impl CongestionController {
         };
         let mut target = self.target_bps as f64;
         let evidence = !deltas.is_empty();
+        if evidence && self.usage != Usage::Normal {
+            // Growth after a decrease starts from now, not from the last increase.
+            self.last_increase_us = Some(now_us);
+        }
         match self.usage {
             Usage::Overuse => target *= 0.85,
             Usage::Normal if evidence => {

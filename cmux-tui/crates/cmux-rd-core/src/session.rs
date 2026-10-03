@@ -301,13 +301,15 @@ impl SessionTable {
         } else {
             principal
         };
-        let (needs_consent, grant) = if upgrade {
+        let (needs_consent, grant, unattended) = if upgrade {
             match admit(&self.policy, Some(checked), mode, console_user, now_ms) {
                 Admission::Deny(reason) => return Err(reason),
-                Admission::Allow { needs_consent, via_grant, .. } => (needs_consent, via_grant),
+                Admission::Allow { needs_consent, via_grant, unattended } => {
+                    (needs_consent, via_grant, unattended)
+                }
             }
         } else {
-            (false, None)
+            (false, None, false)
         };
         let Some(s) = self.sessions.get_mut(&id) else { return Err(Deny::NoSession) };
         if !upgrade {
@@ -322,6 +324,8 @@ impl SessionTable {
         } else {
             s.mode = mode;
             s.pending_control = false;
+            // Control without consent under an unattended grant ends when that grant stops waiving consent.
+            s.unattended |= unattended;
             if grant.is_some() {
                 s.via_grant = grant;
             }
