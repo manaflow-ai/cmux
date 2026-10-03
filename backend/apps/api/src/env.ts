@@ -124,6 +124,8 @@ export interface Env {
   readonly HOME_INVITES_SEND?: string
   /** Invite email sender, for example "cmux <invites@cmux.dev>" (the domain verified in Resend); unset = no email sends. */
   readonly HOME_INVITE_FROM?: string
+  /** This Worker's name from wrangler.jsonc vars (cmux-api in production); with ENVIRONMENT it decides production behavior. */
+  readonly WORKER_NAME?: string
   /** Origin of invite links (the dashboard): https://console-staging.cmux.dev or https://console.cmux.dev. */
   readonly HOME_INVITE_ORIGIN?: string
   /** Secrets for owner-decided iPhone pushes (feed.md 7.3); without them pushes are only logged. */

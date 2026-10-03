@@ -77,4 +77,10 @@ describe("invite email sends (stage C)", { timeout: 60_000 }, () => {
     expect(r.state).toBe("refused_env")
     expect(r.calls).toHaveLength(0)
   })
+
+  it("ENVIRONMENT=production on a Worker that is not cmux-api still uses the allow list", async () => {
+    const r = await invite("send-mislabeled", "gina@example.com", { ...ON, ENVIRONMENT: "production", WORKER_NAME: "cmux-api-staging", HOME_INVITE_ALLOWLIST_EMAILS: "someone-else@example.com" })
+    expect(r.state).toBe("refused_env")
+    expect(r.calls).toHaveLength(0)
+  })
 })

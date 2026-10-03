@@ -35,6 +35,9 @@ interface PreviewStub {
 
 export type Fetch = invites.Fetch
 
+/** The production Worker (wrangler.jsonc env.production.name). */
+export const PRODUCTION_WORKER = "cmux-api"
+
 export const sendSwitchOn = (env: Env) => env.HOME_INVITES_SEND === "on"
 
 export const sendInvite = async (env: Env, target: SendTarget, fetcher: invites.Fetch = (url, init) => fetch(url, init as RequestInit)): Promise<SendOutcome> => {
@@ -48,7 +51,10 @@ export const sendInvite = async (env: Env, target: SendTarget, fetcher: invites.
     log("failed", { reason: "invite secret expired" })
     return { state: "failed", provider_id: null }
   }
-  const environment = invites.parseEnvironment(env.ENVIRONMENT)
+  // Production behavior (no allow list) needs both the production environment and the production
+  // Worker name from config; a mislabeled staging deploy still uses the allow list.
+  const parsed = invites.parseEnvironment(env.ENVIRONMENT)
+  const environment = parsed === "production" && env.WORKER_NAME !== PRODUCTION_WORKER ? "staging" : parsed
   let allowlist: invites.Allowlist
   try {
     allowlist = invites.allowlistFromEnv(env.HOME_INVITE_ALLOWLIST_EMAILS, env.HOME_INVITE_ALLOWLIST_PHONES)
