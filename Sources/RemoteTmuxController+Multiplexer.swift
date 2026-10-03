@@ -197,21 +197,48 @@ extension RemoteTmuxController {
             .flatMap { appDelegate.windowId(for: $0) }
         let activeWindowID = appDelegate.tabManager
             .flatMap { appDelegate.windowId(for: $0) }
-        guard let resolvedWindowId = windowTarget.resolve(
+        let resolvedWindowId: UUID
+        let targetManager: TabManager
+        // The window this attach opened for itself, if it did. It is discarded again on every
+        // path that mirrors nothing, so a failure never leaves empty chrome behind.
+        var dedicatedWindowId: UUID?
+        if let existingWindowId = windowTarget.resolve(
             existingMirrorWindowID: existingMirrorWindowID,
             activeWindowID: activeWindowID,
             isLive: { appDelegate.tabManagerFor(windowId: $0) != nil }
-        ), let targetManager = appDelegate.tabManagerFor(windowId: resolvedWindowId) else {
+        ), let existingManager = appDelegate.tabManagerFor(windowId: existingWindowId) {
+            resolvedWindowId = existingWindowId
+            targetManager = existingManager
+        } else if windowTarget == .dedicatedNewWindow {
+            // `resolve` has no window to offer for a dedicated attach of a host that is not
+            // mirrored yet, because the window does not exist until this attach makes it.
+            let createdWindowId = appDelegate.createMainWindow(shouldActivate: false)
+            guard let createdManager = appDelegate.tabManagerFor(windowId: createdWindowId) else {
+                appDelegate.discardMainWindowWithoutClosedHistory(windowId: createdWindowId)
+                throw RemoteTmuxError.windowCreationFailed
+            }
+            dedicatedWindowId = createdWindowId
+            resolvedWindowId = createdWindowId
+            targetManager = createdManager
+        } else {
             if existingMirrorWindowID == nil, multiplexedViewsByHost[host.connectionHash] == nil {
                 transportRegistry.remove(connectionHash: host.connectionHash)
                 closeSharedSSHMasterIfAny(host: host)
             }
             throw RemoteTmuxError.unreachable("app not ready")
         }
+        let bootstrapWorkspaceId = dedicatedWindowId == nil ? nil : targetManager.tabs.first?.id
 
         // Reuse a live view: the host is already mirrored; just surface it.
         if multiplexedViewsByHost[host.connectionHash] == nil {
-            try await startMultiplexedHost(host: host, manager: targetManager)
+            do {
+                try await startMultiplexedHost(host: host, manager: targetManager)
+            } catch {
+                if let dedicatedWindowId {
+                    appDelegate.discardMainWindowWithoutClosedHistory(windowId: dedicatedWindowId)
+                }
+                throw error
+            }
         } else if let parked = multiplexedViewsByHost[host.connectionHash]?.connection,
                   parked.isAwaitingCredentials {
             // A prior attach parked this stream on interactive authentication and this call is
@@ -252,6 +279,11 @@ extension RemoteTmuxController {
             let awaitingLogin = hostAuth.isAwaiting(host)
                 || heldView?.lastStreamAwaitedCredentials == true
                 || heldView?.connection?.isAwaitingCredentials == true
+            // Either way nothing was mirrored into the window this attach opened. After a
+            // login the retry opens its own.
+            if let dedicatedWindowId {
+                appDelegate.discardMainWindowWithoutClosedHistory(windowId: dedicatedWindowId)
+            }
             if awaitingLogin, profile.authenticationIsSSHShaped {
                 return .authRequired(sshArgv: host.interactiveAuthInvocation())
             }
@@ -259,6 +291,14 @@ extension RemoteTmuxController {
             let failure = multiplexedMirrorFailure(host: host, view: heldView)
             stopMultiplexedHost(host: host)
             throw failure
+        }
+        // A new window opens with one local workspace. Once the mirrors are in, it goes, the
+        // same as on the per-session path.
+        if let bootstrapWorkspaceId,
+           targetManager.tabs.count > 1,
+           let bootstrap = targetManager.tabs.first(where: { $0.id == bootstrapWorkspaceId }),
+           !bootstrap.isRemoteTmuxMirror {
+            targetManager.closeWorkspace(bootstrap, recordHistory: false)
         }
         hostAuth.retire(host)
         if activate {
