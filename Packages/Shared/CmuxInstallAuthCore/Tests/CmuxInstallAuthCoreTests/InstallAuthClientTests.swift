@@ -29,10 +29,23 @@ actor FakeOwner: InstallAuthTransport {
     var failNextChallenge = false
     var prefixOverride: String?
     var grants: [[String]] = []
+    /// The backend's ENVIRONMENT (challenge prefix and token issuer).
+    var environment = "staging"
+    /// When set, tokens name this issuer environment instead.
+    var issuerOverride: String?
 
     func revoke(_ install: String) { revoked.insert(install) }
     func setFailNextChallenge() { failNextChallenge = true }
     func setPrefixOverride(_ value: String) { prefixOverride = value }
+    func setEnvironment(_ value: String) { environment = value }
+    func setIssuerOverride(_ value: String) { issuerOverride = value }
+
+    /// An unsigned JWT-shaped token whose payload names the issuer (the client
+    /// only reads `iss`; the owner verifies signatures).
+    private func token(_ n: Int) -> String {
+        let payload = try! JSONSerialization.data(withJSONObject: ["iss": "https://cmux-api/\(issuerOverride ?? environment)", "n": n], options: [.sortedKeys])
+        return "eyJhbGciOiJFUzI1NiJ9.\(payload.base64URLEncoded).c2ln"
+    }
 
     nonisolated func post(_ path: String, json: Data, bearer: String?) async throws -> (status: Int, body: Data) {
         try await handle(path, json, bearer)
@@ -77,22 +90,30 @@ actor FakeOwner: InstallAuthTransport {
             guard installs[install] != nil, !revoked.contains(install) else { return try reply(["code": "auth.forbidden"], 403) }
             let nonce = String(repeating: "0", count: 32) + String(issued.count)
             issued.insert(nonce)
-            return try reply(["nonce": nonce, "message_prefix": prefixOverride ?? "cmux-auth-v1\nstaging\n\(install)\n", "expires_at": 0])
+            return try reply(["nonce": nonce, "message_prefix": prefixOverride ?? "cmux-auth-v1\n\(environment)\n\(install)\n", "expires_at": 0])
         case "/v1/auth/token":
             let nonce = body["nonce"] as! String, install = body["install"] as! String
             guard issued.contains(nonce), !redeemed.contains(nonce), let key = installs[install],
                   let raw = Data(base64URLEncoded: body["signature"] as! String) else { return try reply(["code": "auth.forbidden"], 403) }
             redeemed.insert(nonce)
-            let message = Data("cmux-auth-v1\nstaging\n\(install)\n\(nonce)".utf8)
+            let message = Data("cmux-auth-v1\n\(environment)\n\(install)\n\(nonce)".utf8)
             let signature = raw.count == 64 ? try P256.Signing.ECDSASignature(rawRepresentation: raw)
                                             : try P256.Signing.ECDSASignature(derRepresentation: raw)
             guard key.isValidSignature(signature, for: message) else { return try reply(["code": "auth.forbidden"], 403) }
             mints += 1
-            return try reply(["access_token": "install-token-\(mints)", "token_type": "Bearer",
+            return try reply(["access_token": token(mints), "token_type": "Bearer",
                               "expires_at": Date().addingTimeInterval(600).timeIntervalSince1970 * 1000])
         default:
             return try reply([:], 404)
         }
+    }
+}
+
+extension FakeOwner {
+    /// The token the fake mints as its `n`th for the default staging owner.
+    static func expectedToken(_ n: Int, environment: String = "staging") -> String {
+        let payload = try! JSONSerialization.data(withJSONObject: ["iss": "https://cmux-api/\(environment)", "n": n], options: [.sortedKeys])
+        return "eyJhbGciOiJFUzI1NiJ9.\(payload.base64URLEncoded).c2ln"
     }
 }
 
@@ -110,7 +131,7 @@ func makeClient(_ owner: FakeOwner, _ signer: SoftwareSigner, record: InstallRec
     @Test(arguments: [false, true])
     func mintsATokenWithRawOrDERSignatures(der: Bool) async throws {
         let client = makeClient(FakeOwner(), SoftwareSigner(der: der))
-        #expect(try await client.installToken() == "install-token-1")
+        #expect(try await client.installToken() == FakeOwner.expectedToken(1))
         #expect(await client.currentRecord == InstallRecord(user: "user_1", install: "inst_1"))
     }
 
@@ -121,7 +142,7 @@ func makeClient(_ owner: FakeOwner, _ signer: SoftwareSigner, record: InstallRec
         _ = try await first.installToken()
         #expect(await owner.mints == 1)
         clock.now = clock.now.addingTimeInterval(InstallAuthClient.maximumLifetime - InstallAuthClient.refreshMargin + 1)
-        #expect(try await first.installToken() == "install-token-2")
+        #expect(try await first.installToken() == FakeOwner.expectedToken(2))
         #expect(await owner.redeemed.count == 2)
     }
 
@@ -161,6 +182,16 @@ func makeClient(_ owner: FakeOwner, _ signer: SoftwareSigner, record: InstallRec
         let owner = FakeOwner()
         await owner.setPrefixOverride("anything the server wants\n")
         await #expect(throws: InstallAuthError.unexpectedChallenge) { try await makeClient(owner, SoftwareSigner()).installToken() }
+    }
+
+    /// A development or local backend names its environment in the challenge
+    /// and the token issuer; the client must not guess it from the host name.
+    @Test(arguments: ["development", "local", "production"])
+    func theEnvironmentComesFromTheServer(environment: String) async throws {
+        let owner = FakeOwner()
+        await owner.setEnvironment(environment)
+        let client = makeClient(owner, SoftwareSigner())
+        #expect(try await client.installToken() == FakeOwner.expectedToken(1, environment: environment))
     }
 
     @Test func thePhoneAsksForNoExecuteAndSignOutRevokes() async throws {
