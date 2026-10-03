@@ -35,8 +35,10 @@ final class ChiefExperimentPage: InternalPageProvider {
     }
 
     /// `debug.chief`: every open Chief tab's state and a rendered PNG.
-    func debugReport() -> CmuxNextSettings.JSONValue {
+    /// `send` first types that text into each tab's composer and presses Return.
+    func debugReport(send: String? = nil) -> CmuxNextSettings.JSONValue {
         .array(views.sorted { $0.key < $1.key }.map { key, view in
+            let sent = send.map { view.debugSend($0) }
             let r = view.debugReport()
             return .object([
                 "tab": .string(key),
@@ -46,6 +48,7 @@ final class ChiefExperimentPage: InternalPageProvider {
                 "visible_rows": .array(r.visibleRows.map(CmuxNextSettings.JSONValue.string)),
                 "frame": .string(NSStringFromRect(r.frame)),
                 "snapshot": r.snapshotPath.map(CmuxNextSettings.JSONValue.string) ?? .null,
+                "sent": sent.map(CmuxNextSettings.JSONValue.bool) ?? .null,
             ])
         })
     }

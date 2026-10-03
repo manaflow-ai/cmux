@@ -3,28 +3,37 @@ import CmuxHomeCore
 import Foundation
 import Testing
 
-/// A Worker in memory: dense seqs, sends idempotent by client id, a poll that
-/// answers at once (empty when nothing is new).
+/// A Worker in memory: dense seqs, sends idempotent by client id, and a
+/// stream that sends the backlog on connect, then every appended message.
 actor FakeChiefTransport: ChiefTransport {
     var log: [ChiefWireMessage] = []
     var failNext = false
+    private var streams: [UUID: AsyncThrowingStream<[ChiefWireMessage], any Error>.Continuation] = [:]
 
     func append(_ kind: ChiefWireMessage.Kind, _ author: String, _ text: String, id: String? = nil) -> ChiefWireMessage {
         let seq = UInt64(log.count + 1)
         let m = ChiefWireMessage(seq: seq, id: id ?? "\(kind.rawValue):\(seq)", kind: kind, author: author, text: text, at: Double(seq) * 1000)
         log.append(m)
+        for c in streams.values { c.yield([m]) }
         return m
+    }
+
+    nonisolated func stream(after: UInt64) -> AsyncThrowingStream<[ChiefWireMessage], any Error> {
+        let (stream, continuation) = AsyncThrowingStream<[ChiefWireMessage], any Error>.makeStream()
+        let id = UUID()
+        Task { await self.open(id, continuation, after: after) }
+        return stream
+    }
+
+    private func open(_ id: UUID, _ c: AsyncThrowingStream<[ChiefWireMessage], any Error>.Continuation, after: UInt64) {
+        streams[id] = c
+        c.yield(log.filter { $0.seq > after })
     }
 
     func failOnce() { failNext = true }
 
     private func check() throws {
         if failNext { failNext = false; throw ChiefTransportError.unreachable }
-    }
-
-    func messages(after: UInt64, wait: Int) async throws -> [ChiefWireMessage] {
-        try check()
-        return log.filter { $0.seq > after }
     }
 
     func tail(_ count: Int) async throws -> [ChiefWireMessage] {

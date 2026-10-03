@@ -88,7 +88,7 @@ final class AppControl {
                 return .value(DebugNotifications.handle(call.params, services: services))
             },
             // Chief experiment tabs: state and a rendered PNG (plans/cmux-next/chief.md).
-            .mainActor("debug.chief") { _ in .value(ChiefExperimentPage.shared.debugReport()) },
+            .mainActor("debug.chief") { call in .value(ChiefExperimentPage.shared.debugReport(send: call.params["send"]?.stringValue)) },
             // App overlays vs content child windows (Chromium pages).
             .mainActor("debug.layers") { [weak services] _ in
                 guard let services else { return .value(.null) }

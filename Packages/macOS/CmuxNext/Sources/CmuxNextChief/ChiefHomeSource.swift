@@ -25,9 +25,6 @@ public actor ChiefHomeSource: HomeSource {
     private var inboxRev: Revision = 1
     private let createdAt: Date
 
-    /// Seconds a poll waits on the Worker before it returns empty.
-    static let pollWait = 25
-
     public init(transport: any ChiefTransport, chiefID: String, meName: String,
                 clock: any Clock<Duration> = ContinuousClock(), now: Date = Date()) {
         self.transport = transport
@@ -115,37 +112,40 @@ public actor ChiefHomeSource: HomeSource {
         return stream
     }
 
-    /// Connect, publish the inbox, then follow the long poll. A failure goes
-    /// offline and retries with backoff; the store refetches what it missed.
+    /// Connect, publish the inbox, then follow the Worker's WebSocket. A drop
+    /// goes offline and reconnects with backoff from the newest seq; the store
+    /// refetches what it missed.
     private func run(_ out: AsyncStream<HomeEvent>.Continuation) async {
         out.yield(.connection(.connecting))
         var backoff = Backoff(initial: .seconds(1), maximum: .seconds(30))
-        var online = false
-        // wakeup-allow: each pass blocks on the Worker's long poll (up to 25 s) and failures wait on Backoff; the store stops this task when the tab closes
+        // wakeup-allow: each pass blocks on the Worker's WebSocket until it closes; reconnects wait on Backoff; the store stops this task when the tab closes
         while !Task.isCancelled {
             do {
-                if !online {
-                    _ = absorb(try await transport.tail(1))
-                    online = true
-                    backoff.reset()
-                    out.yield(.connection(.online))
-                    out.yield(.inbox(snapshotValue()))
+                _ = absorb(try await transport.tail(1))
+                var announced = false
+                for try await batch in transport.stream(after: lastSeq) {
+                    if !announced {
+                        announced = true
+                        backoff.reset()
+                        out.yield(.connection(.online))
+                        out.yield(.inbox(snapshotValue()))
+                    }
+                    let (messages, newWorker) = absorb(batch.filter { $0.seq > lastSeq })
+                    if newWorker {
+                        inboxRev += 1
+                        out.yield(.conversationChanged(summary(), stream: .inbox, rev: inboxRev))
+                    }
+                    for m in messages { out.yield(.message(m, rev: m.seq)) }
                 }
-                let fresh = try await transport.messages(after: lastSeq, wait: Self.pollWait)
-                let (messages, newWorker) = absorb(fresh)
-                if newWorker {
-                    inboxRev += 1
-                    out.yield(.conversationChanged(summary(), stream: .inbox, rev: inboxRev))
-                }
-                for m in messages { out.yield(.message(m, rev: m.seq)) }
+                if announced { out.yield(.connection(.offline(since: Date()))) }
             } catch is CancellationError {
                 break
             } catch {
-                if online { out.yield(.connection(.offline(since: Date()))) }
-                online = false
-                // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
-                do { try await backoff.wait(owner: "chief.poll", clock: clock) } catch { break }
+                out.yield(.connection(.offline(since: Date())))
             }
+            guard !Task.isCancelled else { break }
+            // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
+            do { try await backoff.wait(owner: "chief.stream", clock: clock) } catch { break }
         }
         out.finish()
     }

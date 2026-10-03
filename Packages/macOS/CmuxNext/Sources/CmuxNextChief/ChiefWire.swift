@@ -71,8 +71,9 @@ public nonisolated enum ChiefTransportError: Error, Hashable, Sendable {
 
 /// The Worker's chief routes. A protocol so tests replace the network.
 public nonisolated protocol ChiefTransport: Sendable {
-    /// Messages after `after`, waiting up to `wait` seconds for the first one.
-    func messages(after: UInt64, wait: Int) async throws -> [ChiefWireMessage]
+    /// Batches of messages: everything after `after` first, then each new
+    /// message as the Worker records it. Ends (or throws) when the socket closes.
+    func stream(after: UInt64) -> AsyncThrowingStream<[ChiefWireMessage], any Error>
     /// The newest `tail` messages, ascending.
     func tail(_ count: Int) async throws -> [ChiefWireMessage]
     /// Up to `limit` messages before `before`, ascending.
@@ -97,9 +98,40 @@ public nonisolated struct ChiefHTTPTransport: ChiefTransport {
         config.url.appending(path: "v1/chiefs").appending(path: config.chief).appending(path: "messages")
     }
 
-    public func messages(after: UInt64, wait: Int) async throws -> [ChiefWireMessage] {
-        try await get([URLQueryItem(name: "after", value: String(after)), URLQueryItem(name: "wait", value: String(wait))],
-                      timeout: TimeInterval(wait + 15))
+    public func stream(after: UInt64) -> AsyncThrowingStream<[ChiefWireMessage], any Error> {
+        var components = URLComponents(url: config.url.appending(path: "v1/chiefs").appending(path: config.chief).appending(path: "stream"),
+                                       resolvingAgainstBaseURL: false)!
+        components.scheme = components.scheme == "http" ? "ws" : "wss"
+        components.queryItems = [URLQueryItem(name: "after", value: String(after))]
+        var request = URLRequest(url: components.url!)
+        request.setValue("Bearer \(config.token)", forHTTPHeaderField: "authorization")
+        let task = session.webSocketTask(with: request)
+        let (stream, continuation) = AsyncThrowingStream<[ChiefWireMessage], any Error>.makeStream(bufferingPolicy: .bufferingNewest(64))
+        // task-owner: the stream (cancelled by onTermination); event-driven (socket receive)
+        let reader = Task {
+            task.resume()
+            do {
+                // wakeup-allow: blocks on receive() until a frame arrives; a closed or failed socket throws and ends the loop
+                while !Task.isCancelled {
+                    let frame = try await task.receive()
+                    let data: Data
+                    switch frame {
+                    case .data(let d): data = d
+                    case .string(let s): data = Data(s.utf8)
+                    @unknown default: continue
+                    }
+                    continuation.yield(try JSONDecoder().decode(Page.self, from: data).messages)
+                }
+                continuation.finish()
+            } catch {
+                continuation.finish(throwing: ChiefTransportError.unreachable)
+            }
+        }
+        continuation.onTermination = { _ in
+            reader.cancel()
+            task.cancel(with: .goingAway, reason: nil)
+        }
+        return stream
     }
 
     public func tail(_ count: Int) async throws -> [ChiefWireMessage] {

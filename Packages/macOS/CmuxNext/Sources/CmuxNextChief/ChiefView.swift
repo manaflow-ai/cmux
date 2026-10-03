@@ -106,6 +106,26 @@ public final class ChiefView: NSView {
         )
     }
 
+    /// Types `text` into the composer and presses Return, in process: the
+    /// same field, key handling and send path a person uses (debug.chief).
+    /// False when the transcript or its field is not up yet.
+    public func debugSend(_ text: String) -> Bool {
+        guard let transcript, let field = Self.firstTextView(in: transcript) else { return false }
+        window?.makeFirstResponder(field)
+        field.insertText(text, replacementRange: NSRange(location: 0, length: (field.string as NSString).length))
+        guard let returnKey = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                               windowNumber: window?.windowNumber ?? 0, context: nil, characters: "\r",
+                                               charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36) else { return false }
+        field.keyDown(with: returnKey)
+        return field.string.isEmpty
+    }
+
+    private static func firstTextView(in view: NSView) -> NSTextView? {
+        if let text = view as? NSTextView { return text }
+        for sub in view.subviews { if let found = firstTextView(in: sub) { return found } }
+        return nil
+    }
+
     private func renderSnapshot() -> URL? {
         guard let layer, bounds.width > 0, bounds.height > 0 else { return nil }
         let scale = window?.backingScaleFactor ?? 2
