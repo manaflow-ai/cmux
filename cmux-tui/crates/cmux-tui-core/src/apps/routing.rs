@@ -37,6 +37,11 @@ fn error(code: &str, message: impl Into<String>) -> Value {
     json!({ "code": code, "message": message.into(), "retryable": false })
 }
 
+/// True when this daemon's own dispatcher owns `op`.
+pub(super) fn is_daemon_op(op: &str) -> bool {
+    catalog()["operations"].get(op).is_some()
+}
+
 /// Builds the protocol request: `machine`/`session` default to `current`
 /// when the op takes them; everything else is the app's params as given.
 pub(super) fn request(
@@ -120,6 +125,10 @@ impl OpRouter for MuxRouter {
         let response = resource_router::handle_parsed_resource_request(&mux, parsed)
             .map_err(|e| answer(op, json!({ "ok": false, "error": e })).unwrap_err())?;
         answer(op, response)
+    }
+
+    fn owns(&self, op: &str) -> bool {
+        is_daemon_op(op)
     }
 
     fn start_events(&self, publish: Box<dyn Fn(&str) + Send + Sync>) {
