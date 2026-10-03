@@ -6,18 +6,18 @@ public import Foundation
 @MainActor
 public final class MockAccountsServices: AccountsServices {
     public var detections: [ProviderDetection] = [
-        ProviderDetection(provider: .codex, status: .signedIn, account: AccountLabel(handle: "acct_democodex", display: "pro"), plan: "pro",
+        ProviderDetection(provider: .codex, status: .signedIn, account: AccountLabel.demo("codex", display: "pro"), plan: "pro",
                           sources: [.file("~/.codex/auth.json")]),
-        ProviderDetection(provider: .claude, status: .signedIn, account: AccountLabel(handle: "acct_democlaude", display: "d…@e…"),
+        ProviderDetection(provider: .claude, status: .signedIn, account: AccountLabel.demo("claude", display: "d…@e…"),
                           sources: [.keychain("Claude Code-credentials")]),
         ProviderDetection(provider: .anthropic, status: .signedIn, sources: [.environment("ANTHROPIC_API_KEY")]),
-        ProviderDetection(provider: .gemini, status: .expired, account: AccountLabel(handle: "acct_demogemini", display: "d…@g…"),
+        ProviderDetection(provider: .gemini, status: .expired, account: AccountLabel.demo("gemini", display: "d…@g…"),
                           sources: [.file("~/.gemini/oauth_creds.json")]),
         ProviderDetection(provider: .ollama, status: .signedIn, detail: "127.0.0.1:11434", sources: [.server("127.0.0.1:11434")]),
     ]
     public var linked: [LinkedAccount] = [
         LinkedAccount(id: "11111111-1111-4111-8111-111111111111", family: .native, provider: .codex,
-                      account: AccountLabel(handle: "acct_democodex", display: "d…@e…"), state: "active"),
+                      account: AccountLabel.demo("codex", display: "d…@e…"), state: "active"),
     ]
     public var isSignedInToCmux = true
     public var failure: (any Error)?
@@ -48,7 +48,7 @@ public final class MockAccountsServices: AccountsServices {
         let id = UUID().uuidString.lowercased()
         let family: LinkedAccount.Family = [.claude, .anthropic, .bedrock].contains(provider) ? .claude : .native
         linked.append(LinkedAccount(id: id, family: family, provider: provider,
-                                    account: AccountLabel(handle: "acct_demo\(provider.rawValue)", display: provider.displayName), state: "active"))
+                                    account: AccountLabel.demo(provider.rawValue, display: provider.displayName), state: "active"))
     }
 
     public func remove(_ account: LinkedAccount) async throws {

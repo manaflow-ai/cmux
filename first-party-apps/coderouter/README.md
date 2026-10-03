@@ -38,11 +38,11 @@ Pick with the dev-only `variant` setting or "Next CodeRouter Variant" in the pal
 | `wizard` | A pane with one step per screen, progress dots, Back, Skip Setup, Skip, Continue. Steps the data already proves (an account connected, a key exists) are skipped. | One scrolling pane of sections. |
 | `tabs` | A Setup tab with all five steps on one page and a progress bar. | A pane with tabs: Overview, Accounts, Keys, Usage, Routing, Setup. Opens on Setup while setup is pending. |
 
-Recommendation: `checklist`. It works on today's platform (sidebar sections mount; panes do not yet), it is resumable without opening anything, and every step is one tap from where the user already looks. Strongest objection: it takes a lot of sidebar height while setup is open and the 300 pt column truncates account emails; the wizard reads better for a true first run.
+Recommendation: `checklist`. It works on today's platform (sidebar sections mount; panes do not yet), it is resumable without opening anything, and every step is one tap from where the user already looks. Strongest objection: it takes a lot of sidebar height while setup is open and the 300 pt column truncates account labels; the wizard reads better for a true first run.
 
 ## Setup flow
 
-Detect (cmux lists sign-ins and keys found, names and emails only) -> Connect (one Connect per recommended account, agent sign-ins first; Sign In Again for expired ones; Add with a Key for paste-only providers) -> Share (team scope only; private by default; Share or Share All in one call) -> Use (route cmux agents through CodeRouter, or create a key that cmux shows once) -> Test (one tiny prompt, model, latency, account). A step completes when the user finishes it or when the data shows it is done. Progress lives in app storage, so setup resumes on any surface. Skip moves on; Skip Setup or Hide closes setup; "Set Up CodeRouter" reopens it. The reducer is pure (`src/onboarding.ts`) and has a randomized invariant test.
+Detect (cmux lists sign-ins and keys found, as `acct_…` handles with plan names or shortened labels, never emails) -> Connect (one Connect per recommended account, agent sign-ins first; Sign In Again for expired ones; Add with a Key for paste-only providers) -> Share (team scope only; private by default; Share or Share All in one call) -> Use (route cmux agents through CodeRouter, or create a key that cmux shows once) -> Test (one tiny prompt, model, latency, account). A step completes when the user finishes it or when the data shows it is done. Progress lives in app storage, so setup resumes on any surface. Skip moves on; Skip Setup or Hide closes setup; "Set Up CodeRouter" reopens it. The reducer is pure (`src/onboarding.ts`) and has a randomized invariant test.
 
 ## Proposed operations
 

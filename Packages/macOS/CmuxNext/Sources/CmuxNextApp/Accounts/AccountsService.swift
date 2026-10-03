@@ -21,7 +21,9 @@ final class AccountsService: AccountsServices {
     /// environment and no Keychain probe, so no real sign-in is read.
     let fixtureHome: URL?
     private var loginEnvironment: [String: String]?
-    private var reportedEphemeralSalt = false
+    /// False once the Keychain salt failed: `acct_…` handles then last for
+    /// this launch only (`accounts.list` says `handles_stable: false`).
+    private(set) var handlesStable = true
     private var activation: (any NSObjectProtocol)?
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.accounts")
 
@@ -60,9 +62,9 @@ final class AccountsService: AccountsServices {
     /// The account labeler; the first call reads or creates the Keychain salt.
     func labeler() async -> AccountLabeler {
         let labeler = await labels.labeler()
-        if !reportedEphemeralSalt, await labels.usesEphemeralSalt {
-            reportedEphemeralSalt = true
-            logger.error("account label salt unavailable; handles last for this launch only")
+        if handlesStable, let failure = await labels.saltFailure {
+            handlesStable = false
+            logger.error("account label salt unavailable (\(failure, privacy: .public)); handles last for this launch only")
         }
         return labeler
     }

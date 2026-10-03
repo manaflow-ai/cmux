@@ -21,6 +21,7 @@ extension AppControl {
                 return .value(.object([
                     "signed_in": .bool(model.isSignedInToCmux),
                     "refreshing": .bool(model.isRefreshing),
+                    "handles_stable": .bool(services.accounts.handlesStable),
                     "providers": .array(model.rows.map(Self.json)),
                 ]))
             },

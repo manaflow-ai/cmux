@@ -1,3 +1,4 @@
+import CryptoKit
 public import Foundation
 import Security
 
@@ -44,5 +45,16 @@ public struct KeychainAccountLabelSalt: AccountLabelSaltProviding {
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = result as? Data else { throw ProviderKeyStoreError(status: status) }
         return data
+    }
+}
+
+struct AccountLabelSaltTooShort: Error, CustomStringConvertible {
+    var description: String { "account label salt is shorter than 16 bytes" }
+}
+
+enum AccountLabelSalt {
+    /// 32 random bytes.
+    static func random() -> Data {
+        SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
     }
 }

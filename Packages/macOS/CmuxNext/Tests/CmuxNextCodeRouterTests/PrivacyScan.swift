@@ -1,21 +1,29 @@
 import Foundation
 
 /// The one email scanner every account-privacy test uses (this file is
-/// shared by symlink with CmuxNextAppTests). It is deliberately separate
-/// from the production redactor, so a gap in one is caught by the other.
+/// shared by symlink with CmuxNextAppTests). It is deliberately independent
+/// of the production redactor and stricter than any email grammar: every
+/// `@`, full-width `＠` or URL-encoded `%40` counts as a leak unless it
+/// directly follows `…` (the redactor's `s…@e…` form).
 nonisolated enum PrivacyScan {
-    static let emailPattern = #"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}"#
-
-    /// Every email-shaped substring of `text`.
+    /// Each unredacted marker in `text`, with a little context.
     static func emails(in text: String) -> [String] {
-        guard let expression = try? NSRegularExpression(pattern: emailPattern) else { return ["<bad pattern>"] }
-        let range = NSRange(text.startIndex..., in: text)
-        return expression.matches(in: text, range: range).compactMap { Range($0.range, in: text).map { String(text[$0]) } }
+        let scalars = Array(text.unicodeScalars)
+        var found: [String] = []
+        for index in scalars.indices {
+            let scalar = scalars[index]
+            let isAt = scalar == "@" || scalar == "\u{FF20}"
+            let isEncoded = scalar == "%" && index + 2 < scalars.count && scalars[index + 1] == "4" && scalars[index + 2] == "0"
+            guard isAt || isEncoded, index == 0 || scalars[index - 1] != "\u{2026}" else { continue }
+            let context = scalars[max(0, index - 12)..<min(scalars.count, index + 12)]
+            found.append(String(String.UnicodeScalarView(context)))
+        }
+        return found
     }
 
-    /// Emails anywhere in `value`: every string reached by walking its
-    /// `Mirror` recursively, every leaf's description, its `description`,
-    /// its `debugDescription` and its `dump`.
+    /// Leaks anywhere in `value`: every string reached by walking its
+    /// `Mirror` recursively (labels included), every leaf's description,
+    /// its `description`, its `debugDescription` and its `dump`.
     static func emails(inReflectionOf value: Any) -> [String] {
         var texts = [String(describing: value), String(reflecting: value)]
         var dumped = ""
@@ -25,9 +33,28 @@ nonisolated enum PrivacyScan {
         return texts.flatMap(emails(in:))
     }
 
-    /// Emails anywhere in a JSON document.
+    /// Leaks in a JSON document: every key and string after JSON unescaping
+    /// (so `…` counts as `…`), or the raw text when it is not JSON.
     static func emails(inJSON data: Data) -> [String] {
-        emails(in: String(decoding: data, as: UTF8.self))
+        guard let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
+            return emails(in: String(decoding: data, as: UTF8.self))
+        }
+        var texts: [String] = []
+        collectJSON(object, into: &texts)
+        return texts.flatMap(emails(in:))
+    }
+
+    private static func collectJSON(_ value: Any, into texts: inout [String]) {
+        switch value {
+        case let string as String: texts.append(string)
+        case let array as [Any]: for item in array { collectJSON(item, into: &texts) }
+        case let object as [String: Any]:
+            for (key, item) in object {
+                texts.append(key)
+                collectJSON(item, into: &texts)
+            }
+        default: break
+        }
     }
 
     private static func collect(_ value: Any, into texts: inout [String], depth: Int) {

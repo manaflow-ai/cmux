@@ -15,9 +15,9 @@ public struct LinkedAccount: Identifiable, Sendable, Equatable, Hashable {
     public var id: String
     public var family: Family
     public var provider: AIProvider
-    /// The server's label (an email, a user label or a masked key) as a
-    /// handle and a display with every email shortened. The raw label is
-    /// dropped at the client boundary.
+    /// A handle from the account's stable identity and a display from its
+    /// label with every email shortened (``AccountLabeler/server(namespace:id:label:providerAccountId:identifier:fallback:)``).
+    /// The raw label is dropped at the client boundary.
     public var account: AccountLabel
     /// `active`, `refreshing`, `expired`, `broken`, `disabled`.
     public var state: String
@@ -62,15 +62,15 @@ struct ClaudeAccountRow: Decodable {
 extension LinkedAccount {
     init?(native row: NativeAccountRow, labeler: AccountLabeler) {
         guard let provider = AIProvider.fromCodeRouter(provider: row.provider) else { return nil }
-        let label = [row.label, row.providerAccountId].compactMap { $0 }.first { !$0.isEmpty } ?? provider.displayName
-        self.init(id: row.id, family: .native, provider: provider, account: labeler.server(namespace: provider.rawValue, label: label),
-                  state: row.state ?? "active", visibility: row.visibility)
+        let account = labeler.server(namespace: provider.rawValue, id: row.id, label: row.label, providerAccountId: row.providerAccountId,
+                                     fallback: provider.displayName)
+        self.init(id: row.id, family: .native, provider: provider, account: account, state: row.state ?? "active", visibility: row.visibility)
     }
 
     init?(claude row: ClaudeAccountRow, labeler: AccountLabeler) {
         guard let provider = AIProvider.fromClaudeUpstream(kind: row.kind) else { return nil }
-        let label = [row.label, row.identifier].compactMap { $0 }.first { !$0.isEmpty } ?? provider.displayName
-        self.init(id: row.id, family: .claude, provider: provider, account: labeler.server(namespace: provider.rawValue, label: label),
-                  state: row.state ?? "active", visibility: row.visibility)
+        let account = labeler.server(namespace: provider.rawValue, id: row.id, label: row.label, identifier: row.identifier,
+                                     fallback: provider.displayName)
+        self.init(id: row.id, family: .claude, provider: provider, account: account, state: row.state ?? "active", visibility: row.visibility)
     }
 }
