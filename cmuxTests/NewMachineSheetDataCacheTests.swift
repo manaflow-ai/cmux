@@ -113,4 +113,44 @@ struct NewMachineSheetDataCacheTests {
         #expect(bData?.plan?.planId == "pro")
         #expect(cache.readyData?.plan?.planId == "pro")
     }
+    @Test func sizesAreReadyWhileNetworkPresetsAreStillLoading() async {
+        let releaseCatalog = AsyncStream<Void>.makeStream()
+        defer { releaseCatalog.continuation.finish() }
+        let account = Self.scope("first-open")
+        var pageFetches = 0
+        let cache = NewMachineSheetDataCache(
+            currentScope: { account },
+            scopes: { AsyncStream { $0.finish() } },
+            fetchPage: {
+                pageFetches += 1
+                return VMListPage(vms: [], limits: VMPlanLimits(
+                    planId: "pro", freeAccessWindowDays: 0, memoryOptionsMb: [4096, 8192]
+                ))
+            },
+            fetchCatalog: {
+                for await _ in releaseCatalog.stream { break }
+                return Self.catalog
+            }
+        )
+        let data = await cache.data(waitingAtMost: .milliseconds(100))
+        #expect(data?.limits?.memoryOptionsMb == [4096, 8192])
+        #expect(cache.readyData != nil)
+        #expect(data?.catalog == nil)
+        _ = await cache.data(waitingAtMost: .milliseconds(100))
+        #expect(pageFetches == 1)
+    }
+
+    @Test func machineListWithoutLimitsIsNotAReadyPlan() async {
+        let account = Self.scope("missing-plan")
+        let cache = NewMachineSheetDataCache(
+            currentScope: { account },
+            scopes: { AsyncStream { $0.finish() } },
+            fetchPage: { VMListPage(vms: []) },
+            fetchCatalog: { Self.catalog }
+        )
+        _ = await cache.data()
+        #expect(cache.readyData == nil)
+        #expect(cache.currentData?.hasPlan == false)
+    }
+
 }
