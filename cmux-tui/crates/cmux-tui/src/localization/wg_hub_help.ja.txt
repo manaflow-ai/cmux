@@ -12,8 +12,8 @@
                   ポートを優先度クラス interactive、media、bulk 付きで パス.d/ 内の Unix
                   データグラムソケットに提供）、`datagram.stats`
   --probes        プローブで経路を測定します。プローブに応答するピアにのみ使います
-  --send-buffer バイト  UDP 送信バッファ（既定値かつ最小値 16384）。小さいとキューが
-                       ハブ内にでき、media が bulk を追い越せます
+  --send-buffer バイト  UDP 送信バッファ、16384（既定値）から 4194304 まで。小さいと
+                       キューがハブ内にでき、media が bulk を追い越せます
 
 待ち受け開始時に JSON 1 行 `{"event":"hub-ready","socket":...,"routes":[...]}` を出力します
 （--control 指定時は `"control"` も含みます）。
