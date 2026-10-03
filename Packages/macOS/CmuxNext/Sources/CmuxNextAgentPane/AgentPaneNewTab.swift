@@ -92,6 +92,10 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
     public var commands: [String]
     public var history: [Page]
 
+    /// Bound used by native source queries before the DTO reaches the bridge.
+    /// The web page applies its own validation and presentation cap.
+    public static let maximumEntries = 40
+
     public init(tabs: [Tab] = [], workspaces: [Workspace] = [], folders: [String] = [], commands: [String] = [],
                 history: [Page] = []) {
         self.tabs = tabs
