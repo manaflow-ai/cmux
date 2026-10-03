@@ -47,7 +47,7 @@ struct ServerApproverView: View {
         }
         .padding(ServerMetrics.padding + 2)
         .frame(width: ServerMetrics.dashboardWidth)
-        .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: model.candidate)
+        .animation(reduceMotion ? nil : Motion.animation(.crossfade), value: model.candidate)
         .onChange(of: model.lastApproved) { _, approved in
             if approved != nil { close() }
         }
