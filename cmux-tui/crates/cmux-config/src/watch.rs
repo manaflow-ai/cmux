@@ -69,7 +69,10 @@ impl Drop for Watcher {
             guard.take();
         }
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            // The last owner may drop the watcher from its own callback.
+            if thread.thread().id() != std::thread::current().id() {
+                let _ = thread.join();
+            }
         }
     }
 }

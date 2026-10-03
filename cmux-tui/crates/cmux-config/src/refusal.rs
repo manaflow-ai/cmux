@@ -23,7 +23,8 @@ pub enum Refusal {
     /// Origin `mcp` may not change this key (or any non-schema path).
     AgentRefused { key: String, reason: Option<String> },
     /// The idempotency key was used for a different op or params.
-    IdempotencyConflict { idempotency_key: String },
+    /// `committed_operation` is the operation the key committed (`settings.set`, ...).
+    IdempotencyConflict { idempotency_key: String, committed_operation: String },
     /// `if_revision` does not match the owner's revision.
     RevisionConflict { expected: u64, actual: u64 },
     /// cmux.json is not valid JSONC (or its root is not an object); writing
@@ -60,8 +61,8 @@ impl Refusal {
             Refusal::Removed { key, reason } => json!({"key": key, "reason": reason}),
             Refusal::InvalidParams { .. } => Value::Null,
             Refusal::AgentRefused { key, reason } => json!({"key": key, "reason": reason}),
-            Refusal::IdempotencyConflict { idempotency_key } => {
-                json!({"idempotency_key": idempotency_key})
+            Refusal::IdempotencyConflict { idempotency_key, committed_operation } => {
+                json!({"idempotency_key": idempotency_key, "committed_operation": committed_operation})
             }
             Refusal::RevisionConflict { expected, actual } => {
                 json!({"expected": expected, "actual": actual})
@@ -89,7 +90,7 @@ impl fmt::Display for Refusal {
                 Some(reason) => write!(f, "agents may not change {key} ({reason})"),
                 None => write!(f, "agents may not change {key}: it is not a setting"),
             },
-            Refusal::IdempotencyConflict { idempotency_key } => {
+            Refusal::IdempotencyConflict { idempotency_key, .. } => {
                 write!(f, "idempotency key {idempotency_key} was used for a different request")
             }
             Refusal::RevisionConflict { expected, actual } => {

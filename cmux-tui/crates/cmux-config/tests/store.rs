@@ -78,7 +78,9 @@ fn an_idempotency_key_replays_and_refuses_other_params() {
     };
     assert!(apply(&first.state, as_path).unwrap().outcome.replayed);
     let other = set_with("ui.animationSpeed", json!("fast"), meta(Origin::Cli, Some("op-1"), None));
-    assert_eq!(apply(&first.state, other).unwrap_err().code(), "idempotency_conflict");
+    let conflict = apply(&first.state, other).unwrap_err();
+    assert_eq!(conflict.code(), "idempotency_conflict");
+    assert_eq!(conflict.data()["committed_operation"], json!("settings.set"));
     let other_op = Op::Reset {
         target: Target::Key("ui.animationSpeed".into()),
         meta: meta(Origin::Cli, Some("op-1"), None),

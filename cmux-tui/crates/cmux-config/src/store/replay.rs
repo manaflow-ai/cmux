@@ -27,7 +27,8 @@ pub(crate) struct ReplayLog {
 pub(super) enum Lookup {
     Miss,
     Replay(Outcome),
-    Conflict,
+    /// The key committed another op; its wire name.
+    Conflict(String),
 }
 
 impl ReplayLog {
@@ -37,7 +38,7 @@ impl ReplayLog {
             Some(record) if record.fingerprint == fingerprint => {
                 Lookup::Replay(Outcome { replayed: true, ..record.outcome.clone() })
             }
-            Some(_) => Lookup::Conflict,
+            Some(record) => Lookup::Conflict(committed_operation(&record.fingerprint)),
         }
     }
 
@@ -55,6 +56,15 @@ impl ReplayLog {
     pub(crate) fn len(&self) -> usize {
         self.records.len()
     }
+}
+
+/// The wire name of the op a fingerprint records (`settings.set`, ...).
+fn committed_operation(fingerprint: &str) -> String {
+    let name = serde_json::from_str::<serde_json::Value>(fingerprint)
+        .ok()
+        .and_then(|value| value["op"].as_str().map(str::to_string))
+        .unwrap_or_default();
+    format!("settings.{name}")
 }
 
 /// The op's kind and canonical params (target as a key path, value with
@@ -98,6 +108,6 @@ mod tests {
         assert!(
             matches!(log.lookup(&newest, "p"), Lookup::Replay(o) if o.replayed && o.revision == (REPLAY_CAPACITY + 9) as u64)
         );
-        assert!(matches!(log.lookup(&newest, "q"), Lookup::Conflict));
+        assert!(matches!(log.lookup(&newest, "q"), Lookup::Conflict(_)));
     }
 }
