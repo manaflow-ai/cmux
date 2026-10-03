@@ -7,7 +7,7 @@ set -euo pipefail
 tag="$1"; sha="$2"; out="$3"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 here="$root/schemas/terminal-corpus/crosscheck"
-mkdir -p "$out/host" "$out/phone"
+mkdir -p "$out/phone"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
@@ -35,14 +35,15 @@ xcrun --sdk macosx swiftc -O -swift-version 6 -target arm64-apple-macos13 \
   -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework CoreVideo \
   -framework QuartzCore -framework IOSurface -framework Metal -framework Foundation \
   -framework AppKit -framework Carbon -lc++ -o "$work/crosscheck"
-# 4. Host snapshots: the corpus test writes READY and COMPLETE per case, with
-#    the surface's cell pixel size (Kitty placements size in cells from it).
-git -C "$root" submodule update --init --depth 1 ghostty ghostty-next
+# 3. The host side is in the repo: schemas/terminal-corpus/host-snapshots-
+#    macos-aarch64.txt, per-record digests that ghostty-vt
+#    tests/terminal_corpus.rs writes and hosted CI checks (no cargo on the
+#    Mac build hosts). The host terminal uses an 8x17 cell; the surface must
+#    report the same cell size.
 cell="$("$work/crosscheck" --cell-size "$work/ghostty.conf")"
 echo "surface cell size: $cell"
-(cd "$root/cmux-tui" && CMUX_TERMINAL_CORPUS_OUT="$out/host" CMUX_TERMINAL_CORPUS_CELL_PX="$cell" \
-  cargo test -p ghostty-vt --test terminal_corpus -- --nocapture)
-
+[[ "$cell" == "8x17" ]] || { echo "surface cell $cell, host corpus uses 8x17" >&2; exit 1; }
 
 # 5. Compare.
-"$work/crosscheck" "$root/schemas/terminal-corpus" "$out/host" "$out/phone" "$work/ghostty.conf"
+"$work/crosscheck" "$root/schemas/terminal-corpus" \
+  "$root/schemas/terminal-corpus/host-snapshots-macos-aarch64.txt" "$out/phone" "$work/ghostty.conf"
