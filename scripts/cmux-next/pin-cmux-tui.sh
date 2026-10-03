@@ -134,6 +134,8 @@ wait_for_tree() {
         echo "  on a pushed commit of feat-cmux-next, feat-cmux-next-acpmux or cmux-tui-pin-*."
         echo "  Check its runs: https://github.com/manaflow-ai/cmux/actions/workflows/cmux-tui-artifacts.yml"
         echo "  For an unmerged branch: git push origin HEAD:refs/heads/cmux-tui-pin-$(git -C "$repo_root" rev-parse --short=12 HEAD)"
+        echo "  (a pull request checks its merge with the base: merge the base into the branch first)."
+        echo "  When the last run for this tree failed, rerun it: gh workflow run cmux-tui-artifacts.yml --ref <that branch>."
         echo "  Or bundle a local build: CMUX_NEXT_TUI_BIN=<path>. No older binary is used instead."
       } >&2
       exit 1
@@ -144,6 +146,25 @@ wait_for_tree() {
   done
   published="$(awk 'NR==1{print $1}' "$out")"
   [[ "$published" =~ ^[0-9a-f]{64}$ ]] || { echo "error: $sha_url is not a sha256 file" >&2; exit 1; }
+}
+
+# On a developer checkout, waiting is pointless when the last commit that
+# changed the binary's inputs is on no remote branch: nothing will publish
+# it. CI and fleet checkouts may lack remote-tracking refs, so they wait.
+refuse_unpushed_source() {
+  [[ -n "${GITHUB_ACTIONS:-}" || -n "${CI_JOB_DIR:-}" ]] && return 0
+  [[ "$(git -C "$repo_root" rev-parse --is-shallow-repository 2>/dev/null)" == false ]] || return 0
+  [[ -n "$(git -C "$repo_root" for-each-ref --count=1 refs/remotes 2>/dev/null)" ]] || return 0
+  local last
+  last="$(git -C "$repo_root" rev-list -1 HEAD -- cmux-tui ghostty 2>/dev/null)" || return 0
+  [[ -n "$last" ]] || return 0
+  [[ -n "$(git -C "$repo_root" branch -r --contains "$last" 2>/dev/null | head -n 1)" ]] && return 0
+  {
+    echo "error: commit $last, the last change to cmux-tui or ghostty here, is on no remote branch,"
+    echo "  so no workflow will publish its cmux-tui. Push it (to feat-cmux-next, feat-cmux-next-acpmux or"
+    echo "  cmux-tui-pin-<short-sha>), or bundle a local build with CMUX_NEXT_TUI_BIN=<path>."
+  } >&2
+  exit 1
 }
 
 fetch_tree() {
@@ -161,6 +182,7 @@ fetch_tree() {
   temp_dir="$(mktemp -d "$dir/.fetch.XXXXXX")"
   # shellcheck disable=SC2064 # expand now: the trap must remove this temp dir
   trap "rm -rf '$temp_dir'" EXIT
+  refuse_unpushed_source
   wait_for_tree "$key" "$temp_dir/sha256"
   download "$url" "$temp_dir/cmux-tui" || { echo "error: could not download $url" >&2; exit 1; }
   actual="$(sha256_of "$temp_dir/cmux-tui")"

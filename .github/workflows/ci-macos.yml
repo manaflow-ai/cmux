@@ -2346,8 +2346,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # The cmux-tui the app ships: the commit scripts/cmux-next/cmux-tui.pin
-          # names, as nightly.yml and release.yml install it.
+          # The cmux-tui a release ships: the commit scripts/cmux-next/cmux-tui.pin
+          # names, as release.yml installs it. (Nightly and tagged builds bundle
+          # the cmux-tui of their own tree, scripts/cmux-next/pin-cmux-tui.sh.)
           commit="$(awk -F= '$1=="commit"{print $2}' scripts/cmux-next/cmux-tui.pin)"
           [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
           manifest_url="https://files.cmux.com/cmux-tui/$commit/manifest.json"
