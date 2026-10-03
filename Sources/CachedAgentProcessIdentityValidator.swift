@@ -180,6 +180,14 @@ struct CachedAgentProcessIdentityValidator: Sendable {
         let observedSessionID: String?
         switch snapshot.kind {
         case .claude:
+            // /resume and /clear switch conversations without execing a new
+            // process. A current hook record with a validated PID generation
+            // names the active session; argv and inherited environment still
+            // name the session used at launch. Cached snapshots cannot supply
+            // that evidence and keep the strict launch-identity check below.
+            if hermesSessionValidation == .currentHookRecord {
+                return true
+            }
             // In a fork, --resume names the parent. Only an explicit child
             // identity can contradict the current hook record; a cached
             // snapshot still cannot vouch for a missing child identity.
