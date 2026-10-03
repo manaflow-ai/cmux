@@ -174,3 +174,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "frontend_browser_keys_tests.rs"]
+mod keys_tests;
