@@ -66,6 +66,10 @@ public final class BrowserReplSession: @unchecked Sendable {
     private var nextInFlightID = 0
     /// The per-session temporary directory created when no cwd was given.
     private let ownedWorkingDirectory: String?
+    /// The session's private temporary directory (mode 0700): `os.tmpdir()`
+    /// in the REPL, where output spill files go, and the only `fs` root
+    /// besides the working directory.
+    private let privateTemporaryDirectory: String
     private let homeDirectory: String
 
     // JS-thread state.
@@ -146,7 +150,8 @@ public final class BrowserReplSession: @unchecked Sendable {
     ///   - bundle: Runtime scripts.
     ///   - driver: Engine driver for the session's tabs.
     ///   - sleeper: Cancellable sleep used for evaluation timeouts.
-    ///   - temporaryDirectory: The second `fs` root; `nil` uses `NSTemporaryDirectory()`.
+    ///   - temporaryDirectory: The app's temporary directory, under which the
+    ///     session creates its private one; `nil` uses `NSTemporaryDirectory()`.
     ///   - homeDirectory: The user's home directory, refused as a root;
     ///     `nil` uses `NSHomeDirectory()`.
     public init(
@@ -169,6 +174,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             resolvedCwd = Self.makeSessionDirectory(id: id, temporaryRoot: temporaryRoot)
             ownedWorkingDirectory = resolvedCwd
         }
+        privateTemporaryDirectory = Self.makeSessionDirectory(id: id, temporaryRoot: temporaryRoot, suffix: "-tmp", mode: 0o700)
         self.id = id
         self.workingDirectory = resolvedCwd
         self.homeDirectory = homeDirectory ?? NSHomeDirectory()
@@ -179,7 +185,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         self.fetcher = BrowserReplFetcher(driver: driver)
         self.fileSystem = BrowserReplFileSystem(
             sandbox: BrowserReplFileSandbox(root: resolvedCwd),
-            temporaryDirectory: temporaryRoot
+            temporaryDirectory: privateTemporaryDirectory
         )
         self.scheduler = BrowserReplTimerScheduler(clock: ContinuousClock()) { [weak self] id in
             self?.fireTimer(id)
@@ -188,15 +194,23 @@ public final class BrowserReplSession: @unchecked Sendable {
         fetcher.setBlockReason { url in boundary.blockReason(url) }
     }
 
-    /// Creates `<temporaryRoot>/cmux-browser-repl/<id>-<random>` for a
-    /// session started without a cwd.
-    private static func makeSessionDirectory(id: String, temporaryRoot: String) -> String {
+    /// Creates `<temporaryRoot>/cmux-browser-repl/<id>-<random><suffix>`, a
+    /// new directory of the session's own: its working directory when it
+    /// was started without a cwd, and its private temporary directory.
+    private static func makeSessionDirectory(id: String, temporaryRoot: String, suffix: String = "", mode: mode_t = 0o755) -> String {
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
         let safeID = String(String.UnicodeScalarView(id.unicodeScalars.prefix(64).map { allowed.contains($0) ? $0 : "_" }))
-        let name = "\(safeID)-\(UUID().uuidString.prefix(8))"
-        let path = (temporaryRoot == "/" ? "" : temporaryRoot) + "/cmux-browser-repl/" + name
+        let parent = (temporaryRoot == "/" ? "" : temporaryRoot) + "/cmux-browser-repl"
+        try? FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true)
+        var path = ""
+        // mkdir(2) creates the directory itself, never one that already
+        // exists, so no other session's directory is ever reused.
+        for _ in 0..<8 {
+            path = parent + "/\(safeID)-\(UUID().uuidString.prefix(8))\(suffix)"
+            // The umask can only narrow `mode`.
+            if mkdir(path, mode) == 0 { break }
+        }
         // A failure surfaces as ENOENT on the first fs write.
-        try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
         return path
     }
 
@@ -311,10 +325,13 @@ public final class BrowserReplSession: @unchecked Sendable {
         driver.detach()
         fetcher.invalidate()
         running?.finish(error: "Error: REPL session '\(id)' was closed")
+        // Only an empty directory goes; files the session wrote stay, since
+        // a one-shot run prints paths (spilled output, screenshots) that the
+        // caller reads after the session has closed.
         if let ownedWorkingDirectory {
-            // Only an empty directory goes; files the session wrote stay.
             rmdir(ownedWorkingDirectory)
         }
+        rmdir(privateTemporaryDirectory)
     }
 
     /// Finishes `state` and forgets it when it is still the current evaluation.
@@ -497,7 +514,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         native.setObject(id, forKeyedSubscript: "sessionId" as NSString)
         native.setObject(fileSystem.sandbox.root, forKeyedSubscript: "cwd" as NSString)
         native.setObject(driver.capabilities, forKeyedSubscript: "capabilities" as NSString)
-        native.setObject(fileSystem.temporaryRoot, forKeyedSubscript: "tmpdir" as NSString)
+        native.setObject(privateTemporaryDirectory, forKeyedSubscript: "tmpdir" as NSString)
         native.setObject(homeDirectory, forKeyedSubscript: "homedir" as NSString)
 
         let print: @convention(block) (JSValue?, JSValue?) -> Void = { [weak self] level, text in

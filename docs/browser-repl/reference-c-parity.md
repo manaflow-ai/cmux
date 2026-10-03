@@ -89,7 +89,7 @@ if the page's domain matches. In cmux the model is the caller, so the
 value comes from a file or from code it writes.
 
 What `secrets.load(path)` protects: the native session reads the file (it
-must be inside the session directory or the temporary directory, like any
+must be inside the session directory or its own temporary directory, like any
 `fs` path), so the values never enter the runtime, and every value is
 masked wherever the session hands text back. It does not hide the file:
 the agent's own `fs` calls can read the same file, and only the masks stand

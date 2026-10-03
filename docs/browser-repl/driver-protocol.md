@@ -252,17 +252,18 @@ structured values cross the boundary as JSON strings.
 | `policy(op, argsJSON)` | synchronous, as `secrets`: `get` → `{ allowed, prohibited, blockIPs, locked }`, `check { url }` → reason or `null`, `site { host }` → the host's site (registrable domain by the Public Suffix List, or the host itself when it has none), the same site `cookies.clear` scopes to, `set { allowed?, prohibited?, blockIPs?, lock?, title }` (a locked policy refuses) |
 | `fs(op, argsJSON)` | synchronous; returns `{"ok": value}` or `{"error": {"code": "ENOENT"\|"EACCES"\|"EEXIST"\|"ENOTDIR"\|"EISDIR"\|"ENOTEMPTY"\|"EINVAL", "message"}}` |
 | `readResource(relativePath)` | text of a bundled `Resources/browser-repl/` file, or `null` |
-| `tmpdir`, `homedir` | canonical temporary and home directories, for `node:os` |
+| `tmpdir`, `homedir` | the session's private temporary directory (`<app temp>/cmux-browser-repl/<session>-<random>-tmp`, mode 0700, removed on close when empty; no other session's files are in it) and the canonical home directory, for `node:os` |
 
 `fs` ops, paths relative to `cwd` (absolute paths must stay inside `cwd` or
-the user's temporary directory, except files the driver reported through
+the session's own `tmpdir`, never the system temporary directory that other
+sessions and apps share, except files the driver reported through
 `download.finished`, which are readable): `readFile {path}` → base64, `writeFile {path, base64, append?}`,
 `mkdir {path, recursive?}`, `readdir {path}` → `[{ name, type }]`,
 `stat {path}` → `{ size, type: "file"|"directory"|"symlink"|"other", mtimeMs, birthtimeMs }`,
 `lstat {path}` (as `stat`, for the link itself), `rm {path, recursive?, force?}`,
 `rename {from, to}`, `copyFile {from, to}`, `exists {path}` → boolean,
-`resolve {path}` → absolute path. `rm` refuses `cwd` and the temporary
-directory themselves.
+`resolve {path}` → absolute path. `rm` refuses `cwd` and `tmpdir`
+themselves.
 
 Symbolic links follow Node. `rm`, `rename` and `lstat` act on the link itself
 and check only that its parent directory is inside a root, so a link pointing
