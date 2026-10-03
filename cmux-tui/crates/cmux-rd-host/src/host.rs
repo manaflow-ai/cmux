@@ -17,15 +17,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     // Until the link token (lane 12) authenticates hello claims, the host trusts them, so by
     // default it listens on loopback only and refuses every non-loopback peer. A private
     // single-tenant overlay needs the explicit flag below.
-    let reach = if opts.get("single-tenant-overlay") == Some("1") {
-        Reach::SingleTenantOverlay
-    } else {
-        Reach::LoopbackOnly
-    };
-    let bind: IpAddr = opts.str_or("bind", "127.0.0.1").parse()?;
-    if let Err(e) = bind_allowed(bind, reach) {
-        return Err(e.into());
-    }
+    let (reach, bind) = reach_and_bind(opts)?;
     eprintln!(
         "cmux-rd host: development only. The host trusts the principal claims in each hello until the link \
          token (lane 12) authenticates them, so it serves {}.",
@@ -124,8 +116,23 @@ pub fn bind_allowed(bind: IpAddr, reach: Reach) -> Result<(), String> {
     }
 }
 
+/// The serving mode and bind address from the options: loopback only unless the exact
+/// `--single-tenant-overlay 1` is given; the bind defaults to 127.0.0.1 and must fit the mode.
+pub fn reach_and_bind(opts: &Opts) -> Result<(Reach, IpAddr), String> {
+    let reach = if opts.get("single-tenant-overlay") == Some("1") {
+        Reach::SingleTenantOverlay
+    } else {
+        Reach::LoopbackOnly
+    };
+    let bind: IpAddr = opts.str_or("bind", "127.0.0.1").parse().map_err(|e| format!("--bind: {e}"))?;
+    bind_allowed(bind, reach)?;
+    Ok((reach, bind))
+}
+
 /// May a viewer connecting from `peer` be served in this mode? Checked before the hello is read.
+/// IPv4-mapped IPv6 addresses are judged as IPv4.
 pub fn peer_allowed(peer: IpAddr, reach: Reach) -> bool {
+    let peer = peer.to_canonical();
     match reach {
         Reach::LoopbackOnly => peer.is_loopback(),
         Reach::SingleTenantOverlay => is_private(peer),
@@ -305,6 +312,32 @@ mod tests {
         for bind in ["0.0.0.0", "10.250.93.1", "100.64.0.1", "::"] {
             assert!(bind_allowed(ip(bind), Reach::LoopbackOnly).is_err(), "{bind}");
         }
+    }
+
+    fn opts(args: &[&str]) -> Opts {
+        Opts::parse(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>()).expect("opts")
+    }
+
+    #[test]
+    fn defaults_are_loopback_only_and_refuse_a_non_loopback_peer() {
+        let (reach, bind) = reach_and_bind(&opts(&[])).expect("defaults");
+        assert_eq!((reach, bind), (Reach::LoopbackOnly, ip("127.0.0.1")));
+        assert!(!peer_allowed(ip("10.250.93.2"), reach));
+        assert!(!peer_allowed(ip("::ffff:10.250.93.2"), reach));
+        assert!(peer_allowed(ip("::ffff:127.0.0.1"), reach));
+        // Anything but the exact "1" keeps the default.
+        assert_eq!(reach_and_bind(&opts(&["--single-tenant-overlay", "true"])).map(|r| r.0), Ok(Reach::LoopbackOnly));
+        assert!(reach_and_bind(&opts(&["--bind", "10.0.0.1"])).is_err());
+        assert!(reach_and_bind(&opts(&["--bind", "10.0.0.1", "--single-tenant-overlay", "1"])).is_ok());
+    }
+
+    #[test]
+    fn a_real_loopback_connection_passes_the_default_check() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let _client = std::net::TcpStream::connect(addr).expect("connect");
+        let (accepted, _) = listener.accept().expect("accept");
+        assert!(peer_allowed(accepted.peer_addr().expect("peer").ip(), Reach::LoopbackOnly));
     }
 
     #[test]

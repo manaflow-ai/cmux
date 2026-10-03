@@ -40,6 +40,9 @@ VM), never on a Mac: `cargo build --release`.
   non-loopback peer before it reads the hello. Reach it through SSH or a tunnel. A private
   single-tenant overlay (RFC 1918, CGNAT or ULA address) needs the explicit
   `--single-tenant-overlay 1`; public addresses are always refused.
+- Loopback trusts every process on the same machine: on a machine that also runs agents
+  (for example a cloud dev VM), any local process can connect and claim the owner. Until
+  the link token exists, run the host only on a machine with no other users or agents.
 - Known gap until the overlay link token (lane 12) replaces them: the host trusts the
   principal claims in the `hello`. Every process that can reach the bind address can claim
   the owner and an interactive person, including agent VMs on a team VPC and every tailnet
