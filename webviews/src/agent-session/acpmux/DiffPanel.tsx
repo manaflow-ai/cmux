@@ -16,7 +16,13 @@ import { LoadState } from "./changes/LoadState";
 import { applyCommand } from "./changes/applyCommand";
 import { BranchPill } from "./changes/BranchPill";
 import { copyText } from "./conversation/clipboard";
-import { changeSetFiles, checkpointEditId, type ChangeScope, type ChangesSource, type TurnCheckpoint } from "./changes/model";
+import {
+  changeSetFiles,
+  checkpointEditId,
+  type ChangeScope,
+  type ChangesSource,
+  type TurnCheckpoint,
+} from "./changes/model";
 import { OptionsMenu, type OptionsRow } from "./changes/OptionsMenu";
 import { RevertBar } from "./changes/RevertBar";
 import { ScopeMenu } from "./changes/ScopeMenu";
