@@ -5,11 +5,12 @@ public struct ClassicSessionImporter: Sendable {
     public static let stableBundleIdentifier = "com.cmuxterm.app"
     public let fileURL: URL
 
-    public init(fileURL: URL? = nil, fileManager: FileManager = .default) {
+    public init(fileURL: URL? = nil, fileManager: FileManager? = nil) {
         if let fileURL { self.fileURL = fileURL }
         else {
-            let support = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-                ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
+            let manager = fileManager ?? FileManager.default
+            let support = manager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+                ?? manager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
             self.fileURL = support.appendingPathComponent("cmux/session-\(Self.stableBundleIdentifier).json")
         }
     }
