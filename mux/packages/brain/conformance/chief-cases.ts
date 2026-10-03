@@ -394,6 +394,65 @@ function catchUpCases(): CorpusCase[] {
   return cases;
 }
 
+function disconnectCases(): CorpusCase[] {
+  const cases: CorpusCase[] = [];
+  const start = (c: CaseBuilder, conv: Summary) => {
+    c.feed({ kind: "daemon_connected", conversation: conv });
+    c.feed({ kind: "acpmux_connected", session_id: MUX_SESSION, sessions: [], events: [] });
+  };
+
+  {
+    const c = new CaseBuilder("disconnect: the daemon drops while listing; a late listing is ignored; the reconnect lists again");
+    start(c, summary("conv_a"));
+    c.step({ kind: "disconnected", port: "daemon" }, []);
+    c.step({ kind: "conversations_listed", conversations: [summary("conv_a")] }, []);
+    c.step({ kind: "daemon_connected", conversation: summary("conv_a") }, ["list_conversations"]);
+    c.step({ kind: "conversations_listed", conversations: [summary("conv_a")] }, ["fetch_snapshot"]);
+    c.step({ kind: "snapshot", conversation: summary("conv_a"), messages: [] }, ["ready"]);
+    cases.push(c.end());
+  }
+
+  {
+    const c = new CaseBuilder("disconnect: the daemon drops during a snapshot and during paging; late answers are ignored");
+    const conv = summary("conv_g", [ME, ANA, MUX]);
+    start(c, conv);
+    c.feed({ kind: "conversations_listed", conversations: [conv] });
+    c.step({ kind: "disconnected", port: "daemon" }, []);
+    const messages = [1, 2, 3].map((seq) => msg("conv_g", seq, "user_ana", `n${seq}`));
+    c.step({ kind: "snapshot", conversation: conv, messages }, []);
+    c.step({ kind: "daemon_connected", conversation: conv }, ["list_conversations"]);
+    c.step({ kind: "conversations_listed", conversations: [conv] }, ["fetch_snapshot"]);
+    c.step({ kind: "snapshot", conversation: conv, messages: messages.slice(2) }, ["fetch_history"]);
+    c.step({ kind: "disconnected", port: "daemon" }, []);
+    c.step({ kind: "history", conversation: "conv_g", messages: messages.slice(0, 2) }, []);
+    c.step({ kind: "daemon_connected", conversation: conv }, ["list_conversations"]);
+    c.step({ kind: "conversations_listed", conversations: [conv] }, ["fetch_snapshot"]);
+    c.step({ kind: "snapshot", conversation: conv, messages }, ["conversation_op", "conversation_op", "conversation_op", "ready"]);
+    cases.push(c.end());
+  }
+
+  {
+    const conv = summary("conv_g", [ME, ANA, MUX]);
+    const c = new CaseBuilder("disconnect: a handling task goes on while the daemon is down; messages it finishes then send no cursor op");
+    start(c, conv);
+    c.feed({ kind: "conversations_listed", conversations: [conv] });
+    const mention = msg("conv_g", 1, "user_ana", "@mux look", {
+      parts: [{ type: "text", text: "@mux look", runs: [{ start: 0, length: 4, mention: AGENT_MUX }] }],
+    });
+    c.step({ kind: "snapshot", conversation: conv, messages: [mention, msg("conv_g", 2, "user_ana", "and this")] }, ["persist", "prompt"]);
+    c.step({ kind: "disconnected", port: "daemon" }, []);
+    c.step(mux(ev(1, "user_message", { promptId: mention.id })), [], undefined);
+    c.step({ kind: "daemon_connected", conversation: conv }, ["list_conversations"]);
+    c.step({ kind: "conversations_listed", conversations: [conv] }, ["fetch_snapshot"]);
+    c.step({ kind: "snapshot", conversation: conv, messages: [mention, msg("conv_g", 2, "user_ana", "and this")] }, ["ready"], (e) =>
+      c.check(!e.some((x) => x.kind === "prompt"), "handled while down: no second prompt"),
+    );
+    cases.push(c.end());
+  }
+
+  return cases;
+}
+
 function turnCases(): CorpusCase[] {
   const cases: CorpusCase[] = [];
 
@@ -991,7 +1050,7 @@ export const NOTES = [
 ];
 
 export async function buildCorpus(): Promise<Corpus> {
-  const cases = [...wakeCases(), ...catchUpCases(), ...turnCases(), ...outboxCases(), ...childCases()];
+  const cases = [...wakeCases(), ...catchUpCases(), ...disconnectCases(), ...turnCases(), ...outboxCases(), ...childCases()];
   const names = new Set<string>();
   for (const c of cases) {
     if (names.has(c.name)) throw new Error(`duplicate case ${c.name}`);
