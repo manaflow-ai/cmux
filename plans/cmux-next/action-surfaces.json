@@ -11796,9 +11796,14 @@
       "context_menus" : [
         "tab"
       ],
+      "default_chord" : null,
+      "default_shortcut" : null,
       "id" : "tab.moveToNewStickyColumn",
       "mcp" : "offered",
-      "palette" : "offered"
+      "palette" : "offered",
+      "title" : "Move Tab to New Sticky Column",
+      "title_key" : "action.tab.moveToNewStickyColumn",
+      "title_table" : "LayoutActions"
     },
     {
       "cli" : "offered",
