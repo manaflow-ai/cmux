@@ -901,12 +901,12 @@ jobs:
           else
             status=$?
           fi
-          if [ "$status" -ne 0 ] && grep -Eq "unable to open dependencies file|CAS error: No such file or directory" "$compile_log"; then
+          if [ "$status" -ne 0 ] && grep -Eq "unable to open dependencies file|CAS error: No such file or directory|There is no XCFramework found at" "$compile_log"; then
             # An adopted DerivedData tree can retain an incomplete Swift
-            # dependency graph after a cancelled or interrupted compile. Xcode
-            # then fails late with no source diagnostic. Drop only the derived
-            # tree and retry once from the already-resolved source packages;
-            # real compiler errors still fail without a retry.
+            # dependency graph or package artifact after a cancelled or
+            # interrupted compile. Xcode then fails late with no source
+            # diagnostic. Drop the job-local build state and retry once from
+            # a fresh package resolve; real compiler errors still fail.
             echo "::warning::stale DerivedData dependency output detected; retrying compile from a clean tree"
             compile_workers_running() {
               local compiler pgrep_status
@@ -931,7 +931,7 @@ jobs:
               echo "::error::compile workers remain after 60 seconds; refusing to replace their build state"
               exit "$status"
             fi
-            scripts/ci/clear-dirs.sh "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$CMUX_COMPILE_ADMISSION_CAS"
+            scripts/ci/clear-dirs.sh "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$CMUX_COMPILE_ADMISSION_CAS" "$PWD/.ci-source-packages"
             if scripts/ci/compile-app-host-test-product.sh canonical-resolve \
               "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
               "$PWD/.ci-source-packages"; then
