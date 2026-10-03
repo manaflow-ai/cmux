@@ -10,9 +10,19 @@ extension HTTPCookie {
         let domain = self.domain.lowercased()
         let bare = domain.hasPrefix(".") ? String(domain.dropFirst()) : domain
         guard host == bare || host.hasSuffix("." + bare) else { return false }
-        let path = url.path.isEmpty ? "/" : url.path
-        guard path.hasPrefix(self.path) else { return false }
+        // The path as sent, trailing slash kept (`URL.path` drops it).
+        let sent = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? url.path
+        guard Self.browserReplPath(sent.hasPrefix("/") ? sent : "/", matches: path) else { return false }
         return !isSecure || url.scheme == "https" || Self.browserReplIsLoopback(host)
+    }
+
+    /// RFC 6265 section 5.1.4 path-match: the cookie path is the request path,
+    /// or a prefix of it that ends with `/` or is followed by `/`. So a
+    /// `/account` cookie goes to `/account/settings` but not `/accounting`.
+    static func browserReplPath(_ requestPath: String, matches cookiePath: String) -> Bool {
+        guard requestPath.hasPrefix(cookiePath) else { return false }
+        if requestPath.count == cookiePath.count || cookiePath.hasSuffix("/") { return true }
+        return requestPath.dropFirst(cookiePath.count).first == "/"
     }
 
     /// Loopback hosts are potentially trustworthy origins, so a Secure
