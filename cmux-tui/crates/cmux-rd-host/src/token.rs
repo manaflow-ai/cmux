@@ -32,7 +32,8 @@ impl Token {
         }
         let mut out = [0u8; TOKEN_LEN];
         for (i, byte) in out.iter_mut().enumerate() {
-            *byte = u8::from_str_radix(&text[2 * i..2 * i + 2], 16).map_err(|_| "token must be hex".to_string())?;
+            *byte = u8::from_str_radix(&text[2 * i..2 * i + 2], 16)
+                .map_err(|_| "token must be hex".to_string())?;
         }
         Ok(Self(out))
     }
@@ -49,7 +50,10 @@ impl Token {
         // SAFETY: the parent passed this descriptor to us for exactly this read; we own and close it.
         let mut file = unsafe { File::from_raw_fd(fd) };
         let mut text = String::new();
-        file.by_ref().take(256).read_to_string(&mut text).map_err(|e| format!("reading the token: {e}"))?;
+        file.by_ref()
+            .take(256)
+            .read_to_string(&mut text)
+            .map_err(|e| format!("reading the token: {e}"))?;
         Self::from_hex(&text)
     }
 

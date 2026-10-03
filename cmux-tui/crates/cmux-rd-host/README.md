@@ -7,8 +7,8 @@ packetizer, reassembly, frame gate, congestion control, input, sessions and acce
 policy): `cmux-rd-core`.
 
 ```
-cmux-rd host    --owner USER [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99] [--port 4103] [--codec openh264]
-cmux-rd bench   --addr HOST:4103 [--carrier udp|stream] [--samples 300] [--user USER]
+cmux-rd host    --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99] [--port 4103] [--codec openh264]
+cmux-rd bench   --addr HOST:4103 --token-fd N [--carrier udp|stream] [--samples 300] [--user USER]
 cmux-rd testapp --display :99 --workload marker|text|motion|idle
 ```
 
@@ -35,6 +35,14 @@ VM), never on a Mac: `cargo build --release`.
   implementations of the same trait.
 
 ## Security (phase 1)
+
+- Per-launch session token: the host needs `--token-fd N`, an inherited pipe from its parent
+  (the cmux daemon) that carries a 256-bit token; no file, environment variable or argv value
+  holds it. A hello without the exact token is refused before any session or frame
+  (constant-time compare). The daemon releases the token only through `secret.release` to
+  the `frontend` actor (the native app's viewer pane); terminal and agent actors are refused
+  (P8 slice 3). Until that lands the host is development only and the pane is not in
+  Release builds.
 
 - Development only. By default the host binds loopback (`--bind 127.0.0.1`) and refuses every
   non-loopback peer before it reads the hello. Reach it through SSH or a tunnel. A private

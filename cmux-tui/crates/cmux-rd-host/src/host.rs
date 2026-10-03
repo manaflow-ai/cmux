@@ -187,8 +187,15 @@ fn serve_viewer(
     crate::wire::harden_tcp(&stream);
     stream.set_nonblocking(true)?;
     let mut reader = FrameReader::default();
-    let Control::Hello { user, install, class, interactive, udp_port, max_datagram, token: provided } =
-        read_control(&mut stream, &mut reader)?
+    let Control::Hello {
+        user,
+        install,
+        class,
+        interactive,
+        udp_port,
+        max_datagram,
+        token: provided,
+    } = read_control(&mut stream, &mut reader)?
     else {
         return Err("first message must be hello".into());
     };
