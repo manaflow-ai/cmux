@@ -54,6 +54,12 @@ pub type ScreenId = u64;
 pub type WorkspaceId = u64;
 pub type IdempotencyKey = String;
 
+mod conservation;
+pub use conservation::{
+    check_conservation, check_conservation_creating, check_conservation_restarting,
+    introduced_violations, introduced_violations_creating, introduced_violations_for,
+};
+
 /// The content behind a tab: an opaque runtime identity, its terminal, and
 /// whether the runtime exited. Identity is `runtime` and `terminal`; `dead`
 /// is lifecycle state that only [`LayoutOpKind::RuntimeExited`] sets.
@@ -481,107 +487,6 @@ pub fn check_state(state: &LayoutState) -> BTreeSet<Violation> {
             violations.insert(Violation::PaneOutsideLayout { pane: *pane });
         }
     }
-    violations
-}
-
-/// I1 from `before` to `after`, where exactly the tabs in `closed` close.
-pub fn check_conservation(
-    before: &LayoutState,
-    after: &LayoutState,
-    closed: &BTreeSet<TabId>,
-) -> BTreeSet<Violation> {
-    check_conservation_creating(before, after, closed, &BTreeSet::new())
-}
-
-/// I1 from `before` to `after`, where exactly the tabs in `closed` close
-/// and exactly the tabs in `created` appear (an op's explicit creations).
-pub fn check_conservation_creating(
-    before: &LayoutState,
-    after: &LayoutState,
-    closed: &BTreeSet<TabId>,
-    created: &BTreeSet<TabId>,
-) -> BTreeSet<Violation> {
-    check_conservation_restarting(before, after, closed, created, &BTreeSet::new())
-}
-
-/// [`check_conservation_creating`] where exactly the tabs in `restarted`
-/// may show new content in place (a restart). A restarted tab must stay;
-/// it may gain content it did not have (a kept tab without a runtime).
-pub fn check_conservation_restarting(
-    before: &LayoutState,
-    after: &LayoutState,
-    closed: &BTreeSet<TabId>,
-    created: &BTreeSet<TabId>,
-    restarted: &BTreeSet<TabId>,
-) -> BTreeSet<Violation> {
-    let mut violations = BTreeSet::new();
-    for (tab, content) in &before.tabs {
-        match (closed.contains(tab), after.tabs.get(tab)) {
-            (true, Some(_)) => {
-                violations.insert(Violation::TabNotClosed { tab: *tab });
-            }
-            (false, None) => {
-                violations.insert(Violation::TabLost { tab: *tab });
-            }
-            (false, Some(after)) if !after.same_identity(content) && !restarted.contains(tab) => {
-                violations.insert(Violation::TabContentChanged { tab: *tab });
-            }
-            _ => {}
-        }
-    }
-    for tab in after.tabs.keys() {
-        if !before.tabs.contains_key(tab) && !created.contains(tab) && !restarted.contains(tab) {
-            violations.insert(Violation::TabAdded { tab: *tab });
-        }
-    }
-    for tab in created.iter().chain(restarted) {
-        if !after.tabs.contains_key(tab) {
-            violations.insert(Violation::TabLost { tab: *tab });
-        }
-    }
-    violations
-}
-
-/// Every I1 violation from `before` to `after`, and every I2/I3 violation
-/// of `after` that `before` did not already have. A state restored from an
-/// older build that already breaks an invariant does not block later ops.
-pub fn introduced_violations(
-    before: &LayoutState,
-    after: &LayoutState,
-    closed: &BTreeSet<TabId>,
-) -> BTreeSet<Violation> {
-    introduced_violations_creating(before, after, closed, &BTreeSet::new())
-}
-
-/// [`introduced_violations`] where exactly the tabs in `created` may appear.
-pub fn introduced_violations_creating(
-    before: &LayoutState,
-    after: &LayoutState,
-    closed: &BTreeSet<TabId>,
-    created: &BTreeSet<TabId>,
-) -> BTreeSet<Violation> {
-    let mut violations = check_conservation_creating(before, after, closed, created);
-    let existing = check_state(before);
-    violations.extend(check_state(after).into_iter().filter(|v| !existing.contains(v)));
-    violations
-}
-
-/// [`introduced_violations`] for `kind`: its closes, creations and
-/// restarts are the only tab changes allowed.
-pub fn introduced_violations_for(
-    before: &LayoutState,
-    after: &LayoutState,
-    kind: &LayoutOpKind,
-) -> BTreeSet<Violation> {
-    let mut violations = check_conservation_restarting(
-        before,
-        after,
-        &kind.closed_tabs(),
-        &kind.created_tabs(),
-        &kind.restarted_tabs(),
-    );
-    let existing = check_state(before);
-    violations.extend(check_state(after).into_iter().filter(|v| !existing.contains(v)));
     violations
 }
 
