@@ -22,6 +22,7 @@ struct FakeCdp {
     runtime: Arc<BrowserRuntime>,
     navigations: Receiver<String>,
     navigation_sessions: Receiver<String>,
+    methods: Receiver<String>,
 }
 
 impl FakeCdp {
@@ -56,6 +57,7 @@ fn fake_cdp_gated(mut first_navigation_gate: Option<Receiver<()>>) -> FakeCdp {
     let addr = listener.local_addr().unwrap();
     let (navigation_tx, navigations) = mpsc::channel();
     let (session_tx, navigation_sessions) = mpsc::channel();
+    let (method_tx, methods) = mpsc::channel();
     let _detached = thread::Builder::new()
         .name("browser-navigation-hold-fake-cdp".into())
         .spawn(move || {
@@ -64,6 +66,7 @@ fn fake_cdp_gated(mut first_navigation_gate: Option<Receiver<()>>) -> FakeCdp {
             let mut loader = 1;
             while let Some(request) = read_request(&mut ws) {
                 let id = request["id"].clone();
+                let _ = method_tx.send(request["method"].as_str().unwrap_or_default().to_string());
                 if request["method"] == "Page.navigate" {
                     let _ = session_tx.send(request["sessionId"].as_str().unwrap_or_default().into());
                 }
@@ -107,7 +110,7 @@ fn fake_cdp_gated(mut first_navigation_gate: Option<Receiver<()>>) -> FakeCdp {
         BrowserSource::Provider,
     )
     .unwrap();
-    FakeCdp { runtime, navigations, navigation_sessions }
+    FakeCdp { runtime, navigations, navigation_sessions, methods }
 }
 
 fn starting_surface() -> Arc<Surface> {
@@ -301,6 +304,10 @@ fn navigation_hold_accepts_history_commands_once_attached() {
     browser.reload().expect("reload is accepted once the surface attached");
     browser.back().expect("back is accepted once the surface attached");
     drain_worker(&surface);
+    let sent: Vec<String> = cdp.methods.try_iter().collect();
+    for method in ["Page.reload", "Page.getNavigationHistory"] {
+        assert!(sent.iter().any(|sent| sent == method), "{method} never reached CDP: {sent:?}");
+    }
 
     browser.kill();
     cdp.shutdown();

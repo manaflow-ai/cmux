@@ -14206,19 +14206,19 @@ fn handle_command_with_cancellation(
         Command::BrowserBack { surface } => {
             let surface = get_surface(mux, surface)?;
             require_browser(mux, &surface)?;
-            surface.browser_back()?;
+            mux.refuse_frontend_browser(&surface).and_then(|()| surface.browser_back())?;
             Ok(json!({}))
         }
         Command::BrowserForward { surface } => {
             let surface = get_surface(mux, surface)?;
             require_browser(mux, &surface)?;
-            surface.browser_forward()?;
+            mux.refuse_frontend_browser(&surface).and_then(|()| surface.browser_forward())?;
             Ok(json!({}))
         }
         Command::BrowserReload { surface } => {
             let surface = get_surface(mux, surface)?;
             require_browser(mux, &surface)?;
-            surface.browser_reload()?;
+            mux.refuse_frontend_browser(&surface).and_then(|()| surface.browser_reload())?;
             Ok(json!({}))
         }
         Command::BrowserActivate { surface } => {
