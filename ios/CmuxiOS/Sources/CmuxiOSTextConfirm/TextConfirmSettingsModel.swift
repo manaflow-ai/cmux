@@ -16,10 +16,12 @@ public final class TextConfirmSettingsModel {
     public var presenceKeyReady: Bool
 
     private let flow: TextConfirmFlow
+    private let ops: any TextConfirmOps
 
-    public init(state: TextConfirmState, flow: TextConfirmFlow, presenceKeyReady: Bool) {
+    public init(state: TextConfirmState, flow: TextConfirmFlow, ops: any TextConfirmOps, presenceKeyReady: Bool) {
         self.state = state
         self.flow = flow
+        self.ops = ops
         self.presenceKeyReady = presenceKeyReady
     }
 
@@ -35,9 +37,21 @@ public final class TextConfirmSettingsModel {
 
     /// The raise dialog's "Lower protection".
     public func confirmLowering() {
-        guard let level = pendingLowering else { return }
+        guard let level = pendingLowering, !busy, state.selectable.contains(level), state.level.isLowered(to: level) else {
+            pendingLowering = nil
+            return
+        }
         pendingLowering = nil
         run(level)
+    }
+
+    /// Re-reads the owner's level and lock.
+    public func refresh() async {
+        if let fresh = try? await ops.state() { state = fresh }
+    }
+
+    private static var notAccepted: String {
+        String(localized: "textConfirm.lowered.refused", defaultValue: "The change was not accepted. Try again.", bundle: .module)
     }
 
     private func run(_ level: TextConfirmLevel) {
@@ -49,12 +63,21 @@ public final class TextConfirmSettingsModel {
             do {
                 switch try await flow.change(from: from, to: level) {
                 case .lowered: state.level = level
-                case .refused: message = String(localized: "textConfirm.lowered.refused", defaultValue: "The change was not accepted. Try again.", bundle: .module)
+                case .refused: message = Self.notAccepted
                 }
+            } catch let refusal as TextConfirmRefusal where refusal.code == "text_confirm.key_cooling_down" {
+                presenceKeyReady = false
+            } catch let refusal as TextConfirmRefusal where refusal.code == "text_confirm.proof_required" {
+                // Our level was stale (another device changed it): re-read, then ask.
+                await refresh()
+                if state.level.isLowered(to: level) { pendingLowering = level }
+                return
             } catch {
-                // Cancelled Face ID, offline, or the key is not usable yet.
-                message = String(localized: "textConfirm.lowered.refused", defaultValue: "The change was not accepted. Try again.", bundle: .module)
+                // Cancelled Face ID, offline, or a refused proof.
+                message = Self.notAccepted
             }
+            // Never keep a guess: the owner's level is the truth.
+            await refresh()
         }
     }
 }
