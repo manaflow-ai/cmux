@@ -110,12 +110,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         var machineDetailLayout = CloudTreeMachineDetailLayout()
         private(set) var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
-        private var machineLiftMouseUpMonitor: Any?
+        var machineLiftMouseUpMonitor: Any?
         // NSDraggingItem retains the writer for the live native session. A weak
         // coordinator edge prevents a retained writer/container cycle.
         private weak var activeDragWriter: CloudTreeSurfaceDragPasteboardWriter?
-        private var activeDragSequenceNumber: Int?
-        private var activeDragSession: NSDraggingSession?
+        var activeDragSequenceNumber: Int?
+        var activeDragSession: NSDraggingSession?
         private weak var activeDragSourceView: CloudTreeNSOutlineView?
         private var supersededDragSession: NSDraggingSession?
         private var supersededDragSequenceNumber: Int?
@@ -163,25 +163,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             if let monitor = machineLiftMouseUpMonitor { NSEvent.removeMonitor(monitor) }
         }
 
-        /// Removes the fallback monitor used when AppKit omits a drag-end callback.
-        private func removeMachineLiftMouseUpMonitor() {
-            if let monitor = machineLiftMouseUpMonitor { NSEvent.removeMonitor(monitor) }
-            machineLiftMouseUpMonitor = nil
-        }
-
-        /// Finishes the native drag through the same coordinator path as `endedAt`.
-        func installMachineLiftMouseUpMonitor(for session: NSDraggingSession, in outline: CloudTreeNSOutlineView) {
-            removeMachineLiftMouseUpMonitor()
-            machineLiftMouseUpMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp]) { [weak self] event in
-                MainActor.assumeIsolated {
-                    guard let self,
-                          self.activeDragSession === session,
-                          self.activeDragSequenceNumber == session.draggingSequenceNumber else { return }
-                    self.outlineView(outline, draggingSession: session, endedAt: event.locationInWindow, operation: [])
-                }
-                return event
-            }
-        }
         private func discardPendingDrag(_ pending: PendingDrag) {
             pending.registration.end()
         }
@@ -626,14 +607,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             } else {
                 outlineView.expandItem(node)
             }
-        }
-
-        /// Machines can sit under a section row (`.cloudMachinesSection`), so search the whole tree.
-        func machine(id: SurfaceMachineID) -> MachineSnapshot? {
-            for node in CloudTreeNodeBuilder.flattened(nodes) {
-                if case .machine(let machine, _) = node.kind, .cloud(machine.id) == id { return machine }
-            }
-            return nil
         }
 
         // MARK: Keyboard
