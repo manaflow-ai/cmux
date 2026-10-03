@@ -464,7 +464,7 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
         )
     }
 
-    func testLegacyClosedBrowserFallbackRestoresInteractionState() throws {
+    func testLegacyBrowserStackHistoryEntryRestoresInteractionState() throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
@@ -484,6 +484,13 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
             XCTFail("Expected browser panel setup")
             return
         }
+        let recordClosedBrowserPanel = workspace.onClosedBrowserPanel
+        var didStageFullHistoryEntry = false
+        workspace.onClosedBrowserPanel = { snapshot in
+            didStageFullHistoryEntry = snapshot.historyEntry != nil
+            recordClosedBrowserPanel?(snapshot)
+        }
+
         let inspector = FakeInspector()
         browserPanel.webView.cmuxSetUnitTestInspector(inspector)
 
@@ -504,6 +511,10 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
 
         browserPanel.webView.uiDelegate?.webViewDidClose?(browserPanel.webView)
         drainMainQueue()
+        XCTAssertTrue(
+            didStageFullHistoryEntry,
+            "The legacy browser stack test must exercise its full-history entry before restoration"
+        )
         let staleFocusRestoreTransactionId = workspace.focusRestoreTransactionId
         let previousFocusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
 

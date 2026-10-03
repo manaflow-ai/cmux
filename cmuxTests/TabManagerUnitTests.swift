@@ -4274,11 +4274,24 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
             return
         }
 
+        let recordClosedBrowserPanel = workspace.onClosedBrowserPanel
+        var didDropHistoryEntry = false
+        workspace.onClosedBrowserPanel = { snapshot in
+            didDropHistoryEntry = snapshot.historyEntry != nil
+            recordClosedBrowserPanel?(
+                LegacyClosedBrowserPanelRestoreSnapshot(
+                    fallbackSnapshot: snapshot.fallbackSnapshot,
+                    historyEntry: nil
+                )
+            )
+        }
+
         drainMainQueue()
         browserPanel.webView.uiDelegate?.webViewDidClose?(browserPanel.webView)
         drainMainQueue()
 
         XCTAssertNil(workspace.panels[closedBrowserId])
+        XCTAssertTrue(didDropHistoryEntry, "The test must force the true legacy fallback path")
         XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
 
         XCTAssertTrue(appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: manager))
@@ -4439,6 +4452,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         let panelIdsBeforeReopen = Set(workspace1.panels.keys)
         let workspace2 = manager.addWorkspace()
         XCTAssertEqual(manager.selectedTabId, workspace2.id)
+        let staleFocusRestoreTransactionId = workspace1.focusRestoreTransactionId
 
         XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
         guard let reopenedPanelId = singleNewPanelId(in: workspace1, comparedTo: panelIdsBeforeReopen) else {
@@ -4448,7 +4462,10 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
 
         // Simulate one delayed stale focus callback from the panel that was focused before reopen.
         DispatchQueue.main.async {
-            workspace1.focusPanel(preReopenPanelId)
+            workspace1.focusPanel(
+                preReopenPanelId,
+                expectedFocusRestoreTransactionId: staleFocusRestoreTransactionId
+            )
         }
 
         drainMainQueue()
@@ -4474,6 +4491,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         drainMainQueue()
 
         let panelIdsBeforeReopen = Set(workspace.panels.keys)
+        let staleFocusRestoreTransactionId = workspace.focusRestoreTransactionId
         XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
         guard let reopenedPanelId = singleNewPanelId(in: workspace, comparedTo: panelIdsBeforeReopen) else {
             XCTFail("Expected reopened browser panel ID")
@@ -4482,7 +4500,10 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
 
         // Simulate one delayed stale focus callback from the panel that was focused before reopen.
         DispatchQueue.main.async {
-            workspace.focusPanel(preReopenPanelId)
+            workspace.focusPanel(
+                preReopenPanelId,
+                expectedFocusRestoreTransactionId: staleFocusRestoreTransactionId
+            )
         }
 
         drainMainQueue()
