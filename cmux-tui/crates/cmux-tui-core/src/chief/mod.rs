@@ -8,6 +8,13 @@
 //! - the acpmux hub, through [`AgentConnector`] (the daemon binary supplies
 //!   the acpmux client; tests supply a fake).
 //!
+//! NOT WIRED YET (gate): the daemon binary must not start this shell before
+//! it writes the Chief's session directory (CLAUDE.md, `.claude/settings.json`
+//! with the memory hooks, the tool servers; chief-mac.md section 7 step 4).
+//! The first connect creates the durable acpmux session `mux` in that
+//! directory, so a start without it makes a Chief with no prompt and no tools.
+//! `CHIEF_CAPABILITY` is advertised only by that wiring.
+//!
 //! One actor per `$MUX_HOME`: it holds the same kernel lock as the
 //! TypeScript host (`state/host.lock`), so the two hosts never run together,
 //! and it reads and writes the same `state/host.json`.
@@ -39,7 +46,7 @@ pub use lock::LockError;
 use crate::Mux;
 use actor::{Actor, Msg};
 use agent::{Backoff, SessionSpec};
-use agent_loop::{AgentLoop, Ctl};
+use agent_loop::{AgentLoop, Ctl, Current};
 
 /// The capability the session daemon advertises when it runs the Chief.
 pub const CHIEF_CAPABILITY: &str = "chief-v1";
@@ -91,7 +98,7 @@ pub struct ChiefHandle {
     actor: Sender<Msg>,
     agent: Sender<Ctl>,
     /// The hub connection being set up or running.
-    connection: Arc<Mutex<Option<Arc<dyn AgentConnection>>>>,
+    connection: Arc<Mutex<Current>>,
     threads: Vec<JoinHandle<()>>,
     ready: Arc<AtomicBool>,
 }
@@ -107,7 +114,8 @@ impl ChiefHandle {
     pub fn stop(self) {
         let _ = self.agent.send(Ctl::Stop);
         // A connect in progress fails at once instead of at its deadline.
-        if let Some(connection) = self.connection.lock().unwrap().take() {
+        let connection = self.connection.lock().unwrap().stop();
+        if let Some(connection) = connection {
             connection.close();
         }
         let _ = self.actor.send(Msg::Stop);
@@ -127,12 +135,11 @@ pub fn start_chief(
     std::fs::create_dir_all(config.session_dir())?;
     // Read after the lock: the state's only writer is the lock holder.
     let state_file = state_file::StateFile::new(config.state_dir().join("host.json"));
-    let state = state_file.load();
-    let shared = Arc::new(Mutex::new(state.clone()));
+    let state = state_file.load(config.log.as_ref());
     let ready = Arc::new(AtomicBool::new(false));
     let (sender, receiver) = mpsc::channel();
     let (ctl, ctl_rx) = mpsc::channel();
-    let connection = Arc::new(Mutex::new(None));
+    let connection = Arc::new(Mutex::new(Current::default()));
     let spec = SessionSpec {
         cwd: config.session_dir().to_string_lossy().into_owned(),
         harness: config.harness.clone(),
@@ -141,7 +148,6 @@ pub fn start_chief(
     let agent_thread = agent_loop::spawn(AgentLoop {
         connector,
         spec,
-        shared: shared.clone(),
         sender: sender.clone(),
         ctl: ctl.clone(),
         ctl_rx,
@@ -150,8 +156,7 @@ pub fn start_chief(
         backoff: Backoff { initial: config.backoff_initial, max: config.backoff_max },
         log: config.log.clone(),
     })?;
-    let actor =
-        Actor::new(mux.clone(), config, state, state_file, shared, sender.clone(), ready.clone());
+    let actor = Actor::new(mux.clone(), config, state, state_file, sender.clone(), ready.clone());
     let actor_thread = match std::thread::Builder::new()
         .name("chief-actor".into())
         .spawn(move || actor.run(receiver, lock))

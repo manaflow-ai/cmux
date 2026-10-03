@@ -5,9 +5,9 @@
 //! effect of its step, so the state is on disk before that step's requests.
 
 use std::collections::{BTreeMap, VecDeque};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_chief::{Core, Effect, HostState, Input, Port};
@@ -50,6 +50,10 @@ pub(super) enum Msg {
     },
     /// An input with no deadline bookkeeping (a settled prompt).
     Input(Input),
+    /// The durable state now, after every message queued before this one
+    /// (the hub loop's attach cursor).
+    State(Sender<HostState>),
+    Log(String),
     Stop,
 }
 
@@ -66,7 +70,6 @@ pub(super) struct Actor {
     pub(super) config: ChiefConfig,
     core: Core,
     state_file: StateFile,
-    shared: Arc<Mutex<HostState>>,
     sender: Sender<Msg>,
     ready: Arc<AtomicBool>,
     queue: VecDeque<Effect>,
@@ -89,7 +92,6 @@ impl Actor {
         config: ChiefConfig,
         state: HostState,
         state_file: StateFile,
-        shared: Arc<Mutex<HostState>>,
         sender: Sender<Msg>,
         ready: Arc<AtomicBool>,
     ) -> Self {
@@ -99,7 +101,6 @@ impl Actor {
             config,
             core: Core::new(state),
             state_file,
-            shared,
             sender,
             ready,
             queue: VecDeque::new(),
@@ -177,6 +178,10 @@ impl Actor {
                 }
             }
             Msg::Input(input) => self.feed(input),
+            Msg::State(reply) => {
+                let _ = reply.send(self.core.state.clone());
+            }
+            Msg::Log(line) => self.log(&line),
             Msg::Stop => {}
         }
     }
@@ -246,7 +251,6 @@ impl Actor {
                 if let Err(error) = self.state_file.save(&state) {
                     self.log(&format!("effect persist failed: {error}"));
                 }
-                *self.shared.lock().unwrap() = *state;
             }
             Effect::Ready => self.ready.store(true, Ordering::Release),
             Effect::ArmTimer { key, at } => {

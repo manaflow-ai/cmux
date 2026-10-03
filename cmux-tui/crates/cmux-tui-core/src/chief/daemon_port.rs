@@ -13,7 +13,7 @@ use cmux_chief::{Effect, Input, Port};
 use cmux_conversation::{AgentClass, Participant, ParticipantKind};
 
 use super::actor::{Actor, Msg};
-use crate::conversation_store::{ConversationEvent, ConversationRejected};
+use crate::conversation_store::{ConversationEvent, ConversationRejected, MAX_PAGE_MESSAGES};
 use crate::{MuxEvent, MuxEventReceiver};
 
 /// The current subscription and the reconnect backoff.
@@ -100,7 +100,7 @@ impl Actor {
         self.daemon.retry_at = None;
         self.daemon.generation += 1;
         let generation = self.daemon.generation;
-        let receiver = self.mux.subscribe();
+        let receiver = self.mux.subscribe_conversations();
         if let Err(error) = spawn_forwarder(receiver.clone(), self.sender(), generation) {
             self.log(&format!("daemon: cannot subscribe: {error}"));
             receiver.close();
@@ -196,6 +196,7 @@ impl Actor {
                     .map(|conversations| Input::ConversationsListed { conversations }),
             ),
             Effect::FetchSnapshot { conversation, tail } => {
+                let tail = tail.clamp(1, MAX_PAGE_MESSAGES);
                 let read = self.mux.with_conversations(|store| store.snapshot(&conversation, tail));
                 (
                     Some(conversation),
@@ -203,6 +204,7 @@ impl Actor {
                 )
             }
             Effect::FetchHistory { conversation, before_seq, limit } => {
+                let limit = limit.clamp(1, MAX_PAGE_MESSAGES);
                 let read = self
                     .mux
                     .with_conversations(|store| store.history(&conversation, before_seq, limit));
@@ -237,7 +239,11 @@ fn spawn_forwarder(
             }
             let MuxEvent::Conversation(event) = event else { continue };
             let ConversationEvent::Changed { conversation, change, .. } = &*event else { continue };
-            let Ok(change) = serde_json::from_value(change.clone()) else { continue };
+            let Ok(change) = serde_json::from_value(change.clone()) else {
+                // A change this core cannot read: the next catch-up reads the messages.
+                let _ = sender.send(Msg::Log(format!("unreadable change in {conversation}")));
+                continue;
+            };
             let input = Input::ConversationChanged { conversation: conversation.clone(), change };
             if sender.send(Msg::Daemon { link, input }).is_err() {
                 return;
