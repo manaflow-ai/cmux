@@ -201,6 +201,23 @@ struct SSHTuiMigrationTests {
 
     }
 
+    @Test("A stale legacy SSH snapshot starts a fresh cmux-tui workspace")
+    func staleLegacySnapshotStartsFreshTuiWorkspace() throws {
+        let legacy = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            destination: "fixture@host",
+            preserveAfterTerminalExit: true,
+            relayPort: 1234,
+            persistentDaemonSlot: "legacy-owned"
+        )
+        var configuration = try #require(legacy.workspaceConfiguration())
+        configuration.restoredSSHSession = legacy
+        let prepared = SSHTuiWorkspaceCoordinator.configurationForAttach(configuration)
+        #expect(prepared.restoredSSHSession == nil)
+        #expect(prepared.destination == configuration.destination)
+        #expect(prepared.preserveAfterTerminalExit)
+    }
+
     @Test("A legacy persistent SSH snapshot running a named tmux session reattaches it through cmux-tui")
     func legacyTmuxSnapshotReattachesItsTmuxSession() throws {
         // The remote block 0.64.25 wrote for `cmux ssh` workspaces with a tmux
