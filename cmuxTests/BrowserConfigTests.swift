@@ -2001,6 +2001,16 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         }
     }
 
+    func testBrowserPanelAllowsPictureInPictureMediaPlayback() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+
+        let allowsPictureInPicture = panel.webView.configuration.preferences.value(
+            forKey: "allowsPictureInPictureMediaPlayback"
+        ) as? Bool
+        XCTAssertEqual(allowsPictureInPicture, true)
+    }
+
     func testBrowserPanelRefreshesUnderPageBackgroundColorWhenGhosttyBackgroundChanges() throws {
         let panel = BrowserPanel(workspaceId: UUID())
         let updatedColor = NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0)
