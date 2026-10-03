@@ -37,24 +37,29 @@ enum ColumnHandlers {
     }
 
     /// The targeted column (`column:<id>`), else the targeted or focused
-    /// pane's column. Refuses outside columns mode.
+    /// pane's column (a split screen's implicit column).
     static func column(_ invocation: ActionInvocation, _ ctx: AppActionContext) -> (WorkspaceContentController, LayoutColumn)? {
         if let target = invocation.target, target.kind == .column {
             for window in ctx.services.windows.controllers {
                 guard let content = window.content else { continue }
                 for screen in content.layoutModel.screens {
-                    if let column = screen.layout.columns.first(where: { $0.id.rawValue == target.id }) { return (content, column) }
+                    if let column = screen.column(id: CmuxNextLayout.ColumnID(target.id)) { return (content, column) }
                 }
             }
             return ctx.refuse(RefusalStrings.noColumnShown(target.id))
         }
         guard let pane = ctx.paneController(invocation), let content = pane.workspace else { return nil }
-        guard let column = content.layoutModel.screen(containing: pane.layoutPaneID)?.layout.column(containing: pane.layoutPaneID)
-            ?? ctx.refuse(RefusalStrings.notColumnLayout) else { return nil }
+        // Every screen is a column strip; a screen stored as one split tree
+        // is its implicit column.
+        guard let column = content.layoutModel.screen(containing: pane.layoutPaneID)?.column(containing: pane.layoutPaneID)
+        else { return nil }
         return (content, column)
     }
 
     private static func setWidth(_ width: Double, of column: LayoutColumn, in content: WorkspaceContentController, _ ctx: AppActionContext) {
+        if content.layoutModel.screens.contains(where: { $0.implicitColumnID == column.id }) {
+            return ctx.refuse(RefusalStrings.loneColumnFillsScreen)
+        }
         guard abs(column.width - width) > 0.001 else { return ctx.refuse(RefusalStrings.columnAlreadyHasWidth) }
         content.layoutModel.setColumnWidth(column.id, width: width, transaction: .make(), phase: .ended)
     }
