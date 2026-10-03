@@ -52,7 +52,17 @@ export type ChangesLoad =
   | { state: "loaded"; changeSet: ChangeSet };
 
 /// Where the view reads a scope from: the session host, or the mock daemon in mock mode.
-export type ChangesSource = { diff: (scope: ChangeScope) => Promise<unknown> };
+/// `status` names the branch the Branch scope compares with its base.
+export type ChangesSource = { diff: (scope: ChangeScope) => Promise<unknown>; status?: () => Promise<unknown> };
+
+/// The checked-out branch and the base the Branch scope compares it with, from `git.status`,
+/// or undefined on a detached head or without a base.
+export function readBranch(value: unknown): { branch: string; base: string } | undefined {
+  const raw = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+  const branch = text(raw.branch);
+  const base = text(raw.base);
+  return raw.detached !== true && branch && base ? { branch, base } : undefined;
+}
 
 /// The scope menu, top to bottom; `null` is a separator.
 export const SCOPE_ORDER: (ChangeScope | null)[] = [
