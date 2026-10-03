@@ -26,7 +26,10 @@ pub enum WgError {
     /// smoltcp refused the operation.
     Stack(String),
     /// A datagram larger than the session's `max_datagram`.
-    DatagramTooLarge { len: usize, max: usize },
+    DatagramTooLarge {
+        len: usize,
+        max: usize,
+    },
 }
 
 impl fmt::Display for WgError {
