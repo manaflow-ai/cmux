@@ -141,3 +141,42 @@ fn large_frames_without_parity_are_accepted_and_large_fec_blocks_refused() {
     assert!(DatagramHeader::decode(&header(254, 1, 254, DatagramKind::Fec)).is_ok());
     assert!(DatagramHeader::decode(&header(4097, 0, 0, DatagramKind::Video)).is_err());
 }
+
+#[test]
+fn stream_frames_split_at_any_chunk_boundary() {
+    use cmux_rd_proto::{STREAM_CONTROL, STREAM_DATAGRAM, StreamDeframer, encode_stream_frame};
+    let mut bytes = Vec::new();
+    encode_stream_frame(STREAM_CONTROL, br#"{"t":"stop"}"#, &mut bytes).expect("control");
+    encode_stream_frame(STREAM_DATAGRAM, &[7u8; 40], &mut bytes).expect("datagram");
+    assert_eq!(&bytes[..5], &[1, 12, 0, 0, 0]);
+    for chunk in 1..bytes.len() {
+        let mut d = StreamDeframer::default();
+        let mut frames = Vec::new();
+        for part in bytes.chunks(chunk) {
+            d.extend(part);
+            while let Some(f) = d.next_frame().expect("frame") {
+                frames.push(f);
+            }
+        }
+        assert_eq!(frames.len(), 2);
+        assert_eq!(frames[0], (STREAM_CONTROL, br#"{"t":"stop"}"#.to_vec()));
+        assert_eq!(frames[1], (STREAM_DATAGRAM, vec![7u8; 40]));
+        assert_eq!(d.buffered(), 0);
+    }
+}
+
+#[test]
+fn stream_refuses_unknown_types_and_oversized_lengths() {
+    use cmux_rd_proto::{MAX_STREAM_FRAME, StreamDeframer, encode_stream_frame};
+    assert!(encode_stream_frame(9, b"x", &mut Vec::new()).is_err());
+    let mut d = StreamDeframer::default();
+    d.extend(&[9, 1, 0, 0, 0, 0]);
+    assert!(d.next_frame().is_err());
+    // The failure is sticky.
+    d.extend(&[1, 0, 0, 0, 0]);
+    assert!(d.next_frame().is_err());
+    let mut d = StreamDeframer::default();
+    d.extend(&[2]);
+    d.extend(&((MAX_STREAM_FRAME as u32) + 1).to_le_bytes());
+    assert!(d.next_frame().is_err());
+}
