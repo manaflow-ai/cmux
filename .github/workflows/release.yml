@@ -641,8 +641,16 @@ jobs:
             cmux-macos.dmg
             appcast.xml
             remote-daemon-assets/cmuxd-remote-*
+            docs/mdm/com.manaflow.cmux.*
+            docs/mdm/cmux-example.mobileconfig
+            docs/mdm/ddm-legacy-profile-declaration.json
+            docs/mdm/managed-preferences.md
           if-no-files-found: error
 
+      # The MDM schema for this release (enterprise P17-5): administrators fetch
+      # https://github.com/manaflow-ai/cmux/releases/download/<tag>/com.manaflow.cmux.plist
+      # (Jamf JSON, Intune plist, example profile, DDM declaration, key table) for the
+      # exact version they deploy. ManagedPreferencesManifestTests keeps docs/mdm current.
       - name: Upload release asset
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         env:
@@ -652,6 +660,10 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" \
             --immutable cmux-macos.dmg \
             --immutable 'remote-daemon-assets/cmuxd-remote-*' \
+            --immutable 'docs/mdm/com.manaflow.cmux.*' \
+            --immutable docs/mdm/cmux-example.mobileconfig \
+            --immutable docs/mdm/ddm-legacy-profile-declaration.json \
+            --immutable docs/mdm/managed-preferences.md \
             --feed appcast.xml
 
       # Keep a new stable release hidden until its entire asset set is verified.

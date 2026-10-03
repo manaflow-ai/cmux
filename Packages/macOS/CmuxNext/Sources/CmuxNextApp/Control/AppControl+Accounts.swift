@@ -69,6 +69,10 @@ extension AppControl {
             guard let client = services.accounts.client else { throw ControlError(code: "unavailable", message: "Cloud is not available in this build") }
             let params = request.params
             let team = (params["teamId"] ?? params["team_id"])?.stringValue
+            // RestrictToManagedTeam (P17-3): only the managed team, and only when the account has it.
+            if let managed = services.cloud.auth.managedTeamID, services.cloud.auth.teamID != managed || (team != nil && team != managed) {
+                throw ControlError(code: "managed", message: RefusalStrings.turnedOffByOrganization)
+            }
             return .followUp {
                 do {
                     let data = try await call(client, team, params)

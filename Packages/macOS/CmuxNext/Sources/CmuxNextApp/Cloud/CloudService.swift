@@ -62,6 +62,8 @@ final class CloudService {
     /// Why Cloud cannot run in this build, or nil.
     var unavailableReason: String? {
         if policyDisabled { return RefusalStrings.turnedOffByOrganization }
+        // RestrictToManagedTeam (P17-3): no request goes out without the managed team.
+        if auth.managedTeamID != nil, auth.teamID == nil { return RefusalStrings.turnedOffByOrganization }
         if case .localOnly = configuration.backend { return CloudStrings.localBackend }
         if binary == nil { return CloudStrings.noClient }
         return nil

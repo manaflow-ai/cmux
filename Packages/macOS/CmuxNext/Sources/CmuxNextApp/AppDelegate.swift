@@ -120,7 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startSettingsAndControl(registry: ActionRegistry) {
         let settings = SettingsController(registry: registry)
         settings.applyManagedFeaturesNow()
-        UpdaterPolicyBridge(settings: settings, updater: services.updater).start()
+        ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloud.auth).start()
         self.settings = settings
         services.settings = settings
         services.history.commands.start(settings: settings)
