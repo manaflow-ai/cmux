@@ -53,6 +53,9 @@
          location = "group:CmuxTerminalSizing">
       </FileRef>
       <FileRef
+         location = "group:CmuxTextConfirmCore">
+      </FileRef>
+      <FileRef
          location = "group:CmuxTheme">
       </FileRef>
    </Group>
