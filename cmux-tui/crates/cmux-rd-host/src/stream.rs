@@ -97,7 +97,8 @@ impl MediaSession {
     ) -> Res<Self> {
         let cap = Capturer::new(&cfg.display, true)?;
         let (w, h) = (cap.width, cap.height);
-        let enc = X264::new(w, h, cfg.max_fps, cfg.start_kbps, cfg.threads, &cfg.preset, &cfg.profile)?;
+        let enc =
+            X264::new(w, h, cfg.max_fps, cfg.start_kbps, cfg.threads, &cfg.preset, &cfg.profile)?;
         // Phase 1 has no path events from the link yet; the VPC path is the deployed case.
         let path = PathKind::ViaCloudRegion;
         let cc_cfg = CcConfig {
@@ -216,7 +217,10 @@ impl MediaSession {
                 return format!("capture failed: {e}");
             }
             // One gate decision for everything that settled together.
-            let merged = damage.iter().map(|ev| Rect { x: ev.rect.x, y: ev.rect.y, width: ev.rect.w, height: ev.rect.h }).reduce(Rect::union);
+            let merged = damage
+                .iter()
+                .map(|ev| Rect { x: ev.rect.x, y: ev.rect.y, width: ev.rect.w, height: ev.rect.h })
+                .reduce(Rect::union);
             if let Some(r) = merged {
                 let action = self.gate.damage(r, now_us());
                 trace(&format!("damage {r:?} -> {action:?} in_flight {}", self.gate.in_flight()));

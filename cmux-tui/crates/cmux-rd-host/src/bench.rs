@@ -312,7 +312,8 @@ pub fn run(opts: &Opts) -> Res<()> {
             if v.marker == Some(expected) {
                 g2g.push((v.marker_at_ns - t0) as f64 / 1e6);
                 to_capture.push((v.marker_capture_us as f64 * 1000.0 - t0 as f64) / 1e6);
-                capture_to_decoded.push((v.marker_at_ns as f64 - v.marker_capture_us as f64 * 1000.0) / 1e6);
+                capture_to_decoded
+                    .push((v.marker_at_ns as f64 - v.marker_capture_us as f64 * 1000.0) / 1e6);
                 break;
             }
             if now_ns() - t0 > 1_000_000_000 {
