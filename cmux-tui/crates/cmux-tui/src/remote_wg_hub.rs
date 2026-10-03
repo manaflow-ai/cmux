@@ -80,8 +80,7 @@ pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
     let flags = parse_wg_hub_flags(&args[1..])?;
     let owner = flags.exit_with_parent.then(current_parent_process_id);
     let async_runtime = tokio_runtime()?;
-    let (net, paths) =
-        start_wireguard_hub_tunnel(
+    let (net, paths) = start_wireguard_hub_tunnel(
         &async_runtime,
         &flags.config,
         flags.probes,
@@ -195,8 +194,8 @@ mod tests {
             .map(str::to_string);
         assert!(parse_wg_hub_flags(&owned).unwrap().exit_with_parent);
         assert!(!flags.probes && flags.control.is_none());
-        let measured = ["--config", "c", "--socket", "s", "--control", "k", "--probes"]
-            .map(str::to_string);
+        let measured =
+            ["--config", "c", "--socket", "s", "--control", "k", "--probes"].map(str::to_string);
         let measured = parse_wg_hub_flags(&measured).unwrap();
         assert!(measured.probes);
         assert_eq!(measured.control, Some(PathBuf::from("k")));
