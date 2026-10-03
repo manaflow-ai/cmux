@@ -231,9 +231,46 @@ echo "ok: $initial_count workspace(s) at startup"
 # 4. Workspace round trip: create, see it listed, close it, see it gone.
 SMOKE_NAME="cli-smoke-$$-$RANDOM"
 STEP="cmux workspace create"
-CREATE_JSON="$(cli --json --id-format uuids workspace create --name "$SMOKE_NAME" --focus false)"
-WS_ID="$(json_field 'd.get("workspace_id") or ""' <<<"$CREATE_JSON")"
-[[ -n "$WS_ID" ]] || fail "workspace create returned no workspace_id: $CREATE_JSON"
+CREATE_JSON=""
+CREATE_ERR="$WORK_DIR/create.err"
+
+workspace_id_for_title() {
+  python3 -c '
+import json, sys
+title = sys.argv[1]
+for ws in json.load(sys.stdin).get("workspaces", []):
+    if ws.get("title") == title:
+        print(ws.get("id") or ws.get("ref") or "")
+        break
+' "$1"
+}
+
+if CREATE_JSON="$(cli --json --id-format uuids workspace create --name "$SMOKE_NAME" --focus false 2>"$CREATE_ERR")"; then
+  WS_ID="$(json_field 'd.get("workspace_id") or ""' <<<"$CREATE_JSON")"
+else
+  # Rosetta can take longer than cmux-tui's terminal-start deadline. The
+  # request may still finish after the CLI receives the typed timeout, so
+  # accept it only when the named workspace becomes observable.
+  WS_ID=""
+  if grep -Fq "terminal may still appear" "$CREATE_ERR"; then
+    echo "workspace create timed out after dispatch; waiting for the workspace to appear"
+    deadline=$((SECONDS + WINDOW_TIMEOUT_SECONDS))
+    while (( SECONDS < deadline )); do
+      LIST_JSON="$(CLI_TIMEOUT_SECONDS=10 cli --json --id-format uuids workspace list 2>/dev/null || true)"
+      if [[ -n "$LIST_JSON" ]]; then
+        WS_ID="$(workspace_id_for_title "$SMOKE_NAME" <<<"$LIST_JSON" 2>/dev/null || true)"
+        [[ -n "$WS_ID" ]] && break
+      fi
+      kill -0 "$APP_PID" 2>/dev/null || fail "app exited while waiting for timed-out workspace create"
+      sleep 0.5
+    done
+  fi
+  if [[ -z "$WS_ID" ]]; then
+    cat "$CREATE_ERR" >&2
+    fail "workspace create returned no workspace_id"
+  fi
+fi
+[[ -n "$WS_ID" ]] || fail "workspace create returned no workspace_id: ${CREATE_JSON:-<empty>}"
 echo "ok: created workspace $WS_ID"
 
 workspace_titles_for_id() {
@@ -254,7 +291,7 @@ listed_title="$(workspace_titles_for_id "$WS_ID" <<<"$LIST_JSON")"
 echo "ok: workspace list shows '$SMOKE_NAME'"
 
 STEP="cmux workspace close"
-cli --json --id-format uuids workspace close --workspace "$WS_ID" >/dev/null
+cli --json --id-format uuids workspace close --workspace "$WS_ID" --confirm >/dev/null
 
 STEP="cmux workspace list (after close)"
 deadline=$((SECONDS + 10))
