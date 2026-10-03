@@ -252,6 +252,10 @@ declare namespace Cmux {
   type TeamPolicy = { version: number; values: Cmux.TeamPolicyValues; updated_at: number | null; updated_by: string | null }
   type TeamPolicyValues = { "github.repoScope"?: { value: "linking_user_repos" | "installation"; mode: Cmux.PolicyMode }; "github.requireOrgAdmin"?: { value: boolean; mode: Cmux.PolicyMode }; "github.repoAllowList"?: { value: unknown; mode: Cmux.PolicyMode }; "integrations.allowedProviders"?: { value: unknown; mode: Cmux.PolicyMode }; "mcp.server"?: { value: "user_choice" | "disabled"; mode: Cmux.PolicyMode }; "mcp.remoteTransport"?: { value: boolean; mode: Cmux.PolicyMode }; "apps.install"?: { value: "any" | "allow_list" | "disabled"; mode: Cmux.PolicyMode }; "apps.allowedTiers"?: { value: Array<"first-party" | "verified" | "community" | "unverified">; mode: Cmux.PolicyMode }; "apps.allowList"?: { value: Array<string>; mode: Cmux.PolicyMode }; "apps.forcedInstalls"?: { value: Array<string>; mode: Cmux.PolicyMode }; "computerUse.allowed"?: { value: boolean; mode: Cmux.PolicyMode }; "browserAutomation.rawCdp"?: { value: boolean; mode: Cmux.PolicyMode }; "cloud.sandboxes"?: { value: boolean; mode: Cmux.PolicyMode }; "telemetry.level"?: { value: "full" | "crash_only" | "off"; mode: Cmux.PolicyMode }; "updates.channel"?: { value: "stable" | "nightly"; mode: Cmux.PolicyMode }; "updates.minimumVersion"?: { value: string; mode: Cmux.PolicyMode }; "retention.cuaEventsDays"?: { value: number; mode: Cmux.PolicyMode }; "retention.cuaFramesDays"?: { value: number; mode: Cmux.PolicyMode }; "retention.transcriptDays"?: { value: number; mode: Cmux.PolicyMode }; "retention.auditDays"?: { value: number; mode: Cmux.PolicyMode }; "sso.enforce"?: { value: boolean; mode: Cmux.PolicyMode }; "sso.enforceForOwners"?: { value: boolean; mode: Cmux.PolicyMode }; "sso.allowGuests"?: { value: boolean; mode: Cmux.PolicyMode }; "sso.sessionMaxAgeHours"?: { value: number; mode: Cmux.PolicyMode }; "sso.idleTimeoutHours"?: { value: number; mode: Cmux.PolicyMode }; "agents.allowedClasses"?: { value: Array<"mux" | "agent" | "run">; mode: Cmux.PolicyMode }; "device.settings"?: { value: Record<string, never>; mode: Cmux.PolicyMode } }
   type TeamPolicyVersion = { version: number; values: Cmux.TeamPolicyValues; changed: Array<Cmux.PolicyKey>; actor: string | null; at: number; reason: string | null; rollback_of: number | null }
+  type TeamVmError = { code: string; message: string; at: number }
+  type TeamVmLeaseId = string
+  type TeamVmStatus = "none" | "provisioning" | "starting" | "running" | "paused" | "failed"
+  type TeamVmView = { team: Cmux.TeamId; status: Cmux.TeamVmStatus; vm: string | null; epoch: number; leases: Array<{ lease: Cmux.TeamVmLeaseId; holder: string; reason: string; expires_at: number }>; last_error: Cmux.TeamVmError | null; updated_at: number }
   type TerminalAttachItem = unknown
   type TerminalAttachPatch = { kind: "patch"; terminal_id: string /* terminal_… */; render: Cmux.RenderPatch }
   type TerminalAttachScroll = { kind: "scroll"; terminal_id: string /* terminal_… */; scroll: Cmux.RenderScroll }
@@ -899,6 +903,16 @@ interface CmuxGlobal {
       /** `team.policy.update` (mutation, scope `team:write`): Set or clear team policy keys as one new version (owners and admins). expected_version is the compare-and-swap; a stale version fails with revision.conflict. */
       update: CmuxOp<{ changes: Array<Cmux.PolicyChange>; expected_version: number; reason?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.TeamPolicy>>
     }
+  }
+  team_vm: {
+    /** `team_vm.ensure_awake` (mutation, scope `team_vm:write`): Create the team VM if it does not exist, resume it if it is paused, and hold it awake with a lease. The same holder and reason renew one lease. When the provider call fails for good, the op answers with that error (the lease stays until it expires). */
+    ensure_awake: CmuxOp<{ reason: string; lease_seconds?: number; expected_revision?: string }, Cmux.MutationResult<{ lease: Cmux.TeamVmLeaseId; expires_at: number; status: Cmux.TeamVmStatus; vm: string | null; epoch: number }>>
+    lease: {
+      /** `team_vm.lease.release` (mutation, scope `team_vm:write`): Release a wake lease you hold, so the team VM may pause when no other lease is active. */
+      release: CmuxOp<{ lease: Cmux.TeamVmLeaseId; expected_revision?: string }, Cmux.MutationResult<{ lease: Cmux.TeamVmLeaseId; released: boolean }>>
+    }
+    /** `team_vm.status` (read, scope `team_vm:read`): Show the team VM: its state, epoch and active wake leases. */
+    status: CmuxOp<Record<string, never>, Cmux.TeamVmView>
   }
   terminal: {
     /** `terminal.attach` (stream_open, scope `terminal:execute`) */

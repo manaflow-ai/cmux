@@ -5,6 +5,7 @@ import type { AccountIndexDO } from "./account-index-do.ts"
 import type { DomainDO } from "./domain-do.ts"
 import type { PairingDO } from "./pairing-do.ts"
 import type { HostDO } from "./host-do.ts"
+import type { TeamVmDO } from "./team-vm-do.ts"
 import type { ConnectionDO } from "./connection-do.ts"
 import type { FeedDO } from "./feed-do.ts"
 import type { UsageMeterDO } from "./usage-meter-do.ts"
@@ -41,6 +42,21 @@ export interface Env {
   /** Pending cmux server pairings, one object per code (plans/cmux-next/server.md 6.2). */
   readonly PAIRING_DO: DurableObjectNamespace<PairingDO>
   readonly HOST_DO: DurableObjectNamespace<HostDO>
+  /** One TeamVmDO per team: the team VM record, wake leases, provider calls (plans/cmux-next/team-vm-plan.md S2). */
+  readonly TEAM_VM_DO: DurableObjectNamespace<TeamVmDO>
+  /**
+   * Secret: Freestyle API key for team VMs. Without it (or the two vars below) team_vm.ensure_awake reports team_vm.not_configured.
+   * HARD BLOCKER: do not set it in production before the TeamVmDO plan gate lands (plans/cmux-next/team-vm-plan.md 3a).
+   * Until then production refuses every provider call with team_vm.plan_gate_missing (PRODUCTION_PLAN_GATE_LANDED).
+   */
+  readonly FREESTYLE_API_KEY?: string
+  readonly FREESTYLE_API_URL?: string
+  /** Var: the snapshot team VMs boot from (lane 1's image with the team role). */
+  readonly TEAM_VM_SNAPSHOT?: string
+  /** Var: provider slug prefix of team VMs; outside production it must start with `cmuxnp-dev-`. */
+  readonly TEAM_VM_SLUG_PREFIX?: string
+  /** Test only: `fake` selects the in-object fake provider when ENVIRONMENT=test. */
+  readonly TEAM_VM_DRIVER?: string
   /** Per-IP limit on unauthenticated pairing begins. */
   readonly PAIR_BEGIN_LIMIT?: RateLimit
   /** Where provider redirects land (the dashboard's /integrations/callback). */

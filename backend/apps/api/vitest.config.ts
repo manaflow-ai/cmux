@@ -42,7 +42,9 @@ export default defineConfig({
           GOOGLE_CLIENT_ID: "google-client.apps.googleusercontent.com",
           GOOGLE_CLIENT_SECRET: "google-client-secret",
           // The dev project in Testing mode may ask for restricted Gmail scopes.
-          GOOGLE_RESTRICTED_SCOPES: "testing"
+          GOOGLE_RESTRICTED_SCOPES: "testing",
+          // Team VMs use the in-object fake provider (team-vm-driver.ts).
+          TEAM_VM_DRIVER: "fake"
         }
       }
     })

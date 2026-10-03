@@ -80,6 +80,8 @@ const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: str
       return { stub: env.FEED_DO.get(env.FEED_DO.idFromName(p.user!)) as unknown as OwnerStub, entity: p.user!, stream: `feed:${p.user}` }
     case "cloud:UsageMeterDO":
       return { stub: env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `usage:${p.team}` }
+    case "cloud:TeamVmDO":
+      return { stub: env.TEAM_VM_DO.get(env.TEAM_VM_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `team_vm:${p.team}` }
     case "cloud:ConnectionDO":
       return { stub: env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `connections:${p.team}` }
     default:
@@ -233,6 +235,13 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           if ("refusal" in r) {
             return { ok: false, op: payload.op, error: { code: r.refusal.code, message: r.refusal.message, retryable: r.refusal.retryable }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `scheduler:${p.team}`, sequence: 0 }
           }
+          return toResponse(payload.op, r.frames)
+        }
+        // The team VM: commit the lease, then the DO runs the provider calls and answers with their outcome.
+        if (payload.op === "team_vm.ensure_awake") {
+          const p = yield* principalFor(def.owner, principal)
+          const stub = env.TEAM_VM_DO.get(env.TEAM_VM_DO.idFromName(p.team!))
+          const r = yield* Effect.tryPromise({ try: () => rpc<SubmitResult>(stub.ensureAwake(p.team!, p, { t: "op", ...frame })), catch: unreachable })
           return toResponse(payload.op, r.frames)
         }
         // Home: conversations are keyed by the op's params, inbox ops run on UserDO's second stream (home-routes.ts).

@@ -815,6 +815,32 @@ export type TeamPolicyVersion = {
   readonly rollback_of: number | null
 }
 
+export type TeamVmError = {
+  readonly code: string
+  readonly message: string
+  readonly at: number
+}
+
+export type TeamVmLeaseId = string
+
+/** Last observed state of the team VM. `none`: never created. `failed`: the last provider call failed for good; the next ensure_awake retries. */
+export type TeamVmStatus = "none" | "provisioning" | "starting" | "running" | "paused" | "failed"
+
+export type TeamVmView = {
+  readonly team: TeamId
+  readonly status: TeamVmStatus
+  readonly vm: string | null
+  readonly epoch: number
+  readonly leases: ReadonlyArray<{
+    readonly lease: TeamVmLeaseId
+    readonly holder: string
+    readonly reason: string
+    readonly expires_at: number
+  }>
+  readonly last_error: TeamVmError | null
+  readonly updated_at: number
+}
+
 /** RFC 3339 UTC with milliseconds. */
 export type Timestamp = string
 
@@ -2093,6 +2119,35 @@ export interface CloudOps {
     }
     readonly result: SsoConnection
   }
+  /** Create the team VM if it does not exist, resume it if it is paused, and hold it awake with a lease. The same holder and reason renew one lease. When the provider call fails for good, the op answers with that error (the lease stays until it expires). */
+  readonly "team_vm.ensure_awake": {
+    readonly params: {
+      readonly reason: string
+      readonly lease_seconds?: number
+    }
+    readonly result: {
+      readonly lease: TeamVmLeaseId
+      readonly expires_at: number
+      readonly status: TeamVmStatus
+      readonly vm: string | null
+      readonly epoch: number
+    }
+  }
+  /** Release a wake lease you hold, so the team VM may pause when no other lease is active. */
+  readonly "team_vm.lease.release": {
+    readonly params: {
+      readonly lease: TeamVmLeaseId
+    }
+    readonly result: {
+      readonly lease: TeamVmLeaseId
+      readonly released: boolean
+    }
+  }
+  /** Show the team VM: its state, epoch and active wake leases. */
+  readonly "team_vm.status": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: TeamVmView
+  }
   /** Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token. */
   readonly "team.device.compliance": {
     readonly params: Readonly<Record<string, never>>
@@ -2446,6 +2501,9 @@ export const cloudOpMeta = {
   "sso.connection.disable": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "sso.connection.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "sso.connection.set_secret": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team_vm.ensure_awake": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-shared" },
+  "team_vm.lease.release": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-own" },
+  "team_vm.status": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
   "team.device.compliance": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.device.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
   "team.device.policy": { class: "read", owner: "cloud:TeamDO", risk: "read" },

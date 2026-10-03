@@ -36,7 +36,8 @@ Each slice lands directly on feat-cmux-next after exact-head gates (lane rules).
 | S0 | this plan | plans/ | | committed, sent to main |
 | S1 | zero-loss storage spike, phase A (section 4) | `cmuxnp-dev-` Freestyle VMs, a `cmuxnp-dev-` R2 bucket, Postgres on a second `cmuxnp-dev-` VM | none | results file with numbers; go or no-go for JuiceFS |
 | S1b | journal store measurement (done 2026-10-03, section 4a): a DO behind the API Worker answers in 17 ms p50 from Freestyle; chosen | `cmuxnp-dev-` VM, staging API read only | | numbers in section 4a |
-| S2 | `TeamVmDO` (DO migration tag v13): VM record, `team_vm.status`, `team_vm.ensure_awake {lease}`, idempotent provision on team create, epoch fencing, Freestyle driver behind an interface with a fake for tests | backend/apps/api | DO migration tag (v11 requested from the backend lead) | workerd tests: create is idempotent, leases expire, wake on lease, a second provision returns the same VM |
+| S2 | `TeamVmDO` (DO migration tag from the coordinator at landing): VM record, `team_vm.status`, `team_vm.ensure_awake {lease}`, idempotent provision on team create, epoch fencing, Freestyle driver behind an interface with a fake for tests | backend/apps/api | DO migration tag (v11 requested from the backend lead) | workerd tests: create is idempotent, leases expire, wake on lease, a second provision returns the same VM |
+| S2b | plan gate: `team_vm.ensure_awake` refused (`team_vm.plan_required`) before any provider call when the team's plan has no team VM; plan read from the billing owner | backend | S2, the billing lane's plan model | HARD blocker for setting `FREESTYLE_API_KEY` in production (section 3a) |
 | S3 | SSH CA in `TeamDO`: CA key sealed under a Worker KEK, `team_vm.ssh_cert {pubkey}` (Ed25519 signing in workerd), key id `<principal>/<grant>/<install>/<nonce>`, 15 to 60 min validity, class extensions (D28 force-command for ordinary agents), KRL on revoke | backend/apps/api | S2 | workerd tests; `ssh-keygen -L` parses the certificate; revoked serials appear in the KRL; review subagent clean |
 | S4 | reconciler: users, groups `n-<node>-{r,w,a}`, membership closure, node directories, access and default ACLs, setgid, umask 007, mailbox modes, idempotent, drift revert | cmux-tui (team-host role) | S2 for directory events; landing window | Linux container tests on a Testbox (root, real `setfacl`): fixture trees from the spec example table give exactly the spec's access matrix; second run is a no-op |
 | S5 | sshd and PAM config for the team role: `TrustedUserCAKeys`, `AuthorizedPrincipalsCommand cmux team principals %u`, `RevokedKeys`, `pam_umask`, force-command, audit login uid | image files (lane 1 owns the image; this lane provides the role's files) | S3, S4 | a `cmuxnp-dev-` VM accepts a fresh certificate, refuses an expired or revoked one, and an ordinary-agent certificate gets only `cmux team …` |
@@ -83,6 +84,20 @@ Output: `plans/cmux-next/team-vm-spike.md` with numbers, method, and the go or n
 2. Credentials on the VM are root-only. Nobody has `sudo` in normal operation (spec), so agents cannot read them; the break-glass path is logged.
 3. The SSH CA private key never leaves `TeamDO` in clear; it is sealed under a Worker secret like the SSO secrets (`INTEGRATIONS_KEK` pattern).
 4. A restored VM gets a new epoch. The old VM's install token is revoked at restore, and `journal.append` refuses the old epoch (a stale writer cannot commit).
+
+## 3a. Deploy blockers (HARD)
+
+- Code guard (S2): in production, TeamVmDO refuses every provider call with `team_vm.plan_gate_missing` while `PRODUCTION_PLAN_GATE_LANDED` is false (team-vm-driver.ts, tested). S2b flips it together with the gate. So a production key set by mistake creates nothing.
+- Do not set `FREESTYLE_API_KEY` (or `TEAM_VM_SNAPSHOT`) on the production Worker before the TeamVmDO plan gate lands. Without the gate, any team member, or an install whose grant covers `mutate-shared`, can create a paid VM with `team_vm.ensure_awake`. The gate (slice S2b) refuses `ensure_awake` for a team whose plan does not include a team VM, before any provider call; it reads the plan from the billing owner, not from the request.
+- Development and staging may set the key only with `TEAM_VM_SLUG_PREFIX` starting with `cmuxnp-dev-` (the driver refuses any other prefix outside production), and with `TEAM_VM_SNAPSHOT` set to a lane 1 image.
+
+## 3b. Journal wire shape (S6, agreed with the Tasks lead 2026-10-03)
+
+One journal per (team, stream); streams `tasks`, `mail`, `memory`, `files`. Entries are ranges: `{stream, epoch, first_seq, last_seq, bytes, sha256}`.
+- `journal.append`: requires `first_seq = high_water + 1` (contiguous); a replay of the same (stream, first_seq) with the same last_seq and sha256 returns the stored acknowledgement; any other replay is a conflict; refused when `epoch` is lower than the record's epoch. Returns after the DO storage write is durable. Only the team VM's own install may append.
+- `journal.high_water {stream}` returns the last `last_seq`.
+- `journal.read {stream, from_seq}` returns whole entries (restore).
+- Compaction moves old entries to R2 segments under `teams/<team>/journal/<stream>/` through the DO's binding; reads stitch R2 segments and the DO tail.
 
 ## 4a. Journal store (measured 2026-10-03, from a Freestyle VM in San Francisco)
 

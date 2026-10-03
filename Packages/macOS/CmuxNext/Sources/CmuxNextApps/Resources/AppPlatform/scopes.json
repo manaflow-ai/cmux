@@ -849,6 +849,18 @@
       "scope": "workspace:write",
       "class": "mutation"
     },
+    "team_vm.ensure_awake": {
+      "scope": "team_vm:write",
+      "class": "mutation"
+    },
+    "team_vm.lease.release": {
+      "scope": "team_vm:write",
+      "class": "mutation"
+    },
+    "team_vm.status": {
+      "scope": "team_vm:read",
+      "class": "read"
+    },
     "team.device.compliance": {
       "scope": "team:read",
       "class": "read"

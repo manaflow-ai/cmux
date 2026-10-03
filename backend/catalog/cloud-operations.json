@@ -4734,6 +4734,142 @@
         }
       }
     },
+    "TeamVmError": {
+      "kind": "object",
+      "fields": {
+        "code": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "message": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      }
+    },
+    "TeamVmLeaseId": {
+      "kind": "primitive",
+      "name": "string",
+      "min_length": 1,
+      "max_length": 64
+    },
+    "TeamVmStatus": {
+      "kind": "enum",
+      "values": [
+        "none",
+        "provisioning",
+        "starting",
+        "running",
+        "paused",
+        "failed"
+      ],
+      "description": "Last observed state of the team VM. `none`: never created. `failed`: the last provider call failed for good; the next ensure_awake retries."
+    },
+    "TeamVmView": {
+      "kind": "object",
+      "fields": {
+        "team": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "TeamId"
+          }
+        },
+        "status": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "TeamVmStatus"
+          }
+        },
+        "vm": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "epoch": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "leases": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "object",
+              "fields": {
+                "lease": {
+                  "required": true,
+                  "type": {
+                    "kind": "ref",
+                    "name": "TeamVmLeaseId"
+                  }
+                },
+                "holder": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "reason": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "expires_at": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "last_error": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "TeamVmError"
+            }
+          }
+        },
+        "updated_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      }
+    },
     "Timestamp": {
       "kind": "primitive",
       "name": "string",
@@ -36177,6 +36313,507 @@
               "secret_set",
               "jit",
               "created_at",
+              "updated_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "team_vm.ensure_awake": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "reason": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 40
+            }
+          },
+          "lease_seconds": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "lease": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "TeamVmLeaseId"
+                }
+              },
+              "expires_at": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "status": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "TeamVmStatus"
+                }
+              },
+              "vm": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                }
+              },
+              "epoch": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "team_vm.not_configured",
+        "team_vm.plan_gate_missing",
+        "team_vm.provider_failed",
+        "team_vm.provider_refused",
+        "team_vm.slug_conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamVmDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team vm wake",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "team"
+      },
+      "docs": "Create the team VM if it does not exist, resume it if it is paused, and hold it awake with a lease. The same holder and reason renew one lease. When the provider call fails for good, the op answers with that error (the lease stays until it expires).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "lease_seconds": {
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 3600
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "lease": {
+            "$ref": "#/$defs/TeamVmLeaseId"
+          },
+          "expires_at": {
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/$defs/TeamVmStatus"
+          },
+          "vm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "epoch": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "lease",
+          "expires_at",
+          "status",
+          "vm",
+          "epoch"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamVmLeaseId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "TeamVmStatus": {
+            "type": "string",
+            "enum": [
+              "none",
+              "provisioning",
+              "starting",
+              "running",
+              "paused",
+              "failed"
+            ],
+            "description": "Last observed state of the team VM. `none`: never created. `failed`: the last provider call failed for good; the next ensure_awake retries."
+          }
+        }
+      }
+    },
+    "team_vm.lease.release": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "lease": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamVmLeaseId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "lease": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "TeamVmLeaseId"
+                }
+              },
+              "released": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamVmDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team vm release",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Release a wake lease you hold, so the team VM may pause when no other lease is active.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "lease": {
+            "$ref": "#/$defs/TeamVmLeaseId"
+          }
+        },
+        "required": [
+          "lease"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamVmLeaseId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "lease": {
+            "$ref": "#/$defs/TeamVmLeaseId"
+          },
+          "released": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "lease",
+          "released"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamVmLeaseId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        }
+      }
+    },
+    "team_vm.status": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "TeamVmView"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:TeamVmDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "team vm status",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "team"
+      },
+      "docs": "Show the team VM: its state, epoch and active wake leases.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/TeamVmView",
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "TeamVmStatus": {
+            "type": "string",
+            "enum": [
+              "none",
+              "provisioning",
+              "starting",
+              "running",
+              "paused",
+              "failed"
+            ],
+            "description": "Last observed state of the team VM. `none`: never created. `failed`: the last provider call failed for good; the next ensure_awake retries."
+          },
+          "TeamVmLeaseId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "TeamVmError": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "at"
+            ],
+            "additionalProperties": true
+          },
+          "TeamVmView": {
+            "type": "object",
+            "properties": {
+              "team": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "status": {
+                "$ref": "#/$defs/TeamVmStatus"
+              },
+              "vm": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "epoch": {
+                "type": "integer"
+              },
+              "leases": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "lease": {
+                      "$ref": "#/$defs/TeamVmLeaseId"
+                    },
+                    "holder": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "expires_at": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "lease",
+                    "holder",
+                    "reason",
+                    "expires_at"
+                  ],
+                  "additionalProperties": true
+                }
+              },
+              "last_error": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/TeamVmError"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "updated_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "team",
+              "status",
+              "vm",
+              "epoch",
+              "leases",
+              "last_error",
               "updated_at"
             ],
             "additionalProperties": true
