@@ -78,6 +78,39 @@ export function currentFrameEvent(state: ActivityState): ActivityEvent | undefin
   return events.slice(0, index + 1).reverse().find((event) => displayFrame(event) !== undefined);
 }
 
+export function step(state: ActivityState, delta: number, framesOnly = false): ActivityState {
+  const events = framesOnly ? selectedEvents(state).filter((event) => displayFrame(event) !== undefined) : selectedEvents(state);
+  if (!events.length || delta === 0) return state;
+  const current = currentEvent(state);
+  if (!current) return state;
+  let target: number;
+  const currentIndex = events.findIndex((event) => event.seq === current.seq);
+  if (currentIndex >= 0) {
+    target = currentIndex + delta;
+  } else if (delta > 0) {
+    const next = events.findIndex((event) => event.seq > current.seq);
+    if (next < 0) return state;
+    target = next + delta - 1;
+  } else {
+    let previous = -1;
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      if (events[index].seq < current.seq) { previous = index; break; }
+    }
+    if (previous < 0) return state;
+    target = previous + delta + 1;
+  }
+  const clamped = Math.min(Math.max(target, 0), events.length - 1);
+  return reduceActivity(state, { type: "scrub", seq: events[clamped].seq });
+}
+
+export function scrubToStart(state: ActivityState): ActivityState {
+  return reduceActivity(state, { type: "scrub", seq: selectedEvents(state)[0]?.seq });
+}
+
+export function scrubToEnd(state: ActivityState): ActivityState {
+  return reduceActivity(state, { type: "scrub", seq: undefined });
+}
+
 export function reduceActivity(state: ActivityState, action: any): ActivityState {
   let next = state;
   if (action.type === "snapshot") next = { ...state, ...action.state, filter: state.filter, layout: state.layout };
