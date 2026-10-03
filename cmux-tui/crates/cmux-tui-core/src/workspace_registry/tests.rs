@@ -5250,6 +5250,67 @@ fn terminal_journal_persists_exact_output_and_geometry_in_order() {
     }
 }
 
+/// Pages the fresh connection had to read from disk (or the WAL) while the
+/// registry opened: a size-independent measure of how much startup touched.
+fn registry_open_cache_misses(registry: &WorkspaceRegistry) -> i32 {
+    let (mut current, mut highwater) = (0, 0);
+    // SAFETY: the handle is the live connection owned by `registry`, and
+    // sqlite3_db_status only reads counters into the two locals.
+    let status = unsafe {
+        rusqlite::ffi::sqlite3_db_status(
+            registry.connection.handle(),
+            rusqlite::ffi::SQLITE_DBSTATUS_CACHE_MISS,
+            &mut current,
+            &mut highwater,
+            0,
+        )
+    };
+    assert_eq!(status, rusqlite::ffi::SQLITE_OK);
+    current
+}
+
+fn reopen_cost_after_terminal_output(label: &str, records: usize) -> i32 {
+    const BATCH_SIZE: usize = 1_024;
+    let root = temp_root(label);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, label).unwrap();
+        commit_terminal_topology(&mut registry, &format!("{label}-seed"));
+        let terminal_id = Arc::new(terminal_resource(TERMINAL_ONE));
+        let chunk = vec![b'x'; 256];
+        let mut written = 0;
+        while written < records {
+            let events = (written..records.min(written + BATCH_SIZE))
+                .map(|index| crate::journal_ingress::JournalIngressEvent::TerminalOutput {
+                    terminal_id: terminal_id.clone(),
+                    generation: "startup-scale".into(),
+                    occurred_at_ms: u64::try_from(index).unwrap(),
+                    bytes: chunk.clone(),
+                })
+                .collect::<Vec<_>>();
+            let references = events.iter().collect::<Vec<_>>();
+            written += registry.append_journal_ingress_events(&references).unwrap().len();
+        }
+    }
+    let registry = WorkspaceRegistry::open(&root, label).unwrap();
+    let misses = registry_open_cache_misses(&registry);
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+    misses
+}
+
+#[test]
+fn registry_reopen_cost_does_not_scale_with_terminal_output_history() {
+    // Terminal output is most of every long-lived journal (3.6M of 3.6M
+    // records on one production machine). Reopening must read the registry
+    // and the journal's recent edge, never the whole output history.
+    let small = reopen_cost_after_terminal_output("startup-scale-small", 16);
+    let large = reopen_cost_after_terminal_output("startup-scale-large", 16 * 1_024);
+    assert!(
+        large <= small + 256,
+        "reopen read {large} pages after 16Ki output records but {small} after 16"
+    );
+}
+
 #[test]
 #[ignore = "manual release-mode journal writer throughput probe"]
 fn terminal_journal_writer_throughput_probe() {
