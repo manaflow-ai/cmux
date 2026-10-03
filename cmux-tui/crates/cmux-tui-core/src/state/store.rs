@@ -18,7 +18,7 @@
 //! commands and the v2 operations).
 
 use anyhow::Context;
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, Transaction};
 use serde_json::{Value, json};
 
 use crate::workspace_registry::personal_store::personal_revision;
@@ -247,19 +247,13 @@ impl WorkspaceRegistry {
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision, actor_json
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![
-                mutation.origin,
-                mutation.id,
-                operation,
-                fingerprint,
-                canonical_json(&result)?,
-                sqlite_revision,
-                crate::workspace_registry::mutation_actor_json(&mutation.actor),
-            ],
+        crate::workspace_registry::insert_resource_mutation(
+            &tx,
+            &mutation,
+            &operation,
+            &fingerprint,
+            &canonical_json(&result)?,
+            &sqlite_revision,
         )?;
         append_resource_journal_record(
             &tx,

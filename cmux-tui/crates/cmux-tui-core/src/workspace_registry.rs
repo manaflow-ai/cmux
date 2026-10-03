@@ -33,6 +33,9 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 mod effect_store;
 mod idle_policy_store;
 mod journal_extensions;
+mod mutation;
+pub use mutation::WorkspaceMutation;
+pub(crate) use mutation::insert_resource_mutation;
 pub(crate) mod personal_bookmarks;
 mod personal_browser_profiles;
 pub(crate) mod personal_mutations;
@@ -303,41 +306,6 @@ pub struct RegistrySnapshot {
     pub session_id: SessionPublicId,
     pub next_numeric_id: u64,
     pub workspaces: Vec<RegistryWorkspace>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WorkspaceMutation {
-    pub id: String,
-    pub origin: String,
-    /// Who asked for it (plans/cmux-next/identity.md section 3), set by the
-    /// request dispatcher. Recorded beside `origin`; never part of the
-    /// idempotency fingerprint, so a replay keeps the first actor. None only
-    /// for the session host's own mutations.
-    pub actor: Option<cmux_local_auth::Actor>,
-}
-
-/// The `actor_json` column value of a mutation's actor.
-pub(crate) fn mutation_actor_json(actor: &Option<cmux_local_auth::Actor>) -> Option<String> {
-    actor.as_ref().map(cmux_local_auth::Actor::to_json)
-}
-
-impl WorkspaceMutation {
-    pub fn new(id: impl Into<String>, origin: impl Into<String>) -> anyhow::Result<Self> {
-        let mutation = Self { id: id.into(), origin: origin.into(), actor: None };
-        validate_identifier("mutation id", &mutation.id)?;
-        validate_identifier("mutation origin", &mutation.origin)?;
-        Ok(mutation)
-    }
-
-    pub fn local(origin: &str) -> Self {
-        Self { id: new_uuid_v4(), origin: origin.to_string(), actor: None }
-    }
-
-    /// This mutation, made by `actor`.
-    pub fn with_actor(mut self, actor: cmux_local_auth::Actor) -> Self {
-        self.actor = Some(actor);
-        self
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -3233,20 +3201,13 @@ impl WorkspaceRegistry {
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
         )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-                   origin, idempotency_key, operation, fingerprint, result_json,
-                   committed_revision, actor_json
-                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![
-                mutation.origin,
-                mutation.id,
-                OPERATION,
-                fingerprint,
-                resource_result_json,
-                sqlite_revision,
-                mutation_actor_json(&mutation.actor),
-            ],
+        insert_resource_mutation(
+            &tx,
+            &mutation,
+            &OPERATION,
+            &fingerprint,
+            &resource_result_json,
+            &sqlite_revision,
         )?;
         append_resource_journal_record(
             &tx,
@@ -3651,19 +3612,13 @@ impl WorkspaceRegistry {
             sqlite_resource_revision,
             resource_revision,
         ) {
-            tx.execute(
-                "INSERT INTO resource_mutations(
-                   origin, idempotency_key, operation, fingerprint, result_json, committed_revision, actor_json
-                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![
-                    mutation.origin,
-                    mutation.id,
-                    event_kind,
-                    fingerprint,
-                    result_json,
-                    sqlite_resource_revision,
-                    mutation_actor_json(&mutation.actor),
-                ],
+            insert_resource_mutation(
+                &tx,
+                &mutation,
+                &event_kind,
+                &fingerprint,
+                &result_json,
+                &sqlite_resource_revision,
             )?;
             let resource_deltas = normalized_workspace_resource_deltas(
                 &self.session_id,
