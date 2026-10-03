@@ -50,7 +50,7 @@ struct RemoteKeyboardPolicyTests {
         _ keyCode: Int, _ flags: NSEvent.ModifierFlags = [], mode: RemoteKeyboardMode = .auto,
         system: Bool = false, ascii: Bool = true, local: Bool = false
     ) -> RemoteKeyboardPolicy.Route {
-        RemoteKeyboardPolicy.route(
+        RemoteKeyboardPolicy().route(
             keyCode: UInt16(keyCode), modifiers: flags, mode: mode, sendSystemShortcuts: system,
             inputSourceIsASCIICapable: ascii, isLocalShortcut: local)
     }
@@ -76,7 +76,7 @@ struct RemoteKeyboardPolicyTests {
         #expect(route(kVK_Escape, [.control, .option], system: true) == .releaseKeyboard)
         #expect(route(kVK_Escape, .control) == .physical)
         let custom = RemoteReleaseChord(keyCode: UInt16(kVK_F12), modifiers: .command)
-        #expect(RemoteKeyboardPolicy.route(
+        #expect(RemoteKeyboardPolicy().route(
             keyCode: UInt16(kVK_F12), modifiers: .command, mode: .auto, sendSystemShortcuts: false,
             inputSourceIsASCIICapable: true, releaseChord: custom) == .releaseKeyboard)
         #expect(RemoteReleaseChord.shortcutID == "remoteDesktop.releaseKeyboard")

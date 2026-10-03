@@ -20,6 +20,13 @@ describe("agent messages", () => {
     });
   });
 
+  test("a message read from a file stays a command row", () => {
+    expect(commandMessage("tell-coordinator --to leo - < note.md")).toBeUndefined();
+    expect(commandMessage("cat note.md | tell-coordinator --to leo -")).toBeUndefined();
+    expect(commandMessage("tell-coordinator --to leo")).toBeUndefined();
+    expect(commandMessage('echo "ready" | tell-coordinator --to leo -')?.text).toBe("ready");
+  });
+
   test("a message read from stdin takes the here-document's body", () => {
     const command = `tell-coordinator --from cc-pane-transcript - <<'EOF'\nLanded #17079.\nNext: P0 items 4+5.\nEOF`;
     expect(commandMessage(command)?.text).toBe("Landed #17079.\nNext: P0 items 4+5.");

@@ -1,10 +1,11 @@
 public import AppKit
 import CmuxNextDesign
 
-/// The capsule beside the update circle: "Installing…" while the update
+/// The note beside the update circle: "Installing…" while the update
 /// installs and relaunches, or a short note ("cmux Is Up to Date") that
-/// hides itself. A floating overlay panel (glass, or the opaque fill under
-/// Reduce Transparency); it never takes clicks.
+/// hides itself. A small rounded rectangle, never a capsule: a floating
+/// overlay panel (glass, or the opaque fill under Reduce Transparency) that
+/// never takes clicks.
 @MainActor
 public final class UpdatePillView: NSView {
     private let surface = Glass.makeOverlayPanel(interactive: false)
@@ -30,6 +31,8 @@ public final class UpdatePillView: NSView {
 
     override public func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    var cornerRadius: CGFloat { surface.cornerRadius }
+
     public var text: String {
         get { label.stringValue }
         set {
@@ -39,14 +42,14 @@ public final class UpdatePillView: NSView {
         }
     }
 
-    /// The capsule's width for `text` at `height`: the text measured in the
-    /// label's font (the field's intrinsic width fell about 10 pt short in
-    /// window snapshots, ending in an ellipsis), the field's cell padding,
-    /// and a half-height cap at each end.
+    /// The note's width for `text`: the text measured in the label's font
+    /// (the field's intrinsic width fell about 10 pt short in window
+    /// snapshots, ending in an ellipsis), the field's cell padding, and side
+    /// padding.
     public func fittingWidth(height: CGFloat) -> CGFloat {
         let font = label.font ?? Typography.bodyEmphasized
         let text = (label.stringValue as NSString).size(withAttributes: [.font: font]).width
-        return (max(text, label.intrinsicContentSize.width) + Metrics.space2 * 2 + height).rounded(.up)
+        return (max(text, label.intrinsicContentSize.width) + Metrics.space2 * 2 + Metrics.space3 * 2).rounded(.up)
     }
 
     override public func viewDidChangeEffectiveAppearance() {
@@ -57,8 +60,8 @@ public final class UpdatePillView: NSView {
     override public func layout() {
         super.layout()
         surface.frame = bounds
-        surface.cornerRadius = bounds.height / 2
-        // The full width, text centered: the capsule already fits the text.
+        surface.cornerRadius = Metrics.chipCornerRadius(height: bounds.height)
+        // The full width, text centered: the note already fits the text.
         let height = label.intrinsicContentSize.height
         label.frame = CGRect(x: 0, y: ((bounds.height - height) / 2).rounded(), width: bounds.width, height: height)
         performWithTheme { label.textColor = Palette.textPrimary }

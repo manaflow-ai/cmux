@@ -31,6 +31,14 @@ struct AppearanceStudioTests {
         #expect(frame == content.insetBy(dx: gap, dy: gap))
     }
 
+    @Test func tunerPeekSitsCenteredAtTheBottomOfTheContent() {
+        let content = CGRect(x: 100, y: 100, width: 1200, height: 800)
+        let frame = AppearanceTunerPlacement.frame(content: content)
+        #expect(frame.midX == content.midX)
+        #expect(frame.minY > content.minY)
+        #expect(frame.maxY < content.maxY)
+    }
+
     @Test func customizeAppearanceIsBoundAndOfferedInSettings() throws {
         let services = ActionBindingCoverageTests.boundServices()
         #expect(services.registry.isBound("appearance.customize"))

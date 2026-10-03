@@ -263,11 +263,25 @@ export function rejectionPrompt(patches: string[], note?: string): string {
     patches.length === 1
       ? "I reviewed your changes and rejected this one. Please revert it and keep your other changes:"
       : `I reviewed your changes and rejected these ${patches.length}. Please revert them and keep your other changes:`;
-  // A fence longer than any backtick run in the patches, so code containing one cannot close it.
+  return [intro, "", ...fencedPatches(patches), ...(note?.trim() ? ["", note.trim()] : [])].join("\n");
+}
+
+/// The prompt behind a turn's Undo: revert everything the turn changed.
+export function undoPrompt(patches: string[]): string {
+  return [
+    "Please undo the changes you made in that turn, so these files read as they did before it:",
+    "",
+    ...fencedPatches(patches),
+  ].join("\n");
+}
+
+/// The patches in one diff fence, longer than any backtick run in them so code containing one
+/// cannot close it.
+function fencedPatches(patches: string[]): string[] {
   const longest = Math.max(
     0,
     ...patches.map((patch) => Math.max(0, ...(patch.match(/`+/g) ?? []).map((run) => run.length))),
   );
   const fence = "`".repeat(Math.max(3, longest + 1));
-  return [intro, "", `${fence}diff`, patches.join("\n"), fence, ...(note?.trim() ? ["", note.trim()] : [])].join("\n");
+  return [`${fence}diff`, patches.join("\n"), fence];
 }

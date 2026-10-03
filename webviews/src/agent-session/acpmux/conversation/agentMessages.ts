@@ -80,6 +80,9 @@ export function commandMessage(command: string): AgentMessage | undefined {
     const fed = steps[index - 1]?.pipesNext ? echoedText(steps[index - 1]!.words) : undefined;
     const message = stepMessage(step.words, step.redirects, heredoc ?? fed);
     if (!message) continue;
+    // Text read from a file (`tell-coordinator - < note.md`, `cat note.md | …`) is not in the
+    // command line; a card would have nothing to show, so the command row keeps its output.
+    if (!message.text) return undefined;
     const alone = steps.every((other, at) => {
       if (at === index) return true;
       const program = other.words[0]?.split("/").pop() ?? "";

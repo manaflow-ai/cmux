@@ -332,7 +332,8 @@ let package = Package(
             name: "CmuxNextAgentActivity",
             dependencies: ["CmuxNextDesign", "CmuxNextWakeups"],
             resources: [
-                .process("Resources"),
+                .process("Resources/Localizable.xcstrings"),
+                .copy("Resources/agent-activity"),
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -558,6 +559,7 @@ let package = Package(
                 "CmuxNextWakeups",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
             ],
+            resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
         ),
         // Theme derivation (Ghostty colors -> chrome tokens), contrast, live reload.

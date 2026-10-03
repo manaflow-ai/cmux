@@ -12,7 +12,7 @@ private func argument(_ name: String) -> String? {
 }
 
 guard let appBundleID = argument("--app"),
-      let machServiceName = ServerHelperConstants.machServiceName(appBundleID: appBundleID) else {
+      let machServiceName = ServerHelperConstants().machServiceName(appBundleID: appBundleID) else {
     FileHandle.standardError.write(Data("cmux-server-helper: usage: cmux-server-helper --app <bundle id>\n".utf8))
     exit(64)
 }

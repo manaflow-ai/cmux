@@ -21,14 +21,14 @@ final class HomeTapbackPickerView: NSView {
     init(target: HomeReactionTarget, onChoose: @escaping (Reaction.Tapback) -> Void) {
         self.target = target
         self.onChoose = onChoose
-        let count = CGFloat(HomeReactionStyle.tapbacks.count)
+        let count = CGFloat(HomeReactionStyle().tapbacks.count)
         let width = Self.inset.left + Self.inset.right + count * Self.buttonSize + (count - 1) * Self.spacing
         let height = Self.inset.top + Self.inset.bottom + Self.buttonSize
         super.init(frame: CGRect(x: 0, y: 0, width: width, height: height))
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
-        setAccessibilityLabel(HomeReactionStyle.pickerLabel)
-        for (i, tapback) in HomeReactionStyle.tapbacks.enumerated() {
+        setAccessibilityLabel(HomeReactionStyle().pickerLabel)
+        for (i, tapback) in HomeReactionStyle().tapbacks.enumerated() {
             let button = makeButton(tapback)
             button.frame = CGRect(x: Self.inset.left + CGFloat(i) * (Self.buttonSize + Self.spacing), y: Self.inset.bottom,
                                   width: Self.buttonSize, height: Self.buttonSize)
@@ -41,15 +41,15 @@ final class HomeTapbackPickerView: NSView {
     required init?(coder: NSCoder) { nil }
 
     private func makeButton(_ tapback: Reaction.Tapback) -> NSButton {
-        let button = NSButton(title: HomeReactionStyle.glyph(tapback), target: self, action: #selector(choose(_:)))
+        let button = NSButton(title: HomeReactionStyle().glyph(tapback), target: self, action: #selector(choose(_:)))
         button.setButtonType(.momentaryChange)
         button.isBordered = false
         button.font = .systemFont(ofSize: 18)
-        button.tag = HomeReactionStyle.tapbacks.firstIndex(of: tapback) ?? 0
+        button.tag = HomeReactionStyle().tapbacks.firstIndex(of: tapback) ?? 0
         button.setAccessibilitySelected(target.chosen.contains(tapback))
         button.wantsLayer = true
         button.layer?.cornerRadius = Self.buttonSize / 2
-        button.setAccessibilityLabel(HomeReactionStyle.accessibilityName(tapback))
+        button.setAccessibilityLabel(HomeReactionStyle().accessibilityName(tapback))
         button.setAccessibilityIdentifier("home.tapback.\(tapback.rawValue)")
         return button
     }
@@ -61,14 +61,14 @@ final class HomeTapbackPickerView: NSView {
 
     private func updateColors() {
         performWithTheme {
-            for (button, tapback) in zip(buttons, HomeReactionStyle.tapbacks) {
+            for (button, tapback) in zip(buttons, HomeReactionStyle().tapbacks) {
                 button.layer?.backgroundColor = target.chosen.contains(tapback) ? Palette.selectionFill.cgColor : nil
             }
         }
     }
 
     @objc func choose(_ sender: NSButton) {
-        let tapback = HomeReactionStyle.tapbacks[sender.tag]
+        let tapback = HomeReactionStyle().tapbacks[sender.tag]
         // The owner's echo is the only source of truth for the selection;
         // choosing a tapback I already gave closes the menu and sends nothing.
         enclosingMenuItem?.menu?.cancelTracking()

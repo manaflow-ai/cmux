@@ -98,6 +98,15 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `appearance.backgroundOpacity` and `appearance.backgroundBlur`; both
     /// nil (Ghostty's values) when unset or invalid.
     public var windowBackground = WindowBackgroundOverride()
+    /// `appearance.backdropArt`; nil disables the bundled painting.
+    public var backdropArt: BackdropArt?
+    /// `appearance.background`; nil leaves the desktop untouched.
+    public var backdropSelection: BackdropSelection?
+    /// `appearance.experimentalControls`; off unless explicitly enabled.
+    public var experimentalAppearance = false
+    /// `appearance.glassTransparency`, `appearance.hue` and
+    /// `appearance.saturation`; identity values when unset or invalid.
+    public var appearanceTuning = AppearanceTuningSetting.fallback
     /// `appearance.statusIndicator.*`.
     public var statusIndicator = StatusIndicatorSettings()
     /// `status.*`.
@@ -119,7 +128,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `palette.scopes.<scope>.prefix`: user-assigned palette scope prefixes.
     public var paletteScopePrefixes = PaletteScopePrefixes()
     /// `tasks.layout`; "inbox" when unset or invalid.
-    public var tasksLayout: TasksLayoutPreference = TasksLayoutSetting.fallback
+    public var tasksLayout: TasksLayoutPreference = TasksLayoutSetting().fallback
     /// `appearance.theme`: a Ghostty theme spec; nil (the Ghostty config's
     /// theme) when unset, empty or invalid.
     public var appTheme: String?
@@ -198,6 +207,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.focusRing = PaneRingConfigParser.focusRing(root, diagnostics: &snapshot.diagnostics)
         snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)
         snapshot.windowBackground = WindowBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.backdropSelection = BackdropSelectionSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art }
+        snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusBehavior = StatusIndicatorConfigParser.behavior(root, diagnostics: &snapshot.diagnostics)
         let (borders, bordersDiagnostic) = BordersSetting.parse(root)
@@ -226,7 +239,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (prefixes, prefixDiagnostics) = PaletteScopePrefixes.parse(root)
         snapshot.paletteScopePrefixes = prefixes
         snapshot.diagnostics += prefixDiagnostics
-        let (tasksLayout, tasksLayoutDiagnostic) = TasksLayoutSetting.parse(root)
+        let (tasksLayout, tasksLayoutDiagnostic) = TasksLayoutSetting().parse(root)
         snapshot.tasksLayout = tasksLayout
         if let tasksLayoutDiagnostic { snapshot.diagnostics.append(tasksLayoutDiagnostic) }
         let (recordsCommands, commandsDiagnostic) = TerminalCommandHistorySetting.parse(root)

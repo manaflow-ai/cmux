@@ -54,22 +54,22 @@ import Testing
         let menu = try #require(view.rowHost.menu(at: try Self.lastBubbleCenter(view)))
         let picker = try #require(menu.items.first?.view as? HomeTapbackPickerView)
         #expect(menu.items.last?.action == #selector(HomeRowHostView.copyMessage(_:)))
-        #expect(picker.accessibilityLabel() == HomeReactionStyle.pickerLabel)
-        let glyphs: [String] = HomeReactionStyle.tapbacks.map { HomeReactionStyle.glyph($0) }
-        let names: [String] = HomeReactionStyle.tapbacks.map { HomeReactionStyle.accessibilityName($0) }
+        #expect(picker.accessibilityLabel() == HomeReactionStyle().pickerLabel)
+        let glyphs: [String] = HomeReactionStyle().tapbacks.map { HomeReactionStyle().glyph($0) }
+        let names: [String] = HomeReactionStyle().tapbacks.map { HomeReactionStyle().accessibilityName($0) }
         let titles: [String] = picker.buttons.map(\.title)
         let labels: [String] = picker.buttons.map { $0.accessibilityLabel() ?? "" }
         #expect(titles == glyphs)
         #expect(labels == names)
         let selected: [Bool] = picker.buttons.map { $0.isAccessibilitySelected() }
-        let expected: [Bool] = HomeReactionStyle.tapbacks.map { $0 == .like }
+        let expected: [Bool] = HomeReactionStyle().tapbacks.map { $0 == .like }
         #expect(selected == expected, "my existing tapback shows selected")
 
-        let laugh = try #require(picker.buttons.first { $0.accessibilityLabel() == HomeReactionStyle.accessibilityName(.laugh) })
+        let laugh = try #require(picker.buttons.first { $0.accessibilityLabel() == HomeReactionStyle().accessibilityName(.laugh) })
         laugh.performClick(nil)
         let laughOp = HomeOp.addReaction(message: MessageID("msg_4"), conversation: Self.id, reaction: .tapback(.laugh), partIndex: 0)
         #expect(emitted.map(\.op) == [laughOp])
-        let like = try #require(picker.buttons.first { $0.accessibilityLabel() == HomeReactionStyle.accessibilityName(.like) })
+        let like = try #require(picker.buttons.first { $0.accessibilityLabel() == HomeReactionStyle().accessibilityName(.like) })
         like.performClick(nil)
         #expect(emitted.count == 1, "a tapback I already gave sends nothing")
         #expect(like.isAccessibilitySelected(), "the owner's echo, not the click, decides the selection")
@@ -103,7 +103,7 @@ import Testing
         let message = try #require(elements.last { $0.accessibilityLabel() == "Message 4" })
         let actions: [NSAccessibilityCustomAction] = message.accessibilityCustomActions() ?? []
         let actionNames: [String] = actions.map(\.name)
-        let names: [String] = HomeReactionStyle.tapbacks.map { HomeReactionStyle.accessibilityName($0) }
+        let names: [String] = HomeReactionStyle().tapbacks.map { HomeReactionStyle().accessibilityName($0) }
         #expect(actionNames == names)
         let love = try #require(actions.first)
         #expect(love.handler?() == true)

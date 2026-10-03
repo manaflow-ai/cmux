@@ -10,13 +10,14 @@ public nonisolated enum TasksLayoutPreference: String, Sendable, Hashable, CaseI
 }
 
 /// `tasks.layout` in cmux.json: "list", "board" or "inbox" (default).
-public nonisolated enum TasksLayoutSetting {
-    public static let configPath = ["tasks", "layout"]
-    public static let fallback: TasksLayoutPreference = .inbox
+public struct TasksLayoutSetting {
+    public nonisolated init() {}
+    public nonisolated let configPath = ["tasks", "layout"]
+    public nonisolated let fallback: TasksLayoutPreference = .inbox
 
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic.
-    static func parse(_ root: JSONValue) -> (TasksLayoutPreference, SettingsDiagnostic?) {
+    nonisolated func parse(_ root: JSONValue) -> (TasksLayoutPreference, SettingsDiagnostic?) {
         guard let value = root.value(at: configPath) else { return (fallback, nil) }
         guard let text = value.stringValue, let layout = TasksLayoutPreference(rawValue: text) else {
             let choices = TasksLayoutPreference.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")

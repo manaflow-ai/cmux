@@ -23,6 +23,12 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// own tint): the resolved
     /// `background-opacity`, or 1 for an opaque window.
     public var tintOpacity: Double
+    /// Optional bundled art beneath the material; hidden in opaque mode.
+    public var art: BackdropArt? = nil
+    /// Optional bundled or system image beneath the material.
+    public var selection: BackdropSelection? = nil
+    /// Live experimental adjustments applied to the tint.
+    public var tuning: AppearanceTuning = .identity
     /// Alpha of the white window background while non-opaque.
     public let windowBackgroundAlpha: CGFloat = 0.001
 
@@ -71,8 +77,13 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     ///
     /// - Parameter tokens: The theme tokens of the view's scope.
     /// - Parameter reduceTransparency: The user's Reduce Transparency setting.
-    public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false) {
+    /// - Parameter art: Bundled art below the window's material and tint.
+    public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false, art: BackdropArt? = nil,
+                selection: BackdropSelection? = nil, tuning: AppearanceTuning = .identity) {
         self.init(backgroundOpacity: tokens.backgroundOpacity, backgroundBlur: tokens.backgroundBlur,
                   reduceTransparency: reduceTransparency)
+        self.art = art
+        self.selection = selection ?? art.map(BackdropSelection.art)
+        self.tuning = tuning
     }
 }

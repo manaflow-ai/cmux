@@ -170,6 +170,83 @@ class MainFixEvidenceTests(unittest.TestCase):
 
 
 class InstalledHelperRegression(unittest.TestCase):
+    def run_normal_helper(self, *, files, checks):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            gh = directory / "gh"
+            marker = directory / "merged"
+            gh.write_text(
+                """#!/bin/sh
+case "$*" in
+*'pr view'*) printf '%s\\n' "$HEAD feat-cmux-next" ;;
+*'commits/'*) printf '%b\\n' "$CHECKS" ;;
+*'pulls/42/files'*) printf '%b\\n' "$FILES" ;;
+*'pr merge'*) touch "$MERGE_MARKER" ;;
+*) echo "unexpected gh invocation: $*" >&2; exit 1 ;;
+esac
+""",
+                encoding="utf-8",
+            )
+            gh.chmod(0o755)
+            env = {
+                **os.environ,
+                "PATH": str(directory) + os.pathsep + os.environ["PATH"],
+                "HEAD": HEAD,
+                "CHECKS": checks,
+                "FILES": files,
+                "MERGE_MARKER": str(marker),
+            }
+            result = subprocess.run(
+                [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", "--squash"],
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            return result, marker.exists()
+
+    def test_feat_cmux_next_swift_requires_compile_success(self):
+        result, merged = self.run_normal_helper(
+            files="Packages/macOS/CmuxNext/Sources/Example.swift",
+            checks="ci-status\\tcompleted\\tsuccess",
+        )
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("exact-head success", result.stderr)
+        self.assertFalse(merged)
+
+    def test_feat_cmux_next_package_manifest_requires_compile_success(self):
+        result, merged = self.run_normal_helper(
+            files="Packages/macOS/CmuxNext/Package.swift",
+            checks="ci-status\\tcompleted\\tsuccess",
+        )
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(merged)
+
+    def test_feat_cmux_next_swift_accepts_release_compile(self):
+        result, merged = self.run_normal_helper(
+            files="Packages/macOS/CmuxNext/Sources/Example.swift",
+            checks="ci-status\\tcompleted\\tsuccess\\n"
+                   "cmux-next Release compile (Xcode 26)\\tcompleted\\tsuccess",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(merged)
+
+    def test_feat_cmux_next_swift_accepts_compile_admission(self):
+        result, merged = self.run_normal_helper(
+            files="Packages/macOS/CmuxNext/Sources/Example.swift",
+            checks="ci-status\\tcompleted\\tsuccess\\n"
+                   "macos / macOS compile admission\\tcompleted\\tsuccess",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(merged)
+
+    def test_feat_cmux_next_docs_do_not_require_compile(self):
+        result, merged = self.run_normal_helper(
+            files="docs/ci.md",
+            checks="ci-status\\tcompleted\\tsuccess",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(merged)
+
     def test_main_fix_without_any_compile_evidence_refuses_to_merge(self):
         with tempfile.TemporaryDirectory() as directory:
             gh = Path(directory) / "gh"
