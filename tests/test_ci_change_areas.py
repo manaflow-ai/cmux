@@ -2798,6 +2798,15 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
 FEAT_CMUX_NEXT_PR_SKIP = "(github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next')"
 
 
+def test_feat_next_route_keeps_one_compile_for_webview_resources() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    start = workflow.index("      - name: Route cmux-next pull requests away from legacy product lanes")
+    block = workflow[start:workflow.index("      - name: Route standalone project workflows", start)]
+    assert "grep -Eq '^(webviews/|Resources/markdown-viewer/webviews-app/)" in block
+    assert 'echo "macos=$webview_native"' in block
+    assert 'echo "full_suite=false"' in block
+
+
 def test_required_tests_status_waits_for_platform_workflows() -> None:
     block = workflow_job_block("tests")
 
