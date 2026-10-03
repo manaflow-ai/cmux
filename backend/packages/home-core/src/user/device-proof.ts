@@ -68,8 +68,8 @@ export const verifyPresence = (jwk: unknown, payload: ProofPayload, signature: s
   }
 }
 
-/** Raw r||s (64 bytes) to a DER ECDSA-Sig-Value. */
-const rawToDer = (raw: Uint8Array): Buffer => {
+/** Raw r||s (64 bytes) to a DER ECDSA-Sig-Value (minimal integers). */
+export const rawToDer = (raw: Uint8Array): Buffer => {
   const int = (b: Uint8Array) => {
     let i = 0
     while (i < b.length - 1 && b[i] === 0) i++
