@@ -96,15 +96,34 @@ check_symbols() {
   while read -r name; do
     grep -Fxq "_$name" <<<"$symbols" || { echo "error: $lib does not export $name" >&2; missing=1; }
   done < <(grep -oE '\bcmux_rd_[a-z0-9_]+\(' "$crate_dir/include/cmux_rd_ffi.h" | tr -d '(' | sort -u)
+  # Nothing else may be global: another Rust library in the same app (iroh-ffi)
+  # defines the same std symbols, and the link fails on duplicates.
+  local extra
+  extra="$(grep -v '^_cmux_rd_' <<<"$symbols" | grep -v -e '^$' -e ':$' | head -5 || true)"
+  [[ -z "$extra" ]] || { echo "error: $lib exports more than the C ABI: $extra" >&2; missing=1; }
   [[ "$missing" -eq 0 ]]
+}
+
+# Prelinks a Rust staticlib into one object whose only global symbols are the
+# C ABI (every Rust and std symbol becomes local), then archives it again.
+hide_rust_symbols() {
+  local lib="$1" arch="$2" out="$3" work
+  work="$(mktemp -d "${TMPDIR:-/tmp}/cmux-rd-ffi.XXXXXX")"
+  grep -oE '\bcmux_rd_[a-z0-9_]+\(' "$crate_dir/include/cmux_rd_ffi.h" | tr -d '(' | sort -u | sed 's/^/_/' > "$work/exports.txt"
+  xcrun ld -r -arch "$arch" -force_load "$lib" -exported_symbols_list "$work/exports.txt" -o "$work/cmux_rd_ffi.o"
+  rm -f "$out"
+  xcrun libtool -static -o "$out" "$work/cmux_rd_ffi.o"
+  rm -rf "$work"
 }
 
 args=()
 mac_libs=()
+mkdir -p "$out_root/macos" "$out_root/slices"
 for target in "${mac_targets[@]}"; do
-  mac_libs+=("$(build "$target")")
+  arch="${target%%-*}"; [[ "$arch" == aarch64 ]] && arch=arm64
+  hide_rust_symbols "$(build "$target")" "$arch" "$out_root/slices/$target.a"
+  mac_libs+=("$out_root/slices/$target.a")
 done
-mkdir -p "$out_root/macos"
 if [[ ${#mac_libs[@]} -eq 1 ]]; then
   cp -f "${mac_libs[0]}" "$out_root/macos/$lib_name"
 else
@@ -113,7 +132,8 @@ fi
 check_symbols "$out_root/macos/$lib_name"
 args+=(-library "$out_root/macos/$lib_name" -headers "$headers")
 for target in ${ios_targets[@]+"${ios_targets[@]}"}; do
-  lib="$(build "$target")"
+  lib="$out_root/slices/$target.a"
+  hide_rust_symbols "$(build "$target")" arm64 "$lib"
   check_symbols "$lib"
   args+=(-library "$lib" -headers "$headers")
 done
