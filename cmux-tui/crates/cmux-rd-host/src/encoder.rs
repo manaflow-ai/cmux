@@ -1,5 +1,7 @@
-//! The H.264 encoder behind one trait, so the codec is a build feature, not a code fork.
-//! Default: openh264 (BSD) built from source. Optional: x264 (GPL) with the `x264` feature.
+//! The H.264 encoder behind one trait, so the codec is a build feature and a flag, not a
+//! code fork. Default: x264 ultrafast zerolatency (`x264` feature, on by default): it keeps a
+//! text scroll at about 39 fps and 6 Mbit/s where openh264 fell to 28 fps (screen mode) or
+//! collapsed (camera mode). Alternative: openh264 built from source.
 
 use crate::convert::I420;
 use crate::Res;
