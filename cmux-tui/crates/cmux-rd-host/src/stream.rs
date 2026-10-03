@@ -390,7 +390,8 @@ impl MediaSession {
             }
             DatagramKind::Feedback => {
                 let Ok(fb) = Feedback::decode(payload) else { return };
-                let settled = self.loss_meter.on_arrivals(fb.arrivals.iter().map(|a| a.transport_seq));
+                let settled =
+                    self.loss_meter.on_arrivals(fb.arrivals.iter().map(|a| a.transport_seq));
                 if let Some(lost) = settled {
                     self.loss = 0.8 * self.loss + 0.2 * lost;
                 }

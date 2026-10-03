@@ -195,7 +195,11 @@ impl Viewer {
         while self.arrivals.len() > MAX_ARRIVALS {
             let rest = self.arrivals.split_off(MAX_ARRIVALS);
             let head = std::mem::replace(&mut self.arrivals, rest);
-            let fb = Feedback { acked_frame: self.reassembler.last_released(), arrivals: head, ..Feedback::default() };
+            let fb = Feedback {
+                acked_frame: self.reassembler.last_released(),
+                arrivals: head,
+                ..Feedback::default()
+            };
             self.send_feedback(&fb)?;
         }
         let fb = Feedback {
