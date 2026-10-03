@@ -787,6 +787,137 @@
         }
       }
     },
+    "settingsWindow.systemWideRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another app or global shortcut holds this key, so it works only while cmux is in front."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のアプリまたはグローバルショートカットがこのキーを使用しているため、cmux が前面にあるときだけ動作します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يستخدم تطبيق آخر أو اختصار عام هذا المفتاح، لذا لا يعمل إلا عندما يكون cmux في المقدمة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Druga aplikacija ili globalna prečica drži ovu tipku, pa radi samo dok je cmux u prvom planu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En anden app eller global genvej bruger denne tast, så den virker kun, mens cmux er forrest."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine andere App oder ein globaler Kurzbefehl belegt diese Taste, daher funktioniert sie nur, wenn cmux im Vordergrund ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otra app o un atajo global usa esta tecla, así que solo funciona cuando cmux está en primer plano."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une autre app ou un raccourci global utilise cette touche ; elle ne fonctionne donc que lorsque cmux est au premier plan."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un’altra app o una scorciatoia globale usa questo tasto, quindi funziona solo quando cmux è in primo piano."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីផ្សេង ឬផ្លូវកាត់សកលកំពុងប្រើគ្រាប់ចុចនេះ ដូច្នេះវាដំណើរការតែពេល cmux នៅខាងមុខប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 앱이나 전역 단축키가 이 키를 사용 중이므로 cmux가 앞에 있을 때만 작동합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En annen app eller global snarvei bruker denne tasten, så den virker bare når cmux er foran."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inna aplikacja lub globalny skrót używa tego klawisza, więc działa on tylko wtedy, gdy cmux jest na pierwszym planie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Outro app ou atalho global usa esta tecla, então ela só funciona quando o cmux está em primeiro plano."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эту клавишу занимает другое приложение или глобальное сочетание, поэтому она работает, только когда cmux на переднем плане."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แอปอื่นหรือทางลัดส่วนกลางใช้ปุ่มนี้อยู่ จึงใช้งานได้เฉพาะเมื่อ cmux อยู่ด้านหน้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu tuşu başka bir uygulama veya genel kısayol kullanıyor; bu yüzden yalnızca cmux öndeyken çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цю клавішу займає інша програма або глобальне сполучення, тому вона працює, лише коли cmux на передньому плані."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một ứng dụng khác hoặc phím tắt toàn cục đang giữ phím này, nên nó chỉ hoạt động khi cmux ở phía trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一个应用或全局快捷键占用了此按键，因此它只在 cmux 位于前台时有效。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一個應用程式或全域快捷鍵佔用了此按鍵，因此它只在 cmux 位於前景時有效。"
+          }
+        }
+      }
+    },
     "settingsWindow.custom": {
       "extractionState": "manual",
       "localizations": {

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextDaemon
 import Observation
 
@@ -52,7 +53,7 @@ extension WindowManager {
         // closed): its browser data goes.
         endIncognitoSessionIfUnused()
         recordIncognitoWorkspaces()
-        scheduleSave()
+        recordSaver.scheduleSave()
     }
 
     /// Makes each window's selection a workspace it lists in its current
@@ -108,14 +109,16 @@ extension WindowManager {
         if let workspaceID { enterProfile(of: workspaceID, in: state) }
         if let workspaceID, let machine = services.machines.daemon(forWorkspace: workspaceID)?.machineID { state.machineID = machine }
         state.workspaceID = workspaceID
-        stateDidChange(state)
+        recordSaver.stateDidChange(state)
     }
 
     // MARK: Entry points
 
     /// Shows `workspaceID`: in the window that lists it (brought forward),
     /// else in `state`'s window, which takes it.
+    /// An action run without view-change permission shows nothing.
     func show(workspaceID: String, in state: WindowState) {
+        guard ViewChangePolicy.allowed() else { return }
         let value = registry.value
         if let owner = value.owner(of: workspaceID), owner != state.id, value.window(owner)?.isOpen == true,
            let target = controller(for: owner) {
@@ -129,14 +132,18 @@ extension WindowManager {
     /// Shows `workspaceID` where it lives: its window when open, else the
     /// active window takes it, else a new window. Returns that window.
     @discardableResult
+    /// An action run without view-change permission files the workspace
+    /// into a window (the active one, else a new one behind) without
+    /// showing it.
     func reveal(workspaceID: String) -> WindowController? {
         let value = registry.value
+        let shows = ViewChangePolicy.allowed()
         if let owner = value.owner(of: workspaceID), value.window(owner)?.isOpen == true, let target = controller(for: owner) {
-            select(workspaceID, in: target.state)
+            if shows { select(workspaceID, in: target.state) }
             return target
         }
         if let active {
-            claim(workspaceID: workspaceID, in: active.state)
+            claim(workspaceID: workspaceID, in: active.state, select: shows)
             return active
         }
         return openWindow(workspaces: [workspaceID])
@@ -149,7 +156,9 @@ extension WindowManager {
     /// nor the reverse: refused with a message.
     /// `select` false files it into the window without showing it
     /// (Option on a drop, or a move this client's user did not start).
-    func claim(workspaceID: String, in state: WindowState, select shows: Bool = true) {
+    func claim(workspaceID: String, in state: WindowState, select requested: Bool = true) {
+        // An action run without view-change permission never shows it.
+        let shows = requested && ViewChangePolicy.allowed()
         if registry.value.crossesIncognito([workspaceID], to: state.id) {
             services.registry.refuse(RefusalStrings.incognitoMismatch)
             return
@@ -171,6 +180,7 @@ extension WindowManager {
     /// window and a normal one is refused with a message).
     @discardableResult
     func moveWorkspaces(_ ids: [String], toWindow windowID: String, select: Bool = true) -> Bool {
+        let select = select && ViewChangePolicy.allowed()
         guard registry.value.window(windowID)?.isOpen == true, !ids.isEmpty else { return false }
         if registry.value.crossesIncognito(ids, to: windowID) {
             services.registry.refuse(RefusalStrings.incognitoMismatch)
@@ -192,6 +202,9 @@ extension WindowManager {
     @discardableResult
     func openWindow(id: String = UUID().uuidString.lowercased(), workspaces: [String], frame: CGRect? = nil,
                     incognito: Bool = false, behind: Bool = false) -> WindowController? {
+        // A window an action run without view-change permission opens
+        // appears behind, never key.
+        let behind = behind || !ViewChangePolicy.allowed()
         let kinds = Set(workspaces.compactMap { registry.value.owner(of: $0) }.map(registry.value.isIncognito))
         if kinds.count > 1 || (incognito && kinds == [false]) {
             services.registry.refuse(RefusalStrings.incognitoMismatch)
@@ -289,6 +302,14 @@ extension WindowManager {
                 placements[id] = home
             }
         }
+        placements.merge(EphemeralWorkspaces.placements(self, live: live, placements: placements)) { claimed, _ in claimed }
+        // While an ephemeral workspace is being created here, a new
+        // unflagged one of this daemon may be it before its flag arrived:
+        // it waits for the create's claim instead of joining a normal window.
+        let held: Set<String> = pendingEphemeralWindows.isEmpty ? [] : Set(live.filter { id in
+            registered.owner(of: id) == nil && placements[id] == nil
+                && services.machines.workspace(id: id).map { $0.1 === services.daemon } == true
+        })
         for id in live { pendingClaims[id] = nil }
         // A claimed workspace is selected in its window, unless it was
         // claimed quietly (`claim(select: false)`).
@@ -302,7 +323,7 @@ extension WindowManager {
         let dead = Set(members.filter(isDead))
         let fallback = launchWindowID ?? UUID().uuidString.lowercased()
         transition(select: preferred) { registry in
-            registry.reconcile(live: live, dead: dead, placements: placements, fallbackWindow: fallback)
+            registry.reconcile(live: live, dead: dead, placements: placements, held: held, fallbackWindow: fallback)
         }
         // A workspace that changed profile leaves no trace in membership.
         if registry.value == before, preferred.isEmpty { repairSelections(previous: [:]) }

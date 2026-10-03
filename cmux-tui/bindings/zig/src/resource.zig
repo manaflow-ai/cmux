@@ -81,6 +81,7 @@ pub const Operation = enum {
     screen_close,
     screen_layout_export,
     screen_layout_undo,
+    screen_column_update,
     pane_list,
     pane_get,
     pane_create,
@@ -201,6 +202,7 @@ pub const Operation = enum {
             .screen_close => "screen.close",
             .screen_layout_export => "screen.layout.export",
             .screen_layout_undo => "screen.layout.undo",
+            .screen_column_update => "column.update",
             .pane_list => "pane.list",
             .pane_get => "pane.get",
             .pane_create => "pane.create",
@@ -412,6 +414,7 @@ pub const Operation = enum {
             .screen_close => .{ .owner = .screen, .method = "close" },
             .screen_layout_export => .{ .owner = .screen, .method = "exportLayout" },
             .screen_layout_undo => .{ .owner = .screen, .method = "undoLayout" },
+            .screen_column_update => .{ .owner = .screen, .method = "updateColumn" },
             .pane_list => .{ .owner = .screen, .method = "listPanes" },
             .pane_get => .{ .owner = .pane, .method = "refresh" },
             .pane_create => .{ .owner = .screen, .method = "createPane" },
@@ -5945,6 +5948,16 @@ pub const CreateScreenOptions = struct {
 pub const UndoLayoutOptions = struct {
     confirm_close: bool = false,
     confirmation_token: ?[]const u8 = null,
+};
+
+/// `column.update`: set `sticky`, `width`, or both. `edge` ("left" or
+/// "right") and `mode` ("docked" or "overlay") apply only when `sticky` is
+/// true.
+pub const ColumnUpdateOptions = struct {
+    sticky: ?bool = null,
+    edge: ?[]const u8 = null,
+    mode: ?[]const u8 = null,
+    width: ?f64 = null,
 };
 
 pub const CreatePaneOptions = struct {
@@ -11511,6 +11524,50 @@ fn HandleImpl(
             );
         }
 
+        pub fn updateColumn(
+            self: Self,
+            column: SplitId,
+            options: ColumnUpdateOptions,
+            mutation: MutationOptions,
+        ) !ScreenMutationResult {
+            if (comptime !std.mem.eql(u8, scope, "screen")) {
+                return error.UnsupportedHandleOperation;
+            }
+            if (options.sticky == null and options.width == null) {
+                return error.InvalidColumnUpdate;
+            }
+            var params = try Params(Id).init(
+                self.client.allocator,
+                scope,
+                &self.target,
+                null,
+            );
+            defer params.deinit();
+            try params.putString("column", column.slice());
+            if (options.sticky) |sticky| {
+                try params.putValue("sticky", .{ .bool = sticky });
+            }
+            if (options.edge) |edge| {
+                try params.putString("edge", edge);
+            }
+            if (options.mode) |mode| {
+                try params.putString("mode", mode);
+            }
+            if (options.width) |width| {
+                if (!std.math.isFinite(width)) return error.InvalidColumnUpdate;
+                try params.putValue("width", .{ .float = width });
+            }
+            return decodeTypedAllocatedMutation(
+                ScreenSnapshot,
+                self.client.allocator,
+                try self.client.mutate(
+                    .screen_column_update,
+                    params.asValue(),
+                    mutation,
+                ),
+            );
+        }
+
         pub fn createPane(
             self: Self,
             create: CreatePaneOptions,
@@ -13774,6 +13831,15 @@ pub const Screen = struct {
         mutation: MutationOptions,
     ) !ScreenMutationResult {
         return self.impl().undoLayout(options, mutation);
+    }
+
+    pub fn updateColumn(
+        self: Self,
+        column: SplitId,
+        options: ColumnUpdateOptions,
+        mutation: MutationOptions,
+    ) !ScreenMutationResult {
+        return self.impl().updateColumn(column, options, mutation);
     }
 
     pub fn createPane(
@@ -16649,7 +16715,7 @@ test "layout undo requires and forwards confirmation capability" {
 test "every catalog operation reaches a typed public facade" {
     @setEvalBranchQuota(20_000);
     const operation_fields = std.meta.fields(Operation);
-    try std.testing.expectEqual(@as(usize, 117), operation_fields.len);
+    try std.testing.expectEqual(@as(usize, 118), operation_fields.len);
     inline for (operation_fields, 0..) |field, index| {
         const operation: Operation = @enumFromInt(field.value);
         const binding = comptime operation.facadeBinding();
@@ -16742,6 +16808,7 @@ test "public facades expose only valid resource and stream capabilities" {
         "focusScreen",
         "exportLayout",
         "undoLayout",
+        "updateColumn",
         "createPane",
     });
     try expectHandleCapabilities(Pane, &.{

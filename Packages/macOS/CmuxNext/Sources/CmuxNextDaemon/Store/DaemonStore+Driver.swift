@@ -53,7 +53,8 @@ final class EventInbox: Sendable {
     /// (as a `tree-changed` carrying it), drop the rest.
     private static func keep(_ envelope: DaemonEventEnvelope, in state: inout State) {
         switch envelope.event {
-        case .connected, .disconnected, .daemonShutdown:
+        case .connected, .disconnected, .daemonShutdown, .sessionState:
+            // Session state: not in the snapshot the collapse refetches.
             state.events.append(envelope)
         case .bookmarksChanged, .conversationChanged, .conversationTyping:
             // Not part of the tree snapshot a resync refetches.

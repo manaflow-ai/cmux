@@ -1,69 +1,95 @@
 ---
 name: cmux-cloud-vm
-description: "Operate cmux Cloud machines, run durable remote commands or agents, and present their workspaces or services. Use for cmux vm/cloud tasks; backend implementation belongs to cmux-backend."
+description: "Operate cmux Cloud machines through the app's cloud actions, and drive a machine's own cmux-tui session from inside it. Use for cmux vm/cloud tasks; backend implementation belongs to cmux-backend."
 ---
 
 # cmux Cloud machines
 
-Use an existing machine and a workspace for the task. Machine terminals persist
-when panes close or the Mac disconnects. Work headlessly; open a pane or share a
-URL when there is a result for the user to inspect.
+Use this skill when a task involves a cmux Cloud machine. Machine terminals persist
+when panes close or the Mac disconnects.
+
+The Mac-side `cmux vm …` command family (route, run, exec, agent, dev, push, pull,
+tree, open, ssh, snapshot, fork, domains and the rest) was removed with the Swift
+CLI. The Rust `cmux` has no `vm` scope. What remains:
+
+| Where | What works |
+| --- | --- |
+| Mac, app running | `cmux cloud <verb>` app actions: create, open, fork, snapshot, restore, resize, rename and kill machines, sign in, diagnostics |
+| Inside a machine | the machine's `cmux`, a guest adapter over its cmux-tui daemon: the resource grammar (`cmux workspace list`, `cmux terminal current screen read`) plus guest verbs (`cmux self`, `cmux coderouter`, `cmux env`, `cmux layout`, `cmux notify`, `cmux open-url`) |
 
 ## Start with discovery
 
 ```sh
-cmux vm --help
-cmux auth status
-cmux vm ls --json
-cmux vm route --json
+cmux action list --category cloud
+cmux action describe "cloud resize-machine"
+cmux app capabilities
 ```
 
-On the Mac, host operations need the app, sign-in and its private tunnel. Inside a
-machine, use `cmux self --json` and the guest's help; read [guest operations](references/guest.md)
-for its supported subset and auth. Installed help is authoritative when versions differ.
+`action describe` prints the action's targets and arguments. Actions drive the app
+the same way its palette and sidebar do, and return an action result, not machine
+data such as command output. They need the app, sign-in and its private tunnel.
 
-`route` inspects placement without creating a machine. Read `would_provision` and
-the backend's `limits`/`capabilities`; do not assume a plan cap, memory size or
-provider feature. Reuse the router's pool machine, or explicitly pin an existing
-target with `--machine <id>`. Base is the user's persistent work. Prefer another
-workspace on a machine to another machine.
+## Machine lifecycle from the Mac
 
-## Run and observe
+```sh
+cmux cloud new-machine                                    # opens the New Cloud Machine sheet
+cmux cloud new-workspace                                  # a new cloud workspace
+cmux cloud open-machine --target machine:vm-…
+cmux cloud new-terminal-on-machine --target machine:vm-…
+cmux cloud machine-status --target machine:vm-…
+cmux cloud resize-machine --target machine:vm-… --size large --wait
+cmux cloud snapshot-machine --target machine:vm-…
+cmux cloud restore-machine --target machine:vm-… --snapshot <snapshot-id>
+cmux workspace new-on-machine --machine machine:vm-…
+```
 
-After identifying an authorized target, choose the operation:
+Without `--target`, a machine action applies to the focused cloud workspace's
+machine. The full set is in [the command reference](references/commands.md).
 
-| Need | Start here |
-| --- | --- |
-| Bounded command and exit code | `cmux vm run --machine <id> -- <command>` |
-| Detached coding agent | `cmux vm agent --machine <id> --agent codex --no-open -- "<task>"` |
-| Project with a dev layout | `cmux vm dev <id> --dry-run --json`, then the approved plan |
-| Observe without opening panes | `cmux vm tree <id> --json`, `cmux vm terminal read <id> <term>` |
-| Completion and full output | `cmux vm terminal wait-exit <id> <term>`, then `terminal output` |
+## Work inside a machine
 
-Read the selected verb's `--help` before adding flags. Retain the machine,
-workspace/terminal identity and actual exit result. A finished wait is not proof
-that tests passed. Use `vm open`/`workspace open` to present verified results;
-closing a view does not stop the machine terminal.
+Open a terminal on the machine (`cmux cloud open-machine`, or the sidebar), then use
+the machine's own `cmux` from that terminal. `current` selectors address the
+session's active terminal, pane and workspace; use `$CMUX_TUI_TERMINAL_ID` for the
+caller's own terminal:
+
+```sh
+cmux self --json
+cmux workspace list
+cmux pane current split --right
+cmux terminal term_… write --text $'bun test\n'
+cmux terminal term_… screen wait --pattern 'pass|fail' --timeout-ms 600000
+cmux terminal term_… screen read
+cmux notify --title "Tests done" --body "see the tests tab"
+```
+
+Read [guest operations](references/guest.md) for guest auth, CodeRouter, layouts and
+browser authentication. The machine's `cmux --help` is authoritative.
 
 ## Constraints that apply throughout
 
-- Provisioning, forking, resetting, resizing and destructive cleanup need the
-  user's authorization for the target and effect; retain authorization already
-  given. Do not delete machines to make capacity or reset Base as a workaround.
-- Keep account/upstream tokens on the host. Do not copy the user's credentials
-  into a machine unless requested. Use the secret/env transfer paths when authorized;
-  values do not belong in layout JSON, logs or command arguments.
-- Use `--no-open`, `--detach` or `--print` while working. Focus changes are intentional.
-  `workspace rm` kills its terminals; `workspace close` detaches them.
+- Provisioning, forking, restoring, resizing and killing machines need the user's
+  authorization for the target and effect; retain authorization already given. Do not
+  kill machines to make capacity.
+- Keep account and upstream tokens on the host. Do not copy the user's credentials
+  into a machine unless requested. Secret values do not belong in layout JSON, logs or
+  command arguments.
+- App actions can change focus. Prefer working inside the machine's session, which
+  does not move the Mac's focus.
+
+## Removed, with no CLI replacement
+
+`vm exec`, `vm run`, `vm agent`, `vm dev`, `vm route`, `vm push|pull`, `vm ssh`,
+`vm tree`, `vm open <m>:port/<n>`, `vm terminal …` against a machine from the Mac,
+`vm layout|env` from the Mac, `vm wait`, `vm pause|resume`, `cloud domains`,
+`vpn`, `surface ls|open|new-terminal` and `vm ls --json`. Run commands by opening a
+terminal on the machine and using its session there; copy a port link with
+`cmux cloud copy-machine-link --target machine:vm-… --port 3000`.
 
 ## Read only the relevant detail
 
-- [Workflow recipes](references/agent-workflows.md): project setup, interactive
-  terminals, long runs, peer agents, forks and service publication.
-- [Command reference](references/commands.md): exact flags, JSON/exit contracts,
-  file/env transfer, layouts, limits and capabilities. Search its task index first.
-- [Guest operations](references/guest.md): host/guest grammar, CodeRouter,
-  peer access, mirror behavior, notifications and browser authentication.
-- [Sidebar parity](references/sidebar-parity.md): map a specific UI action to CLI.
-- [Local workspace rules](../cmux-workspace/SKILL.md): presenting cloud work
-  without disrupting the caller's workspace.
+- [Workflow recipes](references/agent-workflows.md): the supported paths for common tasks.
+- [Command reference](references/commands.md): every cloud action and its arguments.
+- [Guest operations](references/guest.md): inside-machine grammar, CodeRouter, notifications.
+- [Sidebar parity](references/sidebar-parity.md): sidebar items and their actions.
+- [Local workspace rules](../cmux-workspace/SKILL.md): presenting work without disrupting the caller.

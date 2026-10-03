@@ -173,15 +173,15 @@ pub struct TabDragOutcome {
     pub undoable: bool,
 }
 
-pub(super) struct TabDragIds {
-    pub(super) pane: PaneId,
-    pub(super) pane_public: PanePublicId,
-    pub(super) split: SplitId,
-    pub(super) base_column: SplitId,
+pub(crate) struct TabDragIds {
+    pub(crate) pane: PaneId,
+    pub(crate) pane_public: PanePublicId,
+    pub(crate) split: SplitId,
+    pub(crate) base_column: SplitId,
 }
 
 impl TabDragIds {
-    pub(super) fn reserve(mux: &Mux) -> anyhow::Result<Self> {
+    pub(crate) fn reserve(mux: &Mux) -> anyhow::Result<Self> {
         Ok(Self {
             pane: mux.next_id(),
             pane_public: PanePublicId::random()?,
@@ -448,7 +448,7 @@ impl Mux {
 
 /// A terminal moved to another workspace: its durable host placement names
 /// the new workspace, as `move-tab` does.
-pub(super) fn retarget_terminal_workspace(
+pub(crate) fn retarget_terminal_workspace(
     patch: &mut ResourcePatch,
     terminal: &TerminalPublicId,
     workspace_key: &str,
@@ -472,7 +472,7 @@ fn screen_location(state: &State, screen: ScreenId) -> Option<(usize, usize)> {
 }
 
 /// Apply one drag to `state` (a clone of the live state).
-pub(super) fn apply_tab_drag(
+pub(crate) fn apply_tab_drag(
     mux: &Mux,
     state: &mut State,
     surface: SurfaceId,

@@ -1,0 +1,776 @@
+{
+ "batch": "actions-nav",
+ "icons": [
+  {
+   "name": "action.add",
+   "meaning": "Add / new",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 5v14M5 12h14'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 5v14M5 12h14'/></svg>",
+   "alts": [],
+   "note": "One plus for every add/new. 'New <noun>' uses the noun with the bottom-right plus badge (see group.new, tab.new alt).",
+   "replaces": [
+    "plus"
+   ]
+  },
+  {
+   "name": "action.close",
+   "meaning": "Close / dismiss / stop loading",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.25 5.25l13.5 13.5M18.75 5.25 5.25 18.75'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5.25 5.25l13.5 13.5M18.75 5.25 5.25 18.75'/></svg>",
+   "alts": [],
+   "note": "One close: x, 7..17. Also used by tab.close. field.clear is the circled variant.",
+   "replaces": [
+    "xmark"
+   ]
+  },
+  {
+   "name": "action.confirm",
+   "meaning": "Confirm a pending request (approve)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.25 12.169l4.388 4.388L18.75 7.444'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5.25 12.169l4.388 4.388L18.75 7.444'/></svg>",
+   "alts": [
+    {
+     "label": "check in circle (= status.success)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/><path d='M8.25 12.25l2.5 2.5L15.75 9.5'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-action-confirm-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M8.25 12.25l2.5 2.5L15.75 9.5'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-action-confirm-alt1)'><circle cx='12' cy='12' r='8.5'/></g></svg>"
+    }
+   ],
+   "note": "Prefer the bare check: SPEC reserves check-in-circle for status success, and confirm is an action next to remove (minus in circle) / close. Alt keeps the circled source shape.",
+   "replaces": [
+    "checkmark.circle"
+   ]
+  },
+  {
+   "name": "action.copy",
+   "meaning": "Copy",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M15.5 8.5v-3a2 2 0 0 0-2-2h-8a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3'/><rect x='8.5' y='8.5' width='12' height='12' rx='2'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M15.5 8.5v-3a2 2 0 0 0-2-2h-8a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3'/><rect x='8.5' y='8.5' width='12' height='12' rx='2' fill='currentColor'/></svg>",
+   "alts": [],
+   "note": "Two offset sheets, back one implied by an L. Solid fills the front sheet.",
+   "replaces": [
+    "doc.on.doc",
+    "Copy (svg)"
+   ]
+  },
+  {
+   "name": "action.delete",
+   "meaning": "Delete (destructive)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4 7h16M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2'/><path d='M6 7l.85 12.1A1.5 1.5 0 0 0 8.35 20.5h7.3a1.5 1.5 0 0 0 1.5-1.4L18 7'/><path d='M10 10.5v6M14 10.5v6'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-action-delete' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M10 10.5v6M14 10.5v6'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-action-delete)'><path d='M6 7l.85 12.1A1.5 1.5 0 0 0 8.35 20.5h7.3a1.5 1.5 0 0 0 1.5-1.4L18 7Z'/></g><path d='M4 7h16M9.5 7V5a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 5v2' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>",
+   "alts": [],
+   "note": "No cat: destructive.",
+   "replaces": [
+    "trash"
+   ]
+  },
+  {
+   "name": "action.download",
+   "meaning": "Download / install / update available",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/><path d='M12 7.5v8.5M8.5 12.75 12 16.25l3.5-3.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-action-download' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M12 7.5v8.5M8.5 12.75 12 16.25l3.5-3.5'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-action-download)'><circle cx='12' cy='12' r='8.5'/></g></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "arrow.down.circle"
+   ]
+  },
+  {
+   "name": "action.edit",
+   "meaning": "Edit / rename",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 19.5l.9-4.15L15.5 5.25a2 2 0 0 1 2.85 0l.4.4a2 2 0 0 1 0 2.85L8.65 18.6Z'/><path d='M13.5 19.5h6'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 19.5l.9-4.15L15.5 5.25a2 2 0 0 1 2.85 0l.4.4a2 2 0 0 1 0 2.85L8.65 18.6Z' fill='currentColor'/><path d='M13.5 19.5h6'/></svg>",
+   "alts": [],
+   "note": "Pencil with a baseline (rename), no ferrule line so it holds at 12 px.",
+   "replaces": [
+    "pencil.line"
+   ]
+  },
+  {
+   "name": "action.go",
+   "meaning": "Go to the linked setting",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 12h15M13.5 6l6 6-6 6'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 12h15M13.5 6l6 6-6 6'/></svg>",
+   "alts": [],
+   "note": "Same arrow as nav.forward (collapsed).",
+   "replaces": [
+    "arrow.forward"
+   ]
+  },
+  {
+   "name": "action.hide",
+   "meaning": "Hide / third-party cookies blocked",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-action-hide' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><path d='M2.94 5.06l16 16' fill='none' stroke-width='1.75'/></g></mask></defs><g mask='url(#cmxl-action-hide)'><path d='M2.75 12C5 7.75 8.25 5.75 12 5.75S19 7.75 21.25 12C19 16.25 15.75 18.25 12 18.25S5 16.25 2.75 12Z'/><circle cx='12' cy='12' r='2.75'/></g><path d='M4 4l16 16'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-action-hide' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='3.4'/><path d='M2.94 5.06l16 16' fill='none' stroke-width='1.75'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-action-hide)'><path d='M2.75 12C5 7.75 8.25 5.75 12 5.75S19 7.75 21.25 12C19 16.25 15.75 18.25 12 18.25S5 16.25 2.75 12Z'/></g><path d='M4 4l16 16' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>",
+   "alts": [],
+   "note": "Eye with the shared slash (1.5 knockout gap on the lower-left side), same slash as permission .blocked.",
+   "replaces": [
+    "eye.slash"
+   ]
+  },
+  {
+   "name": "action.more",
+   "meaning": "More options (menu)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='none'><circle cx='5.5' cy='12' r='1.6'/><circle cx='12' cy='12' r='1.6'/><circle cx='18.5' cy='12' r='1.6'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='none'><circle cx='5.5' cy='12' r='2'/><circle cx='12' cy='12' r='2'/><circle cx='18.5' cy='12' r='2'/></svg>",
+   "alts": [],
+   "note": "Bare ellipsis everywhere (drops ellipsis.circle). Solid = slightly larger dots.",
+   "replaces": [
+    "ellipsis",
+    "ellipsis.circle",
+    "More (svg)",
+    "MoreIcon (sidebarIcons)"
+   ]
+  },
+  {
+   "name": "action.pause",
+   "meaning": "Pause",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='6.288' y='5.25' width='3.635' height='13.5' rx='1.038'/><rect x='14.077' y='5.25' width='3.635' height='13.5' rx='1.038'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linejoin='round'><rect x='6.288' y='5.25' width='3.635' height='13.5' rx='1.038'/><rect x='14.077' y='5.25' width='3.635' height='13.5' rx='1.038'/></svg>",
+   "alts": [],
+   "note": "Media family (pause/resume/stop) drops the circle so it never reads as a status disc.",
+   "replaces": [
+    "pause.circle",
+    "pause.fill"
+   ]
+  },
+  {
+   "name": "action.pin",
+   "meaning": "Pin / keep / sticky",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M9 3.5h6a1.25 1.25 0 0 1 0 2.5h-.5v4l3 2.5V15h-11v-2.5l3-2.5V6H9a1.25 1.25 0 0 1 0-2.5Z'/><path d='M12 15v5.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M9 3.5h6a1.25 1.25 0 0 1 0 2.5h-.5v4l3 2.5V15h-11v-2.5l3-2.5V6H9a1.25 1.25 0 0 1 0-2.5Z' fill='currentColor'/><path d='M12 15v5.5'/></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "pin"
+   ]
+  },
+  {
+   "name": "action.reload",
+   "meaning": "Reload / refresh / reconnect",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M18.5 9.25A7.5 7.5 0 1 1 12 5.5'/><path d='M9.7 3.2L12 5.5L9.7 7.8'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M18.5 9.25A7.5 7.5 0 1 1 12 5.5'/><path d='M9.7 3.2L12 5.5L9.7 7.8'/></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "arrow.clockwise"
+   ]
+  },
+  {
+   "name": "action.remove",
+   "meaning": "Remove / declined / forget",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/><path d='M8 12h8'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-action-remove' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M8 12h8'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-action-remove)'><circle cx='12' cy='12' r='8.5'/></g></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "minus.circle"
+   ]
+  },
+  {
+   "name": "action.reset",
+   "meaning": "Reset to defaults",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 9.25A7.5 7.5 0 1 0 12 5.5'/><path d='M14.3 7.8L12 5.5L14.3 3.2'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5.5 9.25A7.5 7.5 0 1 0 12 5.5'/><path d='M14.3 7.8L12 5.5L14.3 3.2'/></svg>",
+   "alts": [],
+   "note": "Mirror of reload. Distinct from action.undo (u-turn) and history.recent (clock hands).",
+   "replaces": [
+    "arrow.counterclockwise"
+   ]
+  },
+  {
+   "name": "action.restart",
+   "meaning": "Restart / hard reload / ready to relaunch",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/><path d='M15.68 10.12A4.25 4.25 0 1 1 12 8'/><path d='M10.23 6.23L12 8L10.23 9.77'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-action-restart' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'><path d='M15.68 10.12A4.25 4.25 0 1 1 12 8'/><path d='M10.23 6.23L12 8L10.23 9.77'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-action-restart)'><circle cx='12' cy='12' r='8.5'/></g></svg>",
+   "alts": [
+    {
+     "label": "reload arrow around a play triangle (relaunch)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M18.5 9.25A7.5 7.5 0 1 1 12 5.5'/><path d='M9.7 3.2L12 5.5L9.7 7.8'/><path d='M10.5 10.25v4.5l3.75 -2.25Z'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M18.5 9.25A7.5 7.5 0 1 1 12 5.5'/><path d='M9.7 3.2L12 5.5L9.7 7.8'/><path d='M10.5 10.25v4.5l3.75 -2.25Z' fill='currentColor'/></svg>"
+    },
+    {
+     "label": "power mark",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5V11'/><path d='M16.98 6.56A7.75 7.75 0 1 1 7.02 6.56'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5V11'/><path d='M16.98 6.56A7.75 7.75 0 1 1 7.02 6.56'/></svg>"
+    }
+   ],
+   "note": "Preferred: circled arrow (keeps 'reload, but heavier' and matches the source). Play alt reads better for relaunch-only rows; power reads as quit/off.",
+   "replaces": [
+    "arrow.clockwise.circle"
+   ]
+  },
+  {
+   "name": "action.resume",
+   "meaning": "Resume / start",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6.75 5.75v12.5a1 1 0 0 0 1.5 0.85l10 -6.25a1 1 0 0 0 0 -1.7l-10 -6.25A1 1 0 0 0 6.75 5.75Z'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6.75 5.75v12.5a1 1 0 0 0 1.5 0.85l10 -6.25a1 1 0 0 0 0 -1.7l-10 -6.25A1 1 0 0 0 6.75 5.75Z' fill='currentColor'/></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "play.circle",
+    "play.fill"
+   ]
+  },
+  {
+   "name": "action.review",
+   "meaning": "Review / about this page",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M11 21H6.5A2.5 2.5 0 0 1 4 18.5v-13A2.5 2.5 0 0 1 6.5 3h8A2.5 2.5 0 0 1 17 5.5V9'/><path d='M7.5 7.5h6M7.5 11h3'/><circle cx='15.5' cy='15.5' r='3.25'/><path d='M17.9 17.9 20.5 20.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-action-review' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M7.5 7.5h6M7.5 11h3'/><circle cx='15.5' cy='15.5' r='5.5' fill='#000' stroke='none'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-action-review)'><path d='M6.5 3h8A2.5 2.5 0 0 1 17 5.5V21H6.5A2.5 2.5 0 0 1 4 18.5v-13A2.5 2.5 0 0 1 6.5 3Z'/></g><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'><circle cx='15.5' cy='15.5' r='3.25'/><path d='M17.9 17.9 20.5 20.5'/></g></svg>",
+   "alts": [],
+   "note": "Page with the shared magnifier at bottom-right (badge position).",
+   "replaces": [
+    "doc.text.magnifyingglass"
+   ]
+  },
+  {
+   "name": "action.show",
+   "meaning": "Show / watch / focus mode",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M2.75 12C5 7.75 8.25 5.75 12 5.75S19 7.75 21.25 12C19 16.25 15.75 18.25 12 18.25S5 16.25 2.75 12Z'/><circle cx='12' cy='12' r='2.75'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-action-show' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='3.4'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-action-show)'><path d='M2.75 12C5 7.75 8.25 5.75 12 5.75S19 7.75 21.25 12C19 16.25 15.75 18.25 12 18.25S5 16.25 2.75 12Z'/></g></svg>",
+   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M2.75 12C5 7.75 8.25 5.75 12 5.75S19 7.75 21.25 12C19 16.25 15.75 18.25 12 18.25S5 16.25 2.75 12Z'/><ellipse class='accent' stroke='var(--accent)' cx='12' cy='12' rx='1.5' ry='3.75'/></svg>",
+   "alts": [],
+   "note": "Cat: the pupil becomes a vertical cat-eye slit.",
+   "replaces": [
+    "eye"
+   ]
+  },
+  {
+   "name": "action.snooze",
+   "meaning": "Snooze a feed item",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M20 14.25A8 8 0 1 1 10.25 4.5a6.5 6.5 0 0 0 9.75 9.75Z'/><path d='M15.5 3.5h3.5L15.5 8h3.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M20 14.25A8 8 0 1 1 10.25 4.5a6.5 6.5 0 0 0 9.75 9.75Z' fill='currentColor'/><path d='M15.5 3.5h3.5L15.5 8h3.5'/></svg>",
+   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M20 14.25A8 8 0 1 1 10.25 4.5a6.5 6.5 0 0 0 9.75 9.75Z'/><path class='accent' stroke='var(--accent)' d='M15.5 3.5h3.5L15.5 8h3.5'/></svg>",
+   "alts": [],
+   "note": "Cat: the sleeper z in accent.",
+   "replaces": [
+    "moon.zzz"
+   ]
+  },
+  {
+   "name": "action.stop",
+   "meaning": "Stop",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='5.25' y='5.25' width='13.5' height='13.5' rx='2.596'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linejoin='round'><rect x='5.25' y='5.25' width='13.5' height='13.5' rx='2.596'/></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "stop.circle",
+    "stop.fill",
+    "StopIcon (ComposerPickers)"
+   ]
+  },
+  {
+   "name": "action.sync",
+   "meaning": "Sync / reconnect / checking for updates",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.95 9.43A7.5 7.5 0 0 1 19.05 9.43'/><path d='M20.32 6.72L19.05 9.43L16.33 8.17'/><path d='M19.05 14.57A7.5 7.5 0 0 1 4.95 14.57'/><path d='M3.68 17.28L4.95 14.57L7.67 15.83'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4.95 9.43A7.5 7.5 0 0 1 19.05 9.43'/><path d='M20.32 6.72L19.05 9.43L16.33 8.17'/><path d='M19.05 14.57A7.5 7.5 0 0 1 4.95 14.57'/><path d='M3.68 17.28L4.95 14.57L7.67 15.83'/></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "arrow.triangle.2.circlepath"
+   ]
+  },
+  {
+   "name": "action.undo",
+   "meaning": "Undo / reopen closed / revert",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M9 13.75 4.5 9.25 9 4.75M4.5 9.25h10a5 5 0 0 1 0 10H12'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M9 13.75 4.5 9.25 9 4.75M4.5 9.25h10a5 5 0 0 1 0 10H12'/></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "arrow.uturn.backward"
+   ]
+  },
+  {
+   "name": "action.watching",
+   "meaning": "Watching (on)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M2.75 12C5 7.75 8.25 5.75 12 5.75S19 7.75 21.25 12C19 16.25 15.75 18.25 12 18.25S5 16.25 2.75 12Z'/><circle cx='12' cy='12' r='2.75' fill='currentColor'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-action-watching' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='3.4'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-action-watching)'><path d='M2.75 12C5 7.75 8.25 5.75 12 5.75S19 7.75 21.25 12C19 16.25 15.75 18.25 12 18.25S5 16.25 2.75 12Z'/></g></svg>",
+   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M2.75 12C5 7.75 8.25 5.75 12 5.75S19 7.75 21.25 12C19 16.25 15.75 18.25 12 18.25S5 16.25 2.75 12Z'/><ellipse class='accent' stroke='var(--accent)' fill='var(--accent)' cx='12' cy='12' rx='1.5' ry='3.75'/></svg>",
+   "alts": [],
+   "note": "On-state of action.show: Line has a filled pupil, Solid is identical to action.show Solid.",
+   "replaces": [
+    "eye.fill"
+   ]
+  },
+  {
+   "name": "column",
+   "meaning": "Column / new column",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><path d='M9.282 4.752v14.496M14.718 4.752v14.496'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-column' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M9.282 4.752v14.496M14.718 4.752v14.496'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-column)'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/></g></svg>",
+   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='5.658' width='16.308' height='13.59' rx='2.265'/><path d='M9.282 5.658v13.59M14.718 5.658v13.59'/><path class='accent' stroke='var(--accent)' d='M12.453 5.658V3.393l1.812 1.812M18.342 5.658V3.393l-1.812 1.812'/></svg>",
+   "alts": [],
+   "note": "Window split in three. Cat: ears on the right column, as the workspace reference.",
+   "replaces": [
+    "rectangle.split.3x1"
+   ]
+  },
+  {
+   "name": "control.popup",
+   "meaning": "Popup menu indicator / collapse-expand toggle",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8.062 9.188 12 5.25l3.938 3.938M8.062 14.812 12 18.75l3.938 -3.938'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M8.062 9.188 12 5.25l3.938 3.938M8.062 14.812 12 18.75l3.938 -3.938'/></svg>",
+   "alts": [],
+   "note": "Two half-size chevrons (3.5 deep) so the pair fits; same 90 degree angle. Where a single down chevron is used as a menu caret, use disclosure.expanded.",
+   "replaces": [
+    "chevron.up.chevron.down",
+    "ChevronDown (svg)",
+    "ChevronIcon (ComposerPickers)"
+   ]
+  },
+  {
+   "name": "disclosure.collapsed",
+   "meaning": "Collapsed disclosure / drill-in",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M9.5 4.75L16.5 12L9.5 19.25'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M9.5 4.75L16.5 12L9.5 19.25'/></svg>",
+   "alts": [],
+   "note": "The one chevron: 6 deep, 12 span, 90 degrees. Opened to about 92 degrees and widened to 7 so its width nears the expanded chevron's; sits 1 right of center so the gap to the label matches expanded rows.",
+   "replaces": [
+    "chevron.right",
+    "ChevronRight (svg)",
+    "ChevronIcon (HomeLists)",
+    "ChevronRightIcon (ComposerPickers)"
+   ]
+  },
+  {
+   "name": "disclosure.expanded",
+   "meaning": "Expanded disclosure / expand",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.25 8.625l6.75 6.75 6.75 -6.75'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5.25 8.625l6.75 6.75 6.75 -6.75'/></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "chevron.down",
+    "ChevronDown (svg)",
+    "ChevronDown (changeIcons)"
+   ]
+  },
+  {
+   "name": "field.clear",
+   "meaning": "Clear search field",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/><path d='M9.25 9.25l5.5 5.5M14.75 9.25l-5.5 5.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-field-clear' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M9.25 9.25l5.5 5.5M14.75 9.25l-5.5 5.5'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-field-clear)'><circle cx='12' cy='12' r='8.5'/></g></svg>",
+   "alts": [],
+   "note": "Circled x (Solid is the usual state inside fields). Smaller x than action.close.",
+   "replaces": [
+    "xmark.circle.fill"
+   ]
+  },
+  {
+   "name": "filter",
+   "meaning": "Filter",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4 7h16M7 12h10M10 17h4'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4 7h16M7 12h10M10 17h4'/></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "line.3.horizontal.decrease"
+   ]
+  },
+  {
+   "name": "group.collapsed.dot",
+   "meaning": "Collapsed tab group shown as a colored dot",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='none'><circle cx='12' cy='12' r='4.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='4.5' fill='currentColor' stroke='none'/><circle cx='12' cy='12' r='8'/></svg>",
+   "alts": [],
+   "note": "App tints it with the group color. Solid (selected/active) adds a ring.",
+   "replaces": [
+    "circle layer (drawn)"
+   ]
+  },
+  {
+   "name": "group.new",
+   "meaning": "New group / folder / load unpacked",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-group-new' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><circle cx='17.598' cy='17.615' r='4.432' stroke='none'/></g></mask></defs><g mask='url(#cmxl-group-new)'><path d='M3.603 6.885A2.333 2.333 0 0 1 5.935 4.553h3.172a1.4 1.4 0 0 1 1.12 0.56l1.306 1.773h6.531A2.333 2.333 0 0 1 20.397 9.218v7.931a2.333 2.333 0 0 1 -2.333 2.333h-12.129A2.333 2.333 0 0 1 3.603 17.148Z'/></g><path d='M17.598 15.282v4.665M15.265 17.615h4.665'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-group-new' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'></g><circle cx='17.598' cy='17.615' r='4.665' fill='#000'/></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-group-new)'><path d='M3.603 6.885A2.333 2.333 0 0 1 5.935 4.553h3.172a1.4 1.4 0 0 1 1.12 0.56l1.306 1.773h6.531A2.333 2.333 0 0 1 20.397 9.218v7.931a2.333 2.333 0 0 1 -2.333 2.333h-12.129A2.333 2.333 0 0 1 3.603 17.148Z'/></g><path d='M17.598 15.282v4.665M15.265 17.615h4.665' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>",
+   "alts": [
+    {
+     "label": "stacked frames + plus badge",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-group-new-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><circle cx='17.532' cy='17.571' r='4.38' stroke='none'/></g></mask></defs><g mask='url(#cmxl-group-new-alt1)'><rect x='3.702' y='8.351' width='13.83' height='11.525' rx='2.305'/><path d='M6.929 5.124h11.064a2.305 2.305 0 0 1 2.305 2.305v8.298'/></g><path d='M17.532 15.266v4.61M15.227 17.571h4.61'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-group-new-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'></g><circle cx='17.532' cy='17.571' r='4.61' fill='#000'/></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-group-new-alt1)'><rect x='3.702' y='8.351' width='13.83' height='11.525' rx='2.305'/></g><path d='M6.929 5.124h11.064a2.305 2.305 0 0 1 2.305 2.305v8.298' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round'/><path d='M17.532 15.266v4.61M15.227 17.571h4.61' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>"
+    },
+    {
+     "label": "dashed group outline + plus badge",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-group-new-alt2' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><circle cx='17.484' cy='17.506' r='4.341' stroke='none'/></g></mask></defs><g mask='url(#cmxl-group-new-alt2)'><rect x='3.774' y='4.71' width='16.452' height='14.624' rx='2.285' stroke-dasharray='2.742 2.742'/><path d='M7.43 9.28h5.484'/></g><path d='M17.484 15.22v4.57M15.199 17.506h4.57'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-group-new-alt2' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M7.43 9.28h5.484'/></g><circle cx='17.484' cy='17.506' r='4.57' fill='#000'/></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-group-new-alt2)'><rect x='3.774' y='4.71' width='16.452' height='14.624' rx='2.285'/></g><path d='M17.484 15.22v4.57M15.199 17.506h4.57' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>"
+    }
+   ],
+   "note": "Preferred: folder + badge. Every caller (bookmark folder, cloud directory, unpacked extension, new group) is a container; the stack alt suits 'New Screen' if screens keep their own noun.",
+   "replaces": [
+    "folder.badge.plus",
+    "rectangle.stack.badge.plus"
+   ]
+  },
+  {
+   "name": "history",
+   "meaning": "History",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/><path d='M12 7.5V12l3 2'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-history' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M12 7.5V12l3 2'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-history)'><circle cx='12' cy='12' r='8.5'/></g></svg>",
+   "alts": [],
+   "note": "Clock. No cat: ears on a clock read as an alarm clock.",
+   "replaces": [
+    "clock",
+    "clock.fill",
+    "ClockIcon (sidebarIcons)"
+   ]
+  },
+  {
+   "name": "history.recent",
+   "meaning": "Recently closed / history section",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.07 8A8 8 0 1 1 5.07 16'/><path d='M8.21 7.16L5.07 8L4.23 4.86'/><path d='M12 8v4l2.75 1.75'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5.07 8A8 8 0 1 1 5.07 16'/><path d='M8.21 7.16L5.07 8L4.23 4.86'/><path d='M12 8v4l2.75 1.75'/></svg>",
+   "alts": [],
+   "note": "Clock whose rim is a counterclockwise arrow. Solid stays open (stroke 2).",
+   "replaces": [
+    "clock.arrow.circlepath"
+   ]
+  },
+  {
+   "name": "home",
+   "meaning": "Home",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3 11.75 12 4.25l9 7.5'/><path d='M5 10.25V18.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-8.25'/><path d='M10 20v-5h4v5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-home' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M10 21v-6h4v6' fill='#000'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-home)'><path d='M5 10.25 12 4.4l7 5.85v8.25a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 18.5Z'/></g><path d='M3 11.75 12 4.25l9 7.5' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "house",
+    "HomeIcon (sidebarIcons)"
+   ]
+  },
+  {
+   "name": "icon.clear",
+   "meaning": "No icon / cleared / optional",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5' pathLength='40' stroke-dasharray='2 3' stroke-dashoffset='1'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5' pathLength='40' stroke-dasharray='2 3' stroke-dashoffset='1'/></svg>",
+   "alts": [],
+   "note": "8 dashes so gaps survive round caps at 12 px.",
+   "replaces": [
+    "circle.dashed"
+   ]
+  },
+  {
+   "name": "keyboard",
+   "meaning": "Keyboard / shortcuts / typing",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='2.5' y='6' width='19' height='12' rx='2.5'/><path d='M6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M8.5 14h7'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-keyboard' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M8.5 14h7'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-keyboard)'><rect x='2.5' y='6' width='19' height='12' rx='2.5'/></g></svg>",
+   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='2.5' y='6' width='19' height='12' rx='2.5'/><path d='M6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M8.5 14h7'/><path class='accent' stroke='var(--accent)' d='M12.5 6V3.5l2 2M19 6V3.5l-2 2'/></svg>",
+   "alts": [],
+   "note": "Cat: ears on the keyboard's top edge.",
+   "replaces": [
+    "keyboard"
+   ]
+  },
+  {
+   "name": "keyboard.hotkey",
+   "meaning": "Key press / hotkey",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M9 9h6v6H9ZM9 9H7a2 2 0 1 1 2-2ZM15 9V7a2 2 0 1 1 2 2ZM15 15h2a2 2 0 1 1-2 2ZM9 15v2a2 2 0 1 1-2-2Z'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M9 9h6v6H9ZM9 9H7a2 2 0 1 1 2-2ZM15 9V7a2 2 0 1 1 2 2ZM15 15h2a2 2 0 1 1-2 2ZM9 15v2a2 2 0 1 1-2-2Z'/></svg>",
+   "alts": [],
+   "note": "Drawn command loop mark, not a font glyph.",
+   "replaces": [
+    "command"
+   ]
+  },
+  {
+   "name": "link",
+   "meaning": "Link / pairing / attach network",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M10.5 13.5a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-1 1M13.5 10.5a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5l1-1'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M10.5 13.5a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-1 1M13.5 10.5a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5l1-1'/></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "link"
+   ]
+  },
+  {
+   "name": "link.external",
+   "meaning": "Opens system settings / external",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.25 18.75l13.5 -13.5M7.5 5.25h11.25V16.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5.25 18.75l13.5 -13.5M7.5 5.25h11.25V16.5'/></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "arrow.up.forward"
+   ]
+  },
+  {
+   "name": "link.open.newtab",
+   "meaning": "Open link in new tab / open externally",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M11.067 4.536H6.868A2.333 2.333 0 0 0 4.536 6.868v10.263A2.333 2.333 0 0 0 6.868 19.464h10.263a2.333 2.333 0 0 0 2.333 -2.333V12.933'/><path d='M12.466 11.533 19.464 4.536M14.332 4.536H19.464v5.131'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-link-open-newtab' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M9.667 14.332l4.665 -4.665M10.6 9.667h3.732v3.732'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-link-open-newtab)'><rect x='4.069' y='4.069' width='15.861' height='15.861' rx='2.333'/></g></svg>",
+   "alts": [],
+   "note": "Line: arrow leaving an open frame. Solid: filled frame with the arrow knocked inside (same footprint).",
+   "replaces": [
+    "arrow.up.forward.square",
+    "arrow.up.right.square"
+   ]
+  },
+  {
+   "name": "link.web",
+   "meaning": "Web link",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.424'/><ellipse cx='12' cy='12' rx='3.51' ry='8.424'/><path d='M3.576 12h16.848'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-link-web' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><ellipse cx='12' cy='12' rx='3.51' ry='8.892'/><path d='M2.64 12h18.72'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-link-web)'><circle cx='12' cy='12' r='9.126' stroke='none'/></g></svg>",
+   "alts": [],
+   "note": "Identical to the approved browser reference glyph (collapsed).",
+   "replaces": [
+    "Globe (svg)"
+   ]
+  },
+  {
+   "name": "list.bullet.item",
+   "meaning": "Bullet in a prompt summary",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='3.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='3.5' fill='currentColor'/></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "circle"
+   ]
+  },
+  {
+   "name": "nav.back",
+   "meaning": "Back",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M19.5 12h-15M10.5 6l-6 6 6 6'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M19.5 12h-15M10.5 6l-6 6 6 6'/></svg>",
+   "alts": [],
+   "note": "Arrows for history/move nav; chevrons stay for disclosure and stepping (nav.previous).",
+   "replaces": [
+    "arrow.left",
+    "chevron.backward",
+    "ChevronLeft (svg)"
+   ]
+  },
+  {
+   "name": "nav.forward",
+   "meaning": "Forward",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 12h15M13.5 6l6 6-6 6'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 12h15M13.5 6l6 6-6 6'/></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "arrow.right",
+    "chevron.forward"
+   ]
+  },
+  {
+   "name": "nav.previous",
+   "meaning": "Find previous / previous in group",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M15.375 5.25l-6.75 6.75 6.75 6.75'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M15.375 5.25l-6.75 6.75 6.75 6.75'/></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "chevron.left",
+    "chevron.up.circle"
+   ]
+  },
+  {
+   "name": "nav.previous.match",
+   "meaning": "Previous match / select previous",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.25 15.375l6.75 -6.75 6.75 6.75'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5.25 15.375l6.75 -6.75 6.75 6.75'/></svg>",
+   "alts": [],
+   "note": "Pairs with disclosure.expanded (down) as next match.",
+   "replaces": [
+    "chevron.up"
+   ]
+  },
+  {
+   "name": "overflow.more",
+   "meaning": "Overflow (more bookmarks) / next screen",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.25 5.25l6.75 6.75 -6.75 6.75M12 5.25l6.75 6.75 -6.75 6.75'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5.25 5.25l6.75 6.75 -6.75 6.75M12 5.25l6.75 6.75 -6.75 6.75'/></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "chevron.right.2"
+   ]
+  },
+  {
+   "name": "pane.split.down",
+   "meaning": "Split down / drop zone bottom",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><rect x='5.885' y='12.68' width='12.231' height='4.53' rx='0.906' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-pane-split-down' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='#000'><rect x='4.526' y='5.432' width='14.949' height='6.342' rx='1.586'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' mask='url(#cmxs-pane-split-down)'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/></g></svg>",
+   "alts": [],
+   "note": "Frame with the new pane's half filled (inset). Solid: that half merges with the frame, the other half is a window.",
+   "replaces": [
+    "rectangle.bottomhalf.inset.filled",
+    "rectangle.split.1x2",
+    "square.split.1x2"
+   ]
+  },
+  {
+   "name": "pane.split.left",
+   "meaning": "Split left / drop zone left",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><rect x='5.885' y='6.791' width='4.53' height='10.419' rx='0.906' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-pane-split-left' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='#000'><rect x='11.774' y='5.432' width='7.701' height='13.137' rx='1.586'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' mask='url(#cmxs-pane-split-left)'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/></g></svg>",
+   "alts": [],
+   "note": "Frame with the new pane's half filled (inset). Solid: that half merges with the frame, the other half is a window.",
+   "replaces": [
+    "rectangle.lefthalf.inset.filled"
+   ]
+  },
+  {
+   "name": "pane.split.right",
+   "meaning": "Split right / drop zone right",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><rect x='13.585' y='6.791' width='4.53' height='10.419' rx='0.906' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-pane-split-right' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='#000'><rect x='4.526' y='5.432' width='7.701' height='13.137' rx='1.586'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' mask='url(#cmxs-pane-split-right)'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/></g></svg>",
+   "alts": [],
+   "note": "Frame with the new pane's half filled (inset). Solid: that half merges with the frame, the other half is a window.",
+   "replaces": [
+    "rectangle.righthalf.inset.filled",
+    "rectangle.split.2x1",
+    "square.split.2x1"
+   ]
+  },
+  {
+   "name": "pane.split.up",
+   "meaning": "Split up / drop zone top",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><rect x='5.885' y='6.791' width='12.231' height='4.53' rx='0.906' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-pane-split-up' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='#000'><rect x='4.526' y='12.226' width='14.949' height='6.342' rx='1.586'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' mask='url(#cmxs-pane-split-up)'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/></g></svg>",
+   "alts": [],
+   "note": "Frame with the new pane's half filled (inset). Solid: that half merges with the frame, the other half is a window.",
+   "replaces": [
+    "rectangle.tophalf.inset.filled"
+   ]
+  },
+  {
+   "name": "search",
+   "meaning": "Search / find",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='10.5' cy='10.5' r='6'/><path d='M14.75 14.75 20 20'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='10.5' cy='10.5' r='6'/><path d='M14.75 14.75 20 20'/></svg>",
+   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='10.5' cy='10.5' r='6'/><path d='M14.75 14.75 20 20'/><path class='accent' stroke='var(--accent)' d='M6.75 6V3l1.75 1.5M14.25 6V3l-1.75 1.5'/></svg>",
+   "alts": [],
+   "note": "The one magnifier. Solid stays open (stroke 2): a filled lens reads as a pin. Cat: ears on the lens.",
+   "replaces": [
+    "magnifyingglass",
+    "Search (svg)",
+    "SearchIcon (ComposerPickers)",
+    "SearchIcon (ProjectChooser)",
+    "SearchIcon (sidebarIcons)"
+   ]
+  },
+  {
+   "name": "search.files",
+   "meaning": "+ menu: Search files",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='10.5' cy='10.5' r='6'/><path d='M14.75 14.75 20 20'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='10.5' cy='10.5' r='6'/><path d='M14.75 14.75 20 20'/></svg>",
+   "alts": [
+    {
+     "label": "folder + magnifier",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-search-files-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><circle cx='15.245' cy='15.263' r='5.099' stroke='none'/></g></mask></defs><g mask='url(#cmxl-search-files-alt1)'><path d='M3.657 6.92A2.317 2.317 0 0 1 5.974 4.602h3.152a1.391 1.391 0 0 1 1.112 0.556l1.298 1.761h6.489A2.317 2.317 0 0 1 20.343 9.237v7.88a2.317 2.317 0 0 1 -2.317 2.317h-12.051A2.317 2.317 0 0 1 3.657 17.117Z'/></g><circle cx='15.245' cy='15.263' r='3.013'/><path d='M17.469 17.488 19.88 19.898'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-search-files-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><circle cx='15.245' cy='15.263' r='5.099' fill='#000' stroke='none'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-search-files-alt1)'><path d='M3.657 6.92A2.317 2.317 0 0 1 5.974 4.602h3.152a1.391 1.391 0 0 1 1.112 0.556l1.298 1.761h6.489A2.317 2.317 0 0 1 20.343 9.237v7.88a2.317 2.317 0 0 1 -2.317 2.317h-12.051A2.317 2.317 0 0 1 3.657 17.117Z'/></g><g fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'><circle cx='15.245' cy='15.263' r='3.013'/><path d='M17.469 17.488 19.88 19.898'/></g></svg>"
+    }
+   ],
+   "note": "Collapsed to the one magnifier (the menu row label says 'files'). Folder alt only if the + menu needs to separate it from a plain search row; doc+magnifier is taken by action.review.",
+   "replaces": [
+    "SearchIcon (ComposerPickers)"
+   ]
+  },
+  {
+   "name": "tab.close",
+   "meaning": "Close tab (drawn X on hover)",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5.25 5.25l13.5 13.5M18.75 5.25 5.25 18.75'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5.25 5.25l13.5 13.5M18.75 5.25 5.25 18.75'/></svg>",
+   "alts": [],
+   "note": "Same geometry as action.close; replace the CAShapeLayer path with it.",
+   "replaces": [
+    "CAShapeLayer X (drawn)"
+   ]
+  },
+  {
+   "name": "tab.new",
+   "meaning": "New tab / new workspace",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='4.299' y='4.299' width='15.402' height='15.402' rx='2.265'/><path d='M12 8.829v6.342M8.829 12h6.342'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-tab-new' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M12 8.829v6.342M8.829 12h6.342'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-tab-new)'><rect x='4.299' y='4.299' width='15.402' height='15.402' rx='2.265'/></g></svg>",
+   "alts": [
+    {
+     "label": "window with tab + plus badge (SPEC badge pattern)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-tab-new-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><circle cx='17.466' cy='17.488' r='4.327' stroke='none'/></g></mask></defs><g mask='url(#cmxl-tab-new-alt1)'><rect x='3.801' y='4.734' width='16.398' height='14.576' rx='2.277'/><path d='M3.801 8.834h16.398M9.267 4.734v4.099'/></g><path d='M17.466 15.211v4.555M15.188 17.488h4.555'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-tab-new-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M3.801 8.834h16.398M9.267 4.734v4.099'/></g><circle cx='17.466' cy='17.488' r='4.555' fill='#000'/></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-tab-new-alt1)'><rect x='3.801' y='4.734' width='16.398' height='14.576' rx='2.277'/></g><path d='M17.466 15.211v4.555M15.188 17.488h4.555' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>"
+    }
+   ],
+   "note": "Preferred: plus in a rounded square (palette rows, matches source). The tab strip itself should draw plain action.add.",
+   "replaces": [
+    "CAShapeLayer plus (drawn)",
+    "plus.square"
+   ]
+  },
+  {
+   "name": "tabgroup.save",
+   "meaning": "Bookmarks section / save tab group",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6 20.5v-15A2 2 0 0 1 8 3.5h8a2 2 0 0 1 2 2v15l-6-4.5Z'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6 20.5v-15A2 2 0 0 1 8 3.5h8a2 2 0 0 1 2 2v15l-6-4.5Z' fill='currentColor'/></svg>",
+   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6 20.5v-14A2 2 0 0 1 8 4.5h8a2 2 0 0 1 2 2v14l-6-4.5Z'/><path class='accent' stroke='var(--accent)' d='M7.5 4.5V2l1.75 1.75M16.5 4.5V2l-1.75 1.75'/></svg>",
+   "alts": [
+    {
+     "label": "stacked frames with ribbon",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.648' y='8.324' width='13.92' height='11.6' rx='2.32'/><path d='M6.896 5.076h11.136a2.32 2.32 0 0 1 2.32 2.32v8.352'/><path d='M11.072 8.324v4.64l1.624 -1.16L14.32 12.964V8.324'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-tabgroup-save-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M11.072 8.324v4.64l1.624 -1.16L14.32 12.964V8.324' fill='#000'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-tabgroup-save-alt1)'><rect x='3.648' y='8.324' width='13.92' height='11.6' rx='2.32'/></g><path d='M6.896 5.076h11.136a2.32 2.32 0 0 1 2.32 2.32v8.352' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round'/></svg>"
+    },
+    {
+     "label": "tray with down arrow (store)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 13.5v4A2.5 2.5 0 0 0 6 20h12a2.5 2.5 0 0 0 2.5-2.5v-4M12 4v10M8 10l4 4 4-4'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 13.5v4A2.5 2.5 0 0 0 6 20h12a2.5 2.5 0 0 0 2.5-2.5v-4M12 4v10M8 10l4 4 4-4'/></svg>"
+    }
+   ],
+   "note": "Preferred: plain bookmark ribbon. It is both the Bookmarks section noun and 'save', and stays legible at 12 px; the stacked alt says 'group' but its ribbon is mush below 16 px.",
+   "replaces": [
+    "bookmark"
+   ]
+  },
+  {
+   "name": "text.description",
+   "meaning": "Logs / description",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4 6h16M4 10h11M4 14h16M4 18h9'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4 6h16M4 10h11M4 14h16M4 18h9'/></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "text.alignleft"
+   ]
+  },
+  {
+   "name": "text.wrap",
+   "meaning": "Word wrap",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4 5h16M4 11h12.5a3 3 0 0 1 0 6H13M15 15l-2 2 2 2M4 17h5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4 5h16M4 11h12.5a3 3 0 0 1 0 6H13M15 15l-2 2 2 2M4 17h5'/></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "text.word.spacing",
+    "Wrap (svg)",
+    "WrapLines (svg)"
+   ]
+  },
+  {
+   "name": "view.grid",
+   "meaning": "Grid / apps / templates",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='4.512' y='4.512' width='6.084' height='6.084' rx='1.404'/><rect x='13.404' y='4.512' width='6.084' height='6.084' rx='1.404'/><rect x='4.512' y='13.404' width='6.084' height='6.084' rx='1.404'/><rect x='13.404' y='13.404' width='6.084' height='6.084' rx='1.404'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linejoin='round'><rect x='4.512' y='4.512' width='6.084' height='6.084' rx='1.404'/><rect x='13.404' y='4.512' width='6.084' height='6.084' rx='1.404'/><rect x='4.512' y='13.404' width='6.084' height='6.084' rx='1.404'/><rect x='13.404' y='13.404' width='6.084' height='6.084' rx='1.404'/></svg>",
+   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='4.512' y='5.448' width='6.084' height='6.084' rx='1.404'/><rect x='13.404' y='5.448' width='6.084' height='6.084' rx='1.404'/><rect x='4.512' y='13.872' width='6.084' height='6.084' rx='1.404'/><rect x='13.404' y='13.872' width='6.084' height='6.084' rx='1.404'/><path class='accent' stroke='var(--accent)' d='M14.34 5.448V3.108l1.638 1.638M18.552 5.448V3.108l-1.638 1.638'/></svg>",
+   "alts": [
+    {
+     "label": "3x3 dots (apps)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='none'><circle cx='5.5' cy='5.5' r='1.75'/><circle cx='12' cy='5.5' r='1.75'/><circle cx='18.5' cy='5.5' r='1.75'/><circle cx='5.5' cy='12' r='1.75'/><circle cx='12' cy='12' r='1.75'/><circle cx='18.5' cy='12' r='1.75'/><circle cx='5.5' cy='18.5' r='1.75'/><circle cx='12' cy='18.5' r='1.75'/><circle cx='18.5' cy='18.5' r='1.75'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='none'><circle cx='5.5' cy='5.5' r='2.25'/><circle cx='12' cy='5.5' r='2.25'/><circle cx='18.5' cy='5.5' r='2.25'/><circle cx='5.5' cy='12' r='2.25'/><circle cx='12' cy='12' r='2.25'/><circle cx='18.5' cy='12' r='2.25'/><circle cx='5.5' cy='18.5' r='2.25'/><circle cx='12' cy='18.5' r='2.25'/><circle cx='18.5' cy='18.5' r='2.25'/></svg>"
+    }
+   ],
+   "note": "Smaller tiles (6.5, rx 1.5) than the spaces reference (7, rx 2) but still close; 3x3 dots alt if spaces and grid ever share a row.",
+   "replaces": [
+    "square.grid.2x2"
+   ]
+  },
+  {
+   "name": "view.list",
+   "meaning": "List / choices / all",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M9.5 6h10.5M9.5 12h10.5M9.5 18h10.5'/><g fill='currentColor' stroke='none'><circle cx='5' cy='6' r='1.5'/><circle cx='5' cy='12' r='1.5'/><circle cx='5' cy='18' r='1.5'/></g></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M9.5 6h10.5M9.5 12h10.5M9.5 18h10.5'/><g fill='currentColor' stroke='none'><circle cx='5' cy='6' r='1.9'/><circle cx='5' cy='12' r='1.9'/><circle cx='5' cy='18' r='1.9'/></g></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": [
+    "list.bullet"
+   ]
+  }
+ ]
+}

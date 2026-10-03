@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Lint: every Swift file under a test directory (cmuxCLITests/ by default) must
-# be wired into cmux.xcodeproj/project.pbxproj.
+# Lint: every Swift file under a directory must be a member of the named
+# target in cmux.xcodeproj/project.pbxproj.
 #
 # A test file added to the worktree but not registered as a PBXFileReference +
 # PBXSourcesBuildPhase entry in project.pbxproj is silently ignored by Xcode and
@@ -14,17 +14,21 @@
 # https://github.com/manaflow-ai/cmux/pull/4536 looked like a clean two-commit
 # red/green test fix but never actually ran on CI.
 #
-# The same check covers source directories: `--target cmux-cli --tests-dir CLI
-# --recursive` fails when a CLI/**/*.swift file is not compiled into the CLI
-# target. That is how main stopped compiling on 2026-09-25: a merge dropped
+# The same check covers source directories with `--recursive`. That is how
+# main stopped compiling on 2026-09-25: a merge dropped
 # AgentChatProseStreamWakeDriver.swift from the app target while code on main
 # still used its types.
 #
-# Usage:
-#   ./scripts/lint-pbxproj-test-wiring.sh [--repo-root <path>]
-#       [--target <name>] [--tests-dir <dir>] [--recursive]
-#       [--allowlist <file>]
+# The project currently has no target whose files are wired one by one (the
+# cmux-next target compiles only main.swift; its code lives in SwiftPM
+# packages), so no CI job runs this against the repository. The regression
+# tests exercise it on synthetic projects for the next such target.
 #
+# Usage:
+#   ./scripts/lint-pbxproj-test-wiring.sh --target <name> [--repo-root <path>]
+#       [--tests-dir <dir>] [--recursive] [--allowlist <file>]
+#
+#   --tests-dir   the directory to check (default: the target's name).
 #   --recursive   check *.swift in every subdirectory, not just the top level.
 #   --allowlist   file of repo-relative paths that are deliberately not target
 #                 members, one per line, `#` comments allowed. An entry whose
@@ -38,7 +42,7 @@
 set -euo pipefail
 
 REPO_ROOT=""
-TARGET_NAME="cmuxCLITests"
+TARGET_NAME=""
 TESTS_DIR_ARG=""
 RECURSIVE=false
 ALLOWLIST=""
@@ -77,6 +81,11 @@ done
 
 if [ -z "$REPO_ROOT" ]; then
   REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)"
+fi
+
+if [ -z "$TARGET_NAME" ]; then
+  echo "lint-pbxproj-test-wiring: --target is required" >&2
+  exit 2
 fi
 
 PBXPROJ="$REPO_ROOT/cmux.xcodeproj/project.pbxproj"

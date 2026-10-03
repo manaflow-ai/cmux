@@ -62,7 +62,7 @@ def doomed_jobs(*, queued=2, running=1, conclusion="failure", failed_age=30, nam
     jobs = mac_jobs(queued=queued, running=running, running_name="macos / swift-package-tests")
     jobs.append({
         "status": "completed", "labels": [MAC], "created_at": iso(60),
-        "name": name or "macos / CLI product tests",
+        "name": name or "macos / Shell regressions",
         "conclusion": conclusion,
         "completed_at": iso(failed_age) if completed_at else None,
     })
@@ -213,7 +213,7 @@ class CategoryTests(unittest.TestCase):
 
 
 class DoomedCategoryTests(unittest.TestCase):
-    """A `CLI product tests` failure decides ci-status by construction.
+    """A `Shell regressions` failure decides ci-status by construction.
 
     ci-status accepts only `success` or `skipped` from the `macos`
     reusable-workflow call, so one failed job it wants fails the required
@@ -230,7 +230,7 @@ class DoomedCategoryTests(unittest.TestCase):
     def test_failed_cli_product_tests_with_macos_jobs_still_held_is_doomed(self):
         verdict = self.classify()
         self.assertEqual(verdict[0], "doomed")
-        self.assertIn("CLI product tests", verdict[1])
+        self.assertIn("Shell regressions", verdict[1])
         self.assertIn("3 macOS job(s) still held", verdict[1])
         self.assertIn("PR #1 (feature)", verdict[1])
 

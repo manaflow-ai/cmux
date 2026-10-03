@@ -112,8 +112,14 @@ final class ControlSnapshotPublisher {
                     services.paneController(for: pane)?.selectedTab?.id
                 }
                 info.sessionID = session
+                info.machine = daemon.machineID
                 return info
             }
+        }
+        // With the local daemon down, the remote sessions' workspaces are the
+        // whole tree: resolve their public ids instead of passing them through.
+        if !topology.isLoaded, topology.daemonFailure != nil, machines.remoteDaemons.contains(where: { $0.store.isLoaded }) {
+            topology.isLoaded = true
         }
         topology.windows = windows.controllers.map { controller in
             let members = windows.registry.members(of: controller.state.id)

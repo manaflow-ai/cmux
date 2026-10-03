@@ -49,6 +49,20 @@ import Testing
         #expect(invocation == nil)
     }
 
+    /// `action.list` and `action.describe` say which actions focus by purpose.
+    @Test func describeReportsWhetherTheActionFocuses() async throws {
+        let registry = ActionRegistry.standard()
+        let router = ControlRouter(identity: testIdentity(), executor: RegistryControlBridge(registry: registry), settings: nil)
+        router.updateCatalog(RegistryControlBridge.catalog(from: registry))
+        let focus = try await router.handle(ControlRequest(id: "1", method: "action.describe", params: ["action": "app show-tab"])).get()
+        #expect(focus["action"]?["focuses"] == true)
+        let split = try await router.handle(ControlRequest(id: "2", method: "action.describe", params: ["action": "splitRight"])).get()
+        #expect(split["action"]?["focuses"] == false)
+        let list = try await router.handle(ControlRequest(id: "3", method: "action.list", params: [:])).get()
+        let focusing = list["actions"]?.arrayValue?.filter { $0["focuses"] == true }.compactMap { $0["id"]?.stringValue } ?? []
+        #expect(focusing.contains("tab.focus") && focusing.contains("focusLeft") && !focusing.contains("newTab"))
+    }
+
     /// Import Passwords from CSV is a person's: the socket refuses it even
     /// when the caller claims to be the user, and the handler never runs.
     @Test func thePasswordCSVImportIsRefusedOverTheSocket() async {
@@ -71,6 +85,33 @@ import Testing
         }
         #expect(!ran)
         #expect(registry.descriptor(for: "password.importCSV")?.isPersonOnly == true)
+    }
+
+    @Test func toolPermissionActionsRequireAPersonInTheApp() async {
+        let registry = ActionRegistry.standard()
+        registry.context = [.agentPaneFocused]
+        let ids: [ActionID] = ["allowOnce", "allowChat", "deny", "expand", "retry", "revoke", "refresh"]
+            .map { ActionID(rawValue: "agentPane.permission.\($0)") }
+        var ran: [ActionID] = []
+        for id in ids { registry.bind(id, invoke: { _ in ran.append(id) }) }
+        let bridge = RegistryControlBridge(registry: registry)
+        let router = ControlRouter(identity: testIdentity(), executor: bridge, settings: nil)
+        router.updateCatalog(RegistryControlBridge.catalog(from: registry))
+
+        for id in ids {
+            for origin: JSONValue in ["user", "cli", "mcp", "script", .null] {
+                let result = await router.handle(ControlRequest(method: "action.run", params: [
+                    "action": .string(id.rawValue), "origin": origin, "target": "pane:test",
+                ]))
+                #expect(result.failure?.code == "unavailable", "\(id) from \(origin)")
+                #expect(result.failure?.data?["reason"] == .string(ControlStrings.text(
+                    "control.error.personOnly", "Only a person in cmux can run this action"
+                )))
+            }
+        }
+        #expect(ran.isEmpty)
+        for id in ids { #expect(registry.perform(id)) }
+        #expect(ran == ids)
     }
 
     @Test func inAppRunsAreTheUsers() {

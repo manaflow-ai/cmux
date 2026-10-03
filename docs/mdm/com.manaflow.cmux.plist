@@ -65,6 +65,27 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>same-kind</string>
+			<key>pfm_description</key>
+			<string>What Cmd-T and the + button open. Auto picks the kind you last opened in that folder.</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabKind</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>same-kind</string>
+				<string>terminal</string>
+				<string>browser</string>
+				<string>agent</string>
+				<string>page</string>
+				<string>auto</string>
+			</array>
+			<key>pfm_title</key>
+			<string>New Tab Opens</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>ask</string>
 			<key>pfm_description</key>
 			<string>Terminals run in cmux-tui and keep running after cmux quits unless you end them.</string>

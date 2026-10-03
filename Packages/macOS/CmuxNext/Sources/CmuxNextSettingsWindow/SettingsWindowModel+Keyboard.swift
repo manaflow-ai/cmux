@@ -10,6 +10,7 @@ extension SettingsWindowModel {
     public func shortcutSections() -> [ShortcutSection] {
         let words = Self.words(query)
         let conflicted = Set(registry.shortcutConflicts().flatMap { $0 })
+        let refusedSystemWide = host?.systemWideRefusals ?? []
         var byCategory: [ActionCategory: [ShortcutRow]] = [:]
         for entry in registry.entries {
             let descriptor = entry.descriptor
@@ -26,7 +27,8 @@ extension SettingsWindowModel {
             byCategory[descriptor.category, default: []].append(ShortcutRow(
                 id: descriptor.id, title: descriptor.title, keycaps: keycaps,
                 isCustomized: registry.shortcutOverrides[descriptor.id] != nil || registry.chordOverrides[descriptor.id] != nil,
-                hasConflict: conflicted.contains(descriptor.id)))
+                hasConflict: conflicted.contains(descriptor.id),
+                isRefusedSystemWide: refusedSystemWide.contains(descriptor.id)))
         }
         return ActionCategory.allCases.compactMap { category in
             byCategory[category].map { ShortcutSection(category: category, rows: $0) }
@@ -75,4 +77,7 @@ public struct ShortcutRow: Identifiable, Hashable, Sendable {
     public let isCustomized: Bool
     /// Another action claims the same shortcut in the same context.
     public let hasConflict: Bool
+    /// A global action whose key another app (or another global action)
+    /// holds: it runs only while cmux is in front.
+    public let isRefusedSystemWide: Bool
 }

@@ -21,8 +21,8 @@ public nonisolated enum WindowMaterial: Hashable, Sendable {
     /// `macos-glass-clear` (-2).
     case glass(GlassStyle)
     /// The theme tint over the desktop, blurred by the window's own
-    /// `background-blur` radius (`ghostty_set_window_background_blur`, as
-    /// Ghostty.app does): a translucent window with a radius, or
+    /// `background-blur` radius (`NSWindow.setBackgroundBlurRadius`, the CGS blur
+    /// Ghostty.app uses): a translucent window with a radius, or
     /// `appearance.backgroundBlur = "frosted"`. No view: a window-sized
     /// behind-window `NSVisualEffectView` composites the desktop and its own
     /// material into an opaque sheet, so the window read as opaque.

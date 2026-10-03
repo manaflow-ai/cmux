@@ -19,6 +19,7 @@ final class AppsService {
     private let sink = DeferredAppSink()
     private var fingerprints: [String: Int] = [:]
     private var store: AppStoreWindowController?
+    private var storeModel: AppStoreModel?
     /// Runs previews of apps that are not installed (sample data, no grant).
     private lazy var previewHost = AppHost(sink: AppPreviewSink())
 
@@ -35,8 +36,11 @@ final class AppsService {
     }
 
     func start() {
-        // task-owner: one-shot registry scan at launch
-        Task { await registry.load() }
+        // task-owner: one-shot registry scan at launch; an open store lists the result.
+        Task { [weak self] in
+            await self?.registry.load()
+            self?.storeModel?.refresh()
+        }
     }
 
     /// Wires the sink to the control router (reads, action.run) and the daemon.
@@ -56,10 +60,15 @@ final class AppsService {
     /// Drawn in the theme of the window it was opened from.
     func showStore(appID: String? = nil, installed: Bool = false) {
         if store == nil {
-            let model = AppStoreModel(catalog: BundledAppStoreCatalog.scanned(), registry: registry, host: host, previewHost: previewHost)
+            // No disk I/O here: the catalog reads the registry's launch scan.
+            let model = AppStoreModel(catalog: RegistryAppStoreCatalog(registry: registry), registry: registry, host: host, previewHost: previewHost)
+            storeModel = model
             model.onRemoved = { [storage] id in await storage.clear(app: id) }
             let controller = AppStoreWindowController(model: model)
-            controller.onClose = { [weak self] in self?.store = nil }
+            controller.onClose = { [weak self] in
+                self?.store = nil
+                self?.storeModel = nil
+            }
             store = controller
         }
         store?.setThemeScope(services.windows.active?.themeScope ?? .app)

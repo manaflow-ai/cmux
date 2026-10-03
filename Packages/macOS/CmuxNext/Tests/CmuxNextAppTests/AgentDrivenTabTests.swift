@@ -61,11 +61,11 @@ import Testing
         services.popups.open(popup, request: BrowserPopupRequest(), over: popupParent(), openerKey: "tab")
         defer { services.popups.closeAll() }
 
-        let stale = AppCompatBrowser.markAgentDriven("tab", services: services)
+        let stale = AppBrowserPage.markAgentDriven("tab", services: services)
         #expect(stale)
         #expect(tab.isAgentDriven && popup.isAgentDriven)
         #expect(throws: ControlError.self) {
-            try AppCompatBrowser.rebuildStale(stale, tabID: "tab", for: .evaluate("1"), services: services)
+            try AppBrowserPage.rebuildStale(stale, tabID: "tab", for: .evaluate("1"), services: services)
         }
         #expect(services.cache.existingBrowser("tab") == nil)
         #expect(tab.isClosed)
@@ -74,19 +74,19 @@ import Testing
         let next = login()
         services.cache.install(next, for: "tab")
         #expect(next.isAgentDriven)
-        #expect(!AppCompatBrowser.markAgentDriven("tab", services: services), "only the first touch")
+        #expect(!AppBrowserPage.markAgentDriven("tab", services: services), "only the first touch")
     }
 
     /// Every operation but `state` (no page content) retries on the new page.
     @Test func onlyStateGoesOnAtTheFirstTouch() throws {
         let services = AppServices(environment: AppEnvironment.current([:]))
-        for operation in [CompatBrowserOperation.navigate("https://example.com"), .back, .forward, .reload, .evaluate("1")] {
+        for operation in [BrowserPageOperation.navigate("https://example.com"), .back, .forward, .reload, .evaluate("1")] {
             services.cache.install(login(), for: "tab")
-            #expect(throws: ControlError.self) { try AppCompatBrowser.rebuildStale(true, tabID: "tab", for: operation, services: services) }
+            #expect(throws: ControlError.self) { try AppBrowserPage.rebuildStale(true, tabID: "tab", for: operation, services: services) }
         }
         services.cache.install(login(), for: "tab")
-        try AppCompatBrowser.rebuildStale(true, tabID: "tab", for: .state, services: services)
-        try AppCompatBrowser.rebuildStale(false, tabID: "tab", for: .evaluate("1"), services: services)
+        try AppBrowserPage.rebuildStale(true, tabID: "tab", for: .state, services: services)
+        try AppBrowserPage.rebuildStale(false, tabID: "tab", for: .evaluate("1"), services: services)
     }
 
     /// Every live Chromium page rebuilds, a blank one too (a page's
@@ -95,12 +95,12 @@ import Testing
     @Test func everyLiveChromiumPageRebuilds() {
         let services = AppServices(environment: AppEnvironment.current([:]))
         services.cache.install(page(), for: "blank")
-        #expect(AppCompatBrowser.markAgentDriven("blank", services: services))
+        #expect(AppBrowserPage.markAgentDriven("blank", services: services))
         services.cache.install(login(.webkit), for: "webkit")
-        #expect(!AppCompatBrowser.markAgentDriven("webkit", services: services))
+        #expect(!AppBrowserPage.markAgentDriven("webkit", services: services))
         let deferred = DeferredBrowserTab(id: BrowserTabID(rawValue: "asleep"), engine: .cef, url: URL(string: "https://example.com"), title: nil)
         services.cache.install(deferred, for: "asleep")
-        #expect(!AppCompatBrowser.markAgentDriven("asleep", services: services))
+        #expect(!AppBrowserPage.markAgentDriven("asleep", services: services))
         #expect(services.cache.agentDrivenTabs.contains("asleep"), "its next page is marked")
     }
 

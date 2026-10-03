@@ -5,6 +5,7 @@ import {
   groupMark,
   GROUP_ROWS,
   groupByProject,
+  homePath,
   projectLabel,
   sessionEntry,
   sessionMark,
@@ -53,6 +54,11 @@ describe("project labels", () => {
   test("a home folder is ~", () => {
     expect(projectLabel("/Users/lee")).toBe("~");
     expect(projectLabel("/home/lee")).toBe("~");
+    expect(homePath("/Users/lee/code/app")).toBe("~/code/app");
+    expect(homePath("/home/lee")).toBe("~");
+    expect(homePath("/Users/lee/")).toBe("~/");
+    expect(homePath("/opt/Users/lee/app")).toBe("/opt/Users/lee/app");
+    expect(homePath("/Users")).toBe("/Users");
   });
   test("no folder", () => expect(projectLabel(undefined)).toBe("No folder"));
 });

@@ -5,7 +5,7 @@
 
 use std::collections::HashSet;
 
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
 use super::personal_store::{
@@ -18,50 +18,8 @@ use super::personal_store::{
 };
 use super::presentation_store::validate_workspace_group_id;
 use super::{WorkspaceRegistry, new_uuid_v4, unix_epoch_ms};
-
-/// Fields of `create-profile`.
-#[derive(Debug, Clone, Default)]
-pub struct ProfileInput {
-    pub id: Option<String>,
-    pub name: String,
-    pub color: Option<String>,
-    pub icon: Option<String>,
-    pub theme: Option<String>,
-    pub index: Option<usize>,
-    pub browser_profile_id: Option<String>,
-    pub default_session_id: Option<String>,
-    pub defaults: Option<Value>,
-    pub follows: Option<Vec<String>>,
-}
-
-/// Fields of `update-profile`: `None` unchanged, `Some(None)` clears.
-#[derive(Debug, Clone, Default)]
-pub struct ProfileUpdate {
-    pub name: Option<String>,
-    pub color: Option<Option<String>>,
-    pub icon: Option<Option<String>>,
-    pub theme: Option<Option<String>>,
-    pub browser_profile_id: Option<Option<String>>,
-    pub default_session_id: Option<Option<String>>,
-    pub defaults: Option<Option<Value>>,
-}
-
-/// Fields of `set-personal-workspace`: `None` unchanged, `Some(None)` clears.
-#[derive(Debug, Clone, Default)]
-pub struct PersonalWorkspaceUpdate {
-    pub index: Option<usize>,
-    pub group: Option<Option<String>>,
-    pub browser_profile_id: Option<Option<String>>,
-    pub theme: Option<Option<String>>,
-}
-
-/// Result of `delete-profile`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProfileDeletion {
-    pub moved_to: Option<String>,
-    /// Pins removed (the workspaces return to their followers).
-    pub unpinned: Vec<(String, String)>,
-}
+mod inputs;
+pub use inputs::{PersonalWorkspaceUpdate, ProfileDeletion, ProfileInput, ProfileUpdate};
 
 pub fn new_profile_id() -> String {
     format!("prof_{}", new_uuid_v4().replace('-', ""))
@@ -93,8 +51,8 @@ impl WorkspaceRegistry {
 
     /// Create a room at `index` (default last). The same id and name again
     /// is an idempotent retry that returns the stored room with `false`.
-    pub fn create_profile(
-        &mut self,
+    pub(crate) fn create_profile_in(
+        tx: &Transaction<'_>,
         input: ProfileInput,
     ) -> anyhow::Result<(PersonalProfile, bool)> {
         let id = input.id.clone().unwrap_or_else(new_profile_id);
@@ -116,8 +74,7 @@ impl WorkspaceRegistry {
         for session in input.follows.iter().flatten() {
             validate_session_id(session)?;
         }
-        let tx = self.connection.transaction()?;
-        if let Some(existing) = read_profile(&tx, &id)? {
+        if let Some(existing) = read_profile(tx, &id)? {
             anyhow::ensure!(
                 existing.name == input.name,
                 "room {id} already exists with a different name"
@@ -125,7 +82,7 @@ impl WorkspaceRegistry {
             return Ok((existing, false));
         }
         let mut order =
-            read_profiles(&tx)?.into_iter().map(|profile| profile.id).collect::<Vec<_>>();
+            read_profiles(tx)?.into_iter().map(|profile| profile.id).collect::<Vec<_>>();
         let index = input.index.unwrap_or(order.len()).min(order.len());
         tx.execute(
             "INSERT INTO profiles(profile_id, name, color, icon, theme, position, browser_profile_id,
@@ -150,21 +107,20 @@ impl WorkspaceRegistry {
             )?;
         }
         order.insert(index, id.clone());
-        write_order(&tx, "profiles", "profile_id", &order)?;
+        write_order(tx, "profiles", "profile_id", &order)?;
         let profile =
-            read_profile(&tx, &id)?.ok_or_else(|| anyhow::anyhow!("room {id} vanished"))?;
+            read_profile(tx, &id)?.ok_or_else(|| anyhow::anyhow!("room {id} vanished"))?;
         commit_personal(
-            &tx,
+            tx,
             "personal.profile.created",
             vec![subject("profile", &id)],
             &json!({"profile": profile}),
         )?;
-        tx.commit()?;
         Ok((profile, true))
     }
 
-    pub fn update_profile(
-        &mut self,
+    pub(crate) fn update_profile_in(
+        tx: &Transaction<'_>,
         id: &str,
         update: ProfileUpdate,
     ) -> anyhow::Result<(PersonalProfile, bool)> {
@@ -192,8 +148,7 @@ impl WorkspaceRegistry {
             Some(None) => Some(None),
             None => None,
         };
-        let tx = self.connection.transaction()?;
-        let before = read_profile(&tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown room {id}"))?;
+        let before = read_profile(tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown room {id}"))?;
         let mut sets: Vec<(&str, Option<String>)> = Vec::new();
         if let Some(name) = update.name {
             sets.push(("name", Some(name)));
@@ -222,29 +177,27 @@ impl WorkspaceRegistry {
                 params![id, value],
             )?;
         }
-        let after = read_profile(&tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown room {id}"))?;
+        let after = read_profile(tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown room {id}"))?;
         let changed = after != before;
         if changed {
             commit_personal(
-                &tx,
+                tx,
                 "personal.profile.updated",
                 vec![subject("profile", id)],
                 &json!({"profile": after}),
             )?;
         }
-        tx.commit()?;
         Ok((after, changed))
     }
 
-    pub fn move_profile(
-        &mut self,
+    pub(crate) fn move_profile_in(
+        tx: &Transaction<'_>,
         id: &str,
         index: usize,
     ) -> anyhow::Result<(PersonalProfile, bool)> {
         validate_profile_id(id)?;
-        let tx = self.connection.transaction()?;
         let mut order =
-            read_profiles(&tx)?.into_iter().map(|profile| profile.id).collect::<Vec<_>>();
+            read_profiles(tx)?.into_iter().map(|profile| profile.id).collect::<Vec<_>>();
         let old = order
             .iter()
             .position(|candidate| candidate == id)
@@ -254,34 +207,32 @@ impl WorkspaceRegistry {
         if changed {
             let moved = order.remove(old);
             order.insert(new, moved);
-            write_order(&tx, "profiles", "profile_id", &order)?;
+            write_order(tx, "profiles", "profile_id", &order)?;
             commit_personal(
-                &tx,
+                tx,
                 "personal.profile.moved",
                 vec![subject("profile", id)],
                 &json!({"profile_id": id, "index": new}),
             )?;
         }
-        let profile = read_profile(&tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown room {id}"))?;
-        tx.commit()?;
+        let profile = read_profile(tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown room {id}"))?;
         Ok((profile, changed))
     }
 
     /// Delete a room. Its pins and groups move to `move_to`, or the pins are
     /// removed and the groups deleted (members ungrouped). Follows go with
     /// the room. `default` is refused.
-    pub fn delete_profile(
-        &mut self,
+    pub(crate) fn delete_profile_in(
+        tx: &Transaction<'_>,
         id: &str,
         move_to: Option<&str>,
     ) -> anyhow::Result<ProfileDeletion> {
         validate_profile_id(id)?;
         anyhow::ensure!(id != DEFAULT_PROFILE_ID, "the default room cannot be deleted");
         anyhow::ensure!(move_to != Some(id), "a room cannot move to itself");
-        let tx = self.connection.transaction()?;
-        anyhow::ensure!(read_profile(&tx, id)?.is_some(), "unknown room {id}");
+        anyhow::ensure!(read_profile(tx, id)?.is_some(), "unknown room {id}");
         if let Some(target) = move_to {
-            anyhow::ensure!(read_profile(&tx, target)?.is_some(), "unknown room {target}");
+            anyhow::ensure!(read_profile(tx, target)?.is_some(), "unknown room {target}");
         }
         let pins = {
             let mut statement = tx.prepare(
@@ -317,22 +268,21 @@ impl WorkspaceRegistry {
         };
         tx.execute("DELETE FROM profile_follows WHERE profile_id = ?1", [id])?;
         tx.execute("DELETE FROM profiles WHERE profile_id = ?1", [id])?;
-        let order = read_profiles(&tx)?.into_iter().map(|profile| profile.id).collect::<Vec<_>>();
-        write_order(&tx, "profiles", "profile_id", &order)?;
-        let groups = read_groups(&tx)?.into_iter().map(|group| group.id).collect::<Vec<_>>();
-        write_order(&tx, "personal_groups", "group_id", &groups)?;
+        let order = read_profiles(tx)?.into_iter().map(|profile| profile.id).collect::<Vec<_>>();
+        write_order(tx, "profiles", "profile_id", &order)?;
+        let groups = read_groups(tx)?.into_iter().map(|group| group.id).collect::<Vec<_>>();
+        write_order(tx, "personal_groups", "group_id", &groups)?;
         commit_personal(
-            &tx,
+            tx,
             "personal.profile.deleted",
             vec![subject("profile", id)],
             &json!({"profile_id": id, "moved_to": move_to, "unpinned": unpinned}),
         )?;
-        tx.commit()?;
         Ok(ProfileDeletion { moved_to: move_to.map(str::to_string), unpinned })
     }
 
-    pub fn set_profile_follows(
-        &mut self,
+    pub(crate) fn set_profile_follows_in(
+        tx: &Transaction<'_>,
         id: &str,
         sessions: &[String],
     ) -> anyhow::Result<(PersonalProfile, bool)> {
@@ -340,8 +290,7 @@ impl WorkspaceRegistry {
         for session in sessions {
             validate_session_id(session)?;
         }
-        let tx = self.connection.transaction()?;
-        let before = read_profile(&tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown room {id}"))?;
+        let before = read_profile(tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown room {id}"))?;
         tx.execute("DELETE FROM profile_follows WHERE profile_id = ?1", [id])?;
         for session in sessions {
             tx.execute(
@@ -349,25 +298,24 @@ impl WorkspaceRegistry {
                 params![id, session],
             )?;
         }
-        let after = read_profile(&tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown room {id}"))?;
+        let after = read_profile(tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown room {id}"))?;
         let changed = after != before;
         if changed {
             commit_personal(
-                &tx,
+                tx,
                 "personal.profile.follows",
                 vec![subject("profile", id)],
                 &json!({"profile_id": id, "follows": after.follows}),
             )?;
         }
-        tx.commit()?;
         Ok((after, changed))
     }
 
     /// Pin a qualified workspace to a room (exclusive; replaces any pin).
     /// The key need not exist yet. A personal group in another room is
     /// cleared from the workspace.
-    pub fn pin_workspace(
-        &mut self,
+    pub(crate) fn pin_workspace_in(
+        tx: &Transaction<'_>,
         session: &str,
         key: &str,
         profile: &str,
@@ -375,8 +323,7 @@ impl WorkspaceRegistry {
         validate_session_id(session)?;
         validate_personal_workspace_key(key)?;
         validate_profile_id(profile)?;
-        let tx = self.connection.transaction()?;
-        anyhow::ensure!(read_profile(&tx, profile)?.is_some(), "unknown room {profile}");
+        anyhow::ensure!(read_profile(tx, profile)?.is_some(), "unknown room {profile}");
         let current = tx
             .query_row(
                 "SELECT profile_id FROM profile_pins WHERE session_id = ?1 AND workspace_key = ?2",
@@ -398,41 +345,42 @@ impl WorkspaceRegistry {
                 params![session, key, profile],
             )?;
             commit_personal(
-                &tx,
+                tx,
                 "personal.workspace.pinned",
                 vec![subject("workspace", &qualified(session, key)), subject("profile", profile)],
                 &json!({"session_id": session, "workspace_key": key, "profile": profile}),
             )?;
         }
-        tx.commit()?;
         Ok(changed)
     }
 
-    pub fn unpin_workspace(&mut self, session: &str, key: &str) -> anyhow::Result<bool> {
+    pub(crate) fn unpin_workspace_in(
+        tx: &Transaction<'_>,
+        session: &str,
+        key: &str,
+    ) -> anyhow::Result<bool> {
         validate_session_id(session)?;
         validate_personal_workspace_key(key)?;
-        let tx = self.connection.transaction()?;
         let changed = tx.execute(
             "DELETE FROM profile_pins WHERE session_id = ?1 AND workspace_key = ?2",
             params![session, key],
         )? > 0;
         if changed {
             commit_personal(
-                &tx,
+                tx,
                 "personal.workspace.unpinned",
                 vec![subject("workspace", &qualified(session, key))],
                 &json!({"session_id": session, "workspace_key": key}),
             )?;
         }
-        tx.commit()?;
         Ok(changed)
     }
 
     /// Record or refresh a session in the registry. A new session is
     /// followed by `default` and by `follow_with` when given.
     #[allow(clippy::too_many_arguments)]
-    pub fn put_session(
-        &mut self,
+    pub(crate) fn put_session_in(
+        tx: &Transaction<'_>,
         session: &str,
         machine_name: Option<&str>,
         session_name: Option<&str>,
@@ -453,10 +401,9 @@ impl WorkspaceRegistry {
         if let Some(room) = follow_with {
             validate_profile_id(room)?;
         }
-        let tx = self.connection.transaction()?;
-        let created = read_session(&tx, session)?.is_none();
+        let created = read_session(tx, session)?.is_none();
         if let Some(room) = follow_with {
-            anyhow::ensure!(read_profile(&tx, room)?.is_some(), "unknown room {room}");
+            anyhow::ensure!(read_profile(tx, room)?.is_some(), "unknown room {room}");
         }
         let now = i64::try_from(unix_epoch_ms()?)?;
         tx.execute(
@@ -478,15 +425,14 @@ impl WorkspaceRegistry {
                 )?;
             }
         }
-        let record = read_session(&tx, session)?
+        let record = read_session(tx, session)?
             .ok_or_else(|| anyhow::anyhow!("session {session} vanished"))?;
         commit_personal(
-            &tx,
+            tx,
             "personal.session.put",
             vec![subject("session", session)],
             &json!({"session": record, "created": created}),
         )?;
-        tx.commit()?;
         Ok((record, created))
     }
 
@@ -494,9 +440,12 @@ impl WorkspaceRegistry {
     /// terminal rows.
     /// Refused while a room pins one of its workspaces unless `force`, which
     /// also removes those pins.
-    pub fn forget_session(&mut self, session: &str, force: bool) -> anyhow::Result<bool> {
+    pub(crate) fn forget_session_in(
+        tx: &Transaction<'_>,
+        session: &str,
+        force: bool,
+    ) -> anyhow::Result<bool> {
         validate_session_id(session)?;
-        let tx = self.connection.transaction()?;
         let pins: i64 = tx.query_row(
             "SELECT COUNT(*) FROM profile_pins WHERE session_id = ?1",
             [session],
@@ -519,20 +468,19 @@ impl WorkspaceRegistry {
         let changed = removed > 0;
         if changed {
             commit_personal(
-                &tx,
+                tx,
                 "personal.session.forgotten",
                 vec![subject("session", session)],
                 &json!({"session_id": session, "force": force}),
             )?;
         }
-        tx.commit()?;
         Ok(changed)
     }
 
     /// The app's one-time copy of a remote daemon's shared groups and order.
     /// A no-op returning false once the session is marked migrated.
-    pub fn import_session_organization(
-        &mut self,
+    pub(crate) fn import_session_organization_in(
+        tx: &Transaction<'_>,
         session: &str,
         groups: &[(String, String, Option<String>, bool)],
         workspaces: &[(String, Option<String>)],
@@ -546,14 +494,12 @@ impl WorkspaceRegistry {
         for (key, _) in workspaces {
             validate_personal_workspace_key(key)?;
         }
-        let tx = self.connection.transaction()?;
-        let record = read_session(&tx, session)?
+        let record = read_session(tx, session)?
             .ok_or_else(|| anyhow::anyhow!("unknown session {session}"))?;
         if record.migrated {
-            tx.commit()?;
             return Ok(false);
         }
-        let mut taken = read_groups(&tx)?.into_iter().map(|group| group.id).collect::<HashSet<_>>();
+        let mut taken = read_groups(tx)?.into_iter().map(|group| group.id).collect::<HashSet<_>>();
         let first_position = i64::try_from(taken.len())?;
         let mut mapped = std::collections::HashMap::new();
         for (position, (id, name, color, collapsed)) in (first_position..).zip(groups.iter()) {
@@ -575,7 +521,7 @@ impl WorkspaceRegistry {
             )?;
             mapped.insert(id.clone(), local);
         }
-        let mut next = next_workspace_position(&tx)?;
+        let mut next = next_workspace_position(tx)?;
         for (key, group) in workspaces {
             let group = group.as_ref().and_then(|group| mapped.get(group));
             next += tx.execute(
@@ -586,19 +532,18 @@ impl WorkspaceRegistry {
         }
         tx.execute("UPDATE sessions SET migrated = 1 WHERE session_id = ?1", [session])?;
         commit_personal(
-            &tx,
+            tx,
             "personal.session.imported",
             vec![subject("session", session)],
             &json!({"session_id": session, "groups": mapped.len(), "workspaces": workspaces.len()}),
         )?;
-        tx.commit()?;
         Ok(true)
     }
 
     /// Create a personal group in a room (default `default`) at `index`
     /// among all personal groups. The same id and name is a no-op retry.
-    pub fn create_personal_group(
-        &mut self,
+    pub(crate) fn create_personal_group_in(
+        tx: &Transaction<'_>,
         id: Option<String>,
         profile: Option<&str>,
         name: &str,
@@ -612,16 +557,15 @@ impl WorkspaceRegistry {
         validate_appearance(color, None)?;
         let profile = profile.unwrap_or(DEFAULT_PROFILE_ID);
         validate_profile_id(profile)?;
-        let tx = self.connection.transaction()?;
-        if let Some(existing) = read_group(&tx, &id)? {
+        if let Some(existing) = read_group(tx, &id)? {
             anyhow::ensure!(
                 existing.name == name,
                 "group {id} already exists with a different name"
             );
             return Ok((existing, false));
         }
-        anyhow::ensure!(read_profile(&tx, profile)?.is_some(), "unknown room {profile}");
-        let mut order = read_groups(&tx)?.into_iter().map(|group| group.id).collect::<Vec<_>>();
+        anyhow::ensure!(read_profile(tx, profile)?.is_some(), "unknown room {profile}");
+        let mut order = read_groups(tx)?.into_iter().map(|group| group.id).collect::<Vec<_>>();
         let index = index.unwrap_or(order.len()).min(order.len());
         tx.execute(
             "INSERT INTO personal_groups(group_id, profile_id, name, color, collapsed, position)
@@ -629,22 +573,21 @@ impl WorkspaceRegistry {
             params![id, profile, name, color, i64::from(collapsed), i64::try_from(order.len())?],
         )?;
         order.insert(index, id.clone());
-        write_order(&tx, "personal_groups", "group_id", &order)?;
-        let group = read_group(&tx, &id)?.ok_or_else(|| anyhow::anyhow!("group {id} vanished"))?;
+        write_order(tx, "personal_groups", "group_id", &order)?;
+        let group = read_group(tx, &id)?.ok_or_else(|| anyhow::anyhow!("group {id} vanished"))?;
         commit_personal(
-            &tx,
+            tx,
             "personal.group.created",
             vec![subject("personal_group", &id)],
             &json!({"group": group}),
         )?;
-        tx.commit()?;
         Ok((group, true))
     }
 
     /// Rename, recolor, collapse, or move a group to another room. Moving it
     /// pins every member workspace to that room in the same transaction.
-    pub fn update_personal_group(
-        &mut self,
+    pub(crate) fn update_personal_group_in(
+        tx: &Transaction<'_>,
         id: &str,
         name: Option<&str>,
         color: Option<Option<&str>>,
@@ -659,9 +602,8 @@ impl WorkspaceRegistry {
         if let Some(profile) = profile {
             validate_profile_id(profile)?;
         }
-        let tx = self.connection.transaction()?;
         let before =
-            read_group(&tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown personal group {id}"))?;
+            read_group(tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown personal group {id}"))?;
         if let Some(name) = name {
             tx.execute(
                 "UPDATE personal_groups SET name = ?2 WHERE group_id = ?1",
@@ -682,7 +624,7 @@ impl WorkspaceRegistry {
         }
         let mut pinned = 0;
         if let Some(profile) = profile.filter(|profile| *profile != before.profile) {
-            anyhow::ensure!(read_profile(&tx, profile)?.is_some(), "unknown room {profile}");
+            anyhow::ensure!(read_profile(tx, profile)?.is_some(), "unknown room {profile}");
             tx.execute(
                 "UPDATE personal_groups SET profile_id = ?2 WHERE group_id = ?1",
                 params![id, profile],
@@ -695,25 +637,26 @@ impl WorkspaceRegistry {
             )?;
         }
         let after =
-            read_group(&tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown personal group {id}"))?;
+            read_group(tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown personal group {id}"))?;
         let changed = after != before || pinned > 0;
         if changed {
             commit_personal(
-                &tx,
+                tx,
                 "personal.group.updated",
                 vec![subject("personal_group", id)],
                 &json!({"group": after, "pinned_members": pinned}),
             )?;
         }
-        tx.commit()?;
         Ok((after, changed))
     }
 
     /// Delete a group; its workspaces become ungrouped. Returns them.
-    pub fn delete_personal_group(&mut self, id: &str) -> anyhow::Result<Vec<(String, String)>> {
+    pub(crate) fn delete_personal_group_in(
+        tx: &Transaction<'_>,
+        id: &str,
+    ) -> anyhow::Result<Vec<(String, String)>> {
         validate_workspace_group_id(id)?;
-        let tx = self.connection.transaction()?;
-        anyhow::ensure!(read_group(&tx, id)?.is_some(), "unknown personal group {id}");
+        anyhow::ensure!(read_group(tx, id)?.is_some(), "unknown personal group {id}");
         let members = {
             let mut statement = tx.prepare(
                 "SELECT session_id, workspace_key FROM personal_workspaces WHERE group_id = ?1
@@ -725,26 +668,24 @@ impl WorkspaceRegistry {
         };
         tx.execute("UPDATE personal_workspaces SET group_id = NULL WHERE group_id = ?1", [id])?;
         tx.execute("DELETE FROM personal_groups WHERE group_id = ?1", [id])?;
-        let order = read_groups(&tx)?.into_iter().map(|group| group.id).collect::<Vec<_>>();
-        write_order(&tx, "personal_groups", "group_id", &order)?;
+        let order = read_groups(tx)?.into_iter().map(|group| group.id).collect::<Vec<_>>();
+        write_order(tx, "personal_groups", "group_id", &order)?;
         commit_personal(
-            &tx,
+            tx,
             "personal.group.deleted",
             vec![subject("personal_group", id)],
             &json!({"group_id": id, "ungrouped": members}),
         )?;
-        tx.commit()?;
         Ok(members)
     }
 
-    pub fn move_personal_group(
-        &mut self,
+    pub(crate) fn move_personal_group_in(
+        tx: &Transaction<'_>,
         id: &str,
         index: usize,
     ) -> anyhow::Result<(PersonalGroup, bool)> {
         validate_workspace_group_id(id)?;
-        let tx = self.connection.transaction()?;
-        let mut order = read_groups(&tx)?.into_iter().map(|group| group.id).collect::<Vec<_>>();
+        let mut order = read_groups(tx)?.into_iter().map(|group| group.id).collect::<Vec<_>>();
         let old = order
             .iter()
             .position(|candidate| candidate == id)
@@ -754,17 +695,16 @@ impl WorkspaceRegistry {
         if changed {
             let moved = order.remove(old);
             order.insert(new, moved);
-            write_order(&tx, "personal_groups", "group_id", &order)?;
+            write_order(tx, "personal_groups", "group_id", &order)?;
             commit_personal(
-                &tx,
+                tx,
                 "personal.group.moved",
                 vec![subject("personal_group", id)],
                 &json!({"group_id": id, "index": new}),
             )?;
         }
         let group =
-            read_group(&tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown personal group {id}"))?;
-        tx.commit()?;
+            read_group(tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown personal group {id}"))?;
         Ok((group, changed))
     }
 
@@ -772,8 +712,8 @@ impl WorkspaceRegistry {
     /// is its final position in the personal order (absent on create:
     /// last). The daemon does not check that a group belongs to the room
     /// showing the workspace; the app evaluates membership.
-    pub fn set_personal_workspace(
-        &mut self,
+    pub(crate) fn set_personal_workspace_in(
+        tx: &Transaction<'_>,
         session: &str,
         key: &str,
         update: PersonalWorkspaceUpdate,
@@ -789,18 +729,17 @@ impl WorkspaceRegistry {
             validate_browser_profile_ref,
         )?;
         optional_text("theme", update.theme.as_ref().and_then(Option::as_deref), validate_theme)?;
-        let tx = self.connection.transaction()?;
         if let Some(Some(group)) = &update.group {
-            anyhow::ensure!(read_group(&tx, group)?.is_some(), "unknown personal group {group}");
+            anyhow::ensure!(read_group(tx, group)?.is_some(), "unknown personal group {group}");
         }
         let find = |rows: &[PersonalWorkspace]| {
             rows.iter().find(|row| row.session_id == session && row.workspace_key == key).cloned()
         };
-        let before = find(&read_workspaces(&tx)?);
+        let before = find(&read_workspaces(tx)?);
         if before.is_none() {
             tx.execute(
                 "INSERT INTO personal_workspaces(session_id, workspace_key, position) VALUES(?1, ?2, ?3)",
-                params![session, key, next_workspace_position(&tx)?],
+                params![session, key, next_workspace_position(tx)?],
             )?;
         }
         if let Some(group) = &update.group {
@@ -822,7 +761,7 @@ impl WorkspaceRegistry {
             )?;
         }
         if let Some(index) = update.index {
-            let rows = read_workspaces(&tx)?;
+            let rows = read_workspaces(tx)?;
             let mut order = rows
                 .iter()
                 .map(|row| (row.session_id.clone(), row.workspace_key.clone()))
@@ -838,18 +777,195 @@ impl WorkspaceRegistry {
                 )?;
             }
         }
-        let after = find(&read_workspaces(&tx)?)
+        crate::state::home_store::require_home_first(tx)?;
+        let after = find(&read_workspaces(tx)?)
             .ok_or_else(|| anyhow::anyhow!("personal workspace vanished"))?;
         let changed = before.as_ref() != Some(&after);
         if changed {
             commit_personal(
-                &tx,
+                tx,
                 "personal.workspace.updated",
                 vec![subject("workspace", &qualified(session, key))],
                 &json!({"workspace": after}),
             )?;
         }
-        tx.commit()?;
         Ok((after, changed))
+    }
+
+    // Transaction-owning entry points of the raw `profiles-v1` commands.
+
+    pub fn create_profile(
+        &mut self,
+        input: ProfileInput,
+    ) -> anyhow::Result<(PersonalProfile, bool)> {
+        let tx = self.connection.transaction()?;
+        let output = Self::create_profile_in(&tx, input)?;
+        tx.commit()?;
+        Ok(output)
+    }
+
+    pub fn update_profile(
+        &mut self,
+        id: &str,
+        update: ProfileUpdate,
+    ) -> anyhow::Result<(PersonalProfile, bool)> {
+        let tx = self.connection.transaction()?;
+        let output = Self::update_profile_in(&tx, id, update)?;
+        tx.commit()?;
+        Ok(output)
+    }
+
+    pub fn move_profile(
+        &mut self,
+        id: &str,
+        index: usize,
+    ) -> anyhow::Result<(PersonalProfile, bool)> {
+        let tx = self.connection.transaction()?;
+        let output = Self::move_profile_in(&tx, id, index)?;
+        tx.commit()?;
+        Ok(output)
+    }
+
+    pub fn delete_profile(
+        &mut self,
+        id: &str,
+        move_to: Option<&str>,
+    ) -> anyhow::Result<ProfileDeletion> {
+        let tx = self.connection.transaction()?;
+        let output = Self::delete_profile_in(&tx, id, move_to)?;
+        tx.commit()?;
+        Ok(output)
+    }
+
+    pub fn set_profile_follows(
+        &mut self,
+        id: &str,
+        sessions: &[String],
+    ) -> anyhow::Result<(PersonalProfile, bool)> {
+        let tx = self.connection.transaction()?;
+        let output = Self::set_profile_follows_in(&tx, id, sessions)?;
+        tx.commit()?;
+        Ok(output)
+    }
+
+    pub fn pin_workspace(
+        &mut self,
+        session: &str,
+        key: &str,
+        profile: &str,
+    ) -> anyhow::Result<bool> {
+        let tx = self.connection.transaction()?;
+        let output = Self::pin_workspace_in(&tx, session, key, profile)?;
+        tx.commit()?;
+        Ok(output)
+    }
+
+    pub fn unpin_workspace(&mut self, session: &str, key: &str) -> anyhow::Result<bool> {
+        let tx = self.connection.transaction()?;
+        let output = Self::unpin_workspace_in(&tx, session, key)?;
+        tx.commit()?;
+        Ok(output)
+    }
+
+    pub fn put_session(
+        &mut self,
+        session: &str,
+        machine_name: Option<&str>,
+        session_name: Option<&str>,
+        transport: &Value,
+        capabilities: Option<&Value>,
+        follow_with: Option<&str>,
+    ) -> anyhow::Result<(PersonalSession, bool)> {
+        let tx = self.connection.transaction()?;
+        let output = Self::put_session_in(
+            &tx,
+            session,
+            machine_name,
+            session_name,
+            transport,
+            capabilities,
+            follow_with,
+        )?;
+        tx.commit()?;
+        Ok(output)
+    }
+
+    pub fn forget_session(&mut self, session: &str, force: bool) -> anyhow::Result<bool> {
+        let tx = self.connection.transaction()?;
+        let output = Self::forget_session_in(&tx, session, force)?;
+        tx.commit()?;
+        Ok(output)
+    }
+
+    pub fn create_personal_group(
+        &mut self,
+        id: Option<String>,
+        profile: Option<&str>,
+        name: &str,
+        color: Option<&str>,
+        collapsed: bool,
+        index: Option<usize>,
+    ) -> anyhow::Result<(PersonalGroup, bool)> {
+        let tx = self.connection.transaction()?;
+        let output =
+            Self::create_personal_group_in(&tx, id, profile, name, color, collapsed, index)?;
+        tx.commit()?;
+        Ok(output)
+    }
+
+    pub fn update_personal_group(
+        &mut self,
+        id: &str,
+        name: Option<&str>,
+        color: Option<Option<&str>>,
+        collapsed: Option<bool>,
+        profile: Option<&str>,
+    ) -> anyhow::Result<(PersonalGroup, bool)> {
+        let tx = self.connection.transaction()?;
+        let output = Self::update_personal_group_in(&tx, id, name, color, collapsed, profile)?;
+        tx.commit()?;
+        Ok(output)
+    }
+
+    pub fn delete_personal_group(&mut self, id: &str) -> anyhow::Result<Vec<(String, String)>> {
+        let tx = self.connection.transaction()?;
+        let output = Self::delete_personal_group_in(&tx, id)?;
+        tx.commit()?;
+        Ok(output)
+    }
+
+    pub fn move_personal_group(
+        &mut self,
+        id: &str,
+        index: usize,
+    ) -> anyhow::Result<(PersonalGroup, bool)> {
+        let tx = self.connection.transaction()?;
+        let output = Self::move_personal_group_in(&tx, id, index)?;
+        tx.commit()?;
+        Ok(output)
+    }
+
+    pub fn set_personal_workspace(
+        &mut self,
+        session: &str,
+        key: &str,
+        update: PersonalWorkspaceUpdate,
+    ) -> anyhow::Result<(PersonalWorkspace, bool)> {
+        let tx = self.connection.transaction()?;
+        let output = Self::set_personal_workspace_in(&tx, session, key, update)?;
+        tx.commit()?;
+        Ok(output)
+    }
+
+    pub fn import_session_organization(
+        &mut self,
+        session: &str,
+        groups: &[(String, String, Option<String>, bool)],
+        workspaces: &[(String, Option<String>)],
+    ) -> anyhow::Result<bool> {
+        let tx = self.connection.transaction()?;
+        let output = Self::import_session_organization_in(&tx, session, groups, workspaces)?;
+        tx.commit()?;
+        Ok(output)
     }
 }
