@@ -96,9 +96,7 @@ describe("package validation", () => {
   })
   test("sample apps are valid", () => {
     const samples = join(root, "../../../samples/apps")
-    // github-prs, running-agents and agent-status are manifest v2 (validated by
-    // the Rust crate cmux-app-manifest); palette-notes is still v1.
-    for (const name of ["palette-notes"]) {
+    for (const name of ["github-prs", "running-agents", "agent-status", "palette-notes"]) {
       const r = validatePackage(join(samples, name))
       expect({ name, errors: r.errors }).toEqual({ name, errors: [] })
     }
