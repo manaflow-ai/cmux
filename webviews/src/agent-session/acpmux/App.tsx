@@ -49,6 +49,7 @@ import { SearchChats } from "./SearchChats";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
+import { HostError } from "./HostError";
 import { ContinueMenu } from "./handoff/ContinueMenu";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings, localizedHandoffStrings } from "./handoff/strings";
@@ -130,7 +131,12 @@ const trustSource: TrustSource = {
 
 /// The changes view reads git scopes from whoever runs the session: the acpmux client
 /// (or the mock daemon), else the native host.
-const changesSource: ChangesSource = { diff: (scope) => callNative("git.diff", { scope, include_patch: true }) };
+const changesSource: ChangesSource = {
+  diff: (scope) => callNative("git.diff", { scope, include_patch: true }),
+  status: () => callNative("git.status", {}),
+};
+/// The host opens a changed file in a tab beside the agent or in the editor (`file.open`).
+const openChangedFile = (path: string, where: "tab" | "editor") => callNative("file.open", { path, where });
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
@@ -850,6 +856,13 @@ function AcpmuxPane() {
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(undefined);
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
+  /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
+  /// in the host's words; cleared once a handshake succeeds.
+  const [hostError, setHostError] = useState<string | undefined>();
+  /// A Retry the user asked for that waits on the attempt in flight.
+  const [retryQueued, setRetryQueued] = useState(false);
+  /// Asks the host again now, after the user fixed what `hostError` says.
+  const retryHost = useRef<(() => void) | undefined>(undefined);
   // The pane keeps the last client's catalog until the next client's arrives;
   // ids only grow, so a new client never reads an older client's cache entry.
   const catalogClientId = useRef(0);
@@ -935,10 +948,15 @@ function AcpmuxPane() {
     // Looking is cheap, so a daemon started again elsewhere is found within seconds.
     const RECONNECT_MAX_DELAY_MS = 2_000;
     let reconnect = false;
+    let connecting = false;
+    /// The user asked to retry while an attempt was in flight; run a full one when it ends.
+    let retryPending = false;
     // A seeded first prompt (onboarding's first task). Swift hands it out once, so it is kept
     // here until a connect succeeds: a first connect that fails retries without it.
     let pendingPrompt: string | undefined;
     const connectHost = async () => {
+      if (connecting) return;
+      connecting = true;
       try {
         const host = await callNative<{
           protocolVersion: number;
@@ -974,7 +992,11 @@ function AcpmuxPane() {
               : "compact",
           );
         setAccount(mock ? MOCK_ACCOUNT : hostAccount(host.account));
-        if (!mock && (host.transport !== "acpmux-websocket" || !host.endpoint || !host.token)) return;
+        if (!mock && (host.transport !== "acpmux-websocket" || !host.endpoint || !host.token)) {
+          // A host with no daemon to reach has nothing left to fail.
+          setHostError(undefined);
+          return;
+        }
         // A new chat in mock mode starts without a session too, as against a real daemon.
         const mockConfig: AcpmuxHostConfig = host.newSession
           ? { ...mockHost, sessionId: undefined, newSession: true }
@@ -1011,6 +1033,8 @@ function AcpmuxPane() {
           return;
         }
         directClient.current = client;
+        // Only a connected client clears the error, so a stale endpoint doesn't flicker it away.
+        setHostError(undefined);
         catalogClientId.current += 1;
         setCatalogSource({ id: catalogClientId.current, client });
         retryDelay = 250;
@@ -1063,15 +1087,41 @@ function AcpmuxPane() {
       } catch (error) {
         if (!cancelled) {
           setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));
+          setHostError(error instanceof Error ? error.message : String(error));
           // Back off so a host without a daemon is not asked four times a second.
           retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
           retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
         }
+      } finally {
+        connecting = false;
+        if (retryPending) {
+          retryPending = false;
+          setRetryQueued(false);
+          // The attempt in flight may have connected; then there is nothing left to retry.
+          if (!cancelled && !directClient.current) retryNow();
+        }
       }
+    };
+    // The user asked: try now, and let the host start a daemon even after one was lost.
+    const retryNow = () => {
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+      retryTimer = undefined;
+      reconnect = false;
+      retryDelay = 250;
+      void connectHost();
+    };
+    retryHost.current = () => {
+      if (cancelled) return;
+      if (!connecting) return retryNow();
+      // An attempt is in flight (perhaps a reconnect that may not start the daemon): run the
+      // user's full attempt once it ends.
+      retryPending = true;
+      setRetryQueued(true);
     };
     void connectHost();
     return () => {
       cancelled = true;
+      retryHost.current = undefined;
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
       directClient.current?.close();
       directClient.current = undefined;
@@ -1236,6 +1286,7 @@ function AcpmuxPane() {
                     initialPath={diffView.path}
                     onClose={closeDiff}
                     source={changesSource}
+                    onOpenFile={openChangedFile}
                     checkpointAction={
                       checkpoints.supported ? (
                         <button type="button" className="acpmux-checkpoint-open" onClick={checkpoints.show}>
@@ -1269,12 +1320,19 @@ function AcpmuxPane() {
                   <HomeLists sessions={snapshot.sessions} currentId={snapshot.sessionId} onSelect={selectSession} />
                 </div>
               )}
+              {hostError && (
+                <HostError message={hostError} retrying={retryQueued} onRetry={() => retryHost.current?.()} />
+              )}
               {!reviewing && !handoffLoading && (
                 <Composer
                   snapshot={composerSnapshot}
                   chips={ComposerChips}
                   draft={draft}
-                  onSend={(text) => void callNative("chat.send", { text })}
+                  onSend={(text) => {
+                    // Until acpmux connects nothing takes a prompt; the composer keeps it.
+                    if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
+                    void callNative("chat.send", { text });
+                  }}
                   onStop={() => void callNative("chat.cancel")}
                   onProject={(cwd) => void callNative("chat.new", { cwd }).catch(() => undefined)}
                   // Without a folder there is nothing to search; the + menu leaves the item out.

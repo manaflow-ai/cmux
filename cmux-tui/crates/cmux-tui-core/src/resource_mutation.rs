@@ -17,6 +17,14 @@ use crate::{PaneId, State, SurfaceId};
 
 type StateApply = Box<dyn FnOnce(&mut State) + Send + 'static>;
 
+/// State rows written in the plan's transaction after its patch applies.
+/// It may finalize the result and add changes (state resources and fresh
+/// upserts of resources whose only change is a state field).
+pub(crate) type PlanStateWrite = Box<
+    dyn FnOnce(&rusqlite::Transaction<'_>, &mut Value, &mut Vec<Value>) -> anyhow::Result<()>
+        + Send
+        + 'static,
+>;
 /// How a plan changes the live state after its commit.
 enum StateStep {
     /// Run this closure on the live state.
@@ -42,10 +50,8 @@ pub(crate) struct ResourceMutationPlan {
     pub(crate) deltas: Value,
     pub(crate) metrics: ResourceMutationMetrics,
     pub(crate) workspace_ledger: Option<ResourceWorkspaceLedger>,
-    /// Tab group state written in the same transaction as the patch.
-    pub(crate) tab_groups: Option<crate::workspace_registry::TabGroupState>,
-    /// Screen presentation and screen groups written in the same transaction.
-    pub(crate) screen_state: Option<crate::workspace_registry::ScreenPresentationState>,
+    /// State rows written in the same transaction as the patch.
+    pub(crate) state_write: Option<PlanStateWrite>,
     /// The reducer op this plan performs, which the daemon checks the
     /// plan's result against before the commit.
     pub(crate) layout_op: Option<cmux_layout_reducer::LayoutOpKind>,
@@ -65,8 +71,7 @@ impl ResourceMutationPlan {
             deltas,
             metrics: ResourceMutationMetrics::default(),
             workspace_ledger: None,
-            tab_groups: None,
-            screen_state: None,
+            state_write: None,
             layout_op: None,
             state_step: StateStep::Apply(Box::new(apply)),
         }
@@ -146,21 +151,9 @@ impl ResourceMutationPlan {
         Ok(Some(before))
     }
 
-    /// Commit this tab group state with the patch.
-    pub(crate) fn with_tab_groups(
-        mut self,
-        tab_groups: crate::workspace_registry::TabGroupState,
-    ) -> Self {
-        self.tab_groups = Some(tab_groups);
-        self
-    }
-
-    /// Commit this screen presentation state with the patch.
-    pub(crate) fn with_screen_state(
-        mut self,
-        screen_state: crate::workspace_registry::ScreenPresentationState,
-    ) -> Self {
-        self.screen_state = Some(screen_state);
+    /// Write state rows in the patch's transaction.
+    pub(crate) fn with_state_write(mut self, write: PlanStateWrite) -> Self {
+        self.state_write = Some(write);
         self
     }
 

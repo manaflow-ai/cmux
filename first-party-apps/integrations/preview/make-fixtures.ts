@@ -1,16 +1,15 @@
 #!/usr/bin/env bun
 // Writes the preview fixtures (invented, neutral data) for the preview harness
-// and the FakeHost tests. Tool catalogs come from the same core the app ships,
-// run over the test fixtures. Usage: bun first-party-apps/integrations/preview/make-fixtures.ts
+// and the FakeHost tests. Tool catalogs come from @cmux/integrations-core (the
+// code the app ships), run over the package's test fixtures. Usage: bun first-party-apps/integrations/preview/make-fixtures.ts
 import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { importDocument } from "../src/core/catalog.ts"
-import type { PolicyRule } from "../src/core/policy.ts"
+import { importDocument, type PolicyRule } from "@cmux/integrations-core"
 import { sortConnections, type Connection } from "../src/model/connections.ts"
 import { builtinTools } from "../src/model/providers.ts"
 
 const here = import.meta.dir
-const testFixture = (name: string) => JSON.parse(readFileSync(join(here, "../test/fixtures", name), "utf8"))
+const testFixture = (name: string) => JSON.parse(readFileSync(join(here, "../../../libs/integrations-core/test/fixtures", name), "utf8"))
 
 const T0 = 1_790_000_000_000
 const ME = "usr_me"

@@ -16,12 +16,28 @@ impl Mux {
         title: Option<String>,
         favicon_url: Option<Option<String>>,
     ) -> anyhow::Result<(FrontendBrowserRecord, bool)> {
+        self.update_frontend_browser_tab_with_owner(surface, url, title, favicon_url, None)
+    }
+
+    /// Record a frontend-rendered browser's location and optional hosting app owner.
+    pub fn update_frontend_browser_tab_with_owner(
+        &self,
+        surface: SurfaceId,
+        url: Option<String>,
+        title: Option<String>,
+        favicon_url: Option<Option<String>>,
+        owner: Option<String>,
+    ) -> anyhow::Result<(FrontendBrowserRecord, bool)> {
         let runtime =
             self.surface(surface).ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
         let browser_id = self.frontend_browser_id(&runtime).ok_or_else(|| {
             anyhow::anyhow!("surface {surface} is not a frontend-rendered browser")
         })?;
-        let (record, changed) = {
+        self.refuse_conversation_tab(&runtime)?;
+        if let Some(owner) = &owner {
+            crate::state::window_record_store::validate_key("owner", owner)?;
+        }
+        let (mut record, mut changed) = {
             let mut registry = self.workspace_registry.lock().unwrap();
             let result = registry.update_frontend_browser(
                 browser_id.as_str(),
@@ -34,6 +50,17 @@ impl Mux {
             }
             result
         };
+        if let Some(owner) = owner
+            && record.owner.as_deref() != Some(owner.as_str())
+        {
+            let tab = runtime
+                .resource_identity()
+                .map(|identity| identity.tab_id.to_string())
+                .ok_or_else(|| anyhow::anyhow!("surface {surface} has no public tab id"))?;
+            self.commit_browser_owner(&tab, &owner)?;
+            record.owner = Some(owner);
+            changed = true;
+        }
         if changed {
             if let Some(browser) = runtime.as_browser() {
                 browser.set_frontend_location(url, title.clone());
@@ -94,6 +121,7 @@ mod tests {
             title: None,
             favicon_url: None,
             profile_id: None,
+            owner: None,
         };
         let browser = mux.new_frontend_browser_tab(Some(pane), record, None).unwrap().id;
         assert_eq!(mux.frontend_browser_history(browser).unwrap(), None);

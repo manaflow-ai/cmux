@@ -10,6 +10,17 @@ use cmux_tui_core::resource::{
 use serde_json::{Map, Number, Value, json};
 
 use super::{GlobalArgs, UsageError};
+use flags::BOOLEAN_FLAGS;
+
+#[cfg(test)]
+pub(in crate::cli) mod cases;
+mod flags;
+mod git;
+mod screen;
+mod state;
+
+use screen::{parse_screen, parse_screen_strings};
+
 pub(super) enum ParsedCommand {
     Help(Option<String>),
     Docs(super::docs::Plan),
@@ -19,7 +30,7 @@ pub(super) enum ParsedCommand {
 pub(super) enum CommandPlan {
     Server(super::lifecycle::ServerPlan),
     AgentHooks(crate::agent_hook_install::Plan),
-    Protocol(RequestPlan),
+    Protocol(Box<RequestPlan>),
     SessionResetState(SessionResetStatePlan),
     Plugin(PluginPlan),
     ProviderAuthority(ProviderAuthorityPlan),
@@ -32,6 +43,35 @@ pub(super) struct RequestPlan {
     pub params: Value,
     pub idempotency_key: Option<String>,
     pub stream: bool,
+    /// Reads to run on the same connection before the request is sent.
+    pub resolve: Vec<Resolve>,
+}
+
+/// A parameter the command names indirectly. The CLI fills it with reads on
+/// the request's own connection just before it sends the request, so the
+/// request itself (and its idempotency fingerprint) carries only ids.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum Resolve {
+    /// `workspace` becomes the workspace that holds this terminal: the
+    /// caller's own terminal (`CMUX_TUI_TERMINAL_ID`). With `--socket` or
+    /// `--session` the target is that session's `current` workspace.
+    CallerWorkspace { terminal: String },
+    /// `field` names a state record (room or group) by id or exact name; a
+    /// unique name becomes that record's id.
+    StateName { field: &'static str, list: ResourceOperation },
+    /// The request is a terminal's font zoom (`tab.update`). A browser tab's
+    /// page zoom goes to the app instead (cli/resolve.rs).
+    TabZoom { step: ZoomStep },
+}
+
+/// What `tab … zoom` asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ZoomStep {
+    In,
+    Out,
+    Reset,
+    /// An exact value (`zoom 1.5`, `update --zoom 1.5`).
+    Value,
 }
 
 #[derive(Clone, Debug)]
@@ -148,7 +188,7 @@ struct Tokens {
     argv: Option<Vec<String>>,
 }
 
-pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
+pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandPlan, UsageError> {
     let mut tokens = tokenize(args)?;
     super::shorthand::normalize_words(&mut tokens.words);
     let scope = tokens
@@ -173,6 +213,9 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
         "terminal" => parse_terminal(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "browser" => parse_browser(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "notification" => parse_notification(&tokens.words[1..], &mut tokens.flags)?,
+        "room" => state::parse_room(&strs(&tokens.words[1..]), &mut tokens.flags)?,
+        "closed" => state::parse_closed(&strs(&tokens.words[1..]), &mut tokens.flags)?,
+        "git" => git::parse_git(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "notify" => parse_notify(&tokens.words[1..], &mut tokens.flags)?,
         "agent" => parse_agent(&tokens.words[1..], &mut tokens.flags)?,
         "sidebar" => parse_sidebar(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
@@ -180,7 +223,7 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
         "projection" => parse_projection(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "provider" => parse_provider(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "raw" => parse_raw(&tokens.words[1..], &mut tokens.flags)?,
-        value => return Err(super::unknown_scope(value)),
+        value => return Err(super::unknown_scope(value, surface)),
     };
     tokens.flags.reject_remaining()?;
     Ok(plan)
@@ -279,46 +322,6 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
     }
     Ok(Tokens { words, flags, argv })
 }
-
-/// Metadata for flags which consume no following token.
-///
-/// Keeping this as data makes the tokenizer's grammar auditable and leaves a
-/// single place to extend when a command adds a boolean option. This is the
-/// same distinction Clap models with `ArgAction::SetTrue`, while retaining
-/// cmux's custom forwarding and error text.
-const BOOLEAN_FLAGS: &[&str] = &[
-    "collapse",
-    "expand",
-    "clear-color",
-    "clear",
-    "reply",
-    "empty",
-    "left",
-    "right",
-    "up",
-    "down",
-    "force",
-    "end-terminals",
-    "confirm-close",
-    "complete",
-    "clear-name",
-    "clear-kind",
-    "clear-foreground",
-    "clear-background",
-    "clear-cursor",
-    "clear-selection-background",
-    "clear-selection-foreground",
-    "clear-cursor-style",
-    "clear-cursor-blink",
-    "clear-palette",
-    "read-only",
-    "relaunch",
-    "styled",
-    "builtin",
-    "mutation",
-    "stream",
-    "ignore-case",
-];
 
 pub(super) fn is_boolean_flag(name: &str) -> bool {
     BOOLEAN_FLAGS.contains(&name)
@@ -644,8 +647,15 @@ fn parse_workspace(
     flags: &mut Flags,
     argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
-    match strs(words).as_slice() {
-        ["group", rest @ ..] => parse_workspace_group(rest, flags),
+    let refs = strs(words);
+    if let Some(plan) = state::parse_workspace_status(&refs, selectors, flags, argv.as_deref())? {
+        return Ok(plan);
+    }
+    match refs.as_slice() {
+        ["group", rest @ ..] => state::parse_workspace_group(rest, selectors, flags),
+        ["placement", "list"] => {
+            request(ResourceOperation::WorkspacePlacementList, selectors, flags, Map::new())
+        }
         ["list"] => request(ResourceOperation::WorkspaceList, selectors, flags, Map::new()),
         ["create"] => {
             let mut params = Map::new();
@@ -656,6 +666,9 @@ fn parse_workspace(
                 "initial_content".into(),
                 Value::String(if flags.boolean("empty") { "empty" } else { "terminal" }.into()),
             );
+            if flags.boolean("ephemeral") {
+                params.insert("ephemeral".into(), Value::Bool(true));
+            }
             request(ResourceOperation::WorkspaceCreate, selectors, flags, params)
         }
         [selector, "show"] => {
@@ -665,6 +678,10 @@ fn parse_workspace(
         [selector, "rename"] => {
             selectors.insert("workspace", "ws", selector)?;
             request_with_required_name(ResourceOperation::WorkspaceRename, selectors, flags)
+        }
+        [selector, "update"] => {
+            selectors.insert("workspace", "ws", selector)?;
+            state::workspace_update(selectors, flags)
         }
         [selector, "move"] => {
             selectors.insert("workspace", "ws", selector)?;
@@ -697,69 +714,6 @@ fn parse_workspace(
             parse_screen_strings(tail, selectors, flags, argv)
         }
         _ => usage("workspace action"),
-    }
-}
-
-fn parse_screen(
-    words: &[String],
-    selectors: &mut Selectors,
-    flags: &mut Flags,
-    argv: Option<Vec<String>>,
-) -> Result<CommandPlan, UsageError> {
-    let refs = strs(words);
-    parse_screen_strings(&refs, selectors, flags, argv)
-}
-
-fn parse_screen_strings(
-    words: &[&str],
-    selectors: &mut Selectors,
-    flags: &mut Flags,
-    argv: Option<Vec<String>>,
-) -> Result<CommandPlan, UsageError> {
-    match words {
-        ["list"] => request(ResourceOperation::ScreenList, selectors, flags, Map::new()),
-        ["create"] => {
-            let mut params = Map::new();
-            insert_optional_string(&mut params, flags, "name", "name");
-            request(ResourceOperation::ScreenCreate, selectors, flags, params)
-        }
-        [selector, "show"] => {
-            selectors.insert("screen", "screen", selector)?;
-            request(ResourceOperation::ScreenGet, selectors, flags, Map::new())
-        }
-        [selector, "rename"] => {
-            selectors.insert("screen", "screen", selector)?;
-            request_with_required_name(ResourceOperation::ScreenRename, selectors, flags)
-        }
-        [selector, "focus"] => {
-            selectors.insert("screen", "screen", selector)?;
-            request(ResourceOperation::ScreenFocus, selectors, flags, Map::new())
-        }
-        [selector, "close"] => {
-            selectors.insert("screen", "screen", selector)?;
-            request(ResourceOperation::ScreenClose, selectors, flags, Map::new())
-        }
-        [selector, "layout", "export"] => {
-            selectors.insert("screen", "screen", selector)?;
-            request(ResourceOperation::ScreenLayoutExport, selectors, flags, Map::new())
-        }
-        [selector, "layout", "undo"] => {
-            selectors.insert("screen", "screen", selector)?;
-            let mut params = Map::new();
-            if flags.boolean("confirm-close") {
-                params.insert("confirm_close".into(), Value::Bool(true));
-            }
-            if let Some(token) = flags.take("confirmation-token") {
-                validate_bounded_text("--confirmation-token", &token)?;
-                params.insert("confirmation_token".into(), Value::String(token));
-            }
-            request(ResourceOperation::ScreenLayoutUndo, selectors, flags, params)
-        }
-        [selector, "pane", tail @ ..] => {
-            selectors.insert("screen", "screen", selector)?;
-            parse_pane_strings(tail, selectors, flags, argv)
-        }
-        _ => usage("screen action"),
     }
 }
 
@@ -914,7 +868,7 @@ fn parse_tab_strings(
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
     match words {
-        ["group", rest @ ..] => parse_tab_group(rest, flags),
+        ["group", rest @ ..] => state::parse_tab_group(rest, flags),
         ["list"] => request(ResourceOperation::TabList, selectors, flags, Map::new()),
         [selector, "show"] => {
             selectors.insert("tab", "tab", selector)?;
@@ -953,6 +907,10 @@ fn parse_tab_strings(
         [selector, "focus"] => {
             selectors.insert("tab", "tab", selector)?;
             request(ResourceOperation::TabFocus, selectors, flags, Map::new())
+        }
+        [selector, action @ ("pin" | "unpin" | "update" | "zoom"), rest @ ..] => {
+            selectors.insert("tab", "tab", selector)?;
+            state::tab_change(action, rest, selectors, flags)
         }
         [selector, "close"] => {
             selectors.insert("tab", "tab", selector)?;
@@ -1861,20 +1819,6 @@ fn group_id_value(value: &str) -> Value {
     value.parse::<u64>().map(Value::from).unwrap_or_else(|_| Value::String(value.to_string()))
 }
 
-fn group_id_list(flags: &mut Flags, name: &str) -> Result<Value, UsageError> {
-    let values = flags
-        .required(name)?
-        .split(',')
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(group_id_value)
-        .collect::<Vec<_>>();
-    if values.is_empty() {
-        return Err(UsageError::new(format!("--{name} needs at least one id")));
-    }
-    Ok(Value::Array(values))
-}
-
 fn group_number(flags: &mut Flags, name: &str) -> Result<Option<Value>, UsageError> {
     flags
         .take(name)
@@ -1927,163 +1871,51 @@ fn group_raw_plan(command: &str, mut request: Map<String, Value>) -> CommandPlan
     })
 }
 
-fn parse_tab_group(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+/// Tab group moves with no `cmux.protocol/2` operation yet use the private
+/// control protocol, like `raw command`, so they work against a headless
+/// daemon with no app running. Every other tab group verb is a v2 operation
+/// (`state.rs`).
+fn parse_tab_group_private(
+    group: &str,
+    action: &str,
+    flags: &mut Flags,
+) -> Result<CommandPlan, UsageError> {
     let mut request = Map::new();
     insert_optional_string(&mut request, flags, "transaction", "transaction");
-    let command = match words {
-        ["list"] => "list-tab-groups",
-        ["create"] => {
-            request.insert("tabs".into(), group_id_list(flags, "tabs")?);
-            insert_optional_string(&mut request, flags, "name", "name");
-            insert_optional_string(&mut request, flags, "color", "color");
-            insert_optional_string(&mut request, flags, "id", "group");
-            "create-tab-group"
-        }
-        ["remove"] => {
-            request.insert("tabs".into(), group_id_list(flags, "tabs")?);
-            "remove-tabs-from-tab-group"
-        }
-        ["saved", "list"] => "list-saved-tab-groups",
-        ["saved", saved, "delete"] => {
-            request.insert("saved".into(), Value::String((*saved).to_string()));
-            "delete-saved-tab-group"
-        }
-        ["saved", saved, "reopen"] => {
-            request.insert("saved".into(), Value::String((*saved).to_string()));
+    request.insert("group".into(), Value::String(group.to_string()));
+    let command = match action {
+        "split" => {
             request.insert("pane".into(), group_id_value(&flags.required("pane")?));
-            "reopen-saved-tab-group"
-        }
-        [group, action] => {
-            request.insert("group".into(), Value::String((*group).to_string()));
-            match *action {
-                "update" => {
-                    insert_optional_string(&mut request, flags, "name", "name");
-                    insert_optional_string(&mut request, flags, "color", "color");
-                    group_collapse(flags, &mut request)?;
-                    "update-tab-group"
-                }
-                "add" => {
-                    request.insert("tabs".into(), group_id_list(flags, "tabs")?);
-                    "add-tabs-to-tab-group"
-                }
-                "move" => {
-                    if let Some(pane) = flags.take("pane") {
-                        request.insert("pane".into(), group_id_value(&pane));
-                    }
-                    if let Some(index) = group_number(flags, "index")? {
-                        request.insert("index".into(), index);
-                    }
-                    "move-tab-group"
-                }
-                "split" => {
-                    request.insert("pane".into(), group_id_value(&flags.required("pane")?));
-                    request.insert("edge".into(), Value::String(flags.required("edge")?));
-                    if let Some(ratio) = group_float(flags, "ratio")? {
-                        request.insert("ratio".into(), ratio);
-                    }
-                    "move-tab-group-to-split"
-                }
-                "column" => {
-                    if let Some(pane) = flags.take("pane") {
-                        request.insert("pane".into(), group_id_value(&pane));
-                    }
-                    if let Some(screen) = group_number(flags, "screen")? {
-                        request.insert("screen".into(), screen);
-                    }
-                    if let Some(column) = group_number(flags, "after-column")? {
-                        request.insert("after_column".into(), column);
-                    }
-                    if let Some(width) = group_float(flags, "width")? {
-                        request.insert("width".into(), width);
-                    }
-                    "move-tab-group-to-column"
-                }
-                "new-workspace" => {
-                    insert_optional_string(
-                        &mut request,
-                        flags,
-                        "workspace-group",
-                        "workspace_group",
-                    );
-                    if let Some(index) = group_number(flags, "index")? {
-                        request.insert("index".into(), index);
-                    }
-                    "move-tab-group-to-new-workspace"
-                }
-                "ungroup" => "ungroup-tab-group",
-                "close" => "close-tab-group",
-                "save" => "save-tab-group",
-                "unsave" => "unsave-tab-group",
-                _ => return usage("tab group action"),
+            request.insert("edge".into(), Value::String(flags.required("edge")?));
+            if let Some(ratio) = group_float(flags, "ratio")? {
+                request.insert("ratio".into(), ratio);
             }
+            "move-tab-group-to-split"
         }
-        _ => return usage("tab group action"),
-    };
-    Ok(group_raw_plan(command, request))
-}
-
-fn parse_workspace_group(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
-    let mut request = Map::new();
-    let command = match words {
-        ["list"] => "list-workspace-groups",
-        ["create"] => {
-            request.insert("name".into(), Value::String(flags.required("name")?));
-            insert_optional_string(&mut request, flags, "color", "color");
-            insert_optional_string(&mut request, flags, "id", "group");
+        "column" => {
+            if let Some(pane) = flags.take("pane") {
+                request.insert("pane".into(), group_id_value(&pane));
+            }
+            if let Some(screen) = group_number(flags, "screen")? {
+                request.insert("screen".into(), screen);
+            }
+            if let Some(column) = group_number(flags, "after-column")? {
+                request.insert("after_column".into(), column);
+            }
+            if let Some(width) = group_float(flags, "width")? {
+                request.insert("width".into(), width);
+            }
+            "move-tab-group-to-column"
+        }
+        "new-workspace" => {
+            insert_optional_string(&mut request, flags, "workspace-group", "workspace_group");
             if let Some(index) = group_number(flags, "index")? {
                 request.insert("index".into(), index);
             }
-            if flags.boolean("collapse") {
-                request.insert("collapsed".into(), Value::Bool(true));
-            }
-            "create-workspace-group"
+            "move-tab-group-to-new-workspace"
         }
-        ["remove"] => {
-            let workspace = flags.required("workspace")?;
-            request.insert(
-                if workspace.parse::<u64>().is_ok() { "workspace" } else { "key" }.into(),
-                group_id_value(&workspace),
-            );
-            request.insert("group".into(), Value::Null);
-            "move-workspace-to-group"
-        }
-        [group, action] => {
-            request.insert("group".into(), Value::String((*group).to_string()));
-            match *action {
-                "update" => {
-                    insert_optional_string(&mut request, flags, "name", "name");
-                    if flags.boolean("clear-color") {
-                        request.insert("color".into(), Value::Null);
-                    } else {
-                        insert_optional_string(&mut request, flags, "color", "color");
-                    }
-                    group_collapse(flags, &mut request)?;
-                    "update-workspace-group"
-                }
-                "delete" => "delete-workspace-group",
-                "move" => {
-                    request.insert(
-                        "index".into(),
-                        group_number(flags, "index")?
-                            .ok_or_else(|| UsageError::new("--index is required"))?,
-                    );
-                    "move-workspace-group"
-                }
-                "add" => {
-                    let workspace = flags.required("workspace")?;
-                    request.insert(
-                        if workspace.parse::<u64>().is_ok() { "workspace" } else { "key" }.into(),
-                        group_id_value(&workspace),
-                    );
-                    if let Some(index) = group_number(flags, "index")? {
-                        request.insert("index".into(), index);
-                    }
-                    "move-workspace-to-group"
-                }
-                _ => return usage("workspace group action"),
-            }
-        }
-        _ => return usage("workspace group action"),
+        "unsave" => "unsave-tab-group",
+        _ => return usage("tab group action"),
     };
     Ok(group_raw_plan(command, request))
 }
@@ -2215,12 +2047,13 @@ fn finalize_request(
     if explicit_key.is_some() && class != OperationClass::Mutation {
         return Err(UsageError::new("--idempotency-key is accepted only for mutations"));
     }
-    Ok(CommandPlan::Protocol(RequestPlan {
+    Ok(CommandPlan::Protocol(Box::new(RequestPlan {
         stream: class == OperationClass::StreamOpen,
         operation,
         params,
         idempotency_key: explicit_key,
-    }))
+        resolve: Vec::new(),
+    })))
 }
 
 fn structural_ancestors(scope: &str) -> &'static [&'static str] {
@@ -3376,56 +3209,44 @@ mod tests {
     use super::*;
 
     fn raw_request(args: &[&str]) -> Value {
-        match parse(&strings(args)).unwrap() {
+        match parse(&strings(args), super::super::Surface::CmuxTui).unwrap() {
             CommandPlan::RawCommand(plan) => plan.request,
             _ => panic!("group action did not produce a raw command"),
         }
     }
 
     #[test]
-    fn cmux_next_group_actions_map_to_private_group_commands() {
-        let created = raw_request(&[
-            "tab",
-            "group",
-            "create",
-            "--tabs",
-            "4,tab_0123",
-            "--name",
-            "agents",
-            "--color",
-            "green",
-        ]);
-        assert_eq!(created["cmd"], "create-tab-group");
-        assert_eq!(created["tabs"], serde_json::json!([4, "tab_0123"]));
-        assert_eq!(created["name"], "agents");
-        let collapsed = raw_request(&["tab", "group", "tgrp_1", "update", "--collapse"]);
-        assert_eq!(collapsed["cmd"], "update-tab-group");
-        assert_eq!(collapsed["collapsed"], true);
+    fn tab_group_moves_without_a_v2_operation_map_to_private_group_commands() {
         let split = raw_request(&[
             "tab", "group", "tgrp_1", "split", "--pane", "pane_ab", "--edge", "right",
         ]);
         assert_eq!(split["cmd"], "move-tab-group-to-split");
         assert_eq!(split["pane"], "pane_ab");
-        let reopen = raw_request(&["tab", "group", "saved", "saved_9", "reopen", "--pane", "3"]);
-        assert_eq!(reopen["cmd"], "reopen-saved-tab-group");
-        assert_eq!(reopen["pane"], 3);
-        let group = raw_request(&["workspace", "group", "create", "--name", "Work"]);
-        assert_eq!(group["cmd"], "create-workspace-group");
-        let add = raw_request(&[
+        let unsave = raw_request(&["tab", "group", "tgrp_1", "unsave"]);
+        assert_eq!(unsave["cmd"], "unsave-tab-group");
+        assert_eq!(unsave["group"], "tgrp_1");
+        let created =
+            protocol(&["tab", "group", "create", "--tabs", "tab_00000000000000000000000000000001"]);
+        assert_eq!(operation(&created), "tab_group.create");
+        let group = protocol(&["workspace", "group", "create", "--name", "Work"]);
+        assert_eq!(operation(&group), "workspace_group.create");
+        assert_eq!(group.params["name"], "Work");
+        let remove = protocol(&[
             "workspace",
             "group",
-            "grp_1",
-            "add",
+            "remove",
             "--workspace",
-            "6ba7b810-9dad-41d1-80b4-00c04fd430c8",
-            "--index",
-            "0",
+            "ws_0123456789abcdef0123456789abcdef",
         ]);
-        assert_eq!(add["cmd"], "move-workspace-to-group");
-        assert_eq!(add["key"], "6ba7b810-9dad-41d1-80b4-00c04fd430c8");
-        assert_eq!(add["index"], 0);
-        assert!(parse(&strings(&["tab", "group", "tgrp_1", "explode"])).is_err());
-        assert!(parse(&strings(&["tab", "group", "create"])).is_err());
+        assert_eq!(operation(&remove), "workspace.place");
+        assert!(remove.params["group"].is_null());
+        assert!(
+            parse(&strings(&["tab", "group", "tgrp_1", "explode"]), super::super::Surface::CmuxTui)
+                .is_err()
+        );
+        assert!(
+            parse(&strings(&["tab", "group", "create"]), super::super::Surface::CmuxTui).is_err()
+        );
     }
 
     #[test]
@@ -3437,9 +3258,24 @@ mod tests {
         assert_eq!(on["keep"], true);
         let off = raw_request(&["terminal", TERMINAL, "keep", "off"]);
         assert_eq!(off["keep"], false);
-        assert!(parse(&strings(&["terminal", "current", "keep", "on"])).is_err());
-        assert!(parse(&strings(&["terminal", TERMINAL, "keep", "maybe"])).is_err());
-        assert!(parse(&strings(&["terminal", "term_xyz", "keep", "on"])).is_err());
+        assert!(
+            parse(&strings(&["terminal", "current", "keep", "on"]), super::super::Surface::CmuxTui)
+                .is_err()
+        );
+        assert!(
+            parse(
+                &strings(&["terminal", TERMINAL, "keep", "maybe"]),
+                super::super::Surface::CmuxTui
+            )
+            .is_err()
+        );
+        assert!(
+            parse(
+                &strings(&["terminal", "term_xyz", "keep", "on"]),
+                super::super::Surface::CmuxTui
+            )
+            .is_err()
+        );
     }
 
     fn strings(values: &[&str]) -> Vec<String> {
@@ -3466,7 +3302,7 @@ mod tests {
 
     #[test]
     fn server_stats_typo_suggests_stats_action() {
-        let error = match parse(&strings(&["server", "stat"])) {
+        let error = match parse(&strings(&["server", "stat"]), super::super::Surface::CmuxTui) {
             Err(error) => error,
             Ok(_) => panic!("unknown server action must be rejected"),
         };
@@ -3482,17 +3318,19 @@ mod tests {
     }
 
     fn protocol(values: &[&str]) -> RequestPlan {
-        match parse(&strings(values)).unwrap() {
-            CommandPlan::Protocol(plan) => plan,
+        match parse(&strings(values), super::super::Surface::CmuxTui).unwrap() {
+            CommandPlan::Protocol(plan) => *plan,
             _ => panic!("expected protocol plan"),
         }
     }
 
     #[test]
     fn coding_agent_hook_management_stays_local() {
-        let CommandPlan::AgentHooks(plan) =
-            parse(&strings(&["agent", "hook", "install", "codex", "claude-code"])).unwrap()
-        else {
+        let CommandPlan::AgentHooks(plan) = parse(
+            &strings(&["agent", "hook", "install", "codex", "claude-code"]),
+            super::super::Surface::CmuxTui,
+        )
+        .unwrap() else {
             panic!("expected local agent hook plan");
         };
         assert_eq!(plan.action, crate::agent_hook_install::Action::Install);
@@ -3670,18 +3508,33 @@ mod tests {
             protocol(&["workspace", "create", "--correlation-key", "creation-attempt-1"]);
         assert_eq!(correlated.params["correlation_key"], "creation-attempt-1");
 
-        assert!(parse(&strings(&["workspace", "create", "--correlation-key="])).is_err());
         assert!(
-            parse(&strings(&["workspace", "create", "--correlation-key", &"x".repeat(129),]))
-                .is_err()
+            parse(
+                &strings(&["workspace", "create", "--correlation-key="]),
+                super::super::Surface::CmuxTui
+            )
+            .is_err()
         );
         assert!(
-            parse(&strings(&["workspace", "list", "--correlation-key", "creation-attempt-1",]))
-                .is_err()
+            parse(
+                &strings(&["workspace", "create", "--correlation-key", &"x".repeat(129),]),
+                super::super::Surface::CmuxTui
+            )
+            .is_err()
         );
         assert!(
-            parse(&strings(&["session", "current", "creation", &"x".repeat(129), "resolve",]))
-                .is_err()
+            parse(
+                &strings(&["workspace", "list", "--correlation-key", "creation-attempt-1",]),
+                super::super::Surface::CmuxTui
+            )
+            .is_err()
+        );
+        assert!(
+            parse(
+                &strings(&["session", "current", "creation", &"x".repeat(129), "resolve",]),
+                super::super::Surface::CmuxTui
+            )
+            .is_err()
         );
     }
 
@@ -3708,20 +3561,22 @@ mod tests {
 
         for invalid in ["-1", "01", "18446744073709551616"] {
             assert!(
-                parse(&strings(&[
-                    "terminal",
-                    TERMINAL,
-                    "process",
-                    "wait",
-                    "--timeout-ms",
-                    invalid,
-                ]))
+                parse(
+                    &strings(&["terminal", TERMINAL, "process", "wait", "--timeout-ms", invalid,]),
+                    super::super::Surface::CmuxTui
+                )
                 .is_err(),
                 "accepted noncanonical timeout {invalid:?}"
             );
         }
 
-        assert!(parse(&strings(&["terminal", TERMINAL, "wait", "--pattern", "ready"])).is_err());
+        assert!(
+            parse(
+                &strings(&["terminal", TERMINAL, "wait", "--pattern", "ready"]),
+                super::super::Surface::CmuxTui
+            )
+            .is_err()
+        );
         for unreachable in [
             vec!["terminal", TERMINAL, "viewer", "resize", "--cols", "80", "--rows", "24"],
             vec!["terminal", TERMINAL, "viewer", "release"],
@@ -3729,7 +3584,10 @@ mod tests {
             vec!["browser", BROWSER, "viewer", "release"],
             vec!["stream", "stream_0000000000000000000000000000000a", "cancel"],
         ] {
-            assert!(parse(&strings(&unreachable)).is_err(), "{unreachable:?}");
+            assert!(
+                parse(&strings(&unreachable), super::super::Surface::CmuxTui).is_err(),
+                "{unreachable:?}"
+            );
         }
     }
 
@@ -3761,12 +3619,18 @@ mod tests {
         for invalid in ["", "01", "-1", "+1", "18446744073709551616"] {
             let args =
                 ["tab", TAB, "rename", "--name", "logs", "--expected-name-revision", invalid];
-            assert!(parse(&strings(&args)).is_err(), "accepted invalid revision {invalid:?}");
+            assert!(
+                parse(&strings(&args), super::super::Surface::CmuxTui).is_err(),
+                "accepted invalid revision {invalid:?}"
+            );
         }
 
         for invalid in ["", "process", "USER"] {
             let args = ["tab", TAB, "rename", "--name", "logs", "--source", invalid];
-            assert!(parse(&strings(&args)).is_err(), "accepted invalid source {invalid:?}");
+            assert!(
+                parse(&strings(&args), super::super::Surface::CmuxTui).is_err(),
+                "accepted invalid source {invalid:?}"
+            );
         }
     }
 
@@ -3807,24 +3671,39 @@ mod tests {
         assert!(clear_all.params.get("terminal_id").is_none());
 
         assert!(
-            parse(&strings(&["notify", "--reply", "--title", "x"])).is_err(),
+            parse(&strings(&["notify", "--reply", "--title", "x"]), super::super::Surface::CmuxTui)
+                .is_err(),
             "no reply channel across the link"
         );
         if std::env::var_os("CMUX_TUI_TERMINAL_ID").is_none() {
             assert!(
-                parse(&strings(&["notify", "--clear"])).is_err(),
+                parse(&strings(&["notify", "--clear"]), super::super::Surface::CmuxTui).is_err(),
                 "no implicit whole-session clear"
             );
-            assert!(parse(&strings(&["notify", "--surface", "current"])).is_err());
+            assert!(
+                parse(
+                    &strings(&["notify", "--surface", "current"]),
+                    super::super::Surface::CmuxTui
+                )
+                .is_err()
+            );
         }
-        assert!(parse(&strings(&["notify", "--title", ""])).is_err());
         assert!(
-            parse(&strings(&["notify", "--surface", "not-a-terminal"])).is_err(),
+            parse(&strings(&["notify", "--title", ""]), super::super::Surface::CmuxTui).is_err()
+        );
+        assert!(
+            parse(
+                &strings(&["notify", "--surface", "not-a-terminal"]),
+                super::super::Surface::CmuxTui
+            )
+            .is_err(),
             "only this session's terminal ids"
         );
-        assert!(parse(&strings(&["notify", "extra"])).is_err());
+        assert!(parse(&strings(&["notify", "extra"]), super::super::Surface::CmuxTui).is_err());
         let long = "x".repeat(4097);
-        assert!(parse(&strings(&["notify", "--body", &long])).is_err());
+        assert!(
+            parse(&strings(&["notify", "--body", &long]), super::super::Surface::CmuxTui).is_err()
+        );
     }
 
     #[test]
@@ -3917,7 +3796,10 @@ mod tests {
         ] {
             let mut args = vec!["session", SESSION, "journal", "subscribe"];
             args.extend(invalid);
-            assert!(parse(&strings(&args)).is_err(), "accepted {args:?}");
+            assert!(
+                parse(&strings(&args), super::super::Surface::CmuxTui).is_err(),
+                "accepted {args:?}"
+            );
         }
 
         let manifest = r#"{"producer_id":"demo","namespace":"plugin.demo"}"#;
@@ -4058,17 +3940,20 @@ mod tests {
         assert_eq!(second.idempotency_key, None);
 
         assert!(
-            parse(&strings(&[
-                "agent",
-                "hook",
-                "emit",
-                "--source",
-                "Invalid Source",
-                "--event",
-                "Stop",
-                "--payload-json",
-                "{}",
-            ]))
+            parse(
+                &strings(&[
+                    "agent",
+                    "hook",
+                    "emit",
+                    "--source",
+                    "Invalid Source",
+                    "--event",
+                    "Stop",
+                    "--payload-json",
+                    "{}",
+                ]),
+                super::super::Surface::CmuxTui
+            )
             .is_err()
         );
     }
@@ -4110,8 +3995,17 @@ mod tests {
 
         let empty_argument = protocol(&["pane", "current", "run", "--", "printf", ""]);
         assert_eq!(empty_argument.params["argv"], json!(["printf", ""]));
-        assert!(parse(&strings(&["pane", "current", "run", "--", "", "argument"])).is_err());
-        assert!(parse(&strings(&["pane", "current", "run", "echo ok"])).is_err());
+        assert!(
+            parse(
+                &strings(&["pane", "current", "run", "--", "", "argument"]),
+                super::super::Surface::CmuxTui
+            )
+            .is_err()
+        );
+        assert!(
+            parse(&strings(&["pane", "current", "run", "echo ok"]), super::super::Surface::CmuxTui)
+                .is_err()
+        );
     }
 
     #[test]
@@ -4126,15 +4020,20 @@ mod tests {
             let default = protocol(&[scope[0], scope[1], "run", "--", "true"]);
             assert!(default.params.get("on_exit").is_none());
 
-            let shell_policy =
-                parse(&strings(&[scope[0], scope[1], "run", "--on-exit", "shell", "--", "true"]));
+            let shell_policy = parse(
+                &strings(&[scope[0], scope[1], "run", "--on-exit", "shell", "--", "true"]),
+                super::super::Surface::CmuxTui,
+            );
             assert!(
                 shell_policy.is_err_and(|error| error.to_string().contains("not supported yet")),
                 "--on-exit shell must be a typed not-yet-supported usage error"
             );
             assert!(
-                parse(&strings(&[scope[0], scope[1], "run", "--on-exit", "sh", "--", "true"]))
-                    .is_err()
+                parse(
+                    &strings(&[scope[0], scope[1], "run", "--on-exit", "sh", "--", "true"]),
+                    super::super::Surface::CmuxTui
+                )
+                .is_err()
             );
         }
     }
@@ -4160,14 +4059,25 @@ mod tests {
         assert_eq!(resumed.params["max_bytes"], 65536);
 
         assert!(
-            parse(&strings(&["terminal", TERMINAL, "output", "read", "--after", "-1"])).is_err()
+            parse(
+                &strings(&["terminal", TERMINAL, "output", "read", "--after", "-1"]),
+                super::super::Surface::CmuxTui
+            )
+            .is_err()
         );
         assert!(
-            parse(&strings(&["terminal", TERMINAL, "output", "read", "--max-bytes", "0"])).is_err()
+            parse(
+                &strings(&["terminal", TERMINAL, "output", "read", "--max-bytes", "0"]),
+                super::super::Surface::CmuxTui
+            )
+            .is_err()
         );
         assert!(
-            parse(&strings(&["terminal", TERMINAL, "output", "read", "--max-bytes", "4194305"]))
-                .is_err()
+            parse(
+                &strings(&["terminal", TERMINAL, "output", "read", "--max-bytes", "4194305"]),
+                super::super::Surface::CmuxTui
+            )
+            .is_err()
         );
     }
 
@@ -4177,39 +4087,46 @@ mod tests {
         const BROWSER: &str = "browser_00000000000000000000000000000009";
 
         assert!(
-            parse(&strings(&[
-                "terminal", TERMINAL, "mouse", "down", "--row", "1", "--column", "1",
-            ]))
+            parse(
+                &strings(&["terminal", TERMINAL, "mouse", "down", "--row", "1", "--column", "1",]),
+                super::super::Surface::CmuxTui
+            )
             .is_err()
         );
         assert!(
-            parse(&strings(&[
-                "terminal",
-                TERMINAL,
-                "mouse",
-                "wheel",
-                "--row",
-                "1",
-                "--column",
-                "1",
-                "--delta-rows",
-                "0",
-            ]))
+            parse(
+                &strings(&[
+                    "terminal",
+                    TERMINAL,
+                    "mouse",
+                    "wheel",
+                    "--row",
+                    "1",
+                    "--column",
+                    "1",
+                    "--delta-rows",
+                    "0",
+                ]),
+                super::super::Surface::CmuxTui
+            )
             .is_err()
         );
         assert!(
-            parse(&strings(&[
-                "terminal",
-                TERMINAL,
-                "mouse",
-                "move",
-                "--row",
-                "1",
-                "--column",
-                "1",
-                "--modifiers",
-                "super",
-            ]))
+            parse(
+                &strings(&[
+                    "terminal",
+                    TERMINAL,
+                    "mouse",
+                    "move",
+                    "--row",
+                    "1",
+                    "--column",
+                    "1",
+                    "--modifiers",
+                    "super",
+                ]),
+                super::super::Surface::CmuxTui
+            )
             .is_err()
         );
         let meta = protocol(&[
@@ -4227,36 +4144,48 @@ mod tests {
         assert_eq!(meta.params["modifiers"], json!(["meta"]));
 
         assert!(
-            parse(&strings(&[
-                "browser", BROWSER, "mouse", "--kind", "down", "--x-px", "1", "--y-px", "1",
-            ]))
+            parse(
+                &strings(&[
+                    "browser", BROWSER, "mouse", "--kind", "down", "--x-px", "1", "--y-px", "1",
+                ]),
+                super::super::Surface::CmuxTui
+            )
             .is_err()
         );
         assert!(
-            parse(&strings(&[
-                "browser", BROWSER, "mouse", "--kind", "move", "--x-px", "1", "--y-px", "1",
-                "--button", "left",
-            ]))
+            parse(
+                &strings(&[
+                    "browser", BROWSER, "mouse", "--kind", "move", "--x-px", "1", "--y-px", "1",
+                    "--button", "left",
+                ]),
+                super::super::Surface::CmuxTui
+            )
             .is_err()
         );
         assert!(
-            parse(&strings(&[
-                "browser",
-                BROWSER,
-                "wheel",
-                "--delta-x",
-                "0",
-                "--delta-y",
-                "1",
-                "--x-px",
-                "1",
-            ]))
+            parse(
+                &strings(&[
+                    "browser",
+                    BROWSER,
+                    "wheel",
+                    "--delta-x",
+                    "0",
+                    "--delta-y",
+                    "1",
+                    "--x-px",
+                    "1",
+                ]),
+                super::super::Surface::CmuxTui
+            )
             .is_err()
         );
         assert!(
-            parse(&strings(&[
-                "browser", BROWSER, "mouse", "--kind", "move", "--x-px", "1", "--y-px", "1",
-            ]))
+            parse(
+                &strings(&[
+                    "browser", BROWSER, "mouse", "--kind", "move", "--x-px", "1", "--y-px", "1",
+                ]),
+                super::super::Surface::CmuxTui
+            )
             .is_err()
         );
         let guarded = protocol(&[
@@ -4274,21 +4203,24 @@ mod tests {
         ]);
         assert_eq!(guarded.params["pointer_frame_seq"], "18446744073709551615");
         assert!(
-            parse(&strings(&[
-                "browser",
-                BROWSER,
-                "wheel",
-                "--delta-x",
-                "0",
-                "--delta-y",
-                "1",
-                "--x-px",
-                "1",
-                "--y-px",
-                "1",
-                "--pointer-frame-seq",
-                "18446744073709551616",
-            ]))
+            parse(
+                &strings(&[
+                    "browser",
+                    BROWSER,
+                    "wheel",
+                    "--delta-x",
+                    "0",
+                    "--delta-y",
+                    "1",
+                    "--x-px",
+                    "1",
+                    "--y-px",
+                    "1",
+                    "--pointer-frame-seq",
+                    "18446744073709551616",
+                ]),
+                super::super::Surface::CmuxTui
+            )
             .is_err()
         );
     }
@@ -4297,7 +4229,10 @@ mod tests {
     fn idempotency_is_only_for_mutations() {
         let mutation = protocol(&["workspace", "create"]);
         assert_eq!(mutation.operation.class(), OperationClass::Mutation);
-        let read = parse(&strings(&["workspace", "list", "--idempotency-key", "no"]));
+        let read = parse(
+            &strings(&["workspace", "list", "--idempotency-key", "no"]),
+            super::super::Surface::CmuxTui,
+        );
         assert!(read.is_err());
     }
 
@@ -4305,7 +4240,11 @@ mod tests {
     fn explicit_idempotency_keys_match_the_durable_identifier_contract() {
         for invalid in ["", " ", "\u{00a0}\u{3000}", "key\ncontrol", &"\u{00e9}".repeat(65)] {
             assert!(
-                parse(&strings(&["workspace", "create", "--idempotency-key", invalid])).is_err(),
+                parse(
+                    &strings(&["workspace", "create", "--idempotency-key", invalid]),
+                    super::super::Surface::CmuxTui
+                )
+                .is_err(),
                 "accepted invalid idempotency key {invalid:?}"
             );
         }
@@ -4340,15 +4279,10 @@ mod tests {
         assert_eq!(defaults.params["palette"], Value::Null);
 
         assert!(
-            parse(&strings(&[
-                "client",
-                CLIENT,
-                "metadata",
-                "set",
-                "--name",
-                "cli",
-                "--clear-name",
-            ]))
+            parse(
+                &strings(&["client", CLIENT, "metadata", "set", "--name", "cli", "--clear-name",]),
+                super::super::Surface::CmuxTui
+            )
             .is_err()
         );
     }
@@ -4365,8 +4299,11 @@ mod tests {
     #[test]
     fn wrong_resource_id_prefix_is_rejected_locally() {
         assert!(
-            parse(&strings(&["workspace", "pane_33333333333333333333333333333333", "show",]))
-                .is_err()
+            parse(
+                &strings(&["workspace", "pane_33333333333333333333333333333333", "show",]),
+                super::super::Surface::CmuxTui
+            )
+            .is_err()
         );
     }
 
@@ -4390,16 +4327,19 @@ mod tests {
         }
         for noncanonical in ["running", "waiting", "error"] {
             assert!(
-                parse(&strings(&[
-                    "agent",
-                    "report",
-                    "--terminal",
-                    TERMINAL,
-                    "--state",
-                    noncanonical,
-                    "--source",
-                    "socket",
-                ]))
+                parse(
+                    &strings(&[
+                        "agent",
+                        "report",
+                        "--terminal",
+                        TERMINAL,
+                        "--state",
+                        noncanonical,
+                        "--source",
+                        "socket",
+                    ]),
+                    super::super::Surface::CmuxTui
+                )
                 .is_err(),
                 "accepted noncanonical agent state {noncanonical:?}"
             );
@@ -4409,11 +4349,10 @@ mod tests {
     #[test]
     fn old_hyphenated_action_is_not_a_nested_selector() {
         assert!(
-            parse(&strings(&[
-                "terminal",
-                "term_55555555555555555555555555555555",
-                "history-clear",
-            ]))
+            parse(
+                &strings(&["terminal", "term_55555555555555555555555555555555", "history-clear",]),
+                super::super::Surface::CmuxTui
+            )
             .is_err()
         );
     }
@@ -4422,7 +4361,7 @@ mod tests {
     fn sensitive_renderer_grant_has_no_public_path() {
         for scope in ["terminal", "tab", "client"] {
             let args = strings(&[scope, "renderer", "grant", "create"]);
-            assert!(parse(&args).is_err());
+            assert!(parse(&args, super::super::Surface::CmuxTui).is_err());
         }
         let raw = protocol(&[
             "raw",
@@ -4458,7 +4397,9 @@ mod tests {
         ];
         let mut seen = std::collections::BTreeSet::new();
         for (args, operation) in cases {
-            let CommandPlan::Plugin(plan) = parse(&strings(&args)).unwrap() else {
+            let CommandPlan::Plugin(plan) =
+                parse(&strings(&args), super::super::Surface::CmuxTui).unwrap()
+            else {
                 panic!("{operation} did not stay local");
             };
             assert!(!plan.positionals.is_empty());
@@ -4492,7 +4433,9 @@ mod tests {
             (vec!["agent", "plugin", "use", "--builtin"], true),
         ];
         for (args, builtin) in cases {
-            let CommandPlan::Plugin(plan) = parse(&strings(&args)).unwrap() else {
+            let CommandPlan::Plugin(plan) =
+                parse(&strings(&args), super::super::Surface::CmuxTui).unwrap()
+            else {
                 panic!("agent plugin command did not stay local: {args:?}");
             };
             assert_eq!(plan.kind, crate::plugin_manager::PluginKind::Agent);
@@ -4500,792 +4443,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn every_safe_transport_operation_has_a_noun_first_path() {
-        const MACHINE: &str = "machine_00000000000000000000000000000001";
-        const SESSION: &str = "session_00000000000000000000000000000002";
-        const CLIENT: &str = "client_00000000000000000000000000000003";
-        const WORKSPACE: &str = "ws_00000000000000000000000000000004";
-        const SCREEN: &str = "screen_00000000000000000000000000000005";
-        const PANE: &str = "pane_00000000000000000000000000000006";
-        const TAB: &str = "tab_00000000000000000000000000000007";
-        const TERMINAL: &str = "term_00000000000000000000000000000008";
-        const BROWSER: &str = "browser_00000000000000000000000000000009";
-        const PAIRING: &str = "pairing_0000000000000000000000000000000b";
-        const PROJECTION: &str = "projection_0000000000000000000000000000000c";
-        const VIEW: &str = "sidebar_view_0000000000000000000000000000000d";
-
-        let cases: Vec<(Vec<&str>, &str)> = vec![
-            (vec!["machine", "list"], "machine.list"),
-            (vec!["machine", MACHINE, "show"], "machine.get"),
-            (vec!["machine", MACHINE, "session", "list"], "session.list"),
-            (vec!["machine", MACHINE, "session", SESSION, "open"], "session.open"),
-            (vec!["session", SESSION, "show"], "session.get"),
-            (vec!["session", SESSION, "snapshot"], "session.snapshot"),
-            (
-                vec!["session", SESSION, "creation", "create-42", "resolve"],
-                "session.creation.resolve",
-            ),
-            (
-                vec!["session", SESSION, "events", "--generation", "g1", "--revision", "3"],
-                "session.events",
-            ),
-            (
-                vec![
-                    "session",
-                    SESSION,
-                    "journal",
-                    "read",
-                    "--from",
-                    "beginning",
-                    "--kinds",
-                    "pane.*,tab.focus",
-                ],
-                "session.journal.subscribe",
-            ),
-            (
-                vec!["session", SESSION, "journal", "producer", "list"],
-                "session.journal.producer.list",
-            ),
-            (
-                vec![
-                    "session",
-                    SESSION,
-                    "journal",
-                    "producer",
-                    "put",
-                    "--manifest-json",
-                    r#"{"producer_id":"demo","namespace":"plugin.demo"}"#,
-                ],
-                "session.journal.producer.put",
-            ),
-            (
-                vec![
-                    "session",
-                    SESSION,
-                    "journal",
-                    "append",
-                    "--event-json",
-                    r#"{"producer_id":"demo","payload":{"ready":true}}"#,
-                ],
-                "session.journal.append",
-            ),
-            (vec!["session", SESSION, "journal", "hook", "list"], "session.journal.hook.list"),
-            (
-                vec![
-                    "session",
-                    SESSION,
-                    "journal",
-                    "hook",
-                    "put",
-                    "--manifest-json",
-                    r#"{"hook_id":"demo_hook","manifest_version":1}"#,
-                ],
-                "session.journal.hook.put",
-            ),
-            (
-                vec!["session", SESSION, "journal", "checkpoint", "create"],
-                "session.journal.checkpoint.create",
-            ),
-            (
-                vec!["session", SESSION, "journal", "checkpoint", "list"],
-                "session.journal.checkpoint.list",
-            ),
-            (
-                vec!["session", SESSION, "journal", "restore", "preview", "--checkpoint", "latest"],
-                "session.journal.restore.preview",
-            ),
-            (
-                vec!["session", SESSION, "journal", "segment", "list"],
-                "session.journal.segment.list",
-            ),
-            (
-                vec!["session", SESSION, "journal", "segment", "seal", "--through", "42"],
-                "session.journal.segment.seal",
-            ),
-            (vec!["session", SESSION, "ping"], "session.ping"),
-            (vec!["session", SESSION, "shutdown", "--force"], "session.shutdown"),
-            (vec!["session", SESSION, "config", "reload"], "session.reload_config"),
-            (
-                vec![
-                    "session",
-                    SESSION,
-                    "terminal",
-                    "defaults",
-                    "set",
-                    "--foreground",
-                    "#ffffff",
-                    "--background",
-                    "#000000",
-                    "--cursor",
-                    "#aaaaaa",
-                    "--selection-background",
-                    "#111111",
-                    "--selection-foreground",
-                    "#eeeeee",
-                    "--cursor-style",
-                    "bar",
-                    "--cursor-blink",
-                    "true",
-                    "--palette",
-                    "{\"0\":\"#000000\",\"255\":\"#ffffff\"}",
-                    "--complete",
-                ],
-                "session.terminal_defaults.update",
-            ),
-            (vec!["client", "list"], "client.list"),
-            (vec!["client", CLIENT, "show"], "client.get"),
-            (
-                vec!["client", CLIENT, "metadata", "set", "--name", "cli", "--kind", "automation"],
-                "client.metadata.update",
-            ),
-            (
-                vec![
-                    "client",
-                    CLIENT,
-                    "sizing",
-                    "set",
-                    "--terminal",
-                    TERMINAL,
-                    "--enabled",
-                    "true",
-                    "--exclusive",
-                    "true",
-                ],
-                "client.sizing.set",
-            ),
-            (
-                vec!["client", CLIENT, "sizing", "release", "--terminal", TERMINAL],
-                "client.sizing.release",
-            ),
-            (
-                vec![
-                    "client",
-                    CLIENT,
-                    "cell",
-                    "pixels",
-                    "set",
-                    "--width-px",
-                    "8",
-                    "--height-px",
-                    "16",
-                ],
-                "client.cell_pixels.set",
-            ),
-            (vec!["client", CLIENT, "detach"], "client.detach"),
-            (
-                vec!["session", SESSION, "window", "title", "set", "--title", "build"],
-                "session.window.title.set",
-            ),
-            (vec!["session", SESSION, "window", "title", "clear"], "session.window.title.clear"),
-            (vec!["pairing", "request", "list"], "pairing_request.list"),
-            (vec!["pairing", "request", PAIRING, "respond", "accept"], "pairing_request.resolve"),
-            (vec!["projection", PROJECTION, "show"], "frontend_projection.get"),
-            (
-                vec![
-                    "projection",
-                    PROJECTION,
-                    "put",
-                    "--projection",
-                    "{\"sidebar\":\"compact\"}",
-                    "--frontend-id",
-                    "cmux-cli",
-                    "--window-id",
-                    "window-1",
-                    "--generation",
-                    "launch-1",
-                    "--expected-projection-revision",
-                    "7",
-                ],
-                "frontend_projection.put",
-            ),
-            (vec!["workspace", "list"], "workspace.list"),
-            (vec!["workspace", WORKSPACE, "show"], "workspace.get"),
-            (
-                vec![
-                    "workspace",
-                    "create",
-                    "--empty",
-                    "--name",
-                    "empty",
-                    "--correlation-key",
-                    "create-42",
-                ],
-                "workspace.create",
-            ),
-            (vec!["workspace", WORKSPACE, "rename", "--name", "api"], "workspace.rename"),
-            (vec!["workspace", WORKSPACE, "move", "--index", "2"], "workspace.move"),
-            (vec!["workspace", WORKSPACE, "focus"], "workspace.focus"),
-            (vec!["workspace", WORKSPACE, "close"], "workspace.close"),
-            (
-                vec![
-                    "workspace",
-                    WORKSPACE,
-                    "run",
-                    "--cwd",
-                    "/tmp",
-                    "--name",
-                    "tests",
-                    "--cols",
-                    "100",
-                    "--rows",
-                    "40",
-                    "--on-exit",
-                    "keep",
-                    "--correlation-key",
-                    "create-42",
-                    "--",
-                    "cargo",
-                    "test",
-                ],
-                "workspace.run",
-            ),
-            (
-                vec!["workspace", WORKSPACE, "layout", "apply", "--layout", "{\"kind\":\"leaf\"}"],
-                "workspace.layout.apply",
-            ),
-            (vec!["screen", "list"], "screen.list"),
-            (vec!["screen", SCREEN, "show"], "screen.get"),
-            (
-                vec!["screen", "create", "--name", "build", "--correlation-key", "create-42"],
-                "screen.create",
-            ),
-            (vec!["screen", SCREEN, "rename", "--name", "tests"], "screen.rename"),
-            (vec!["screen", SCREEN, "focus"], "screen.focus"),
-            (vec!["screen", SCREEN, "close"], "screen.close"),
-            (vec!["screen", SCREEN, "layout", "export"], "screen.layout.export"),
-            (
-                vec![
-                    "screen",
-                    SCREEN,
-                    "layout",
-                    "undo",
-                    "--confirm-close",
-                    "--confirmation-token",
-                    "layout-preview-token",
-                ],
-                "screen.layout.undo",
-            ),
-            (vec!["pane", "list"], "pane.list"),
-            (vec!["pane", PANE, "show"], "pane.get"),
-            (
-                vec![
-                    "pane",
-                    "create",
-                    "--cwd",
-                    "/tmp",
-                    "--cols",
-                    "80",
-                    "--rows",
-                    "24",
-                    "--correlation-key",
-                    "create-42",
-                ],
-                "pane.create",
-            ),
-            (
-                vec![
-                    "pane",
-                    PANE,
-                    "split",
-                    "--right",
-                    "--ratio",
-                    "0.5",
-                    "--viewport-width",
-                    "0.5",
-                    "--cwd",
-                    "/tmp",
-                    "--cols",
-                    "80",
-                    "--rows",
-                    "24",
-                    "--correlation-key",
-                    "create-42",
-                ],
-                "pane.split",
-            ),
-            (vec!["pane", PANE, "rename", "--name", "server"], "pane.rename"),
-            (vec!["pane", PANE, "focus"], "pane.focus"),
-            (vec!["pane", PANE, "focus", "direction", "right"], "pane.focus_direction"),
-            (vec!["pane", PANE, "neighbor", "left"], "pane.neighbor.get"),
-            (
-                vec![
-                    "pane",
-                    PANE,
-                    "swap",
-                    "--other-workspace",
-                    WORKSPACE,
-                    "--other-screen",
-                    SCREEN,
-                    "--other-pane",
-                    PANE,
-                ],
-                "pane.swap",
-            ),
-            (vec!["pane", PANE, "zoom", "--enabled", "true"], "pane.zoom"),
-            (
-                vec![
-                    "pane",
-                    PANE,
-                    "split",
-                    "ratio",
-                    "set",
-                    "--split",
-                    "split_0000000000000000000000000000000f",
-                    "--ratio",
-                    "0.5",
-                ],
-                "pane.split_ratio.set",
-            ),
-            (
-                vec!["pane", PANE, "viewport", "width", "set", "--columns", "80"],
-                "pane.viewport_width.set",
-            ),
-            (vec!["pane", PANE, "close"], "pane.close"),
-            (
-                vec![
-                    "pane",
-                    PANE,
-                    "run",
-                    "--cwd",
-                    "/tmp",
-                    "--name",
-                    "make",
-                    "--cols",
-                    "90",
-                    "--rows",
-                    "30",
-                    "--on-exit",
-                    "keep",
-                    "--correlation-key",
-                    "create-42",
-                    "--",
-                    "make",
-                    "test",
-                ],
-                "pane.run",
-            ),
-            (vec!["tab", "list"], "tab.list"),
-            (vec!["tab", TAB, "show"], "tab.get"),
-            (
-                vec![
-                    "tab",
-                    "create",
-                    "terminal",
-                    "--cwd",
-                    "/tmp",
-                    "--name",
-                    "shell",
-                    "--cols",
-                    "80",
-                    "--rows",
-                    "24",
-                    "--correlation-key",
-                    "create-42",
-                ],
-                "tab.create_terminal",
-            ),
-            (
-                vec![
-                    "tab",
-                    "create",
-                    "browser",
-                    "--url",
-                    "https://example.com",
-                    "--name",
-                    "docs",
-                    "--width-px",
-                    "1200",
-                    "--height-px",
-                    "800",
-                    "--correlation-key",
-                    "create-42",
-                ],
-                "tab.create_browser",
-            ),
-            (
-                vec![
-                    "tab",
-                    TAB,
-                    "rename",
-                    "--name",
-                    "logs",
-                    "--source",
-                    "auto",
-                    "--expected-generation",
-                    "daemon",
-                    "--expected-name-revision",
-                    "0",
-                ],
-                "tab.rename",
-            ),
-            (
-                vec![
-                    "tab",
-                    TAB,
-                    "move",
-                    "--workspace",
-                    WORKSPACE,
-                    "--screen",
-                    SCREEN,
-                    "--pane",
-                    PANE,
-                    "--index",
-                    "0",
-                ],
-                "tab.move",
-            ),
-            (vec!["tab", TAB, "focus"], "tab.focus"),
-            (vec!["tab", TAB, "close"], "tab.close"),
-            (vec!["terminal", "list"], "terminal.list"),
-            (vec!["terminal", TERMINAL, "show"], "terminal.get"),
-            (vec!["terminal", TERMINAL, "write", "--text", "hello"], "terminal.input.write"),
-            (vec!["terminal", TERMINAL, "keys", "ctrl-c"], "terminal.input.keys"),
-            (
-                vec![
-                    "terminal",
-                    TERMINAL,
-                    "mouse",
-                    "down",
-                    "--row",
-                    "4",
-                    "--column",
-                    "7",
-                    "--button",
-                    "left",
-                    "--modifiers",
-                    "shift,meta",
-                ],
-                "terminal.input.mouse",
-            ),
-            (vec!["terminal", TERMINAL, "focus", "in"], "terminal.input.focus"),
-            (vec!["terminal", TERMINAL, "screen", "read"], "terminal.screen.read"),
-            (vec!["terminal", TERMINAL, "state", "read"], "terminal.state.read"),
-            (
-                vec![
-                    "terminal", TERMINAL, "history", "read", "--before", "0", "--limit", "100",
-                    "--styled",
-                ],
-                "terminal.history.read",
-            ),
-            (vec!["terminal", TERMINAL, "history", "clear"], "terminal.history.clear"),
-            (
-                vec![
-                    "terminal",
-                    TERMINAL,
-                    "output",
-                    "read",
-                    "--after",
-                    "4096",
-                    "--max-bytes",
-                    "65536",
-                ],
-                "terminal.output_read",
-            ),
-            (
-                vec![
-                    "terminal",
-                    TERMINAL,
-                    "screen",
-                    "wait",
-                    "--pattern",
-                    "ready",
-                    "--timeout-ms",
-                    "5000",
-                ],
-                "terminal.wait",
-            ),
-            (vec!["terminal", TERMINAL, "copy", "--mode", "screen"], "terminal.copy"),
-            (vec!["terminal", TERMINAL, "process", "show"], "terminal.process.get"),
-            (
-                vec!["terminal", TERMINAL, "process", "wait", "--timeout-ms", "5000"],
-                "terminal.wait_exit",
-            ),
-            (
-                vec!["terminal", TERMINAL, "viewport", "scroll", "--delta-rows", "-3"],
-                "terminal.viewport.scroll",
-            ),
-            (
-                vec![
-                    "terminal",
-                    TERMINAL,
-                    "move",
-                    "--workspace",
-                    WORKSPACE,
-                    "--screen",
-                    SCREEN,
-                    "--pane",
-                    PANE,
-                    "--index",
-                    "1",
-                ],
-                "terminal.move",
-            ),
-            (
-                vec![
-                    "terminal",
-                    TERMINAL,
-                    "project",
-                    "--workspace",
-                    WORKSPACE,
-                    "--screen",
-                    SCREEN,
-                    "--pane",
-                    PANE,
-                    "--index",
-                    "1",
-                    "--name",
-                    "mirror",
-                ],
-                "terminal.project",
-            ),
-            (
-                vec![
-                    "terminal",
-                    TERMINAL,
-                    "attach",
-                    "--cols",
-                    "100",
-                    "--rows",
-                    "40",
-                    "--read-only",
-                ],
-                "terminal.attach",
-            ),
-            (vec!["terminal", TERMINAL, "close"], "terminal.close"),
-            (vec!["browser", "list"], "browser.list"),
-            (vec!["browser", BROWSER, "show"], "browser.get"),
-            (
-                vec!["browser", BROWSER, "navigate", "--url", "https://example.com"],
-                "browser.navigate",
-            ),
-            (vec!["browser", BROWSER, "back"], "browser.back"),
-            (vec!["browser", BROWSER, "forward"], "browser.forward"),
-            (vec!["browser", BROWSER, "reload"], "browser.reload"),
-            (vec!["browser", BROWSER, "activate"], "browser.activate"),
-            (
-                vec![
-                    "browser",
-                    BROWSER,
-                    "key",
-                    "--key",
-                    "Enter",
-                    "--kind",
-                    "press",
-                    "--modifiers",
-                    "shift,meta",
-                ],
-                "browser.input.key",
-            ),
-            (vec!["browser", BROWSER, "text", "--text", "hello"], "browser.input.text"),
-            (
-                vec![
-                    "browser",
-                    BROWSER,
-                    "mouse",
-                    "--kind",
-                    "down",
-                    "--x-px",
-                    "10",
-                    "--y-px",
-                    "20",
-                    "--button",
-                    "left",
-                    "--click-count",
-                    "2",
-                    "--pointer-frame-seq",
-                    "42",
-                ],
-                "browser.input.mouse",
-            ),
-            (
-                vec![
-                    "browser",
-                    BROWSER,
-                    "wheel",
-                    "--delta-x",
-                    "1",
-                    "--delta-y",
-                    "120",
-                    "--x-px",
-                    "10",
-                    "--y-px",
-                    "20",
-                    "--pointer-frame-seq",
-                    "42",
-                ],
-                "browser.input.wheel",
-            ),
-            (
-                vec!["browser", BROWSER, "attach", "--width-px", "1200", "--height-px", "800"],
-                "browser.attach",
-            ),
-            (vec!["browser", BROWSER, "close"], "browser.close"),
-            (vec!["notification", "list", "--limit", "100"], "notification.list"),
-            (
-                vec![
-                    "notification",
-                    "create",
-                    "--subtitle",
-                    "api",
-                    "--title",
-                    "done",
-                    "--body",
-                    "tests passed",
-                    "--level",
-                    "success",
-                    "--terminal",
-                    TERMINAL,
-                ],
-                "notification.create",
-            ),
-            (vec!["agent", "list", "--terminal", TERMINAL, "--state", "working"], "agent.list"),
-            (
-                vec![
-                    "agent",
-                    "report",
-                    "--terminal",
-                    TERMINAL,
-                    "--state",
-                    "working",
-                    "--source",
-                    "socket",
-                    "--source-session",
-                    "job-1",
-                ],
-                "agent.report",
-            ),
-            (vec!["sidebar", "view", "show", "--view", VIEW], "sidebar_view.get"),
-            (
-                vec!["sidebar", "view", "ensure", "--cols", "30", "--rows", "40", "--relaunch"],
-                "sidebar_view.ensure",
-            ),
-            (vec!["sidebar", "view", "attach", "--view", VIEW], "sidebar_view.attach"),
-            (vec!["sidebar", "view", "input", "--view", VIEW, "--text", "j"], "sidebar_view.input"),
-            (
-                vec!["sidebar", "view", "resize", "--view", VIEW, "--cols", "30", "--rows", "40"],
-                "sidebar_view.resize",
-            ),
-            (vec!["sidebar", "view", "reload", "--view", VIEW], "sidebar_view.reload"),
-            (
-                vec![
-                    "notification",
-                    "ack",
-                    "notification_00000000000000000000000000000041",
-                    "--client",
-                    "mac-1",
-                ],
-                "notification.ack",
-            ),
-            (
-                vec![
-                    "notification",
-                    "clear",
-                    "--terminal",
-                    "term_00000000000000000000000000000041",
-                ],
-                "notification.clear",
-            ),
-        ];
-
-        assert_eq!(cases.len(), 120);
-        let catalog = operation_catalog();
-        assert_eq!(catalog["operations"].as_object().unwrap().len(), 127);
-        let mut seen = std::collections::BTreeSet::new();
-        let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
-        for (args, expected) in &cases {
-            let plan = protocol(args);
-            assert_eq!(operation(&plan), *expected, "{args:?}");
-            assert_plan_matches_catalog(&plan, expected, &catalog);
-            assert!(seen.insert(*expected), "duplicate operation case {expected}");
-            record_covered_fields(&plan, expected, &catalog, &mut covered_fields);
-
-            if catalog["operations"][expected]["params"]["fields"]["expected_revision"].is_object()
-            {
-                let mut with_revision = args.clone();
-                let insert_at = with_revision
-                    .iter()
-                    .position(|value| *value == "--")
-                    .unwrap_or(with_revision.len());
-                with_revision.splice(insert_at..insert_at, ["--expected-revision", "7"]);
-                let revised = protocol(&with_revision);
-                assert_eq!(
-                    revised.params["expected_revision"], "7",
-                    "{expected} did not expose optimistic concurrency"
-                );
-                assert_plan_matches_catalog(&revised, expected, &catalog);
-                record_covered_fields(&revised, expected, &catalog, &mut covered_fields);
-            }
-        }
-        for (args, expected) in [
-            (vec!["workspace", WORKSPACE, "run", "shell", "printf ok"], "workspace.run"),
-            (vec!["pane", PANE, "run", "shell", "printf ok"], "pane.run"),
-            (
-                vec![
-                    "session",
-                    SESSION,
-                    "journal",
-                    "subscribe",
-                    "--cursor-session",
-                    SESSION,
-                    "--sequence",
-                    "42",
-                ],
-                "session.journal.subscribe",
-            ),
-            (vec!["terminal", TERMINAL, "write", "--bytes-base64", "AA=="], "terminal.input.write"),
-            (
-                vec![
-                    "terminal",
-                    TERMINAL,
-                    "mouse",
-                    "wheel",
-                    "--row",
-                    "4",
-                    "--column",
-                    "7",
-                    "--delta-rows",
-                    "-2",
-                ],
-                "terminal.input.mouse",
-            ),
-        ] {
-            let plan = protocol(&args);
-            record_covered_fields(&plan, expected, &catalog, &mut covered_fields);
-        }
-        let expected = catalog["operations"]
-            .as_object()
-            .unwrap()
-            .keys()
-            .filter(|name| {
-                !matches!(
-                    name.as_str(),
-                    "browser.viewer.release"
-                        | "browser.viewer.resize"
-                        | "request.cancel"
-                        | "stream.cancel"
-                        | "terminal.renderer_grant.create"
-                        | "terminal.viewer.release"
-                        | "terminal.viewer.resize"
-                )
-            })
-            .map(String::as_str)
-            .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(seen, expected, "safe CLI operation coverage drifted from the catalog");
-        for operation in &expected {
-            let catalog_fields = catalog["operations"][operation]["params"]["fields"]
-                .as_object()
-                .unwrap()
-                .keys()
-                .cloned()
-                .collect::<std::collections::BTreeSet<_>>();
-            assert_eq!(
-                covered_fields.get(operation).cloned().unwrap_or_default(),
-                catalog_fields,
-                "{operation} has catalog fields with no exercised CLI representation"
-            );
-        }
-    }
+    mod transport_path_coverage_tests;
 
     fn record_covered_fields<'a>(
         plan: &RequestPlan,

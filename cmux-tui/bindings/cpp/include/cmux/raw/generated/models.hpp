@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "4a59825cd43eedde1d1abef1833d07e90af4b64773ad9eacd346e4966b461d4c";
+inline constexpr std::string_view kProtocolIrSha256 = "9db25213cb8861aa38070472e063471f073e76674033258697acacca8a4398b7";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -273,6 +273,7 @@ struct MoveWorkspaceRequest;
 struct MoveWorkspaceGroupRequest;
 struct MoveWorkspaceToGroupRequest;
 struct NewBrowserTabRequest;
+struct NewConversationTabRequest;
 struct NewFrontendBrowserTabRequest;
 struct NewPaneRequest;
 struct NewPaneRightRequest;
@@ -2066,6 +2067,7 @@ enum class TabBrowserStatus {
 enum class TabKind {
     pty,
     browser,
+    conversation,
 };
 
 struct Tab {
@@ -2361,10 +2363,23 @@ struct NewBrowserTabRequest {
     friend bool operator==(const NewBrowserTabRequest&, const NewBrowserTabRequest&) = default;
 };
 
+struct NewConversationTabRequest {
+    Field<std::uint16_t> cols{};
+    std::string conversation{};
+    Field<std::string> mutation_id{};
+    Field<std::string> origin{};
+    std::string owner{};
+    Field<Id> pane{};
+    Field<std::uint16_t> rows{};
+    Field<Id> workspace{};
+    friend bool operator==(const NewConversationTabRequest&, const NewConversationTabRequest&) = default;
+};
+
 struct NewFrontendBrowserTabRequest {
     Field<std::uint16_t> cols{};
     std::string engine{};
     Field<std::string> favicon_url{};
+    Field<std::string> owner{};
     Field<Id> pane{};
     Field<std::string> profile_id{};
     Field<std::uint16_t> rows{};
@@ -3717,6 +3732,7 @@ struct UpdateBrowserProfileRequest {
 
 struct UpdateFrontendBrowserTabRequest {
     Field<std::string> favicon_url{};
+    Field<std::string> owner{};
     Id surface{};
     Field<std::string> title{};
     Field<std::string> url{};
@@ -5470,6 +5486,12 @@ template <>
 struct Codec<NewBrowserTabRequest> {
     static Result<Json> encode(const NewBrowserTabRequest& value);
     static Result<NewBrowserTabRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<NewConversationTabRequest> {
+    static Result<Json> encode(const NewConversationTabRequest& value);
+    static Result<NewConversationTabRequest> decode(const Json& value);
 };
 
 template <>

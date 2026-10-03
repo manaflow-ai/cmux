@@ -3,9 +3,9 @@
 
 A string catalog is one large JSON object keyed by string id. Two branches that
 each add a different key collide positionally even though the keys are disjoint,
-because both insertions land in the same region of the file. On
-Resources/Localizable.xcstrings (~6,700 entries) that produced 42 conflict
-hunks in a single pull request, none of them a semantic disagreement.
+because both insertions land in the same region of the file. On the former
+app string catalog (~6,700 entries) that produced 42 conflict hunks in a single
+pull request, none of them a semantic disagreement.
 
 This driver merges per key instead of per line. It is deliberately conservative:
 when the same key is changed on both sides it exits non-zero after materializing

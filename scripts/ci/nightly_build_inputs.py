@@ -9,9 +9,8 @@ Reusing that classifier keeps one definition of an app build input.
 
 The pull-request question is narrower than this one, though: `release_build`
 asks whether a change needs a Release *compile*, and the router excuses paths
-that ship in the bundle without being compiled -- `CLI/`, whose product is
-copied into the app, and the `Resources/bin` scripts -- because a dedicated
-lane covers each. So the bundled paths are read back out of the Xcode project
+that ship in the bundle without being compiled, such as the `Resources/bin`
+scripts. So the bundled paths are read back out of the Xcode project
 here rather than listed by hand, and a new bundled resource cannot become
 skippable by being added somewhere this file does not know about.
 
@@ -88,7 +87,11 @@ def bundled_paths(root: Path) -> frozenset[str]:
     # elsewhere cannot resolve every one of its phase identifiers.
     phases: dict[str, str] = {}
     for section in ("PBXCopyFilesBuildPhase", "PBXResourcesBuildPhase"):
-        phases.update(detect._pbx_objects(detect._pbx_section(project, section)))
+        body = detect._pbx_section(project, section)
+        # The copy-files section is empty since the target stopped copying the
+        # Swift CLI product; an empty section has no phase to read.
+        if body.strip():
+            phases.update(detect._pbx_objects(body))
     build_files = detect._pbx_objects(detect._pbx_section(project, "PBXBuildFile"))
     references = detect._pbx_objects(detect._pbx_section(project, "PBXFileReference"))
     paths: set[str] = set()
@@ -154,7 +157,7 @@ def is_pull_request_ci_config(path: str) -> bool:
 
 
 def _reaches_the_app(areas: detect.ChangeAreas) -> bool:
-    return areas.release_build or areas.cli
+    return areas.release_build
 
 
 def build_inputs_changed(paths: list[str], root: Path = ROOT) -> tuple[bool, str]:
@@ -180,9 +183,6 @@ def build_inputs_changed(paths: list[str], root: Path = ROOT) -> tuple[bool, str
         candidates.append(path)
     if not candidates:
         return False, "only pull-request CI configuration changed"
-    # `cli` covers the cmux-cli target, whose product the cmux target copies
-    # into the bundle; a CLI-only change ships without needing a Release
-    # compile, which is the only thing `release_build` answers.
     if not _reaches_the_app(detect.classify_files(candidates)):
         return False, "no changed path reaches the app the Nightly publishes"
     named = next(

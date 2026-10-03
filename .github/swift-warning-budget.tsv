@@ -1,5 +1,3 @@
 # cmux-owned Swift warning budget.
 # Format: count<TAB>relative path<TAB>warning message
 # Reduce counts when warnings are fixed. CI fails if new warnings exceed this budget.
-1	CLI/cmux.swift	literal value is already handled by previous pattern; consider removing it
-2	CLI/cmux.swift	variable 'groups' was never mutated; consider changing to 'let' constant

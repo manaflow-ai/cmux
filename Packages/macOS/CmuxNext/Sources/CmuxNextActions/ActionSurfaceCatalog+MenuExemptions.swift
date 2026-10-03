@@ -77,7 +77,7 @@ nonisolated extension ActionSurfaceCatalog {
             "checklistAttachImages", "cloudExec",
         ],
         .focusMove: [
-            "showHideAllWindows", "goToWorkspace", "showMainWindow", "nextSidebarTab", "prevSidebarTab",
+            "showHideAllWindows", "goToWorkspace", "showMainWindow", "tab.focus", "nextSidebarTab", "prevSidebarTab",
             "nextSidebarTabInGroup", "prevSidebarTabInGroup", "selectWorkspaceByNumber", "workspace.selectFirst",
             "workspace.selectLast", "workspace.selectLastUsed", "space.next", "space.previous", "space.selectByNumber",
             "space.switch", "focusLeft", "focusRight", "focusUp", "focusDown", "focusPreviousPane", "focusNextPane",
@@ -105,6 +105,7 @@ nonisolated extension ActionSurfaceCatalog {
             "browser.extension.remove", "browser.extension.command", "palette.attemptUpdate",
         ],
         .liveInput: [
+            "browserLinkHints", "browserLinkHintsNewSplit",
             "palette.toggleDictation",
             "toggleTerminalCopyMode", "palette.terminalToggleTextBoxInput", "cycleTextBoxSubmitAction",
             "attachTextBoxFile", "sendCtrlFToTerminal", "pasteLastScreenshot", "find", "findInDirectory", "findNext",

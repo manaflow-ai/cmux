@@ -28,15 +28,32 @@ extension ControlRouter {
                 guard let self else { throw Self.stopped }
                 return try await self.runAction(call)
             }.withDeadline(.perRequest { request, snapshot in
-                // Only a run that awaits its work waits for the terminal.
-                request.params["wait"]?.boolValue == true
+                // Only a run that awaits its work (the default) waits for the terminal.
+                (request.params["wait"]?.boolValue ?? true)
                     && ((try? Self.resolveAction(request.params, in: snapshot.catalog))?.startsTerminal ?? false)
-            }).withLimit { request, snapshot in
+            }).claimingProgress().withLimit { request, snapshot in
                 // A network action the caller awaits (Connect to CodeRouter).
                 guard request.params["wait"]?.boolValue == true,
                       (try? Self.resolveAction(request.params, in: snapshot.catalog))?.waitsForResult == true else { return nil }
                 return ActionDescriptor.resultDeadline
             },
+            // `cmux tab <id> focus` (state-ownership.md 3): runs the
+            // `tab.focus` action on the tab, with action.run's contract.
+            .async("tab.focus") { [weak self] call in
+                guard let self else { throw Self.stopped }
+                guard let tab = (call.params["tab"] ?? call.params["id"])?.stringValue, !tab.isEmpty else {
+                    throw ControlError.invalidParams(ControlStrings.format("control.error.missingParam", "%1$@ requires params.%2$@", "tab.focus", "tab"))
+                }
+                var params = call.params
+                params["tab"] = nil
+                params["id"] = nil
+                params["cli"] = nil
+                params["action"] = "tab.focus"
+                params["target"] = .string("tab:" + tab)
+                let request = ControlRequest(id: call.request.id, method: call.method, params: params)
+                return try await self.runAction(ControlCall(request: request, snapshot: call.snapshot, connection: call.connection,
+                                                            deadline: call.deadline, progress: call.progress))
+            }.claimingProgress(),
             .async("settings.get") { [weak self] call in
                 guard let self else { throw Self.stopped }
                 return try await self.settingsGet(call)
@@ -62,6 +79,7 @@ extension ControlRouter {
             .snapshot("snapshot.get") { call in
                 let snapshot = call.snapshot
                 return [
+                    "sequence": JSONValue.number(Double(snapshot.topology.daemonSequence)),
                     "generation": JSONValue(Int(truncatingIfNeeded: snapshot.generation)),
                     "published_uptime_ns": .number(Double(snapshot.publishedAtUptimeNanos)),
                     "tab_count": JSONValue(snapshot.topology.tabCount),
@@ -109,66 +127,7 @@ extension ControlRouter {
         ]
     }
 
-    // MARK: - action.run
-
-    /// Runs the target resolver over the target and every target argument.
-    private func resolvedTargets(_ request: ControlActionRequest, deadline: ContinuousClock.Instant) async throws -> ControlActionRequest {
-        guard let resolver = targetResolver else { return request }
-        var resolved = request
-        if let target = request.target { resolved.target = try await resolver(target, deadline) }
-        for (name, value) in request.arguments {
-            if case .target(let ref) = value { resolved.arguments[name] = .target(try await resolver(ref, deadline)) }
-        }
-        return resolved
-    }
-
-    private func runAction(_ call: ControlCall) async throws -> JSONValue {
-        let catalog = call.snapshot.catalog
-        let action = try Self.resolveAction(call.params, in: catalog)
-        let request = try await resolvedTargets(
-            Self.validatedRequest(for: action, params: call.params, knownKinds: catalog.targetKinds), deadline: call.deadline)
-        guard catalog.isAvailable(action, target: request.target) || action.unavailableReason != nil else {
-            throw ControlError(code: "unavailable", message: ControlStrings.format("control.error.actionNotAvailableInContext", "%@ is not available in the current context", action.id), data: [
-                "action": .string(action.id), "requires": .array(action.requires.map(JSONValue.string)),
-            ])
-        }
-        if action.isDestructive, request.arguments["confirm"] != .bool(true) {
-            throw Self.confirmationRequired(action.id)
-        }
-        let executor = self.executor
-        // `wait: true` answers after the daemon applied the work the handler
-        // started (its command replies), within the request deadline.
-        let wait = call.params["wait"]?.boolValue ?? false
-        let run = try await workQueue.run(connection: call.connection, method: call.method, deadline: call.deadline) {
-            wait ? executor.performActionTracked(request) : ControlActionRun(outcome: executor.performAction(request))
-        }
-        switch run.outcome {
-        case .ran:
-            if let failure = await Self.firstFailure(of: run.work) {
-                throw Self.workError(failure, action: action.id, method: call.method)
-            }
-            var result: [String: JSONValue] = [
-                "action": .string(action.id),
-                "ran": true,
-                "waited": .bool(wait),
-                "args": .object(request.arguments.mapValues(\.json)),
-            ]
-            if let target = request.target { result["target"] = target.json }
-            return .object(result)
-        case .unknownAction:
-            throw ControlError(code: "not_found", message: ControlStrings.format("control.error.unknownAction", "Unknown action '%@'", action.id))
-        case .notBound:
-            throw ControlError(code: "not_bound", message: ControlStrings.format("control.error.actionNotBound", "%@ has no handler in this build", action.id), data: ["action": .string(action.id)])
-        case .unavailable:
-            throw ControlError(code: "unavailable", message: ControlStrings.format("control.error.actionNotAvailableInContext", "%@ is not available in the current context", action.id), data: ["action": .string(action.id)])
-        case .disabled:
-            throw ControlError(code: "disabled", message: ControlStrings.format("control.error.actionDisabled", "%@ is disabled right now", action.id), data: ["action": .string(action.id)])
-        case .refused(let reason):
-            throw ControlError(code: "unavailable", message: ControlStrings.format("control.error.actionUnavailableReason", "%1$@ unavailable: %2$@", action.id, reason), data: ["action": .string(action.id), "reason": .string(reason)])
-        case .confirmationRequired:
-            throw Self.confirmationRequired(action.id)
-        }
-    }
+    // MARK: - action.run (ControlRouter+ActionRun)
 
     /// The first failure among an action's work tasks, after all finished.
     static func firstFailure(of work: [ActionWork]) async -> ActionWorkFailure? {
@@ -181,10 +140,18 @@ extension ControlRouter {
 
     /// The control error for failed action work. A terminal start that
     /// missed its deadline is a `timeout` that says the terminal may still
-    /// appear; anything else is a `daemon_error`.
+    /// appear; a command whose reply missed its deadline is a `timeout` that
+    /// says it may still apply; anything else is a `daemon_error`.
     static func workError(_ failure: ActionWorkFailure, action: String, method: String) -> ControlError {
         guard failure.terminalMayAppear else {
-            return ControlError(code: "daemon_error", message: failure.message, data: ["action": .string(action)])
+            guard failure.mayHaveApplied else {
+                return ControlError(code: "daemon_error", message: failure.message, data: ["action": .string(action)])
+            }
+            // The command's reply missed its deadline: it may still apply.
+            var error = ControlError.timeout(method, after: .zero)
+            error.message = failure.message
+            error.data = ["action": .string(action), "detail": .string(failure.message)]
+            return error
         }
         var error = ControlError.terminalStartTimeout(method, after: TerminalStartDeadline.daemon)
         if case .object(var members) = error.data {

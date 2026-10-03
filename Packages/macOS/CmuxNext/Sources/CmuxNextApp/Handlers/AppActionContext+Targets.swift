@@ -35,6 +35,13 @@ extension AppActionContext {
         return nil
     }
 
+    /// An explicit target that names nothing (`not_found` on the socket).
+    @discardableResult
+    func notFound<T>(_ reason: String) -> T? {
+        registry.refuseNotFound(reason)
+        return nil
+    }
+
     /// Statement form: `guard ... else { return ctx.refuse("why") }`.
     func refuse(_ reason: String) {
         registry.refuse(reason)
@@ -96,7 +103,7 @@ extension AppActionContext {
     /// The targeted daemon tab, found in any workspace (shown or not).
     func daemonTab(_ invocation: ActionInvocation) -> (tab: TabModel, pane: PaneModel)? {
         if let target = explicitTarget(invocation, kinds: [.tab]) {
-            return services.locateTab(target.id) ?? refuse(RefusalStrings.noTab(target.id))
+            return services.locateTab(target.id) ?? notFound(RefusalStrings.noTab(target.id))
         }
         guard let (pane, id) = tab(invocation) else { return nil }
         guard let tab = pane.tab(id) else { return refuse(RefusalStrings.sessionLocalTab(id.rawValue)) }
@@ -107,7 +114,7 @@ extension AppActionContext {
     func daemonPane(_ invocation: ActionInvocation) -> PaneModel? {
         if let target = explicitTarget(invocation, kinds: [.pane]) {
             let panes = services.activeDaemon.store.workspaces.flatMap(\.screens).flatMap(\.panes)
-            return panes.first { $0.id == target.id } ?? refuse(RefusalStrings.noPaneID(target.id))
+            return panes.first { $0.id == target.id } ?? notFound(RefusalStrings.noPaneID(target.id))
         }
         if explicitTarget(invocation, kinds: [.tab]) != nil { return daemonTab(invocation)?.pane }
         return paneController(invocation)?.pane
@@ -116,7 +123,7 @@ extension AppActionContext {
     /// The daemon workspace named by a `workspace` argument.
     func workspaceArgument(_ invocation: ActionInvocation) -> WorkspaceModel? {
         guard let ref = invocation["workspace"]?.targetValue else { return refuse(RefusalStrings.workspaceArgumentRequired) }
-        return services.workspace(id: ref.id) ?? refuse(RefusalStrings.noWorkspace(ref.id))
+        return services.workspace(id: ref.id) ?? notFound(RefusalStrings.noWorkspace(ref.id))
     }
 
     /// The focused window's workspace content, required for layout actions.

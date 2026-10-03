@@ -1,5 +1,8 @@
 # Upgrading running Cloud machines
 
+> **CLI note (2026-09-30):** the Mac-side `cmux vm push`, `vm pull` and exec verbs named
+> below were removed in the Rust CLI cutover.
+
 A cmux Cloud machine keeps the software its image baked for its whole life.
 Nothing on the guest updates itself, so every change to guest software, the
 daemon's command line, or the attach contract reaches only machines created
