@@ -41,7 +41,7 @@ const realClock: Clock = {
   now: () => Date.now(),
 };
 
-/** A daemon request that got no answer within the request timeout. */
+/** A daemon or acpmux request that got no answer within the request timeout. */
 export class RequestTimeoutError extends Error {}
 
 export interface HostOptions {
@@ -71,7 +71,7 @@ export interface HostOptions {
   backoff?: { initialMs: number; maxMs: number };
   /** Timers for request timeouts and the outbox retry (default: real timers). */
   clock?: Clock;
-  /** How long one daemon request may take before the connection counts as lost (default 30 s). */
+  /** How long one daemon or acpmux request (not a prompt) may take before its connection counts as lost (default 30 s). */
   requestTimeoutMs?: number;
 }
 
@@ -248,6 +248,8 @@ export class MuxHost {
         (effect.port === "daemon" ? daemon : acpmux)?.close();
         return;
       case "prompt": {
+        // No request deadline: a prompt settles when its turn ends, which has no
+        // bound. A lost connection settles it (resent on the next connect).
         const session = this.core.state.muxSessionId;
         if (!acpmux || !session) return;
         acpmux
@@ -260,15 +262,14 @@ export class MuxHost {
       }
       case "fetch_sessions":
         if (!acpmux) return;
-        void acpmux.sessions().then(
+        void this.timed(acpmux, "acpmux", "sessions", acpmux.sessions()).then(
           (sessions) => this.feed({ kind: "sessions", sessions }),
           () => this.feed({ kind: "sessions", sessions: [], failed: true }),
         );
         return;
       case "fetch_child_events":
         if (!acpmux) return;
-        void acpmux
-          .events(effect.session_id, effect.after)
+        void this.timed(acpmux, "acpmux", "events", acpmux.events(effect.session_id, effect.after))
           .catch(() => [] as AcpmuxEvent[])
           .then((events) => this.feed({ kind: "child_events", session_id: effect.session_id, events }));
         return;
@@ -277,7 +278,7 @@ export class MuxHost {
     switch (effect.kind) {
       case "conversation_op":
         try {
-          const result = await this.timed(daemon, "op", daemon.op({
+          const result = await this.timed(daemon, "daemon", "op", daemon.op({
             conversation: effect.conversation,
             idempotency_key: effect.idempotency_key,
             actor: AGENT_MUX,
@@ -292,16 +293,16 @@ export class MuxHost {
         return;
       case "typing":
         try {
-          await this.timed(daemon, "typing", daemon.typing(effect.conversation, AGENT_MUX, effect.on));
+          await this.timed(daemon, "daemon", "typing", daemon.typing(effect.conversation, AGENT_MUX, effect.on));
         } catch (error) {
           this.log(`typing ${effect.on ? "on" : "off"} failed: ${String(error)}`);
         }
         return;
       case "list_conversations":
-        this.read(daemon, undefined, this.timed(daemon, "list", daemon.list()), (conversations) => ({ kind: "conversations_listed", conversations }));
+        this.read(daemon, undefined, this.timed(daemon, "daemon", "list", daemon.list()), (conversations) => ({ kind: "conversations_listed", conversations }));
         return;
       case "fetch_snapshot":
-        this.read(daemon, effect.conversation, this.timed(daemon, "snapshot", daemon.snapshot(effect.conversation, effect.tail)), ({ conversation, messages }) => ({
+        this.read(daemon, effect.conversation, this.timed(daemon, "daemon", "snapshot", daemon.snapshot(effect.conversation, effect.tail)), ({ conversation, messages }) => ({
           kind: "snapshot",
           conversation,
           messages,
@@ -311,19 +312,14 @@ export class MuxHost {
         this.read(
           daemon,
           effect.conversation,
-          this.timed(daemon, "history", daemon.history(effect.conversation, effect.before_seq, effect.limit)),
+          this.timed(daemon, "daemon", "history", daemon.history(effect.conversation, effect.before_seq, effect.limit)),
           (messages) => ({ kind: "history", conversation: effect.conversation, messages }),
         );
         return;
     }
   }
 
-  /**
-   * A daemon request bounded by the request timeout. A timeout counts as a
-   * lost connection: the connection is dropped (the core sees
-   * `disconnected {daemon}`) and the reconnect retries; one stuck request
-   * cannot block the serial effect queue.
-   */
+  /** How long one daemon or acpmux request may take (default 30 s). */
   private get requestTimeoutMs(): number {
     return this.options.requestTimeoutMs ?? 30_000;
   }
@@ -378,13 +374,21 @@ export class MuxHost {
     });
   }
 
-  private timed<T>(daemon: DaemonClient, what: string, request: Promise<T>): Promise<T> {
+  /**
+   * A daemon or acpmux request bounded by the request timeout. A timeout
+   * counts as a lost connection: that connection is dropped (the core sees
+   * `disconnected`), the request fails, and the reconnect retries. One stuck
+   * daemon request cannot block the serial effect queue; a stuck acpmux read
+   * cannot leave a child finish or a permission waiting forever. Prompts have
+   * no deadline (their turn has no bound).
+   */
+  private timed<T>(client: { close(): void }, port: "daemon" | "acpmux", what: string, request: Promise<T>): Promise<T> {
     const ms = this.requestTimeoutMs;
     return new Promise<T>((resolve, reject) => {
       const timer = this.clock.setTimeout(() => {
-        this.log(`daemon ${what} got no answer in ${ms} ms; reconnecting`);
+        this.log(`${port} ${what} got no answer in ${ms} ms; reconnecting`);
         reject(new RequestTimeoutError(`${what} timed out`));
-        daemon.close();
+        client.close();
       }, ms);
       request.then(
         (value) => {
@@ -437,6 +441,7 @@ export class MuxHost {
     try {
       const { conversation } = await this.timed(
         daemon,
+        "daemon",
         "create",
         daemon.create({
           idempotency_key: DEFAULT_CONVERSATION_KEY,
@@ -447,7 +452,7 @@ export class MuxHost {
       );
       // Read at every connect: the app mints a new token on each launch.
       const token = typeof this.options.agentToken === "function" ? this.options.agentToken() : this.options.agentToken;
-      if (token) await this.timed(daemon, "bind", daemon.bind(AGENT_MUX, token));
+      if (token) await this.timed(daemon, "daemon", "bind", daemon.bind(AGENT_MUX, token));
       this.daemon = daemon;
       this.log(`daemon connected (${daemon.identity.app ?? "?"} ${daemon.identity.version ?? ""}); conversation ${conversation.id}`);
       this.upAt.set("daemon", this.clock.now());
