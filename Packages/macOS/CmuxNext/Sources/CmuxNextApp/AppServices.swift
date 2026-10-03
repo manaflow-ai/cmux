@@ -17,6 +17,8 @@ final class AppServices {
     let environment: AppEnvironment
     /// Each window's last sidebar, drawn before the daemon answers.
     let sidebarSnapshots: SidebarSnapshotStore
+    /// Launch load-in by region; tests inject one with their own clock.
+    var launchReveal = LaunchReveal.shared
     /// Run marker, restart notice, crash reports (`debug.crashes`).
     let crashRecovery: CrashRecoveryService
     /// The local daemon. Cloud machines are in `machines`; code acting on a
