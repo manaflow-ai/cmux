@@ -79,12 +79,14 @@ const loadBundle = async (env: Env, team: string, ref: CodeRef): Promise<string>
 
 /**
  * The marker module: the harness imports it before the tenant bundle, so it holds the
- * runtime's own console.log before any tenant module code runs. Tenant code can still
+ * runtime's own console.log before any tenant module code runs. It calls that bound native
+ * function with fixed arguments (no spread, no apply), so a patched iterator or prototype
+ * cannot change the line. Tenant code can still
  * log lines that look like a marker, but not before the harness's first line of an
  * invocation, and the tail reads only that first line (automation-tail.ts).
  */
 const MARKER_MODULE = `const log = console.log.bind(console);
-export const mark = (...a) => log(...a);
+export const mark = (run, automation, invocation) => log(${JSON.stringify(RUN_MARKER)}, run, automation, invocation);
 `
 
 /**
@@ -98,7 +100,7 @@ import * as tenant from "./tenant.js";
 const Tenant = tenant[${JSON.stringify(exportName)}];
 export class CmuxHarness extends WorkerEntrypoint {
   async run(meta, event, step) {
-    mark(${JSON.stringify(RUN_MARKER)}, meta.run, meta.automation, meta.invocation);
+    mark(meta.run, meta.automation, meta.invocation);
     if (typeof Tenant !== "function") throw new Error("the export is not a WorkflowEntrypoint class");
     return new Tenant(this.ctx, this.env).run(event, step);
   }

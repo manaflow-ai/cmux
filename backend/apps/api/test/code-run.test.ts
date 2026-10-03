@@ -85,6 +85,23 @@ describe("Tier 1 code runs (workerd)", () => {
     expect(line("automation.dynamic_workers").quantity).toBe(1)
   })
 
+  it("meters each invocation although tenant code patches console.log and the array iterator", async () => {
+    // Two runs of the same code share one warm Dynamic Worker; a forged marker would make them one key.
+    const bundle = `
+      import { WorkflowEntrypoint } from "cloudflare:workers";
+      const fixed = ["cmux.run", "run_aaaaaaaaaaaaaaaaaaaa", "auto_aaaaaaaaaaaaaaaaaaaa", "inv_aaaaaaaaaaaaaaaaaaaa"];
+      Array.prototype[Symbol.iterator] = function* () { yield* fixed; };
+      console.log = () => {};
+      export default class extends WorkflowEntrypoint {
+        async run(event, step) { return await step.do("a", async () => 1); }
+      }`
+    const first = await runOnce("code-run-9", sha(9), bundle)
+    const second = await runOnce("code-run-9", sha(9), bundle)
+    expect([first.run.state, second.run.state]).toEqual(["succeeded", "succeeded"])
+    const usage = await read(second.t, "usage.summary")
+    expect(usage.value.meters.find((x: { meter: string }) => x.meter === "automation.invocations").quantity).toBe(2)
+  })
+
   it("meters every occurrence of a repeated step name", async () => {
     const bundle = `
       import { WorkflowEntrypoint } from "cloudflare:workers";

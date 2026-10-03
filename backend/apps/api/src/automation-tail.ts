@@ -26,9 +26,11 @@ interface Marker {
 /**
  * The invocation the harness's first log line names (code-run.ts). Only the first log
  * line of an invocation counts; every field must be one of our id shapes, so a usage
- * key never holds free text. Tenant code shares the isolate and could, at worst, make
- * one of its own invocations reuse another one's marker; the ledger then counts it
- * once, which under-counts and never over-counts.
+ * key never holds free text. The harness writes that line with a console.log captured
+ * before the tenant bundle loads, called with fixed arguments. Tenant code could at
+ * most put a line ahead of it from module evaluation (if the runtime attributes those
+ * logs to the first invocation of an isolate): that one invocation then carries a
+ * made-up marker or none, which counts once or not at all, never twice.
  */
 const markerOf = (message: unknown): Marker | undefined => {
   const m = message as ReadonlyArray<unknown> | undefined
