@@ -282,3 +282,43 @@ import Testing
         #expect(view.rowHost.menu(at: CGPoint(x: 2, y: last.bubble.midY)) == nil)
     }
 }
+
+@MainActor
+@Suite struct HomeSelectionTests {
+    /// A drag from the first to the last of three messages selects all
+    /// three, top to bottom, and draws one highlight. (Copy is not run: the
+    /// user's clipboard stays.)
+    @Test func dragAcrossRowsSelectsEveryMessageItMeets() throws {
+        let me = ParticipantID("user_me")
+        let id = ConversationID("conv_select")
+        let start = Date(timeIntervalSince1970: 1_790_000_000)
+        var messages: [Message] = []
+        for i in 1...3 {
+            let parts: [MessagePart] = [.text("Part \(i)")]
+            let author: ParticipantID = i == 2 ? me : ParticipantID("agent_chief")
+            let message = Message(id: MessageID("msg_\(i)"), conversation: id, seq: Seq(i), clientMessageID: IdempotencyKey("key_\(i)"),
+                                  author: author, parts: parts, createdAt: start.addingTimeInterval(TimeInterval(i) * 30))
+            messages.append(message)
+        }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 628, height: 700), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let view = HomeNativeTranscriptView(conversation: id, me: me)
+        window.contentView = view
+        view.layoutSubtreeIfNeeded()
+        let items = CmuxHomeCore.TranscriptWindow(messages: messages).items(pending: [], me: me)
+        view.controller.update(items: items, summary: nil, typing: [], hasOlder: false)
+        view.layoutSubtreeIfNeeded()
+        let hits = view.controller.hits(in: view.bounds)
+        #expect(hits.count == 3)
+        let first = try #require(hits.first)
+        let last = try #require(hits.last)
+        view.rowHost.dragSelect(from: CGPoint(x: first.bubble.midX, y: first.bubble.midY),
+                                to: CGPoint(x: last.bubble.midX, y: last.bubble.midY))
+        #expect(view.rowHost.selection.map(\.text) == ["Part 1", "Part 2", "Part 3"])
+        #expect(view.rowHost.selectedText == "Part 1\n\nPart 2\n\nPart 3")
+        #expect(view.rowHost.selectionLayer.path != nil)
+        #expect(view.rowHost.acceptsFirstResponder)
+    }
+}
