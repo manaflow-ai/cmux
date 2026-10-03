@@ -177,6 +177,14 @@ final class NewMachineSheetDataCache {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 guard !Task.isCancelled else { continuation.resume(); return }
                 waiters[id] = continuation
+                // The refresh task can finish between refresh() above and
+                // waiter registration. Re-check readiness so that completion
+                // cannot leave Cmd-Y waiting forever for an answer that already
+                // arrived.
+                if readyData != nil {
+                    resumeWaiter(id)
+                    return
+                }
                 if let limit {
                     let clock = clock
                     waiterDeadlines[id] = Task { @MainActor [weak self] in

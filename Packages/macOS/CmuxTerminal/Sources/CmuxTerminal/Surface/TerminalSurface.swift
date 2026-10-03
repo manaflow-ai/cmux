@@ -732,6 +732,16 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         agentCommandShimCompletionTask?.cancel()
         retireSurfaceRegistryRegistrationIfNeeded()
         markPortalLifecycleClosed(reason: "deinit")
+        // Mirror teardownSurface: release an unconsumed agent-hibernation
+        // reservation so the bounded slot is not stranded (#15652). The
+        // admission state is main-actor isolated and deinit is not.
+        if let hibernationReservation = agentHibernationRuntimeTeardownReservation {
+            agentHibernationRuntimeTeardownReservation = nil
+            let coordinator = runtimeTeardown
+            Task { @MainActor in
+                coordinator.cancelIsolatedHibernationTeardown(hibernationReservation)
+            }
+        }
         // Mirror closeHeadlessStartupWindowIfNeeded: deinit is nonisolated, so
         // the NSWindow teardown hops to the main actor through the same kind of
         // @unchecked Sendable transport the runtime teardown request uses. The
