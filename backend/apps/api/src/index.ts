@@ -29,7 +29,7 @@ export { UserDO } from "./user-do.ts"
  * out of the URL and logs). The Worker authenticates and passes the principal
  * to the owner DO; frames never carry identity.
  */
-const wire = async (request: Request, env: Env, scope: string, conversation?: string): Promise<Response> => {
+const wire = async (request: Request, env: Env, scope: string, conversation?: string /* or agent for mux */): Promise<Response> => {
   const protocols = (request.headers.get("Sec-WebSocket-Protocol") ?? "").split(",").map((s) => s.trim())
   const token = protocols.find((p) => p.startsWith("bearer."))?.slice("bearer.".length)
   const authed = await authenticate(env, token)
@@ -46,7 +46,9 @@ const wire = async (request: Request, env: Env, scope: string, conversation?: st
           ? [env.FEED_DO, principal.user]
           : scope === "conv"
             ? [env.CONVERSATION_DO, conversation]
-            : [undefined, undefined]
+            : scope === "mux"
+              ? [env.MUX_DO, conversation]
+              : [undefined, undefined]
   if (!ns || !entity) return new Response("not found", { status: 404 })
   const headers = new Headers(request.headers)
   headers.set("x-cmux-entity", entity)
@@ -78,6 +80,9 @@ export default {
     // Home (E5): one socket per conversation; the ConversationDO admits current participants only.
     const conv = url.pathname.match(/^\/v1\/wire\/conv\/(conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26})$/)
     if (conv && request.headers.get("Upgrade") === "websocket") return wire(request, env, "conv", conv[1]!)
+    // A chief's wake queue (mux:<agent>): the chief's agent token or its owner; install_kind is resolved.
+    const mux = url.pathname.match(/^\/v1\/wire\/mux\/(agent_[A-Za-z0-9_.-]{1,64})$/)
+    if (mux && request.headers.get("Upgrade") === "websocket") return wire(request, env, "mux", mux[1]!)
     // Home invite links: anonymous; the card answers only for open invites, the preview only with the secret.
     const card = url.pathname.match(/^\/v1\/invites\/card\/([dg][0-9A-HJKMNP-TV-Z]{26})$/)
     if (card && request.method === "GET") return handleInviteCard(env, card[1]!)

@@ -222,6 +222,15 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           }
         }
         // Home: conversations are keyed by the op's params, inbox ops run on UserDO's second stream (home-routes.ts).
+        // A chief's MuxDO is keyed by its agent id; the principal carries install_kind (withGrantClasses).
+        if (def.owner === "cloud:MuxDO") {
+          const p = yield* principalFor(def.owner, principal)
+          const agent = (payload.params as { agent?: unknown } | null)?.agent
+          if (typeof agent !== "string") return yield* new BadRequest({ code: "validation.invalid", message: `${payload.op} needs an agent` })
+          const stub = env.MUX_DO.get(env.MUX_DO.idFromName(agent)) as unknown as OwnerStub
+          const mux = yield* Effect.tryPromise({ try: () => rpc<SubmitResult>(stub.submit(agent, p, { t: "op", ...frame })), catch: unreachable })
+          return toResponse(payload.op, mux.frames)
+        }
         if (def.owner === "cloud:ConversationDO" || payload.op.startsWith("inbox.")) {
           const p = yield* principalFor(def.owner, principal)
           const home = yield* Effect.tryPromise({
