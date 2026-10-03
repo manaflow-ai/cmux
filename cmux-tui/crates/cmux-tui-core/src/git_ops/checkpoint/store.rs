@@ -264,7 +264,7 @@ impl Drop for Scratch {
 }
 
 /// `<prefix>_<32 lowercase hex digits>` from the system's random source.
-pub(super) fn mint(prefix: &str) -> String {
+pub(in crate::git_ops) fn mint(prefix: &str) -> String {
     let mut bytes = [0_u8; 16];
     if getrandom::fill(&mut bytes).is_err() {
         // Unique enough for a scratch name or an id when the random source
@@ -281,7 +281,7 @@ pub(super) fn well_formed(prefix: &str, id: &str) -> bool {
     })
 }
 
-pub(super) fn hex(bytes: &[u8]) -> String {
+pub(in crate::git_ops) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
@@ -290,7 +290,7 @@ pub(super) fn io_failed(operation: &'static str, error: &io::Error) -> ResourceE
     refused(operation, "store_failed", message, Value::Null)
 }
 
-fn private_directory(path: &Path) -> io::Result<()> {
+pub(in crate::git_ops) fn private_directory(path: &Path) -> io::Result<()> {
     let mut builder = fs::DirBuilder::new();
     builder.recursive(true);
     #[cfg(unix)]
@@ -307,7 +307,7 @@ fn private_directory(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> io::Result<Option<T>> {
+pub(in crate::git_ops) fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> io::Result<Option<T>> {
     match fs::read(path) {
         Ok(bytes) => serde_json::from_slice(&bytes)
             .map(Some)
@@ -319,7 +319,7 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> io::Result<Option<T
 
 /// Writes a temporary file beside `path` (0600), syncs it and renames it
 /// over `path`, so a reader sees the old or the new contents.
-fn write_json(path: &Path, value: &impl Serialize) -> io::Result<()> {
+pub(in crate::git_ops) fn write_json(path: &Path, value: &impl Serialize) -> io::Result<()> {
     let bytes = serde_json::to_vec(value).map_err(io::Error::other)?;
     let directory = path.parent().ok_or_else(|| io::Error::other("no parent directory"))?;
     let temporary = directory.join(format!(".{}.tmp", mint("write")));

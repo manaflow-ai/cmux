@@ -305,6 +305,10 @@
       "scope": "git:write",
       "class": "mutation"
     },
+    "git.commit": {
+      "scope": "git:write",
+      "class": "mutation"
+    },
     "git.diff": {
       "scope": "git:read",
       "class": "read"
@@ -312,6 +316,10 @@
     "git.files.search": {
       "scope": "git:read",
       "class": "read"
+    },
+    "git.push": {
+      "scope": "git:write",
+      "class": "mutation"
     },
     "git.status": {
       "scope": "git:read",

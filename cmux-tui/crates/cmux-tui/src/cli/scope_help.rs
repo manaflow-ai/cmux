@@ -25,6 +25,10 @@ USAGE
   cmux git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
   cmux git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch]
     [--max-patch-bytes <n>] [--max-files <n>]
+  cmux git commit [TARGET] --message <text> [--all [--include-untracked]] [--amend]
+    [--no-verify] [--expected-head <commit>] [<path>...]
+  cmux git push [TARGET] [--remote <name>] [--branch <name>]
+    [--set-upstream | --no-set-upstream] [--expected-head <commit>]
 
 TARGET
   --path <path>          A file or folder in the repository
@@ -62,6 +66,13 @@ the first result; get --key recovers it. Checkpoints expire after 7 days unless
 pinned; pins beginning handoff: or restore: belong to cmux. checkpoint diff
 lists what changed from one checkpoint to a later one, or to the working tree
 now when <to> is left out, in the shape of diff.
+
+commit and push run git as in your terminal, with your hooks, identity and
+credentials, but never prompt and stop after 120 s. commit commits the named
+paths, every tracked change with --all (and untracked files with
+--include-untracked), or else the index as it is. push pushes the branch's
+commit to the branch of the same name, never forced, and sets its upstream
+when it has none. --expected-head refuses when HEAD moved since you read it.
 ";
 
 /// Levenshtein distance, for "did you mean" scope suggestions.

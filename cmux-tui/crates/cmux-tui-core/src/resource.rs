@@ -212,10 +212,14 @@ pub enum ResourceOperation {
     GitCheckpointPin,
     #[serde(rename = "git.checkpoint.unpin")]
     GitCheckpointUnpin,
+    #[serde(rename = "git.commit")]
+    GitCommit,
     #[serde(rename = "git.diff")]
     GitDiff,
     #[serde(rename = "git.files.search")]
     GitFilesSearch,
+    #[serde(rename = "git.push")]
+    GitPush,
     #[serde(rename = "git.status")]
     GitStatus,
     #[serde(rename = "workspace.list")]

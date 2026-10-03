@@ -213,3 +213,56 @@ fn git_files_joins_the_query_and_takes_a_limit() {
     assert!(rejects(&["git", "files"]).contains("git action"), "a query is required");
     assert!(rejects(&["git", "files", "--limit", "201", "x"]).contains("--limit"));
 }
+
+#[test]
+fn git_commit_names_a_message_and_what_to_stage() {
+    assert_eq!(
+        sent(&["git", "commit", "--path", "/repo", "--message", "Fix", "a.rs", "b/"]),
+        ("git.commit".into(), json!({"path": "/repo", "message": "Fix", "paths": ["a.rs", "b/"]}))
+    );
+    assert_eq!(
+        sent(&[
+            "git",
+            "commit",
+            "--path",
+            "/repo",
+            "--message",
+            "Fix",
+            "--all",
+            "--include-untracked",
+            "--no-verify",
+            "--expected-head",
+            "abc1234",
+        ]),
+        (
+            "git.commit".into(),
+            json!({
+                "path": "/repo",
+                "message": "Fix",
+                "all": true,
+                "include_untracked": true,
+                "no_verify": true,
+                "expected_head": "abc1234",
+            })
+        )
+    );
+    assert!(rejects(&["git", "commit", "--path", "/repo"]).contains("--message"));
+    assert!(rejects(&["git", "commit", "--message", "m", "--all", "a.rs"]).contains("not both"));
+    assert!(rejects(&["git", "commit", "--message", "m", "--include-untracked"]).contains("--all"));
+}
+
+#[test]
+fn git_push_names_a_remote_branch_and_upstream_choice() {
+    assert_eq!(
+        sent(&["git", "push", "--path", "/repo"]),
+        ("git.push".into(), json!({"path": "/repo"}))
+    );
+    assert_eq!(
+        sent(&["git", "push", "--path", "/repo", "--remote", "fork", "--set-upstream"]),
+        ("git.push".into(), json!({"path": "/repo", "remote": "fork", "set_upstream": true}))
+    );
+    assert!(
+        rejects(&["git", "push", "--set-upstream", "--no-set-upstream"]).contains("not both")
+    );
+    assert!(rejects(&["git", "push", "--force"]).contains("--force"));
+}

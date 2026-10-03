@@ -7332,6 +7332,151 @@
       },
       "extra": false
     },
+    "GitCommitResult": {
+      "kind": "object",
+      "fields": {
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "commit": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 4,
+            "max_length": 64
+          }
+        },
+        "branch": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "Absent when HEAD is detached."
+        },
+        "parent": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 4,
+            "max_length": 64
+          },
+          "description": "The first parent, absent for a root commit."
+        },
+        "summary": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The commit's subject line."
+        },
+        "files_changed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "additions": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "deletions": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        }
+      },
+      "extra": false
+    },
+    "GitPushResult": {
+      "kind": "object",
+      "fields": {
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "remote": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "branch": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "upstream": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The pushed branch, for example origin/main."
+        },
+        "pushed_commit": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 4,
+            "max_length": 64
+          }
+        },
+        "previous_remote_commit": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 4,
+            "max_length": 64
+          },
+          "description": "The remote branch's commit before a fast-forward; absent for a new branch or an up-to-date push."
+        },
+        "created_upstream": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The push set the branch's upstream."
+        },
+        "up_to_date": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The remote already had the commit; nothing was sent."
+        }
+      },
+      "extra": false
+    },
     "GitStatusResult": {
       "kind": "object",
       "fields": {
@@ -10366,6 +10511,131 @@
         "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory, store_failed or git_failed; extra.message explains it."
       ]
     },
+    "git.commit": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "message": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 65536
+            },
+            "description": "The commit message, at most 64 KiB, used as given apart from git's whitespace cleanup (a line starting with # stays)."
+          },
+          "paths": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1
+              },
+              "max_items": 5000
+            },
+            "description": "Commit exactly these files or folders as they are in the working tree, relative to the root and literal (never pathspec magic). They are staged first, so new files can be named; other staged changes stay staged and out of the commit."
+          },
+          "all": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "Commit every tracked change, like git commit -a. Not with paths."
+          },
+          "include_untracked": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "With all: stage untracked, nonignored files too."
+          },
+          "amend": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "Replace HEAD with the new commit, keeping HEAD's parents."
+          },
+          "no_verify": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "Skip the pre-commit and commit-msg hooks, as git commit --no-verify does."
+          },
+          "expected_head": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 4,
+              "max_length": 64
+            },
+            "description": "The full HEAD commit the caller saw; refuse with head_moved when HEAD is another."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitCommitResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "git runs in the user's environment as in a terminal: their config, identity, signing and hooks apply. It never prompts (no terminal, GIT_TERMINAL_PROMPT=0, no askpass) and is stopped after 120 s.",
+        "With neither paths nor all, the index is committed as it is. A merge, rebase, cherry-pick or revert in progress refuses with merge_in_progress.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict. A retry after a lost reply reports the commit the first attempt made instead of committing again.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, nothing_to_commit, head_moved, merge_in_progress, hook_failed, identity_missing, index_locked, path_not_found, timed_out, repository_changed, store_failed or git_failed; extra.message explains it and extra.output carries what git and its hooks printed (at most 16 KiB)."
+      ]
+    },
     "git.diff": {
       "class": "read",
       "idempotency": "forbidden",
@@ -10528,6 +10798,101 @@
         "Results are best first: matches in the file name, at word starts and in runs rank higher, then shorter paths, then path order.",
         "Submodules are folders and never results. Paths over 1024 characters are listed by git but not ranked. A search that would fill more than its scoring budget ranks part of the candidates and sets truncated.",
         "operation.failed details.extra.code is the machine reason: not_a_repository, no_working_directory, target_not_found or git_failed."
+      ]
+    },
+    "git.push": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "remote": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "A configured remote's name. Default: where git push would go (the branch's pushRemote, remote.pushDefault, its upstream remote), else origin."
+          },
+          "branch": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The local branch to push to the branch of the same name. Default: the current branch."
+          },
+          "set_upstream": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Make the branch track the pushed branch. Default: true when the branch has no upstream."
+          },
+          "expected_head": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 4,
+              "max_length": 64
+            },
+            "description": "The full commit the caller saw at the branch's tip; refuse with head_moved when it is another."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitPushResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Never forces: a remote branch with commits the local one lacks refuses with rejected_non_fast_forward.",
+        "git runs in the user's environment, so their credential helper, SSH agent and pre-push hook work as in a terminal. It never prompts (no terminal, GIT_TERMINAL_PROMPT=0, no askpass) and is stopped after 120 s.",
+        "The commit read at the branch's tip (and checked against expected_head) is the one pushed. Pushing a commit the remote already has succeeds with up_to_date true.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, no_remote, detached_head, branch_not_found, head_moved, rejected_non_fast_forward, rejected_by_remote, hook_failed, auth_failed, network_failed, timed_out, repository_changed, store_failed or git_failed; extra.message explains it, extra.output carries what git and the remote printed (at most 16 KiB) and extra.ref_status the remote's verdict on the ref."
       ]
     },
     "git.status": {

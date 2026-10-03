@@ -7,12 +7,12 @@
 
 mod capture;
 mod compare;
-mod ledger;
+pub(super) mod ledger;
 mod reads;
 mod record;
 mod refs;
 mod scan;
-mod store;
+pub(super) mod store;
 
 /// Test seams for failures a test cannot otherwise time.
 #[cfg(test)]

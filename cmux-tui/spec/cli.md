@@ -381,6 +381,8 @@ git checkpoint list [TARGET] [--cursor <cursor>] [--limit <n>] [--candidates]
 git checkpoint pin [TARGET] <checkpoint> --pin <pin-id> --reason <text>
 git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
 git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch] [--max-patch-bytes <n>] [--max-files <n>]
+git commit [TARGET] --message <text> [--all [--include-untracked]] [--amend] [--no-verify] [--expected-head <commit>] [<path>...]
+git push [TARGET] [--remote <name>] [--branch <name>] [--set-upstream | --no-set-upstream] [--expected-head <commit>]
 notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
 agent list|report
 agent plugin list|install|use|update|remove
@@ -505,6 +507,31 @@ by its retry, and a create sweeps refs of its worktree that have no record.
 most 200 of them. Unpinned checkpoints expire after 7 days and at most 50 are
 kept per repository; pins never expire, and pins beginning `handoff:` or
 `restore:` are owned by cmux and cannot be removed with `unpin`.
+
+`git commit` (`git.commit`, capability `git-commit-v1`) and `git push`
+(`git.push`, capability `git-push-v1`) are the user's own actions: git runs in
+the user's environment as in a terminal, so their config, identity, signing,
+hooks, credential helper and SSH agent apply, and inherited `GIT_*` variables
+of the daemon are dropped. Git never prompts (no terminal,
+`GIT_TERMINAL_PROMPT=0`, no askpass) and is stopped after 120 s with
+`timed_out`. `commit` commits the named paths as they are in the working tree
+(staged first; other staged changes stay out of the commit), every tracked
+change with `--all` (plus untracked files with `--include-untracked`), or the
+index as it is; `--no-verify` skips pre-commit and commit-msg. It refuses with
+`nothing_to_commit`, `head_moved` (HEAD is not `--expected-head`),
+`merge_in_progress` (also a rebase, cherry-pick or revert), `hook_failed` (with
+the hook's output, at most 16 KiB, in `extra.output`), `identity_missing`,
+`index_locked`, `path_not_found` or `git_failed`. A retry with the same key
+replays the first result, and a retry after a lost reply reports the commit
+the first attempt made (a per-key journal in the session's state directory
+proves the attempt). `push` pushes the branch's tip (the current branch unless
+`--branch`) to the branch of the same name on a configured remote (default:
+where `git push` would go, else `origin`), never forced, and makes it the
+branch's upstream when the branch has none (or with `--set-upstream`). It
+refuses with `no_remote`, `detached_head`, `branch_not_found`, `head_moved`,
+`rejected_non_fast_forward`, `rejected_by_remote` (with the remote's message),
+`hook_failed`, `auth_failed`, `network_failed` or `git_failed`; pushing a
+commit the remote has succeeds with `up_to_date`.
 
 ## Local sidebar plugins
 
