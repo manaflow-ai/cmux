@@ -47,6 +47,13 @@ private func req(_ reason: SnapshotRequest.Reason, _ id: String = "r1", gen: UIn
                                      have: .init(generation: gen, offset: offset, snapshotVersion: 1), requestID: id))
 }
 
+extension TerminalViewerAction {
+    var notDeadline: Bool {
+        if case .armReadyDeadline = self { return false }
+        return true
+    }
+}
+
 @Suite struct TerminalViewerTests {
     @Test func bytesWaitForTheFirstSnapshotThenFollowIt() {
         var viewer = TerminalViewer(terminal: "t1", snapshotVersion: 1, makeRequestID: Counter().next)
@@ -67,7 +74,7 @@ private func req(_ reason: SnapshotRequest.Reason, _ id: String = "r1", gen: UIn
     @Test func aGapRequestsOneSnapshotAndDropsBytesUntilIt() {
         var viewer = TerminalViewer(terminal: "t1", snapshotVersion: 1, makeRequestID: Counter().next)
         _ = viewer.receive(ready("S", at: 10))
-        #expect(viewer.receive(bytes("lost", after: 20)) == [req(.gap, at: 10)])
+        #expect(viewer.receive(bytes("lost", after: 20)).filter(\.notDeadline) == [req(.gap, at: 10)])
         #expect(viewer.receive(bytes("more", after: 24)).isEmpty)
         #expect(viewer.receive(ready("S2", at: 24)) == [.restore(Data("S2".utf8), generation: 1)])
         #expect(viewer.receive(bytes("ok", after: 26)) == [.feed(Data("ok".utf8))])
@@ -95,7 +102,7 @@ private func req(_ reason: SnapshotRequest.Reason, _ id: String = "r1", gen: UIn
         let digest = TerminalFrame(kind: .digest, generation: 1, offset: 4, snapshotVersion: 1, payload: Data(repeating: 1, count: 32))
         #expect(viewer.receive(digest).isEmpty)
         #expect(viewer.receive(digest, localDigest: { Data(repeating: 1, count: 32) }).isEmpty)
-        #expect(viewer.receive(digest, localDigest: { Data(repeating: 2, count: 32) }) == [req(.digestMismatch, at: 4)])
+        #expect(viewer.receive(digest, localDigest: { Data(repeating: 2, count: 32) }).filter(\.notDeadline) == [req(.digestMismatch, at: 4)])
         #expect(viewer.mode == .awaitingSnapshot)
     }
 
@@ -112,7 +119,7 @@ private func req(_ reason: SnapshotRequest.Reason, _ id: String = "r1", gen: UIn
     @Test func newerGenerationBytesWithoutTheirSnapshotArePending() {
         var viewer = TerminalViewer(terminal: "t1", snapshotVersion: 1, makeRequestID: Counter().next)
         _ = viewer.receive(ready("S", gen: 1, at: 2))
-        #expect(viewer.receive(bytes("x", gen: 2, after: 3)) == [req(.generationMismatch, at: 2)])
+        #expect(viewer.receive(bytes("x", gen: 2, after: 3)).filter(\.notDeadline) == [req(.generationMismatch, at: 2)])
         #expect(viewer.receive(bytes("y", gen: 2, after: 4)).isEmpty)
     }
 
@@ -120,7 +127,7 @@ private func req(_ reason: SnapshotRequest.Reason, _ id: String = "r1", gen: UIn
         var viewer = TerminalViewer(terminal: "t1", snapshotVersion: 1, makeRequestID: Counter().next)
         _ = viewer.receive(ready("S", at: 5))
         #expect(viewer.receive(bytes("", after: 5)).isEmpty)
-        #expect(viewer.receive(bytes("toolong", after: 3)) == [req(.gap, at: 5)])
+        #expect(viewer.receive(bytes("toolong", after: 3)).filter(\.notDeadline) == [req(.gap, at: 5)])
     }
 
     @Test func aLaterSnapshotAtALowerOffsetReplacesState() {
@@ -143,11 +150,11 @@ private func req(_ reason: SnapshotRequest.Reason, _ id: String = "r1", gen: UIn
     @Test func oneRequestInFlightAndAReadyClearsIt() {
         var viewer = TerminalViewer(terminal: "t1", snapshotVersion: 1, makeRequestID: Counter().next)
         _ = viewer.receive(ready("S", at: 10))
-        #expect(viewer.receive(bytes("lost", after: 20)) == [req(.gap, at: 10)])
+        #expect(viewer.receive(bytes("lost", after: 20)).filter(\.notDeadline) == [req(.gap, at: 10)])
         #expect(viewer.attachRequest().isEmpty)
         _ = viewer.receive(ready("S2", at: 30))
         #expect(viewer.inFlight == nil)
-        #expect(viewer.receive(bytes("x", gen: 2, after: 31)) == [req(.generationMismatch, "r2", at: 30)])
+        #expect(viewer.receive(bytes("x", gen: 2, after: 31)).filter(\.notDeadline) == [req(.generationMismatch, "r2", at: 30)])
     }
 
     @Test func throttledRequestsRetryWithTheSameIDUnlessAReadyCame() {
@@ -206,5 +213,33 @@ private func req(_ reason: SnapshotRequest.Reason, _ id: String = "r1", gen: UIn
         #expect(viewer.receive(digest, localDigest: { Data([2]) }).isEmpty)
         #expect(viewer.throttled(retryAfterMilliseconds: 500, requestID: "r0").isEmpty)
         #expect(viewer.throttled(retryAfterMilliseconds: 500, requestID: "r1") == [.retryAfter(milliseconds: 500)])
+    }
+
+    @Test func noReadyBeforeTheDeadlineAsksForAReattach() {
+        var viewer = TerminalViewer(terminal: "t1", snapshotVersion: 1, readyTimeoutMilliseconds: 7000, makeRequestID: Counter().next)
+        #expect(viewer.attachStarted() == [.armReadyDeadline(epoch: 1, milliseconds: 7000)])
+        #expect(viewer.readyDeadline(1) == [.reattach])
+        #expect(viewer.mode == .awaitingSnapshot && viewer.inFlight == nil)
+        // A late deadline for the same wait does nothing twice over a new attach.
+        #expect(viewer.attachStarted() == [.armReadyDeadline(epoch: 2, milliseconds: 7000)])
+        #expect(viewer.readyDeadline(1).isEmpty)
+    }
+
+    @Test func aReadyInTimeVoidsTheDeadline() {
+        var viewer = TerminalViewer(terminal: "t1", snapshotVersion: 1, makeRequestID: Counter().next)
+        _ = viewer.attachStarted()
+        _ = viewer.receive(ready("S", at: 1))
+        #expect(viewer.readyDeadline(1).isEmpty)
+        #expect(viewer.mode == .live)
+    }
+
+    @Test func anUnansweredRequestReattachesAndForgetsItsID() {
+        var viewer = TerminalViewer(terminal: "t1", snapshotVersion: 1, makeRequestID: Counter().next)
+        _ = viewer.receive(ready("S", at: 10))
+        let actions = viewer.receive(bytes("lost", after: 20))
+        guard case .armReadyDeadline(let epoch, _)? = actions.last else { Issue.record("no deadline"); return }
+        #expect(viewer.readyDeadline(epoch) == [.reattach])
+        #expect(viewer.inFlight == nil)
+        #expect(viewer.retryDue().isEmpty)
     }
 }
