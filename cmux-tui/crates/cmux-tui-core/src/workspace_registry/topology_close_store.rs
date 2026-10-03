@@ -110,7 +110,7 @@ impl WorkspaceRegistry {
                 fingerprint,
                 result_json,
                 sqlite_revision,
-                crate::workspace_registry::mutation_actor_json(&mutation.actor),
+                mutation_actor_json(&mutation.actor),
             ],
         )?;
         append_resource_journal_record(

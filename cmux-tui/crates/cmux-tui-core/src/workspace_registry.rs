@@ -323,14 +323,14 @@ pub(crate) fn mutation_actor_json(actor: &Option<cmux_local_auth::Actor>) -> Opt
 
 impl WorkspaceMutation {
     pub fn new(id: impl Into<String>, origin: impl Into<String>) -> anyhow::Result<Self> {
-        let mutation = Self { id: id.into(), origin: origin.into() };
+        let mutation = Self { id: id.into(), origin: origin.into(), actor: None };
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
         Ok(mutation)
     }
 
     pub fn local(origin: &str) -> Self {
-        Self { id: new_uuid_v4(), origin: origin.to_string() }
+        Self { id: new_uuid_v4(), origin: origin.to_string(), actor: None }
     }
 
     /// This mutation, made by `actor`.
@@ -3245,7 +3245,7 @@ impl WorkspaceRegistry {
                 fingerprint,
                 resource_result_json,
                 sqlite_revision,
-                crate::workspace_registry::mutation_actor_json(&mutation.actor),
+                mutation_actor_json(&mutation.actor),
             ],
         )?;
         append_resource_journal_record(
@@ -3662,7 +3662,7 @@ impl WorkspaceRegistry {
                     fingerprint,
                     result_json,
                     sqlite_resource_revision,
-                    crate::workspace_registry::mutation_actor_json(&mutation.actor),
+                    mutation_actor_json(&mutation.actor),
                 ],
             )?;
             let resource_deltas = normalized_workspace_resource_deltas(

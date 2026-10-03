@@ -1010,7 +1010,7 @@ impl WorkspaceRegistry {
                             stored_result_json,
                             i64::try_from(previous_revision)
                                 .context("resource revision exceeds SQLite range")?,
-                                crate::workspace_registry::mutation_actor_json(&mutation.actor),
+                                mutation_actor_json(&mutation.actor),
                             ],
                     )?;
                     prune_resource_mutations(&tx)?;
@@ -1081,7 +1081,7 @@ impl WorkspaceRegistry {
                 fingerprint,
                 result_json,
                 sqlite_revision,
-                crate::workspace_registry::mutation_actor_json(&mutation.actor),
+                mutation_actor_json(&mutation.actor),
             ],
         )?;
         append_resource_journal_record(
@@ -1167,7 +1167,7 @@ impl WorkspaceRegistry {
                 fingerprint,
                 result_json,
                 sqlite_revision,
-                crate::workspace_registry::mutation_actor_json(&mutation.actor),
+                mutation_actor_json(&mutation.actor),
             ],
         )?;
         append_resource_journal_record(
@@ -1273,7 +1273,7 @@ impl WorkspaceRegistry {
                 fingerprint,
                 result_json,
                 sqlite_revision,
-                crate::workspace_registry::mutation_actor_json(&mutation.actor),
+                mutation_actor_json(&mutation.actor),
             ],
         )?;
         append_resource_journal_record(
@@ -1546,7 +1546,7 @@ impl WorkspaceRegistry {
                 fingerprint,
                 result_json,
                 sqlite_revision,
-                crate::workspace_registry::mutation_actor_json(&mutation.actor),
+                mutation_actor_json(&mutation.actor),
             ],
         )?;
         append_resource_journal_record(
@@ -1666,7 +1666,7 @@ impl WorkspaceRegistry {
                 fingerprint,
                 result_json,
                 sqlite_revision,
-                crate::workspace_registry::mutation_actor_json(&mutation.actor),
+                mutation_actor_json(&mutation.actor),
             ],
         )?;
         append_resource_journal_record(

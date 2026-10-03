@@ -2,12 +2,12 @@ use super::*;
 use cmux_local_auth::ActorKind;
 
 /// A fresh directory under the system temp dir, removed on drop.
-struct ScratchDir(std::path::PathBuf);
+struct ScratchDir(PathBuf);
 
 impl ScratchDir {
     fn new(name: &str) -> Self {
-        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let unique = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let unique = NEXT.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir()
             .join(format!("cmux-launch-identity-{name}-{}-{unique}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
@@ -15,7 +15,7 @@ impl ScratchDir {
         Self(path)
     }
 
-    fn path(&self) -> &std::path::Path {
+    fn path(&self) -> &Path {
         &self.0
     }
 }
@@ -143,15 +143,15 @@ fn a_terminal_child_receives_its_credential_and_an_inherited_one_never_wins() {
     let mux = Mux::new_for_test("launch-identity-env", options);
     let surface = mux.new_workspace(None, None).unwrap();
     let terminal = surface.terminal_public_id().cloned().expect("terminal tab");
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(10);
     let seen = loop {
         if let Ok(text) = std::fs::read_to_string(&output)
             && !text.is_empty()
         {
             break text;
         }
-        assert!(std::time::Instant::now() < deadline, "the child never wrote its credential");
-        std::thread::sleep(std::time::Duration::from_millis(20));
+        assert!(Instant::now() < deadline, "the child never wrote its credential");
+        std::thread::sleep(Duration::from_millis(20));
     };
     assert_ne!(seen, "cmuxlc1.forged.value.x");
     let CredentialCheck::Verified(actor) = mux.check_launch_credential(&seen) else {
@@ -175,8 +175,8 @@ fn stored_actor(mux: &Mux, key: &str) -> Option<String> {
         .unwrap()
 }
 
-fn create_workspace(mux: &Arc<Mux>, key: &str, actor: Actor) -> serde_json::Value {
-    let message = serde_json::json!({
+fn create_workspace(mux: &Arc<Mux>, key: &str, actor: Actor) -> Value {
+    let message = json!({
         "protocol":"cmux.protocol/2",
         "type":"request",
         "id":format!("req-{key}"),
