@@ -6,6 +6,7 @@ import {
   failureText,
   KNOWN_REASONS,
   messageTooLong,
+  sameNewFiles,
   readNewFiles,
   REFRESH_REASONS,
   pushParams,
@@ -45,6 +46,7 @@ test("Staged commits the index as it is; All is tracked files only unless new fi
   expect([...REFRESH_REASONS].sort()).toEqual([
     "branch_not_found",
     "head_moved",
+    "native.session_changed",
     "path_not_found",
     "repository_changed",
   ]);
@@ -151,6 +153,21 @@ test("every reason the spec names has its own localized text", () => {
   expect(failureText("push", { kind: "refused", reason: "head_moved" })).toBe(t("git.headMoved"));
   expect(failureText("commit", { kind: "uncertain" })).toBe(t("git.commit.uncertain"));
   expect(failureText("push", { kind: "notSent" })).toBe(t("git.notSent"));
+  // The host's own refusals have their own text.
+  expect(failureText("push", readWriteFailure({ code: "native.session_changed", origin: "native" }))).toBe(
+    t("git.sessionChanged"),
+  );
+  expect(failureText("commit", readWriteFailure({ code: "native.no_session_folder", origin: "native" }))).toBe(
+    t("git.noSessionFolder"),
+  );
+  expect(pushParams(HEAD, "s1")).toEqual({ session_id: "s1", expected_head: HEAD });
+  expect(commitParams("Fix", "staged", HEAD, false, "s1")).toEqual({
+    session_id: "s1",
+    message: "Fix",
+    expected_head: HEAD,
+  });
+  expect(sameNewFiles({ paths: ["a", "b"], skipped: 0 }, { paths: ["b", "a"], skipped: 0 })).toBe(true);
+  expect(sameNewFiles({ paths: ["a"], skipped: 0 }, { paths: ["a", "b"], skipped: 0 })).toBe(false);
 });
 
 test("status, results and whether Push can run", () => {

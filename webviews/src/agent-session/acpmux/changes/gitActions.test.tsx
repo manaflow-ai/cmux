@@ -101,9 +101,15 @@ const uncommitted = {
   ],
 };
 function fakeSource({
-  status = { detached: false, branch: "feat", head: HEAD, upstream: "origin/feat", ahead: 1, behind: 0 } as
-    | Call
-    | (() => Promise<Call>),
+  status = {
+    session_id: "s1",
+    detached: false,
+    branch: "feat",
+    head: HEAD,
+    upstream: "origin/feat",
+    ahead: 1,
+    behind: 0,
+  } as Call | (() => Promise<Call>),
   commit = [] as (() => Promise<unknown>)[],
   push = [] as (() => Promise<unknown>)[],
   diff = uncommitted as unknown,
@@ -160,7 +166,9 @@ test("Commit sends the message and the HEAD the view read; a lost reply's Retry 
   // Busy and done are announced by the status region, which stayed mounted.
   expect(statusLine()?.querySelector("output")?.textContent).toBe("Committed abcdef0: Fix upload");
   expect(calls.commit).toHaveLength(2);
+  // The write names the session the status was read for.
   expect(calls.commit[0]).toEqual({
+    session_id: "s1",
     message: "Fix upload",
     expected_head: HEAD,
     idempotency_key: calls.commit[0]!.idempotency_key,
@@ -187,6 +195,7 @@ test("All commits tracked changes only: an untracked .env is not sent; Escape cl
   await settle(() => calls.commit.length > 0 && statusLine()?.getAttribute("data-phase") === "done");
   // git commit -a: no include_untracked, so the session host leaves .env untracked.
   expect(calls.commit[0]).toEqual({
+    session_id: "s1",
     message: "Add files",
     all: true,
     expected_head: HEAD,
@@ -267,6 +276,7 @@ test("Push reads a stale status again before saying there is nothing to push", a
   const { calls, source } = fakeSource({
     status: () =>
       Promise.resolve({
+        session_id: "s1",
         detached: false,
         branch: "feat",
         head: HEAD,
@@ -344,7 +354,15 @@ test("HEAD moved since the view was read: the line says so and Refresh reads the
 
 test("Push shows how far the branch is ahead, and a rejected push says why with git's output", async () => {
   const { calls, source } = fakeSource({
-    status: { detached: false, branch: "feat", head: HEAD, upstream: "origin/feat", ahead: 2, behind: 1 },
+    status: {
+      session_id: "s1",
+      detached: false,
+      branch: "feat",
+      head: HEAD,
+      upstream: "origin/feat",
+      ahead: 2,
+      behind: 1,
+    },
     push: [
       () =>
         Promise.reject({
@@ -367,7 +385,9 @@ test("Push shows how far the branch is ahead, and a rejected push says why with 
   expect(push.textContent).toContain("↑2");
   await click(push);
   await settle(() => statusLine()?.getAttribute("data-phase") === "failed");
-  expect(calls.push).toEqual([{ expected_head: HEAD, idempotency_key: calls.push[0]!.idempotency_key }]);
+  expect(calls.push).toEqual([
+    { session_id: "s1", expected_head: HEAD, idempotency_key: calls.push[0]!.idempotency_key },
+  ]);
   expect(alertText()).toBe(t("git.push.nonFastForward"));
   expect(statusLine()?.querySelector(".acpmux-git-output pre")?.textContent).toContain("fetch first");
   // No Retry: pushing again cannot pass until the branch is pulled.
@@ -378,7 +398,15 @@ test("Push shows how far the branch is ahead, and a rejected push says why with 
 
 test("Push is disabled with nothing ahead; the palette's Push runs once per request", async () => {
   const idle = fakeSource({
-    status: { detached: false, branch: "feat", head: HEAD, upstream: "origin/feat", ahead: 0, behind: 0 },
+    status: {
+      session_id: "s1",
+      detached: false,
+      branch: "feat",
+      head: HEAD,
+      upstream: "origin/feat",
+      ahead: 0,
+      behind: 0,
+    },
   });
   await render(idle.source);
   await settle(() => idle.calls.status > 0);
@@ -401,4 +429,38 @@ test("Push is disabled with nothing ahead; the palette's Push runs once per requ
   await settle(() => calls.push.length === 2);
   // A new request is a new action, with its own key.
   expect(calls.push[1]!.idempotency_key).not.toBe(calls.push[0]!.idempotency_key);
+});
+
+test("new files that change after the list was shown hold the commit and show the new list", async () => {
+  const lists = [
+    { root: "/repo", files: [{ path: "a.txt", status: "untracked", additions: 1, deletions: 0 }] },
+    {
+      root: "/repo",
+      files: [
+        { path: "a.txt", status: "untracked", additions: 1, deletions: 0 },
+        { path: "b.txt", status: "untracked", additions: 1, deletions: 0 },
+      ],
+    },
+  ];
+  const { calls, source } = fakeSource({ commit: [() => committed()] });
+  source.diff = (scope: string) => (calls.diff.push(scope), Promise.resolve(lists[Math.min(calls.diff.length - 1, 1)]));
+  await render(source);
+  await settle(() => calls.status > 0);
+  await click(doc.querySelector('[data-tool="commit"]'));
+  await type(doc.querySelector(".acpmux-git-message"), "Add files");
+  await click(doc.querySelector('.acpmux-git-scope input[value="all"]'));
+  await click(doc.querySelector('.acpmux-git-include-new input[type="checkbox"]'));
+  const names = () => [...doc.querySelectorAll(".acpmux-git-new-files li")].map((item) => item.textContent);
+  await settle(() => names().length > 0);
+  expect(names()).toEqual(["a.txt"]);
+  // b.txt appears before Commit: nothing is sent, and the list shows it.
+  await click(doc.querySelector(".acpmux-git-primary"));
+  await settle(() => names().length === 2);
+  expect(names()).toEqual(["a.txt", "b.txt"]);
+  expect(doc.querySelector('.acpmux-git-form [role="alert"]')?.textContent).toBe(t("git.commit.newFilesChanged"));
+  expect(calls.commit).toEqual([]);
+  // The list now matches what the reader sees, so Commit goes through.
+  await click(doc.querySelector(".acpmux-git-primary"));
+  await settle(() => calls.commit.length === 1);
+  expect(calls.commit[0]).toMatchObject({ all: true, include_untracked: true });
 });

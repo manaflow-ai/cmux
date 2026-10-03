@@ -123,13 +123,13 @@ extension AgentPaneGitWrite {
     /// `path`; the key travels in the envelope, not in the params.
     func sessionHostParams(cwd: String) -> [String: JSONValue] {
         switch self {
-        case .commit(let message, let all, let includeUntracked, let expectedHead, _):
+        case .commit(_, let message, let all, let includeUntracked, let expectedHead, _):
             var params: [String: JSONValue] = ["path": .string(cwd), "message": .string(message)]
             if all { params["all"] = .bool(true) }
             if includeUntracked { params["include_untracked"] = .bool(true) }
             if let expectedHead { params["expected_head"] = .string(expectedHead) }
             return params
-        case .push(let expectedHead, _):
+        case .push(_, let expectedHead, _):
             var params: [String: JSONValue] = ["path": .string(cwd)]
             if let expectedHead { params["expected_head"] = .string(expectedHead) }
             return params

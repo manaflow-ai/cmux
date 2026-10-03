@@ -183,6 +183,9 @@ const en = {
     "{n} more new files could not be listed, so new files cannot be committed from here. Clean them up or commit in a terminal.",
   "git.commit.newFilesFailed": "The new files could not be listed, so they cannot be committed from here.",
   "git.commit.tooLong": "The message is longer than 64 KiB. Shorten it to commit.",
+  "git.commit.newFilesChanged": "The new files changed since the list was shown. Check the list, then commit again.",
+  "git.sessionChanged": "This view was read for another chat. Refresh, then try again.",
+  "git.noSessionFolder": "This chat has no folder on this Mac, so cmux cannot commit or push for it here.",
 } as const;
 
 export type StringKey = keyof typeof en;
@@ -373,6 +376,11 @@ const ja: Record<StringKey, string> = {
     "ほかに {n} 件の新しいファイルを一覧表示できなかったため、ここから新しいファイルをコミットできません。不要なファイルを削除するか、ターミナルでコミットしてください。",
   "git.commit.newFilesFailed": "新しいファイルを一覧表示できなかったため、ここからはコミットできません。",
   "git.commit.tooLong": "メッセージが 64 KiB を超えています。コミットするには短くしてください。",
+  "git.commit.newFilesChanged":
+    "一覧の表示後に新しいファイルが変わりました。一覧を確認してから、もう一度コミットしてください。",
+  "git.sessionChanged": "この表示は別のチャットについて読み込まれました。更新してから、もう一度お試しください。",
+  "git.noSessionFolder":
+    "このチャットにはこの Mac 上のフォルダがないため、cmux はここでコミットやプッシュを実行できません。",
 };
 
 const tables: Record<string, Record<StringKey, string>> = { en, ja };

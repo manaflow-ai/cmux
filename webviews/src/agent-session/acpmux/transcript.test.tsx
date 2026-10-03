@@ -50,7 +50,8 @@ Object.assign(globals, {
     unobserve() {}
     disconnect() {}
   },
-  requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number,
+  requestAnimationFrame: (callback: FrameRequestCallback) =>
+    setTimeout(() => callback(0), 0) as unknown as number,
   cancelAnimationFrame: (handle: number) => clearTimeout(handle),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
@@ -59,7 +60,8 @@ Object.assign(globals, {
 const domClasses = Object.getOwnPropertyNames(dom.window).filter(
   (key) => /^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in globals),
 );
-for (const key of domClasses) globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
+for (const key of domClasses)
+  globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
 afterAll(() => {
   Object.assign(globals, saved);
   for (const key of domClasses) delete globals[key];
@@ -138,7 +140,9 @@ describe("acpmux virtual transcript", () => {
     const onToggleActivity = () => {};
     try {
       await act(async () =>
-        root.render(createElement(VirtualTranscript, { rows, onToggleActivity, expanded: new Set<string>() })),
+        root.render(
+          createElement(VirtualTranscript, { rows, onToggleActivity, expanded: new Set<string>() }),
+        ),
       );
       const afterMount = layouts;
       expect(afterMount).toBeGreaterThan(0);
@@ -146,7 +150,11 @@ describe("acpmux virtual transcript", () => {
       for (let pass = 0; pass < 5; pass += 1) {
         await act(async () =>
           root.render(
-            createElement(VirtualTranscript, { rows, onToggleActivity, expanded: new Set<string>([`row-${pass}`]) }),
+            createElement(VirtualTranscript, {
+              rows,
+              onToggleActivity,
+              expanded: new Set<string>([`row-${pass}`]),
+            }),
           ),
         );
       }
@@ -176,11 +184,17 @@ describe("acpmux virtual transcript", () => {
     try {
       await act(async () =>
         root.render(
-          createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>() }),
+          createElement(VirtualTranscript, {
+            rows,
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
         ),
       );
       const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
-      const totalHeight = parseFloat((dom.window.document.querySelector(".acpmux-spacer") as HTMLElement).style.height);
+      const totalHeight = parseFloat(
+        (dom.window.document.querySelector(".acpmux-spacer") as HTMLElement).style.height,
+      );
       expect(scroller.scrollTop).toBe(totalHeight - 600);
       const mountedTops = () =>
         [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")].map((row) =>
@@ -212,7 +226,11 @@ describe("acpmux virtual transcript", () => {
     const fewRows = rows.slice(0, 6);
     const render = () =>
       root.render(
-        createElement(VirtualTranscript, { rows: fewRows, onToggleActivity: () => {}, expanded: new Set<string>() }),
+        createElement(VirtualTranscript, {
+          rows: fewRows,
+          onToggleActivity: () => {},
+          expanded: new Set<string>(),
+        }),
       );
     const resize = (height: number) =>
       act(async () => {
@@ -222,7 +240,9 @@ describe("acpmux virtual transcript", () => {
     try {
       await act(async () => render());
       const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
-      const totalHeight = parseFloat((dom.window.document.querySelector(".acpmux-spacer") as HTMLElement).style.height);
+      const totalHeight = parseFloat(
+        (dom.window.document.querySelector(".acpmux-spacer") as HTMLElement).style.height,
+      );
       expect(scroller.scrollTop).toBe(0);
       expect(totalHeight).toBeGreaterThan(40);
       await resize(40);
@@ -263,15 +283,20 @@ describe("acpmux transcript accessibility", () => {
       expect(scroller.getAttribute("aria-label")).toBe("Transcript");
       const articles = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")];
       expect(articles.length).toBeLessThan(conversation.length);
-      for (const article of articles) expect(article.getAttribute("aria-setsize")).toBe(String(conversation.length));
+      for (const article of articles)
+        expect(article.getAttribute("aria-setsize")).toBe(String(conversation.length));
       const last = articles.at(-1)!;
       expect(last.getAttribute("aria-posinset")).toBe(String(conversation.length));
       const mounted = articles.map((article) => ({
         article,
         row: conversation[Number(article.getAttribute("aria-posinset")) - 1]!,
       }));
-      expect(mounted.find(({ row }) => row.kind === "user")?.article.getAttribute("aria-label")).toBe("You");
-      expect(mounted.find(({ row }) => row.kind === "assistant")?.article.getAttribute("aria-label")).toBe("Agent");
+      expect(
+        mounted.find(({ row }) => row.kind === "user")?.article.getAttribute("aria-label"),
+      ).toBe("You");
+      expect(
+        mounted.find(({ row }) => row.kind === "assistant")?.article.getAttribute("aria-label"),
+      ).toBe("Agent");
       expect(last.hasAttribute("aria-label")).toBe(false);
       // Without a "Worked for" line above it, the footer says the turn's time and count.
       const summary = last.querySelector(".cv-turn-summary")!;
@@ -369,7 +394,13 @@ describe("acpmux transcript accessibility", () => {
   test("a wide pane lays rows out at the row's capped width", async () => {
     const restore = fakeViewport({ width: 1200, height: 600 });
     const root = createRoot(dom.window.document.getElementById("root")!);
-    const long: AcpmuxRow = { id: "long", version: 1, at: 0, kind: "assistant", text: "word ".repeat(120).trim() };
+    const long: AcpmuxRow = {
+      id: "long",
+      version: 1,
+      at: 0,
+      kind: "assistant",
+      text: "word ".repeat(120).trim(),
+    };
     try {
       await act(async () =>
         root.render(
@@ -381,7 +412,9 @@ describe("acpmux transcript accessibility", () => {
         ),
       );
       const next = dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")[1]!;
-      expect(next.style.transform).toBe(`translateY(${layoutConversation([long], 760).heights[0]}px)`);
+      expect(next.style.transform).toBe(
+        `translateY(${layoutConversation([long], 760).heights[0]}px)`,
+      );
     } finally {
       await act(async () => root.unmount());
       restore();
@@ -432,9 +465,20 @@ function randomConversation(count: number, random: () => number): AcpmuxRow[] {
         version: 1,
         at: index,
         kind: "permission",
-        permission: { permissionId: `p${index}`, title: "Allow this?", options: [{ id: "allow", name: "Allow" }] },
+        permission: {
+          permissionId: `p${index}`,
+          title: "Allow this?",
+          options: [{ id: "allow", name: "Allow" }],
+        },
       } as AcpmuxRow;
-    return { id: `r${index}`, version: 1, at: index, kind: "turnSummary", durationMs: 2000, toolCount: 1 };
+    return {
+      id: `r${index}`,
+      version: 1,
+      at: index,
+      kind: "turnSummary",
+      durationMs: 2000,
+      toolCount: 1,
+    };
   });
 }
 
@@ -452,7 +496,9 @@ describe("acpmux measured rows", () => {
     const original = prototype.getBoundingClientRect;
     prototype.getBoundingClientRect = function (this: HTMLElement) {
       const index = Number(this.getAttribute("aria-posinset")) - 1;
-      const height = this.classList.contains("acpmux-row") ? (drawn.get(conversation[index]?.id ?? "") ?? 0) : 0;
+      const height = this.classList.contains("acpmux-row")
+        ? (drawn.get(conversation[index]?.id ?? "") ?? 0)
+        : 0;
       return {
         x: 0,
         y: 0,
@@ -557,7 +603,9 @@ describe("acpmux measured rows", () => {
     let drawnHeight = 0;
     prototype.getBoundingClientRect = function (this: HTMLElement) {
       const height =
-        this.classList.contains("acpmux-row") && this.getAttribute("aria-posinset") === "200" ? drawnHeight : 0;
+        this.classList.contains("acpmux-row") && this.getAttribute("aria-posinset") === "200"
+          ? drawnHeight
+          : 0;
       return {
         x: 0,
         y: 0,
@@ -576,14 +624,21 @@ describe("acpmux measured rows", () => {
     try {
       await act(async () =>
         root.render(
-          createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>(), registry }),
+          createElement(VirtualTranscript, {
+            rows,
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+            registry,
+          }),
         ),
       );
       const spacer = dom.window.document.querySelector(".acpmux-spacer") as HTMLElement;
       const estimated = parseFloat(spacer.style.height);
       const afterOpen = measures;
       drawnHeight = 90;
-      const latest = dom.window.document.querySelector<HTMLElement>('.acpmux-row[aria-posinset="200"]')!;
+      const latest = dom.window.document.querySelector<HTMLElement>(
+        '.acpmux-row[aria-posinset="200"]',
+      )!;
       await act(async () => {
         for (const callback of resizeCallbacks)
           (callback as (entries: { target: Element }[]) => void)([{ target: latest }]);
@@ -606,7 +661,11 @@ describe("acpmux measured rows", () => {
     try {
       await act(async () =>
         root.render(
-          createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>() }),
+          createElement(VirtualTranscript, {
+            rows,
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
         ),
       );
       const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
@@ -632,7 +691,9 @@ describe("acpmux measured rows", () => {
     let lastHeight = 120;
     prototype.getBoundingClientRect = function (this: HTMLElement) {
       const height =
-        this.classList.contains("acpmux-row") && this.getAttribute("aria-posinset") === "200" ? lastHeight : 0;
+        this.classList.contains("acpmux-row") && this.getAttribute("aria-posinset") === "200"
+          ? lastHeight
+          : 0;
       return {
         x: 0,
         y: 0,
@@ -649,7 +710,9 @@ describe("acpmux measured rows", () => {
     };
     const root = createRoot(dom.window.document.getElementById("root")!);
     const reportLatest = async () => {
-      const latest = dom.window.document.querySelector<HTMLElement>('.acpmux-row[aria-posinset="200"]')!;
+      const latest = dom.window.document.querySelector<HTMLElement>(
+        '.acpmux-row[aria-posinset="200"]',
+      )!;
       await act(async () => {
         for (const callback of resizeCallbacks)
           (callback as (entries: { target: Element }[]) => void)([{ target: latest }]);
@@ -658,7 +721,11 @@ describe("acpmux measured rows", () => {
     try {
       await act(async () =>
         root.render(
-          createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>() }),
+          createElement(VirtualTranscript, {
+            rows,
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
         ),
       );
       await reportLatest();
@@ -750,12 +817,18 @@ describe("acpmux renderer registry", () => {
     };
     try {
       await act(async () => root.render(createElement(AcpmuxApp)));
-      await act(async () => host.cmuxAcpmuxRegistry!.register("composerChips", FirstChips as never));
+      await act(async () =>
+        host.cmuxAcpmuxRegistry!.register("composerChips", FirstChips as never),
+      );
       const afterRegister = firstRenders;
       expect(afterRegister).toBeGreaterThan(0);
-      await act(async () => host.cmuxAcpmuxRegistry!.register("composerChips", FirstChips as never));
+      await act(async () =>
+        host.cmuxAcpmuxRegistry!.register("composerChips", FirstChips as never),
+      );
       expect(firstRenders).toBe(afterRegister);
-      await act(async () => host.cmuxAcpmuxRegistry!.register("composerChips", SecondChips as never));
+      await act(async () =>
+        host.cmuxAcpmuxRegistry!.register("composerChips", SecondChips as never),
+      );
       expect(secondRenders).toBeGreaterThan(0);
     } finally {
       await act(async () => root.unmount());
@@ -810,10 +883,19 @@ describe("acpmux host handshake", () => {
             : method === "_acpmux/attach"
               ? { session: { sessionId: "s", harness: "codex", model: "m1" }, events: [] }
               : method === "_acpmux/harnesses"
-                ? { harnesses: [{ id: "codex", name: "Codex", models: models.map((model) => ({ id: model })) }] }
+                ? {
+                    harnesses: [
+                      {
+                        id: "codex",
+                        name: "Codex",
+                        models: models.map((model) => ({ id: model })),
+                      },
+                    ],
+                  }
                 : {};
         const reply = () => this.onmessage?.({ data: JSON.stringify({ id, result }) });
-        if (method === "_acpmux/harnesses" && CatalogSocket.holdHarnesses) CatalogSocket.held.push(reply);
+        if (method === "_acpmux/harnesses" && CatalogSocket.holdHarnesses)
+          CatalogSocket.held.push(reply);
         else queueMicrotask(reply);
       }
     }
@@ -848,7 +930,9 @@ describe("acpmux host handshake", () => {
       const button = doc.querySelector<HTMLButtonElement>(".acpmux-model .acpmux-picker-button");
       if (button && button.getAttribute("aria-expanded") !== "true") button.click();
       if (button && doc.querySelector(".acpmux-mp .acpmux-menu-search")?.textContent !== "m")
-        button.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "m", bubbles: true, cancelable: true }));
+        button.dispatchEvent(
+          new dom.window.KeyboardEvent("keydown", { key: "m", bubbles: true, cancelable: true }),
+        );
       return [...doc.querySelectorAll('.acpmux-mp [data-key^="model:"]')]
         .map((row) => row.getAttribute("data-key")!.slice("model:".length))
         .sort();
@@ -943,9 +1027,13 @@ describe("acpmux host handshake", () => {
       for (let tries = 0; tries < 100 && prompts().length === 0; tries += 1)
         await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
       expect(readies).toBe(2);
-      expect(sent.find((message) => message.method === "session/new")?.params.cwd).toBe("/tmp/first-task");
+      expect(sent.find((message) => message.method === "session/new")?.params.cwd).toBe(
+        "/tmp/first-task",
+      );
       expect(prompts().map((message) => message.params.sessionId)).toEqual(["s-new"]);
-      expect(prompts()[0]!.params.prompt).toEqual([{ type: "text", text: "Leave a note on my Desktop" }]);
+      expect(prompts()[0]!.params.prompt).toEqual([
+        { type: "text", text: "Leave a note on my Desktop" },
+      ]);
       expect(dom.window.document.querySelector("textarea")?.value ?? "").toBe("");
     } finally {
       await act(async () => root.unmount());
@@ -1118,11 +1206,18 @@ describe("acpmux host handshake", () => {
       await act(async () => root.render(createElement(AcpmuxApp)));
       for (let tries = 0; tries < 100 && !host.cmuxAcpmuxActions; tries += 1)
         await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
-      for (let tries = 0; tries < 10; tries += 1) await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
-      expect(await host.cmuxAcpmuxActions!["git.diff"]!({ scope: "staged" })).toEqual({ scope: "staged", files: [] });
-      await host.cmuxAcpmuxActions!["git.status"]!({});
+      for (let tries = 0; tries < 10; tries += 1)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+      expect(await host.cmuxAcpmuxActions!["git.diff"]!({ scope: "staged" })).toEqual({
+        scope: "staged",
+        files: [],
+      });
+      // A status read names the session it was read for; Commit and Push send it back.
+      expect(await host.cmuxAcpmuxActions!["git.status"]!({})).toMatchObject({ session_id: "s" });
       // The checkpoint control also asks for `git.capabilities`; this test is about the reads.
-      expect(asked.filter((entry) => entry.method === "git.diff" || entry.method === "git.status")).toEqual([
+      expect(
+        asked.filter((entry) => entry.method === "git.diff" || entry.method === "git.status"),
+      ).toEqual([
         { method: "git.diff", params: { cwd: "/work/app", scope: "staged", include_patch: true } },
         { method: "git.status", params: { cwd: "/work/app" } },
       ]);
@@ -1193,31 +1288,44 @@ describe("acpmux turn diff", () => {
           canLoadOlder: false,
         }),
       );
-      const review = [...document.querySelectorAll("button")].find((button) => button.textContent === "View changes");
+      const review = [...document.querySelectorAll("button")].find(
+        (button) => button.textContent === "View changes",
+      );
       expect(review).toBeDefined();
       (review as HTMLElement).focus();
-      await act(async () => review!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+      await act(async () =>
+        review!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })),
+      );
       const panel = document.querySelector("section.acpmux-diff-panel")!;
       expect(panel.querySelector(".acpmux-diff-header strong")?.textContent).toBe("Last turn");
       expect(document.activeElement?.getAttribute("aria-label")).toBe("Back to transcript");
       // Each edit is one Pierre diff with the pane's own file header, in turn order.
       expect(
-        [...panel.querySelectorAll(".acpmux-diff-file")].map((node) => (node as HTMLElement).dataset.path),
+        [...panel.querySelectorAll(".acpmux-diff-file")].map(
+          (node) => (node as HTMLElement).dataset.path,
+        ),
       ).toEqual(["/repo/src/main.ts", "/repo/notes.md"]);
       expect(
-        [...panel.querySelectorAll(".acpmux-diff-file")].map((node) => node.querySelector("diffs-container") !== null),
+        [...panel.querySelectorAll(".acpmux-diff-file")].map(
+          (node) => node.querySelector("diffs-container") !== null,
+        ),
       ).toEqual([true, true]);
       expect(
-        panel.querySelector(".acpmux-diff-tree file-tree-container, .acpmux-diff-tree [class*=tree]"),
+        panel.querySelector(
+          ".acpmux-diff-tree file-tree-container, .acpmux-diff-tree [class*=tree]",
+        ),
       ).not.toBeNull();
       const click = (node: Element) =>
         act(async () => {
           node.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
         });
       const diffShown = () =>
-        [...panel.querySelectorAll(".acpmux-diff-file")].map((node) => node.querySelector("diffs-container") !== null);
+        [...panel.querySelectorAll(".acpmux-diff-file")].map(
+          (node) => node.querySelector("diffs-container") !== null,
+        );
       // The file name folds its diff away and back; Mark as viewed folds it too.
-      const name = () => panel.querySelector('.acpmux-diff-file[data-path="/repo/src/main.ts"] .acpmux-fh-name')!;
+      const name = () =>
+        panel.querySelector('.acpmux-diff-file[data-path="/repo/src/main.ts"] .acpmux-fh-name')!;
       await click(name());
       expect(diffShown()).toEqual([false, true]);
       expect(name().getAttribute("aria-expanded")).toBe("false");
@@ -1225,9 +1333,11 @@ describe("acpmux turn diff", () => {
       expect(diffShown()).toEqual([true, true]);
       await click(panel.querySelector('[aria-label="Mark notes.md as viewed"]')!);
       expect(diffShown()).toEqual([true, false]);
-      expect(panel.querySelector('[aria-label="Mark notes.md as not viewed"]')?.getAttribute("aria-pressed")).toBe(
-        "true",
-      );
+      expect(
+        panel
+          .querySelector('[aria-label="Mark notes.md as not viewed"]')
+          ?.getAttribute("aria-pressed"),
+      ).toBe("true");
       // Collapse all, then expand all.
       await click(panel.querySelector('[aria-label="Collapse all files"]')!);
       expect(diffShown()).toEqual([false, false]);
@@ -1251,7 +1361,9 @@ describe("acpmux turn diff", () => {
       await click(panel.querySelector('[aria-label="File tree"]')!);
       expect(panel.querySelector(".acpmux-diff-tree")).not.toBeNull();
       const back = panel.querySelector('[aria-label="Back to transcript"]')!;
-      await act(async () => back.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+      await act(async () =>
+        back.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })),
+      );
       expect(document.querySelector(".acpmux-diff-panel")).toBeNull();
       // Focus goes back to the control that opened the view, once the transcript shows again.
       expect(document.activeElement).toBe(review!);
@@ -1326,19 +1438,34 @@ describe("acpmux turn diff", () => {
           canLoadOlder: false,
         }),
       );
-      await click([...document.querySelectorAll("button")].find((button) => button.textContent === "View changes")!);
+      await click(
+        [...document.querySelectorAll("button")].find(
+          (button) => button.textContent === "View changes",
+        )!,
+      );
       const panel = document.querySelector("section.acpmux-diff-panel")!;
       const diffShown = () =>
-        [...panel.querySelectorAll(".acpmux-diff-file")].map((node) => node.querySelector("diffs-container") !== null);
+        [...panel.querySelectorAll(".acpmux-diff-file")].map(
+          (node) => node.querySelector("diffs-container") !== null,
+        );
       const more = panel.querySelector<HTMLElement>('[aria-label="More actions for notes.md"]')!;
       expect(more).not.toBeNull();
-      expect([more.getAttribute("aria-haspopup"), more.getAttribute("aria-expanded")]).toEqual(["menu", "false"]);
-      const items = () => [...panel.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')];
+      expect([more.getAttribute("aria-haspopup"), more.getAttribute("aria-expanded")]).toEqual([
+        "menu",
+        "false",
+      ]);
+      const items = () => [
+        ...panel.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]'),
+      ];
       // The menu opens on its first item; Copy path copies the file's full path and closes it.
       more.focus();
       await click(more);
       expect(more.getAttribute("aria-expanded")).toBe("true");
-      expect(items().map((item) => item.textContent)).toEqual(["Copy path", "Open file in a tab", "Collapse file"]);
+      expect(items().map((item) => item.textContent)).toEqual([
+        "Copy path",
+        "Open file in a tab",
+        "Collapse file",
+      ]);
       expect(document.activeElement).toBe(items()[0]);
       await click(items()[0]!);
       expect(copied).toEqual(["/repo/notes.md"]);
@@ -1354,7 +1481,11 @@ describe("acpmux turn diff", () => {
       expect(items()).toEqual([]);
       // Folded, the item opens the file again.
       await click(more);
-      expect(items().map((item) => item.textContent)).toEqual(["Copy path", "Open file in a tab", "Expand file"]);
+      expect(items().map((item) => item.textContent)).toEqual([
+        "Copy path",
+        "Open file in a tab",
+        "Expand file",
+      ]);
       await click(items()[2]!);
       expect(diffShown()).toEqual([true, true]);
       // Escape closes only the menu and returns focus to its button; the view stays open.
@@ -1390,7 +1521,9 @@ describe("acpmux turn diff", () => {
     host.cmuxAcpmuxActions = {
       "file.open": (params) => {
         asked.push(params);
-        return refuse ? Promise.reject(new Error("The file could not be opened.")) : Promise.resolve(null);
+        return refuse
+          ? Promise.reject(new Error("The file could not be opened."))
+          : Promise.resolve(null);
       },
     };
     const diffRow: AcpmuxRow = {
@@ -1435,10 +1568,16 @@ describe("acpmux turn diff", () => {
           canLoadOlder: false,
         }),
       );
-      await click([...document.querySelectorAll("button")].find((button) => button.textContent === "View changes")!);
+      await click(
+        [...document.querySelectorAll("button")].find(
+          (button) => button.textContent === "View changes",
+        )!,
+      );
       const panel = document.querySelector("section.acpmux-diff-panel")!;
       const tab = panel.querySelector<HTMLElement>('[aria-label="Open notes.md in a tab"]')!;
-      const editor = panel.querySelector<HTMLElement>('[aria-label="Open notes.md in the editor"]')!;
+      const editor = panel.querySelector<HTMLElement>(
+        '[aria-label="Open notes.md in the editor"]',
+      )!;
       expect([tab?.title, editor?.title]).toEqual(["Open file in a tab", "Open in editor"]);
       // The header's buttons ask the host to open the file's full path.
       await click(tab);
@@ -1485,8 +1624,20 @@ describe("acpmux turn diff", () => {
           scope: "uncommitted",
           root: "/repo",
           files: [
-            { path: "src/main.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-a\n+A\n" },
-            { path: "src/old.ts", status: "deleted", additions: 0, deletions: 1, patch: "@@ -1 +0,0 @@\n-gone\n" },
+            {
+              path: "src/main.ts",
+              status: "modified",
+              additions: 1,
+              deletions: 1,
+              patch: "@@ -1 +1 @@\n-a\n+A\n",
+            },
+            {
+              path: "src/old.ts",
+              status: "deleted",
+              additions: 0,
+              deletions: 1,
+              patch: "@@ -1 +0,0 @@\n-gone\n",
+            },
           ],
         }),
     };
@@ -1532,11 +1683,17 @@ describe("acpmux turn diff", () => {
           canLoadOlder: false,
         }),
       );
-      await click([...document.querySelectorAll("button")].find((button) => button.textContent === "View changes")!);
+      await click(
+        [...document.querySelectorAll("button")].find(
+          (button) => button.textContent === "View changes",
+        )!,
+      );
       const panel = document.querySelector("section.acpmux-diff-panel")!;
       const notice = () => panel.querySelector('.acpmux-diff-notice[role="alert"]');
       const tab = panel.querySelector<HTMLElement>('[aria-label="Open notes.md in a tab"]')!;
-      const editor = panel.querySelector<HTMLElement>('[aria-label="Open notes.md in the editor"]')!;
+      const editor = panel.querySelector<HTMLElement>(
+        '[aria-label="Open notes.md in the editor"]',
+      )!;
       // A slow open that fails after a later one worked says nothing: the file is open.
       await click(tab);
       await click(editor);
@@ -1562,7 +1719,9 @@ describe("acpmux turn diff", () => {
       expect(panel.querySelector('[aria-label="Open src/old.ts in a tab"]')).toBeNull();
       expect(panel.querySelector('[aria-label="Open src/old.ts in the editor"]')).toBeNull();
       await click(panel.querySelector('[aria-label="More actions for src/old.ts"]')!);
-      const items = [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((node) => node.textContent);
+      const items = [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].map(
+        (node) => node.textContent,
+      );
       expect(items).toEqual(["Copy path", "Collapse file"]);
     } finally {
       await act(async () => root.unmount());
@@ -1625,10 +1784,16 @@ describe("acpmux turn diff", () => {
           canLoadOlder: false,
         }),
       );
-      await click([...document.querySelectorAll("button")].find((button) => button.textContent === "View changes")!);
+      await click(
+        [...document.querySelectorAll("button")].find(
+          (button) => button.textContent === "View changes",
+        )!,
+      );
       const panel = document.querySelector("section.acpmux-diff-panel")!;
       const diffShown = () =>
-        [...panel.querySelectorAll(".acpmux-diff-file")].map((node) => node.querySelector("diffs-container") !== null);
+        [...panel.querySelectorAll(".acpmux-diff-file")].map(
+          (node) => node.querySelector("diffs-container") !== null,
+        );
       // The pressed button stays focused, so the keyboard can press it again.
       const name = panel.querySelector<HTMLElement>(
         '.acpmux-diff-file[data-path="/repo/src/main.ts"] .acpmux-fh-name',
@@ -1658,14 +1823,22 @@ describe("acpmux turn diff", () => {
       // Enter on the selected row does the same from the keyboard; Cmd-click deselects only.
       const rowKey = () =>
         act(async () => {
-          row.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, composed: true }));
+          row.dispatchEvent(
+            new dom.window.KeyboardEvent("keydown", {
+              key: "Enter",
+              bubbles: true,
+              composed: true,
+            }),
+          );
         });
       await click(panel.querySelector('[aria-label="Collapse all files"]')!);
       await rowKey();
       expect(diffShown()).toEqual([true, false]);
       await click(panel.querySelector('[aria-label="Collapse all files"]')!);
       await act(async () => {
-        row.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, composed: true, metaKey: true }));
+        row.dispatchEvent(
+          new dom.window.MouseEvent("click", { bubbles: true, composed: true, metaKey: true }),
+        );
       });
       expect(diffShown()).toEqual([false, false]);
       // Escape clears the filter field rather than closing the view.
@@ -1690,7 +1863,13 @@ describe("acpmux turn diff", () => {
     const plain = (id: string, summary: string) => ({
       kind: "tool" as const,
       text: "Edit",
-      tool: { id, title: "Edit", kind: "edit" as const, status: "completed" as const, inputSummary: summary },
+      tool: {
+        id,
+        title: "Edit",
+        kind: "edit" as const,
+        status: "completed" as const,
+        inputSummary: summary,
+      },
     });
     const root = await renderCard(
       {
@@ -1705,9 +1884,9 @@ describe("acpmux turn diff", () => {
     const document = dom.window.document;
     try {
       expect(document.querySelector(".acpmux-edited-title")?.textContent).toBe("Edited 1 file");
-      expect([...document.querySelectorAll(".acpmux-edited-file")].map((file) => file.textContent)).toEqual([
-        "notes.txt",
-      ]);
+      expect(
+        [...document.querySelectorAll(".acpmux-edited-file")].map((file) => file.textContent),
+      ).toEqual(["notes.txt"]);
     } finally {
       await act(async () => root.unmount());
     }
@@ -1753,10 +1932,14 @@ describe("acpmux turn diff", () => {
     const root = await renderCard(editRow(["/repo/src/a.ts", "/repo/b.ts"]), opened);
     const document = dom.window.document;
     try {
-      expect(document.querySelector(".acpmux-edited-title")?.textContent).toBe("Edited 2 files+4-2");
+      expect(document.querySelector(".acpmux-edited-title")?.textContent).toBe(
+        "Edited 2 files+4-2",
+      );
       const files = [...document.querySelectorAll(".acpmux-edited-file")];
       expect(files.map((file) => file.textContent)).toEqual(["src/a.ts+2-1", "b.ts+2-1"]);
-      await act(async () => files[0]!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+      await act(async () =>
+        files[0]!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })),
+      );
       expect(opened).toEqual([["activity-1", "/repo/src/a.ts"]]);
     } finally {
       await act(async () => root.unmount());
@@ -1770,18 +1953,27 @@ describe("acpmux turn diff", () => {
     try {
       expect(document.querySelector(".acpmux-edited-title > div")?.textContent).toBe("Edited a.ts");
       expect(document.querySelectorAll(".acpmux-edited-file")).toHaveLength(0);
-      const view = [...document.querySelectorAll("button")].find((button) => button.textContent === "View changes")!;
-      await act(async () => view.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+      const view = [...document.querySelectorAll("button")].find(
+        (button) => button.textContent === "View changes",
+      )!;
+      await act(async () =>
+        view.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })),
+      );
       expect(opened).toEqual([["activity-1", "/repo/a.ts"]]);
     } finally {
       await act(async () => root.unmount());
     }
-    root = await renderCard(editRow(["/r/a.ts", "/r/b.ts", "/r/c.ts", "/r/d.ts", "/r/e.ts"]), opened);
+    root = await renderCard(
+      editRow(["/r/a.ts", "/r/b.ts", "/r/c.ts", "/r/d.ts", "/r/e.ts"]),
+      opened,
+    );
     try {
       expect(document.querySelectorAll(".acpmux-edited-file")).toHaveLength(3);
       const more = document.querySelector(".acpmux-edited-more")!;
       expect(more.textContent).toBe("Show 2 more files");
-      await act(async () => more.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+      await act(async () =>
+        more.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })),
+      );
       expect(document.querySelectorAll(".acpmux-edited-file")).toHaveLength(5);
       expect(document.querySelector(".acpmux-edited-more")?.textContent).toBe("Show fewer files");
     } finally {
@@ -1868,14 +2060,22 @@ describe("acpmux turn diff", () => {
           canLoadOlder: false,
         }),
       );
-      await click([...document.querySelectorAll("button")].find((button) => button.textContent === "View changes")!);
+      await click(
+        [...document.querySelectorAll("button")].find(
+          (button) => button.textContent === "View changes",
+        )!,
+      );
       const panel = document.querySelector("section.acpmux-diff-panel")!;
       const paths = () =>
-        [...panel.querySelectorAll<HTMLElement>(".acpmux-diff-file")].map((node) => node.dataset.path);
+        [...panel.querySelectorAll<HTMLElement>(".acpmux-diff-file")].map(
+          (node) => node.dataset.path,
+        );
       const pill = panel.querySelector<HTMLElement>('.acpmux-diff-header [aria-haspopup="menu"]')!;
       expect(pill).not.toBeNull();
       expect(pill.querySelector("strong")?.textContent).toBe("Last turn");
-      const items = () => [...panel.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitemradio"]')];
+      const items = () => [
+        ...panel.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitemradio"]'),
+      ];
       const eye = () => panel.querySelector<HTMLElement>(".acpmux-diff-file [aria-pressed]")!;
       // The turn's file, marked viewed, folds away.
       await click(eye());
@@ -1928,7 +2128,9 @@ describe("acpmux turn diff", () => {
       expect(document.activeElement).toBe(pill);
       expect(panel.querySelector('.acpmux-changes-state[role="alert"]')).toBeNull();
       expect(paths()).toEqual(["/repo/src/main.ts"]);
-      expect(panel.querySelector(".acpmux-diff-file .acpmux-fh-name")?.textContent).toBe("src/main.ts");
+      expect(panel.querySelector(".acpmux-diff-file .acpmux-fh-name")?.textContent).toBe(
+        "src/main.ts",
+      );
       // The same file in another scope is other contents: open and not viewed.
       expect(eye().getAttribute("aria-pressed")).toBe("false");
       expect(panel.querySelector(".acpmux-diff-file diffs-container")).not.toBeNull();
@@ -1941,7 +2143,9 @@ describe("acpmux turn diff", () => {
       await click(items()[1]!);
       expect(asked.length).toBe(3);
       expect(paths()).toEqual([]);
-      expect(panel.querySelector("output.acpmux-changes-state")?.textContent).toBe("Loading changes…");
+      expect(panel.querySelector("output.acpmux-changes-state")?.textContent).toBe(
+        "Loading changes…",
+      );
       // A scope with nothing in it says so. An arrow key opens the menu from the pill too.
       await key(pill, "ArrowDown");
       expect(document.activeElement?.textContent).toBe("Uncommitted");
@@ -2047,21 +2251,31 @@ describe("acpmux turn diff", () => {
           canLoadOlder: false,
         }),
       );
-      await click([...document.querySelectorAll("button")].find((button) => button.textContent === "View changes")!);
+      await click(
+        [...document.querySelectorAll("button")].find(
+          (button) => button.textContent === "View changes",
+        )!,
+      );
       const panel = document.querySelector("section.acpmux-diff-panel")!;
       const options = panel.querySelector<HTMLElement>('[data-tool="options"]')!;
       expect(options?.getAttribute("aria-label")).toBe("Changes options");
       // Escape is the page's own key, not an app shortcut, so the tooltip shows no keycap.
-      expect(panel.querySelector(".acpmux-diff-back")?.getAttribute("title")).toBe("Back to transcript");
+      expect(panel.querySelector(".acpmux-diff-back")?.getAttribute("title")).toBe(
+        "Back to transcript",
+      );
       const rows = () => [
-        ...panel.querySelectorAll<HTMLButtonElement>('[aria-label="Changes options"][role="menu"] [role="menuitem"]'),
+        ...panel.querySelectorAll<HTMLButtonElement>(
+          '[aria-label="Changes options"][role="menu"] [role="menuitem"]',
+        ),
       ];
       const row = (label: string) => rows().find((item) => item.textContent === label)!;
       const tool = (id: string) => panel.querySelector<HTMLElement>(`[data-tool="${id}"]`)!;
       // Last turn comes from the transcript: nothing to refresh and no git patches to copy.
       await click(options);
       expect(options.getAttribute("aria-expanded")).toBe("true");
-      expect(rows().map((item) => [item.textContent, item.getAttribute("aria-disabled") === "true"])).toEqual([
+      expect(
+        rows().map((item) => [item.textContent, item.getAttribute("aria-disabled") === "true"]),
+      ).toEqual([
         ["Refresh", true],
         ["Word wrap", false],
         ["Switch to split diff", false],
@@ -2145,7 +2359,14 @@ describe("acpmux turn diff", () => {
       "git.diff": async (params) => {
         diffs.push(params.scope);
         return params.scope === "branch"
-          ? { scope: "branch", root: "/repo", base: "4be1c2e", files: [file], total_files: 1, files_omitted: 0 }
+          ? {
+              scope: "branch",
+              root: "/repo",
+              base: "4be1c2e",
+              files: [file],
+              total_files: 1,
+              files_omitted: 0,
+            }
           : {
               scope: params.scope,
               root: "/repo",
@@ -2209,7 +2430,11 @@ describe("acpmux turn diff", () => {
           canLoadOlder: false,
         }),
       );
-      await click([...document.querySelectorAll("button")].find((button) => button.textContent === "View changes")!);
+      await click(
+        [...document.querySelectorAll("button")].find(
+          (button) => button.textContent === "View changes",
+        )!,
+      );
       const panel = document.querySelector("section.acpmux-diff-panel")!;
       const banner = () => panel.querySelector<HTMLElement>(".acpmux-changes-banner");
       const branch = () => panel.querySelector<HTMLElement>(".acpmux-branch-pill");
@@ -2227,14 +2452,20 @@ describe("acpmux turn diff", () => {
       await pick("Uncommitted");
       // Only the message is announced, not the buttons beside it.
       expect(banner()?.getAttribute("role")).toBeNull();
-      expect(banner()?.querySelector('[role="status"]')?.className).toBe("acpmux-changes-banner-text");
-      expect(banner()?.querySelector(".acpmux-changes-banner-title")?.textContent).toBe("Showing tracked changes only");
+      expect(banner()?.querySelector('[role="status"]')?.className).toBe(
+        "acpmux-changes-banner-text",
+      );
+      expect(banner()?.querySelector(".acpmux-changes-banner-title")?.textContent).toBe(
+        "Showing tracked changes only",
+      );
       expect(banner()?.querySelector(".acpmux-changes-banner-body")?.textContent).toBe(
         "The Changes tab skipped 1,234 untracked files to stay responsive. If these files are generated, clean them up and refresh",
       );
       expect([branch(), statuses]).toEqual([null, 1]);
       const action = (label: string) =>
-        [...banner()!.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === label)!;
+        [...banner()!.querySelectorAll<HTMLButtonElement>("button")].find(
+          (button) => button.textContent === label,
+        )!;
       // The cleanup command is a dry run that lists the untracked files the scope left out.
       await click(action("Copy cleanup command"));
       expect(copied).toEqual(["git clean -nd"]);
@@ -2256,21 +2487,29 @@ describe("acpmux turn diff", () => {
       // A refresh asks for the branch again too.
       await click(panel.querySelector<HTMLElement>('[data-tool="options"]')!);
       await click(
-        [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === "Refresh")!,
+        [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+          (item) => item.textContent === "Refresh",
+        )!,
       );
       expect([diffs.length, statuses]).toEqual([4, 3]);
       // A status asked before a refresh never names the branch after it.
       const pending: ((branch: string) => void)[] = [];
       host.cmuxAcpmuxActions["git.status"] = () =>
-        new Promise((resolve) => pending.push((name) => resolve({ branch: name, base: "origin/main" })));
+        new Promise((resolve) =>
+          pending.push((name) => resolve({ branch: name, base: "origin/main" })),
+        );
       await click(panel.querySelector<HTMLElement>('[data-tool="options"]')!);
       await click(
-        [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === "Refresh")!,
+        [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+          (item) => item.textContent === "Refresh",
+        )!,
       );
       expect([branch(), pending.length]).toEqual([null, 1]);
       await click(panel.querySelector<HTMLElement>('[data-tool="options"]')!);
       await click(
-        [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === "Refresh")!,
+        [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+          (item) => item.textContent === "Refresh",
+        )!,
       );
       await act(async () => pending[1]!("feat-new"));
       await act(async () => pending[0]!("feat-old"));
@@ -2282,7 +2521,10 @@ describe("acpmux turn diff", () => {
       };
       await pick("Uncommitted");
       await pick("Branch");
-      expect([branch(), panel.querySelectorAll(".acpmux-diff-file").length > 0]).toEqual([null, true]);
+      expect([branch(), panel.querySelectorAll(".acpmux-diff-file").length > 0]).toEqual([
+        null,
+        true,
+      ]);
       // A detached head has no branch to name, even when the host still sends its last one.
       host.cmuxAcpmuxActions["git.status"] = async () => ({
         root: "/repo",
@@ -2319,11 +2561,17 @@ describe("acpmux composer", () => {
       queue: [],
       canLoadOlder: false,
       catalog: [{ id: "codex", models: [{ id: "gpt", name: "GPT" }] }],
-      summary: { harness: "codex", model: "gpt", modes: { availableModes: [], currentModeId: null } },
+      summary: {
+        harness: "codex",
+        model: "gpt",
+        modes: { availableModes: [], currentModeId: null },
+      },
     });
     const composer = () => dom.window.document.querySelector(".acpmux-composer")!;
     const buttons = () =>
-      Array.from(composer().querySelectorAll(".acpmux-send"), (button) => button.getAttribute("aria-label"));
+      Array.from(composer().querySelectorAll(".acpmux-send"), (button) =>
+        button.getAttribute("aria-label"),
+      );
     try {
       await act(async () => root.render(createElement(AcpmuxApp)));
       await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot(false) as never));
@@ -2348,7 +2596,14 @@ describe("acpmux turn counts", () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
     const turn: AcpmuxRow[] = [
       { id: "u", version: 1, at: 1, kind: "user", text: "run it" },
-      { id: "a", version: 1, at: 2, kind: "activity", toolCount: 1, items: [{ kind: "tool", text: "Run total.py" }] },
+      {
+        id: "a",
+        version: 1,
+        at: 2,
+        kind: "activity",
+        toolCount: 1,
+        items: [{ kind: "tool", text: "Run total.py" }],
+      },
       { id: "s", version: 1, at: 3, kind: "turnSummary", durationMs: 3000, toolCount: 1 },
     ];
     try {
@@ -2383,7 +2638,9 @@ describe("acpmux turn counts", () => {
           }),
         ),
       );
-      expect(dom.window.document.querySelector(".cv-turn-summary")?.textContent).toBe("2 tool calls");
+      expect(dom.window.document.querySelector(".cv-turn-summary")?.textContent).toBe(
+        "2 tool calls",
+      );
     } finally {
       await act(async () => root.unmount());
       restore();
@@ -2436,7 +2693,11 @@ describe("acpmux docked permission asks", () => {
             decision: null,
             decisions: ["allow_once", "allow_chat", "deny"],
             items: [
-              { permissionId: "p", state: "pending", request: { toolCall: { title: "Write app.ts", kind: "edit" } } },
+              {
+                permissionId: "p",
+                state: "pending",
+                request: { toolCall: { title: "Write app.ts", kind: "edit" } },
+              },
             ],
           },
         ],
@@ -2447,7 +2708,8 @@ describe("acpmux docked permission asks", () => {
       await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot as never));
       await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
       expect(dom.window.document.querySelector(".acpmux-trust-ask")).not.toBeNull();
-      const buttons = () => [...dom.window.document.querySelectorAll("button")].map((button) => button.textContent);
+      const buttons = () =>
+        [...dom.window.document.querySelectorAll("button")].map((button) => button.textContent);
       expect(buttons()).toContain("Allow for this chat");
       expect(buttons().some((label) => label?.endsWith("Individual allow"))).toBe(false);
       // An interactive request remains individually answerable beside both asks.
@@ -2541,7 +2803,13 @@ describe("acpmux live turn status", () => {
   test("a running turn says Thinking, then Working over its work, then folds when it ends", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });
     const root = createRoot(dom.window.document.getElementById("root")!);
-    const user: AcpmuxRow = { id: "u", version: 1, at: Date.now() - 42_000, kind: "user", text: "run it" };
+    const user: AcpmuxRow = {
+      id: "u",
+      version: 1,
+      at: Date.now() - 42_000,
+      kind: "user",
+      text: "run it",
+    };
     const work: AcpmuxRow = {
       id: "a",
       version: 1,
@@ -2572,7 +2840,14 @@ describe("acpmux live turn status", () => {
       expect(status()?.tagName).toBe("DIV");
       expect(dom.window.document.querySelector(".cv-thinking")).toBeNull();
 
-      await draw([user, work, { id: "s", version: 1, at: user.at + 50_000, kind: "turnSummary", toolCount: 1 }], false);
+      await draw(
+        [
+          user,
+          work,
+          { id: "s", version: 1, at: user.at + 50_000, kind: "turnSummary", toolCount: 1 },
+        ],
+        false,
+      );
       expect(status()?.tagName).toBe("BUTTON");
       expect(status()?.textContent).toBe("Worked for 50s");
     } finally {
@@ -2588,7 +2863,12 @@ describe("acpmux live turn status", () => {
     const now = () => clock;
     try {
       await act(async () =>
-        root.render(createElement(WorkingFor, { row: { id: "working-u", version: 1, at: 0, kind: "working" }, now })),
+        root.render(
+          createElement(WorkingFor, {
+            row: { id: "working-u", version: 1, at: 0, kind: "working" },
+            now,
+          }),
+        ),
       );
       const label = () => dom.window.document.querySelector(".cv-worked__label")?.textContent;
       expect(label()).toBe("Working for 42s");
@@ -2619,8 +2899,13 @@ describe("acpmux tool runs", () => {
   test("a run in an ended turn shows one summary line and opens to its calls", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });
     const root = createRoot(dom.window.document.getElementById("root")!);
-    const items = [call("Read upload.ts", "read"), call("Search for retry", "search"), call("Run bun test", "execute")];
-    const texts = () => [...dom.window.document.querySelectorAll(".cv-tool")].map((node) => node.textContent);
+    const items = [
+      call("Read upload.ts", "read"),
+      call("Search for retry", "search"),
+      call("Run bun test", "execute"),
+    ];
+    const texts = () =>
+      [...dom.window.document.querySelectorAll(".cv-tool")].map((node) => node.textContent);
     try {
       await act(async () =>
         root.render(
@@ -2636,7 +2921,12 @@ describe("acpmux tool runs", () => {
       expect(summary.getAttribute("aria-expanded")).toBe("false");
       await act(async () => summary.click());
       expect(summary.getAttribute("aria-expanded")).toBe("true");
-      expect(texts()).toEqual(["Read files, ran a command", "Read upload.ts", "Search for retry", "Run bun test"]);
+      expect(texts()).toEqual([
+        "Read files, ran a command",
+        "Read upload.ts",
+        "Search for retry",
+        "Run bun test",
+      ]);
     } finally {
       await act(async () => root.unmount());
       restore();
@@ -2655,7 +2945,8 @@ describe("acpmux tool runs", () => {
       kind: "activity",
       items: [call("Read upload.ts", "read"), call("Run bun test", "execute", last)],
     });
-    const texts = () => [...dom.window.document.querySelectorAll(".cv-tool")].map((node) => node.textContent);
+    const texts = () =>
+      [...dom.window.document.querySelectorAll(".cv-tool")].map((node) => node.textContent);
     const show = (rows: AcpmuxRow[], open: Set<string>) =>
       act(async () =>
         root.render(
@@ -2675,7 +2966,11 @@ describe("acpmux tool runs", () => {
         await show([user, activity(version, status)], new Set());
         expect(texts()).toEqual(["Read upload.ts", "Run bun test"]);
       }
-      const ended = [user, activity(3, "completed"), { id: "s", version: 1, at: 9, kind: "turnSummary", toolCount: 2 }];
+      const ended = [
+        user,
+        activity(3, "completed"),
+        { id: "s", version: 1, at: 9, kind: "turnSummary", toolCount: 2 },
+      ];
       await show(ended, new Set());
       expect(texts()).toEqual([]);
       const worked = turnView(ended, new Set()).find((row) => row.kind === "worked")!;
@@ -2711,7 +3006,13 @@ describe("acpmux shell calls", () => {
       {
         kind: "tool",
         text: "mcp.cua_repl.js",
-        tool: { id: "m", title: "mcp.cua_repl.js", kind: "execute", status: "completed", output: "{ apps: [] }" },
+        tool: {
+          id: "m",
+          title: "mcp.cua_repl.js",
+          kind: "execute",
+          status: "completed",
+          output: "{ apps: [] }",
+        },
       },
     ];
     try {
@@ -2724,11 +3025,15 @@ describe("acpmux shell calls", () => {
           }),
         ),
       );
-      const rows = [...dom.window.document.querySelectorAll<HTMLButtonElement>(".cv-tool.is-toggle")];
+      const rows = [
+        ...dom.window.document.querySelectorAll<HTMLButtonElement>(".cv-tool.is-toggle"),
+      ];
       await act(async () => rows.forEach((row) => row.click()));
       const shell = dom.window.document.querySelector(".cv-shell");
       expect(shell?.textContent).toBe("Shell$ bun test1 failExit code 1");
-      expect(dom.window.document.querySelector(".cv-tool-output")?.textContent).toBe("{ apps: [] }");
+      expect(dom.window.document.querySelector(".cv-tool-output")?.textContent).toBe(
+        "{ apps: [] }",
+      );
       expect(dom.window.document.querySelectorAll(".cv-shell")).toHaveLength(1);
     } finally {
       await act(async () => root.unmount());
@@ -2743,7 +3048,13 @@ describe("acpmux timestamp lines", () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
     try {
       for (const at of [undefined, 0, NaN, Infinity]) {
-        const user: AcpmuxRow = { id: "u", version: 1, at: 0, kind: "user", text: "Update dependencies" };
+        const user: AcpmuxRow = {
+          id: "u",
+          version: 1,
+          at: 0,
+          kind: "user",
+          text: "Update dependencies",
+        };
         if (at === undefined) delete (user as Partial<AcpmuxRow>).at;
         else user.at = at;
         await act(async () =>
@@ -2823,7 +3134,13 @@ describe("acpmux edit diffs", () => {
           {
             kind: "tool",
             text: "Edit Total.swift",
-            tool: { id: "t1", title: "Edit Total.swift", kind: "edit", status: "completed", diffs: [diff] },
+            tool: {
+              id: "t1",
+              title: "Edit Total.swift",
+              kind: "edit",
+              status: "completed",
+              diffs: [diff],
+            },
           },
         ],
       },
@@ -2849,11 +3166,17 @@ describe("acpmux edit diffs", () => {
     try {
       await act(async () =>
         root.render(
-          createElement(VirtualTranscript, { rows: turnView(turn, open), onToggleActivity: () => {}, expanded: open }),
+          createElement(VirtualTranscript, {
+            rows: turnView(turn, open),
+            onToggleActivity: () => {},
+            expanded: open,
+          }),
         ),
       );
       const document = dom.window.document;
-      const toggles = () => [...document.querySelectorAll<HTMLButtonElement>("button.cv-tool.is-toggle")];
+      const toggles = () => [
+        ...document.querySelectorAll<HTMLButtonElement>("button.cv-tool.is-toggle"),
+      ];
       // The edit with a diff opens; the one without a diff or output stays a plain row.
       expect(toggles().map((button) => button.textContent)).toEqual(["Edit Total.swift"]);
       expect(document.body.textContent).toContain("Edit notes");
@@ -2939,7 +3262,9 @@ describe("acpmux hunk review", () => {
       expect(document.querySelector(".acpmux-revert-count")?.textContent).toBe("1 change rejected");
       await click([...document.querySelectorAll(".acpmux-revert-send")][0]);
       expect(sent.length).toBe(1);
-      expect(sent[0].prompt).toContain("--- /repo/a.ts\n+++ /repo/a.ts\n@@ -4,2 +4,2 @@\n one\n-two\n+2");
+      expect(sent[0].prompt).toContain(
+        "--- /repo/a.ts\n+++ /repo/a.ts\n@@ -4,2 +4,2 @@\n one\n-two\n+2",
+      );
       expect(document.querySelector(".acpmux-hunk-actions")?.textContent).toBe("Revert requested");
       expect(document.querySelector(".acpmux-revert-bar")).toBeNull();
       expect(document.activeElement?.getAttribute("aria-label")).toBe("Back to transcript");

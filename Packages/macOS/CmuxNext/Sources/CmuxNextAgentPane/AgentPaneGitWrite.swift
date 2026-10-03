@@ -1,9 +1,12 @@
 import Foundation
 
 /// A change to the chat session's repository that the changes view asks
-/// for: `git.commit` with `{message, all?, include_untracked?,
-/// expected_head?, idempotency_key}` or `git.push` with `{expected_head?,
-/// idempotency_key}`. The App runs it as the session host's mutation of the
+/// for: `git.commit` with `{session_id, message, all?, include_untracked?,
+/// expected_head?, idempotency_key}` or `git.push` with `{session_id,
+/// expected_head?, idempotency_key}`. `session_id` is the chat session the
+/// page read `git.status` for; the model refuses the write unless it is the
+/// pane's own session, so a view read for one chat never writes another's
+/// repository. The App runs it as the session host's mutation of the
 /// same name in the folder of the pane's own session, which the host reads
 /// from acpmux (``AgentPaneHostProviding/sessionFolder(sessionId:)``). A
 /// `cwd` the page sends is ignored: a page cannot point a commit or push at
@@ -18,9 +21,9 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     /// With `all` false the index is committed as it is (the Staged
     /// toggle); with `all` every tracked change, and `includeUntracked` adds
     /// untracked, nonignored files.
-    case commit(message: String, all: Bool, includeUntracked: Bool, expectedHead: String?, key: String)
+    case commit(sessionId: String, message: String, all: Bool, includeUntracked: Bool, expectedHead: String?, key: String)
     /// The current branch to where `git push` would send it; never forced.
-    case push(expectedHead: String?, key: String)
+    case push(sessionId: String, expectedHead: String?, key: String)
 
     /// The session host's limit on a message, in UTF-8 bytes (64 KiB).
     public static let maximumMessageBytes = 65_536
@@ -36,7 +39,14 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     /// The page's idempotency key for this user action.
     public var key: String {
         switch self {
-        case .commit(_, _, _, _, let key), .push(_, let key): key
+        case .commit(_, _, _, _, _, let key), .push(_, _, let key): key
+        }
+    }
+
+    /// The session the page read the repository's status for.
+    public var sessionId: String {
+        switch self {
+        case .commit(let sessionId, _, _, _, _, _), .push(let sessionId, _, _): sessionId
         }
     }
 
@@ -54,7 +64,8 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
     /// `expected_head` must be a hexadecimal commit id; booleans default to
     /// false and anything else of the wrong type refuses.
     init?(method: String, params: [String: Any]?) {
-        guard let params, let key = params["idempotency_key"] as? String, Self.isKey(key) else { return nil }
+        guard let params, let key = params["idempotency_key"] as? String, Self.isKey(key),
+              let sessionId = params["session_id"] as? String, Self.isKey(sessionId) else { return nil }
         let expectedHead: String?
         switch params["expected_head"] {
         case nil, is NSNull: expectedHead = nil
@@ -68,9 +79,9 @@ public nonisolated enum AgentPaneGitWrite: Equatable, Sendable {
                   message.contains(where: { !$0.isWhitespace }),
                   let all = Self.flag(params["all"]), let untracked = Self.flag(params["include_untracked"]),
                   all || !untracked else { return nil }
-            self = .commit(message: message, all: all, includeUntracked: untracked, expectedHead: expectedHead, key: key)
+            self = .commit(sessionId: sessionId, message: message, all: all, includeUntracked: untracked, expectedHead: expectedHead, key: key)
         case "git.push":
-            self = .push(expectedHead: expectedHead, key: key)
+            self = .push(sessionId: sessionId, expectedHead: expectedHead, key: key)
         default:
             return nil
         }

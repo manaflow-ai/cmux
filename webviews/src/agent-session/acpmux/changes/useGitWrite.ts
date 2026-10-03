@@ -134,7 +134,7 @@ export function useGitWrite(
   const commit = useCallback(
     async (message: string, scope: CommitScope, includeNew: boolean) => {
       const current = statusRef.current ?? (await readStatus());
-      return run("commit", commitParams(message, scope, current?.head, includeNew));
+      return run("commit", commitParams(message, scope, current?.head, includeNew, current?.sessionId));
     },
     [run, readStatus],
   );
@@ -159,7 +159,7 @@ export function useGitWrite(
       });
       return false;
     }
-    return run("push", pushParams(current?.head));
+    return run("push", pushParams(current?.head, current?.sessionId));
   }, [run, readStatus]);
 
   const retry = useCallback(() => {

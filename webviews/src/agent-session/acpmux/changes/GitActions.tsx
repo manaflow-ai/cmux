@@ -2,9 +2,9 @@
 // (a message, Staged or All, Include new files), and one status line for the latest write: busy,
 // done, or why it failed, with Retry when it may pass on a second try and Refresh when the view
 // is stale.
-import React, { useId, useRef, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import { t } from "../i18n";
-import { canPush, messageTooLong, type CommitScope, type NewFiles } from "./gitWrite";
+import { canPush, messageTooLong, sameNewFiles, type CommitScope, type NewFiles } from "./gitWrite";
 import type { GitWrite } from "./useGitWrite";
 
 /// Commit opens or closes the form; Push pushes the branch and shows how far it is ahead.
@@ -71,16 +71,19 @@ export function GitWriteBar({
   formOpen,
   onCloseForm,
   messageRef,
+  reloadKey,
 }: {
   git: GitWrite;
   formOpen: boolean;
   onCloseForm: () => void;
   messageRef?: React.Ref<HTMLTextAreaElement>;
+  /// Changes when the view reloads its scope; the commit form then lists new files again.
+  reloadKey?: unknown;
 }) {
   if (!git.available) return null;
   return (
     <>
-      {formOpen && <CommitForm git={git} onClose={onCloseForm} messageRef={messageRef} />}
+      {formOpen && <CommitForm git={git} onClose={onCloseForm} messageRef={messageRef} reloadKey={reloadKey} />}
       <WriteStatusLine git={git} />
     </>
   );
@@ -93,10 +96,12 @@ function CommitForm({
   git,
   onClose: onCloseForm,
   messageRef,
+  reloadKey,
 }: {
   git: GitWrite;
   onClose: () => void;
   messageRef?: React.Ref<HTMLTextAreaElement>;
+  reloadKey?: unknown;
 }) {
   const [message, setMessage] = useState("");
   const [scope, setScope] = useState<CommitScope>("staged");
@@ -110,19 +115,53 @@ function CommitForm({
   // New files are committed only after the reader has seen all of them.
   const newFilesShown = !withNew || (newFiles?.state === "loaded" && newFiles.files.skipped === 0);
   const ready = message.trim().length > 0 && !tooLong && !busy && !git.statusFailed && newFilesShown;
-  const submit = () => {
-    if (ready) void git.commit(message, scope, withNew);
-  };
-  const toggleNew = (on: boolean) => {
-    setIncludeNew(on);
+  const [listChanged, setListChanged] = useState(false);
+  const list = (then?: (files: NewFiles) => void) => {
     const request = ++listing.current;
-    if (!on) return setNewFiles(undefined);
     setNewFiles({ state: "loading" });
     git.listNewFiles().then(
-      (files) => request === listing.current && setNewFiles({ state: "loaded", files }),
+      (files) => {
+        if (request !== listing.current) return;
+        setNewFiles({ state: "loaded", files });
+        then?.(files);
+      },
       () => request === listing.current && setNewFiles({ state: "failed" }),
     );
   };
+  // New files are read again at Commit: if any appeared or went since the list was shown, the
+  // commit waits and the new list shows, so nothing unseen is committed.
+  const submit = () => {
+    if (!ready) return;
+    if (!withNew || newFiles?.state !== "loaded") return void git.commit(message, scope, withNew);
+    const shown = newFiles.files;
+    setListChanged(false);
+    list((files) => {
+      if (sameNewFiles(shown, files)) void git.commit(message, scope, true);
+      else setListChanged(true);
+    });
+  };
+  const toggleNew = (on: boolean) => {
+    setIncludeNew(on);
+    setListChanged(false);
+    if (on) list();
+    else {
+      listing.current += 1;
+      setNewFiles(undefined);
+    }
+  };
+  // A reload of the view's scope reads the new files again, so the list never outlives it.
+  const [listedFor, setListedFor] = useState(reloadKey);
+  if (listedFor !== reloadKey) {
+    setListedFor(reloadKey);
+    if (withNew) {
+      listing.current += 1;
+      setNewFiles(undefined);
+      setListChanged(false);
+    }
+  }
+  useEffect(() => {
+    if (withNew && newFiles === undefined) list();
+  });
   const options = [
     { value: "staged" as const, label: t("git.commit.staged") },
     { value: "all" as const, label: t("git.commit.all") },
@@ -199,6 +238,11 @@ function CommitForm({
           {t("git.commit.submit")}
         </button>
       </div>
+      {withNew && listChanged && (
+        <span className="acpmux-git-form-note" role="alert">
+          {t("git.commit.newFilesChanged")}
+        </span>
+      )}
       {withNew && <NewFileList files={newFiles} />}
     </form>
   );

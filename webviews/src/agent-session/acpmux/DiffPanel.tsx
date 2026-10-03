@@ -354,6 +354,7 @@ export function DiffPanel({
         formOpen={commitOpen}
         onCloseForm={() => setCommitOpen(false)}
         messageRef={commitMessage}
+        reloadKey={load.state === "loaded" ? load.changeSet : load.state}
       />
       {checkpointReview}
       <div className="acpmux-diff-main">

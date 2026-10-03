@@ -178,6 +178,10 @@ public final class AgentPaneModel {
             guard let onGitWrite else { return Self.gitFailure(.notConnected, message: Self.gitWriteFailedMessage) }
             // The pane's own session, never a folder the page names.
             guard let sessionId else { return Self.gitFailure(.noSessionFolder, message: Self.gitWriteFailedMessage) }
+            // The page read the repository for another session than the pane's.
+            guard write.sessionId == sessionId else {
+                return Self.gitFailure(.sessionChanged, message: Self.gitWriteFailedMessage)
+            }
             let folder: AgentPaneSessionFolder?
             do {
                 folder = try await host.sessionFolder(sessionId: sessionId)

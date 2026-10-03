@@ -32,14 +32,14 @@ private struct FolderHost: AgentPaneHostProviding {
     }
 
     @Test func aCommitCarriesTheMessageScopeHeadAndKey() {
-        #expect(Self.request("git.commit", ["message": "Fix upload", "idempotency_key": Self.key])
-            == .gitWrite(.commit(message: "Fix upload", all: false, includeUntracked: false, expectedHead: nil, key: Self.key)))
+        #expect(Self.request("git.commit", ["message": "Fix upload", "idempotency_key": Self.key, "session_id": "s1"])
+            == .gitWrite(.commit(sessionId: "s1", message: "Fix upload", all: false, includeUntracked: false, expectedHead: nil, key: Self.key)))
         let all = Self.request("git.commit", [
             "cwd": "/elsewhere", "message": "Fix\n\nBody", "all": true, "include_untracked": true,
-            "expected_head": Self.head, "idempotency_key": Self.key,
+            "expected_head": Self.head, "idempotency_key": Self.key, "session_id": "s1",
         ])
-        #expect(all == .gitWrite(.commit(message: "Fix\n\nBody", all: true, includeUntracked: true, expectedHead: Self.head, key: Self.key)))
-        let write = AgentPaneGitWrite.commit(message: "m", all: false, includeUntracked: false, expectedHead: nil, key: Self.key)
+        #expect(all == .gitWrite(.commit(sessionId: "s1", message: "Fix\n\nBody", all: true, includeUntracked: true, expectedHead: Self.head, key: Self.key)))
+        let write = AgentPaneGitWrite.commit(sessionId: "s1", message: "m", all: false, includeUntracked: false, expectedHead: nil, key: Self.key)
         #expect(write.operation == "git.commit")
         #expect(write.key == Self.key)
     }
@@ -48,15 +48,15 @@ private struct FolderHost: AgentPaneHostProviding {
     /// file such as `.env` is not staged, because the request says nothing
     /// about untracked files.
     @Test func allWithoutNewFilesCarriesNoUntrackedFlag() {
-        let request = Self.request("git.commit", ["message": "m", "all": true, "idempotency_key": Self.key])
-        #expect(request == .gitWrite(.commit(message: "m", all: true, includeUntracked: false, expectedHead: nil, key: Self.key)))
+        let request = Self.request("git.commit", ["message": "m", "all": true, "idempotency_key": Self.key, "session_id": "s1"])
+        #expect(request == .gitWrite(.commit(sessionId: "s1", message: "m", all: true, includeUntracked: false, expectedHead: nil, key: Self.key)))
     }
 
     @Test func aPushCarriesTheHeadAndKey() {
-        #expect(Self.request("git.push", ["expected_head": Self.head, "idempotency_key": Self.key])
-            == .gitWrite(.push(expectedHead: Self.head, key: Self.key)))
-        #expect(Self.request("git.push", ["idempotency_key": Self.key]) == .gitWrite(.push(expectedHead: nil, key: Self.key)))
-        #expect(AgentPaneGitWrite.push(expectedHead: nil, key: Self.key).operation == "git.push")
+        #expect(Self.request("git.push", ["expected_head": Self.head, "idempotency_key": Self.key, "session_id": "s1"])
+            == .gitWrite(.push(sessionId: "s1", expectedHead: Self.head, key: Self.key)))
+        #expect(Self.request("git.push", ["idempotency_key": Self.key, "session_id": "s1"]) == .gitWrite(.push(sessionId: "s1", expectedHead: nil, key: Self.key)))
+        #expect(AgentPaneGitWrite.push(sessionId: "s1", expectedHead: nil, key: Self.key).operation == "git.push")
     }
 
     /// Params the session host would refuse, or the page should never send,
@@ -64,9 +64,11 @@ private struct FolderHost: AgentPaneHostProviding {
     /// 64 KiB, untracked files without All, a head that is not a commit id,
     /// or a flag that is not a boolean.
     @Test func invalidParamsAreAnInvalidRequest() {
-        let base: [String: Any] = ["message": "m", "idempotency_key": Self.key]
+        let base: [String: Any] = ["message": "m", "idempotency_key": Self.key, "session_id": "s1"]
         let broken: [[String: Any]] = [
             base.filter { $0.key != "idempotency_key" },
+            base.filter { $0.key != "session_id" },
+            base.merging(["session_id": ""]) { $1 },
             base.merging(["idempotency_key": ""]) { $1 },
             base.merging(["idempotency_key": "has space"]) { $1 },
             base.merging(["idempotency_key": String(repeating: "k", count: 129)]) { $1 },
@@ -99,13 +101,32 @@ private struct FolderHost: AgentPaneHostProviding {
             asked.append((request, cwd))
             return Data(#"{"value":{"root":"/repo","commit":"abcd1234","summary":"Fix","files_changed":1,"additions":2,"deletions":0},"generation":"g","revision":3,"replayed":false}"#.utf8)
         }
-        let reply = await model.respond(to: Self.request("git.push", ["cwd": "/other/repo", "idempotency_key": Self.key]))
+        let reply = await model.respond(to: Self.request("git.push", ["cwd": "/other/repo", "idempotency_key": Self.key, "session_id": "s1"]))
         #expect(reply["ok"] as? Bool == true)
         let value = try #require(reply["value"] as? [String: Any])
         #expect((value["value"] as? [String: Any])?["commit"] as? String == "abcd1234")
         #expect(asked.count == 1)
-        #expect(asked.first?.0 == .push(expectedHead: nil, key: Self.key))
+        #expect(asked.first?.0 == .push(sessionId: "s1", expectedHead: nil, key: Self.key))
         #expect(asked.first?.1 == "/repo")
+    }
+
+    /// A write built on a status read for another session than the pane's is
+    /// refused with its own reason and never sent; the pane's own session runs.
+    @Test func aWriteForAnotherSessionIsRefused() async throws {
+        let model = await Self.model()
+        var asked: [String] = []
+        model.onGitWrite = { _, cwd in
+            asked.append(cwd)
+            return Data(#"{"value":{},"replayed":false}"#.utf8)
+        }
+        var reply = await model.respond(to: .gitWrite(.push(sessionId: "s2", expectedHead: nil, key: Self.key)))
+        let error = try #require(reply["error"] as? [String: Any])
+        #expect(error["code"] as? String == "native.session_changed")
+        #expect(error["origin"] as? String == "native")
+        #expect(asked.isEmpty)
+        reply = await model.respond(to: .gitWrite(.push(sessionId: "s1", expectedHead: nil, key: Self.key)))
+        #expect(reply["ok"] as? Bool == true)
+        #expect(asked == ["/repo"])
     }
 
     /// No session, a session the daemon does not know, another machine's
@@ -125,7 +146,7 @@ private struct FolderHost: AgentPaneHostProviding {
                 asked += 1
                 return Data("{}".utf8)
             }
-            let reply = await model.respond(to: .gitWrite(.push(expectedHead: nil, key: Self.key)))
+            let reply = await model.respond(to: .gitWrite(.push(sessionId: "s1", expectedHead: nil, key: Self.key)))
             let error = try #require(reply["error"] as? [String: Any])
             #expect(error["code"] as? String == code)
             #expect(error["origin"] as? String == "native")
@@ -144,14 +165,14 @@ private struct FolderHost: AgentPaneHostProviding {
                 details: Data(#"{"operation":"git.push","reason":"rejected_non_fast_forward","extra":{"message":"behind"}}"#.utf8),
                 retryable: false, origin: .sessionHost)
         }
-        var reply = await model.respond(to: .gitWrite(.push(expectedHead: nil, key: Self.key)))
+        var reply = await model.respond(to: .gitWrite(.push(sessionId: "s1", expectedHead: nil, key: Self.key)))
         var error = try #require(reply["error"] as? [String: Any])
         #expect(error["code"] as? String == "operation.failed")
         #expect(error["origin"] as? String == "session_host")
         #expect(error["userMessage"] as? String == AgentPaneModel.gitWriteFailedMessage)
         #expect((error["details"] as? [String: Any])?["reason"] as? String == "rejected_non_fast_forward")
         model.onGitWrite = { _, _ in throw AgentPaneGitFailure.timedOut }
-        reply = await model.respond(to: .gitWrite(.push(expectedHead: nil, key: Self.key)))
+        reply = await model.respond(to: .gitWrite(.push(sessionId: "s1", expectedHead: nil, key: Self.key)))
         error = try #require(reply["error"] as? [String: Any])
         #expect(error["code"] as? String == "native.timed_out")
         #expect(error["origin"] as? String == "native")
@@ -160,7 +181,7 @@ private struct FolderHost: AgentPaneHostProviding {
     /// Without a session host link nothing is sent; refused params never reach it.
     @Test func noLinkOrInvalidParamsAreNeverSent() async throws {
         let model = await Self.model()
-        var reply = await model.respond(to: .gitWrite(.push(expectedHead: nil, key: Self.key)))
+        var reply = await model.respond(to: .gitWrite(.push(sessionId: "s1", expectedHead: nil, key: Self.key)))
         var error = try #require(reply["error"] as? [String: Any])
         #expect(error["code"] as? String == "native.not_connected")
         #expect(error["userMessage"] as? String == AgentPaneModel.gitWriteFailedMessage)
@@ -169,7 +190,7 @@ private struct FolderHost: AgentPaneHostProviding {
             asked += 1
             return Data("{}".utf8)
         }
-        reply = await model.respond(to: Self.request("git.commit", ["idempotency_key": Self.key]))
+        reply = await model.respond(to: Self.request("git.commit", ["idempotency_key": Self.key, "session_id": "s1"]))
         error = try #require(reply["error"] as? [String: Any])
         #expect(error["code"] as? String == "native.invalid_request")
         #expect(error["userMessage"] as? String == AgentPaneModel.gitWriteFailedMessage)

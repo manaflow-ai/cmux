@@ -14,6 +14,9 @@ export type CommitScope = "staged" | "all";
 
 /// The branch state Commit and Push need, from `git.status`.
 export type WriteStatus = {
+  /// The chat session the status was read for (the page's client stamps it), sent with each
+  /// write so the host refuses a write for a session other than the pane's.
+  sessionId?: string;
   head?: string;
   branch?: string;
   upstream?: string;
@@ -32,6 +35,7 @@ export function readWriteStatus(value: unknown): WriteStatus | undefined {
   const raw = record(value);
   if (!raw || typeof raw.detached !== "boolean") return undefined;
   return {
+    sessionId: text(raw.session_id),
     head: text(raw.head),
     branch: text(raw.branch),
     upstream: text(raw.upstream),
@@ -44,8 +48,15 @@ export function readWriteStatus(value: unknown): WriteStatus | undefined {
 /// The commit params for `message` and `scope`. Staged sends neither `paths` nor `all`, so the
 /// index is committed as it is; All stages every tracked change first, and with `includeNew` the
 /// untracked, nonignored files too. Staged ignores `includeNew`.
-export function commitParams(message: string, scope: CommitScope, head: string | undefined, includeNew = false) {
+export function commitParams(
+  message: string,
+  scope: CommitScope,
+  head: string | undefined,
+  includeNew = false,
+  sessionId?: string,
+) {
   return {
+    ...(sessionId ? { session_id: sessionId } : {}),
     message,
     ...(scope === "all" ? { all: true, ...(includeNew ? { include_untracked: true } : {}) } : {}),
     ...(head ? { expected_head: head } : {}),
@@ -70,8 +81,15 @@ export function readNewFiles(value: unknown): NewFiles | undefined {
 }
 
 /// The push params: the current branch to where `git push` would send it, never forced.
-export function pushParams(head: string | undefined) {
-  return head ? { expected_head: head } : {};
+export function pushParams(head: string | undefined, sessionId?: string) {
+  return { ...(sessionId ? { session_id: sessionId } : {}), ...(head ? { expected_head: head } : {}) };
+}
+
+/// Whether two new-file lists name the same files (order aside) and skip the same count.
+export function sameNewFiles(a: NewFiles, b: NewFiles): boolean {
+  if (a.skipped !== b.skipped || a.paths.length !== b.paths.length) return false;
+  const names = new Set(a.paths);
+  return b.paths.every((path) => names.has(path));
 }
 
 /// Stable text of params, so the same action's params compare equal.
@@ -188,11 +206,23 @@ const SHARED_REASONS: Record<string, StringKey> = {
 };
 
 /// Refusals whose text tells the reader to refresh: the view is stale, so Refresh is offered.
-export const REFRESH_REASONS = new Set(["head_moved", "path_not_found", "repository_changed", "branch_not_found"]);
+export const REFRESH_REASONS = new Set([
+  "head_moved",
+  "path_not_found",
+  "repository_changed",
+  "branch_not_found",
+  "native.session_changed",
+]);
+
+/// Refusals from the pane's host, before anything reached git.
+const NATIVE_REASONS: Record<string, StringKey> = {
+  "native.session_changed": "git.sessionChanged",
+  "native.no_session_folder": "git.noSessionFolder",
+};
 
 export function failureText(op: GitWriteOp, failure: WriteFailure): string {
   if (failure.kind === "uncertain") return t(op === "commit" ? "git.commit.uncertain" : "git.push.uncertain");
-  if (failure.kind === "notSent") return t("git.notSent");
+  if (failure.kind === "notSent") return t(NATIVE_REASONS[failure.reason ?? ""] ?? "git.notSent");
   const reason = failure.reason ?? "";
   const key = (op === "commit" ? COMMIT_REASONS : PUSH_REASONS)[reason] ?? SHARED_REASONS[reason];
   return t(key ?? (op === "commit" ? "git.commit.failed" : "git.push.failed"));

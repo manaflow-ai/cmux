@@ -686,9 +686,17 @@ export class AcpmuxDirectClient {
     // The native host reads folders on this Mac; a cloud session's folder is on its machine.
     if (hostKind(summary?.hostKind) === "cloud" || entry?.hostKind === "cloud")
       return Promise.reject(new Error("This chat runs on another machine, so its changes can't be read here yet"));
-    return this.gitRoute === "daemon"
-      ? this.request(method, { sessionId, cwd, ...params })
-      : postNative(method, { cwd, ...params });
+    const asked =
+      this.gitRoute === "daemon"
+        ? this.request(method, { sessionId, cwd, ...params })
+        : postNative(method, { cwd, ...params });
+    // A status read names the session it read, so a commit or push built on it says which
+    // session's repository the reader saw; the host refuses one for another session.
+    return method === "git.status"
+      ? asked.then((value) =>
+          value && typeof value === "object" ? { ...(value as object), session_id: sessionId } : value,
+        )
+      : asked;
   }
 
   private request(method: string, params: Record<string, unknown>, deadline?: number): Promise<any> {
