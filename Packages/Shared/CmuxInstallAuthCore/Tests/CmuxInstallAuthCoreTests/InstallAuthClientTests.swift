@@ -54,7 +54,7 @@ actor FakeOwner: InstallAuthTransport {
             if let replay = ledger[key] { return try reply(["ok": true, "value": ["id": replay], "replayed": true]) }
             let params = body["params"] as! [String: Any]
             let jwk = params["public_jwk"] as! [String: String]
-            let x = Base64URL.decode(jwk["x"]!)!, y = Base64URL.decode(jwk["y"]!)!
+            let x = Data(base64URLEncoded: jwk["x"]!)!, y = Data(base64URLEncoded: jwk["y"]!)!
             let publicKey = try P256.Signing.PublicKey(x963Representation: Data([0x04]) + x + y)
             if installs.values.contains(where: { $0.rawRepresentation == publicKey.rawRepresentation })
                 && !installs.filter({ $0.value.rawRepresentation == publicKey.rawRepresentation }).keys.allSatisfy(revoked.contains) {
@@ -74,7 +74,7 @@ actor FakeOwner: InstallAuthTransport {
         case "/v1/auth/token":
             let nonce = body["nonce"] as! String, install = body["install"] as! String
             guard issued.contains(nonce), !redeemed.contains(nonce), let key = installs[install],
-                  let raw = Base64URL.decode(body["signature"] as! String) else { return try reply(["code": "auth.forbidden"], 403) }
+                  let raw = Data(base64URLEncoded: body["signature"] as! String) else { return try reply(["code": "auth.forbidden"], 403) }
             redeemed.insert(nonce)
             let message = Data("cmux-auth-v1\nstaging\n\(install)\n\(nonce)".utf8)
             let signature = raw.count == 64 ? try P256.Signing.ECDSASignature(rawRepresentation: raw)
@@ -158,9 +158,9 @@ func makeClient(_ owner: FakeOwner, _ signer: SoftwareSigner, record: InstallRec
 
     @Test func base64URLHasNoPaddingAndRoundTrips() {
         let data = Data([0xFB, 0xFF, 0x00, 0x01])
-        let text = Base64URL.encode(data)
+        let text = (data).base64URLEncoded
         #expect(!text.contains("=") && !text.contains("+") && !text.contains("/"))
-        #expect(Base64URL.decode(text) == data)
+        #expect(Data(base64URLEncoded: text) == data)
         #expect(throws: InstallAuthError.invalidPublicKey) { try PublicJWK(x963: Data(count: 64)) }
         #expect(InstallAuthClient.displayName("") == "iPhone")
         #expect(InstallAuthClient.displayName(String(repeating: "📱", count: 60)).utf16.count == 80)
