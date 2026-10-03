@@ -36,7 +36,15 @@
       "scope": "integration:write",
       "class": "mutation"
     },
+    "integration.mcp.set": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
     "app.pane.open": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "ui.open": {
       "scope": "workspace:write",
       "class": "mutation"
     }
@@ -63,11 +71,7 @@
           "sharing": "team",
           "created_at": 1790000000000,
           "updated_at": 1790000000000,
-          "capabilities": {
-            "revoke": true,
-            "share": true,
-            "reauth": true
-          },
+          "mcp_exposed": true,
           "resources": {
             "repos": [
               "orbit-labs/api",
@@ -94,11 +98,7 @@
           "sharing": "private",
           "created_at": 1790000000000,
           "updated_at": 1790000000000,
-          "capabilities": {
-            "revoke": true,
-            "share": true,
-            "reauth": true
-          }
+          "mcp_exposed": false
         },
         {
           "id": "conn_slack000000000000000",
@@ -117,17 +117,13 @@
           "sharing": "team",
           "created_at": 1790000000000,
           "updated_at": 1790000000000,
-          "capabilities": {
-            "revoke": false,
-            "share": false,
-            "reauth": true
-          }
+          "mcp_exposed": false
         },
         {
-          "id": "conn_calendar000000000000",
+          "id": "conn_linearpending0000000",
           "owner": "team_orbit",
           "created_by": "usr_me",
-          "provider": "google_calendar",
+          "provider": "linear",
           "account": null,
           "scopes_requested": [],
           "scopes_granted": [],
@@ -135,11 +131,7 @@
           "sharing": "private",
           "created_at": 1790000000000,
           "updated_at": 1790000000000,
-          "capabilities": {
-            "revoke": true,
-            "share": true,
-            "reauth": true
-          }
+          "mcp_exposed": false
         },
         {
           "id": "conn_taskboard00000000000",
@@ -147,7 +139,7 @@
           "created_by": "usr_me",
           "provider": "openapi",
           "account": {
-            "key": "openapi:taskboard",
+            "key": "openapi:specs.taskboard.example.com:taskboard_api",
             "name": "Taskboard API"
           },
           "scopes_requested": [],
@@ -156,18 +148,16 @@
           "sharing": "private",
           "created_at": 1790000000000,
           "updated_at": 1790000000000,
-          "capabilities": {
-            "revoke": true,
-            "share": true,
-            "reauth": true
-          },
+          "mcp_exposed": true,
           "catalog": {
             "kind": "openapi",
             "title": "Taskboard API",
             "version": "2.4.0",
             "digest": "openapi:8dfd4a2e",
-            "tools": 8,
             "source_url": "https://specs.taskboard.example.com/openapi.json"
+          },
+          "auth": {
+            "kind": "api_key"
           }
         },
         {
@@ -176,7 +166,7 @@
           "created_by": "usr_me",
           "provider": "mcp",
           "account": {
-            "key": "mcp:docs",
+            "key": "mcp:mcp.docs.example.com:docs_server",
             "name": "Docs Server"
           },
           "scopes_requested": [],
@@ -185,18 +175,21 @@
           "sharing": "team",
           "created_at": 1790000000000,
           "updated_at": 1790000000000,
-          "capabilities": {
-            "revoke": true,
-            "share": true,
-            "reauth": true
-          },
+          "mcp_exposed": false,
           "catalog": {
             "kind": "mcp",
             "title": "Docs Server",
             "version": "1.2.0",
             "digest": "mcp:ec9223b0",
-            "tools": 4,
-            "source_url": "https://mcp.docs.example.com/mcp"
+            "source_url": "https://mcp.docs.example.com/mcp",
+            "changed": {
+              "at": 1790086400000,
+              "feed_item": "feed_catalogdocs0000001",
+              "previous_digest": "mcp:00000000"
+            }
+          },
+          "auth": {
+            "kind": "oauth2_code"
           }
         }
       ],
@@ -212,16 +205,21 @@
         {
           "provider": "slack",
           "configured": true
-        },
-        {
-          "provider": "google_calendar",
-          "configured": true
         }
       ],
-      "revision": "r12"
+      "revision": "r12",
+      "viewer": {
+        "user": "usr_me",
+        "team_admin": false
+      },
+      "limit": {
+        "used": 9,
+        "max": 50
+      }
     },
     "integration.policy.get": {
       "allowed_providers": null,
+      "generic_hosts": null,
       "github": {
         "scope": "linking_user_repos",
         "require_org_admin": false,
@@ -427,13 +425,20 @@
           "owner": "user",
           "pattern": "taskboard_api.projects.createProject",
           "action": "allow"
+        },
+        {
+          "id": "pol_u4",
+          "owner": "user",
+          "pattern": "taskboard_api.projects.*",
+          "action": "allow"
         }
       ],
       "catalog": {
+        "kind": "openapi",
         "title": "Taskboard API",
         "version": "2.4.0",
         "digest": "openapi:8dfd4a2e",
-        "refreshed_at": 1790000000000
+        "source_url": "https://specs.taskboard.example.com/openapi.json"
       }
     }
   }

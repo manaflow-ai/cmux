@@ -4,6 +4,7 @@ import type { MuxDO } from "./mux-do.ts"
 import type { AccountIndexDO } from "./account-index-do.ts"
 import type { DomainDO } from "./domain-do.ts"
 import type { PairingDO } from "./pairing-do.ts"
+import type { HostDO } from "./host-do.ts"
 import type { ConnectionDO } from "./connection-do.ts"
 import type { FeedDO } from "./feed-do.ts"
 import type { AutomationRunParams, SchedulerDO } from "./scheduler-do.ts"
@@ -38,6 +39,7 @@ export interface Env {
   readonly SSO_DISCOVER_LIMIT?: RateLimit
   /** Pending cmux server pairings, one object per code (plans/cmux-next/server.md 6.2). */
   readonly PAIRING_DO: DurableObjectNamespace<PairingDO>
+  readonly HOST_DO: DurableObjectNamespace<HostDO>
   /** Per-IP limit on unauthenticated pairing begins. */
   readonly PAIR_BEGIN_LIMIT?: RateLimit
   /** Where provider redirects land (the dashboard's /integrations/callback). */
@@ -62,6 +64,15 @@ export interface Env {
   readonly SLACK_CLIENT_ID?: string
   readonly SLACK_CLIENT_SECRET?: string
   readonly SLACK_SIGNING_SECRET?: string
+  /** Google OAuth client of the integrations Google Cloud project (Gmail and Google Calendar share it). */
+  readonly GOOGLE_CLIENT_ID?: string
+  /** Secret: that client's secret. */
+  readonly GOOGLE_CLIENT_SECRET?: string
+  /**
+   * `testing` | `internal` | `verified`: this deployment may ask for restricted Gmail scopes
+   * (gmail.readonly, gmail.modify). Unset in production until Google's security assessment passes.
+   */
+  readonly GOOGLE_RESTRICTED_SCOPES?: string
   /** Home (plans/cmux-next/home-messaging.md): one ConversationDO per conversation. */
   readonly CONVERSATION_DO: DurableObjectNamespace<ConversationDO>
   /** One MuxDO per chief: its wake queue. */
@@ -70,6 +81,10 @@ export interface Env {
   readonly ADDRESS_DO: DurableObjectNamespace<AddressDO>
   /** Secret: HMAC key that turns a normalized email or phone into its `addr_` id. */
   readonly HOME_ADDRESS_KEY?: string
+  /** "<Apple Team ID>.<iOS bundle id>" whose App Attest keys this deployment accepts (presence keys). */
+  readonly IOS_APP_ID?: string
+  /** "true" accepts App Attest development keys (appattestdevelop); staging and development only. */
+  readonly IOS_APP_ATTEST_DEVELOPMENT?: string
   /** Secrets for invite delivery (Resend email, SendBlue SMS and iMessage). */
   readonly RESEND_API_KEY?: string
   readonly SENDBLUE_API_KEY?: string

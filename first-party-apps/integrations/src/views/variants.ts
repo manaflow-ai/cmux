@@ -12,7 +12,7 @@ import { loadTools } from "../model/tools.ts"
 import { variant } from "../settings.ts"
 import { connectionRow, header, noticeLine, problemState, sectionTitle, smallButton } from "./common.ts"
 import { detailView } from "./detail.ts"
-import { gallery } from "./gallery.ts"
+import { gallery, usageLine } from "./gallery.ts"
 import { importView } from "./importer.ts"
 import { toolList } from "./policy.ts"
 
@@ -57,6 +57,7 @@ function connectionsHome() {
       shape()
       return untrack(() => homeState(true) ?? VStack({ spacing: 0 }, [() => summary(), connectionList()]))
     },
+    usageLine(),
     () => teamLine()
   ])
 }
@@ -95,7 +96,11 @@ function catalogHome() {
     header(t("catalog.title", "Tools"), [smallButton(t("action.add", "Add"), () => open({ screen: "add" }))]),
     noticeLine(),
     TextField(filter, { placeholder: t("catalog.filter", "Filter tools"), onEdit: setFilter, onCancel: () => setFilter("") }).padding({ top: 0, leading: 12, bottom: 6, trailing: 12 }),
-    Text(t("catalog.help", "Allow runs without asking. Ask needs your approval each time. Block never runs.")).font("caption2").color("tertiary").lineLimit(2).padding({ top: 0, leading: 12, bottom: 4, trailing: 12 }),
+    Text(t("catalog.help", "Allow runs without asking. Ask waits for your approval each time, in the feed or the agent. Block never runs and is hidden from MCP. A team rule always wins over a looser rule of yours."))
+      .font("caption2")
+      .color("tertiary")
+      .lineLimit(3)
+      .fixedSize("vertical").padding({ top: 0, leading: 12, bottom: 4, trailing: 12 }),
     () => {
       const ids = activeIds()
       shape()

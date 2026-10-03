@@ -30,11 +30,14 @@ const HOP_LIMIT: u8 = 64;
 /// so the destination only has to be a plausible address of the peer.
 pub(crate) fn probe_route(config: &WgConfig) -> Option<(IpAddr, IpAddr)> {
     config.addresses.iter().find_map(|local| {
-        config
-            .allowed_ips
-            .iter()
-            .find(|network| network.network_address().is_ipv4() == local.address.is_ipv4())
-            .map(|network| (local.address, network.network_address()))
+        let peer = config.peer_address_for(local.address).or_else(|| {
+            config
+                .allowed_ips
+                .iter()
+                .find(|network| network.network_address().is_ipv4() == local.address.is_ipv4())
+                .map(|network| network.network_address())
+        })?;
+        Some((local.address, peer))
     })
 }
 
@@ -225,5 +228,15 @@ mod tests {
         assert_eq!(decode(&packet), None);
         assert_eq!(decode(&[]), None);
         assert_eq!(decode(&[0x45; 10]), None);
+    }
+
+    #[test]
+    fn probes_go_to_the_peer_address_when_the_config_names_one() {
+        let pair = crate::testing::config_pair("127.0.0.1:51820".parse().unwrap());
+        assert_eq!(probe_route(&pair.client), Some((pair.client_v4, pair.server_v4)));
+        let mut unnamed = pair.client.clone();
+        unnamed.peer_addresses.clear();
+        let base: IpAddr = "10.200.0.0".parse().unwrap();
+        assert_eq!(probe_route(&unnamed), Some((pair.client_v4, base)), "the network base");
     }
 }

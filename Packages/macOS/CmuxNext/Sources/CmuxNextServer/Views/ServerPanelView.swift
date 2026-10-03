@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import SwiftUI
 
 /// The menubar panel: one of three prototypes over the same model.
@@ -25,7 +26,7 @@ struct ServerPanelView: View {
         .padding(ServerMetrics.padding - 6)
         .padding(.vertical, 6)
         .frame(width: style == .dashboard ? ServerMetrics.dashboardWidth : ServerMetrics.panelWidth)
-        .animation(reduceMotion ? nil : .smooth(duration: 0.18), value: model.snapshot)
+        .animation(reduceMotion ? nil : Motion.animation(.crossfade), value: model.snapshot)
     }
 }
 

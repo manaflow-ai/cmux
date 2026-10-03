@@ -75,6 +75,43 @@ extension NotificationCenterService {
         NSApp.dockTile.badgeLabel = label
     }
 
+    /// Ids of the tabs with an unread daemon notification.
+    static func unreadTabs(_ store: DaemonStore) -> Set<String> {
+        var tabs: Set<String> = []
+        for workspace in store.workspaces {
+            for screen in workspace.screens {
+                for pane in screen.panes {
+                    for tab in pane.tabs where tab.hasUnread { tabs.insert(tab.id) }
+                }
+            }
+        }
+        return tabs
+    }
+
+    /// The feed bridge over `feed`'s owner calls (nil without a feed service).
+    static func makeFeedBridge(_ feed: FeedService?) -> FeedNotificationBridge? {
+        guard let feed else { return nil }
+        return FeedNotificationBridge(
+            owner: { [weak feed] path, body in
+                guard let feed else { throw FeedServiceError.signedOut }
+                return try await feed.call(path, body)
+            },
+            isSignedIn: { [weak feed] in feed?.isSignedIn ?? false }
+        )
+    }
+
+    /// Posts `notification` to the feed as a notice (local daemon only).
+    func mirrorToFeed(_ notification: DaemonNotification, located: LocatedTab?) {
+        guard let feedBridge, let session = services?.daemon.identity?.session, !session.isEmpty else { return }
+        feedBridge.post(.init(
+            notification: notification.notification.rawValue, daemonSession: session,
+            title: notification.title.isEmpty ? (located?.tab.displayTitle ?? "") : notification.title,
+            body: notification.body, level: notification.level,
+            tab: located?.tab.id, workspace: located?.workspace.id,
+            label: located?.tab.displayTitle ?? ""
+        ))
+    }
+
     static func seconds(_ duration: Duration) -> Double {
         Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
     }

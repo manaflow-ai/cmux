@@ -183,6 +183,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(tab_go_to_offset, "cmux_tab_go_to_offset");
   CMUX_BIND(password_import, "cmux_password_import");
   CMUX_BIND(tab_set_password_fill, "cmux_tab_set_password_fill");
+  CMUX_BIND(tab_duplicate, "cmux_tab_duplicate");
   CMUX_BIND(tab_window_id, "cmux_tab_window_id");
   CMUX_BIND(ext_actions, "cmux_ext_actions");
   CMUX_BIND(ext_action_run, "cmux_ext_action_run");

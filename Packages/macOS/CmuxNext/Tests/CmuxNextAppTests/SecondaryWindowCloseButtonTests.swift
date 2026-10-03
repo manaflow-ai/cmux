@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextApps
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextOnboarding
@@ -58,5 +59,15 @@ struct SecondaryWindowCloseButtonTests {
         services.firstTaskView = NSView()
         let controller = OnboardingWindowController(model: OnboardingModel(services: services, start: .role))
         expectCloseButton(controller.window, "Onboarding")
+    }
+
+    /// The App Store window (fallback when no main window holds the tab).
+    @Test func appStoreWindowHasACloseButton() async {
+        let root = FileManager.default.temporaryDirectory.appending(path: "cmux-store-close-\(UUID().uuidString)")
+        let registry = AppRegistry(directory: root, firstPartyRoot: root.appending(path: "none"))
+        let model = AppStoreModel(catalog: RegistryAppStoreCatalog(registry: registry), registry: registry,
+                                  host: AppHost(sink: AppPreviewSink()), previewHost: AppHost(sink: AppPreviewSink()))
+        let controller = AppStoreWindowController(model: model)
+        expectCloseButton(controller.window, "App Store")
     }
 }

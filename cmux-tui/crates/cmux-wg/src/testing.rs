@@ -92,6 +92,7 @@ pub fn config_pair(server_addr: SocketAddr) -> ConfigPair {
         allowed_ips: allowed.clone(),
         endpoint: Some(Endpoint { host: server_addr.ip().to_string(), port: server_addr.port() }),
         persistent_keepalive: Some(5),
+        peer_addresses: vec![server_v4, server_v6],
     };
     let server = WgConfig {
         private_key: Zeroizing::new(server_private),
@@ -105,6 +106,7 @@ pub fn config_pair(server_addr: SocketAddr) -> ConfigPair {
         allowed_ips: allowed,
         endpoint: None,
         persistent_keepalive: None,
+        peer_addresses: vec![client_v4, client_v6],
     };
     ConfigPair { client, server, client_v4, server_v4, client_v6, server_v6 }
 }

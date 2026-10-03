@@ -151,11 +151,13 @@ import Testing
     }
 
     /// The checked-in export (`plans/cmux-next/action-surfaces.json`) that
-    /// the Rust CLI and MCP parity tests read matches the catalog.
+    /// the Rust CLI and MCP parity tests, cmux-browser and GPUI read matches
+    /// the catalog: surfaces, title and its localization key, default
+    /// shortcut and chord. A changed title or shortcut fails here.
     /// `CMUX_UPDATE_ACTION_SURFACES=1 swift test --filter ActionSurfaceParityTests` rewrites it.
     @Test func exportIsFresh() throws {
         let url = Self.planURL("action-surfaces.json")
-        let current = ActionSurfaceExport.json(catalog)
+        let current = ActionSurfaceExport.json(catalog, titles: try Self.titleCatalog())
         if ProcessInfo.processInfo.environment["CMUX_UPDATE_ACTION_SURFACES"] == "1" {
             try current.write(to: url, atomically: true, encoding: .utf8)
         }
@@ -193,6 +195,30 @@ import Testing
         let unknown = Set(tableIDs).subtracting(ids)
         #expect(unknown.isEmpty, "unknown ids: \(unknown.map(\.rawValue).sorted())")
         #expect(ActionSurfaceCatalog.cliNamed.isDisjoint(with: ActionSurfaceCatalog.cliExemption.keys), "named and exempt")
+    }
+
+    /// Every string catalog of CmuxNextActions, from the source tree.
+    static func titleCatalog() throws -> ActionTitleCatalog {
+        let sources = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/CmuxNextActions")
+        let files = try FileManager.default.contentsOfDirectory(at: sources, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "xcstrings" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        return try ActionTitleCatalog(catalogs: files.map { ($0.deletingPathExtension().lastPathComponent, try Data(contentsOf: $0)) })
+    }
+
+    /// Nearly every title names its key, and a named key's English text is
+    /// the title the app shows.
+    @Test func exportNamesTitleKeys() throws {
+        let titles = try Self.titleCatalog()
+        var named = 0
+        for descriptor in catalog {
+            guard let entry = titles.entry(for: descriptor) else { continue }
+            named += 1
+            #expect(entry.english == descriptor.title, "\(descriptor.id)")
+        }
+        #expect(named * 10 >= catalog.count * 9, "only \(named) of \(catalog.count) titles name a key")
     }
 
     static func planURL(_ name: String) -> URL {

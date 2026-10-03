@@ -70,6 +70,7 @@ public final class AgentPaneView: NSView {
         if renderRate != .capped {
             configuration.preferences.setWebKitFeature(Self.near60FPSFeature, enabled: false)
         }
+        source.register(on: configuration)
         let webView = WKWebView(frame: .zero, configuration: configuration)
         self.webView = webView
         dictation = AgentPaneDictation { [weak webView] script in webView?.evaluateJavaScript(script, completionHandler: nil) }

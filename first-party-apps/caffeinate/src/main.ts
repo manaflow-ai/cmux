@@ -20,9 +20,9 @@ const PANE = "cmux/caffeinate#caffeinatePane"
 type CommandCtx = { gesture?: string; invoker?: unknown } | undefined
 
 /** Opens the pane (proposed action `app.pane.open`). */
-export async function show(): Promise<{ shown: boolean; reason?: string }> {
+export async function show(_args: Record<string, unknown> = {}, ctx?: CommandCtx & { cmux?: CmuxGlobal }): Promise<{ shown: boolean; reason?: string }> {
   try {
-    await cmux.actions.run("app.pane.open", { kind: PANE, gesture: cmux.gesture() ?? undefined })
+    await (ctx?.cmux ?? cmux).actions.run("app.pane.open", { kind: PANE, gesture: ctx?.gesture ?? undefined })
     return { shown: true }
   } catch (e) {
     return { shown: false, reason: (e as { code?: string }).code ?? String(e) }

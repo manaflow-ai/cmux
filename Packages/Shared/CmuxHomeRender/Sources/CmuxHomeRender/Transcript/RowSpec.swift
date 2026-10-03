@@ -5,7 +5,7 @@ import Foundation
 /// never stored. A spec does not depend on the viewport width except through
 /// the wrapped text it carries, so a resize that keeps a row's wrap keeps its
 /// spec, and the row keeps its bitmap.
-struct RowSpec: Hashable {
+struct RowSpec: Hashable, Sendable {
     var key: String
     var kind: Kind
     /// Space above the content.
@@ -15,7 +15,7 @@ struct RowSpec: Hashable {
 
     var total: CGFloat { gap + height }
 
-    enum Kind: Hashable {
+    enum Kind: Hashable, Sendable {
         /// Day and time above a message that starts a new block.
         case separator(bold: String, rest: String)
         /// A retracted message.
@@ -44,7 +44,7 @@ struct RowSpec: Hashable {
 
 /// A text bubble. Every CmuxHomeCore message part renders as one: text with
 /// its mentions in bold; work and approval parts as their plain text.
-struct PartRow: Hashable {
+struct PartRow: Hashable, Sendable {
     var outgoing: Bool
     var tail: Bool
     var failed: Bool
@@ -64,7 +64,7 @@ struct PartRow: Hashable {
 }
 
 /// One tapback or emoji on a bubble.
-struct ReactionBadge: Hashable {
+struct ReactionBadge: Hashable, Sendable {
     var glyph: String
     /// The signed-in user reacted (drawn in the outgoing colour).
     var mine: Bool

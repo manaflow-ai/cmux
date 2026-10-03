@@ -3,8 +3,8 @@ import CoreText
 
 /// Where a row's bitmap sits and what it draws. The bitmap is drawn in its
 /// own coordinates and holds only content, so its pixels never depend on the
-/// viewport width: a resize moves the bitmap and keeps it.
-@MainActor
+/// viewport width: a resize moves the bitmap and keeps it. Nonisolated:
+/// `draw` runs off the main actor (`RowBitmaps`).
 enum RowArt {
     /// Horizontal padding around single-line captions (glyph overhang).
     static let captionPad: CGFloat = 2
@@ -91,5 +91,13 @@ enum RowArt {
             ctx.fillEllipse(in: CGRect(x: 20.5, y: b.maxY - 7, width: 9, height: 9))
             ctx.fillEllipse(in: CGRect(x: 16.5, y: b.maxY + 1, width: 5, height: 5))
         }
+    }
+}
+
+extension RowArt {
+    /// The row's bitmap. Pure: a value spec and palette in, an immutable
+    /// image out, so it runs on any thread.
+    static func render(_ spec: RowSpec, palette: HomePalette, size: CGSize) -> CGImage? {
+        Canvas.image(size: size) { draw(spec, palette: palette, $0) }
     }
 }

@@ -69,6 +69,8 @@ export type Concurrency = {
   readonly on_limit: "queue" | "skip"
 }
 
+export type ConfirmLevel = "strict" | "destructive-only" | "off"
+
 export type Connection = {
   readonly id: ConnectionId
   readonly owner: TeamId
@@ -118,6 +120,8 @@ export type DeviceStatus = {
   readonly conflicts: ReadonlyArray<string>
   readonly reported_at: number
 }
+
+export type EmailAddress = string
 
 /** A lowercase DNS name such as acme.com. */
 export type EmailDomain = string
@@ -479,7 +483,7 @@ export type InstallId = string
 
 export type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm"
 
-export type IntegrationProvider = "github" | "linear" | "slack"
+export type IntegrationProvider = "github" | "linear" | "slack" | "google_calendar" | "gmail"
 
 export type InviteId = string
 
@@ -949,6 +953,58 @@ export interface CloudOps {
       readonly secret: string
       readonly scheme: string
     }
+  }
+  /** List the calendars of a Google Calendar connection (ids for the other calendar ops). */
+  readonly "calendar.calendars.list": {
+    readonly params: {
+      readonly connection: ConnectionId
+    }
+    readonly result: unknown
+  }
+  /** Create a Google Calendar event; attendees get Google's invitation email. */
+  readonly "calendar.event.create": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly calendar_id?: string
+      readonly summary: string
+      readonly description?: string
+      readonly location?: string
+      readonly start: {
+        readonly date_time?: string
+        readonly date?: string
+        readonly time_zone?: string
+      }
+      readonly end: {
+        readonly date_time?: string
+        readonly date?: string
+        readonly time_zone?: string
+      }
+      readonly attendees?: ReadonlyArray<EmailAddress>
+    }
+    readonly result: unknown
+  }
+  /** Answer a Google Calendar invitation as the connected account; the organizer is notified. */
+  readonly "calendar.event.respond": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly calendar_id?: string
+      readonly event_id: string
+      readonly response: "accepted" | "declined" | "tentative"
+    }
+    readonly result: unknown
+  }
+  /** List events of a Google calendar (single events, ordered by start). Read at call time; nothing is stored. */
+  readonly "calendar.events.list": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly calendar_id?: string
+      readonly time_min?: string
+      readonly time_max?: string
+      readonly query?: string
+      readonly max_results?: number
+      readonly page_token?: string
+    }
+    readonly result: unknown
   }
   /** Archive a chief: its thread stays readable, it stops waking. */
   readonly "chief.archive": {
@@ -1552,6 +1608,11 @@ export interface CloudOps {
     }
     readonly result: Install
   }
+  /** Sign this install out: revokes the calling install (its token, grant, push targets and presence key) so a signed-out device keeps nothing usable. */
+  readonly "install.sign_out": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: Install
+  }
   /** Finish a connection from the provider's redirect (the signed-in user must be the one who started it). */
   readonly "integration.complete": {
     readonly params: {
@@ -1672,6 +1733,66 @@ export interface CloudOps {
         readonly name: string
       }>
     }
+  }
+  /** Read one Gmail message (headers, plain text, attachment list) at call time; nothing is stored. */
+  readonly "mail.get": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly message_id: string
+    }
+    readonly result: unknown
+  }
+  /** Change labels of Gmail messages or a thread (archive, mark read with remove_labels UNREAD). */
+  readonly "mail.modify": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly thread_id?: string
+      readonly message_ids?: ReadonlyArray<string>
+      readonly add_labels?: ReadonlyArray<string>
+      readonly remove_labels?: ReadonlyArray<string>
+      readonly archive?: boolean
+    }
+    readonly result: unknown
+  }
+  /** Search the connected Gmail mailbox with Gmail query syntax; returns message and thread ids only. */
+  readonly "mail.search": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly query: string
+      readonly max_results?: number
+      readonly page_token?: string
+    }
+    readonly result: unknown
+  }
+  /** Send a plain-text email from the connected Gmail account. */
+  readonly "mail.send": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly to: ReadonlyArray<EmailAddress>
+      readonly cc?: ReadonlyArray<EmailAddress>
+      readonly bcc?: ReadonlyArray<EmailAddress>
+      readonly subject: string
+      readonly body: string
+      readonly thread_id?: string
+      readonly in_reply_to?: string
+    }
+    readonly result: unknown
+  }
+  /** Read one Gmail thread (every message, as mail.get) at call time; nothing is stored. */
+  readonly "mail.thread.get": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly thread_id: string
+    }
+    readonly result: unknown
+  }
+  /** Row data for Gmail threads (subject, sender, date, snippet, unread) by id, for feed rows; held in client memory only. */
+  readonly "mail.threads.peek": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly thread_ids: ReadonlyArray<string>
+    }
+    readonly result: unknown
   }
   /** Replace the parts of one of your messages (not after it was retracted). */
   readonly "message.edit": {
@@ -2072,6 +2193,44 @@ export interface CloudOps {
     readonly params: Readonly<Record<string, never>>
     readonly result: UserProfile
   }
+  /** Make an install's presence key unusable at once (device lost); its nonces are dropped. */
+  readonly "user.presence_key.revoke": {
+    readonly params: {
+      readonly install: string
+    }
+    readonly result: unknown
+  }
+  /** The level in effect, the user's own level, the lock and the presence keys (public parts and usable_from) for Settings. */
+  readonly "user.text_confirm.get": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: unknown
+  }
+  /** Make the text confirmation level safer (applies at once). A riskier level needs lower.challenge and lower. */
+  readonly "user.text_confirm.level.set": {
+    readonly params: {
+      readonly level: ConfirmLevel
+    }
+    readonly result: {
+      readonly level: ConfirmLevel
+    }
+  }
+  /** Lower the level with the signed challenge. Spends the nonce on any attempt; a refused proof commits `lowered: false` with a code. */
+  readonly "user.text_confirm.lower": {
+    readonly params: {
+      readonly level: ConfirmLevel
+      readonly nonce: string
+      readonly presence_sig: string
+      readonly app_attest?: string
+    }
+    readonly result: unknown
+  }
+  /** Owner Mac or iPhone install with an active presence key: returns the exact bytes to sign (2 minutes, one live nonce per install). */
+  readonly "user.text_confirm.lower.challenge": {
+    readonly params: {
+      readonly level: ConfirmLevel
+    }
+    readonly result: unknown
+  }
 }
 
 export type CloudOpName = keyof CloudOps
@@ -2088,6 +2247,10 @@ export const cloudOpMeta = {
   "automation.settings.set": { class: "mutation", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.update": { class: "mutation", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.webhook.get": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
+  "calendar.calendars.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
+  "calendar.event.create": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "calendar.event.respond": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "calendar.events.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
   "chief.archive": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
   "chief.create": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "chief.update": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
@@ -2133,6 +2296,7 @@ export const cloudOpMeta = {
   "install.register": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "install.rename": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "install.revoke": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
+  "install.sign_out": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "integration.complete": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "integration.connect": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "integration.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
@@ -2145,6 +2309,12 @@ export const cloudOpMeta = {
   "invite.revoke": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "linear.issue.create": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "linear.teams.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
+  "mail.get": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
+  "mail.modify": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-own" },
+  "mail.search": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
+  "mail.send": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "mail.thread.get": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
+  "mail.threads.peek": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
   "message.edit": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
   "message.retract": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
   "message.send": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
@@ -2186,6 +2356,11 @@ export const cloudOpMeta = {
   "tunnel.detach": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "tunnel.rotate-key": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "user.ensure": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "user.presence_key.revoke": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "user.text_confirm.get": { class: "read", owner: "cloud:UserDO", risk: "read" },
+  "user.text_confirm.level.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "user.text_confirm.lower": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "user.text_confirm.lower.challenge": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
 } as const satisfies Record<CloudOpName, { class: "read" | "mutation"; owner: string; risk: string }>
 
 export type CloudMutationName = { [K in CloudOpName]: (typeof cloudOpMeta)[K]["class"] extends "mutation" ? K : never }[CloudOpName]

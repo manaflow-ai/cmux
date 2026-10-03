@@ -3,9 +3,9 @@
 // screen, and one notice line. No second store: every reload replaces the list
 // with the owner's answer, and change events trigger the reload (no polling).
 
+import { CATALOG_BLOB_MAX_BYTES, EGRESS_LIMITS, type CatalogKind } from "@cmux/integrations-core"
 import { t } from "../l10n.ts"
-import { sortConnections, type Connection, type ListResult, type TeamPolicy } from "./connections.ts"
-import type { CatalogKind } from "@cmux/integrations-core"
+import { MAX_CONNECTIONS, sortConnections, type Connection, type ListResult, type TeamPolicy } from "./connections.ts"
 
 export type Route = { readonly screen: "home" } | { readonly screen: "detail"; readonly id: string } | { readonly screen: "add" } | { readonly screen: "import"; readonly kind?: CatalogKind }
 
@@ -13,6 +13,8 @@ export interface Problem {
   readonly op: string
   readonly code: string
   readonly message: string
+  /** Error details from the owner (`host` for egress errors, `max` for the limit). */
+  readonly details?: Record<string, unknown>
 }
 
 export interface Notice {
@@ -32,7 +34,41 @@ export { list, loadProblem, loading, teamPolicy, route, setRoute, notice, setNot
 export const codeOf = (e: unknown): string => (e && typeof e === "object" && "code" in e ? String((e as { code: unknown }).code) : "error")
 const messageOf = (e: unknown): string => (e && typeof e === "object" && "message" in e ? String((e as { message: unknown }).message) : String(e))
 
-export const problemOf = (op: string, e: unknown): Problem => ({ op, code: codeOf(e), message: messageOf(e) })
+const detailsOf = (e: unknown): Record<string, unknown> | undefined => {
+  const d = e && typeof e === "object" && "details" in e ? (e as { details: unknown }).details : undefined
+  return d && typeof d === "object" && !Array.isArray(d) ? (d as Record<string, unknown>) : undefined
+}
+
+export const problemOf = (op: string, e: unknown): Problem => {
+  const details = detailsOf(e)
+  return { op, code: codeOf(e), message: messageOf(e), ...(details ? { details } : {}) }
+}
+
+const MB = (bytes: number) => Math.round(bytes / (1024 * 1024))
+
+/** Text for the gateway's egress and catalog errors; the app's own pre-checks use the same codes. */
+export const egressText = (code: string, host?: string): string | null => {
+  switch (code) {
+    case "egress.private_target":
+      return host ? t("egress.private.host", "{host} is a private, loopback or link-local address. cmux only connects to public hosts.", { host }) : t("egress.private", "That is a private, loopback or link-local address. cmux only connects to public hosts.")
+    case "egress.credentials_in_url":
+      return t("egress.credentials", "Remove the user name and password from the URL. Pick a sign-in method below instead.")
+    case "egress.invalid_url":
+      return t("egress.invalid", "Use an http or https URL.")
+    case "egress.too_large":
+      return t("egress.tooLarge", "The document is larger than {mb} MB.", { mb: MB(EGRESS_LIMITS.maxResponseBytes) })
+    case "egress.timeout":
+      return t("egress.timeout", "The server did not answer within {s} seconds.", { s: EGRESS_LIMITS.timeoutMs / 1000 })
+    case "egress.host_not_allowed":
+      return host ? t("egress.hostNotAllowed.host", "Your team does not allow APIs on {host}.", { host }) : t("egress.hostNotAllowed", "Your team does not allow APIs on this host.")
+    case "catalog.too_large":
+      return t("catalog.tooLarge", "This API has more tools than cmux can store (the catalog is over {mb} MB).", { mb: MB(CATALOG_BLOB_MAX_BYTES) })
+    case "import.mcp_stdio":
+      return t("import.error.stdio", "Local (stdio) MCP servers are not supported. Use the server's Streamable HTTP URL.")
+    default:
+      return null
+  }
+}
 
 /** Missing ops say which op is missing; other errors keep the owner's message (never a provider body: the gateway redacts them). */
 export const problemText = (p: Problem): string => {
@@ -47,17 +83,21 @@ export const problemText = (p: Problem): string => {
       return t("error.policyDenied", "Your team's policy does not allow this.")
     case "integration.not_configured":
       return t("error.notConfigured", "This provider is not set up on this server yet.")
+    case "integration.limit":
+      return t("error.limit", "Your team has {max} connections, the most it can have. Disconnect one to add another.", { max: typeof p.details?.max === "number" ? p.details.max : MAX_CONNECTIONS })
     case "auth.forbidden":
-      return t("error.forbidden", "Only the person who connected it can do this.")
+      return t("error.forbidden", "Only the person who connected it or a team admin can do this.")
+    case "user.cancelled":
+      return t("error.cancelled", "Cancelled. Nothing changed.")
     default:
-      return p.message
+      return egressText(p.code, typeof p.details?.host === "string" ? p.details.host : undefined) ?? p.message
   }
 }
 
 export const isMissing = (p: Problem | null): boolean => !!p && (p.code === "operation.unsupported" || p.code === "scope.missing")
 
 export const say = (text: string, tone: Notice["tone"] = "secondary") => setNotice({ text, tone })
-export const sayProblem = (p: Problem) => setNotice({ text: problemText(p), tone: isMissing(p) ? "secondary" : "danger" })
+export const sayProblem = (p: Problem) => setNotice({ text: problemText(p), tone: isMissing(p) || p.code === "user.cancelled" ? "secondary" : "danger" })
 
 let generation = 0
 

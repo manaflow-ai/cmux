@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import SwiftUI
 
 /// Server health: one of three prototypes over the alert set.
@@ -27,7 +28,7 @@ struct ServerHealthView: View {
         .padding(ServerMetrics.padding - 4)
         .padding(.vertical, 4)
         .frame(width: ServerMetrics.dashboardWidth)
-        .animation(reduceMotion ? nil : .smooth(duration: 0.18), value: model.snapshot?.alerts)
+        .animation(reduceMotion ? nil : Motion.animation(.crossfade), value: model.snapshot?.alerts)
     }
 }
 

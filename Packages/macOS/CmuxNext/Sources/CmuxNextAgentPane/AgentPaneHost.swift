@@ -5,6 +5,9 @@ import os
 /// the mock; the pane never knows which.
 public nonisolated protocol AgentPaneHostProviding: Sendable {
     func handshake(sessionId: String?) async throws -> AgentPaneHandshake
+    /// Starts the daemon before a page is visible. Callers may treat this as
+    /// best effort because the normal page handshake still reports failures.
+    func prewarm() async throws
     /// The handshake for a page that lost its daemon. Never starts one, so a
     /// daemon the user stopped stays stopped.
     func reconnectHandshake(sessionId: String?) async throws -> AgentPaneHandshake
@@ -15,6 +18,8 @@ extension AgentPaneHostProviding {
     public func reconnectHandshake(sessionId: String?) async throws -> AgentPaneHandshake {
         try await handshake(sessionId: sessionId)
     }
+
+    public func prewarm() async throws {}
 }
 
 /// Why the live host could not produce a handshake.
@@ -59,6 +64,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
 
     public func reconnectHandshake(sessionId: String?) async throws -> AgentPaneHandshake {
         .acpmux(try await endpoint(startsDaemon: false), sessionId: sessionId)
+    }
+
+    public func prewarm() async throws {
+        _ = try await endpoint(startsDaemon: true)
     }
 
     private func endpoint(startsDaemon: Bool) async throws -> AcpmuxWebEndpoint {

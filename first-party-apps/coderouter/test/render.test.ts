@@ -90,7 +90,7 @@ describe("variants", () => {
     await h.settle(10)
     expect(missing(texts(h, "d"), ["Overview", "Setup", "1. See what you have", "3. Share with your team"])).toEqual([])
     await tap(h, "d", "Usage")
-    expect(missing(texts(h, "d"), ["$41.37", "ada@example.com (Codex)"])).toEqual([])
+    expect(missing(texts(h, "d"), ["$41.37", "a…@e… (Codex)"])).toEqual([])
     await tap(h, "d", "Routing")
     expect(texts(h, "d")).toContain("CodeRouter tries these in order. Drag to change it.")
   })
@@ -99,7 +99,7 @@ describe("variants", () => {
     const h = host("dashboard", { variant: "wizard" })
     expect(h.mount("d", "renderDashboard")).toBe("")
     await h.settle(10)
-    expect(missing(texts(h, "d"), ["Northwind Labs", "Healthy", "Accounts", "Failover order", "Usage", "API keys", "Test request", "ops@example.com", "ci runner", "Shared", "Private"])).toEqual([])
+    expect(missing(texts(h, "d"), ["Northwind Labs", "Healthy", "Accounts", "Failover order", "Usage", "API keys", "Test request", "o…@e…", "ci runner", "Shared", "Private"])).toEqual([])
   })
 
   test("status item: health dot and today's usage", async () => {

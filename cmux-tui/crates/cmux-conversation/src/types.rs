@@ -136,16 +136,12 @@ pub struct ConversationHead {
     pub updated_at: String,
     pub read_cursors: BTreeMap<String, u64>,
     /// Agent text messages since the last human text message: the loop guard
-    /// (budget.rs). Omitted on the wire while zero.
-    #[serde(default, skip_serializing_if = "is_zero")]
+    /// (budget.rs). Always on the wire, as the cloud head has it.
+    #[serde(default)]
     pub agent_text_streak: u32,
     /// When the last agent text message was sent (RFC 3339 UTC, milliseconds).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_agent_text_at: Option<String>,
-}
-
-fn is_zero(value: &u32) -> bool {
-    *value == 0
 }
 
 impl ConversationHead {

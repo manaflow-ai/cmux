@@ -429,7 +429,7 @@ Screenshots and the recommendation are in section 15 when built.
 | F3 | Mac: `CmuxNextFeed` module (model mirror + intent log, three prototypes, mock source), app wiring to the DO stream and the local owner, actions and settings | next |
 | F4 | Local feed server (`cmux-feed-core` Rust reducer passing the same vectors, `cmux-feed serve` supervised as a server app, `feed.adopt` handoff, `formal/FeedHandoff.tla`) | after F1 review |
 | F5 | Harness adapters (`cmux feed hook claude-code\|codex\|opencode\|pi`, acpmux `request_permission` bridge) | after F2 |
-| F6 | Migration steps 1 to 3 (section 9) | after F3 |
+| F6 | Migration steps 1 to 3 (section 9) | step 1 landed 1c9b829aeb2 (app-side bridge: the app posts each local daemon notification as a notice, key `notify:<daemon session>:<id>`, and reads it when any client reads the tab; nothing is mirrored while no app runs or while signed out); steps 2 and 3 next |
 | F7 | Sign-in and passkey handover (section 10) | after the browser host lease work |
 | F8 | iPhone: push sender, iOS feed list, answer actions in pushes | iOS lane |
 | F9 | Email as a feed source (11.2): ids-only mail items, gateway peek, triage effects, reply and compose actions | with the integrations lead and lane 3 |

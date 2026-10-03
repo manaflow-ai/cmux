@@ -16,17 +16,28 @@ import Foundation
 /// - `notification.list` from the daemon's notification ledger;
 /// - `app.storage.*` to a per-app JSON file; `net.fetch` via URLSession
 ///   (hosts already limited to the app's `net:` scopes; credentials stripped);
+/// - op families with a Mac-side handler (`AppHostCapabilities`: coderouter);
 /// - anything else `operation.unsupported`.
 nonisolated final class AppOperationRouter: AppOperationSink, Sendable {
     let router: ControlRouter
     let storage: AppStorageStore
     let ledger: @Sendable () async throws -> [ListNotificationsRequest.Entry]
     let net = AppNetFetch()
+    /// Mac-side handlers for op families the app owns (coderouter, ...);
+    /// the daemon provider channel calls the same handlers later (APP-R1).
+    let capabilities: AppHostCapabilities
 
     init(router: ControlRouter, storage: AppStorageStore, ledger: @escaping @Sendable () async throws -> [ListNotificationsRequest.Entry]) {
         self.router = router
         self.storage = storage
         self.ledger = ledger
+        capabilities = AppHostCapabilities([CodeRouterAppOps(control: { method, params throws(AppHostCapabilityError) in
+            switch await router.handle(ControlRequest(method: method, params: params), connection: .inProcess) {
+            case .success(let value): return value
+            case .failure(let error):
+                throw AppHostCapabilityError(code: error.code, message: error.message, details: error.data.map(AppJSON.init))
+            }
+        })])
     }
 
     func perform(_ request: AppOperationRequest) async -> Result<AppOperationResult, AppOperationError> {
@@ -67,7 +78,13 @@ nonisolated final class AppOperationRouter: AppOperationSink, Sendable {
         case "app.storage.delete": return try await storage.delete(app: request.app, key: key(params))
         case "app.storage.keys": return try await storage.keys(app: request.app)
         case "net.fetch": return try await net.fetch(params)
-        default: throw AppOperationError.unsupported(request.op)
+        default:
+            guard capabilities.handles(request.op) else { throw AppOperationError.unsupported(request.op) }
+            do {
+                return try await capabilities.handle(AppHostCapabilityRequest(app: request.app, op: request.op, params: params, origin: request.origin.rawValue))
+            } catch {
+                throw AppOperationError(code: error.code, message: error.message, details: error.details, retryable: error.retryable)
+            }
         }
     }
 

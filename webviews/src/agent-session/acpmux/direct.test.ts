@@ -204,6 +204,26 @@ describe("direct client session state", () => {
 
   const connect = () => AcpmuxDirectClient.connect(host, (snapshot) => snapshots.push(snapshot));
 
+  test("warms one live child for each recent project without creating a session", async () => {
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch")
+        return {
+          sessions: [
+            { sessionId: "a", cwd: "/work/cmux", updatedAt: 30 },
+            { sessionId: "b", cwd: "/work/cmux", updatedAt: 20 },
+            { sessionId: "c", cwd: "/work/other", updatedAt: 10 },
+          ],
+        };
+      if (method === "_acpmux/attach") return { session: { sessionId: params.sessionId }, events: [] };
+      return {};
+    };
+    const client = await connect();
+    await client.warmRecentProjects();
+    const warm = ScriptedSocket.current.sent.find((request) => request.method === "_acpmux/warm");
+    expect(warm?.params).toEqual({ sessionIds: ["a", "c"], limit: 3 });
+    client.close();
+  });
+
   test("grouped permissions reconcile on attach, suppress duplicate requests and keep interactive asks", async () => {
     const operations = [
       "_acpmux/permission_groups",

@@ -105,6 +105,7 @@ mod personal;
 mod raw_tab;
 mod responses;
 mod screen_json;
+mod session_stream;
 mod split_respawn;
 pub use launch_snapshot::{
     LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
@@ -10013,14 +10014,12 @@ fn run_session_event_stream(
         stream.next_sequence = stream.next_sequence.saturating_add(1);
     }
 
-    // `canceled` is only set together with closing `outbound`. The stream
-    // used to wake every second to re-check both.
     let interrupt = StreamInterrupt::new();
     writer.register_interrupt(&interrupt);
     stream.outbound.register_interrupt(&interrupt);
     mux.wake_journal_waiters_on(&interrupt);
     'stream: loop {
-        if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
+        if session_stream::stopped(&stream.canceled, writer, &stream.outbound) {
             break;
         }
         let epoch = mux.wait_for_journal_event_until_interrupted(stream.epoch, &interrupt);
@@ -10585,13 +10584,12 @@ fn run_session_journal_stream(
     writer: &MessageWriter,
     mut stream: SessionJournalStreamStart,
 ) {
-    // `canceled` is only set together with closing `outbound`.
     let interrupt = StreamInterrupt::new();
     writer.register_interrupt(&interrupt);
     stream.outbound.register_interrupt(&interrupt);
     mux.wake_journal_waiters_on(&interrupt);
     'stream: loop {
-        if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
+        if session_stream::stopped(&stream.canceled, writer, &stream.outbound) {
             break;
         }
         if complete_bounded_journal_replay(writer, &stream) {
@@ -10753,7 +10751,7 @@ fn run_session_journal_stream(
             }
         }
         loop {
-            if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
+            if session_stream::stopped(&stream.canceled, writer, &stream.outbound) {
                 break 'stream;
             }
             let epoch = if stream.shared_fanout && stream.reader.is_none() {
@@ -14200,7 +14198,7 @@ fn handle_command_with_cancellation(
         Command::BrowserNavigate { surface, url } => {
             let surface = get_surface(mux, surface)?;
             require_browser(mux, &surface)?;
-            surface.browser_navigate(&url)?;
+            mux.navigate_browser_surface(&surface, &url)?;
             Ok(json!({}))
         }
         Command::BrowserBack { surface } => {

@@ -187,8 +187,7 @@ def _python_syntax_scan(path: str) -> bool:
 def _determinism_scan(path: str) -> bool:
     if not path.endswith(DETERMINISM_SUFFIXES):
         return False
-    if path.startswith(("ios/cmuxUITests/",
-                        "tests/", "tests_v2/", "web/tests/", "webviews/test/")):
+    if path.startswith(("tests/", "tests_v2/", "web/tests/", "webviews/test/")):
         return True
     return path.startswith("Packages/") and "/Tests/" in path
 

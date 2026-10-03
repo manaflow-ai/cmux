@@ -62,7 +62,8 @@ const LISTENER_BACKLOG: usize = 16;
 const LISTEN_SPARES: usize = 8;
 /// Commands in flight before `connect`/`listen` callers wait.
 const COMMAND_DEPTH: usize = 64;
-/// Idle TCP connections with no ACK for this long are aborted.
+/// Connections with no ACK for this long are aborted; link connections use
+/// `net_sockets::LINK_TCP_TIMEOUT` instead.
 const TCP_TIMEOUT: Duration = Duration::from_secs(60);
 /// Probe each idle TCP connection before its receive timeout. WireGuard
 /// keepalives and application heartbeats on another lane do not elicit its ACKs.

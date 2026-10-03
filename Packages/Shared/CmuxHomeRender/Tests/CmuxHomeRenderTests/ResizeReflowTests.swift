@@ -6,6 +6,11 @@ import Testing
 
 @MainActor
 @Suite struct ResizeReflowTests {
+    /// Visible rows plus the rows whose bitmaps are prefetched around them.
+    private func prefetchKeys(_ c: HomeController) -> Set<String> {
+        Set(c.scene.prefetchIndices().map { c.scene.model.rows[$0].spec.key }).union(c.scene.visible.keys)
+    }
+
     private func specs(_ c: HomeController) -> [String: RowSpec] {
         Dictionary(c.scene.model.rows.map { ($0.spec.key, $0.spec) }, uniquingKeysWith: { a, _ in a })
     }
@@ -19,7 +24,7 @@ import Testing
         let messages = Fixtures.conversation(40)
         c.update(items: Fixtures.items(messages), summary: Fixtures.summary(), typing: [], hasOlder: false)
         let before = specs(c)
-        let visibleBefore = Set(c.scene.visible.keys)
+        let windowBefore = prefetchKeys(c)
         let measures = c.builder.measure.measureCount
         let renders = c.scene.bitmaps.renderCount
 
@@ -31,8 +36,9 @@ import Testing
         let longParts = Set(messages.filter { $0.plainText == Fixtures.longLine }.map { "part:\($0.clientMessageID.rawValue):0" })
         #expect(changed.isSubset(of: longParts), "only wrapped text reflows: \(changed.subtracting(longParts))")
         #expect(c.builder.measure.measureCount - measures == longParts.count)
-        let visibleAfter = Set(c.scene.visible.keys)
-        let mayDraw = visibleAfter.intersection(changed).union(visibleAfter.subtracting(visibleBefore))
+        // Drawn: changed rows near the viewport, and rows that newly came near it.
+        let windowAfter = prefetchKeys(c)
+        let mayDraw = windowAfter.intersection(changed).union(windowAfter.subtracting(windowBefore))
         #expect(c.scene.bitmaps.renderCount - renders <= mayDraw.count)
         #expect(c.isPinnedToNewest)
     }

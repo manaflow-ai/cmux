@@ -480,8 +480,8 @@
     if (!r.ok)
       setNotice(r.error.missing ? t("diffs.missing", "Opening the Diffs app needs ui.open, which this cmux does not have yet") : r.error.message);
   }
-  function openPane() {
-    return call("app.pane.open", { kind: "skillsHub" }, withGesture(gesture()));
+  function openPane(token = gesture()) {
+    return call("app.pane.open", { kind: "skillsHub" }, withGesture(token));
   }
   var VARIANTS = ["unified", "byAgent", "byScope"];
   var DEFAULT_VARIANT = "unified";
@@ -905,8 +905,8 @@
       }
     ]);
   }
-  async function openSkills() {
-    await openPane();
+  async function openSkills(_args = {}, ctx) {
+    await openPane(ctx?.gesture ?? null);
     return {};
   }
   async function reload() {
