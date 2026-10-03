@@ -8,7 +8,7 @@
 nonisolated extension ActionCatalog {
     static let focusActionIDs: Set<ActionID> = [
         // Tabs
-        "tab.focus", "nextSurface", "prevSurface", "selectSurfaceByNumber", "palette.goToTab",
+        "tab.focus", "nextSurface", "prevSurface", "selectSurfaceByNumber", "tab.search",
         // Panes and focus targets
         "focusLeft", "focusRight", "focusUp", "focusDown", "focusPreviousPane", "focusNextPane",
         "column.focusLeft", "column.focusRight", "canvasRevealFocusedPane", "focusBrowserAddressBar", "focusTextBoxInput", "focusRightSidebar",
@@ -17,7 +17,7 @@ nonisolated extension ActionCatalog {
         // Workspaces and rooms
         "nextSidebarTab", "prevSidebarTab", "nextSidebarTabInGroup", "prevSidebarTabInGroup", "selectWorkspaceByNumber",
         "goToWorkspace", "workspace.selectFirst", "workspace.selectLast", "workspace.selectLastUsed",
-        "room.next", "room.previous", "room.selectByNumber", "room.switch",
+        "space.next", "space.previous", "space.selectByNumber", "space.switch",
         // Focus history and notifications
         "focusHistoryBack", "focusHistoryForward", "focusHistoryLast", "jumpToUnread", "markOldestUnreadAndJumpNext",
         "notificationOpen", "vaultFocusSession", "computerUseFocus", "computerUseFocusCallingTerminal",

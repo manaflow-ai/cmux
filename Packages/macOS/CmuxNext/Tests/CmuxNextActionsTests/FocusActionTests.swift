@@ -14,7 +14,7 @@ import Testing
 
     @Test func focusAndSelectionActionsFocusAndCreatingActionsDoNot() {
         let byID = Dictionary(uniqueKeysWithValues: ActionCatalog.all.map { ($0.id, $0) })
-        for id: ActionID in ["tab.focus", "palette.goToTab", "nextSurface", "focusLeft", "focusNextPane", "nextSidebarTab",
+        for id: ActionID in ["tab.focus", "tab.search", "nextSurface", "focusLeft", "focusNextPane", "nextSidebarTab",
                              "selectWorkspaceByNumber", "goToWorkspace", "workspace.selectLastUsed", "showMainWindow"] {
             #expect(byID[id]?.focuses == true, "\(id)")
         }

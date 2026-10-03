@@ -153,9 +153,7 @@ public struct DaemonCapabilities: Sendable {
     /// owner op (plans/cmux-next/layout-invariants.md).
     public let tabSplitRespawn = "tab-split-respawn-v1"
     public var awaitingPin: [String] {
-        [remoteTerminalTabs, detachedTerminals, bookmarks, workspacePin, notificationMarkUnread,
-         terminalCommandJournal, stickyColumns, endTerminalsKeepLayout, stateResources,
-         localConversations, sidebarLayout, tabSplitRespawn, frontendBrowserHistory]
+        [remoteTerminalTabs, detachedTerminals, localConversations, sidebarLayout, tabSplitRespawn, frontendBrowserHistory]
     }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.

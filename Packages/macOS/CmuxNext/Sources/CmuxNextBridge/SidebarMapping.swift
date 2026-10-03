@@ -42,7 +42,8 @@ public struct SidebarMapping {
             machineID: machine,
             title: workspace.displayName,
             subtitle: subtitle(tabs),
-            status: status.flatMap { $0.isEmpty ? nil : $0 },
+            // The hooks' status line, else the daemon's workspace status (state resources).
+            status: (status ?? workspace.status?.line).flatMap { $0.isEmpty ? nil : $0 },
             icon: color(workspace.color).map(WorkspaceIcon.swatch) ?? workspace.icon.map(WorkspaceIcon.parse),
             unread: unread > 0 ? .count(unread) : (showsUnread && workspace.markedUnread ? .dot : .none),
             activity: indicator.state,
