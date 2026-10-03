@@ -2080,8 +2080,17 @@
     }
   },
   "pricing.native.compare.concurrent.paid": {
-    "class": "format",
-    "source": "5"
+    "source": "5",
+    "identityLocales": {
+      "de": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "fr": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "ar": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "es": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "zh-Hant": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "zh-Hans": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "ko": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "ja": "The concurrent machine count is a numeric plan limit and is invariant across locales."
+    }
   },
   "pricing.native.compare.support.community": {
     "source": "Community",
@@ -4428,6 +4437,19 @@
       "uk": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
       "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
       "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
+    }
+  },
+  "pricing.native.compare.concurrent.free": {
+    "source": "1",
+    "identityLocales": {
+      "de": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "fr": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "ar": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "es": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "zh-Hant": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "zh-Hans": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "ko": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "ja": "The concurrent machine count is a numeric plan limit and is invariant across locales."
     }
   }
 }
