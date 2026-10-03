@@ -22,15 +22,21 @@ cleanup() { for pid in "${pids[@]}"; do kill "$pid" 2>/dev/null || true; done; r
 trap cleanup EXIT
 mkdir -p "$work/checkout/cmux-tui" "$work/elsewhere"
 
-if "$busy" "$work/checkout" "$$"; then
-  echo "FAIL: an empty checkout counted as busy" >&2
+# The keepalive itself runs in the checkout (the job workspace), and so does
+# its sleep: neither is use of the box.
+(cd "$work/checkout" && exec bash -c 'sleep 60 & wait') &
+keepalive="$!"
+pids+=("$keepalive")
+sleep 0.3
+if "$busy" "$work/checkout" "$keepalive"; then
+  echo "FAIL: the keepalive or its own sleep counted as busy" >&2
   exit 1
 fi
 
 # A process outside the checkout is not use of the box.
 (cd "$work/elsewhere" && exec sleep 60) &
 pids+=("$!")
-if "$busy" "$work/checkout" "$$"; then
+if "$busy" "$work/checkout" "$keepalive"; then
   echo "FAIL: a process outside the checkout counted as busy" >&2
   exit 1
 fi
@@ -39,20 +45,14 @@ fi
 (cd "$work/checkout/cmux-tui" && exec sleep 60) &
 worker="$!"
 pids+=("$worker")
-sleep 0.2
-if ! "$busy" "$work/checkout" "$$"; then
+sleep 0.3
+if ! "$busy" "$work/checkout" "$keepalive"; then
   echo "FAIL: a process working in the checkout did not count as busy" >&2
-  exit 1
-fi
-
-# The keepalive's own children (its sleep) never count.
-if "$busy" "$work/checkout" "$worker"; then
-  echo "FAIL: the excluded process itself counted as busy" >&2
   exit 1
 fi
 kill "$worker"
 wait "$worker" 2>/dev/null || true
-if "$busy" "$work/checkout" "$$"; then
+if "$busy" "$work/checkout" "$keepalive"; then
   echo "FAIL: a finished process still counted as busy" >&2
   exit 1
 fi
