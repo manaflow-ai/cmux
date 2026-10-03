@@ -60,6 +60,11 @@ test("the handshake's newTab becomes the page's kind, hotkeys and folder", () =>
   expect(newTabHost({ newTab: { kind: "spreadsheet" } })?.initialKind).toBe("agent");
 });
 
+test("the web bridge caps project folders while preserving their order", () => {
+  const projects = Array.from({ length: 45 }, (_, index) => `/src/project-${index}`);
+  expect(newTabHost({ newTab: { projects } })?.projects).toEqual(projects.slice(0, 40));
+});
+
 test("Tab cycles the kinds both ways, and recent sessions put the ones waiting on you first", () => {
   expect(cycleKind("terminal")).toBe("browser");
   expect(cycleKind("agent")).toBe("terminal");

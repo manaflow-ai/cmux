@@ -132,16 +132,18 @@ import Testing
         #expect(picked == ["agent"])
     }
 
-    @Test func theHandshakeCarriesTheLocationAndCappedSuggestions() throws {
+    @Test func theHandshakeCarriesTheLocationAndLosslessSuggestions() async throws {
         let tabs = (0..<50).map { AgentPaneOmnibar.Tab(id: "t\($0)", kind: .terminal, title: "t\($0)") }
         let page = AgentPaneNewTab(kind: .browser, location: "https://vite.dev/guide/", omnibar: AgentPaneOmnibar(
             tabs: tabs, workspaces: [AgentPaneOmnibar.Workspace(id: "w1", name: "docs-site")], folders: ["/src/app"],
             history: [AgentPaneOmnibar.Page(url: "https://vite.dev/config/", title: "Configuring Vite")]
         ))
-        let reply = page.reply
-        #expect(reply["location"] as? String == "https://vite.dev/guide/")
-        let omnibar = try #require(reply["omnibar"] as? [String: Any])
-        #expect((omnibar["tabs"] as? [[String: Any]])?.count == AgentPaneOmnibar.maximumEntries)
+        let model = AgentPaneModel(host: MockAgentPaneHost(), newTab: page)
+        let value = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
+        let newTab = try #require(value["newTab"] as? [String: Any])
+        #expect(newTab["location"] as? String == "https://vite.dev/guide/")
+        let omnibar = try #require(newTab["omnibar"] as? [String: Any])
+        #expect((omnibar["tabs"] as? [[String: Any]])?.count == 50)
         #expect((omnibar["workspaces"] as? [[String: Any]])?.first?["name"] as? String == "docs-site")
         #expect((omnibar["workspaces"] as? [[String: Any]])?.first?["detail"] == nil)
         #expect(omnibar["folders"] as? [String] == ["/src/app"])
