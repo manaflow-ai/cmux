@@ -59,6 +59,17 @@ public struct TerminalSizingEngine: Sendable {
         return publish()
     }
 
+    /// Forgets a viewport while keeping the view attached: a viewer that hid
+    /// the terminal (an iPhone app in the background, a terminal off screen)
+    /// stops counting until its next `report`. Twin of the Rust
+    /// `clear_viewport`; fixture op `clear_viewport`.
+    @discardableResult
+    public mutating func clearViewport(_ id: String) -> Bool {
+        guard let i = index(id) else { return false }
+        entries[i].participant.viewport = nil
+        return publish()
+    }
+
     /// Explicit focus-click or keyboard, paste or mouse input. Never hover.
     @discardableResult
     public mutating func noteActivity(_ id: String) -> Bool {
