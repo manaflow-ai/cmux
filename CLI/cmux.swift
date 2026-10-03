@@ -3282,7 +3282,11 @@ final class SocketClient {
         )
         recordOperation(operation)
 
-        let payload = capabilityWrappedCommand(Self.automationEnvelopeCommand(command)) + "\n"
+        guard let payload = SocketCommandLine.framedLine(
+            for: capabilityWrappedCommand(Self.automationEnvelopeCommand(command))
+        ) else {
+            throw CLIError(message: "Rejected socket command containing line-terminator characters")
+        }
         try writeAllNonBlocking(
             Data(payload.utf8),
             deadline: operationDeadline,
@@ -3403,9 +3407,14 @@ final class SocketClient {
         )
         recordOperation(operation)
 
+        guard let oneWayPayload = SocketCommandLine.framedLine(
+            for: capabilityWrappedCommand(Self.automationEnvelopeCommand(command))
+        ) else {
+            throw CLIError(message: "Rejected socket command containing line-terminator characters")
+        }
         do {
             try writeAllNonBlocking(
-                Data((capabilityWrappedCommand(Self.automationEnvelopeCommand(command)) + "\n").utf8),
+                Data(oneWayPayload.utf8),
                 deadline: Date.now.addingTimeInterval(writeTimeout),
                 timeoutMessage: "Command timed out",
                 failureMessage: "Failed to write to socket"
@@ -4035,8 +4044,13 @@ final class SocketClient {
             throw CLIError(message: "Failed to encode v2 stream request")
         }
 
+        guard let streamPayload = SocketCommandLine.framedLine(
+            for: capabilityWrappedCommand(requestLine)
+        ) else {
+            throw CLIError(message: "Failed to encode v2 stream request")
+        }
         try writeAll(
-            Data((capabilityWrappedCommand(requestLine) + "\n").utf8),
+            Data(streamPayload.utf8),
             timeoutMessage: "Stream request timed out",
             failureMessage: "Failed to write stream request",
             deadline: deadline
@@ -35832,7 +35846,16 @@ export default {
             print("{}")
             return
         }
-        let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
+        guard let pidKey = SocketCommandLine.agentHookPIDKeyArgument(
+            statusKey: def.statusKey,
+            sessionId: sessionId.isEmpty ? "default" : sessionId
+        ) else {
+            // A hook session id that cannot be embedded as one socket argument
+            // has no legitimate producer; refuse the event before composing
+            // any per-session command line from it.
+            print("{}")
+            return
+        }
         var didSendFeedTelemetry = false
         func cursorCriticalTimeout() -> TimeInterval? {
             cursorShellRemainingTimeout() ?? 2.0
