@@ -53,6 +53,8 @@ use std::sync::{Arc, OnceLock};
 #[cfg(unix)]
 pub(crate) use mirror::{HiddenAccess, Origin, SetOp};
 #[cfg(unix)]
+pub(crate) use provider::ProviderClaim;
+#[cfg(unix)]
 pub(crate) use runs::RunRequest;
 #[cfg(unix)]
 pub(crate) use supervisor::{ApiError, Supervisor};
