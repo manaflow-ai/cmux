@@ -5521,7 +5521,7 @@ fn parse_resource_layout_document(
                 .filter(|columns| !columns.is_empty())
                 .context("viewport columns must be non-empty")?;
             let mut parsed = Vec::with_capacity(columns.len());
-            let mut explicit_sticky = false;
+            let mut changed_sticky = false;
             for column in columns {
                 let id = parse_layout_split(state, screen_slot, &column["column_id"])?;
                 anyhow::ensure!(seen_splits.insert(id), "layout split appears more than once");
@@ -5543,27 +5543,27 @@ fn parse_resource_layout_document(
                 // `sticky` present: `null` clears the flag, an object sets
                 // it. Absent: a column that keeps its id keeps its flag, so a
                 // client without `sticky-columns-v1` never clears one.
+                let kept = current
+                    .layout_columns
+                    .iter()
+                    .find(|column| column.id == id)
+                    .and_then(|column| column.sticky);
                 let sticky = match column.get("sticky") {
                     Some(Value::Null) => None,
-                    Some(value) => {
-                        explicit_sticky = true;
-                        Some(
-                            serde_json::from_value::<ColumnSticky>(value.clone())
-                                .context("invalid viewport column sticky")?,
-                        )
-                    }
-                    None => current
-                        .layout_columns
-                        .iter()
-                        .find(|column| column.id == id)
-                        .and_then(|column| column.sticky),
+                    Some(value) => Some(
+                        serde_json::from_value::<ColumnSticky>(value.clone())
+                            .context("invalid viewport column sticky")?,
+                    ),
+                    None => kept,
                 };
+                changed_sticky |= sticky.is_some() && sticky != kept;
                 parsed.push(LayoutColumn { id, width, root, zellij_auto_layout: None, sticky });
             }
-            // A document that sets a flag must satisfy the sticky invariants
-            // itself; normalization repairs only flags kept from before.
+            // A document that sets a new flag must satisfy the sticky
+            // invariants itself. Flags it keeps or echoes unchanged are
+            // repaired by normalization, as when a column is removed.
             anyhow::ensure!(
-                !explicit_sticky || crate::model::sticky_columns_are_consistent(&parsed),
+                !changed_sticky || crate::model::sticky_columns_are_consistent(&parsed),
                 "invalid viewport sticky columns"
             );
             anyhow::ensure!(
