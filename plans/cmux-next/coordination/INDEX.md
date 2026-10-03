@@ -16,6 +16,7 @@ Read the lane file before changing a shared surface. Newest entries remain first
 - [durable-sessions](durable-sessions.md)
 - [feed](feed.md)
 - [home-ios](home-ios.md)
+- [integrations](integrations.md)
 - [layout](layout.md)
 - [misc](misc.md)
 - [ownership](ownership.md)

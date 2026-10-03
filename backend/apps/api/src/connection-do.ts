@@ -5,6 +5,7 @@ import { connectionsDomain, expiredForgets, githubRepoAllowed, lockNoticePending
 import { decodeParams } from "./domains/common.ts"
 import type { Env } from "./env.ts"
 import { aadFor, open, seal, type SealedSecret } from "./integrations/crypto.ts"
+import { createRevocationTable, drainRevocations, nextRevocationAt, takeCredentialForRevocation } from "./integrations/revocations.ts"
 import { ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 
@@ -67,6 +68,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       status TEXT NOT NULL, reply TEXT, created_at INTEGER NOT NULL, PRIMARY KEY (identity, idempotency_key))`)
     sql.exec(`CREATE INDEX IF NOT EXISTS external_calls_created ON external_calls (created_at)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS refused_system_ops (key TEXT PRIMARY KEY, code TEXT NOT NULL, at INTEGER NOT NULL)`)
+    createRevocationTable(sql)
   }
 
   protected read(state: ConnectionsState, op: string, _params: unknown, principal: Principal): ReadResult {
@@ -105,6 +107,8 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const forget = expiredForgets(state).find((p) => !skip.has(`forget:${p.connection}`))
     if (forget) times.push(forget.at)
     if (lockNoticePending(state)) times.push(Math.max(_now, this.noticeRetryAt ?? _now))
+    const revocation = nextRevocationAt(this.ctx.storage.sql)
+    if (revocation !== null) times.push(revocation)
     return times.length === 0 ? null : Math.min(...times)
   }
 
@@ -171,6 +175,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     if (!engine) return
     const entity = this.ctx.storage.sql.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`).toArray()[0]?.entity
     if (entity) await this.deliverLockNotice(entity, now)
+    await this.revokeAtProviders(now)
     const skip = this.skipped()
     for (const p of pendingExpiries(engine.currentState)) {
       if (p.at > now) break
@@ -188,8 +193,26 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const result = frames.find((f) => f.t === "result")
     const c = result && result.t === "result" ? (result.value as Connection) : undefined
     if (!c || c.status !== "revoked") return
-    this.ctx.storage.sql.exec(`DELETE FROM credentials WHERE connection = ?`, c.id)
+    if (takeCredentialForRevocation(this.ctx.storage.sql, c, providers[c.provider], Date.now())) {
+      // Arm the alarm now (afterCommit ran before this row existed), then try at once.
+      this.scheduleAlarm()
+      void this.revokeAtProviders(Date.now())
+    }
     if (c.account) void this.index(c.account.key).remove(c.owner, c.id).catch((e) => console.error(JSON.stringify({ msg: "account index remove failed", connection: c.id, error: String(e) })))
+  }
+
+  /** Provider-side revocations after disconnects (G5); the alarm retries what is left. */
+  private async revokeAtProviders(now: number) {
+    try {
+      await drainRevocations(this.ctx.storage.sql, this.env, this.http, providers, (key) => this.index(key).list(), now)
+      // A failed attempt outside an alarm still needs one: never move an earlier alarm later.
+      const next = nextRevocationAt(this.ctx.storage.sql)
+      if (next === null) return
+      const current = await this.ctx.storage.getAlarm()
+      if (current === null || current > next) await this.ctx.storage.setAlarm(next)
+    } catch (e) {
+      console.error(JSON.stringify({ msg: "revocation drain failed", error: e instanceof Error ? e.name : "unknown" }))
+    }
   }
 
   private index(account: string) {
@@ -343,7 +366,11 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     // An exchange that began inside the lifetime and finished after it still activates when the
     // expiry alarm has not run yet: the provider code is already spent, so refusing would only strand it.
     if (rej) {
-      this.ctx.storage.sql.exec(`DELETE FROM credentials WHERE connection = ?`, c.id)
+      // The provider granted access we will not use: revoke it there too (skipped while the grant serves another connection).
+      if (takeCredentialForRevocation(this.ctx.storage.sql, { ...c, account: approved.account }, impl, Date.now())) {
+        this.scheduleAlarm()
+        void this.revokeAtProviders(Date.now())
+      }
       await this.index(approved.account.key).remove(c.owner, c.id).catch(() => undefined)
       throw new ProviderError("integration.state_invalid", rej.message)
     }
