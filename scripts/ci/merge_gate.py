@@ -363,8 +363,12 @@ def run() -> int:
                 permission = gh.request(f"/repos/{repo}/collaborators/{urllib.parse.quote(login, safe='')}/permission")
                 if isinstance(permission, Mapping):
                     comment["author_permission"] = permission.get("permission")
+                else:
+                    comment["author_permission"] = "unknown"
             except RuntimeError:
-                pass
+                # Do not fall back to author_association after an API error:
+                # the gate must prove write access before accepting an override.
+                comment["author_permission"] = "unknown"
     main_runs: list[Mapping[str, Any]] = []
     for run_id in _run_id_links(comments):
         try:
