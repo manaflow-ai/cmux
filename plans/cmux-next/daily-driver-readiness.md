@@ -9,11 +9,11 @@ remote, or shared-backend behavior.
 ## Verdict
 
 **Not ready to replace classic cmux today.** Tagged builds have separate bundle,
-control-socket, and cmux-tui state identities, but the default settings file
-is shared, the untagged release identity and socket collide with classic, and
-the Settings window is not implemented. The source audit is complete without
-the capture mini; runtime checklist rows remain unverified until bounded
-interactive chunks are scheduled.
+control-socket, and cmux-tui state identities. The config isolation fix is open
+in [PR #17198](https://github.com/manaflow-ai/cmux/pull/17198); the untagged
+release identity and socket still collide with classic, and the Settings window
+is not implemented. Three bounded runtime slices ran on the exact tagged
+artifact. Long soak and resource tests remain deferred to `cx-aws-fleet`.
 
 ## Checklist
 
@@ -23,17 +23,17 @@ row is recorded as a missing evidence item rather than inferred from source.
 
 | Area | Score | Evidence and screenshot |
 | --- | --- | --- |
-| Terminal input | UNVERIFIED | No runtime chunk run yet; schedule one <=5-minute lock window. |
-| Scrollback, copy/paste | UNVERIFIED | No capture. |
+| Terminal input | ROUGH | Tagged `terminal.write` produced a 25-line command result and prompt in `terminal screen read`; foreground CUA text remained unverified because a host iCloud modal covered the renderer. [Screenshot](evidence/terminal-after-cli-input.png) |
+| Scrollback, copy/paste | ROUGH | Scrollback output and clipboard types/text were read back; terminal paste was not visually confirmable under the modal. [Screenshot](evidence/terminal-after-cli-input.png) |
 | Fonts and themes | UNVERIFIED | No capture. |
-| Splits and tabs | UNVERIFIED | Source catalog exposes split-right/down and tab actions; no screenshot. |
-| Workspaces and sidebar | UNVERIFIED | Source catalog exposes workspace actions; no screenshot. |
+| Splits and tabs | WORKS | `pane split --right` and terminal-tab creation returned IDs; two panes and six tabs were listed. [Screenshot](evidence/layout-split-tabs.png) |
+| Workspaces and sidebar | ROUGH | The Home workspace and sidebar were visible, and the workspace remained focused; no independent sidebar mutation was attempted. [Screenshot](evidence/layout-split-tabs.png) |
 | SSH | UNVERIFIED | No live remote route in local-backend build; no screenshot. |
 | Claude Code via ACP (start, stream, approve, diff, resume) | UNVERIFIED | Agent catalog and acpmux are bundled; no live ACP turn or screenshot. |
 | Codex via ACP (start, stream, approve, diff, resume) | UNVERIFIED | Same limitation; no live ACP turn or screenshot. |
 | Browser pane | UNVERIFIED | Fleet artifact contains CEF and browser actions; local backend does not prove browser auth; no screenshot. |
 | Notifications | MISSING | `plans/cmux-next/notifications.md` states there is no Settings window yet; no runtime screenshot. |
-| Session restore after relaunch | UNVERIFIED | Tagged daemon state path is source-confirmed; no relaunch capture. |
+| Session restore after relaunch | WORKS | After killing and relaunching the tagged app, the same workspace, two panes, and six tabs were listed before and after. [Screenshot](evidence/restore-after-relaunch.png) |
 | Import classic sessions | ROUGH | Import exists but intentionally omits commands, scrollback, and remote panels; no screenshot. |
 | Settings | MISSING | No Settings window; JSON/palette settings only; no screenshot. |
 | Update path | BROKEN | Development/tagged bundles disable Sparkle install; team update is manual artifact download. No screenshot. |
@@ -41,7 +41,25 @@ row is recorded as a missing evidence item rather than inferred from source.
 | Idle CPU/memory | UNVERIFIED | `scripts/cmux-next/bench-idle.sh` was not run because the tagged app could not acquire the host lock. |
 | CPU/memory with 10 sessions | UNVERIFIED | No capture. |
 | Crash-free 20-minute scripted session | UNVERIFIED | No capture. |
-| Classic coexistence | ROUGH | Tagged bundle/socket/tui state are isolated; `~/.config/cmux/cmux.json` remains shared. Untagged release collides. |
+| Classic coexistence | ROUGH | Tagged app launched beside the existing classic app with its isolated bundle/socket/tui state. The pre-fix artifact still used classic `cmux.json`; PR #17198 separates it. Untagged release still collides. [Screenshot](evidence/layout-split-tabs.png) |
+
+## Runtime receipts
+
+The bounded slices used `/Users/Shared/cmux-build-fleet/bin/with-host-lock` and
+each returned before five minutes. The exact tagged artifact was downloaded on
+the mini from the controller and verified as
+`2da47e7d35b332bd54fd7129e13358120aa467b0fd4873fee44bd5e5fd92d066` before
+launch. The terminal screen receipt is kept with the capture evidence; the GUI
+screenshots show the host's iCloud modal covering the terminal renderer, so the
+visual CUA result is recorded as rough rather than works.
+
+- Terminal slice: command output, prompt, scrollback, and clipboard readback.
+- Layout slice: split-right, tab creation, workspace/pane/tab listings.
+- Relaunch slice: workspace, panes, and tabs listed before and after relaunch.
+
+Evidence files: `plans/cmux-next/evidence/terminal-after-cli-input.png`,
+`plans/cmux-next/evidence/layout-split-tabs.png`, and
+`plans/cmux-next/evidence/restore-after-relaunch.png`.
 
 ## Ranked blockers
 
@@ -54,8 +72,10 @@ row is recorded as a missing evidence item rather than inferred from source.
 3. **Untagged release collision.** The release identity is still
    `com.cmuxterm.app`, and the release control socket is the same stable cmux
    socket as classic. Only tagged reloads are safe for coexistence.
-4. **Global settings collision.** Tagged and classic builds both read and watch
-   `~/.config/cmux/cmux.json` unless `CMUX_NEXT_CONFIG_FILE` is explicitly set.
+4. **Global settings collision.** The tested artifact shared
+   `~/.config/cmux/cmux.json`; [PR #17198](https://github.com/manaflow-ai/cmux/pull/17198)
+   moves next to `cmux-next.json` with one-time classic seeding. It needs to
+   merge and reach the next build before this blocker is closed.
 5. **Settings window missing.** User-facing settings are currently JSON/palette
    paths, so settings discovery and notification preferences are incomplete.
 6. **Classic import is lossy.** It recreates workspace topology and titles but
