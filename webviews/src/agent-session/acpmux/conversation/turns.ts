@@ -8,6 +8,7 @@
 // acpmux serves turn-structured rows (`acp.view.subscribe`, `_acpmux/view`), `turnView` becomes
 // a field-for-field mapping of them and nothing else in the pane changes.
 import type { AcpmuxRow } from "../model";
+import { turnPreviewUrl } from "./previewUrl";
 import { timestampTurns } from "./timestamps";
 import { t } from "../i18n";
 
@@ -19,6 +20,9 @@ export const DATE = "date";
 /// "Working for 42s" line over its work, where "Worked for" lands when the turn ends.
 export const THINKING = "thinking";
 export const WORKING = "working";
+/// A row added for an ended turn that started or mentioned a local web page (previewUrl.ts): its
+/// preview card, with the page's address as its text.
+export const PREVIEW = "preview";
 /// Activity rows shown inside an open disclosure are copies under this suffix, so the
 /// edited-files card after the answer keeps the original id.
 const FOLDED = ":fold";
@@ -143,6 +147,8 @@ function shapeTurn(
   }
   if (answer) shaped.push(answer);
   shaped.push(...rest, ...editsCard(edits));
+  const preview = turnPreviewUrl(user, turn);
+  if (preview) shaped.push({ id: `${PREVIEW}-${user.id}`, version, at: summary.at, kind: PREVIEW, text: preview });
   // The footer copies the answer, so it carries the answer's text; the last turn's also retries
   // its prompt, and stops offering to once a later prompt goes (or waits to).
   shaped.push({
