@@ -53,7 +53,7 @@ const alreadyExists = (e: unknown) => /already exists|already_exists|duplicate/i
 export class SchedulerDO extends OwnerDO<SchedulerState> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env, schedulerDomain, "scheduler", (p) => ({
-      identity: p.kind === "system" ? p.identity : (p.install ?? `user:${p.user}`),
+      identity: p.kind === "system" || (p.kind === "agent" && p.identity.startsWith("automation:")) ? p.identity : (p.install ?? `user:${p.user}`),
       ...(p.kind ? { kind: p.kind } : {}),
       ...(p.user ? { user: p.user } : {}),
       ...(p.team ? { team: p.team } : {}),
