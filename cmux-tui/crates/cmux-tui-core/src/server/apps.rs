@@ -219,10 +219,9 @@ pub(super) fn try_handle(
         Command::Logs { app, follow } => Ok(supervisor.logs(client, &app, follow)),
         Command::ProviderRegister { families } => {
             let claim = crate::apps::ProviderClaim {
-                agent: matches!(
-                    crate::actor::Actor::of_client(mux, client),
-                    crate::actor::Actor::Agent(_)
-                ),
+                // An agent's conversation binding; switches to the identity
+                // lane's terminal/acp_session actor with `agent` once it lands.
+                agent: mux.conversation_principal(client) != crate::conversation_store::LOCAL_USER,
                 app_kind: mux
                     .control_clients
                     .state
