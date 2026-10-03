@@ -617878,7 +617878,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "不要登录"
+            "value": "不登录"
           }
         },
         "ko": {
@@ -617966,43 +617966,43 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Anmelden"
+            "value": "Konto wechseln"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se connecter"
+            "value": "Changer de compte"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تسجيل الدخول"
+            "value": "تبديل الحساب"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iniciar sesión"
+            "value": "Cambiar de cuenta"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "登入"
+            "value": "切換帳戶"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "登录"
+            "value": "切换账户"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "로그인"
+            "value": "계정 전환"
           }
         }
       }
@@ -618084,43 +618084,43 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Von einem Link bei cmux anmelden?"
+            "value": "cmux zu einem anderen Konto wechseln?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se connecter à cmux depuis un lien ?"
+            "value": "Changer cmux pour un autre compte ?"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تسجيل الدخول إلى cmux من رابط؟"
+            "value": "تبديل cmux إلى حساب آخر؟"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¿Iniciar sesión en cmux desde un enlace?"
+            "value": "¿Cambiar cmux a otra cuenta?"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "要從連結登入 cmux 嗎？"
+            "value": "要將 cmux 切換到其他帳戶嗎？"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "要从链接登录 cmux 吗？"
+            "value": "要将 cmux 切换到其他账户吗？"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "링크에서 cmux에 로그인하시겠습니까?"
+            "value": "cmux를 다른 계정으로 전환하시겠습니까?"
           }
         }
       }
@@ -618143,7 +618143,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein Link möchte cmux als %@ anmelden. Fahren Sie nur fort, wenn Sie sich gerade in Ihrem Browser bei cmux angemeldet haben."
+            "value": "Ein Link bittet cmux, sich als %@ anzumelden. Fahren Sie nur fort, wenn Sie sich gerade in Ihrem Browser bei cmux angemeldet haben."
           }
         },
         "fr": {
@@ -618155,31 +618155,31 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يطلب رابط من cmux تسجيل الدخول باسم %@. تابع فقط إذا كنت قد سجلت الدخول إلى cmux في متصفحك للتو."
+            "value": "يطلب رابط من cmux تسجيل الدخول باسم %@. لا تتابع إلا إذا سجلت الدخول إلى cmux للتو في متصفحك."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un enlace solicita que cmux inicie sesión como %@. Continúa solo si acabas de iniciar sesión en cmux en tu navegador."
+            "value": "Un enlace pide a cmux iniciar sesión como %@. Continúa solo si acabas de iniciar sesión en cmux en tu navegador."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "連結要求 cmux 以 %@ 的身分登入。只有在你剛於瀏覽器登入 cmux 時才繼續。"
+            "value": "連結要求 cmux 以 %@ 的身分登入。只有在你剛在瀏覽器中登入 cmux 後，才可繼續。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "链接要求 cmux 以 %@ 的身份登录。仅当你刚在浏览器中登录 cmux 时才继续。"
+            "value": "链接要求 cmux 以 %@ 的身份登录。只有在你刚在浏览器中登录 cmux 后，才可继续。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "링크에서 cmux에 %@ 계정으로 로그인하도록 요청합니다. 브라우저에서 방금 cmux에 로그인한 경우에만 계속하세요."
+            "value": "링크에서 cmux가 %@ 계정으로 로그인하도록 요청합니다. 브라우저에서 방금 cmux에 로그인한 경우에만 계속하세요."
           }
         }
       }
@@ -618202,7 +618202,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein Link möchte cmux bei einem Konto anmelden. Fahren Sie nur fort, wenn Sie sich gerade in Ihrem Browser bei cmux angemeldet haben."
+            "value": "Ein Link bittet cmux, sich bei einem Konto anzumelden. Fahren Sie nur fort, wenn Sie sich gerade in Ihrem Browser bei cmux angemeldet haben."
           }
         },
         "fr": {
@@ -618214,31 +618214,31 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يطلب رابط من cmux تسجيل الدخول إلى حساب. تابع فقط إذا كنت قد سجلت الدخول إلى cmux في متصفحك للتو."
+            "value": "يطلب رابط من cmux تسجيل الدخول إلى حساب. لا تتابع إلا إذا سجلت الدخول إلى cmux للتو في متصفحك."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un enlace solicita que cmux inicie sesión en una cuenta. Continúa solo si acabas de iniciar sesión en cmux en tu navegador."
+            "value": "Un enlace pide a cmux iniciar sesión en una cuenta. Continúa solo si acabas de iniciar sesión en cmux en tu navegador."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "連結要求 cmux 登入帳戶。只有在你剛於瀏覽器登入 cmux 時才繼續。"
+            "value": "連結要求 cmux 登入帳戶。只有在你剛在瀏覽器中登入 cmux 後，才可繼續。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "链接要求 cmux 登录账户。仅当你刚在浏览器中登录 cmux 时才继续。"
+            "value": "链接要求 cmux 登录账户。只有在你刚在浏览器中登录 cmux 后，才可继续。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "링크에서 cmux에 계정으로 로그인하도록 요청합니다. 브라우저에서 방금 cmux에 로그인한 경우에만 계속하세요."
+            "value": "링크에서 cmux가 계정으로 로그인하도록 요청합니다. 브라우저에서 방금 cmux에 로그인한 경우에만 계속하세요."
           }
         }
       }
@@ -618261,13 +618261,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sie sind als %@ angemeldet. Wenn Sie fortfahren, wird diese Sitzung ersetzt und neue cmux-Aktivitäten gehören dem Konto im Link. Wenn Sie dieses Konto nicht gerade selbst ausgewählt haben, klicken Sie auf „Nicht anmelden“."
+            "value": "Sie sind als %@ angemeldet. Wenn Sie fortfahren, wird diese Sitzung ersetzt, und neue cmux-Aktivitäten gehören dem Konto im Link. Wenn Sie dieses Konto nicht gerade selbst ausgewählt haben, klicken Sie auf „Nicht anmelden“."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vous êtes connecté en tant que %@. Continuer remplace cette session et toute nouvelle activité cmux appartiendra au compte du lien. Si vous n’avez pas choisi ce compte vous-même, cliquez sur « Ne pas se connecter »."
+            "value": "Vous êtes connecté en tant que %@. Continuer remplacera cette session, et la nouvelle activité cmux appartiendra au compte du lien. Si vous n’avez pas choisi vous-même ce compte, cliquez sur « Ne pas se connecter »."
           }
         },
         "ar": {
@@ -618279,25 +618279,25 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Has iniciado sesión como %@. Continuar reemplaza esa sesión y la nueva actividad de cmux pertenecerá a la cuenta del enlace. Si no acabas de elegir esta cuenta, haz clic en «No iniciar sesión»."
+            "value": "Has iniciado sesión como %@. Continuar reemplazará esa sesión y la nueva actividad de cmux pertenecerá a la cuenta del enlace. Si no acabas de elegir esta cuenta tú mismo, haz clic en «No iniciar sesión»."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "你目前以 %@ 身分登入。繼續會取代此工作階段，新的 cmux 活動將屬於連結中的帳戶。如果你不是剛剛自行選取此帳戶，請按「不要登入」。"
+            "value": "你目前以 %@ 的身分登入。繼續後將取代目前的工作階段，新的 cmux 活動將屬於連結中的帳戶。如果你不是剛剛親自選擇此帳戶，請按一下「不要登入」。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你当前以 %@ 身份登录。继续会替换此会话，新的 cmux 活动将属于链接中的账户。如果你不是刚刚自行选择此账户，请点击“不要登录”。"
+            "value": "你当前以 %@ 的身份登录。继续后将替换当前会话，新的 cmux 活动将属于链接中的账户。如果你不是刚刚亲自选择此账户，请点击“不登录”。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "현재 %@ 계정으로 로그인되어 있습니다. 계속하면 이 세션이 대체되고 새로운 cmux 활동은 링크의 계정에 속하게 됩니다. 직접 이 계정을 방금 선택한 것이 아니라면 “로그인하지 않기”를 클릭하세요."
+            "value": "%@ 계정으로 로그인되어 있습니다. 계속하면 이 세션이 대체되고 새로운 cmux 활동은 링크의 계정에 속합니다. 직접 방금 이 계정을 선택한 것이 아니라면 “로그인하지 않기”를 클릭하세요."
           }
         }
       }
@@ -618320,13 +618320,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sie sind bereits angemeldet. Wenn Sie fortfahren, wird diese Sitzung ersetzt und neue cmux-Aktivitäten gehören dem Konto im Link. Wenn Sie dieses Konto nicht gerade selbst ausgewählt haben, klicken Sie auf „Nicht anmelden“."
+            "value": "Sie sind bereits angemeldet. Wenn Sie fortfahren, wird diese Sitzung ersetzt, und neue cmux-Aktivitäten gehören dem Konto im Link. Wenn Sie dieses Konto nicht gerade selbst ausgewählt haben, klicken Sie auf „Nicht anmelden“."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vous êtes déjà connecté. Continuer remplace cette session et toute nouvelle activité cmux appartiendra au compte du lien. Si vous n’avez pas choisi ce compte vous-même, cliquez sur « Ne pas se connecter »."
+            "value": "Vous êtes déjà connecté. Continuer remplacera cette session, et la nouvelle activité cmux appartiendra au compte du lien. Si vous n’avez pas choisi vous-même ce compte, cliquez sur « Ne pas se connecter »."
           }
         },
         "ar": {
@@ -618338,25 +618338,25 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ya has iniciado sesión. Continuar reemplaza esa sesión y la nueva actividad de cmux pertenecerá a la cuenta del enlace. Si no acabas de elegir esta cuenta, haz clic en «No iniciar sesión»."
+            "value": "Ya has iniciado sesión. Continuar reemplazará esa sesión y la nueva actividad de cmux pertenecerá a la cuenta del enlace. Si no acabas de elegir esta cuenta tú mismo, haz clic en «No iniciar sesión»."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "你已經登入。繼續會取代此工作階段，新的 cmux 活動將屬於連結中的帳戶。如果你不是剛剛自行選取此帳戶，請按「不要登入」。"
+            "value": "你已登入。繼續後將取代目前的工作階段，新的 cmux 活動將屬於連結中的帳戶。如果你不是剛剛親自選擇此帳戶，請按一下「不要登入」。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你已经登录。继续会替换此会话，新的 cmux 活动将属于链接中的账户。如果你不是刚刚自行选择此账户，请点击“不要登录”。"
+            "value": "你已登录。继续后将替换当前会话，新的 cmux 活动将属于链接中的账户。如果你不是刚刚亲自选择此账户，请点击“不登录”。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이미 로그인되어 있습니다. 계속하면 이 세션이 대체되고 새로운 cmux 활동은 링크의 계정에 속하게 됩니다. 직접 이 계정을 방금 선택한 것이 아니라면 “로그인하지 않기”를 클릭하세요."
+            "value": "이미 로그인되어 있습니다. 계속하면 이 세션이 대체되고 새로운 cmux 활동은 링크의 계정에 속합니다. 직접 방금 이 계정을 선택한 것이 아니라면 “로그인하지 않기”를 클릭하세요."
           }
         }
       }

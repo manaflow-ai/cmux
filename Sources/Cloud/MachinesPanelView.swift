@@ -160,6 +160,13 @@ struct MachinesPanelView: View {
     var authenticatedContent: some View {
         if includesCloud {
             controlBar
+            CloudNewMachineButton {
+                _ = AppDelegate.shared?.performNewCloudMachineAction(
+                    tabManager: tabManager,
+                    preferredWindow: tabManager?.window,
+                    debugSource: "cloudTree.newMachineButton"
+                )
+            }
         }
         if includesCloud {
             MachinesPanelBanners(
