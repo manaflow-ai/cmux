@@ -5,6 +5,7 @@ import CmuxMobileDiagnostics
 import CmuxMobileSupport
 import CmuxMobileTerminalKit
 import GhosttyKit
+import ObjectiveC.runtime
 import OSLog
 import UIKit
 import os
@@ -6260,7 +6261,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private static let scrollEdgeBandClipName = "cmux.scrollEdgeBandClip"
 
     func isGhosttyRendererLayer(_ layer: CALayer) -> Bool {
+        // Swift bridges the dynamically registered Ghostty subclass as a
+        // CALayer, so `type(of:)` cannot reliably identify the renderer on
+        // iOS. The renderer owns this private ivar; querying the Objective-C
+        // runtime keeps the marker independent of Swift's class wrapper and
+        // leaves the type-name check as a compatibility path for older builds.
         String(describing: type(of: layer)) == "IOSurfaceLayer"
+            || class_getInstanceVariable(
+                object_getClass(layer),
+                "surface_updates_active"
+            ) != nil
     }
 
     private func logLayerTree(reason: String) {
