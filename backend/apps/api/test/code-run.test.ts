@@ -125,6 +125,22 @@ describe("Tier 1 code runs (workerd)", () => {
     expect(rows[0]!.key).not.toContain("inv_aaaaaaaaaaaaaaaaaaaa")
   })
 
+  it("meters each invocation although tenant code tries to replace the harness's run", async () => {
+    const bundle = `
+      import { WorkflowEntrypoint } from "cloudflare:workers";
+      import { CmuxHarness } from "./harness.js";
+      try { CmuxHarness.prototype.run = async function () { return "free"; }; } catch {}
+      try { Object.defineProperty(CmuxHarness.prototype, "run", { value: async function () { return "free"; } }); } catch {}
+      export default class extends WorkflowEntrypoint {
+        async run(event, step) { return await step.do("a", async () => 1); }
+      }`
+    const first = await runOnce("code-run-11", sha(11), bundle)
+    const second = await runOnce("code-run-11", sha(11), bundle)
+    expect([first.run.state, second.run.state]).toEqual(["succeeded", "succeeded"])
+    const usage = await read(second.t, "usage.summary")
+    expect(usage.value.meters.find((x: { meter: string }) => x.meter === "automation.invocations").quantity).toBe(2)
+  })
+
   it("meters every occurrence of a repeated step name", async () => {
     const bundle = `
       import { WorkflowEntrypoint } from "cloudflare:workers";

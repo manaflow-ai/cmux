@@ -93,7 +93,10 @@ export const mark = (run, automation, invocation) => log(${JSON.stringify(RUN_MA
  * The harness module: it imports the marker, logs the run marker first, and only then
  * imports the tenant bundle (lazily, inside the invocation), so log lines from tenant
  * module evaluation can never come before the marker, on any runtime. Then it runs the
- * tenant's WorkflowEntrypoint class with the wrapped step.
+ * tenant's WorkflowEntrypoint class with the wrapped step. The class is frozen before any
+ * tenant code runs, so tenant code that imports "./harness.js" cannot replace `run`.
+ * An export named `then` makes the bundle a thenable to `import()`; that only breaks the
+ * tenant's own run, after the marker.
  */
 const harnessModule = (exportName: string) => `
 import { WorkerEntrypoint } from "cloudflare:workers";
@@ -106,6 +109,8 @@ export class CmuxHarness extends WorkerEntrypoint {
     return new Tenant(this.ctx, this.env).run(event, step);
   }
 }
+Object.freeze(CmuxHarness.prototype);
+Object.freeze(CmuxHarness);
 `
 
 /**
