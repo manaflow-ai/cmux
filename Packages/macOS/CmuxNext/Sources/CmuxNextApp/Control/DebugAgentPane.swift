@@ -27,9 +27,10 @@ import WebKit
 /// automation can verify the chat path while the window is not key and
 /// `debug.key` cannot reach the page: `send_prompt` (`text`, as the
 /// composer's Send), `select_session` (`session_id`, as the session list;
-/// returns once it shows), `answer_permission` (the newest pending request
-/// by default; `permission_id` or `group_id`, `option_id`, or `decision`:
-/// `allow`, `deny`, `allow_once` or `allow_chat`), and `open_changes`
+/// returns once it shows), `answer_permission` (the request the permission
+/// card shows, else the newest pending group; `permission_id` or `group_id`;
+/// `option_id`; or `decision`: `allow` or `deny` as the card's y and n keys,
+/// and for a group also `allow_once` or `allow_chat`), and `open_changes`
 /// (`row_id`, the newest turn that changed files by default; `path`). Every action first stops WebKit from
 /// pausing the page while another window covers it, so a tagged build can
 /// be measured behind the user's windows.
