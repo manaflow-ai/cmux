@@ -1351,6 +1351,61 @@ struct RestorableAgentSessionIndexTests {
         )
     }
 
+    // Sessions sidebar cwd filter takes a fast path that looks up the encoded project directory
+    // directly. The fixture directory is named by `expectedClaudeProjectDirName`, not the production
+    // encoder, so an encoder regression cannot move the fixture and the lookup together.
+    @Test
+    func testSessionIndexStoreDirectoryScopeFindsDottedClaudeProjectDir() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-dot-encoding-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let cwd = root
+            .appendingPathComponent("repo", isDirectory: true)
+            .appendingPathComponent(".claude", isDirectory: true)
+            .appendingPathComponent("worktrees", isDirectory: true)
+            .appendingPathComponent("feat-X", isDirectory: true)
+        let projectDir = projectsDir.appendingPathComponent(
+            expectedClaudeProjectDirName(cwd.path),
+            isDirectory: true
+        )
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try fm.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        let sessionId = "session-dot-encoding"
+        try writeClaudeTranscript(
+            sessionId: sessionId,
+            transcriptURL: projectDir.appendingPathComponent("\(sessionId).jsonl", isDirectory: false),
+            cwd: cwd
+        )
+
+        let originalClaudeConfigDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"]
+        setenv("CLAUDE_CONFIG_DIR", configDir.path, 1)
+        defer {
+            if let originalClaudeConfigDir {
+                setenv("CLAUDE_CONFIG_DIR", originalClaudeConfigDir, 1)
+            } else {
+                unsetenv("CLAUDE_CONFIG_DIR")
+            }
+        }
+
+        let store = SessionIndexStore()
+        let outcome = await store.searchSessions(
+            query: "",
+            scope: .directory(cwd.path),
+            offset: 0,
+            limit: 10
+        )
+
+        XCTAssertTrue(
+            outcome.entries.contains { $0.agent == .claude && $0.sessionId == sessionId },
+            "SessionIndexStore should find the dotted cwd through Claude's encoded project dir"
+        )
+    }
+
     private func setDirectoryModificationDate(_ date: Date, for directory: URL) throws {
         try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: directory.path)
     }
