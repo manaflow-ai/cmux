@@ -73,6 +73,30 @@ class MergeGateDecisionTests(unittest.TestCase):
         self.assertEqual(result.conclusion, "success")
         self.assertIn("ci-status", result.reason)
 
+    def test_newer_in_progress_run_does_not_reuse_an_older_success(self) -> None:
+        result = merge_gate.evaluate_gate(
+            base(
+                check_runs=[
+                    {
+                        "name": "ci-status",
+                        "head_sha": HEAD,
+                        "status": "completed",
+                        "conclusion": "success",
+                        "completed_at": "2026-10-03T15:05:00Z",
+                    },
+                    {
+                        "name": "ci-status",
+                        "head_sha": HEAD,
+                        "status": "in_progress",
+                        "conclusion": None,
+                        "started_at": "2026-10-03T15:06:00Z",
+                    },
+                ]
+            )
+        )
+        self.assertFalse(result.passed)
+        self.assertIn("fresh merge-override", result.reason)
+
     def test_fresh_write_access_override_links_main_failures_for_each_check(self) -> None:
         checks = [
             {"name": "ci-status", "head_sha": HEAD, "conclusion": "failure", "completed_at": "2026-10-03T15:05:00Z"},

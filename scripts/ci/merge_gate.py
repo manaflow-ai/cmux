@@ -93,7 +93,7 @@ def _required_checks(data: Mapping[str, Any]) -> tuple[str, ...]:
 
 
 def _check_state(name: str, runs: Sequence[Any], statuses: Sequence[Any], head_sha: str) -> str | None:
-    candidates: list[tuple[str, str]] = []
+    candidates: list[tuple[str, int, str]] = []
     for item in runs:
         if not isinstance(item, Mapping) or item.get("name") != name:
             continue
@@ -101,17 +101,18 @@ def _check_state(name: str, runs: Sequence[Any], statuses: Sequence[Any], head_s
         if item_sha and head_sha and item_sha != head_sha:
             continue
         conclusion = item.get("conclusion")
-        if isinstance(conclusion, str):
-            when = item.get("completed_at") or item.get("started_at") or item.get("updated_at") or ""
-            candidates.append((str(when), conclusion.lower()))
+        state = conclusion.lower() if isinstance(conclusion, str) else "pending"
+        when = item.get("completed_at") or item.get("started_at") or item.get("updated_at") or ""
+        candidates.append((str(when), 0 if state == "success" else 1, state))
     for item in statuses:
         if not isinstance(item, Mapping) or item.get("context") != name:
             continue
         state = item.get("state")
         if isinstance(state, str):
             when = item.get("updated_at") or ""
-            candidates.append((str(when), state.lower()))
-    return max(candidates, key=lambda pair: pair[0])[1] if candidates else None
+            state = state.lower()
+            candidates.append((str(when), 0 if state == "success" else 1, state))
+    return max(candidates, key=lambda pair: (pair[0], pair[1]))[2] if candidates else None
 
 
 def _author_can_override(comment: Mapping[str, Any], trusted: set[str]) -> bool:
@@ -288,6 +289,14 @@ def _run_id_links(comments: Sequence[Any]) -> set[str]:
     return {run_id for c in comments if isinstance(c, Mapping) for run_id in _RUN_LINK.findall(_text(c.get("body")))}
 
 
+def _bot_comment(comment: Mapping[str, Any]) -> bool:
+    user = comment.get("user") or {}
+    if not isinstance(user, Mapping):
+        return False
+    login = user.get("login")
+    return login in {"github-actions", "github-actions[bot]"} or user.get("type") == "Bot"
+
+
 def run() -> int:
     event_path = os.environ.get("GITHUB_EVENT_PATH")
     event = json.load(open(event_path, encoding="utf-8")) if event_path else {}
@@ -400,9 +409,15 @@ def run() -> int:
     })
     if not decision.passed:
         body = f"{BOT_MARKER}\n{decision.reason}"
-        ours = [c for c in comments if BOT_MARKER in _text(c.get("body")) and c.get("id")]
+        ours = [
+            c for c in comments
+            if BOT_MARKER in _text(c.get("body")) and c.get("id") and _bot_comment(c)
+        ]
         if ours:
+            ours.sort(key=lambda item: int(item["id"]))
             gh.request(f"/repos/{repo}/issues/comments/{ours[0]['id']}", "PATCH", {"body": body})
+            for duplicate in ours[1:]:
+                gh.request(f"/repos/{repo}/issues/comments/{duplicate['id']}", "DELETE")
         else:
             gh.request(f"/repos/{repo}/issues/{int(pr_number)}/comments", "POST", {"body": body})
     print(("PASS" if decision.passed else "FAIL") + f": {decision.reason}")
