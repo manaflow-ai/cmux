@@ -12,7 +12,10 @@ env:
 
 jobs:
   publish:
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request' }}
+    # The app artifact is an optional CI product. A red unrelated CI lane must
+    # not discard a successful exact-head Dogfood build; the trusted gate below
+    # requires that job and its matching GitHub artifact explicitly.
+    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion != 'cancelled' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: artifacts
     permissions:
@@ -35,25 +38,41 @@ jobs:
             exit 0
           fi
           payload="$(gh api "repos/$GH_REPO/pulls/$pr")"
-          PR_JSON="$payload" PR_NUMBER="$pr" HEAD_SHA="$HEAD_SHA" python3 - <<'PY'
+          jobs="$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID/jobs?per_page=100")"
+          artifacts="$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID/artifacts?per_page=100")"
+          PR_JSON="$payload" JOBS_JSON="$jobs" ARTIFACTS_JSON="$artifacts" PR_NUMBER="$pr" HEAD_SHA="$HEAD_SHA" python3 - <<'PY'
           import json
           import os
           import sys
 
           pr = json.loads(os.environ["PR_JSON"])
+          jobs = json.loads(os.environ["JOBS_JSON"]).get("jobs") or []
+          artifacts = json.loads(os.environ["ARTIFACTS_JSON"]).get("artifacts") or []
           expected_repo = os.environ["GH_REPO"]
+          expected_artifact = f"dogfood-app-{os.environ['PR_NUMBER']}-{os.environ['HEAD_SHA']}"
           head = pr.get("head") or {}
           repo = (head.get("repo") or {}).get("full_name")
           labels = {label.get("name") for label in pr.get("labels") or []}
+          dogfood_success = any(
+              job.get("name") == f"Dogfood build #{os.environ['PR_NUMBER']}"
+              and job.get("conclusion") == "success"
+              for job in jobs
+          )
+          artifact_present = any(
+              artifact.get("name") == expected_artifact and not artifact.get("expired")
+              for artifact in artifacts
+          )
           trusted = (
               pr.get("state") == "open"
               and repo == expected_repo
               and head.get("sha") == os.environ["HEAD_SHA"]
               and pr.get("author_association") in {"MEMBER", "OWNER"}
               and "dev-build" in labels
+              and dogfood_success
+              and artifact_present
           )
           if not trusted:
-              print("workflow run is not a current trusted org-member dev build; skipping")
+              print("workflow run has no current trusted org-member dogfood artifact; skipping")
               with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
                   output.write("publish=false\n")
               sys.exit(0)
