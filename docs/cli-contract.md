@@ -111,6 +111,7 @@ Environment:
 | `vpn` | Control the system-wide Network Extension tunnel, which exists so *other* apps on this Mac can reach the team's Cloud machines; cmux's own terminals, Ports, and Desktop use a separate user-space hub and do not need it. `up` (alias `on`) and `down` (alias `off`) require a build with a signed Network Extension and fail with an explanation otherwise; `status` (the default) always reports both tunnels; `revoke` removes this Mac's access to the Cloud network entirely, not just the system-wide route. |
 | `cloud guide`, `cloud --skill` (also `vm guide`, `vm --skill`) | Print the same short Cloud guide without connecting to the app. `--json` returns `{topic: "cloud", format: "markdown", content: "..."}`. This does not install a skill or start an agent; `vm prompt` and its existing `vm skill` alias keep that behavior. |
 | `remotes`, `remote` | Manage remote Macs in the team device registry so they appear in the iOS app's device list. `remote` is an alias for `remotes`. |
+| `diff` | Render a unified diff or patch in a cmux browser split. See [Diff subcommands](#command-families) under Command Families. |
 | `mobile` | Mobile client settings: `set-font <points>` sets the iOS terminal font size for a surface or workspace, and `compatible-tags [list\|set <tags...>\|add <tags...>\|remove <tags...>\|clear]` manages the sibling Mac dev tags this Mac grants to its paired development phones, so a DEV iPhone build can pair with more than its exact-tag Mac. |
 | `rpc` | Call a raw v2 socket method with optional JSON params. |
 | `identify` | Print server identity and caller context. |
@@ -511,6 +512,23 @@ Remotes subcommands:
 | `remotes list`, `remotes ls` | List the team's registered remotes (name, deviceId, routes, tag, last seen). Supports `--json`. |
 | `remotes add <name>` | Register or update a remote with one or more `--route <host:port>`. Supports `--tag` and `--json`. Idempotent on `<name>` (re-adding updates routes). The host must be a Tailscale address the phone can authenticate to (CGNAT `100.64.x.x`-`100.127.x.x` or `*.ts.net`); loopback, plain LAN IPs, and bare hostnames are rejected. |
 | `remotes remove <name-or-deviceId>` | Remove a remote you registered. Aliases `rm`, `delete`. Supports `--json`. |
+
+Diff subcommands:
+
+| Command | Contract |
+| --- | --- |
+| `diff [patch-file\|-]` | Open a unified diff or patch file in a cmux browser split. With no patch file or source, reads piped stdin. Options: `--workspace <id\|ref\|index>` (default `$CMUX_WORKSPACE_ID`), `--surface <id\|ref\|index>` (default `$CMUX_SURFACE_ID`), `--window <id\|ref\|index>`, `--focus <true\|false>` (default `false`), `--no-focus`, `--title <text>`, `--layout <split\|unified>` (default `unified`, configurable via `diffViewer.defaultLayout` in cmux.json), `--font-size <points>` (default 10). |
+| `diff --source <unstaged\|staged\|branch\|last-turn>` | Select a git-backed diff source. The convenience flags `--unstaged`, `--staged`, `--branch`, and `--last-turn` alias the corresponding source. `--branch` diffs the current branch against its merge base (`--base <ref>` overrides; default `origin/HEAD` or `main`). `--last-turn` shows changes since this surface's last agent-turn baseline; `--session <id>` scopes it to one agent session. `--cwd`/`--repo <path>` selects the git repository or worktree for git sources. |
+
+AI accounts subcommands:
+
+Each verb maps to one `aiAccounts.*` socket method handled by the app. Credential safety: Claude and Codex OAuth files are read by the cmux app; API-key providers read `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` from the shell environment, and `--key` overrides but exposes the secret in shell history and process listings. Only sanitized account records are stored on the tenant.
+
+| Command | Contract |
+| --- | --- |
+| `ai-accounts list`, `ai-accounts ls` | List the team's uploaded AI accounts for the selected or `--team <id>` team. Supports `--json`. |
+| `ai-accounts upload <claude\|codex\|anthropic-key\|openai-key>` | Upload credentials for one provider. Supports `--label <text>`, `--team <id>`, `--validate`, and `--json`. `--key <value>` is only valid for the API-key providers; other providers' OAuth files are read by the cmux app. |
+| `ai-accounts remove <account-id>` | Delete one uploaded AI account. Supports `--team <id>` and `--json`. |
 
 CodeRouter subcommands (cmux-owned; anything else passes through to the CodeRouter CLI, which `cmux cr` offers to install when the machine has none):
 
@@ -984,6 +1002,10 @@ the expected text without connecting to a cmux socket.
 - `cmux surface-resume --help` -> `cmux surface resume show [--json] [flags]`
 - `cmux remotes --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux remote --help` -> `Usage: cmux remotes <list|add|remove> [options]`
+- `cmux diff --help` -> `Usage: cmux diff [patch-file|-] [options]`
+- `cmux ai-accounts --help` -> `Usage: cmux ai-accounts <list|upload|remove> [options]`
+- `cmux diff --unstaged --help` -> `Usage: cmux diff [patch-file|-] [options]`
+- `cmux ai-accounts upload --help` -> `Usage: cmux ai-accounts <list|upload|remove> [options]`
 - `cmux coderouter --help` -> `Usage: cmux coderouter <status|machines|claude|agent> [options]`
 - `cmux rpc --help` -> `Usage: cmux rpc <method> [json-params]`
 - `cmux comments --help` -> `Usage: cmux comments <subcommand> [options]`
