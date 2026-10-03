@@ -24,4 +24,8 @@ Debug builds only: `RemoteDesktopPane`, its view and the mock host compile out o
 
 Debug Settings (DEV and NIGHTLY): `remoteDesktop.debug.presenter` = `metal` (B, default), `layerContents` (A), `sampleBuffer` (C).
 
+Mouse buttons on the wire (`RemoteMouseButton`): 1 left, 2 middle, 3 right, 4 to 7 reserved for scroll, 8 back, 9 forward. Hosts map from these numbers.
+
+The relay caps (`remoteDesktop.relay.maxFps` 15, `remoteDesktop.relay.maxBitrateMbps` 4, section 6.6) are team policy that the host and engine read, so this module does not read them.
+
 The release chord Control-Option-Escape (`remoteDesktop.releaseKeyboard`) always returns the keyboard to the viewer.

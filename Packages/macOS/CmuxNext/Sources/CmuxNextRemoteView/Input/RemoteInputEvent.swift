@@ -38,9 +38,9 @@ public nonisolated enum RemoteInputEvent: Sendable, Hashable {
     }
 }
 
-/// Mouse buttons on the wire. Numbers follow the X11 core convention the
-/// Linux host injects with (1 left, 2 middle, 3 right, 8 back, 9 forward);
-/// other hosts map from these.
+/// Mouse buttons on the wire (the `cmux.rd/1` convention, X11 numbering):
+/// 1 left, 2 middle, 3 right, 4 to 7 reserved for scroll (scroll travels as
+/// `.scroll`), 8 back, 9 forward. Hosts map from these.
 public nonisolated enum RemoteMouseButton: UInt8, Sendable, Hashable, CaseIterable {
     case left = 1
     case middle = 2
