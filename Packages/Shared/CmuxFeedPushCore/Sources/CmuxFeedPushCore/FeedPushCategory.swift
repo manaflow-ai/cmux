@@ -14,7 +14,9 @@ public enum FeedPushCategory: String, CaseIterable, Hashable, Sendable {
     /// default action only (a tap opens the item).
     public var actions: [FeedPushAction] {
         switch self {
-        case .approve: [.allow, .allowForSession, .deny]
+        // "Allow for Session" is offered only in the app: the push does not say
+        // whether the prompt offers the session scope, and the owner refuses it otherwise.
+        case .approve: [.allow, .deny]
         case .confirm: [.confirm, .cancel]
         case .question: [.reply]
         // Sign-in, passkey and handoff need the Mac; the owner refuses phone answers.
