@@ -664,6 +664,23 @@ pub(super) async fn handle_request(
             );
             Ok(hub.session_summary(&s))
         }
+        method::ACP_TRUST_GET | method::ACP_TRUST_SET => {
+            let cwd = params.get("cwd").and_then(Value::as_str).unwrap_or_default().to_owned();
+            let level = params.get("level").and_then(Value::as_str).map(str::to_owned);
+            let setting = m == method::ACP_TRUST_SET;
+            // Small files, read and written off the runtime threads.
+            tokio::task::spawn_blocking(move || {
+                let paths = crate::trust::Paths::current();
+                if setting {
+                    crate::trust::set(&paths, &cwd, level.as_deref().unwrap_or_default())
+                } else {
+                    crate::trust::get(&paths, &cwd)
+                }
+            })
+            .await
+            .map_err(|e| RpcError::internal(e.to_string()))?
+            .map_err(RpcError::invalid_params)
+        }
         method::MUX_SET_RULES => {
             let s = hub.resolve(session_key(&params)?)?;
             let rules = params.get("rules").cloned().filter(|r| !r.is_null());
