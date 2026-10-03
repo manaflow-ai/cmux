@@ -185,6 +185,12 @@ jobs:
           EXACT_COMMIT: ${{ inputs.commit }}
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
+      # The Rust god-file ratchet (plans/cmux-next/OWNERSHIP-PRINCIPLES.md): no cmux-tui
+      # file may pass 1000 lines or 60 functions unless godfile-baseline.tsv lists it,
+      # and a listed file may not grow. Both modes run it, so no landing gate skips it.
+      - name: Rust god-file check
+        run: scripts/cmux-next/check-no-godfiles.sh --only rust "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty ghostty-next
 
@@ -291,6 +297,16 @@ jobs:
       - name: cargo clippy
         working-directory: cmux-tui
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      # cmux-rd-ffi is its own Cargo workspace (outside --workspace), so the
+      # cmux-tui lint/test steps never build it. Its tests pin the C header
+      # against the exports and layouts (plans/cmux-next/remote-desktop.md 3).
+      - name: cmux-rd-ffi (own workspace)
+        working-directory: cmux-tui/crates/cmux-rd-ffi
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets --locked -- -D warnings
+          cargo test --locked
 
   valgrind-leak-check-shard:
     env:
