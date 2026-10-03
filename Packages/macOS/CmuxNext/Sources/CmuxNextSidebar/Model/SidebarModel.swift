@@ -29,6 +29,10 @@ public final class SidebarModel {
     /// How layout items draw, by item id. Built-ins without an entry draw
     /// their own title and symbol.
     public var itemInfo: [LayoutItemID: SidebarItemInfo] = [:]
+    /// Apps whose sections and items draw nothing (installed but hidden or
+    /// disabled, D55); the App fills it from its one presence rule
+    /// (`AppsService.presence`). The layout keeps their places.
+    public var suppressedApps: Set<String> = []
     /// Collapsed titled sections: client view state, saved with the window.
     public var collapsedLayoutSections: Set<LayoutSectionID> = []
     /// Search field contents. Non-empty text filters rows and disables drag.
