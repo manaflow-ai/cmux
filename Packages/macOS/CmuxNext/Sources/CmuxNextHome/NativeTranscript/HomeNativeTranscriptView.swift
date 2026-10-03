@@ -164,6 +164,6 @@ public final class HomeNativeTranscriptView: NSView {
         let active = window?.isKeyWindow ?? true
         let accent = accentOverride
         controller.palette = performWithTheme { HomeThemePalette.resolveInScope(active: active, accentOverride: accent) }
-        performWithTheme { header.applyColors(disc: Palette.elevatedBackground, text: Palette.textPrimary) }
+        performWithTheme { header.applyColors(disc: Palette.elevatedBackground, text: Palette.textPrimary, page: Palette.pageBackground) }
     }
 }

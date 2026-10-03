@@ -26,7 +26,7 @@
       },
       "title" : "Settings…",
       "title_key" : "action.openSettings",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -55,7 +55,7 @@
       },
       "title" : "New Window",
       "title_key" : "action.newWindow",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -78,7 +78,7 @@
       },
       "title" : "New Incognito Window",
       "title_key" : "action.newIncognitoWindow",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -107,7 +107,7 @@
       },
       "title" : "Close Window",
       "title_key" : "action.closeWindow",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -130,7 +130,7 @@
       },
       "title" : "Minimize",
       "title_key" : "action.minimizeWindow",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -159,7 +159,7 @@
       },
       "title" : "Toggle Full Screen",
       "title_key" : "action.toggleFullScreen",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -187,7 +187,7 @@
       },
       "title" : "Quit cmux",
       "title_key" : "action.quit",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -210,7 +210,7 @@
       },
       "title" : "Quit and Keep Sessions",
       "title_key" : "action.quitKeepSessions",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -233,7 +233,7 @@
       },
       "title" : "Quit and End Sessions, Keep Layout",
       "title_key" : "action.quitEndSessionsKeepLayout",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -256,7 +256,7 @@
       },
       "title" : "Quit and End Everything",
       "title_key" : "action.quitEndEverything",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -286,7 +286,7 @@
       },
       "title" : "Show\/Hide All Windows",
       "title_key" : "action.showHideAllWindows",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -315,7 +315,7 @@
       },
       "title" : "Search All Windows…",
       "title_key" : "action.globalSearch",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -338,7 +338,7 @@
       },
       "title" : "Open Palette Scope…",
       "title_key" : "action.palette.open",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -367,7 +367,7 @@
       },
       "title" : "Command Palette…",
       "title_key" : "action.commandPalette",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "paletteInternal",
@@ -395,7 +395,7 @@
       },
       "title" : "Palette: Select Next Item",
       "title_key" : "action.commandPaletteNext",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "paletteInternal",
@@ -423,7 +423,7 @@
       },
       "title" : "Palette: Select Previous Item",
       "title_key" : "action.commandPalettePrevious",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -451,7 +451,7 @@
       },
       "title" : "Go to Workspace…",
       "title_key" : "action.goToWorkspace",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -474,7 +474,7 @@
       },
       "title" : "Task Manager",
       "title_key" : "action.palette.openTaskManager",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -497,7 +497,7 @@
       },
       "title" : "Sleepy Mode",
       "title_key" : "action.palette.sleepyMode",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -520,7 +520,7 @@
       },
       "title" : "Keep Mac Awake",
       "title_key" : "action.keepMacAwake",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -543,7 +543,7 @@
       },
       "title" : "Show cmux",
       "title_key" : "action.showMainWindow",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -566,7 +566,7 @@
       },
       "title" : "About cmux",
       "title_key" : "action.about",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -589,7 +589,7 @@
       },
       "title" : "Kill Process…",
       "title_key" : "action.taskManager.killProcess",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "ownerVerb",
@@ -617,7 +617,7 @@
       },
       "title" : "New Workspace",
       "title_key" : "action.newTab",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -646,7 +646,7 @@
       },
       "title" : "New Browser Workspace",
       "title_key" : "action.newBrowserWorkspace",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -674,7 +674,7 @@
       },
       "title" : "Open Folder…",
       "title_key" : "action.openFolder",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -697,7 +697,7 @@
       },
       "title" : "Open Folder in VS Code (Inline)…",
       "title_key" : "action.palette.openFolderInVSCodeInline",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -726,7 +726,7 @@
       },
       "title" : "Restore Previous App Launch",
       "title_key" : "action.reopenPreviousSession",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -749,7 +749,7 @@
       },
       "title" : "Reopen Closed Workspace",
       "title_key" : "action.reopenClosedWorkspace",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -778,7 +778,7 @@
       },
       "title" : "Next Workspace",
       "title_key" : "action.nextSidebarTab",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -807,7 +807,7 @@
       },
       "title" : "Previous Workspace",
       "title_key" : "action.prevSidebarTab",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -830,7 +830,7 @@
       },
       "title" : "Next Workspace in Group",
       "title_key" : "action.nextSidebarTabInGroup",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -853,7 +853,7 @@
       },
       "title" : "Previous Workspace in Group",
       "title_key" : "action.prevSidebarTabInGroup",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -883,7 +883,7 @@
       },
       "title" : "Move Workspace Up",
       "title_key" : "action.moveWorkspaceUp",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -913,7 +913,7 @@
       },
       "title" : "Move Workspace Down",
       "title_key" : "action.moveWorkspaceDown",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -936,7 +936,7 @@
       },
       "title" : "Move Workspace to Top",
       "title_key" : "action.palette.moveWorkspaceToTop",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -965,7 +965,7 @@
       },
       "title" : "Select Workspace 1…9",
       "title_key" : "action.selectWorkspaceByNumber",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -988,7 +988,7 @@
       },
       "title" : "Move Workspace to Window…",
       "title_key" : "action.moveWorkspaceToWindow",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1011,7 +1011,7 @@
       },
       "title" : "Move Workspace to New Window",
       "title_key" : "action.moveWorkspaceToNewWindow",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1040,7 +1040,7 @@
       },
       "title" : "Rename Workspace…",
       "title_key" : "action.renameWorkspace",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1063,7 +1063,7 @@
       },
       "title" : "Clear Workspace Name",
       "title_key" : "action.palette.clearWorkspaceName",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1092,7 +1092,7 @@
       },
       "title" : "Edit Workspace Description…",
       "title_key" : "action.editWorkspaceDescription",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1115,7 +1115,7 @@
       },
       "title" : "Clear Workspace Description",
       "title_key" : "action.palette.clearWorkspaceDescription",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1143,7 +1143,7 @@
       },
       "title" : "Mark Workspace as Done",
       "title_key" : "action.markWorkspaceDone",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "familyMember",
@@ -1172,7 +1172,7 @@
       },
       "title" : "Cycle Workspace Status",
       "title_key" : "action.cycleWorkspaceStatus",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1195,7 +1195,7 @@
       },
       "title" : "Set Workspace Status…",
       "title_key" : "action.palette.workspaceStatus",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1218,7 +1218,7 @@
       },
       "title" : "Add Checklist Item…",
       "title_key" : "action.palette.addWorkspaceChecklistItem",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -1246,7 +1246,7 @@
       },
       "title" : "Toggle Checklist Item Complete",
       "title_key" : "action.toggleChecklistItemComplete",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1269,7 +1269,7 @@
       },
       "title" : "Open Todo Pane",
       "title_key" : "action.palette.openWorkspaceTodoPane",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "ownerVerb",
@@ -1298,7 +1298,7 @@
       },
       "title" : "Close Workspace",
       "title_key" : "action.closeWorkspace",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1321,7 +1321,7 @@
       },
       "title" : "Close Other Workspaces",
       "title_key" : "action.palette.closeOtherWorkspaces",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1344,7 +1344,7 @@
       },
       "title" : "Close Workspaces Below",
       "title_key" : "action.palette.closeWorkspacesBelow",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1367,7 +1367,7 @@
       },
       "title" : "Close Workspaces Above",
       "title_key" : "action.palette.closeWorkspacesAbove",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1390,7 +1390,7 @@
       },
       "title" : "Pin\/Unpin Workspace",
       "title_key" : "action.palette.toggleWorkspacePin",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1413,7 +1413,7 @@
       },
       "title" : "Mark Workspace as Read",
       "title_key" : "action.palette.markWorkspaceRead",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1436,7 +1436,7 @@
       },
       "title" : "Mark Workspace as Unread",
       "title_key" : "action.palette.markWorkspaceUnread",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1459,7 +1459,7 @@
       },
       "title" : "Set Workspace Color…",
       "title_key" : "action.palette.workspaceColor",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -1482,7 +1482,7 @@
       },
       "title" : "Custom Workspace Color…",
       "title_key" : "action.palette.workspaceCustomColor",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1505,7 +1505,7 @@
       },
       "title" : "Reset Workspace Color",
       "title_key" : "action.palette.resetWorkspaceColor",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1528,7 +1528,7 @@
       },
       "title" : "Reconnect Workspace",
       "title_key" : "action.reconnectWorkspace",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1551,7 +1551,7 @@
       },
       "title" : "Disconnect Workspace",
       "title_key" : "action.disconnectWorkspace",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "clipboard",
@@ -1574,7 +1574,7 @@
       },
       "title" : "Copy SSH Error",
       "title_key" : "action.copyWorkspaceSSHError",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1597,7 +1597,7 @@
       },
       "title" : "Clear Workspace Notifications",
       "title_key" : "action.clearWorkspaceNotifications",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -1620,7 +1620,7 @@
       },
       "title" : "Show Workspace in Finder",
       "title_key" : "action.revealWorkspaceInFinder",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "clipboard",
@@ -1643,7 +1643,7 @@
       },
       "title" : "Copy Workspace ID",
       "title_key" : "action.palette.copyWorkspaceID",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "clipboard",
@@ -1666,7 +1666,7 @@
       },
       "title" : "Copy Workspace ID and Ref",
       "title_key" : "action.palette.copyWorkspaceIDAndRef",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "clipboard",
@@ -1689,7 +1689,7 @@
       },
       "title" : "Copy Workspace Link",
       "title_key" : "action.palette.copyWorkspaceLink",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1712,7 +1712,7 @@
       },
       "title" : "New Workspace in Group",
       "title_key" : "action.workspaceGroup.newWorkspace",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1735,7 +1735,7 @@
       },
       "title" : "Rename Group…",
       "title_key" : "action.workspaceGroup.rename",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1758,7 +1758,7 @@
       },
       "title" : "Pin\/Unpin Group",
       "title_key" : "action.workspaceGroup.togglePin",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1781,7 +1781,7 @@
       },
       "title" : "Mark Group as Read",
       "title_key" : "action.workspaceGroup.markRead",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1804,7 +1804,7 @@
       },
       "title" : "Mark Group as Unread",
       "title_key" : "action.workspaceGroup.markUnread",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1827,7 +1827,7 @@
       },
       "title" : "Clear Group Notifications",
       "title_key" : "action.workspaceGroup.clearNotifications",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1850,7 +1850,7 @@
       },
       "title" : "Ungroup Workspaces",
       "title_key" : "action.workspaceGroup.ungroup",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1873,7 +1873,7 @@
       },
       "title" : "Delete Group",
       "title_key" : "action.workspaceGroup.delete",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -1896,7 +1896,7 @@
       },
       "title" : "Edit Group Config…",
       "title_key" : "action.workspaceGroup.editConfig",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1925,7 +1925,7 @@
       },
       "title" : "Save Layout as Template…",
       "title_key" : "action.saveLayoutTemplate",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -1948,7 +1948,7 @@
       },
       "title" : "New Workspace from Template…",
       "title_key" : "action.palette.layout.open",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -1971,7 +1971,7 @@
       },
       "title" : "Manage Layout Templates…",
       "title_key" : "action.manageLayouts",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -1994,7 +1994,7 @@
       },
       "title" : "Open All Workspace PR Links",
       "title_key" : "action.palette.openWorkspacePullRequests",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -2017,7 +2017,7 @@
       },
       "title" : "Find Work",
       "title_key" : "action.palette.findWork",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -2652,7 +2652,7 @@
       },
       "title" : "New Workspace Group",
       "title_key" : "action.newWorkspaceGroup",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -2681,7 +2681,7 @@
       },
       "title" : "Group Selected Workspaces",
       "title_key" : "action.groupSelectedWorkspaces",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "familyMember",
@@ -2710,7 +2710,7 @@
       },
       "title" : "Toggle Group Collapse",
       "title_key" : "action.toggleFocusedWorkspaceGroupCollapsed",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -2733,7 +2733,7 @@
       },
       "title" : "Move Workspace to Group…",
       "title_key" : "action.moveWorkspaceToGroup",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -2756,7 +2756,7 @@
       },
       "title" : "Remove Workspace from Group",
       "title_key" : "action.removeWorkspaceFromGroup",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -2779,7 +2779,7 @@
       },
       "title" : "Set Workspace Group Color…",
       "title_key" : "action.workspaceGroup.setColor",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -2802,7 +2802,7 @@
       },
       "title" : "Collapse Workspace Group",
       "title_key" : "action.workspaceGroup.collapse",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -2825,7 +2825,7 @@
       },
       "title" : "Expand Workspace Group",
       "title_key" : "action.workspaceGroup.expand",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -2848,7 +2848,7 @@
       },
       "title" : "Move Workspace Group Up",
       "title_key" : "action.workspaceGroup.moveUp",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -2871,7 +2871,7 @@
       },
       "title" : "Move Workspace Group Down",
       "title_key" : "action.workspaceGroup.moveDown",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -2894,7 +2894,7 @@
       },
       "title" : "Move Workspace Group to Window…",
       "title_key" : "action.workspaceGroup.moveToWindow",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -2917,7 +2917,7 @@
       },
       "title" : "Close All Workspaces in Group",
       "title_key" : "action.workspaceGroup.closeWorkspaces",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -2940,7 +2940,7 @@
       },
       "title" : "Move Workspace Group to New Window",
       "title_key" : "action.workspaceGroup.moveToNewWindow",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "familyMember",
@@ -2963,7 +2963,7 @@
       },
       "title" : "Workspace Group Color: Grey",
       "title_key" : "action.workspaceGroup.color.grey",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "familyMember",
@@ -2986,7 +2986,7 @@
       },
       "title" : "Workspace Group Color: Blue",
       "title_key" : "action.workspaceGroup.color.blue",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "familyMember",
@@ -3009,7 +3009,7 @@
       },
       "title" : "Workspace Group Color: Red",
       "title_key" : "action.workspaceGroup.color.red",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "familyMember",
@@ -3032,7 +3032,7 @@
       },
       "title" : "Workspace Group Color: Yellow",
       "title_key" : "action.workspaceGroup.color.yellow",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "familyMember",
@@ -3055,7 +3055,7 @@
       },
       "title" : "Workspace Group Color: Green",
       "title_key" : "action.workspaceGroup.color.green",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "familyMember",
@@ -3078,7 +3078,7 @@
       },
       "title" : "Workspace Group Color: Pink",
       "title_key" : "action.workspaceGroup.color.pink",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "familyMember",
@@ -3101,7 +3101,7 @@
       },
       "title" : "Workspace Group Color: Purple",
       "title_key" : "action.workspaceGroup.color.purple",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "familyMember",
@@ -3124,7 +3124,7 @@
       },
       "title" : "Workspace Group Color: Cyan",
       "title_key" : "action.workspaceGroup.color.cyan",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "familyMember",
@@ -3147,7 +3147,7 @@
       },
       "title" : "Workspace Group Color: Orange",
       "title_key" : "action.workspaceGroup.color.orange",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "ownerVerb",
@@ -4000,7 +4000,7 @@
       },
       "title" : "Split Right",
       "title_key" : "action.splitRight",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -4029,7 +4029,7 @@
       },
       "title" : "New Column",
       "title_key" : "action.newColumn",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -4059,7 +4059,7 @@
       },
       "title" : "Split Down",
       "title_key" : "action.splitDown",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -4088,7 +4088,7 @@
       },
       "title" : "New Pane (Auto Layout)",
       "title_key" : "action.newPaneAutoLayout",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -4118,7 +4118,7 @@
       },
       "title" : "Toggle Pane Zoom",
       "title_key" : "action.toggleSplitZoom",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -4148,7 +4148,7 @@
       },
       "title" : "Equalize Splits",
       "title_key" : "action.equalizeSplits",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "stepAdjust",
@@ -4177,7 +4177,7 @@
       },
       "title" : "Resize Pane Left",
       "title_key" : "action.resizePaneLeft",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "stepAdjust",
@@ -4206,7 +4206,7 @@
       },
       "title" : "Resize Pane Right",
       "title_key" : "action.resizePaneRight",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "stepAdjust",
@@ -4235,7 +4235,7 @@
       },
       "title" : "Resize Pane Up",
       "title_key" : "action.resizePaneUp",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "stepAdjust",
@@ -4264,7 +4264,7 @@
       },
       "title" : "Resize Pane Down",
       "title_key" : "action.resizePaneDown",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -4293,7 +4293,7 @@
       },
       "title" : "Focus Pane Left",
       "title_key" : "action.focusLeft",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -4322,7 +4322,7 @@
       },
       "title" : "Focus Pane Right",
       "title_key" : "action.focusRight",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -4351,7 +4351,7 @@
       },
       "title" : "Focus Pane Above",
       "title_key" : "action.focusUp",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -4380,7 +4380,7 @@
       },
       "title" : "Focus Pane Below",
       "title_key" : "action.focusDown",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -4403,7 +4403,7 @@
       },
       "title" : "Focus Previous Pane",
       "title_key" : "action.focusPreviousPane",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -4426,7 +4426,7 @@
       },
       "title" : "Focus Next Pane",
       "title_key" : "action.focusNextPane",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -4455,7 +4455,7 @@
       },
       "title" : "Flash Focused Pane",
       "title_key" : "action.triggerFlash",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -4478,7 +4478,7 @@
       },
       "title" : "Swap With Session…",
       "title_key" : "action.palette.swapWithSession",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "stepAdjust",
@@ -4507,7 +4507,7 @@
       },
       "title" : "Increase Workspace Font Size",
       "title_key" : "action.increaseWorkspaceTerminalFontSize",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "stepAdjust",
@@ -4536,7 +4536,7 @@
       },
       "title" : "Decrease Workspace Font Size",
       "title_key" : "action.decreaseWorkspaceTerminalFontSize",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "stepAdjust",
@@ -4565,7 +4565,7 @@
       },
       "title" : "Reset Workspace Font Size",
       "title_key" : "action.resetWorkspaceTerminalFontSize",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -4594,7 +4594,7 @@
       },
       "title" : "Toggle Canvas Layout",
       "title_key" : "action.toggleCanvasLayout",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -4623,7 +4623,7 @@
       },
       "title" : "Canvas Overview",
       "title_key" : "action.canvasOverview",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -4652,7 +4652,7 @@
       },
       "title" : "Tidy Canvas",
       "title_key" : "action.canvasTidy",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -4681,7 +4681,7 @@
       },
       "title" : "Reveal Focused Pane on Canvas",
       "title_key" : "action.canvasRevealFocusedPane",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "stepAdjust",
@@ -4710,7 +4710,7 @@
       },
       "title" : "Canvas Zoom In",
       "title_key" : "action.canvasZoomIn",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "stepAdjust",
@@ -4739,7 +4739,7 @@
       },
       "title" : "Canvas Zoom Out",
       "title_key" : "action.canvasZoomOut",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "stepAdjust",
@@ -4767,7 +4767,7 @@
       },
       "title" : "Canvas Actual Size",
       "title_key" : "action.canvasZoomReset",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -4790,7 +4790,7 @@
       },
       "title" : "Align Panes Left",
       "title_key" : "action.canvasAlignLeft",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -4813,7 +4813,7 @@
       },
       "title" : "Align Panes Right",
       "title_key" : "action.canvasAlignRight",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -4836,7 +4836,7 @@
       },
       "title" : "Align Panes Top",
       "title_key" : "action.canvasAlignTop",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -4859,7 +4859,7 @@
       },
       "title" : "Align Panes Bottom",
       "title_key" : "action.canvasAlignBottom",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -4882,7 +4882,7 @@
       },
       "title" : "Equalize Pane Widths",
       "title_key" : "action.canvasEqualizeWidths",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -4905,7 +4905,7 @@
       },
       "title" : "Equalize Pane Heights",
       "title_key" : "action.canvasEqualizeHeights",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -4928,7 +4928,7 @@
       },
       "title" : "Distribute Panes Horizontally",
       "title_key" : "action.canvasDistributeHorizontally",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -4951,7 +4951,7 @@
       },
       "title" : "Distribute Panes Vertically",
       "title_key" : "action.canvasDistributeVertically",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -4974,7 +4974,7 @@
       },
       "title" : "New Simulator Pane",
       "title_key" : "action.palette.newSimulatorPane",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -5003,7 +5003,7 @@
       },
       "title" : "Simulator: Home",
       "title_key" : "action.simulatorHome",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -5031,7 +5031,7 @@
       },
       "title" : "Simulator: Rotate Left",
       "title_key" : "action.simulatorRotateLeft",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -5059,7 +5059,7 @@
       },
       "title" : "Simulator: Rotate Right",
       "title_key" : "action.simulatorRotateRight",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -5088,7 +5088,7 @@
       },
       "title" : "Simulator: Toggle Appearance",
       "title_key" : "action.simulatorToggleAppearance",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -5116,7 +5116,7 @@
       },
       "title" : "Simulator: Toggle Software Keyboard",
       "title_key" : "action.simulatorToggleSoftwareKeyboard",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "unimplemented",
@@ -5139,7 +5139,7 @@
       },
       "title" : "Open Files as Pane",
       "title_key" : "action.palette.openFilesPane",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "unimplemented",
@@ -5162,7 +5162,7 @@
       },
       "title" : "Open Find as Pane",
       "title_key" : "action.palette.openFindPane",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "unimplemented",
@@ -5185,7 +5185,7 @@
       },
       "title" : "Open Vault as Pane",
       "title_key" : "action.palette.openVaultPane",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "unimplemented",
@@ -5208,7 +5208,7 @@
       },
       "title" : "Open Cloud as Pane",
       "title_key" : "action.palette.openCloudPane",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -5231,7 +5231,7 @@
       },
       "title" : "Open File…",
       "title_key" : "action.file.open",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -5259,7 +5259,7 @@
       },
       "title" : "New Tab",
       "title_key" : "action.newTab.sameKind",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -5282,7 +5282,7 @@
       },
       "title" : "New Tab Page",
       "title_key" : "action.newTab.page",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -5310,7 +5310,7 @@
       },
       "title" : "Focus Location Bar",
       "title_key" : "action.focusLocation",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -5341,7 +5341,7 @@
       },
       "title" : "New Terminal Tab",
       "title_key" : "action.newSurface",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -5370,7 +5370,7 @@
       },
       "title" : "New Browser Tab",
       "title_key" : "action.openBrowser",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -5393,7 +5393,7 @@
       },
       "title" : "New WebKit Tab",
       "title_key" : "action.openBrowser.webkit",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -5417,7 +5417,7 @@
       },
       "title" : "New Browser Tab",
       "title_key" : "action.openBrowser.chromium",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "ownerVerb",
@@ -5445,7 +5445,7 @@
       },
       "title" : "Close Tab",
       "title_key" : "action.closeTab",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -5474,7 +5474,7 @@
       },
       "title" : "Close Other Tabs",
       "title_key" : "action.closeOtherTabsInPane",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -5497,7 +5497,7 @@
       },
       "title" : "Close Tabs to the Left",
       "title_key" : "action.closeTabsToLeft",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -5520,7 +5520,7 @@
       },
       "title" : "Close Tabs to the Right",
       "title_key" : "action.closeTabsToRight",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -5548,7 +5548,7 @@
       },
       "title" : "Rename Tab…",
       "title_key" : "action.renameTab",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -5571,7 +5571,7 @@
       },
       "title" : "Show Tab",
       "title_key" : "action.tab.focus",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -5594,7 +5594,7 @@
       },
       "title" : "Clear Tab Name",
       "title_key" : "action.palette.clearTabName",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -5623,7 +5623,7 @@
       },
       "title" : "Next Tab",
       "title_key" : "action.nextSurface",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -5652,7 +5652,7 @@
       },
       "title" : "Previous Tab",
       "title_key" : "action.prevSurface",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -5682,7 +5682,7 @@
       },
       "title" : "Move Tab Left",
       "title_key" : "action.moveSurfaceLeft",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -5712,7 +5712,7 @@
       },
       "title" : "Move Tab Right",
       "title_key" : "action.moveSurfaceRight",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -5742,7 +5742,7 @@
       },
       "title" : "Move Tab to Previous Pane",
       "title_key" : "action.moveSurfaceToPreviousPane",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -5772,7 +5772,7 @@
       },
       "title" : "Move Tab to Next Pane",
       "title_key" : "action.moveSurfaceToNextPane",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -5802,7 +5802,7 @@
       },
       "title" : "Move Tab to Pane Left",
       "title_key" : "action.moveSurfaceToPaneLeft",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -5832,7 +5832,7 @@
       },
       "title" : "Move Tab to Pane Right",
       "title_key" : "action.moveSurfaceToPaneRight",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -5862,7 +5862,7 @@
       },
       "title" : "Move Tab to Pane Above",
       "title_key" : "action.moveSurfaceToPaneUp",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -5892,7 +5892,7 @@
       },
       "title" : "Move Tab to Pane Below",
       "title_key" : "action.moveSurfaceToPaneDown",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -5922,7 +5922,7 @@
       },
       "title" : "Select Tab 1…9",
       "title_key" : "action.selectSurfaceByNumber",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -5951,7 +5951,7 @@
       },
       "title" : "Search Tabs…",
       "title_key" : "action.tab.search",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -5974,7 +5974,7 @@
       },
       "title" : "Move Tab to New Workspace",
       "title_key" : "action.palette.moveTabToNewWorkspace",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -5997,7 +5997,7 @@
       },
       "title" : "Pin\/Unpin Tab",
       "title_key" : "action.palette.toggleTabPin",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -6020,7 +6020,7 @@
       },
       "title" : "Mark Tab as Unread",
       "title_key" : "action.palette.toggleTabUnread",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -6043,7 +6043,7 @@
       },
       "title" : "Toggle Full Width Tab",
       "title_key" : "action.palette.toggleFullWidthTab",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -6066,7 +6066,7 @@
       },
       "title" : "Duplicate Tab",
       "title_key" : "action.duplicateTab",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -6089,7 +6089,7 @@
       },
       "title" : "Reload Tab",
       "title_key" : "action.reloadTab",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "unimplemented",
@@ -6112,7 +6112,7 @@
       },
       "title" : "Mute\/Unmute Tab",
       "title_key" : "action.toggleTabAudioMute",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "unimplemented",
@@ -6135,7 +6135,7 @@
       },
       "title" : "Disconnect SSH Tab",
       "title_key" : "action.disconnectRemoteTab",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "clipboard",
@@ -6158,7 +6158,7 @@
       },
       "title" : "Copy Identifiers",
       "title_key" : "action.palette.copyIdentifiers",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "clipboard",
@@ -6182,7 +6182,7 @@
       },
       "title" : "Copy Pane ID",
       "title_key" : "action.palette.copyPaneID",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "clipboard",
@@ -6206,7 +6206,7 @@
       },
       "title" : "Copy Pane Link",
       "title_key" : "action.palette.copyPaneLink",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "clipboard",
@@ -6229,7 +6229,7 @@
       },
       "title" : "Copy Tab ID",
       "title_key" : "action.palette.copySurfaceID",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "clipboard",
@@ -6252,7 +6252,7 @@
       },
       "title" : "Copy Tab Link",
       "title_key" : "action.palette.copySurfaceLink",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -6281,7 +6281,7 @@
       },
       "title" : "Reopen Last Closed Tab",
       "title_key" : "action.reopenClosedBrowserPanel",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -6304,7 +6304,7 @@
       },
       "title" : "Show Tab Resource Usage",
       "title_key" : "action.tab.showResources",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -6327,7 +6327,7 @@
       },
       "title" : "Show Workspace Resource Usage",
       "title_key" : "action.workspace.showResources",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -6350,7 +6350,7 @@
       },
       "title" : "Go to Home",
       "title_key" : "action.home.show",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -6373,7 +6373,7 @@
       },
       "title" : "New Tab Group",
       "title_key" : "action.tabGroup.create",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -6396,7 +6396,7 @@
       },
       "title" : "Add Tab to Group…",
       "title_key" : "action.tabGroup.addTab",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -6419,7 +6419,7 @@
       },
       "title" : "Remove Tab from Group",
       "title_key" : "action.tabGroup.removeTab",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -6442,7 +6442,7 @@
       },
       "title" : "Rename Tab Group…",
       "title_key" : "action.tabGroup.rename",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -6465,7 +6465,7 @@
       },
       "title" : "Set Tab Group Color…",
       "title_key" : "action.tabGroup.setColor",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "familyMember",
@@ -6488,7 +6488,7 @@
       },
       "title" : "Collapse\/Expand Tab Group",
       "title_key" : "action.tabGroup.toggleCollapsed",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -6511,7 +6511,7 @@
       },
       "title" : "Collapse Tab Group",
       "title_key" : "action.tabGroup.collapse",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -6534,7 +6534,7 @@
       },
       "title" : "Expand Tab Group",
       "title_key" : "action.tabGroup.expand",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -6557,7 +6557,7 @@
       },
       "title" : "Ungroup Tabs",
       "title_key" : "action.tabGroup.ungroup",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -6580,7 +6580,7 @@
       },
       "title" : "Close Tab Group",
       "title_key" : "action.tabGroup.close",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -6603,7 +6603,7 @@
       },
       "title" : "Move Tab Group to New Split",
       "title_key" : "action.tabGroup.moveToNewSplit",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -6626,7 +6626,7 @@
       },
       "title" : "Move Tab Group to New Column",
       "title_key" : "action.tabGroup.moveToNewColumn",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -6649,7 +6649,7 @@
       },
       "title" : "Move Tab Group to New Workspace",
       "title_key" : "action.tabGroup.moveToNewWorkspace",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -6672,7 +6672,7 @@
       },
       "title" : "Move Tab Group to Workspace…",
       "title_key" : "action.tabGroup.moveToWorkspace",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -6695,7 +6695,7 @@
       },
       "title" : "Move Tab Group to New Window",
       "title_key" : "action.tabGroup.moveToNewWindow",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -6718,7 +6718,7 @@
       },
       "title" : "New Tab in Group",
       "title_key" : "action.tabGroup.newTab",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -6741,7 +6741,7 @@
       },
       "title" : "Save Tab Group",
       "title_key" : "action.tabGroup.save",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -6764,7 +6764,7 @@
       },
       "title" : "Unsave Tab Group",
       "title_key" : "action.tabGroup.unsave",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -6787,7 +6787,7 @@
       },
       "title" : "Delete Saved Tab Group…",
       "title_key" : "action.tabGroup.deleteSaved",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -6810,7 +6810,7 @@
       },
       "title" : "Reopen Saved Tab Group…",
       "title_key" : "action.tabGroup.reopenSaved",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "familyMember",
@@ -6833,7 +6833,7 @@
       },
       "title" : "Tab Group Color: Grey",
       "title_key" : "action.tabGroup.color.grey",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "familyMember",
@@ -6856,7 +6856,7 @@
       },
       "title" : "Tab Group Color: Blue",
       "title_key" : "action.tabGroup.color.blue",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "familyMember",
@@ -6879,7 +6879,7 @@
       },
       "title" : "Tab Group Color: Red",
       "title_key" : "action.tabGroup.color.red",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "familyMember",
@@ -6902,7 +6902,7 @@
       },
       "title" : "Tab Group Color: Yellow",
       "title_key" : "action.tabGroup.color.yellow",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "familyMember",
@@ -6925,7 +6925,7 @@
       },
       "title" : "Tab Group Color: Green",
       "title_key" : "action.tabGroup.color.green",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "familyMember",
@@ -6948,7 +6948,7 @@
       },
       "title" : "Tab Group Color: Pink",
       "title_key" : "action.tabGroup.color.pink",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "familyMember",
@@ -6971,7 +6971,7 @@
       },
       "title" : "Tab Group Color: Purple",
       "title_key" : "action.tabGroup.color.purple",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "familyMember",
@@ -6994,7 +6994,7 @@
       },
       "title" : "Tab Group Color: Cyan",
       "title_key" : "action.tabGroup.color.cyan",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "familyMember",
@@ -7017,7 +7017,7 @@
       },
       "title" : "Tab Group Color: Orange",
       "title_key" : "action.tabGroup.color.orange",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "ownerVerb",
@@ -8474,7 +8474,7 @@
       },
       "title" : "Toggle Copy Mode",
       "title_key" : "action.toggleTerminalCopyMode",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -8503,7 +8503,7 @@
       },
       "title" : "Focus TextBox",
       "title_key" : "action.focusTextBoxInput",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -8526,7 +8526,7 @@
       },
       "title" : "Toggle TextBox",
       "title_key" : "action.palette.terminalToggleTextBoxInput",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -8554,7 +8554,7 @@
       },
       "title" : "Cycle TextBox Submit Action",
       "title_key" : "action.cycleTextBoxSubmitAction",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -8584,7 +8584,7 @@
       },
       "title" : "Attach File to TextBox",
       "title_key" : "action.attachTextBoxFile",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -8607,7 +8607,7 @@
       },
       "title" : "Send Ctrl-F to Terminal",
       "title_key" : "action.sendCtrlFToTerminal",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -8630,7 +8630,7 @@
       },
       "title" : "Paste Last Screenshot",
       "title_key" : "action.pasteLastScreenshot",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -8653,7 +8653,7 @@
       },
       "title" : "Keep Terminal Running After Close",
       "title_key" : "action.terminal.keep",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -8682,7 +8682,7 @@
       },
       "title" : "Clear Screen (Keep Scrollback)",
       "title_key" : "action.clearScreenKeepScrollback",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -8710,7 +8710,7 @@
       },
       "title" : "Find…",
       "title_key" : "action.find",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -8739,7 +8739,7 @@
       },
       "title" : "Find in Directory…",
       "title_key" : "action.findInDirectory",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -8767,7 +8767,7 @@
       },
       "title" : "Find Next",
       "title_key" : "action.findNext",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -8796,7 +8796,7 @@
       },
       "title" : "Find Previous",
       "title_key" : "action.findPrevious",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -8826,7 +8826,7 @@
       },
       "title" : "Hide Find Bar",
       "title_key" : "action.hideFind",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -8854,7 +8854,7 @@
       },
       "title" : "Use Selection for Find",
       "title_key" : "action.useSelectionForFind",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -8882,7 +8882,7 @@
       },
       "title" : "Copy",
       "title_key" : "action.terminalCopy",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -8910,7 +8910,7 @@
       },
       "title" : "Paste",
       "title_key" : "action.terminalPaste",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -8933,7 +8933,7 @@
       },
       "title" : "Reset Terminal",
       "title_key" : "action.resetTerminal",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -8956,7 +8956,7 @@
       },
       "title" : "Reconnect Pane",
       "title_key" : "action.reconnectPane",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -8979,7 +8979,7 @@
       },
       "title" : "Set Resume Command…",
       "title_key" : "action.resumeCommandSet",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "familyMember",
@@ -9002,7 +9002,7 @@
       },
       "title" : "Edit Resume Command…",
       "title_key" : "action.resumeCommandEdit",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -9025,7 +9025,7 @@
       },
       "title" : "Clear Resume Command",
       "title_key" : "action.resumeCommandClear",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -9048,7 +9048,7 @@
       },
       "title" : "Open Current Directory in…",
       "title_key" : "action.palette.terminalOpenDirectory",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "ownerVerb",
@@ -9076,7 +9076,7 @@
       },
       "title" : "Back",
       "title_key" : "action.browserBack",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "ownerVerb",
@@ -9104,7 +9104,7 @@
       },
       "title" : "Forward",
       "title_key" : "action.browserForward",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -9132,7 +9132,7 @@
       },
       "title" : "Reload Page",
       "title_key" : "action.browserReload",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -9161,7 +9161,7 @@
       },
       "title" : "Hard Reload Page",
       "title_key" : "action.browserHardReload",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -9184,7 +9184,7 @@
       },
       "title" : "Open in Chromium",
       "title_key" : "action.browser.openInChromium",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -9207,7 +9207,7 @@
       },
       "title" : "Open in WebKit",
       "title_key" : "action.browser.openInWebKit",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -9230,7 +9230,7 @@
       },
       "title" : "Focus Address Bar",
       "title_key" : "action.focusBrowserAddressBar",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "stepAdjust",
@@ -9258,7 +9258,7 @@
       },
       "title" : "Zoom In",
       "title_key" : "action.browserZoomIn",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "stepAdjust",
@@ -9286,7 +9286,7 @@
       },
       "title" : "Zoom Out",
       "title_key" : "action.browserZoomOut",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "stepAdjust",
@@ -9314,7 +9314,7 @@
       },
       "title" : "Actual Size",
       "title_key" : "action.browserZoomReset",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "stepAdjust",
@@ -9342,7 +9342,7 @@
       },
       "title" : "Markdown: Zoom In",
       "title_key" : "action.markdownZoomIn",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "stepAdjust",
@@ -9370,7 +9370,7 @@
       },
       "title" : "Markdown: Zoom Out",
       "title_key" : "action.markdownZoomOut",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "stepAdjust",
@@ -9398,7 +9398,7 @@
       },
       "title" : "Markdown: Actual Size",
       "title_key" : "action.markdownZoomReset",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -9427,7 +9427,7 @@
       },
       "title" : "Toggle Developer Tools",
       "title_key" : "action.toggleBrowserDeveloperTools",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -9456,7 +9456,7 @@
       },
       "title" : "Show JavaScript Console",
       "title_key" : "action.showBrowserJavaScriptConsole",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -9485,7 +9485,7 @@
       },
       "title" : "Inspect Element",
       "title_key" : "action.inspectBrowserElement",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -9514,7 +9514,7 @@
       },
       "title" : "Toggle Browser Focus Mode",
       "title_key" : "action.toggleBrowserFocusMode",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -9544,7 +9544,7 @@
       },
       "title" : "Toggle Browser Design Mode",
       "title_key" : "action.toggleBrowserDesignMode",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -9573,7 +9573,7 @@
       },
       "title" : "Toggle React Grab",
       "title_key" : "action.toggleReactGrab",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -9601,7 +9601,7 @@
       },
       "title" : "Open Link by Hint",
       "title_key" : "action.browserLinkHints",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -9629,7 +9629,7 @@
       },
       "title" : "Open Link by Hint in New Split",
       "title_key" : "action.browserLinkHintsNewSplit",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -9658,7 +9658,7 @@
       },
       "title" : "Split Browser Right",
       "title_key" : "action.splitBrowserRight",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -9688,7 +9688,7 @@
       },
       "title" : "Split Browser Down",
       "title_key" : "action.splitBrowserDown",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -9711,7 +9711,7 @@
       },
       "title" : "Open in Default Browser",
       "title_key" : "action.palette.browserOpenDefault",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -9734,7 +9734,7 @@
       },
       "title" : "Toggle Omnibar",
       "title_key" : "action.palette.browserToggleOmnibar",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -9757,7 +9757,7 @@
       },
       "title" : "Clear Browser History",
       "title_key" : "action.palette.browserClearHistory",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -9780,7 +9780,7 @@
       },
       "title" : "Import from Browser…",
       "title_key" : "action.importFromBrowser2",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -9803,7 +9803,7 @@
       },
       "title" : "Import Passwords from CSV…",
       "title_key" : "action.password.importCSV",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "unimplemented",
@@ -9826,7 +9826,7 @@
       },
       "title" : "Enable cmux Browser",
       "title_key" : "action.palette.enableBrowser",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "unimplemented",
@@ -9849,7 +9849,7 @@
       },
       "title" : "Disable cmux Browser",
       "title_key" : "action.palette.disableBrowser",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -9872,7 +9872,7 @@
       },
       "title" : "Open Link in New Tab",
       "title_key" : "action.openLinkInNewTab",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -9895,7 +9895,7 @@
       },
       "title" : "Open Link in Default Browser",
       "title_key" : "action.openLinkInDefaultBrowser",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -9918,7 +9918,7 @@
       },
       "title" : "Screenshot Page",
       "title_key" : "action.browserScreenshotPage",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -9941,7 +9941,7 @@
       },
       "title" : "Screenshot Section",
       "title_key" : "action.browserScreenshotSection",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -9964,7 +9964,7 @@
       },
       "title" : "Browser Theme…",
       "title_key" : "action.browserTheme",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -9992,7 +9992,7 @@
       },
       "title" : "Save File",
       "title_key" : "action.saveFilePreview",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -10020,7 +10020,7 @@
       },
       "title" : "Toggle Word Wrap",
       "title_key" : "action.toggleFileEditorWordWrap",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -10043,7 +10043,7 @@
       },
       "title" : "Open File With…",
       "title_key" : "action.filePreviewOpenWith",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -10066,7 +10066,7 @@
       },
       "title" : "Open File Externally",
       "title_key" : "action.filePreviewOpenExternally",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -10089,7 +10089,7 @@
       },
       "title" : "Reveal File in Finder",
       "title_key" : "action.filePreviewRevealInFinder",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "unimplemented",
@@ -10119,7 +10119,7 @@
       },
       "title" : "Open Diff Viewer",
       "title_key" : "action.openDiffViewer",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "unimplemented",
@@ -10142,7 +10142,7 @@
       },
       "title" : "Open Directory Diff Viewer",
       "title_key" : "action.palette.openDirectoryDiffViewer",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -10170,7 +10170,7 @@
       },
       "title" : "Diff: Next Line",
       "title_key" : "action.diffViewerNextLine",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -10198,7 +10198,7 @@
       },
       "title" : "Diff: Previous Line",
       "title_key" : "action.diffViewerPreviousLine",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -10226,7 +10226,7 @@
       },
       "title" : "Diff: Half Page Down",
       "title_key" : "action.diffViewerHalfPageDown",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -10254,7 +10254,7 @@
       },
       "title" : "Diff: Half Page Up",
       "title_key" : "action.diffViewerHalfPageUp",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -10282,7 +10282,7 @@
       },
       "title" : "Diff: Next Hunk",
       "title_key" : "action.diffViewerNextHunk",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -10310,7 +10310,7 @@
       },
       "title" : "Diff: Previous Hunk",
       "title_key" : "action.diffViewerPreviousHunk",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -10338,7 +10338,7 @@
       },
       "title" : "Diff: Go to Bottom",
       "title_key" : "action.diffViewerGoToBottom",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -10361,7 +10361,7 @@
       },
       "title" : "Diff: Go to Top",
       "title_key" : "action.diffViewerGoToTop",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -10389,7 +10389,7 @@
       },
       "title" : "Diff: Search",
       "title_key" : "action.diffViewerSearch",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -10412,7 +10412,7 @@
       },
       "title" : "Diff: Next File",
       "title_key" : "action.diffViewerNextFile",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -10435,7 +10435,7 @@
       },
       "title" : "Diff: Previous File",
       "title_key" : "action.diffViewerPreviousFile",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -10458,7 +10458,7 @@
       },
       "title" : "Stop VS Code Inline Server",
       "title_key" : "action.palette.vscodeServeWebStop",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -10481,7 +10481,7 @@
       },
       "title" : "Restart VS Code Inline Server",
       "title_key" : "action.palette.vscodeServeWebRestart",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -11482,7 +11482,7 @@
       },
       "title" : "Toggle Left Sidebar",
       "title_key" : "action.toggleSidebar",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -11511,7 +11511,7 @@
       },
       "title" : "Toggle Right Sidebar",
       "title_key" : "action.toggleRightSidebar",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -11540,7 +11540,7 @@
       },
       "title" : "Focus Right Sidebar",
       "title_key" : "action.focusRightSidebar",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -11568,7 +11568,7 @@
       },
       "title" : "Show Files",
       "title_key" : "action.switchRightSidebarToFiles",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -11596,7 +11596,7 @@
       },
       "title" : "Show Find",
       "title_key" : "action.switchRightSidebarToFind",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -11624,7 +11624,7 @@
       },
       "title" : "Show Vault",
       "title_key" : "action.switchRightSidebarToSessions",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -11652,7 +11652,7 @@
       },
       "title" : "Show Feed",
       "title_key" : "action.switchRightSidebarToFeed",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -11680,7 +11680,7 @@
       },
       "title" : "Show Dock",
       "title_key" : "action.switchRightSidebarToDock",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -11708,7 +11708,7 @@
       },
       "title" : "Show Cloud",
       "title_key" : "action.switchRightSidebarToMachines",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -11736,7 +11736,7 @@
       },
       "title" : "Open Selection",
       "title_key" : "action.fileExplorerOpenSelection",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -11764,7 +11764,7 @@
       },
       "title" : "Open Selection (Finder Style)",
       "title_key" : "action.fileExplorerOpenSelectionFinderAlias",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -11787,7 +11787,7 @@
       },
       "title" : "Open in cmux",
       "title_key" : "action.fileExplorerOpenInCmux",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -11810,7 +11810,7 @@
       },
       "title" : "Reveal in Finder",
       "title_key" : "action.fileExplorerReveal",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -11833,7 +11833,7 @@
       },
       "title" : "Copy Path",
       "title_key" : "action.fileExplorerCopyPath",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -11856,7 +11856,7 @@
       },
       "title" : "Copy Relative Path",
       "title_key" : "action.fileExplorerCopyRelativePath",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -11879,7 +11879,7 @@
       },
       "title" : "Open With…",
       "title_key" : "action.fileExplorerOpenWith",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -11902,7 +11902,7 @@
       },
       "title" : "Focus Session",
       "title_key" : "action.vaultFocusSession",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -11925,7 +11925,7 @@
       },
       "title" : "Open Session",
       "title_key" : "action.vaultOpenSession",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -11948,7 +11948,7 @@
       },
       "title" : "Resume Session in New Workspace",
       "title_key" : "action.vaultResumeInNewWorkspace",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -11971,7 +11971,7 @@
       },
       "title" : "Copy Resume Command",
       "title_key" : "action.vaultCopyResumeCommand",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -11994,7 +11994,7 @@
       },
       "title" : "Open Session Pull Request",
       "title_key" : "action.vaultOpenPullRequest",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -12017,7 +12017,7 @@
       },
       "title" : "Edit Checklist Item…",
       "title_key" : "action.checklistEditItem",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -12040,7 +12040,7 @@
       },
       "title" : "Mark Checklist Item In Progress",
       "title_key" : "action.checklistMarkInProgress",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -12063,7 +12063,7 @@
       },
       "title" : "Complete Checklist Item",
       "title_key" : "action.checklistCompleteItem",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -12086,7 +12086,7 @@
       },
       "title" : "Remove Checklist Item",
       "title_key" : "action.checklistRemoveItem",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -12109,7 +12109,7 @@
       },
       "title" : "Open Checklist as Pane",
       "title_key" : "action.checklistOpenAsPane",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -12132,7 +12132,7 @@
       },
       "title" : "Attach Images to Checklist Item…",
       "title_key" : "action.checklistAttachImages",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -12155,7 +12155,7 @@
       },
       "title" : "Toggle Match Terminal Background",
       "title_key" : "action.palette.toggleMatchTerminalBackground",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -12178,7 +12178,7 @@
       },
       "title" : "Enable Minimal Mode",
       "title_key" : "action.palette.enableMinimalMode",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -12201,7 +12201,7 @@
       },
       "title" : "Disable Minimal Mode",
       "title_key" : "action.palette.disableMinimalMode",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -12229,7 +12229,7 @@
       },
       "title" : "Show Feed",
       "title_key" : "action.feed.show",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -12252,7 +12252,7 @@
       },
       "title" : "Show Notifications",
       "title_key" : "action.showNotifications",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -12281,7 +12281,7 @@
       },
       "title" : "Jump to Latest Unread",
       "title_key" : "action.jumpToUnread",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -12310,7 +12310,7 @@
       },
       "title" : "Toggle Unread",
       "title_key" : "action.toggleUnread",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -12339,7 +12339,7 @@
       },
       "title" : "Mark Oldest Unread and Jump Next",
       "title_key" : "action.markOldestUnreadAndJumpNext",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -12362,7 +12362,7 @@
       },
       "title" : "Mark All Notifications as Read",
       "title_key" : "action.markAllNotificationsRead",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -12385,7 +12385,7 @@
       },
       "title" : "Clear All Notifications",
       "title_key" : "action.clearAllNotifications",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -12408,7 +12408,7 @@
       },
       "title" : "Open Notification",
       "title_key" : "action.notificationOpen",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -12431,7 +12431,7 @@
       },
       "title" : "Copy Notification",
       "title_key" : "action.notificationCopy",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -12454,7 +12454,7 @@
       },
       "title" : "Mark Notification Read\/Unread",
       "title_key" : "action.notificationToggleRead",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -12477,7 +12477,7 @@
       },
       "title" : "Dismiss Notification",
       "title_key" : "action.notificationDismiss",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -12500,7 +12500,7 @@
       },
       "title" : "Mute or Unmute Workspace Notifications",
       "title_key" : "action.notifications.toggleWorkspaceMute",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -12523,7 +12523,7 @@
       },
       "title" : "Toggle Notification Banners",
       "title_key" : "action.notifications.toggleBanners",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -12546,7 +12546,7 @@
       },
       "title" : "Clear Notifications When Typing",
       "title_key" : "action.notifications.dismissal.keystroke",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -12569,7 +12569,7 @@
       },
       "title" : "Clear Notifications on Focus",
       "title_key" : "action.notifications.dismissal.focus",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -12592,7 +12592,7 @@
       },
       "title" : "Clear Notifications on Click",
       "title_key" : "action.notifications.dismissal.click",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -12615,7 +12615,7 @@
       },
       "title" : "Clear Notifications Only When Opened",
       "title_key" : "action.notifications.dismissal.explicit",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -12638,7 +12638,7 @@
       },
       "title" : "Clear Notifications After a Timeout",
       "title_key" : "action.notifications.dismissal.timeout",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -12661,7 +12661,7 @@
       },
       "title" : "Never Clear Notifications Automatically",
       "title_key" : "action.notifications.dismissal.never",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -12703,7 +12703,7 @@
       },
       "title" : "New Agent Chat",
       "title_key" : "action.palette.newAgentChat",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -12733,7 +12733,7 @@
       },
       "title" : "Quick Agent Chat…",
       "title_key" : "action.palette.quickAgentChat",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -12762,7 +12762,7 @@
       },
       "title" : "Toggle Dictation",
       "title_key" : "action.palette.toggleDictation",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -12785,7 +12785,7 @@
       },
       "title" : "Continue in…",
       "title_key" : "action.agentPane.continueIn",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -12808,7 +12808,7 @@
       },
       "title" : "Create checkpoint",
       "title_key" : "action.agentPane.createCheckpoint",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "liveInput",
@@ -12836,7 +12836,7 @@
       },
       "title" : "Search Agent Chats",
       "title_key" : "action.agentPane.searchChats",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -12865,7 +12865,7 @@
       },
       "title" : "Allow once",
       "title_key" : "action.agentPane.permission.allowOnce",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -12894,7 +12894,7 @@
       },
       "title" : "Allow for this chat",
       "title_key" : "action.agentPane.permission.allowChat",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -12923,7 +12923,7 @@
       },
       "title" : "Deny",
       "title_key" : "action.agentPane.permission.deny",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -12952,7 +12952,7 @@
       },
       "title" : "Expand permission details",
       "title_key" : "action.agentPane.permission.expand",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -12975,7 +12975,7 @@
       },
       "title" : "Check and retry permission",
       "title_key" : "action.agentPane.permission.retry",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -12998,7 +12998,7 @@
       },
       "title" : "Revoke chat permission",
       "title_key" : "action.agentPane.permission.revoke",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -13021,7 +13021,7 @@
       },
       "title" : "Refresh permissions",
       "title_key" : "action.agentPane.permission.refresh",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -13044,7 +13044,7 @@
       },
       "title" : "Open Terminal as Chat",
       "title_key" : "action.palette.openTerminalChatView",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13067,7 +13067,7 @@
       },
       "title" : "Launch Claude Teams",
       "title_key" : "action.palette.launchClaudeTeams",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13090,7 +13090,7 @@
       },
       "title" : "Launch Codex Teams",
       "title_key" : "action.palette.launchCodexTeams",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13113,7 +13113,7 @@
       },
       "title" : "Fork Conversation to the Right",
       "title_key" : "action.palette.forkAgentConversationRight",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13136,7 +13136,7 @@
       },
       "title" : "Fork Conversation to the Left",
       "title_key" : "action.palette.forkAgentConversationLeft",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13159,7 +13159,7 @@
       },
       "title" : "Fork Conversation Above",
       "title_key" : "action.palette.forkAgentConversationTop",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13182,7 +13182,7 @@
       },
       "title" : "Fork Conversation Below",
       "title_key" : "action.palette.forkAgentConversationBottom",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13205,7 +13205,7 @@
       },
       "title" : "Fork Conversation to New Tab",
       "title_key" : "action.palette.forkAgentConversationNewTab",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13228,7 +13228,7 @@
       },
       "title" : "Fork Conversation to New Workspace",
       "title_key" : "action.palette.forkAgentConversationNewWorkspace",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -13251,7 +13251,7 @@
       },
       "title" : "Computer Use Setup",
       "title_key" : "action.palette.computerUse.setup",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -13274,7 +13274,7 @@
       },
       "title" : "Grant Accessibility Access",
       "title_key" : "action.palette.computerUse.accessibility",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -13297,7 +13297,7 @@
       },
       "title" : "Grant Screen Recording Access",
       "title_key" : "action.palette.computerUse.screenRecording",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13320,7 +13320,7 @@
       },
       "title" : "Agent Activity",
       "title_key" : "action.agentActivity.open",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -13343,7 +13343,7 @@
       },
       "title" : "Focus Computer Use",
       "title_key" : "action.computerUseFocus",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "focusMove",
@@ -13366,7 +13366,7 @@
       },
       "title" : "Focus Calling Terminal",
       "title_key" : "action.computerUseFocusCallingTerminal",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13389,7 +13389,7 @@
       },
       "title" : "Stop Computer Use",
       "title_key" : "action.computerUseStop",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13418,7 +13418,7 @@
       },
       "title" : "New Cloud Workspace",
       "title_key" : "action.newCloudWorkspace",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13446,7 +13446,7 @@
       },
       "title" : "New Cloud Machine…",
       "title_key" : "action.newCloudMachine",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13469,7 +13469,7 @@
       },
       "title" : "Fork Cloud Machine",
       "title_key" : "action.palette.cloud.fork",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13492,7 +13492,7 @@
       },
       "title" : "Snapshot Cloud Machine",
       "title_key" : "action.palette.cloud.snapshot",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13515,7 +13515,7 @@
       },
       "title" : "Restore Cloud Machine…",
       "title_key" : "action.palette.cloud.restore",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13538,7 +13538,7 @@
       },
       "title" : "Promote Machine to Template",
       "title_key" : "action.palette.cloud.promoteTemplate",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13561,7 +13561,7 @@
       },
       "title" : "Cloud Machine Status",
       "title_key" : "action.palette.cloud.status",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13584,7 +13584,7 @@
       },
       "title" : "Cloud Machine Ports",
       "title_key" : "action.palette.cloud.ports",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -13607,7 +13607,7 @@
       },
       "title" : "Cloud Machine Tools",
       "title_key" : "action.palette.cloud.tools",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13630,7 +13630,7 @@
       },
       "title" : "Hand Off Cloud Machine",
       "title_key" : "action.palette.cloud.handoff",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13653,7 +13653,7 @@
       },
       "title" : "Open Cloud SSH Terminal",
       "title_key" : "action.cloudSSH",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13676,7 +13676,7 @@
       },
       "title" : "Run Command on Cloud Machine…",
       "title_key" : "action.cloudExec",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13699,7 +13699,7 @@
       },
       "title" : "List Cloud Files…",
       "title_key" : "action.cloudFilesList",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13722,7 +13722,7 @@
       },
       "title" : "Read Cloud File…",
       "title_key" : "action.cloudFileRead",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13745,7 +13745,7 @@
       },
       "title" : "Write Cloud File…",
       "title_key" : "action.cloudFileWrite",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13768,7 +13768,7 @@
       },
       "title" : "Create Cloud Directory…",
       "title_key" : "action.cloudFileMkdir",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13791,7 +13791,7 @@
       },
       "title" : "Remove Cloud File…",
       "title_key" : "action.cloudFileRemove",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13814,7 +13814,7 @@
       },
       "title" : "Cloud File Details…",
       "title_key" : "action.cloudFileStat",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -13837,7 +13837,7 @@
       },
       "title" : "Prepare Cloud File Transfer…",
       "title_key" : "action.cloudPrepareSCP",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -14044,7 +14044,7 @@
       },
       "title" : "New Terminal on Machine",
       "title_key" : "action.cloudNewTerminal",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -14067,7 +14067,7 @@
       },
       "title" : "Open Machine",
       "title_key" : "action.cloudOpenMachine",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -14090,7 +14090,7 @@
       },
       "title" : "Rename Machine…",
       "title_key" : "action.cloudRenameMachine",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -14113,7 +14113,7 @@
       },
       "title" : "Kill Machine",
       "title_key" : "action.cloudKillMachine",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -14182,7 +14182,7 @@
       },
       "title" : "Copy Machine Link",
       "title_key" : "action.cloudCopyLink",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "clipboard",
@@ -14205,7 +14205,7 @@
       },
       "title" : "Copy Machine Port",
       "title_key" : "action.cloudCopyPort",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "clipboard",
@@ -14228,7 +14228,7 @@
       },
       "title" : "Copy Machine ID",
       "title_key" : "action.cloudCopyMachineID",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -14251,7 +14251,7 @@
       },
       "title" : "Resize Machine…",
       "title_key" : "action.cloudResizeMachine",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -14297,7 +14297,7 @@
       },
       "title" : "Cloud Diagnostics…",
       "title_key" : "action.cloudDiagnostics",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -14327,7 +14327,7 @@
       },
       "title" : "Team Picker",
       "title_key" : "action.openTeamPicker",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -14350,7 +14350,7 @@
       },
       "title" : "Sign In",
       "title_key" : "action.palette.auth.signIn",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -14373,7 +14373,7 @@
       },
       "title" : "Sign Out",
       "title_key" : "action.palette.auth.signOut",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -14396,7 +14396,7 @@
       },
       "title" : "Open Mobile Pairing",
       "title_key" : "action.palette.mobileConnect",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -14701,7 +14701,7 @@
       },
       "title" : "Reload Configuration",
       "title_key" : "action.reloadConfiguration",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -14724,7 +14724,7 @@
       },
       "title" : "Open cmux.json",
       "title_key" : "action.palette.openCmuxSettingsFile",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -14747,7 +14747,7 @@
       },
       "title" : "Open Ghostty Config",
       "title_key" : "action.palette.openGhosttySettings",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -14770,7 +14770,7 @@
       },
       "title" : "Make cmux the Default Browser",
       "title_key" : "action.palette.makeDefaultBrowser",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -14793,7 +14793,7 @@
       },
       "title" : "Make cmux the Default Terminal",
       "title_key" : "action.palette.makeDefaultTerminal",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -14816,7 +14816,7 @@
       },
       "title" : "Toggle Setting…",
       "title_key" : "action.palette.toggleSetting",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -14839,7 +14839,7 @@
       },
       "title" : "Base Keymap…",
       "title_key" : "action.palette.shortcutKeymap",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -14875,7 +14875,7 @@
       },
       "title" : "Search Keyboard Shortcuts…",
       "title_key" : "action.palette.searchShortcuts",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "devOnly",
@@ -14898,7 +14898,7 @@
       },
       "title" : "Open Debug Settings",
       "title_key" : "action.openDebugSettings",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -14921,7 +14921,7 @@
       },
       "title" : "Install cmux CLI in PATH",
       "title_key" : "action.palette.installCLI",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -14944,7 +14944,7 @@
       },
       "title" : "Uninstall cmux CLI from PATH",
       "title_key" : "action.palette.uninstallCLI",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -14967,7 +14967,7 @@
       },
       "title" : "Restart CLI Listener",
       "title_key" : "action.palette.restartSocketListener",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -14990,7 +14990,7 @@
       },
       "title" : "Check for Updates…",
       "title_key" : "action.palette.checkForUpdates",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -15013,7 +15013,7 @@
       },
       "title" : "Install Available Update",
       "title_key" : "action.palette.applyUpdateIfAvailable",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "familyMember",
@@ -15036,7 +15036,7 @@
       },
       "title" : "Attempt Update",
       "title_key" : "action.palette.attemptUpdate",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -15059,7 +15059,7 @@
       },
       "title" : "Switch Update Channel…",
       "title_key" : "action.palette.switchAppChannel",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -15082,7 +15082,7 @@
       },
       "title" : "Upgrade to cmux Pro",
       "title_key" : "action.palette.pro.upgrade",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -15105,7 +15105,7 @@
       },
       "title" : "Onboarding…",
       "title_key" : "action.palette.onboarding",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -15151,7 +15151,7 @@
       },
       "title" : "Onboarding Gallery",
       "title_key" : "action.palette.onboardingGallery",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -15174,7 +15174,7 @@
       },
       "title" : "Send Feedback",
       "title_key" : "action.sendFeedback",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -15197,7 +15197,7 @@
       },
       "title" : "Feature Flags",
       "title_key" : "action.help.featureFlags",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -15220,7 +15220,7 @@
       },
       "title" : "cmux Documentation…",
       "title_key" : "action.help.documentation",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -15243,7 +15243,7 @@
       },
       "title" : "Use Compact Density",
       "title_key" : "action.appearance.density.compact",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -15266,7 +15266,7 @@
       },
       "title" : "Use Comfortable Density",
       "title_key" : "action.appearance.density.comfortable",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -15289,7 +15289,7 @@
       },
       "title" : "Use Fast Animations",
       "title_key" : "action.appearance.animationSpeed.fast",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -15312,7 +15312,7 @@
       },
       "title" : "Use Normal Animations",
       "title_key" : "action.appearance.animationSpeed.normal",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -15335,7 +15335,7 @@
       },
       "title" : "Turn Off Animations",
       "title_key" : "action.appearance.animationSpeed.off",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -15358,7 +15358,7 @@
       },
       "title" : "Use Chromium for New Browser Tabs",
       "title_key" : "action.browser.defaultEngine.chromium",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -15381,7 +15381,7 @@
       },
       "title" : "Use WebKit for New Browser Tabs",
       "title_key" : "action.browser.defaultEngine.webkit",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -15404,7 +15404,7 @@
       },
       "title" : "Toggle Pane Borders",
       "title_key" : "action.appearance.paneBorder.toggle",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -15427,7 +15427,7 @@
       },
       "title" : "Toggle Pane Padding",
       "title_key" : "action.appearance.panePadding.toggle",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -15450,7 +15450,7 @@
       },
       "title" : "Toggle Rounded Pane Corners",
       "title_key" : "action.appearance.paneCorners.toggle",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -15473,7 +15473,7 @@
       },
       "title" : "Scroll Columns Minimally",
       "title_key" : "action.layout.centerFocusedColumn.never",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -15496,7 +15496,7 @@
       },
       "title" : "Always Center Focused Column",
       "title_key" : "action.layout.centerFocusedColumn.always",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -15519,7 +15519,7 @@
       },
       "title" : "Center Focused Column on Overflow",
       "title_key" : "action.layout.centerFocusedColumn.onOverflow",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -15542,7 +15542,7 @@
       },
       "title" : "Toggle Focus Ring",
       "title_key" : "action.focusRing.toggle",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -15565,7 +15565,7 @@
       },
       "title" : "Use Ring Focus Style",
       "title_key" : "action.focusRing.style.ring",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -15588,7 +15588,7 @@
       },
       "title" : "Use Glow Focus Style",
       "title_key" : "action.focusRing.style.glow",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -15611,7 +15611,7 @@
       },
       "title" : "Toggle Focus Ring for a Single Pane",
       "title_key" : "action.focusRing.singlePane.toggle",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -15634,7 +15634,7 @@
       },
       "title" : "Toggle Thick Pane Borders",
       "title_key" : "action.appearance.paneBorderWidth.toggle",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -15657,7 +15657,7 @@
       },
       "title" : "Use Theme Color for Pane Borders",
       "title_key" : "action.appearance.paneBorderColor.reset",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -15680,7 +15680,7 @@
       },
       "title" : "Use Minimal Titlebar",
       "title_key" : "action.appearance.titlebar.minimal",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -15703,7 +15703,7 @@
       },
       "title" : "Use Standard Titlebar",
       "title_key" : "action.appearance.titlebar.standard",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -15726,7 +15726,7 @@
       },
       "title" : "Customize Appearance…",
       "title_key" : "action.appearance.customize",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "stepAdjust",
@@ -15749,7 +15749,7 @@
       },
       "title" : "Increase Interface Size",
       "title_key" : "action.appearance.interfaceSize.increase",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "stepAdjust",
@@ -15772,7 +15772,7 @@
       },
       "title" : "Decrease Interface Size",
       "title_key" : "action.appearance.interfaceSize.decrease",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "stepAdjust",
@@ -15795,7 +15795,7 @@
       },
       "title" : "Reset Interface Size",
       "title_key" : "action.appearance.interfaceSize.reset",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -17093,7 +17093,7 @@
       },
       "title" : "Recently Closed…",
       "title_key" : "action.recentlyClosed",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
@@ -18470,7 +18470,7 @@
       },
       "title" : "Open Link…",
       "title_key" : "action.link.open",
-      "title_table" : "Localizable"
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "devOnly",

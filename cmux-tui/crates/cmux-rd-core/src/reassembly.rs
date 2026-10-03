@@ -163,6 +163,17 @@ impl Reassembler {
             .collect()
     }
 
+    /// The earliest time at which [`Self::tick`] drops an incomplete frame,
+    /// or `None` when no frame waits. Callers arm one timer for it instead of
+    /// ticking on a fixed period.
+    pub fn next_expiry_us(&self) -> Option<u64> {
+        self.pending
+            .values()
+            .filter(|p| !Self::decodable(p))
+            .map(|p| p.first_seen_us.saturating_add(self.deadline_us).saturating_add(1))
+            .min()
+    }
+
     fn decodable(p: &Pending) -> bool {
         p.shards.iter().filter(|s| s.is_some()).count() >= usize::from(p.count)
     }

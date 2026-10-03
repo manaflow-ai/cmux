@@ -226,3 +226,20 @@ fn a_shard_of_another_length_is_refused() {
     assert_eq!(released.len(), 1);
     assert_eq!(released[0].body, body(1, 3000, true));
 }
+
+#[test]
+fn next_expiry_names_the_oldest_incomplete_frame() {
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    let mut r = Reassembler::new(200);
+    assert_eq!(r.next_expiry_us(), None);
+    let out = p.packetize(1, flags::KEYFRAME, &body(1, 5000, true), 0).expect("packetize");
+    let (h, payload) = DatagramHeader::decode(&out.datagrams[0]).expect("decode");
+    assert!(r.push(&h, payload, 1_000).is_empty());
+    // The frame expires strictly after its deadline.
+    assert_eq!(r.next_expiry_us(), Some(1_201));
+    assert!(r.tick(1_200).is_empty());
+    assert!(r.take_losses().is_empty());
+    assert!(r.tick(1_201).is_empty());
+    assert_eq!(r.take_losses(), vec![FrameLoss::Incomplete { frame: 1 }]);
+    assert_eq!(r.next_expiry_us(), None);
+}
