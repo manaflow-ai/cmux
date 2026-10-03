@@ -701,7 +701,7 @@ extension Workspace {
                     profileID: browserPanel.profileID,
                     shouldRenderWebView: browserPanel.shouldRenderWebViewForSessionSnapshot(),
                     pageZoom: Double(browserPanel.currentPageZoomFactor()),
-                    developerToolsVisible: browserPanel.isDeveloperToolsVisible(),
+                    developerToolsVisible: browserPanel.preferredDeveloperToolsVisible || browserPanel.isDeveloperToolsVisible(),
                     isMuted: browserPanel.isMuted,
                     chromeVisibility: browserPanel.chromeVisibility,
                     omnibarVisible: browserPanel.isOmnibarVisible,
