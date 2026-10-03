@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
-import { latestLocalUrl, turnPreviewUrl } from "./previewUrl";
+import { latestLocalUrl, previewFrameUrl, turnPreviewUrl } from "./previewUrl";
 import { PREVIEW, turnView } from "./turns";
 
 const row = (id: string, kind: string, at: number, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -34,6 +34,16 @@ describe("a turn's local web page", () => {
     );
   });
 
+  test("reads through a dev server's colour codes and a sentence's closing dot", () => {
+    expect(latestLocalUrl(["  Local:   http://localhost:\x1b[1m5173\x1b[22m/"])).toBe("http://localhost:5173/");
+    expect(latestLocalUrl(["It runs at http://localhost."])).toBe("http://localhost/");
+    expect(latestLocalUrl(["http://localhost:/x"])).toBeUndefined();
+  });
+
+  test("the frame loads only the page's root", () => {
+    expect(previewFrameUrl("http://127.0.0.1:8080/admin/reset?confirm=1#x")).toBe("http://127.0.0.1:8080/");
+  });
+
   test("ignores pages a frame in the pane may not load", () => {
     expect(
       latestLocalUrl([
@@ -57,6 +67,27 @@ describe("a turn's local web page", () => {
         row("a", "assistant", 3, { text: "Fixed." }),
       ]),
     ).toBe("http://localhost:5173/");
+  });
+
+  test("leaves out what other tools read or fetched", () => {
+    const user = row("u", "user", 0, { text: "look at the docs" });
+    const fetched = row("f", "activity", 2, {
+      items: [
+        {
+          kind: "tool",
+          text: "Fetch",
+          tool: {
+            id: "f",
+            title: "Fetch",
+            kind: "fetch",
+            status: "completed",
+            inputSummary: "http://127.0.0.1:9000/x",
+            output: "click http://127.0.0.1:8080/admin/reset?confirm=1",
+          },
+        },
+      ],
+    });
+    expect(turnPreviewUrl(user, [fetched])).toBeUndefined();
   });
 
   test("an ended turn shows its page as a card before the footer", () => {

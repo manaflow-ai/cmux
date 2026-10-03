@@ -46,8 +46,10 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
     static func decision(for url: URL?, source: AgentPaneSource, userClicked: Bool, mainFrame: Bool = true) -> Decision {
         guard let url else { return .cancel }
         if mainFrame, source.isTrusted(url) { return .allow }
-        // A preview frame stays on loopback pages; a click inside it does not leave the frame.
-        if !mainFrame { return url.isAgentPanePreview ? .allow : .cancel }
+        // A preview frame stays on loopback pages; a click inside it does not leave the frame. It
+        // never loads the pane's own page (a dev-server pane is on loopback too), which would make
+        // it same-origin with the pane.
+        if !mainFrame { return url.isAgentPanePreview && !source.isTrusted(url) ? .allow : .cancel }
         if userClicked, let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" { return .openOutside(url) }
         return .cancel
     }

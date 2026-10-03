@@ -67,6 +67,14 @@ import Testing
         #expect(AgentPaneNavigation.decision(for: pageURL, source: bundled, userClicked: false, mainFrame: true) == .allow)
     }
 
+    /// A dev-server pane is itself a loopback page; a frame never loads it,
+    /// or it would be same-origin with the pane.
+    @Test func aPreviewFrameNeverLoadsADevServerPanesOwnPage() throws {
+        let source = AgentPaneSource.devServer(try #require(URL(string: "http://127.0.0.1:4176/")))
+        #expect(AgentPaneNavigation.decision(for: URL(string: "http://127.0.0.1:4176/"), source: source, userClicked: false, mainFrame: false) == .cancel)
+        #expect(AgentPaneNavigation.decision(for: URL(string: "http://127.0.0.1:5173/"), source: source, userClicked: false, mainFrame: false) == .allow)
+    }
+
     /// The card's open is the catalog's `openBrowser` on the agent's pane, the
     /// path the tab strip and palette take; a refusal reaches the page.
     @Test func thePreviewOpensThroughOpenBrowser() throws {
