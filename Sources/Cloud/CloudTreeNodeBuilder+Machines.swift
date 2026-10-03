@@ -78,6 +78,7 @@ extension CloudTreeNodeBuilder {
         // Device machines have no cloud id and are never fleet rows.
         for info in snapshot.machines where !info.id.isLocal {
             guard let id = info.id.cloudMachineID, !seen.contains(id) else { continue }
+            let catalogOnlyConnecting = machines.isEmpty && info.linkState == .connecting
             let placeholderSnapshot = MachineSnapshot(
                 id: id,
                 provider: "",
@@ -94,7 +95,7 @@ extension CloudTreeNodeBuilder {
                 kind: .machine(placeholderSnapshot, info),
                 children: cloudChildren(
                     machine: info.id,
-                    machineSnapshot: placeholderSnapshot,
+                    machineSnapshot: catalogOnlyConnecting ? nil : placeholderSnapshot,
                     info: info,
                     snapshot: snapshot,
                     projectionIndex: projectionIndex,
@@ -104,7 +105,9 @@ extension CloudTreeNodeBuilder {
                 ),
                 isPinned: pinnedMachineIDs.contains(id)
             ))
-            nodes.last?.resourceSection = section
+            if !catalogOnlyConnecting {
+                nodes.last?.resourceSection = section
+            }
         }
         if source.groupsDevicesUnderSection {
             let cloudChildren = nodes.isEmpty
