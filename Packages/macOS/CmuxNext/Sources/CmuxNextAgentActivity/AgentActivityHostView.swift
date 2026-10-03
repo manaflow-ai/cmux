@@ -65,34 +65,40 @@ private final class AgentActivityBridge: NSObject, WKScriptMessageHandlerWithRep
 
     init(model: AgentActivityModel, source: any AgentActivitySource) { self.model = model; self.source = source }
 
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage, replyHandler: @escaping (Any?, String?) -> Void) {
-        guard let body = message.body as? [String: Any], let method = body["method"] as? String else { replyHandler(["ok": false, "error": ["userMessage": "Invalid Activity request"]], nil); return }
-        let params = body["params"] as? [String: Any] ?? [:]
-        Task { @MainActor in
-            do {
-                let value: Any
-                switch method {
-                case "ready": value = Self.state(model)
-                case "select": model.select(session: params["id"] as? String); value = NSNull()
-                case "filter": model.filter = params["value"] as? String ?? ""; value = NSNull()
-                case "scrub": model.scrub(to: (params["seq"] as? NSNumber).map { $0.uint64Value }); value = NSNull()
-                case "layout":
-                    if let raw = params["value"] as? String, let layout = AgentActivityLayout(rawValue: raw) { model.layout = layout }
-                    value = NSNull()
-                case "follow":
-                    model.follow(Set((params["ids"] as? [String]) ?? [])); value = NSNull()
-                case "perform":
-                    guard let op = Self.operation(params) else { throw AgentActivitySourceError.malformed }
-                    model.perform(op); value = NSNull()
-                case "frame":
-                    guard let blob = params["blob"] as? String else { throw AgentActivitySourceError.malformed }
-                    let width = params["width"] as? Int ?? 1
-                    let height = params["height"] as? Int ?? 1
-                    value = try await Self.frameData(source: source, frame: AgentActivityFrameRef(blob: blob, width: width, height: height))
-                default: throw AgentActivitySourceError.refused(method)
-                }
-                replyHandler(["ok": true, "value": value], nil)
-            } catch { replyHandler(["ok": false, "error": ["userMessage": String(describing: error)]], nil) }
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) async -> (Any?, String?) {
+        guard let body = message.body as? [String: Any], let method = body["method"] as? String else {
+            return (["ok": false, "error": ["userMessage": "Invalid Activity request"]], nil)
+        }
+        return await reply(to: method, params: body["params"] as? [String: Any] ?? [:])
+    }
+
+    @MainActor
+    private func reply(to method: String, params: [String: Any]) async -> (Any?, String?) {
+        do {
+            let value: Any
+            switch method {
+            case "ready": value = Self.state(model)
+            case "select": model.select(session: params["id"] as? String); value = NSNull()
+            case "filter": model.filter = params["value"] as? String ?? ""; value = NSNull()
+            case "scrub": model.scrub(to: (params["seq"] as? NSNumber).map { $0.uint64Value }); value = NSNull()
+            case "layout":
+                if let raw = params["value"] as? String, let layout = AgentActivityLayout(rawValue: raw) { model.layout = layout }
+                value = NSNull()
+            case "follow":
+                model.follow(Set((params["ids"] as? [String]) ?? [])); value = NSNull()
+            case "perform":
+                guard let op = Self.operation(params) else { throw AgentActivitySourceError.malformed }
+                model.perform(op); value = NSNull()
+            case "frame":
+                guard let blob = params["blob"] as? String else { throw AgentActivitySourceError.malformed }
+                let width = params["width"] as? Int ?? 1
+                let height = params["height"] as? Int ?? 1
+                value = try await Self.frameData(source: source, frame: AgentActivityFrameRef(blob: blob, width: width, height: height))
+            default: throw AgentActivitySourceError.refused(method)
+            }
+            return (["ok": true, "value": value], nil)
+        } catch {
+            return (["ok": false, "error": ["userMessage": String(describing: error)]], nil)
         }
     }
 
