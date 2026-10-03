@@ -77,9 +77,10 @@ extension AppOnboardingServices {
               let screen = workspace.screens.first else { return }
         let paneIDs = screen.layout.paneIDs
         let panes = screen.panes
-        let surfaces: [SurfaceID] = paneIDs.flatMap { paneID in
-            guard let pane = panes.first(where: { $0.id == paneID }) else { return [] }
-            return pane.tabs.map(\.surface)
+        var surfaces: [SurfaceID] = []
+        for paneID in paneIDs {
+            guard let pane = panes.first(where: { $0.id == paneID }) else { continue }
+            surfaces.append(contentsOf: pane.tabs.map(\.surface))
         }
         for (surface, tab) in zip(surfaces, classicTabs(layout)) {
             if let title = tab.title, !title.isEmpty { try await connection.renameTab(surface, to: title) }
