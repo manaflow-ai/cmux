@@ -86,4 +86,20 @@ struct AppManifestTests {
         #expect(text.resolved(preferredLanguages: ["pt-BR"]) == "Agentes")
         #expect(text.resolved(preferredLanguages: ["de"]) == "Agents")
     }
+
+    /// The Swift validator follows the schema for palette scopes (the Rust validator is the reference).
+    @Test func paletteScopeRulesMatchTheSchema() throws {
+        func manifest(_ scopes: String, activation: String = "[]") throws -> AppManifest {
+            try AppManifest.decode(AppJSON.parse("""
+            {"manifestVersion":1,"id":"local/x","name":"X","version":"0.1.0","description":"d","engines":{"cmux":"^1.0"},
+             "activation":\(activation),"contributes":{"paletteScopes":\(scopes)}}
+            """))
+        }
+        let one = #"{"id":"s","title":"S","source":{"kind":"snapshot","export":"items"},"prefix":"@"}"#
+        _ = try manifest("[\(one)]", activation: #"["onPaletteScope:s"]"#)
+        #expect(throws: AppManifestError.self) { try manifest(#"[{"id":"s","title":"S","source":{"kind":"snapshot","export":"items"},"prefix":"ab"}]"#) }
+        #expect(throws: AppManifestError.self) { try manifest(#"[{"id":"s","title":"S"}]"#) }
+        let nine = (0..<9).map { #"{"id":"s\#($0)","title":"S","source":{"kind":"snapshot","export":"items"}}"# }.joined(separator: ",")
+        #expect(throws: AppManifestError.self) { try manifest("[\(nine)]") }
+    }
 }
