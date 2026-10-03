@@ -195972,16 +195972,16 @@
             "value": "إلغاء"
           }
         },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud nije omogućen. Podešavanje možete ponovo pokrenuti kada budete spremni."
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud nije omogućen. Podešavanje možete ponovo pokrenuti kada budete spremni."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud blev ikke aktiveret. Du kan starte opsætningen igen, når du er klar."
+            "value": "Cloud blev ikke aktiveret. Du kan starte opsætningen igen, når du er klar."
           }
         },
         "de": {
@@ -195993,7 +195993,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud non è stato abilitato. Puoi ripetere la configurazione quando vuoi."
+            "value": "Cloud non è stato abilitato. Puoi ripetere la configurazione quando vuoi."
           }
         },
         "es": {
@@ -196011,7 +196011,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud មិនត្រូវបានបើកទេ។ អ្នកអាចចាប់ផ្តើមការរៀបចំម្តងទៀតនៅពេលរួចរាល់។"
+            "value": "Cloud មិនត្រូវបានបើកទេ។ អ្នកអាចចាប់ផ្តើមការរៀបចំម្តងទៀតនៅពេលរួចរាល់។"
           }
         },
         "ja": {
@@ -196023,7 +196023,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud ble ikke aktivert. Du kan starte oppsettet på nytt når du er klar."
+            "value": "Cloud ble ikke aktivert. Du kan starte oppsettet på nytt når du er klar."
           }
         },
         "ko": {
@@ -196035,37 +196035,37 @@
         "nb": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud nie zostało włączone. Możesz ponownie rozpocząć konfigurację, gdy będziesz gotowy."
+            "value": "Cloud nie zostało włączone. Możesz ponownie rozpocząć konfigurację, gdy będziesz gotowy."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-        "value": "O Cloud não foi ativado. Você pode iniciar a configuração novamente quando quiser."
+            "value": "O Cloud não foi ativado. Você pode iniciar a configuração novamente quando quiser."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud не ввімкнено. Ви можете знову розпочати налаштування, коли будете готові."
+            "value": "Cloud не ввімкнено. Ви можете знову розпочати налаштування, коли будете готові."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud ยังไม่ได้เปิดใช้ คุณสามารถเริ่มการตั้งค่าใหม่ได้เมื่อพร้อม"
+            "value": "Cloud ยังไม่ได้เปิดใช้ คุณสามารถเริ่มการตั้งค่าใหม่ได้เมื่อพร้อม"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud etkinleştirilmedi. Hazır olduğunuzda kurulumu yeniden başlatabilirsiniz."
+            "value": "Cloud etkinleştirilmedi. Hazır olduğunuzda kurulumu yeniden başlatabilirsiniz."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud не включён. Вы можете снова начать настройку, когда будете готовы."
+            "value": "Cloud не включён. Вы можете снова начать настройку, когда будете готовы."
           }
         },
         "uk": {
@@ -609984,70 +609984,70 @@
             "value": "Cloud Machines 需要 cmux Pro"
           }
         },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines zahtijevaju cmux Pro"
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines zahtijevaju cmux Pro"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud Machines kræver cmux Pro"
+            "value": "Cloud Machines kræver cmux Pro"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud Machines richiedono cmux Pro"
+            "value": "Cloud Machines richiedono cmux Pro"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud Machines ត្រូវការ cmux Pro"
+            "value": "Cloud Machines ត្រូវការ cmux Pro"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud Machines krever cmux Pro"
+            "value": "Cloud Machines krever cmux Pro"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud Machines wymagają cmux Pro"
+            "value": "Cloud Machines wymagają cmux Pro"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-        "value": "O Cloud Machines requer cmux Pro"
+            "value": "O Cloud Machines requer cmux Pro"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-        "value": "Для Cloud Machines требуется cmux Pro"
+            "value": "Для Cloud Machines требуется cmux Pro"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud Machines ต้องใช้ cmux Pro"
+            "value": "Cloud Machines ต้องใช้ cmux Pro"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud Machines için cmux Pro gerekir"
+            "value": "Cloud Machines için cmux Pro gerekir"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-        "value": "Для Cloud Machines потрібен cmux Pro"
+            "value": "Для Cloud Machines потрібен cmux Pro"
           }
         }
       }
@@ -617708,6 +617708,537 @@
           "stringUnit": {
             "state": "translated",
             "value": "讀取 Simulator 子程序輸出時在 %1$@ 失敗：%2$@（errno %3$@）。"
+          }
+        }
+      }
+    },
+    "account.callbackApproval.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t Sign In"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインしない"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t Sign In"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t Sign In"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t Sign In"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t Sign In"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t Sign In"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t Sign In"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t Sign In"
+          }
+        }
+      }
+    },
+    "account.callbackApproval.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインイン"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        }
+      }
+    },
+    "account.callbackApproval.replace.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Account"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを切り替える"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Account"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Account"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Account"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Account"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Account"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Account"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Account"
+          }
+        }
+      }
+    },
+    "account.callbackApproval.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux from a link?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクから cmux にサインインしますか？"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux from a link?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux from a link?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux from a link?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux from a link?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux from a link?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux from a link?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux from a link?"
+          }
+        }
+      }
+    },
+    "account.callbackApproval.replace.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch cmux to another account?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux を別のアカウントに切り替えますか？"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch cmux to another account?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch cmux to another account?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch cmux to another account?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch cmux to another account?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch cmux to another account?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch cmux to another account?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch cmux to another account?"
+          }
+        }
+      }
+    },
+    "account.callbackApproval.message.email": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクが cmux に %@ としてサインインするよう求めています。ブラウザで cmux にサインインした直後の場合にのみ続行してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+          }
+        }
+      }
+    },
+    "account.callbackApproval.message.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクが cmux にアカウントへのサインインを求めています。ブラウザで cmux にサインインした直後の場合にのみ続行してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+          }
+        }
+      }
+    },
+    "account.callbackApproval.replace.current": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在 %@ としてサインインしています。続行するとそのセッションが置き換えられ、以降の cmux のアクティビティはリンクのアカウントに属します。このアカウントを自分で選んだ直後でない場合は、「サインインしない」をクリックしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        }
+      }
+    },
+    "account.callbackApproval.replace.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すでにサインインしています。続行するとそのセッションが置き換えられ、以降の cmux のアクティビティはリンクのアカウントに属します。このアカウントを自分で選んだ直後でない場合は、「サインインしない」をクリックしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
           }
         }
       }

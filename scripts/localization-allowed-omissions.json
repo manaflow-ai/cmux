@@ -4447,5 +4447,428 @@
       "ko": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
       "ja": "The concurrent machine count is a numeric plan limit and is invariant across locales."
     }
+  },
+  "account.callbackApproval.cancel": {
+    "source": "Don’t Sign In",
+    "identityLocales": {
+      "de": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Don’t Sign In"
+        ]
+      },
+      "fr": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Don’t Sign In"
+        ]
+      },
+      "ar": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Don’t Sign In"
+        ]
+      },
+      "es": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Don’t Sign In"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Don’t Sign In"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Don’t Sign In"
+        ]
+      },
+      "ko": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Don’t Sign In"
+        ]
+      }
+    }
+  },
+  "account.callbackApproval.confirm": {
+    "source": "Sign In",
+    "identityLocales": {
+      "de": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Sign In"
+        ]
+      },
+      "fr": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Sign In"
+        ]
+      },
+      "ar": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Sign In"
+        ]
+      },
+      "es": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Sign In"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Sign In"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Sign In"
+        ]
+      },
+      "ko": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Sign In"
+        ]
+      }
+    }
+  },
+  "account.callbackApproval.replace.confirm": {
+    "source": "Switch Account",
+    "identityLocales": {
+      "de": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Switch Account"
+        ]
+      },
+      "fr": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Switch Account"
+        ]
+      },
+      "ar": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Switch Account"
+        ]
+      },
+      "es": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Switch Account"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Switch Account"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Switch Account"
+        ]
+      },
+      "ko": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Switch Account"
+        ]
+      }
+    }
+  },
+  "account.callbackApproval.title": {
+    "source": "Sign in to cmux from a link?",
+    "identityLocales": {
+      "de": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Sign in to cmux from a link?"
+        ]
+      },
+      "fr": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Sign in to cmux from a link?"
+        ]
+      },
+      "ar": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Sign in to cmux from a link?"
+        ]
+      },
+      "es": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Sign in to cmux from a link?"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Sign in to cmux from a link?"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Sign in to cmux from a link?"
+        ]
+      },
+      "ko": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Sign in to cmux from a link?"
+        ]
+      }
+    }
+  },
+  "account.callbackApproval.replace.title": {
+    "source": "Switch cmux to another account?",
+    "identityLocales": {
+      "de": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Switch cmux to another account?"
+        ]
+      },
+      "fr": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Switch cmux to another account?"
+        ]
+      },
+      "ar": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Switch cmux to another account?"
+        ]
+      },
+      "es": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Switch cmux to another account?"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Switch cmux to another account?"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Switch cmux to another account?"
+        ]
+      },
+      "ko": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "Switch cmux to another account?"
+        ]
+      }
+    }
+  },
+  "account.callbackApproval.message.email": {
+    "source": "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser.",
+    "identityLocales": {
+      "de": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+        ]
+      },
+      "fr": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+        ]
+      },
+      "ar": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+        ]
+      },
+      "es": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+        ]
+      },
+      "ko": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+        ]
+      }
+    }
+  },
+  "account.callbackApproval.message.unknown": {
+    "source": "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser.",
+    "identityLocales": {
+      "de": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+        ]
+      },
+      "fr": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+        ]
+      },
+      "ar": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+        ]
+      },
+      "es": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+        ]
+      },
+      "ko": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+        ]
+      }
+    }
+  },
+  "account.callbackApproval.replace.current": {
+    "source": "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In.",
+    "identityLocales": {
+      "de": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+        ]
+      },
+      "fr": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+        ]
+      },
+      "ar": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+        ]
+      },
+      "es": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+        ]
+      },
+      "ko": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+        ]
+      }
+    }
+  },
+  "account.callbackApproval.replace.generic": {
+    "source": "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In.",
+    "identityLocales": {
+      "de": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+        ]
+      },
+      "fr": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+        ]
+      },
+      "ar": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+        ]
+      },
+      "es": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+        ]
+      },
+      "ko": {
+        "reason": "Account callback approval copy is intentionally identical until native translations are supplied; the translated catalog entry is still required.",
+        "values": [
+          "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+        ]
+      }
+    }
   }
 }
