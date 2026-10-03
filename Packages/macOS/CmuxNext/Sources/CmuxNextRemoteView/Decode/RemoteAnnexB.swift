@@ -92,11 +92,11 @@ public struct RemoteAnnexB {
         out.append(contentsOf: nal)
     }
 
-    enum NALType: Equatable {
+    nonisolated enum NALType: Equatable {
         case vps, sps, pps, delimiter
         case other(isSlice: Bool, isRandomAccess: Bool)
 
-        init(header: UInt8, codec: RemoteVideoCodec) {
+        nonisolated init(header: UInt8, codec: RemoteVideoCodec) {
             switch codec {
             case .h264:
                 let type = header & 0x1F
