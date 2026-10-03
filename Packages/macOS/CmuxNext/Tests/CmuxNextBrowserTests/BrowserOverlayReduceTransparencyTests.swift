@@ -52,6 +52,11 @@ import Testing
         #expect((veil.layer?.backgroundColor?.alpha ?? 0) > 0.5)
     }
 
+    @Test func thePageInfoCardResolvesThroughTheOverlaySurface() throws {
+        defer { ReduceTransparency.shared.override = nil }
+        try expectFollowsReduceTransparency(PageInfoCardView(frame: .zero).glass, "page info")
+    }
+
     @Test func barsStartOpaqueUnderReduceTransparency() throws {
         ReduceTransparency.shared.override = true
         defer { ReduceTransparency.shared.override = nil }

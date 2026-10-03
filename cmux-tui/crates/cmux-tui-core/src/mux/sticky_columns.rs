@@ -142,6 +142,19 @@ pub(crate) fn reduce_column_sticky(
     Ok(next)
 }
 
+/// Sets the flag of `columns[index]` through [`reduce_column_sticky`] and
+/// writes the resulting flags back. On a reject the columns are unchanged.
+/// Shared by `set-column-sticky` and the resource op `column.update`.
+pub(crate) fn apply_column_sticky(
+    columns: &mut [LayoutColumn],
+    index: usize,
+    sticky: Option<ColumnSticky>,
+) -> Result<(), ColumnStickyError> {
+    let flags = reduce_column_sticky(&column_flags(columns), index, sticky)?;
+    write_column_flags(columns, flags);
+    Ok(())
+}
+
 fn column_flags(columns: &[LayoutColumn]) -> Vec<Option<ColumnSticky>> {
     columns.iter().map(|column| column.sticky).collect()
 }
@@ -218,9 +231,7 @@ impl Mux {
                     let mut projected = state.clone();
                     let target = &mut projected.workspaces[workspace].screens[screen];
                     let before = target.layout_snapshot_for_coalescing_change(coalesce);
-                    let current = column_flags(&target.layout_columns);
-                    let flags = reduce_column_sticky(&current, column, sticky)?;
-                    write_column_flags(&mut target.layout_columns, flags);
+                    apply_column_sticky(&mut target.layout_columns, column, sticky)?;
                     target.record_prepared_layout_change(before, Vec::new(), coalesce);
                     let outcome = ColumnStickyOutcome {
                         screen: target.id,

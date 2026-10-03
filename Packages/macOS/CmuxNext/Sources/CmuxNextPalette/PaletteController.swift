@@ -57,20 +57,19 @@ public final class PaletteController {
         model.performer = { [registry] handler in registry.reportingRefusal(handler) }
         model.onRefusal = { [weak self] _ in self?.presentAgain() }
         model.onEditShortcut = { [weak self] id in self?.shortcutRecorder.begin(id) ?? false }
+        model.onDropShortcutRecorder = { [weak self] in self?.shortcutRecorder.abandon() }
     }
 
     // MARK: Registry wiring
 
     /// Binds the palette's own catalog actions: Command Palette (toggle),
-    /// Go to Workspace, Go to Tab, and Search Keyboard Shortcuts.
+    /// Go to Workspace and Search Keyboard Shortcuts. Go to Tab is Search
+    /// Tabs, which the App binds (`tab.search`).
     public func bindRegistryActions() {
         registry.bind("commandPalette") { [weak self] in self?.toggle(.commands) }
         registry.bind("palette.searchShortcuts") { [weak self] in self?.show(.keyboardShortcuts) }
         if sources.workspaces != nil {
             registry.bind("goToWorkspace") { [weak self] in self?.show(.workspaces) }
-        }
-        if sources.tabs != nil {
-            registry.bind("palette.goToTab") { [weak self] in self?.show(.tabs) }
         }
         registry.argumentCollector = { [weak self] id, invocation in
             self?.collectArguments(for: id, invocation: invocation)
@@ -253,6 +252,7 @@ public final class PaletteController {
         registry.context.remove(.paletteOpen)
         onVisibilityChange?(false)
         model.closeActionsMenu()
+        shortcutRecorder.abandon()
         model.shortcutRecorder = nil
         model.hover(nil)
         model.didHide()

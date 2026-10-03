@@ -133,46 +133,10 @@
       location = "container:Packages/macOS"
       name = "Packages (macOS)">
       <FileRef
-         location = "group:CmuxAgentJournal">
-      </FileRef>
-      <FileRef
-         location = "group:CMUXAgentLaunch">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxControlSocket">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxCore">
-      </FileRef>
-      <FileRef
-         location = "group:CMUXDebugLog">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxFoundation">
-      </FileRef>
-      <FileRef
          location = "group:CmuxNext">
       </FileRef>
       <FileRef
          location = "group:CmuxPhonePush">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxSettings">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxSimulator">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxSudoBroker">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxSurfaceCatalogModel">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxTerminalCore">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxTerminalImport">
       </FileRef>
       <FileRef
          location = "group:CmuxUpdater">

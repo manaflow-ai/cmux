@@ -30,10 +30,11 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var isVisible: Bool { presence == .visible }
     /// Tabs closed locally while the daemon confirms, so a close looks instant.
     var pendingClosed: Set<String> = []
-    /// A tab this app just created here; selected once the daemon reports it.
-    var pendingSelectSurface: SurfaceID?
+    /// A tab this app just created here; selected once the daemon reports it
+    /// (`selectWhenReported`).
+    private(set) var pendingSelectSurface: SurfaceID?
     /// Same, named by tab resource id (a reopened tab's restored view).
-    var pendingSelectTab: String?
+    private(set) var pendingSelectTab: String?
     private var observation: Task<Void, Never>?
     private var buttonsObservation: Task<Void, Never>?
 
@@ -176,6 +177,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if force { view.stripView.discardPendingReorder() }
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }
         if stripModel.tabs != snapshot.items { stripModel.tabs = snapshot.items }
+        if !snapshot.items.isEmpty { LaunchReveal.shared.markReady(.tabs) }
         var selectNew = false
         if let pending = pendingSelectSurface, let tab = pane.tabs.first(where: { $0.surface == pending }) {
             state?.selection.select(tab.id, in: paneKey)
@@ -206,6 +208,23 @@ final class PaneController: SurfacePresenter, PresentablePane {
         workspace?.sendTopology()
     }
 
+    /// Selects the tab on `surface`, which this app just created here, once
+    /// the daemon reports it, and shows it now when it already does. An
+    /// action run without view-change permission (a CLI, script or agent
+    /// run without `focus: true`) creates the tab in the background.
+    func selectWhenReported(surface: SurfaceID) {
+        guard ActionRunScope.viewChangeAllowed() else { return apply(snapshot()) }
+        pendingSelectSurface = surface
+        apply(snapshot())
+    }
+
+    /// Same, for a tab named by its resource id (a reopened tab).
+    func selectWhenReported(tab: String) {
+        guard ActionRunScope.viewChangeAllowed() else { return apply(snapshot()) }
+        pendingSelectTab = tab
+        apply(snapshot())
+    }
+
     /// Re-pushes daemon truth after a rejection.
     func resyncStrip() {
         apply(snapshot(), force: true)
@@ -230,6 +249,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         currentTabKey = key
         if let key, content != nil { services.cache.present(key, by: self, presence: presence) }
         view.show(content?.view)
+        // Terminals come in on their first frame (`LaunchSettle`); other
+        // content (a page, an agent) is ready once shown.
+        if let content, !content.isTerminal { LaunchReveal.shared.markReady(.pane) }
         // The content view exists now: the coordinator re-applies focus if
         // this pane has it (content is shown a frame after selection).
         if workspace?.isParked == false { workspace?.focus.send(.contentPresented(pane: paneKey)) }

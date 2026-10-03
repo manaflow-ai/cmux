@@ -4,7 +4,7 @@ name: cmux-next
 # (Packages/macOS/CmuxNext). `swift test` runs the package's Swift Testing
 # suites in-process; it never builds or launches a cmux DEV app. The checks
 # are the AGENT-BRIEF merge gate: god files, main-thread concurrency and the
-# string tables (the CmuxNext catalogs, InfoPlist and the CLI table).
+# string tables (the CmuxNext catalogs and InfoPlist).
 
 on:
   pull_request:
@@ -21,11 +21,13 @@ on:
       - Packages/iOS/**
       - cmux-tui/**
       - CLI/**
+      - cmuxCLITests/**
+      - cmuxCLITestSupport/**
+      - Resources/Localizable.xcstrings
       - web/**
       - scripts/ghosttykit-checksums.txt
       - ghostty
       - Resources/InfoPlist.xcstrings
-      - Resources/Localizable.xcstrings
       - scripts/cmux-next/check-*.sh
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/prefix-ghosttykit-archives.sh
@@ -53,12 +55,14 @@ on:
       - Packages/iOS/**
       - cmux-tui/**
       - CLI/**
+      - cmuxCLITests/**
+      - cmuxCLITestSupport/**
+      - Resources/Localizable.xcstrings
       - web/**
       - scripts/ghosttykit-checksums.txt
       - ghostty
       - scripts/download-prebuilt-ghosttykit.sh
       - Resources/InfoPlist.xcstrings
-      - Resources/Localizable.xcstrings
       - scripts/cmux-next/check-*.sh
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/prefix-ghosttykit-archives.sh
@@ -90,26 +94,27 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # The macOS jobs run as a side lane, like relay-tls.yml and reload-build.yml:
-# attempt 1 of a trusted run (a same-repository pull request, a push or a
-# dispatch) may take vars.CI_SIDE_LANE_RUNNER, the minis' glaeda-side-* label,
-# while owned pools are on (CI_PR_POOL_OWNED is 1). A fork pull request, any
-# re-run, or an unset variable takes the fallback (MACOS_RUNNER_26, else
-# Blacksmith). macos-placement decides attempt 1 per job, minis first: a job
-# takes the side label when an owned side runner is idle now
-# (scripts/ci/side_lane_placement.py, the main picker's idle_placement()), and
-# its fallback otherwise, instead of queueing on a busy fleet until the rescue
-# cancels the run (49 of 60 runs on 2026-10-02 needed attempt 2). When a job
-# took the side label, macos-placement uploads the owned-pool-watch marker:
+# Trusted runs (a same-repository pull request, a push or a dispatch) stay on
+# vars.CI_SIDE_LANE_RUNNER, the minis' glaeda-side-* label, while owned pools
+# are on (CI_PR_POOL_OWNED is 1). Fork pull requests keep their fallback.
+# Manual reruns stay minis-first; the rescue's second attempt does too, and
+# only a later bot attempt is the measured Blacksmith overflow. macos-placement
+# records idle side runners with the main picker's idle_placement() but never
+# turns a busy mini into an instant fallback, so jobs queue while the fleet
+# drains. When a job takes the side label, macos-placement uploads the
+# owned-pool-watch marker:
 # ci-owned-pool-rescue.yml's sweeper on main adopts the run
 # (owned_pool_rescue.SIDE_WORKFLOW_PATHS) and re-runs a job a mini leaves
-# queued or refuses, and that attempt 2 lands on the fallback.
+# queued or refuses. The second attempt stays on the side label; a later bot
+# attempt is the measured overflow.
 jobs:
   macos-placement:
-    # Attempt 1's macOS jobs take an owned side runner only when one is idle
-    # now (scripts/ci/side_lane_placement.py); the rest take their fallback.
+    # Attempt 1's macOS jobs stay on the owned side label while the fleet
+    # drains. The placement step records idle runners but never falls back on
+    # an instantaneous busy result.
     # Every step fails open: a skipped or failed placement leaves
-    # fallback_jobs empty, so the jobs keep the side label as before and the
-    # marker is still uploaded. It runs only where attempt 1's Mac jobs may
+    # fallback_jobs empty, so the jobs keep the side label and the marker is
+    # still uploaded. It runs only where attempt 1's Mac jobs may
     # take the side label (CMUX_NEXT_SIDE_ROUTE's owned branch): a fork, another
     # owner, owned pools off or a re-run starts no Linux runner for it, and the
     # Mac jobs (needs plus !cancelled()) take their route without it. A re-run
@@ -203,6 +208,11 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-no-godfiles.sh --only rust "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
+      - name: No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
+        id: no-swift-cli
+        continue-on-error: true
+        run: scripts/cmux-next/check-no-swift-cli.sh "$GITHUB_WORKSPACE"
+
       - name: Main-thread concurrency
         id: concurrency
         continue-on-error: true
@@ -235,6 +245,7 @@ jobs:
           OUTCOMES: |
             ${{ steps.godfiles-swift.outcome }}|God files and types (Swift)
             ${{ steps.godfiles-rust.outcome }}|God files (cmux-tui Rust)
+            ${{ steps.no-swift-cli.outcome }}|No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
             ${{ steps.concurrency.outcome }}|Main-thread concurrency
             ${{ steps.crash-safety.outcome }}|Crash safety
             ${{ steps.l10n.outcome }}|String tables (21 languages)
@@ -264,13 +275,13 @@ jobs:
     needs: macos-placement
     if: ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
     name: cmux-next swift test
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && !contains(needs.macos-placement.outputs.fallback_jobs, ' swift-test ') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     # A cold build of the package graph (CmuxNext plus its Shared and iOS test
     # dependencies) and the whole suite.
     timeout-minutes: 60
     env:
       # This job's label (its runs-on): a glaeda-* label means a mini.
-      CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && !contains(needs.macos-placement.outputs.fallback_jobs, ' swift-test ') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+      CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       # The package deploys to macOS 26, so the test runner needs a macOS 26
       # host and SDK.
@@ -345,20 +356,36 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --skip CmuxNextControlTests --skip CmuxNextBrowserAutomationTests --skip TerminalAttachDriverStressTests
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --skip CmuxNextControlTests --skip CmuxNextBrowserAutomationTests --skip TerminalAttachDriverStressTests --skip ActionRunWaitTests --skip DaemonClosedHistoryTests --skip EphemeralWorkspaceTests --skip StateMutationRoutingTests
 
+      # Like the steps below, runs whenever the build succeeded, even after a
+      # failed test step, so one red step does not hide the others.
       - name: Run control package tests
+        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}
         timeout-minutes: 20
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter CmuxNextControlTests
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter CmuxNextControlTests --skip CLISurfaceParityTests
+
+      # These socket/readiness and CLI parity tests assert routing, not scheduler
+      # throughput. Concurrent app/catalog setup can occupy the main actor longer
+      # than their real request deadlines. Keep those deadlines and assertions,
+      # but run these suites alone and one test at a time, including action retries.
+      - name: Run daemon routing and CLI parity tests
+        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}
+        timeout-minutes: 10
+        working-directory: Packages/macOS/CmuxNext
+        env:
+          CMUX_NEXT_TEST_HANG_SECONDS: "480"
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter 'ActionRunWaitTests|DaemonClosedHistoryTests|EphemeralWorkspaceTests|StateMutationRoutingTests|CLISurfaceParityTests'
 
       # The WebKit driver tests drive real WKWebViews against wall-clock load
-      # deadlines through main-actor navigation callbacks. They run after the
-      # control tests, in a process of their own: the package's other main-actor tests do not delay
-      # those callbacks, and a WebKit failure does not skip the control tests.
+      # deadlines through main-actor navigation callbacks. They run in a
+      # process of their own, so the package's other main-actor tests do not
+      # delay those callbacks.
       - name: Run WebKit driver package tests
+        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}
         timeout-minutes: 10
         working-directory: Packages/macOS/CmuxNext
         env:
@@ -383,14 +410,14 @@ jobs:
     needs: macos-placement
     if: ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
     name: cmux-next Release compile (Xcode 26)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && !contains(needs.macos-placement.outputs.fallback_jobs, ' release-compile ') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     # One-architecture Release (-O, whole-module) xcodebuild of CmuxNextApp
     # with the nightly's Xcode. Debug `swift build` and Xcode 27 accept code
     # that this rejects; without this job such code fails only the nightly.
     timeout-minutes: 60
     env:
       # This job's label (its runs-on): a glaeda-* label means a mini.
-      CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && !contains(needs.macos-placement.outputs.fallback_jobs, ' release-compile ') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+      CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
@@ -451,11 +478,26 @@ jobs:
           CEF_DIR: ${{ steps.cef.outputs.dir }}
         run: scripts/cmux-next/build-cef-shim.sh "$CEF_DIR" "$(scripts/cmux-next/cef-cache-root.sh)/shim"
 
+  # A green Release compile on a feat-cmux-next push may move the protected
+  # `nightly-next` branch, which publishes the cmux-next NIGHTLY track
+  # (debounced; see nightly-next-promote.yml).
+  promote-nightly-next:
+    needs: release-compile
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile.result == 'success'
+    permissions:
+      contents: read
+      checks: read
+      actions: read
+    uses: ./.github/workflows/nightly-next-promote.yml
+    with:
+      sha: ${{ github.sha }}
+    secrets: inherit
+
   cmux-scheme-compile:
     needs: macos-placement
     if: ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
     name: cmux app scheme compile (Debug)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && !contains(needs.macos-placement.outputs.fallback_jobs, ' cmux-scheme-compile ') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     # Debug arm64 xcodebuild of the cmux app scheme: the app host and every
     # local package it links (CmuxControlSocket, CmuxCore, ...), which the
     # CmuxNext jobs above never compile. A main merge once left
@@ -465,7 +507,7 @@ jobs:
     timeout-minutes: 60
     env:
       # This job's label (its runs-on): a glaeda-* label means a mini.
-      CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && !contains(needs.macos-placement.outputs.fallback_jobs, ' cmux-scheme-compile ') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+      CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:

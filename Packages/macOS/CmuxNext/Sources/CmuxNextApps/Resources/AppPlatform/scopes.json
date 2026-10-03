@@ -117,6 +117,18 @@
       "scope": "clipboard:write",
       "class": "mutation"
     },
+    "domain.claim": {
+      "scope": "domain:write",
+      "class": "mutation"
+    },
+    "domain.list": {
+      "scope": "domain:read",
+      "class": "read"
+    },
+    "domain.verify": {
+      "scope": "domain:write",
+      "class": "mutation"
+    },
     "feed.adopt": {
       "scope": "feed:write",
       "class": "mutation"
@@ -173,6 +185,18 @@
       "scope": "feed:write",
       "class": "mutation"
     },
+    "firewall.create": {
+      "scope": "firewall:write",
+      "class": "mutation"
+    },
+    "firewall.get": {
+      "scope": "firewall:read",
+      "class": "read"
+    },
+    "firewall.list": {
+      "scope": "firewall:read",
+      "class": "read"
+    },
     "github.issue.comment": {
       "scope": "github:external",
       "class": "mutation"
@@ -220,6 +244,10 @@
     "net.fetch": {
       "scope": "net:<host>",
       "class": "runtime"
+    },
+    "network.list": {
+      "scope": "network:read",
+      "class": "read"
     },
     "notification.ack": {
       "scope": "notification:write",
@@ -317,6 +345,14 @@
       "scope": "workspace:write",
       "class": "mutation"
     },
+    "server.pair.approve": {
+      "scope": "server:write",
+      "class": "mutation"
+    },
+    "server.pair.preview": {
+      "scope": "server:read",
+      "class": "read"
+    },
     "session.get": {
       "scope": "session:read",
       "class": "read"
@@ -407,6 +443,22 @@
     },
     "slack.post_as_bot": {
       "scope": "slack:external",
+      "class": "mutation"
+    },
+    "sso.connection.activate": {
+      "scope": "sso:write",
+      "class": "mutation"
+    },
+    "sso.connection.create": {
+      "scope": "sso:write",
+      "class": "mutation"
+    },
+    "sso.connection.list": {
+      "scope": "sso:read",
+      "class": "read"
+    },
+    "sso.connection.set_secret": {
+      "scope": "sso:write",
       "class": "mutation"
     },
     "tab.create_browser": {
@@ -561,6 +613,18 @@
       "scope": "terminal:read",
       "class": "read"
     },
+    "tunnel.attach": {
+      "scope": "tunnel:write",
+      "class": "mutation"
+    },
+    "tunnel.detach": {
+      "scope": "tunnel:write",
+      "class": "mutation"
+    },
+    "tunnel.rotate-key": {
+      "scope": "tunnel:write",
+      "class": "mutation"
+    },
     "workspace.create": {
       "scope": "workspace:write",
       "class": "mutation"
@@ -607,6 +671,8 @@
     "client.metadata.update",
     "client.sizing.release",
     "client.sizing.set",
+    "domain.release",
+    "firewall.delete",
     "frontend_projection.get",
     "frontend_projection.put",
     "host.enroll",
@@ -621,6 +687,7 @@
     "pane.close",
     "request.cancel",
     "screen.close",
+    "server.revoke",
     "session.creation.resolve",
     "session.events",
     "session.journal.subscribe",
@@ -628,6 +695,7 @@
     "session.reload_config",
     "session.shutdown",
     "sidebar_view.attach",
+    "sso.connection.disable",
     "stream.cancel",
     "tab.close",
     "team.enrollment_token.revoke",

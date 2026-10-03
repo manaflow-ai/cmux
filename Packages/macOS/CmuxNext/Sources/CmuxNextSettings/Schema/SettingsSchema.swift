@@ -52,6 +52,7 @@ public nonisolated enum SettingsSchema {
         let columns = SettingsText.text("settings.group.columns", "Columns")
         let quitting = SettingsText.text("settings.group.quit", "Quitting")
         let history = SettingsText.text("settings.group.history", "History")
+        let tabs = SettingsText.text("settings.group.tabs", "Tabs")
         return [
             SettingDescriptor(
                 TerminalCommandHistorySetting.configPath, section: .general, group: history,
@@ -84,6 +85,7 @@ public nonisolated enum SettingsSchema {
                 ]),
                 default: .string(WindowRailSetting.fallback.rawValue), keywords: ["rail", "toolbar", "buttons", "inbox", "accounts"]
             ),
+            newTabKind(group: tabs),
             SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,
                 title: SettingsText.text("settings.app.quitBehavior", "When Quitting"),
@@ -232,6 +234,18 @@ public nonisolated enum SettingsSchema {
                     SettingChoice(TabBarBackground.darker.rawValue, SettingsText.text("settings.choice.darker", "Darker")),
                 ]),
                 default: .string(PaneFocusSettings.tabBarBackgroundFallback.rawValue), keywords: ["tab", "strip", "background", "bar"]
+            ),
+            SettingDescriptor(
+                PaneFocusSettings.inactiveTabStylePath, section: .appearance, group: look,
+                title: SettingsText.text("settings.focus.inactiveTabStyle", "Unfocused Pane Tabs"),
+                help: SettingsText.text("settings.focus.inactiveTabStyle.help",
+                                        "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill."),
+                kind: .choice([
+                    SettingChoice(InactiveTabStyle.fade.rawValue, SettingsText.text("settings.choice.fade", "Fade")),
+                    SettingChoice(InactiveTabStyle.tonal.rawValue, SettingsText.text("settings.choice.tonal", "Tonal")),
+                    SettingChoice(InactiveTabStyle.quiet.rawValue, SettingsText.text("settings.choice.quiet", "Quiet")),
+                ]),
+                default: .string(PaneFocusSettings.inactiveTabStyleFallback.rawValue), keywords: ["focus", "inactive", "unfocused", "pane", "tab", "fade", "dim"]
             ),
             SettingDescriptor(
                 AnimationSpeedSetting.configPath, section: .appearance, group: look,

@@ -52,6 +52,22 @@ impl NavigationHold {
     }
 }
 
+impl crate::Mux {
+    /// Raw `browser-navigate`: a frontend-rendered page has no daemon CDP
+    /// target, so the daemon refuses instead of acknowledging and dropping.
+    pub(crate) fn navigate_browser_surface(
+        &self,
+        surface: &crate::Surface,
+        url: &str,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !self.is_frontend_browser_surface(surface),
+            "browser surface is rendered by the frontend; navigate it through its record"
+        );
+        surface.browser_navigate(url)
+    }
+}
+
 impl BrowserSurface {
     pub fn navigate(&self, url: &str) -> anyhow::Result<()> {
         if let Some(reason) = self.navigation_hold.lock().unwrap().attach_failure.clone() {

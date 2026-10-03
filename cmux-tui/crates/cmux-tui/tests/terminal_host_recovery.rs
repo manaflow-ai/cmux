@@ -46,6 +46,8 @@ struct RecoveryHarness {
     state: PathBuf,
     session: String,
     host_ready_delay_ms: Option<u64>,
+    /// `CMUX_TUI_TEST_SESSION_SHUTDOWN_LEAD_MS` for the daemon (debug builds).
+    session_shutdown_lead_ms: Option<u64>,
     reconnect_completion_failures: Option<u64>,
     adoption_insert_failures: Option<u64>,
     template_completion_failures: Option<u64>,
@@ -68,6 +70,7 @@ impl RecoveryHarness {
             state: dir.join("state"),
             session: "host-recovery".into(),
             host_ready_delay_ms: None,
+            session_shutdown_lead_ms: None,
             reconnect_completion_failures: None,
             adoption_insert_failures: None,
             template_completion_failures: None,
@@ -137,6 +140,7 @@ impl RecoveryHarness {
             state: dir.join("state"),
             session: "host-recovery".into(),
             host_ready_delay_ms: None,
+            session_shutdown_lead_ms: None,
             reconnect_completion_failures: None,
             adoption_insert_failures: None,
             template_completion_failures: None,
@@ -166,6 +170,9 @@ impl RecoveryHarness {
             .stderr(Stdio::null());
         if let Some(delay_ms) = self.host_ready_delay_ms {
             command.env("CMUX_TUI_TEST_HOST_READY_DELAY_MS", delay_ms.to_string());
+        }
+        if let Some(lead_ms) = self.session_shutdown_lead_ms {
+            command.env("CMUX_TUI_TEST_SESSION_SHUTDOWN_LEAD_MS", lead_ms.to_string());
         }
         if let Some(failures) = self.reconnect_completion_failures {
             command.env("CMUX_TUI_TEST_RECONNECT_COMPLETION_FAILURES", failures.to_string());
@@ -4297,60 +4304,7 @@ fn ctrl_d_exits_shell_and_detaches_terminal_topology() {
 }
 
 #[test]
-fn running_host_sigkill_detaches_exited_terminal_topology() {
-    let harness = RecoveryHarness::start("running-host-sigkill");
-    let created = request(
-        &harness.socket,
-        serde_json::json!({
-            "id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,
-            "cols":80,"rows":24,
-        }),
-    );
-    let surface = created["surface"].as_u64().unwrap();
-    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
-    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
-    // SAFETY: the record PID is the dedicated host process owned by this
-    // harness; killing it is the failure under test.
-    assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
-
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        let resolved = request(
-            &harness.socket,
-            serde_json::json!({"id":2,"cmd":"resolve-terminal","terminal_id":terminal_id}),
-        );
-        if resolved["lifecycle"] == "exited" {
-            assert_eq!(resolved["surface"], serde_json::Value::Null);
-            break;
-        }
-        assert!(Instant::now() < deadline, "running host never transitioned to Exited");
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    let write = request_response(
-        &harness.socket,
-        serde_json::json!({
-            "id":3,"cmd":"send","surface":surface,"text":"must-not-write\\n",
-        }),
-    );
-    assert_eq!(write["ok"], false);
-    assert!(write["error"].as_str().unwrap().contains("unknown surface"));
-    assert_eq!(
-        terminal_host_record_liveness(&record_path, &record).unwrap(),
-        TerminalHostLiveness::Dead
-    );
-    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
-
-    request(
-        &harness.socket,
-        serde_json::json!({
-            "id":4,"cmd":"close-terminal","terminal_id":terminal_id,
-            "terminal_incarnation":record.incarnation,
-        }),
-    );
-}
-
-#[test]
-fn daemon_restart_safe_prunes_dead_host_without_rematerializing_exited_terminal() {
+fn daemon_restart_safe_prunes_dead_host_and_keeps_its_tab_dead() {
     let mut harness = RecoveryHarness::start("dead-host-restart");
     let created = request(
         &harness.socket,
@@ -4359,7 +4313,6 @@ fn daemon_restart_safe_prunes_dead_host_without_rematerializing_exited_terminal(
             "cols":80,"rows":24,
         }),
     );
-    let surface = created["surface"].as_u64().unwrap();
     let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
     let incarnation = created["terminal_incarnation"].as_str().unwrap().to_string();
     let workspace_id = created["workspace"].as_u64().unwrap();
@@ -4406,16 +4359,18 @@ fn daemon_restart_safe_prunes_dead_host_without_rematerializing_exited_terminal(
         .iter()
         .find(|workspace| workspace["key"].as_str() == Some(&workspace_key))
         .expect("original workspace was not recovered");
-    assert!(first_tab(workspace).is_none(), "Exited terminal was rematerialized after restart");
-
+    // Invariant 3: the host's death keeps its tab, dead, and nothing respawns
+    // a shell into it.
+    let tab = first_tab(workspace).expect("the tab of a dead host was removed after restart");
+    assert_eq!(tab["dead"], true, "a dead host's terminal was respawned: {tab}");
+    let dead_surface = tab["surface"].as_u64().unwrap();
     let write = request_response(
         &harness.socket,
         serde_json::json!({
-            "id":5,"cmd":"send","surface":surface,"text":"must-not-respawn\\n",
+            "id":5,"cmd":"send","surface":dead_surface,"text":"must-not-respawn\\n",
         }),
     );
-    assert_eq!(write["ok"], false);
-    assert!(write["error"].as_str().unwrap().contains("unknown surface"));
+    assert_eq!(write["ok"], false, "{write}");
     request(
         &harness.socket,
         serde_json::json!({
@@ -4426,7 +4381,7 @@ fn daemon_restart_safe_prunes_dead_host_without_rematerializing_exited_terminal(
 }
 
 #[test]
-fn daemon_restart_prunes_every_dead_host_behind_one_pane() {
+fn daemon_restart_prunes_every_dead_host_behind_one_pane_and_keeps_its_tabs() {
     let mut harness = RecoveryHarness::start("dead-hosts-restart");
     let first = request(
         &harness.socket,
@@ -4496,7 +4451,15 @@ fn daemon_restart_prunes_every_dead_host_behind_one_pane() {
         .iter()
         .find(|workspace| workspace["key"].as_str() == Some(&workspace_key))
         .expect("original workspace was not recovered");
-    assert!(first_tab(workspace).is_none(), "Exited terminals were rematerialized after restart");
+    // Invariant 3: both tabs stay in their pane, dead.
+    let tabs = workspace["screens"][0]["panes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|pane| pane["tabs"].as_array().unwrap().clone())
+        .collect::<Vec<_>>();
+    assert_eq!(tabs.len(), 2, "dead hosts lost their tabs: {workspace}");
+    assert!(tabs.iter().all(|tab| tab["dead"] == true), "{workspace}");
 }
 
 fn request(path: &Path, value: serde_json::Value) -> serde_json::Value {
@@ -5623,8 +5586,22 @@ fn receipted_input_is_acknowledged_behind_an_output_backlog() {
     assert!(elapsed < Duration::from_secs(2), "write waited {elapsed:?} for its receipt");
 }
 
+/// Serializes the timed hundred-terminal close tests (`close_path`) with the
+/// tests that SIGKILL daemons and terminal hosts. Full mode runs this binary
+/// with two test threads; a kill-and-restart test next to a timed close made
+/// the close miss its bound on loaded macOS runners. Other tests stay parallel.
+static EXCLUSIVE_PROCESS_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn exclusive_process_test() -> std::sync::MutexGuard<'static, ()> {
+    // A failed test poisons the lock; the next test still runs alone.
+    EXCLUSIVE_PROCESS_TESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 #[path = "terminal_host_recovery/close_path.rs"]
 mod close_path;
+
+#[path = "terminal_host_recovery/host_death.rs"]
+mod host_death;
 
 #[path = "terminal_host_recovery/idle_template.rs"]
 mod idle_template;

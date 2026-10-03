@@ -5,6 +5,7 @@ import {
   groupMark,
   GROUP_ROWS,
   groupByProject,
+  homePath,
   projectLabel,
   sessionEntry,
   sessionMark,
@@ -53,6 +54,11 @@ describe("project labels", () => {
   test("a home folder is ~", () => {
     expect(projectLabel("/Users/lee")).toBe("~");
     expect(projectLabel("/home/lee")).toBe("~");
+    expect(homePath("/Users/lee/code/app")).toBe("~/code/app");
+    expect(homePath("/home/lee")).toBe("~");
+    expect(homePath("/Users/lee/")).toBe("~/");
+    expect(homePath("/opt/Users/lee/app")).toBe("/opt/Users/lee/app");
+    expect(homePath("/Users")).toBe("/Users");
   });
   test("no folder", () => expect(projectLabel(undefined)).toBe("No folder"));
 });
@@ -160,6 +166,11 @@ describe("summary entries", () => {
     expect(
       sessionEntry({ sessionId: "s", pullRequest: { number: 3, title: "Old", state: "closed" } }).pullRequest?.state,
     ).toBe("closed");
+    // CI checks ride along only as a known rollup.
+    const checks = (value: unknown) =>
+      sessionEntry({ sessionId: "s", pullRequest: { number: 3, title: "T", state: "open", checks: value } }).pullRequest
+        ?.checks;
+    expect([checks("failing"), checks("green"), checks(undefined)]).toEqual(["failing", undefined, undefined]);
     for (const pullRequest of [
       { number: 3, title: "T", state: "weird" },
       { number: Number.NaN, title: "T", state: "open" },

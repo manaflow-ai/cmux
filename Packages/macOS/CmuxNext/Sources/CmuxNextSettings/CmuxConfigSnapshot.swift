@@ -106,12 +106,16 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var focusIndicator: FocusIndicator = PaneFocusSettings.focusIndicatorFallback
     /// `appearance.tabBarBackground`; "window" when unset or invalid.
     public var tabBarBackground: TabBarBackground = PaneFocusSettings.tabBarBackgroundFallback
+    /// `focus.inactiveTabStyle`; "fade" when unset or invalid.
+    public var inactiveTabStyle: InactiveTabStyle = PaneFocusSettings.inactiveTabStyleFallback
     /// `window.titlebar`; "minimal" when unset or invalid.
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
     /// `window.rail`; "off" when unset or invalid.
     public var rail: WindowRailPlacement = WindowRailSetting.fallback
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
+    /// `tabs.newTabKind`; "same-kind" when unset or invalid.
+    public var newTabKind: NewTabDefaultKind = NewTabDefaultKind.fallback
     /// `appearance.theme`: a Ghostty theme spec; nil (the Ghostty config's
     /// theme) when unset, empty or invalid.
     public var appTheme: String?
@@ -196,6 +200,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
             root, at: PaneFocusSettings.tabBarBackgroundPath, fallback: PaneFocusSettings.tabBarBackgroundFallback)
         snapshot.tabBarBackground = tabBarBackground
         if let tabBarDiagnostic { snapshot.diagnostics.append(tabBarDiagnostic) }
+        let (inactiveTabStyle, inactiveTabDiagnostic) = PaneFocusSettings.parse(
+            root, at: PaneFocusSettings.inactiveTabStylePath, fallback: PaneFocusSettings.inactiveTabStyleFallback)
+        snapshot.inactiveTabStyle = inactiveTabStyle
+        if let inactiveTabDiagnostic { snapshot.diagnostics.append(inactiveTabDiagnostic) }
         let (titlebar, titlebarDiagnostic) = WindowTitlebarSetting.parse(root)
         snapshot.titlebar = titlebar
         if let titlebarDiagnostic { snapshot.diagnostics.append(titlebarDiagnostic) }
@@ -205,6 +213,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
+        let (newTabKind, newTabKindDiagnostic) = NewTabDefaultKind.parse(root)
+        snapshot.newTabKind = newTabKind
+        if let newTabKindDiagnostic { snapshot.diagnostics.append(newTabKindDiagnostic) }
         let (recordsCommands, commandsDiagnostic) = TerminalCommandHistorySetting.parse(root)
         snapshot.recordsTerminalCommands = recordsCommands
         if let commandsDiagnostic { snapshot.diagnostics.append(commandsDiagnostic) }

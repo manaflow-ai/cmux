@@ -330,9 +330,6 @@ def choose_catalog(root: Path, message: SwiftMessage, paths: list[Path], index: 
             return candidates[0]
         if len(candidates) > 1:
             raise ValueError(f"{message.path}: package has multiple string catalogs; pass --catalog")
-    default = root / "Resources/Localizable.xcstrings"
-    if default in paths:
-        return default
     raise ValueError(f"{message.path}: cannot infer catalog for new key {message.key!r}; pass --catalog")
 
 

@@ -16,6 +16,7 @@ workspace = true
 [workspace]
 resolver = "2"
 members = [
+    "crates/acpmux",
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
     "bindings/rust",
@@ -46,6 +47,7 @@ members = [
     "crates/cmux-app-manifest",
 ]
 default-members = [
+    "crates/acpmux",
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
     "bindings/rust",

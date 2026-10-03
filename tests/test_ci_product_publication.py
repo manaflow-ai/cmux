@@ -12,7 +12,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def condition(expression, *, full_suite, publish="true", cli="false", compile_admitted="false", unit_suite="false"):
+def condition(expression, *, full_suite, publish="true", compile_admitted="false", unit_suite="false"):
     """Evaluate the small boolean subset used by these actual workflow gates."""
     expression = expression.removeprefix("${{").removesuffix("}}").strip()
     expression = expression.replace("!cancelled()", "True")
@@ -26,8 +26,6 @@ def condition(expression, *, full_suite, publish="true", cli="false", compile_ad
             return repr(unit_suite)
         if name.endswith(".outputs.compile_admitted") or name == "inputs.compile_admitted":
             return repr(compile_admitted)
-        if name.endswith(".outputs.cli") or name == "inputs.cli":
-            return repr(cli)
         if name.endswith(".outputs.publish"):
             return repr(publish)
         if name.endswith(".outputs.unit_tested"):
@@ -56,13 +54,12 @@ class ProductPublicationTests(unittest.TestCase):
         cls.workflow = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text())
         cls.job = cls.workflow["jobs"]["macos-compile-admission"]
 
-    def publication(self, *, full_suite, cli="false", event="pull_request", head="contributor/cmux", repo="manaflow-ai/cmux"):
+    def publication(self, *, full_suite, event="pull_request", head="contributor/cmux", repo="manaflow-ai/cmux"):
         step = next((s for s in self.job["steps"] if s.get("id") == "publish-products"), None)
         if step is None:
             return "true"  # The previous workflow always packaged and uploaded.
         self.assertEqual(step["env"], {
             "PRODUCT_FULL_SUITE": "${{ inputs.full_suite }}",
-            "PRODUCT_CLI": "${{ inputs.cli }}",
             "PRODUCT_EVENT": "${{ github.event_name }}",
             "PRODUCT_HEAD_REPOSITORY": "${{ github.event.pull_request.head.repo.full_name }}",
             "PRODUCT_REPOSITORY": "${{ github.repository }}",
@@ -70,7 +67,6 @@ class ProductPublicationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "output"
             env = dict(os.environ, GITHUB_OUTPUT=str(output), PRODUCT_FULL_SUITE=full_suite,
-                       PRODUCT_CLI=cli,
                        PRODUCT_EVENT=event, PRODUCT_HEAD_REPOSITORY=head, PRODUCT_REPOSITORY=repo)
             subprocess.run(["bash", "-e", "-c", step["run"]], env=env,
                            text=True, capture_output=True, check=True)
@@ -79,7 +75,6 @@ class ProductPublicationTests(unittest.TestCase):
     def test_only_known_compile_only_forks_skip_packaging_and_upload(self):
         cases = [
             ({"full_suite": "false"}, "false"),
-            ({"full_suite": "false", "cli": "true"}, "true"),
             ({"full_suite": "true"}, "true"),
             ({"full_suite": ""}, "true"),
             ({"full_suite": "unknown"}, "true"),
@@ -118,9 +113,6 @@ class ProductPublicationTests(unittest.TestCase):
             steps["Validate Swift warning budget"]["if"],
             "steps.reuse-products.outputs.hit != 'true'",
         )
-        for name in ("Stage compiled package frameworks", "Run early CLI binary smoke checks"):
-            self.assertNotIn("reuse-products", str(steps[name].get("if", "")))
-
         report = steps["Record compiled-product reuse metrics"]
         self.assertEqual(report["if"], "always()")
         self.assertEqual(
@@ -141,15 +133,14 @@ class ProductPublicationTests(unittest.TestCase):
 
     def test_skipping_publication_keeps_admission_and_early_checks(self):
         self.assertTrue(condition(self.job["if"], full_suite="false", publish="false"))
-        for name in ("Compile app-host test product", "Validate Swift warning budget",
-                     "Stage compiled package frameworks", "Run early CLI binary smoke checks"):
+        for name in ("Compile app-host test product", "Validate Swift warning budget"):
             step = next(s for s in self.job["steps"] if s["name"] == name)
             # Existing reuse-hit conditions may skip compilation, but publication
             # must never become an input to compilation or these validation gates.
             self.assertNotIn("publish-products", str(step))
         index = {s["name"]: i for i, s in enumerate(self.job["steps"])}
         self.assertIn("Choose product artifact publication", index)
-        self.assertLess(index["Run early CLI binary smoke checks"], index["Choose product artifact publication"])
+        self.assertLess(index["Validate Swift warning budget"], index["Choose product artifact publication"])
 
 
     def macos_status(self, compile_admitted, *, full_suite="true", results="success"):
@@ -158,7 +149,7 @@ class ProductPublicationTests(unittest.TestCase):
             if s.get("name") == "Check routed macOS jobs"
         )
         needs = {name: {"result": results} for name in self.workflow["jobs"]["macos-status"]["needs"]}
-        inputs = {"macos": "true", "full_suite": full_suite, "compile_admitted": compile_admitted, "release_build": "true", "cli": "false"}
+        inputs = {"macos": "true", "full_suite": full_suite, "compile_admitted": compile_admitted, "release_build": "true"}
         env = {**os.environ, "MACOS_INPUTS": json.dumps(inputs), "MACOS_NEEDS": json.dumps(needs)}
         return subprocess.run(["bash", "-c", step["run"]], env=env, text=True, capture_output=True)
 

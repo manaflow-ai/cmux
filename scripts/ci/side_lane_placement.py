@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Place a side-lane workflow's macOS jobs on an owned runner only when one is idle now.
+"""Record idle side runners while keeping trusted jobs on the owned label.
 
 Side-lane workflows (owned_pool_rescue.SIDE_WORKFLOW_PATHS) have no picker.
 On attempt 1 of a trusted run their macOS jobs took vars.CI_SIDE_LANE_RUNNER,
@@ -14,22 +14,18 @@ trusted run. It lists the runners through the org route App
 (pr_runner_pool.GitHub.runners(), as admission_placement.py does) and places
 JOBS, in priority order, with pr_runner_pool.idle_placement(), the rule the
 main picker places the light side lanes with: one job per runner carrying
-SIDE_LABEL that is online and idle now. The minis stay first; a job no idle
-runner takes keeps the job's fallback (vars.MACOS_RUNNER_26 or Blacksmith, the
-label attempt 2 takes) instead of a queue the rescue would cancel. A runner
-taken between this read and the job's queueing still leaves the job queued
-on the owned label, which the rescue moves as before.
+SIDE_LABEL that is online and idle now. The result is telemetry only. Trusted
+jobs always keep the owned side label, including when no runner is idle; the
+rescue supplies the measured overflow boundary after the mini queue drains.
 
-Anything uncertain decides nothing and keeps today's route (the owned label,
-watched by the rescue): an attempt after 1 (its own expression sends it to the
-fallback), a SIDE_LABEL that is not a glaeda-side-* label (a fork, owned pools
-off, the variable unset), or runners that cannot be read.
+Anything uncertain decides nothing and keeps the owned label watched by the
+rescue: an attempt after 1, a SIDE_LABEL that is not a glaeda-side-* label (a
+fork, owned pools off, the variable unset), or runners that cannot be read.
 
 Outputs, each job key delimited by spaces with one at each end so a runs-on's
 contains(' <key> ') matches whole keys only:
 - `owned_jobs`: the jobs an idle owned runner takes;
-- `fallback_jobs`: the jobs that take their fallback; the runs-on reads this,
-  so an empty value (no decision, or this job failed) keeps the owned label;
+- `fallback_jobs`: retained for the workflow output contract and always empty;
 - `watch`: "false" when every job took its fallback, so the run uploads no
   owned-pool-watch marker; "true" otherwise.
 """
@@ -67,11 +63,13 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
     if runners is None:
         return (), (), f"owned runners could not be read live; the jobs keep `{label}`"
     owned = pool.idle_placement(runners, label, jobs)
-    fallback = jobs[len(owned):]
+    # A busy fleet is a queue, not an instantaneous Blacksmith decision. The
+    # rescue moves a job only after the side queue budget has elapsed.
+    fallback: tuple[str, ...] = ()
     if not owned:
-        return owned, fallback, f"no idle `{label}` runner now; every job takes its fallback"
+        return owned, fallback, f"no idle `{label}` runner now; every job stays queued on the owned label"
     return owned, fallback, (f"{len(owned)} idle `{label}` runner(s) now take {', '.join(owned)}"
-                             + (f"; {', '.join(fallback)} take their fallback" if fallback else ""))
+                             + "; remaining jobs stay queued on the owned label")
 
 
 def delimited(jobs: Sequence[str]) -> str:

@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { AcpmuxSnapshot } from "./model";
 import { ComposerContext } from "./ComposerContext";
@@ -41,7 +41,8 @@ export const COMPOSER_LABELS = {
 type Props = {
   snapshot: AcpmuxSnapshot;
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
-  onSend(text: string): void;
+  /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it.
+  onSend(text: string): boolean | void;
   onStop(): void;
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
@@ -50,12 +51,17 @@ type Props = {
   leading?: React.ReactNode;
   /// Buttons before Send, such as the dictation mic.
   accessory?: React.ReactNode;
+  /// Also receives the prompt field's handle, for dictation, which writes into it as typing does.
+  prompt?: React.RefObject<MarkdownFieldHandle | null>;
   /// Opens the host's file and image picker; the + menu offers it only when set.
   onAttach?(): void;
   /// Searches the session's files; the + menu offers Search files only when set.
   searchFiles?: FileSearchSource;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
   onProject?(cwd: string): void;
+  /// ⌘Return, only where set (the Quick Composer): sends what was typed as Return would, then
+  /// asks to open the chat in a window. `sent` says whether there was a prompt to send.
+  onOpenInWindow?(sent: boolean): void;
 };
 
 /// The prompt box with the agent's `/` command menu:
@@ -73,9 +79,11 @@ export function Composer({
   draft,
   leading,
   accessory,
+  prompt,
   onAttach,
   searchFiles,
   onProject,
+  onOpenInWindow,
 }: Props) {
   const [findingFiles, setFindingFiles] = useState(false);
   // A new folder (another chat) closes the palette, so no row from the last one stays pickable.
@@ -88,6 +96,13 @@ export function Composer({
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState<string | undefined>();
   const field = useRef<MarkdownFieldHandle>(null);
+  const fieldRef = useCallback(
+    (handle: MarkdownFieldHandle | null) => {
+      field.current = handle;
+      if (prompt) prompt.current = handle;
+    },
+    [prompt],
+  );
   const pendingCaret = useRef<number | undefined>(undefined);
   // Send becomes Stop in place once the turn starts; a second click of a
   // double-click, or a click right after Enter, must not cancel the new turn.
@@ -146,15 +161,21 @@ export function Composer({
     const plus = plusDraft.current;
     return plus && plus.written === text ? plus.original : text;
   };
-  const submit = (event: { preventDefault(): void }) => {
+  /// Sends the draft; false when there was nothing to send or the host refused it.
+  const submit = (event: { preventDefault(): void }): boolean => {
     event.preventDefault();
     const prompt = unwrapped().trim();
+    if (!prompt) {
+      plusDraft.current = undefined;
+      return false;
+    }
+    const fromSend = document.activeElement?.classList.contains("acpmux-send") ?? false;
+    if (onSend(prompt) === false) return false;
     plusDraft.current = undefined;
-    if (!prompt) return;
     edit("", 0);
     sentAt.current = Date.now();
-    refocusSend.current = document.activeElement?.classList.contains("acpmux-send") ?? false;
-    onSend(prompt);
+    refocusSend.current = fromSend;
+    return true;
   };
   /// + then Mention: an "@" at the caret, set off by a space, for the agent to read as a path.
   // Writes "@" at the caret, or "@path " for a file picked in Search files.
@@ -197,6 +218,22 @@ export function Composer({
     // Every key belongs to the input method while it composes, not only Enter.
     if (event.isComposing || event.keyCode === 229) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+    // ⌘Return sends whatever is typed, even over an open command menu, then opens the window.
+    if (
+      onOpenInWindow &&
+      event.key === "Enter" &&
+      event.metaKey &&
+      !event.shiftKey &&
+      !event.altKey &&
+      !event.ctrlKey
+    ) {
+      const typed = unwrapped().trim() !== "";
+      const sent = submit(event);
+      // A prompt the host refused stays in the composer, and the chat stays here.
+      if (typed && !sent) return;
+      onOpenInWindow(sent);
+      return;
+    }
     // Enter sends unless it picks a command: with the menu closed, with nothing
     // to pick (an unknown command or a pasted path), or on a command already
     // typed in full that takes no arguments.
@@ -294,7 +331,7 @@ export function Composer({
         )}
         {/* An editable prompt that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
         <MarkdownField
-          ref={field}
+          ref={fieldRef}
           className="acpmux-composer-prompt"
           value={text}
           placeholder={COMPOSER_LABELS.placeholder}

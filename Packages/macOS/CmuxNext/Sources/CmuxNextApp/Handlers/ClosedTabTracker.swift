@@ -13,6 +13,10 @@ import Observation
 /// (`<machine>/<id>`) because daemon-local ids repeat across machines.
 final class ClosedTabTracker {
     private unowned let services: AppServices
+    /// Bumps after every change to the closed list or to the tabs it
+    /// watches, once the list is up to date: observers (Search Tabs, the
+    /// control snapshot) read the mirror and the closed list together.
+    let changes = ClosedTabChanges()
     /// Replaces the daemon path for reopening terminal tabs (tests). Nil
     /// uses the owning machine's daemon (`ClosedTerminalRestorer.live`).
     var restorer: ClosedTerminalRestorer?
@@ -53,7 +57,8 @@ final class ClosedTabTracker {
     }
 
     /// Connected machines only: a machine that drops takes its tabs and
-    /// workspaces out together, so nothing on it counts as closed.
+    /// workspaces out together, so nothing on it counts as closed. A daemon
+    /// that records closed history itself (`DaemonClosedHistory`) is skipped.
     private static func structure(of daemons: [DaemonService]) -> Structure {
         var tabs: [(TabModel, ClosedTabHistory.Record)] = []
         var live: Set<String> = []
@@ -61,8 +66,10 @@ final class ClosedTabTracker {
         for daemon in daemons {
             let store = daemon.store
             // The launch snapshot's provisional tree is not live: a tab it
-            // shows that the live tree lacks was not closed in this app.
-            guard case .connected = store.connectionState, store.isLoaded, !store.isProvisional else { continue }
+            // shows that the live tree lacks was not closed in this app. A
+            // daemon that records closed history keeps it instead.
+            guard case .connected = store.connectionState, store.isLoaded, !store.isProvisional,
+                  !store.servesStateResources else { continue }
             let machine = daemon.machineID
             generations[machine] = store.generation?.rawValue ?? ""
             for workspace in store.workspaces {
@@ -111,10 +118,12 @@ final class ClosedTabTracker {
             return record
         }
         lastSeen = Dictionary(structure.tabs.map { ($0.record.tabID, $0.tab) }, uniquingKeysWith: { first, _ in first })
+        changes.bump()
     }
 
     func popLast() -> ClosedTabHistory.Record? {
-        history.popLast()
+        defer { changes.bump() }
+        return history.popLast()
     }
 
     /// Closed tabs, oldest first (history lists).
@@ -122,11 +131,13 @@ final class ClosedTabTracker {
 
     /// Takes one record out to reopen it.
     func take(_ tabID: String) -> ClosedTabHistory.Record? {
-        history.remove(tabID: tabID)
+        defer { changes.bump() }
+        return history.remove(tabID: tabID)
     }
 
     func clear(since: Date?) {
         history.removeAll(since: since)
+        changes.bump()
     }
 
     /// Reopens `record` at its old position in its old pane, else in `fallback`.
@@ -170,8 +181,7 @@ final class ClosedTabTracker {
                 if let terminal = record.terminalResourceID, let path {
                     do {
                         let tab = try await restorer.project(ResourceID(rawValue: terminal), path, record.index)
-                        controller?.pendingSelectTab = tab.rawValue
-                        controller.map { $0.apply($0.snapshot()) }
+                        controller?.selectWhenReported(tab: tab.rawValue)
                         return nil
                     } catch {
                         // Ended (reaped, exited, or closed): start a new shell there.
@@ -180,8 +190,7 @@ final class ClosedTabTracker {
                 }
                 do {
                     let surface = try await restorer.spawn(spawn)
-                    controller?.pendingSelectSurface = surface
-                    controller.map { $0.apply($0.snapshot()) }
+                    controller?.selectWhenReported(surface: surface)
                     controller?.workspace?.expectFocus(on: surface)
                     return nil
                 } catch {

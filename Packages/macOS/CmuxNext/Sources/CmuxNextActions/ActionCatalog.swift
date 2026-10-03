@@ -20,6 +20,9 @@ public nonisolated enum ActionCatalog {
         "tab.previous": "prevSurface",
         "view.toggleSidebar": "toggleSidebar",
         "palette.show": "commandPalette",
+        // Go to Tab… became Search Tabs (one tab list); with a tab target it
+        // still focuses that tab.
+        "palette.goToTab": "tab.search",
         // Browser profile placeholders from before browser profiles existed.
         "browserNewProfile": "browserProfile.new",
         "browserRenameProfile": "browserProfile.rename",
@@ -93,11 +96,13 @@ public nonisolated enum ActionCatalog {
         BookmarkActionCatalog.self,
         SidebarSectionActionCatalog.self,
         AppStoreActionCatalog.self,
+        LinkActionCatalog.self,
     ]
 
     private static func makeAll() -> [ActionDescriptor] {
         var all: [ActionDescriptor] = []
         for group in groups { all += group.descriptors() }
+        for index in all.indices where focusActionIDs.contains(all[index].id) { all[index].focuses = true }
         return ActionSurfaceCatalog.apply(to: all)
     }
 }

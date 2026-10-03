@@ -140,6 +140,30 @@ import Testing
         #expect(h.model.recorder == nil)
     }
 
+    @Test func theRecorderSuspendsSystemWideHotKeysUntilItCloses() async throws {
+        let h = try await harness()
+        defer { h.model.settings.stop() }
+        #expect(!h.model.registry.globalHotKeysSuspended)
+        h.model.beginRecording("a.unbound")
+        #expect(h.model.registry.globalHotKeysSuspended)
+        h.model.handleRecorderKey(Shortcut("", modifiers: []), keyCode: 53)
+        #expect(!h.model.registry.globalHotKeysSuspended)
+
+        h.model.beginRecording("a.first")
+        h.model.chooseRecorderOption(.remove)
+        #expect(h.model.recorder == nil)
+        #expect(!h.model.registry.globalHotKeysSuspended)
+    }
+
+    @Test func aShortcutRefusedSystemWideIsMarkedOnItsRow() async throws {
+        let h = try await harness()
+        defer { h.model.settings.stop() }
+        h.host.systemWideRefusals = ["a.second"]
+        let rows = h.model.shortcutSections().flatMap(\.rows)
+        #expect(rows.first { $0.id == "a.second" }?.isRefusedSystemWide == true)
+        #expect(rows.first { $0.id == "a.first" }?.isRefusedSystemWide == false)
+    }
+
     @Test func everySectionTitleAndActionIsKnown() {
         for section in SettingsSection.allCases {
             #expect(!section.title.isEmpty)

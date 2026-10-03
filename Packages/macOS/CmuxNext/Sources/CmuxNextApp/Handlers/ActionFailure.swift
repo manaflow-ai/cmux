@@ -5,6 +5,8 @@ import CmuxNextActions
 /// as `unavailable: <message>` through `ActionRegistry.refuse`.
 struct ActionFailure: Error, Hashable, CustomStringConvertible {
     let message: String
+    /// An explicit target names nothing: the control socket answers `not_found`.
+    var isNotFound = false
 
     /// The cmux-tui daemon does not serve `capability`.
     static func needsDaemonCapability(_ capability: String) -> ActionFailure {
@@ -18,6 +20,10 @@ struct ActionFailure: Error, Hashable, CustomStringConvertible {
 
     static func invalidTarget(_ message: String) -> ActionFailure {
         ActionFailure(message: message)
+    }
+
+    static func notFound(_ message: String) -> ActionFailure {
+        ActionFailure(message: message, isNotFound: true)
     }
 
     var description: String { message }
@@ -37,7 +43,13 @@ extension ActionRegistry {
             return daemon.missingCapabilityMessage(capability)
         }
         return bind(id, unavailable: reason, invoke: { [weak self] invocation in
-            do { try run(invocation) } catch { self?.refuse(String(describing: error)) }
+            do {
+                try run(invocation)
+            } catch let failure as ActionFailure where failure.isNotFound {
+                self?.refuseNotFound(failure.message)
+            } catch {
+                self?.refuse(String(describing: error))
+            }
         })
     }
 

@@ -20,7 +20,15 @@
     "frontend_projection",
     "pairing_request",
     "sidebar_view",
-    "sidebar_plugin"
+    "sidebar_plugin",
+    "tab_group",
+    "saved_tab_group",
+    "workspace_group",
+    "room",
+    "screen_group",
+    "closed",
+    "window_record",
+    "git_checkpoint"
   ],
   "types": {
     "JsonValue": {
@@ -1700,7 +1708,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. Optional title, color, and icon carry the shared workspace identity; ephemeral is true for a workspace the daemon closes at its next start. Unknown sibling fields remain forbidden."
         }
       },
       "extra": false
@@ -1763,7 +1771,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. pinned, color, icon, and screen_group_id are present when set. Unknown sibling fields remain forbidden."
         }
       },
       "extra": false
@@ -1872,7 +1880,8 @@
             "kind": "enum",
             "values": [
               "terminal",
-              "browser"
+              "browser",
+              "conversation"
             ]
           }
         },
@@ -1901,7 +1910,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. Optional name_source (user or auto) and name_revision (canonical unsigned decimal string) carry durable name authority. Their absence means automatic naming is unavailable. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. Optional name_source (user or auto) and name_revision (canonical unsigned decimal string) carry durable name authority. Their absence means automatic naming is unavailable. pinned, tab_group_id, zoom (browser page zoom or terminal font scale), and a browser tab's back and forward URL lists (at most 20 each) are present when set. Unknown sibling fields remain forbidden."
         }
       },
       "extra": false
@@ -2135,7 +2144,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. progress is the terminal's OSC 9;4 progress ({state: normal|error|indeterminate|paused, value: 0-100 or null}) while one is shown. Unknown sibling fields remain forbidden."
         }
       },
       "extra": false,
@@ -3533,7 +3542,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. extra.state holds the state resources: tab_groups, saved_tab_groups, workspace_groups, workspace_placements, rooms, screen_groups, closed, and workspace_status arrays, each item the snapshot a StateUpsert of that resource carries. Unknown sibling fields remain forbidden."
         }
       },
       "extra": false
@@ -4528,6 +4537,14 @@
         {
           "kind": "ref",
           "name": "ResourceDelete"
+        },
+        {
+          "kind": "ref",
+          "name": "StateUpsert"
+        },
+        {
+          "kind": "ref",
+          "name": "StateDelete"
         }
       ],
       "discriminator": "kind",
@@ -5206,6 +5223,2015 @@
         "warning",
         "error"
       ]
+    },
+    "StateId": {
+      "kind": "primitive",
+      "name": "string",
+      "min_length": 1,
+      "max_length": 64
+    },
+    "GroupColor": {
+      "kind": "enum",
+      "values": [
+        "grey",
+        "blue",
+        "red",
+        "yellow",
+        "green",
+        "pink",
+        "purple",
+        "cyan",
+        "orange"
+      ]
+    },
+    "TabGroupSnapshot": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "pane_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "pane"
+          }
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "May be empty: the group shows only its color."
+        },
+        "color": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GroupColor"
+          }
+        },
+        "collapsed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "tab_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "tab"
+            }
+          },
+          "description": "Members in strip order; they are contiguous."
+        },
+        "saved_tab_group_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "description": "The saved group this live group syncs with."
+        }
+      },
+      "extra": false
+    },
+    "TabGroupReleaseResult": {
+      "kind": "object",
+      "fields": {
+        "tab_group_id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "tab_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "tab"
+            }
+          },
+          "description": "Former members: ungrouped tabs, or the tabs a close removed."
+        }
+      },
+      "extra": false
+    },
+    "SavedTabMemberSnapshot": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "terminal",
+              "browser"
+            ]
+          }
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "cwd": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Terminal working directory used when the member is reopened."
+        },
+        "url": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "engine": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "enum",
+              "values": [
+                "webkit",
+                "cef"
+              ]
+            }
+          }
+        },
+        "browser_profile_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "extra": false
+    },
+    "SavedTabGroupSnapshot": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "room_id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "color": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GroupColor"
+          }
+        },
+        "members": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "SavedTabMemberSnapshot"
+            }
+          }
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "updated_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        }
+      },
+      "extra": false
+    },
+    "SavedTabGroupReopenResult": {
+      "kind": "object",
+      "fields": {
+        "saved_tab_group_id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "tab_group": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "TabGroupSnapshot"
+          }
+        }
+      },
+      "extra": false
+    },
+    "StateDeleteResult": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "deleted": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "false when the record was already gone."
+        }
+      },
+      "extra": false
+    },
+    "WorkspaceRef": {
+      "kind": "object",
+      "fields": {
+        "session_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Registry id of the session that owns the workspace."
+        },
+        "workspace_ref": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Opaque durable workspace reference within that session."
+        },
+        "workspace_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            }
+          },
+          "description": "Public id when the workspace belongs to this session and is live."
+        }
+      },
+      "extra": false
+    },
+    "WorkspaceGroupSnapshot": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "room_id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "color": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "collapsed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        }
+      },
+      "extra": false
+    },
+    "WorkspaceGroupDeleteResult": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "ungrouped": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "WorkspaceRef"
+            }
+          }
+        }
+      },
+      "extra": false
+    },
+    "WorkspacePlacementSnapshot": {
+      "kind": "object",
+      "fields": {
+        "workspace": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "WorkspaceRef"
+          }
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Position in the personal sidebar order."
+        },
+        "group_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          }
+        },
+        "room_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "description": "The room the workspace is pinned to, or null when it follows its session."
+        }
+      },
+      "extra": false
+    },
+    "RoomSnapshot": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "color": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "icon": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "theme": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "browser_profile_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "default_session_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "follows": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Session registry ids whose unpinned workspaces this room shows."
+        },
+        "pins": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "WorkspaceRef"
+            }
+          }
+        }
+      },
+      "extra": false
+    },
+    "RoomDeleteResult": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "moved_to": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          }
+        },
+        "unpinned": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "WorkspaceRef"
+            }
+          }
+        }
+      },
+      "extra": false
+    },
+    "ScreenGroupSnapshot": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "workspace_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "workspace"
+          }
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "color": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GroupColor"
+          }
+        },
+        "collapsed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "screen_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "screen"
+            }
+          },
+          "description": "Members in screen order; they are contiguous."
+        }
+      },
+      "extra": false
+    },
+    "ScreenGroupReleaseResult": {
+      "kind": "object",
+      "fields": {
+        "screen_group_id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "screen_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "screen"
+            }
+          }
+        }
+      },
+      "extra": false
+    },
+    "ClosedTabRecord": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "terminal",
+              "browser"
+            ]
+          }
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "cwd": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "url": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "browser_profile_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "pinned": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      },
+      "extra": false
+    },
+    "ClosedScreenRecord": {
+      "kind": "object",
+      "fields": {
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "tabs": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ClosedTabRecord"
+            }
+          }
+        }
+      },
+      "extra": false
+    },
+    "ClosedItemSnapshot": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "tab",
+              "screen",
+              "workspace"
+            ]
+          }
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Tab, screen, or workspace name at close."
+        },
+        "workspace_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            }
+          },
+          "description": "The workspace a tab or screen was closed from."
+        },
+        "pane_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "resource_id",
+              "resource": "pane"
+            }
+          },
+          "description": "The pane a tab was closed from."
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Position the item held when it closed."
+        },
+        "closed_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "screens": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ClosedScreenRecord"
+            }
+          },
+          "description": "What reopen recreates; a closed tab has one screen with one tab."
+        }
+      },
+      "extra": false
+    },
+    "ClosedReopenResult": {
+      "kind": "object",
+      "fields": {
+        "closed_id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "tab",
+              "screen",
+              "workspace"
+            ]
+          }
+        },
+        "workspace_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "workspace"
+          }
+        },
+        "screen_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "screen"
+            }
+          }
+        },
+        "tab_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "tab"
+            }
+          }
+        }
+      },
+      "extra": false
+    },
+    "WindowRecordSnapshot": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "<install_id>/<window_id>; the id of the record's state_upsert and state_delete changes."
+        },
+        "install_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "window_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "owner": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "The install that hosts the window and is the record's only writer; always equal to install_id. install_unadopted owns records migrated from the windows frontend projection until an app adopts them."
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The record's own revision; every put advances it."
+        },
+        "record": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "description": "The app's window state (shown workspace, listed workspaces, frame, selected tab per pane, focused pane). Always a JSON object."
+        },
+        "updated_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        }
+      },
+      "extra": false
+    },
+    "WindowRecordDeleteResult": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The revision the record had when it was deleted."
+        }
+      },
+      "extra": false
+    },
+    "WorkspaceStatusEntry": {
+      "kind": "object",
+      "fields": {
+        "key": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "text": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 512
+          }
+        },
+        "icon": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "color": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "updated_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        }
+      },
+      "extra": false
+    },
+    "WorkspaceProgress": {
+      "kind": "object",
+      "fields": {
+        "value": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "float64",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "description": "null is indeterminate."
+        },
+        "label": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "updated_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        }
+      },
+      "extra": false
+    },
+    "WorkspaceLogLine": {
+      "kind": "object",
+      "fields": {
+        "sequence": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "level": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "WorkspaceLogLevel"
+          }
+        },
+        "source": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "text": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 4096
+          }
+        },
+        "at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        }
+      },
+      "extra": false
+    },
+    "WorkspaceStatusSnapshot": {
+      "kind": "object",
+      "fields": {
+        "workspace_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "workspace"
+          }
+        },
+        "entries": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "WorkspaceStatusEntry"
+            },
+            "max_items": 64
+          }
+        },
+        "progress": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "WorkspaceProgress"
+            }
+          }
+        },
+        "log_count": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Retained log lines (at most 200)."
+        },
+        "last_log": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "WorkspaceLogLine"
+            }
+          }
+        }
+      },
+      "extra": false
+    },
+    "StateResourceKind": {
+      "kind": "enum",
+      "values": [
+        "tab_group",
+        "saved_tab_group",
+        "workspace_group",
+        "workspace_placement",
+        "room",
+        "screen_group",
+        "closed",
+        "workspace_status",
+        "window_record"
+      ]
+    },
+    "StateEntitySnapshot": {
+      "kind": "union",
+      "variants": [
+        {
+          "kind": "ref",
+          "name": "TabGroupSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "SavedTabGroupSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "WorkspaceGroupSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "WorkspacePlacementSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "RoomSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "ScreenGroupSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "ClosedItemSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "WorkspaceStatusSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "WindowRecordSnapshot"
+        }
+      ],
+      "constraints": [
+        "The enclosing StateUpsert.resource selects the exact snapshot type."
+      ]
+    },
+    "StateUpsert": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "state_upsert"
+            ]
+          }
+        },
+        "sequence": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "resource": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateResourceKind"
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "StateId, or a workspace id for workspace_status, or a session-qualified reference for workspace_placement."
+        },
+        "value": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateEntitySnapshot"
+          }
+        }
+      },
+      "extra": false,
+      "constraints": [
+        "Clients older than the state resources decode this change as Unknown."
+      ]
+    },
+    "StateDelete": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "state_delete"
+            ]
+          }
+        },
+        "sequence": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "resource": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateResourceKind"
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      },
+      "extra": false
+    },
+    "WorkspaceLogLevel": {
+      "kind": "enum",
+      "values": [
+        "info",
+        "progress",
+        "success",
+        "warning",
+        "error"
+      ]
+    },
+    "GitDiffScope": {
+      "kind": "enum",
+      "values": [
+        "uncommitted",
+        "unstaged",
+        "staged",
+        "committed",
+        "branch"
+      ]
+    },
+    "GitChangeStatus": {
+      "kind": "enum",
+      "values": [
+        "added",
+        "modified",
+        "deleted",
+        "renamed",
+        "untracked"
+      ]
+    },
+    "GitChangedFile": {
+      "kind": "object",
+      "fields": {
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "Relative to the repository root."
+        },
+        "previous_path": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The path before a rename."
+        },
+        "status": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitChangeStatus"
+          }
+        },
+        "additions": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "deletions": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "binary": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Present and true for a binary file, which has no patch."
+        },
+        "patch": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The file's unified diff from its first @@ line. Only with include_patch, and never for an untracked file."
+        },
+        "patch_truncated": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Present and true when the patch stopped at max_patch_bytes or the reply's patch budget."
+        }
+      },
+      "extra": false
+    },
+    "GitDiffResult": {
+      "kind": "object",
+      "fields": {
+        "scope": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitDiffScope"
+          }
+        },
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The repository's top level; join it to a file's path."
+        },
+        "head": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The HEAD commit, absent before the first commit."
+        },
+        "base": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The compared commit: the merge base for branch, HEAD's first parent for committed."
+        },
+        "files": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "GitChangedFile"
+            }
+          }
+        },
+        "additions": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Across every changed file, including omitted ones."
+        },
+        "deletions": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Across every changed file, including omitted ones."
+        },
+        "total_files": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Changed files before max_files."
+        },
+        "files_omitted": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "total_files minus the files returned."
+        },
+        "untracked_skipped": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Untracked files left out to keep the read bounded."
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointSkipCode": {
+      "kind": "enum",
+      "values": [
+        "not_selected",
+        "over_limit",
+        "excluded",
+        "credential",
+        "ignored",
+        "nested_repository",
+        "submodule",
+        "unsupported_type",
+        "unreadable"
+      ]
+    },
+    "GitCheckpointSkip": {
+      "kind": "object",
+      "fields": {
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "Relative to the repository root; a folder ends with /."
+        },
+        "code": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitCheckpointSkipCode"
+          }
+        },
+        "bytes": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The file's size, when known; saturates at 4294967295."
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointPin": {
+      "kind": "object",
+      "fields": {
+        "pin_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "Pins beginning handoff: or restore: are managed; unpin refuses them."
+        },
+        "reason": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 256
+          }
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointBase": {
+      "kind": "object",
+      "fields": {
+        "head": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "description": "The HEAD commit at capture; null before the first commit. Context only: capture never moves HEAD."
+        },
+        "branch": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "description": "The branch HEAD named, or null when detached."
+        },
+        "detached": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointCoverage": {
+      "kind": "object",
+      "fields": {
+        "included": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Worktree paths stored: tracked files and selected untracked files."
+        },
+        "omitted": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Paths left out by selection, bounds, exclusions or ignore rules."
+        },
+        "unavailable": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Paths that cannot be stored: nested repositories, submodule contents, devices, unreadable files."
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointIncluded": {
+      "kind": "object",
+      "fields": {
+        "tracked": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Tracked worktree files stored."
+        },
+        "untracked": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Untracked files stored."
+        },
+        "staged_entries": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Index entries in the index tree."
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointBytes": {
+      "kind": "object",
+      "fields": {
+        "logical": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Bytes of worktree content the checkpoint holds."
+        },
+        "newly_stored": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Bytes whose content differs from the index: an upper bound on new object storage."
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointLimits": {
+      "kind": "object",
+      "fields": {
+        "max_bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Newly stored bytes one capture may write; more refuses it with budget_exceeded."
+        },
+        "max_files": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The cap on skipped entries returned, on candidates and on selected untracked files."
+        },
+        "max_untracked_file_bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "An untracked file is eligible only when strictly smaller (10000000)."
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpoint": {
+      "kind": "object",
+      "fields": {
+        "checkpoint_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "repository_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "Daemon-minted; names the repository's common git directory."
+        },
+        "worktree_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "Daemon-minted; names the worktree's own git directory."
+        },
+        "ref": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "refs/cmux/checkpoints/<worktree_id>/<checkpoint_id>: a local ref, never a branch, stash or HEAD."
+        },
+        "object_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The immutable synthetic commit the ref names. Its tree holds index, worktree and untracked trees and metadata.json."
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The record's own revision; pin and unpin advance it."
+        },
+        "complete": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "False when any eligible path was not stored; ignored and credential paths do not count."
+        },
+        "skipped": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "GitCheckpointSkip"
+            }
+          },
+          "description": "At most limits.max_files entries."
+        },
+        "skipped_total": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Every skipped path, including those past the cap."
+        },
+        "created_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "RFC 3339, UTC."
+        },
+        "expires_at": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "description": "When an unpinned record becomes eligible for pruning; null while pinned."
+        },
+        "base": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitCheckpointBase"
+          }
+        },
+        "coverage": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitCheckpointCoverage"
+          }
+        },
+        "included": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitCheckpointIncluded"
+          }
+        },
+        "bytes": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitCheckpointBytes"
+          }
+        },
+        "limits": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitCheckpointLimits"
+          }
+        },
+        "pins": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "GitCheckpointPin"
+            }
+          }
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointCandidate": {
+      "kind": "object",
+      "fields": {
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "Relative to the repository root; a folder ends with /."
+        },
+        "bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Saturates at 4294967295; 0 for a folder."
+        },
+        "eligible": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "reason": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "GitCheckpointSkipCode"
+          },
+          "description": "Why an ineligible candidate cannot be selected."
+        }
+      },
+      "extra": false
+    },
+    "GitCheckpointList": {
+      "kind": "object",
+      "fields": {
+        "repository_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "worktree_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "checkpoints": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "GitCheckpoint"
+            }
+          },
+          "description": "This worktree's checkpoints, newest first."
+        },
+        "next_cursor": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          }
+        },
+        "candidates": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "GitCheckpointCandidate"
+            }
+          },
+          "description": "With include_candidates: untracked files and folders, in path order, then at most 200 ignored paths."
+        },
+        "ignored_total": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "With include_candidates: how many ignored paths there are. Ignored paths never count against max_files."
+        },
+        "limits": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "GitCheckpointLimits"
+          }
+        }
+      },
+      "extra": false
+    },
+    "GitStatusResult": {
+      "kind": "object",
+      "fields": {
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "branch": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "Absent when HEAD is detached."
+        },
+        "detached": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "head": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The HEAD commit, absent before the first commit."
+        },
+        "upstream": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "For example origin/main."
+        },
+        "base": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The branch the branch scope compares with: origin's default branch, else main or master."
+        },
+        "ahead": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Commits ahead of upstream; 0 without one."
+        },
+        "behind": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Commits behind upstream; 0 without one."
+        }
+      },
+      "extra": false
     }
   },
   "generics": {
@@ -5364,6 +7390,40 @@
               "kind": "primitive",
               "name": "string"
             }
+          }
+        },
+        "extra": false
+      }
+    },
+    "home.not_closable": {
+      "retryable": false,
+      "details": {
+        "kind": "object",
+        "fields": {
+          "workspace_id": {
+            "required": true,
+            "type": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            },
+            "description": "The home workspace (workspace-kind-v1). It is never closed."
+          }
+        },
+        "extra": false
+      }
+    },
+    "home.pinned_first": {
+      "retryable": false,
+      "details": {
+        "kind": "object",
+        "fields": {
+          "workspace_id": {
+            "required": true,
+            "type": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            },
+            "description": "The home workspace (workspace-kind-v1). It stays first and ungrouped in the personal order."
           }
         },
         "extra": false
@@ -5541,7 +7601,15 @@
                 "frontend_projection",
                 "pairing_request",
                 "sidebar_view",
-                "sidebar_plugin"
+                "sidebar_plugin",
+                "tab_group",
+                "saved_tab_group",
+                "workspace_group",
+                "room",
+                "screen_group",
+                "closed",
+                "window_record",
+                "git_checkpoint"
               ]
             }
           },
@@ -5705,7 +7773,14 @@
                 "frontend_projection",
                 "pairing_request",
                 "sidebar_view",
-                "sidebar_plugin"
+                "sidebar_plugin",
+                "tab_group",
+                "saved_tab_group",
+                "workspace_group",
+                "room",
+                "screen_group",
+                "closed",
+                "window_record"
               ]
             }
           },
@@ -7082,6 +9157,20 @@
           "client": "required"
         },
         "fields": {
+          "capabilities": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 128
+              },
+              "max_items": 64
+            },
+            "description": "Additive capabilities of the requesting connection, as in raw set-client-info (for example conversation-tabs-v1). Only the requesting connection may declare them."
+          },
           "name": {
             "required": false,
             "type": {
@@ -7213,6 +9302,195 @@
         "validation.invalid"
       ]
     },
+    "closed.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "closed",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "ClosedItemSnapshot"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "closed.reopen": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "closed",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "closed": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A tab reopens in its pane when that pane is live, else in the focused pane of its workspace; a screen reopens in its workspace; a workspace reopens as a new workspace."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ClosedReopenResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "column.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "screen",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "required"
+        },
+        "fields": {
+          "column": {
+            "required": true,
+            "type": {
+              "kind": "resource_id",
+              "resource": "split"
+            },
+            "description": "The column's stable id, its column_id in the screen's layout document."
+          },
+          "sticky": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "true pins the column to edge; false unpins it. Omit to leave the flag unchanged."
+          },
+          "edge": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "left",
+                "right"
+              ]
+            },
+            "description": "Viewport edge for sticky:true. Default right."
+          },
+          "mode": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "docked",
+                "overlay"
+              ]
+            },
+            "description": "Presentation for sticky:true. Default docked."
+          },
+          "width": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "float64"
+            },
+            "description": "Column width as a fraction of the viewport. Omit to leave the width unchanged."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ScreenSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "At least one of sticky or width is required. edge and mode require the sticky field and apply only when sticky is true.",
+        "width is finite, at least 0.1, and at most 1.",
+        "A screen keeps at most one sticky column per edge (pinning an edge another column holds unpins that column) and at least one scrolling column; a change that would leave none fails with validation.invalid.",
+        "The layout document of the resulting ScreenSnapshot does not carry sticky flags; the JSON-lines Screen.columns[].sticky does."
+      ]
+    },
     "frontend_projection.get": {
       "class": "read",
       "idempotency": "forbidden",
@@ -7319,6 +9597,622 @@
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "git.checkpoint.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "expected_repository_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Refuse with repository_changed when the target now names another repository."
+          },
+          "expected_worktree_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Refuse with repository_changed when the target now names another worktree."
+          },
+          "include_untracked": {
+            "required": false,
+            "type": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1
+                  },
+                  "max_items": 5000
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "eligible"
+                  ]
+                }
+              ],
+              "constraints": [
+                "Exactly one variant is sent; absent means []."
+              ]
+            },
+            "description": "Untracked files to store, relative to the root, or eligible for every eligible candidate. An eligible file left out is skipped as not_selected."
+          },
+          "exclude_paths": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1
+              },
+              "max_items": 256
+            },
+            "description": "Files or folders, relative to the root, left out of every tree; they are skipped as excluded."
+          },
+          "reason": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "manual",
+                "handoff"
+              ]
+            },
+            "default": "manual"
+          },
+          "limits": {
+            "required": false,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "max_bytes": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "uint32",
+                    "minimum": 1,
+                    "maximum": 1073741824
+                  },
+                  "description": "Default 134217728."
+                },
+                "max_files": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "uint32",
+                    "minimum": 1,
+                    "maximum": 5000
+                  },
+                  "description": "Default 1000."
+                }
+              },
+              "extra": false
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitCheckpoint"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Capture never changes HEAD, the index or the worktree: trees are built in a temporary index, raw bytes are hashed without filters and hooks never run.",
+        "Unsupported index modes (sparse checkout, split index, unresolved stages, intent-to-add, assume-unchanged, skip-worktree) refuse with unsupported_index.",
+        "A change to HEAD, the index or a captured file during capture refuses with repository_changed; nothing is published.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory, store_failed or git_failed; extra.message explains it."
+      ]
+    },
+    "git.checkpoint.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "checkpoint_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "idempotency_key": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The key a create used: recovers an uncertain reply before a retry."
+          }
+        },
+        "extra": false,
+        "one_of": [
+          {
+            "required": [
+              "checkpoint_id"
+            ],
+            "forbidden": [
+              "idempotency_key"
+            ]
+          },
+          {
+            "required": [
+              "idempotency_key"
+            ],
+            "forbidden": [
+              "checkpoint_id"
+            ]
+          }
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "GitCheckpoint"
+      },
+      "errors": [
+        "operation.failed",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Exactly one of checkpoint_id and idempotency_key.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory, store_failed or git_failed; extra.message explains it."
+      ]
+    },
+    "git.checkpoint.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "cursor": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "next_cursor from the previous page."
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "default": 50
+          },
+          "include_candidates": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "Also list untracked candidates for selection."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "GitCheckpointList"
+      },
+      "errors": [
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "More untracked, nonignored candidates than limits.max_files refuses with budget_exceeded and extra.candidate_total.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory, store_failed or git_failed; extra.message explains it."
+      ]
+    },
+    "git.checkpoint.pin": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "checkpoint_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "pin_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Distinct pin ids commute. Ids beginning handoff: or restore: are managed."
+          },
+          "reason": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitCheckpoint"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "A pinned record is never pruned.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory, store_failed or git_failed; extra.message explains it."
+      ]
+    },
+    "git.checkpoint.unpin": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "checkpoint_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "pin_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Distinct pin ids commute. Ids beginning handoff: or restore: are managed."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitCheckpoint"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "A managed pin (handoff: or restore:) refuses with managed_pin. Unpin never deletes a checkpoint.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory, store_failed or git_failed; extra.message explains it."
+      ]
+    },
+    "git.diff": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "scope": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "GitDiffScope"
+            },
+            "description": "uncommitted: the working tree against HEAD, with untracked files. unstaged: the working tree against the index, with untracked files. staged: the index against HEAD. committed: HEAD against its first parent. branch: the working tree against the merge base with the base branch, with untracked files."
+          },
+          "paths": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1
+              },
+              "min_items": 1,
+              "max_items": 256
+            },
+            "description": "Only these files or folders, relative to the root, taken literally."
+          },
+          "include_patch": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "Counts and statuses only unless true."
+          },
+          "max_patch_bytes": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 4194304
+            },
+            "default": 262144,
+            "description": "Per file; a longer patch is cut at a line and marked patch_truncated."
+          },
+          "max_files": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 5000
+            },
+            "default": 500,
+            "description": "Files returned, in path order; the rest are counted in files_omitted."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "GitDiffResult"
+      },
+      "errors": [
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "git.status": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "GitStatusResult"
+      },
+      "errors": [
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
         "validation.invalid"
       ]
     },
@@ -7746,6 +10640,7 @@
         ]
       },
       "errors": [
+        "home.not_closable",
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
@@ -8703,6 +11598,745 @@
         "Unknown, completed, repeatedly canceled, and other-connection request ids return canceled false."
       ]
     },
+    "room.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "room",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "name": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "color": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "theme": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "index": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "RoomSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "room.delete": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "room",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "room": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "move_to": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            },
+            "description": "Pins move to this room; otherwise they are removed."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The default room cannot be deleted."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "RoomDeleteResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "room.follow": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "room",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "room": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "sessions": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 128
+              },
+              "max_items": 256
+            },
+            "description": "The complete follow set."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "RoomSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "room.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "room",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "RoomSnapshot"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "room.move": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "room",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "room": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "index": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "RoomSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "room.pin": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "room",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "required"
+        },
+        "fields": {
+          "room": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A workspace is pinned to at most one room; pinning replaces an earlier pin."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "RoomSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "room.unpin": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "room",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "required"
+        },
+        "fields": {
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WorkspacePlacementSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "room.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "room",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "room": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "color": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          },
+          "theme": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          },
+          "browser_profile_id": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          },
+          "default_session_id": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "At least one field besides room is present; null clears a field."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "RoomSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "saved_tab_group.delete": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "saved_tab_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "saved_tab_group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "StateDeleteResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "saved_tab_group.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "saved_tab_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "room": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "SavedTabGroupSnapshot"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "saved_tab_group.reopen": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "saved_tab_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "saved_tab_group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "pane_id": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "pane"
+            },
+            "description": "Destination pane; defaults to the focused pane."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SavedTabGroupReopenResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "saved_tab_group.save": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "saved_tab_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "tab_group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "room": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            },
+            "description": "Defaults to the default room."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Saving an already linked group refreshes its record."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SavedTabGroupSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "screen.close": {
       "class": "mutation",
       "idempotency": "required",
@@ -8742,6 +12376,7 @@
         ]
       },
       "errors": [
+        "home.not_closable",
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
@@ -9045,6 +12680,64 @@
         "validation.invalid"
       ]
     },
+    "screen.move": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "screen",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "required"
+        },
+        "fields": {
+          "index": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "Final index; clamped to keep pinned screens first and groups contiguous."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ScreenSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
     "screen.rename": {
       "class": "mutation",
       "idempotency": "required",
@@ -9102,6 +12795,487 @@
         "selector.invalid",
         "selector.not_found",
         "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "screen.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "screen",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "required"
+        },
+        "fields": {
+          "pinned": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Pinned screens sort first and leave any screen group."
+          },
+          "color": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "At least one of pinned, color, or icon is present."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ScreenSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "screen_group.add_screens": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "screen_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "screen_group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "screens": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "resource_id",
+                "resource": "screen"
+              },
+              "min_items": 1,
+              "max_items": 256
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ScreenGroupSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "screen_group.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "screen_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "screens": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "resource_id",
+                "resource": "screen"
+              },
+              "min_items": 1,
+              "max_items": 256
+            },
+            "description": "Unpinned screens of one workspace; they become contiguous."
+          },
+          "name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "color": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "GroupColor"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ScreenGroupSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "screen_group.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "screen_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "screen_group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ScreenGroupSnapshot"
+      },
+      "errors": [
+        "operation.failed",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "screen_group.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "screen_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "ScreenGroupSnapshot"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "screen_group.remove_screens": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "screen_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "screens": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "resource_id",
+                "resource": "screen"
+              },
+              "min_items": 1,
+              "max_items": 256
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ScreenGroupSnapshot"
+            }
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "screen_group.ungroup": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "screen_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "screen_group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ScreenGroupReleaseResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "screen_group.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "screen_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "screen_group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "color": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "GroupColor"
+            }
+          },
+          "collapsed": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "At least one of name, color, or collapsed is present."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ScreenGroupSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
         "validation.invalid"
       ]
     },
@@ -10356,6 +14530,7 @@
         ]
       },
       "errors": [
+        "home.not_closable",
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
@@ -10772,6 +14947,63 @@
         "validation.invalid"
       ]
     },
+    "tab.pin": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "tab",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "required"
+        },
+        "fields": {
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Pinned tabs sort first in their pane and leave any tab group."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TabSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
     "tab.rename": {
       "class": "mutation",
       "idempotency": "required",
@@ -10861,6 +15093,707 @@
         "selector.invalid",
         "selector.not_found",
         "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "tab.unpin": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "tab",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "required"
+        },
+        "fields": {
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TabSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "tab.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "tab",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "required"
+        },
+        "fields": {
+          "zoom": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "float64"
+              }
+            },
+            "description": "Browser page zoom or terminal font scale, 0.25 to 5; null clears it."
+          },
+          "back": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "max_items": 20
+            },
+            "description": "A browser tab's back URLs, oldest first."
+          },
+          "forward": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "max_items": 20
+            },
+            "description": "A browser tab's forward URLs, nearest first."
+          },
+          "owner": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Install id of the app that hosts a frontend-rendered browser tab, stored on its browser record and shown as the tab's extra.owner. Only that app sends it; the CLI never does. Not authenticated yet."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "At least one field is present. back and forward apply only to browser tabs; owner only to frontend-rendered browser tabs."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TabSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "tab_group.add_tabs": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "tab_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "tab_group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "tabs": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "resource_id",
+                "resource": "tab"
+              },
+              "min_items": 1,
+              "max_items": 256
+            }
+          },
+          "index": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "Position inside the group; defaults to the end."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TabGroupSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "tab_group.close": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "tab_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "tab_group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Closes every member tab. A linked saved group keeps its record."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TabGroupReleaseResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "tab_group.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "tab_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "tabs": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "resource_id",
+                "resource": "tab"
+              },
+              "min_items": 1,
+              "max_items": 256
+            },
+            "description": "Tabs of one pane; they become contiguous at the first member's position."
+          },
+          "name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "color": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "GroupColor"
+            },
+            "description": "Defaults to grey."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Pinned tabs cannot be grouped."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TabGroupSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "tab_group.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "tab_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "tab_group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "TabGroupSnapshot"
+      },
+      "errors": [
+        "operation.failed",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "tab_group.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "tab_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "pane_id": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "pane"
+            },
+            "description": "Only the groups of this pane."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "TabGroupSnapshot"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "tab_group.move": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "tab_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "tab_group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "pane_id": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "pane"
+            },
+            "description": "Destination pane; defaults to the group's own pane."
+          },
+          "index": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "Insertion index among the destination pane's other tabs; defaults to the end."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TabGroupSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "tab_group.remove_tabs": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "tab_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "tabs": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "resource_id",
+                "resource": "tab"
+              },
+              "min_items": 1,
+              "max_items": 256
+            },
+            "description": "Each tab leaves its group and lands right after it."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "TabGroupSnapshot"
+            }
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "tab_group.ungroup": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "tab_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "tab_group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TabGroupReleaseResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "tab_group.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "tab_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "tab_group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "color": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "GroupColor"
+            }
+          },
+          "collapsed": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "At least one of name, color, or collapsed is present."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TabGroupSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
         "validation.invalid"
       ]
     },
@@ -10997,6 +15930,7 @@
         ]
       },
       "errors": [
+        "home.not_closable",
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
@@ -12294,6 +17228,179 @@
         "Explicit terminal.close wakes active waiters with terminal.closed; detaching the last view does not settle them."
       ]
     },
+    "window_record.delete": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "window_record",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "install_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "window_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The record's own revision (0 = the record must not exist). Omit for no precondition. A mismatch is revision.conflict and writes nothing."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WindowRecordDeleteResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "window_record.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "window_record",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "WindowRecordSnapshot"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "window_record.put": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "window_record",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "install_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The putting app's install id; the record's owner. Not authenticated yet: the daemon trusts it."
+          },
+          "window_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "record": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "A JSON object of at most 64 KiB; replaces the stored record."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The record's own revision (0 = the record must not exist). Omit for no precondition. A mismatch is revision.conflict and writes nothing."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "install_id and window_id are 1 to 128 ASCII letters, digits, '-', '_', '.' or ':'; install_unadopted is reserved.",
+          "The first put of a window_id held by install_unadopted adopts that record: expected_revision is compared with the unadopted record's revision (list first), its revision continues, and the batch deletes the unadopted record."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WindowRecordSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "workspace.close": {
       "class": "mutation",
       "idempotency": "required",
@@ -12331,6 +17438,7 @@
         ]
       },
       "errors": [
+        "home.not_closable",
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",
@@ -12373,6 +17481,14 @@
               ]
             }
           },
+          "ephemeral": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "An ephemeral workspace is closed by the daemon at its next start."
+          },
           "correlation_key": {
             "required": false,
             "type": {
@@ -12413,6 +17529,44 @@
         "mutation.indeterminate",
         "operation.failed",
         "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace.ensure_home": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "workspace",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "The hosting app sends it on every connect when the server advertises workspace-kind-v1. The store creates the one home workspace (extra.kind home) on the first call, places it first and ungrouped in the personal order, and replays it after that. The idempotency key does not select the home: every call names the same workspace. workspace.create never accepts kind."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "CreatedWorkspaceOnly"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -12632,6 +17786,108 @@
         "validation.invalid"
       ]
     },
+    "workspace.place": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "workspace",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "required"
+        },
+        "fields": {
+          "group": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "ref",
+                "name": "StateId"
+              }
+            },
+            "description": "Personal group; null ungroups. Omit to keep."
+          },
+          "index": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "Final position in the personal sidebar order. Omit to keep."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "At least one of group or index is present."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WorkspacePlacementSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "home.pinned_first",
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace.placement.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "workspace",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "WorkspacePlacementSnapshot"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "workspace.rename": {
       "class": "mutation",
       "idempotency": "required",
@@ -12832,6 +18088,868 @@
       ],
       "constraints": [
         "Creates a terminal tab in the active pane of the selected workspace."
+      ]
+    },
+    "workspace.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "workspace",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "required"
+        },
+        "fields": {
+          "title": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "Custom title; null clears it. Omit to keep."
+          },
+          "color": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "Palette token or #RRGGBB[AA]; null clears it."
+          },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "SF Symbol name or one emoji; null clears it."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "At least one of title, color, or icon is present."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WorkspaceSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace_group.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "workspace_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "name": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "color": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "collapsed": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "room": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            },
+            "description": "Defaults to the default room."
+          },
+          "index": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "Position among all groups; defaults to the end."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WorkspaceGroupSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace_group.delete": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "workspace_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "workspace_group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WorkspaceGroupDeleteResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace_group.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "workspace_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "room": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            },
+            "description": "Only the groups of this room."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "WorkspaceGroupSnapshot"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace_group.move": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "workspace_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "workspace_group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "index": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "Insertion index before removal, like workspace.move."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WorkspaceGroupSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace_group.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "workspace_group",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "workspace_group": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "color": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "null clears it."
+          },
+          "collapsed": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "room": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            },
+            "description": "Moves the group and pins its workspaces to this room."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "At least one of name, color, collapsed, or room is present."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WorkspaceGroupSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace_log.append": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "workspace",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "required"
+        },
+        "fields": {
+          "text": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            }
+          },
+          "level": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "WorkspaceLogLevel"
+            },
+            "description": "Defaults to info."
+          },
+          "source": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The workspace keeps its newest 200 lines."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WorkspaceStatusSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace_log.clear": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "workspace",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "required"
+        },
+        "fields": {
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WorkspaceStatusSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace_log.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "workspace",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "required"
+        },
+        "fields": {
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "description": "Newest lines; defaults to 200."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "WorkspaceLogLine"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace_progress.clear": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "workspace",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "required"
+        },
+        "fields": {
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WorkspaceStatusSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace_progress.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "workspace",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "required"
+        },
+        "fields": {
+          "value": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "float64",
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "description": "null is indeterminate."
+          },
+          "label": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WorkspaceStatusSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace_status.clear": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "workspace",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "required"
+        },
+        "fields": {
+          "key": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "Omit to clear every entry."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WorkspaceStatusSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace_status.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "WorkspaceStatusSnapshot"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "workspace_status.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "workspace",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "required"
+        },
+        "fields": {
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            }
+          },
+          "text": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 512
+            }
+          },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "color": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A workspace holds at most 64 entries."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WorkspaceStatusSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
       ]
     }
   },

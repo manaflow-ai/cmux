@@ -1,3 +1,4 @@
+import type { PermissionClientState } from "./permissions/protocol";
 import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
@@ -55,6 +56,8 @@ export type AcpmuxFileDiff = { path: string; oldText?: string; newText: string; 
 
 export type AcpmuxPermission = {
   permissionId: string;
+  groupId?: string;
+  turnId?: string;
   title?: string;
   kind?: string;
   pending: boolean;
@@ -99,12 +102,16 @@ export type AcpmuxSnapshot = {
   canFork?: boolean;
   canHandoff?: boolean;
   handoff?: HandoffClientState;
+  permissionGroups?: PermissionClientState;
   queue: { id: string; prompt: string }[];
   permission?: AcpmuxPermission;
   catalog: { id: string; name: string; models: { id: string; name?: string }[] }[];
   canLoadOlder: boolean;
   /** The agent's slash commands, for the composer's `/` menu. */
   commands?: SlashCommand[];
+  /** A `cmux://session/<id>` link named this session and the daemon has none: the pane says so
+   * instead of showing another chat. Unset once a session is selected. */
+  missingSession?: string;
 };
 
 export type RowChange = { added: AcpmuxRow[]; updated: AcpmuxRow[]; removed: string[] };

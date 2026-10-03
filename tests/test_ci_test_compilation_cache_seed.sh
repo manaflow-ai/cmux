@@ -195,8 +195,7 @@ echo "PASS: the fingerprint follows the build path and the toolchain"
 run_script build "$TMP_DIR/derived" "$TMP_DIR/packages" "$TMP_DIR/cas" "$TMP_DIR/build.log" >/dev/null
 for expected in \
   cmux \
-  cmux-cli-tests \
-  build-for-testing \
+  build \
   -showBuildTimingSummary \
   'COMPILATION_CACHE_ENABLE_CACHING=$(CMUX_CI_COMPILATION_CACHE_$(TARGET_NAME):default=YES)' \
   "COMPILATION_CACHE_CAS_PATH=$TMP_DIR/cas" \
@@ -207,24 +206,23 @@ for expected in \
     exit 1
   fi
 done
-if [ "$(grep -c '^---$' "$STUB_XCODEBUILD_ARGS")" -ne 2 ] || [ ! -d "$TMP_DIR/cas" ]; then
-  echo "FAIL: the build must run the app and CLI test schemes against an existing CAS directory"
+if [ "$(grep -c '^---$' "$STUB_XCODEBUILD_ARGS")" -ne 1 ] || [ ! -d "$TMP_DIR/cas" ]; then
+  echo "FAIL: the build must run the app scheme once against an existing CAS directory"
   exit 1
 fi
-# The app scheme has no test targets, so it compiles with a plain build; the
-# CLI test scheme compiles with build-for-testing.
+# The app scheme has no test targets, so it compiles with a plain build.
 if [ "$(grep -Fxc -- build "$STUB_XCODEBUILD_ARGS")" -ne 1 ] \
-  || [ "$(grep -Fxc -- build-for-testing "$STUB_XCODEBUILD_ARGS")" -ne 1 ]; then
-  echo "FAIL: the app scheme must compile with build and the CLI test scheme with build-for-testing"
+  || [ "$(grep -Fxc -- build-for-testing "$STUB_XCODEBUILD_ARGS")" -ne 0 ]; then
+  echo "FAIL: the app scheme must compile with build, never build-for-testing"
   exit 1
 fi
-for removed in cmux-unit cmux-numeric-locale; do
+for removed in cmux-unit cmux-numeric-locale cmux-cli-tests; do
   if grep -Fxq -- "$removed" "$STUB_XCODEBUILD_ARGS"; then
     echo "FAIL: the build must not name the deleted $removed scheme"
     exit 1
   fi
 done
-echo "PASS: the build compiles the app and the CLI test scheme, with the compilation cache on"
+echo "PASS: the build compiles the app scheme, with the compilation cache on"
 if ! grep -Fxq -- CMUX_CI_COMPILATION_CACHE_cmux=NO "$STUB_XCODEBUILD_ARGS"; then
   echo "FAIL: before Xcode 26.6 the app target must build without the compilation cache"
   exit 1
@@ -238,12 +236,11 @@ for newer in 26.6 26.6.1 27.0; do
   fi
 done
 echo "PASS: the app target builds without the compilation cache only before Xcode 26.6"
-if ! grep -Fxq 'build output for cmux' "$TMP_DIR/derived/cmux-build.log" \
-  || grep -Fq 'build output for cmux-cli-tests' "$TMP_DIR/derived/cmux-build.log"; then
-  echo "FAIL: the warning-budget log must retain only app build output"
+if ! grep -Fxq 'build output for cmux' "$TMP_DIR/derived/cmux-build.log"; then
+  echo "FAIL: the warning-budget log must retain the app build output"
   exit 1
 fi
-echo "PASS: app warnings are captured separately from CLI test warnings"
+echo "PASS: app warnings are captured in the warning-budget log"
 
 
 # A restored package cache can make resolution succeed without the binary

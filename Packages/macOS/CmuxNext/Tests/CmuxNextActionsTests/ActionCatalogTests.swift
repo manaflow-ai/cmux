@@ -69,16 +69,16 @@ import Testing
     /// border color reset, and Make cmux the Default Browser. Window
     /// counts Minimize (no inventory row; used by idle and visibility checks).
     static let expectedCounts: [ActionCategory: Int] = [
-        .window: 32, // + Quit and Keep Sessions, Quit and End Sessions (Keep Layout), Quit and End Everything; + 5 history (history.md)
+        .window: 33, // + Quit and Keep Sessions, Quit and End Sessions (Keep Layout), Quit and End Everything; + 5 history (history.md); + Open Link (link.open)
         .workspace: 139, // 80 + 29 room actions (plans/cmux-next/data-model.md 7) + showResources + 25 workspace verbs + 4 room/workspace theme actions
-        .pane: 71, // + Move Pane to New Workspace, Undo Layout Change; + 4 sticky column actions (sticky-column.md)
+        .pane: 72, // + Move Pane to New Workspace, Undo Layout Change; + 4 sticky column actions (sticky-column.md); + Open File (file.open)
         .screen: 62,
-        .tab: 77, // + Search Tabs (tab-search.md), New Tab Page
+        .tab: 78, // + Show Tab (`tab.focus`), New Tab of the pane kind, New Tab Page, + Search Tabs (tab-search.md), Focus Location Bar
         .terminal: 35, // + Set / Reset Terminal Theme
-        .browser: 111, // 78 - 2 profile placeholders + 18 browser profile actions (data-model.md 5) + Show History (Cmd-Y in a page) + 15 bookmark actions + Import Passwords from CSV
+        .browser: 113, // 78 - 2 profile placeholders + 18 browser profile actions (data-model.md 5) + Show History (Cmd-Y in a page) + 15 bookmark actions + Import Passwords from CSV + 2 link hints (f, F)
         .sidebar: 56, // + 26 sidebar section actions (sidebar-sections.md 6)
         .notifications: 18,
-        .agents: 22, // + Resume Agent Session, Toggle Dictation, Open Agent Activity, Search Agent Chats, Continue In, Create Checkpoint
+        .agents: 30, // + Resume Agent Session, Toggle Dictation, Open Agent Activity, Search Agent Chats, Continue In, Create Checkpoint, 7 tool permission controls, Quick Agent Chat
         .cloud: 48, // + cloud file and tunnel/network/firewall actions
         .remote: 7, // SSH machines (Connect to Machine…), Open Terminal on Machine Here
         .settings: 55, // + Toggle Column Scroll Bar, + Onboarding Gallery (DEBUG only), + Open Debug Settings (DEV and NIGHTLY only), + App Store, Installed Apps, Hide App, Unhide App, + Customize Appearance

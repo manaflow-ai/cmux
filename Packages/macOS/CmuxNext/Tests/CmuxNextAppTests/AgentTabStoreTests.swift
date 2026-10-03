@@ -17,6 +17,23 @@ struct AgentTabStoreTests {
         #expect(store.tabIDs(in: "a").isEmpty)
         #expect(store.tabIDs(in: "b") == [kept])
     }
+
+    /// Resuming the same outside chat again shows the tab already resuming
+    /// it, from any pane, so acpmux never gets a second adopt for one chat
+    /// from this window; once that tab closes, a resume opens a new one.
+    @Test func resumingTheSameChatTwiceReusesItsTab() {
+        let store = AgentTabStore(tag: nil, registry: ActionRegistry.standard(), environment: ["CMUX_NEXT_AGENT_PANE_MOCK": "1"])
+        let daemon = DaemonStore()
+        let chat = AgentPaneAdopt(harness: "claude", agentSessionId: "0a1b2c3d")
+        let first = store.resume(chat, in: "a", of: daemon)
+        #expect(store.resume(chat, in: "b", of: daemon) == first)
+        #expect(store.tabIDs(in: "a") == [first] && store.tabIDs(in: "b").isEmpty)
+        let other = store.resume(AgentPaneAdopt(harness: "codex", agentSessionId: "0a1b2c3d"), in: "a", of: daemon)
+        #expect(other != first, "the id is per harness")
+        store.close(first)
+        let reopened = store.resume(chat, in: "a", of: daemon)
+        #expect(reopened != first && store.tabIDs(in: "a") == [other, reopened])
+    }
 }
 
 @MainActor

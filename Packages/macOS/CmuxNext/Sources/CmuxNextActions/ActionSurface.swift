@@ -71,6 +71,10 @@ public nonisolated enum SurfaceExemption: String, CaseIterable, Sendable, Hashab
     /// Changes preferences, the system or the running app outside the
     /// user's work (MCP).
     case systemChange
+    /// The object's owner already offers the same verb under this CLI name
+    /// (the daemon's `room create` for Rooms); the app action is its GUI
+    /// form, and the CLI runs the owner's operation.
+    case ownerVerb
 }
 
 /// A surface decision: offered, or exempt with a reason.

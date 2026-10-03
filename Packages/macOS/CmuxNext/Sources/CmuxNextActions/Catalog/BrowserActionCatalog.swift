@@ -49,7 +49,7 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "focusBrowserAddressBar",
                 title: String(localized: "action.focusBrowserAddressBar", defaultValue: "Focus Address Bar", bundle: .module),
-                keywords: ["browser", "url", "omnibox"], defaultShortcut: Shortcut("l", modifiers: [.command]),
+                keywords: ["browser", "url", "omnibox"],
                 category: .browser, symbol: "link.circle", surfaces: [.palette, .keyboard], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser focus-address-bar"
             ),
@@ -141,6 +141,22 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 defaultShortcut: Shortcut("g", modifiers: [.command, .shift]), category: .browser,
                 symbol: "hand.point.up.left", surfaces: [.palette, .keyboard, .menu], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser toggle-react-grab", mainMenu: .view
+            ),
+            // Single letters in a Chromium page with no text field focused
+            // (the page saw the key first): label the links on screen.
+            ActionDescriptor(
+                id: "browserLinkHints",
+                title: String(localized: "action.browserLinkHints", defaultValue: "Open Link by Hint", bundle: .module),
+                keywords: ["browser", "link", "hint", "vimium", "keyboard", "click"], defaultShortcut: Shortcut("f", modifiers: []),
+                category: .browser, symbol: "character.cursor.ibeam", surfaces: [.palette, .keyboard],
+                requires: [.browserFocused], targets: [.pane], cliName: "browser link-hints"
+            ),
+            ActionDescriptor(
+                id: "browserLinkHintsNewSplit",
+                title: String(localized: "action.browserLinkHintsNewSplit", defaultValue: "Open Link by Hint in New Split", bundle: .module),
+                keywords: ["browser", "link", "hint", "vimium", "keyboard", "split"], defaultShortcut: Shortcut("f", modifiers: [.shift]),
+                category: .browser, symbol: "rectangle.righthalf.inset.filled", surfaces: [.palette, .keyboard],
+                requires: [.browserFocused], targets: [.pane], cliName: "browser link-hints-split"
             ),
             ActionDescriptor(
                 id: "splitBrowserRight",

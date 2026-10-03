@@ -47,28 +47,31 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         )
     }
 
+    /// The usual install directories, searched after `PATH`. The pane names
+    /// them when acpmux is missing, so they are written as a user types them.
+    static let installDirectories = ["~/.local/bin", "~/.cargo/bin", "/opt/homebrew/bin", "/usr/local/bin"]
+
     /// Search order: the bundled binary, then `PATH`, then the usual install
     /// directories an app launched from Finder does not have on its `PATH`.
     static func executableCandidates(bundledBinDirectory: URL?, environment: [String: String], userHome: URL) -> [URL] {
         var directories: [String] = []
         if let bundled = bundledBinDirectory { directories.append(bundled.path) }
         directories += (environment["PATH"] ?? "").split(separator: ":").map(String.init)
-        directories += [
-            userHome.appendingPathComponent(".local/bin").path, userHome.appendingPathComponent(".cargo/bin").path,
-            "/opt/homebrew/bin", "/usr/local/bin",
-        ]
+        directories += installDirectories.map { directory in
+            directory.hasPrefix("~/") ? userHome.appendingPathComponent(String(directory.dropFirst(2))).path : directory
+        }
         var seen: Set<String> = []
         return directories.filter { !$0.isEmpty && seen.insert($0).inserted }
             .map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("acpmux") }
     }
 
     /// Mirrors acpmux `config::socket_path()`: `<home>/acpmux.sock`, or
-    /// `/tmp/acpmux-<uid>-<fnv1a64(home)>.sock` when that is too long for
-    /// `sun_path` (96 bytes or more).
+    /// `/tmp/acpmux-<uid>/<fnv1a64(home)>.sock` (a private 0700 directory)
+    /// when that is too long for `sun_path` (96 bytes or more).
     static func defaultSocketPath(home: URL, uid: UInt32) -> String {
         let preferred = home.appendingPathComponent("acpmux.sock").path
         if preferred.utf8.count < 96 { return preferred }
-        return "/tmp/acpmux-\(uid)-\(String(format: "%016llx", fnv1a64(home.path)))" + ".sock"
+        return "/tmp/acpmux-\(uid)/\(String(format: "%016llx", fnv1a64(home.path)))" + ".sock"
     }
 
     static func fnv1a64(_ text: String) -> UInt64 {

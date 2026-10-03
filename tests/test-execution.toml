@@ -11,103 +11,7 @@
 version = 1
 
 [[test]]
-path = "tests/test_cli_new_window_name.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_omp_auto_naming.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_open_wrapper.py"
-lane = "macos-shell"
-
-[[test]]
-path = "tests/test_cli_vm_transfer_progress.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_cli_vm_resize.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_cli_vm_open_device_target.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_cli_cloud_hostname.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_cli_tmux_wait_for_private_dir.py"
-lane = "macos-cli-no-socket"
-
-[[test]]
-path = "tests/test_cli_layout_focus_contract.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_cli_socket_operation_deadline.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-# Asserts sub-second wall-clock deadlines; runs alone, before the parallel pool.
-serial = true
-
-[[test]]
-path = "tests/test_cli_hook_enqueue_wall_clock.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_browser_profile_cli.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_browser_input_files_cli.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
 path = "tests/test_stress_cli_socket_api.py"
-lane = "macos-cli-no-socket"
-
-[[test]]
-path = "tests/test_cli_omo_openagent_plugin_migration.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_cli_omo_shadow_config_mirror.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_cli_socket_autodiscovery.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_codex_wrapper_resume_hooks.py"
-lane = "macos-cli-no-socket"
-
-[[test]]
-path = "tests/test_codex_autoresume_chain.py"
-lane = "macos-cli-no-socket"
-
-[[test]]
-path = "tests/test_claude_wrapper_hooks.py"
-lane = "macos-claude-wrapper"
-
-[[test]]
-path = "tests/test_codex_wrapper_computer_use_mcp.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
@@ -137,108 +41,9 @@ lane = "manual"
 reason = "Requires an isolated tagged cmux app and helper, two prepared split workspaces, and a plan with observed divider coordinates for native drags."
 
 [[test]]
-path = "tests/test_hermes_wrapper_hooks.py"
-lane = "macos-cli-no-socket"
-# Exercises the installer's hard wall-clock deadline and a deliberately slow
-# start; parallel lane load can turn the intended delay into a false hang.
-serial = true
-
-[[test]]
-path = "tests/test_claude_wrapper_mutual_shim_loop.py"
-lane = "macos-cli-no-socket"
-# The finite-shim regression has a five-second hang guard. Run it without the
-# parallel pool so host scheduling pressure cannot masquerade as a shim loop.
-serial = true
-
-[[test]]
-path = "tests/test_claude_wrapper_shim_root_survives_tmpdir_change.py"
-lane = "macos-cli-no-socket"
-
-[[test]]
-path = "tests/test_claude_wrapper_node_options_survives_tmpdir_purge.py"
-lane = "macos-cli-no-socket"
-
-[[test]]
 path = "tests/test_issue_7028_claude_shim_persistence.py"
 lane = "macos-cli-no-socket-post-fish"
 requirements = ["fish"]
-
-[[test]]
-path = "tests/test_claude_wrapper_user_binary_resolution.py"
-lane = "macos-cli-no-socket"
-
-[[test]]
-path = "tests/test_claude_wrapper_subrouter_resume_marker.py"
-lane = "macos-cli-no-socket"
-
-[[test]]
-path = "tests/test_claude_wrapper_generated_settings_fast_path.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_claude_teams_test_utils.py"
-lane = "macos-cli-no-socket"
-
-[[test]]
-path = "tests/test_cli_codex_teams_informational.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_cli_claude_teams_fallback_path.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_cli_claude_teams_env.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_cli_claude_teams_existing_shim.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_cli_claude_teams_main_vertical.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_cli_claude_teams_moved_surface.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_cli_claude_teams_tmux_sequence.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_cli_claude_teams_trust_optin.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_cli_omo_fallback_path.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_cli_omx_fallback_path.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_cli_omc_fallback_path.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_issue_8743_path_directory_shadowing.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
 
 [[test]]
 path = "tests/test_issue_2448_shell_claude_wrapper_dispatch.py"
@@ -311,69 +116,6 @@ path = "tests/test_shell_pr_watch_private_state.py"
 lane = "macos-shell"
 
 [[test]]
-path = "tests/test_claude_hook_stop_last_assistant.py"
-lane = "macos-cli-no-socket-post-fish"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_claude_hook_clear_running_status.py"
-lane = "macos-cli-no-socket-post-fish"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_claude_hook_push_notification.py"
-lane = "macos-cli-no-socket-post-fish"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_pi_extension_install.py"
-lane = "macos-cli-no-socket-post-fish"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_pi_extension_dispatch.py"
-lane = "macos-cli-no-socket-post-fish"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_pi_wrapper.py"
-lane = "macos-cli-no-socket"
-
-[[test]]
-path = "tests/test_pi_compacted_feed.py"
-lane = "macos-cli-no-socket-post-fish"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_pi_extension_wakeup.py"
-lane = "macos-cli-no-socket-post-fish"
-
-[[test]]
-path = "tests/test_codex_permission_prompt_notification.py"
-lane = "macos-cli-no-socket-post-fish"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_codex_monitor_memory.py"
-lane = "macos-cli-no-socket-post-fish"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_omp_extension_install.py"
-lane = "macos-cli-no-socket-post-fish"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_omp_subagent_lifecycle.py"
-lane = "macos-cli-no-socket-post-fish"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_campfire_extension_install.py"
-lane = "macos-cli-no-socket-post-fish"
-requirements = ["cmux-cli"]
-
-[[test]]
 path = "tests/test_issue_9075_shell_socket_reports.py"
 lane = "macos-shell-fish"
 requirements = ["fish"]
@@ -408,10 +150,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_change_areas.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_cli_lane_in_admission.py"
 lane = "linux-guard"
 
 [[test]]
@@ -468,10 +206,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_notification_semantics.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_cli_product_routing.py"
 lane = "linux-guard"
 
 [[test]]
@@ -563,10 +297,6 @@ path = "tests/test_ci_workflow_run_sources.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_cli_contract_verb_guard.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ci_source_lint_guard_structure.py"
 lane = "linux-guard"
 
@@ -588,10 +318,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cleanup_stale_runs.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_cloud_vm_skill_coverage.py"
 lane = "linux-guard"
 
 [[test]]
@@ -687,10 +413,6 @@ path = "tests/test_local_build_cache_preflight.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_localizable_xcstrings_structure.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_localization_catalog.py"
 lane = "linux-guard"
 
@@ -763,14 +485,6 @@ path = "tests/test_web_complexity_trusted_workflow.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_amp_extension_install.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_amp_wrapper_hooks.py"
-lane = "legacy"
-
-[[test]]
 path = "tests/test_relocate_package_framework_rpaths.py"
 lane = "linux-guard"
 
@@ -827,86 +541,6 @@ path = "tests/test_ci_workflow_guards_are_wired.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_claude_hook_missing_socket_error.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_claude_hook_stop_ignores_teardown_unavailable.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_claude_wrapper_computer_use_skill.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_cli_broken_pipe_writes.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_cli_claude_teams_help_passthrough.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_cli_claude_teams_skips_wrapper_claude.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_cli_config_doctor.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_cli_contract_help.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_cli_creation_initial_command.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_cli_current.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_cli_glaeda_execution.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_cli_omo_tmux_respawn_pane.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_cli_omx_hud_tmux_split.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_cli_sigpipe_ignore.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_cli_tmux_compat_split_window_surface_ref.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_cli_tree_layout.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_cli_version_flag.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_cli_version_memory_guard.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_cli_version_memory_guard_harness.py"
-lane = "macos-shell"
-
-[[test]]
-path = "tests/test_cli_vm_create_name.py"
-lane = "legacy"
-
-[[test]]
 path = "tests/test_cloud_display_catalog.py"
 lane = "legacy"
 
@@ -929,18 +563,6 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_settings_transactions.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_codex_feed_hooks.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_codex_wrapper_hook_append.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_current_command_fixture.py"
-lane = "legacy"
 
 [[test]]
 path = "tests/test_ghostty_cli_helper_cache_failures.py"
@@ -1024,10 +646,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_notarize_computer_use_helper.py"
-lane = "legacy"
-
-[[test]]
-path = "tests/test_opencode_plugin_install.py"
 lane = "legacy"
 
 [[test]]
@@ -1149,15 +767,6 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_canonical_build_root.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_cli_workflow_catalog.py"
-lane = "macos-cli-no-socket"
-requirements = ["cmux-cli"]
-
-[[test]]
-path = "tests/test_cli_workflow_catalog_translation.py"
-lane = "macos-cli-no-socket"
 
 [[test]]
 path = "tests/test_ci_release_product_reuse.py"
@@ -1296,24 +905,11 @@ path = "tests/test_ci_owned_catch_up.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_cmux_schema_parity.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_resources_plist_unique_keys.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_claude_hook_spool.py"
-lane = "macos-cli-product"
-requirements = ["cmux-cli"]
-
-[[test]]
 path = "tests/test_release_media.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_cmux_config_schema_embed.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1370,4 +966,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_gh_merge_green.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_guard.py"
 lane = "linux-guard"

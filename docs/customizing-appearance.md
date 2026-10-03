@@ -11,7 +11,7 @@ pane borders, notification rings, icon) lives in `~/.config/cmux/cmux.json`.
 | --- | --- | --- |
 | `~/.config/ghostty/config` or `~/.config/ghostty/config.ghostty` | Terminal rendering, shared with standalone Ghostty | **Reload Configuration** (Cmd+Shift+,) or `cmux reload-config` |
 | `~/Library/Application Support/com.mitchellh.ghostty/config.ghostty` | Same, Ghostty's macOS location | Same |
-| `~/Library/Application Support/com.cmuxterm.app/config.ghostty` | cmux-only Ghostty overrides. `cmux themes` and the Settings font-size controls write here | Same |
+| `~/Library/Application Support/com.cmuxterm.app/config.ghostty` | cmux-only Ghostty overrides. The Settings theme and font-size controls write here | Same |
 | `~/.config/cmux/cmux.json` | App chrome and behavior ([schema](https://github.com/manaflow-ai/cmux/blob/main/web/data/cmux.schema.json)) | Reloads automatically when you save |
 
 cmux loads its own `config.ghostty` after Ghostty's files, so a key set there
@@ -50,24 +50,10 @@ settings are replaced or don't apply:
 
 ## Themes
 
-Pick a theme interactively, with a live preview across the running app:
-
-```bash
-cmux themes
-```
-
-Or script it:
-
-```bash
-cmux themes list
-cmux themes set "Catppuccin Mocha"
-cmux themes set --light "Catppuccin Latte" --dark "Catppuccin Mocha"
-cmux themes clear
-```
-
-`set` writes `theme = light:...,dark:...` into cmux's `config.ghostty` and asks
-the app to reload. `clear` removes that line so your Ghostty config's `theme`
-applies again. You can also write the pair yourself in any Ghostty config file:
+Pick a theme in Settings, with a live preview across the running app. The
+`cmux themes` CLI was removed with the Swift CLI and has no Rust equivalent yet.
+To script a theme, write the light/dark pair into any Ghostty config file and
+reload (`cmux settings reload-configuration`):
 
 ```ini
 theme = light:Catppuccin Latte,dark:Catppuccin Mocha
@@ -77,7 +63,7 @@ The light or dark half follows `app.appearance` (`system`, `light`, or `dark`)
 in `cmux.json`.
 
 Custom themes are ordinary Ghostty config files. Put one in
-`~/.config/ghostty/themes/<Name>` and it shows up in `cmux themes list`. Colors
+`~/.config/ghostty/themes/<Name>` and it shows up in the theme picker. Colors
 set directly in your config (`background`, `foreground`, `palette`, and so on)
 override the theme's.
 
@@ -210,8 +196,10 @@ place or the other.
 - `workspaceColors.colors` is the named palette shown in the workspace color
   picker. It replaces the built-in palette, so copy the default entries from the
   schema that you want to keep.
-- Color a workspace from the CLI: `cmux workspace-action set-color Amber` or
-  `cmux workspace-action --action set-color --color "#C0392B"`.
+- Color a workspace from the CLI with a palette choice:
+  `cmux workspace set-color --color blue --target ws_…` (grey, blue, red,
+  yellow, green, pink, purple, cyan, orange). Custom hex colors are set from
+  the picker (`workspace custom-color` opens it).
 - `notifications.paneFlashColor` recolors the unread pane ring and pane flash.
   `notifications.unreadPaneRing` and `notifications.paneFlash` turn them off.
 

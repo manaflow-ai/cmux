@@ -86,4 +86,14 @@ struct AppManifestTests {
         #expect(text.resolved(preferredLanguages: ["pt-BR"]) == "Agentes")
         #expect(text.resolved(preferredLanguages: ["de"]) == "Agents")
     }
+
+    /// Every first-party app shipped inside cmux decodes (else the registry would drop it silently).
+    @Test func bundledFirstPartyAppsDecode() throws {
+        let root = AppPlatformResources.firstParty
+        let names = try FileManager.default.contentsOfDirectory(atPath: root.path).filter { !$0.hasPrefix(".") }
+        #expect(names.contains("coderouter"))
+        for name in names {
+            #expect(throws: Never.self, "\(name)") { _ = try AppManifest.decode(Data(contentsOf: root.appending(path: "\(name)/cmux-app.json"))) }
+        }
+    }
 }

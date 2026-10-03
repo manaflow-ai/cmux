@@ -37,9 +37,10 @@ final class AppControl {
         let service = try ControlService.start(registry: registry, settings: settings, launch: launch,
                                                frameSource: frames, watchdog: watchdog)
         self.service = service
+        registerSyncBarrier(service.router, daemon: services.daemon)
         let probe = frameProbe
         service.router.register(HistoryControl.methods(services: services))
-        service.router.register(TabSearchControl.methods(services: services))
+        service.router.register(TabSearchControl.methods())
         service.router.register(BookmarkControl.methods(services: services))
         service.router.register([
             .mainActor("debug.frames") { call in .value(probe.handle(call.params)) },

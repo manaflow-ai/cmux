@@ -1,5 +1,11 @@
 # Sidebar sections
 
+> **Resume note (parked 2026-10-02, sidebar-sections lead).**
+> State: app side landed through cc5f77639e4 (sections, looks, actions, mirror + intent log, presence, emoji icons); store op PR https://github.com/manaflow-ai/cmux/pull/16842 (branch feat-cmux-next-sidebar-layout-store, head c745621e94f, testbox green except the known-flaky `durable_workspace_creation_supports_the_in_process_terminal_runtime`).
+> Next: retarget #16842 to feat-cmux-next when #16174 merges (owner ad349e7b1284e56a5 reviews); then SidebarAppSectionProvider (send SHA to app platform lead a8ea20892365dec47), blob.put/blob.get + blob-ref registry, Home active state + Cmd-1 when Home lands, review Leo's activateLayoutItem change.
+> After PR 16863 merges: regenerate ActionCatalogTests counts with `CMUX_UPDATE_ACTION_SURFACES=1 swift test --filter ActionCatalogTests` (never hand-bump).
+> Open runs: none (testbox stopped, warmup cancelled). Worktrees: feat-cmux-next-sidebar-client (clean, all on origin), feat-cmux-next-sidebar-layout-store (PR branch).
+
 Status: design + phase 1 build, sidebar-sections lead, 2026-10-02. Binding: OWNERSHIP-PRINCIPLES.md,
 architecture.md, actions.md. Inputs: Lawrence's request (2026-10-02, quoted in the coordinator task),
 Home (home.md, Home lead), Leo's sidebar direction (https://github.com/manaflow-ai/cmux/issues/16688),
@@ -262,10 +268,13 @@ switch (descriptor titles are built once at launch).
 - Custom icons (emoji, SF Symbol or image) for workspaces and Home: the existing workspace
   `icon` string of workspace-metadata-v1 is extended (sidebar sections lead); the Home lead reuses
   it. Done: one emoji draws as text, any other value is an SF Symbol name
-  (`WorkspaceIcon.parse`). Images need a store blob: proposal `icon` = `image:sha256-<hex>` naming
-  a personal blob put through a new `icon_image.put {media_type, data (base64, at most 256 KiB)}`
-  state op, so the image syncs with the workspace. Accepted (Lawrence, 2026-10-02); built after
-  #16174 merges, reviewed by the state-module owner.
+  (`WorkspaceIcon.parse`). Images: accepted (Lawrence, 2026-10-02); the state-module owner asked for a generic
+  shape. `blob.put {media_type, data}` -> `{ref: "blob:sha256-<hex>", size}` and `blob.get {ref}`,
+  personal store, content-addressed and idempotent by hash, at most 256 KiB, png/jpeg/webp (svg
+  refused for now); the workspace `icon` holds `blob:sha256-<hex>`. GC: a sweep at daemon start and
+  after each put deletes blobs no registered reference field names and older than 7 days, and a
+  64 MiB total cap refuses a put the sweep cannot make room for. Built after #16174 merges,
+  reviewed by the state-module owner.
 - Home is a workspace with `kind: home` (Home lead, plans/cmux-next/home.md section 7): created once
   by the store, not closable, first in its top section; tab bar hidden, fixed and not closable are
   derived from kind on the client. The sidebar item stays `built_in:home`; it runs `home.show`

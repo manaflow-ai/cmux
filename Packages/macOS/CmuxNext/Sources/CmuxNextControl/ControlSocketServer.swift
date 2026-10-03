@@ -15,7 +15,9 @@ import Synchronization
 /// outbound buffers are capped, so a slow client only stalls itself.
 ///
 /// Authorization follows the old `SocketControlMode` model: `cmuxOnly`
-/// admits processes descended from this app, `automation` admits the same
+/// admits processes started inside this cmux (descended from this app or
+/// from a process running one of `trustedExecutables`, the bundled cmux
+/// binary that hosts every terminal), `automation` admits the same
 /// user, `password` also requires `auth <password>` / `auth.login`, and
 /// `allowAll` admits anyone. The socket file is 0600 except for `allowAll`.
 public final class ControlSocketServer: Sendable {
@@ -26,6 +28,10 @@ public final class ControlSocketServer: Sendable {
         public var passwordVerifier: (@Sendable (String) -> Bool)?
         /// Process whose descendants `.cmuxOnly` admits (default: this app).
         public var trustedAncestor: pid_t
+        /// Executables whose processes' descendants `.cmuxOnly` also admits:
+        /// the bundled `bin/cmux`, which runs the daemon and the terminal
+        /// hosts that survive app and daemon restarts (real paths).
+        public var trustedExecutables: Set<String>
         /// Longest accepted request line.
         public var maxLineBytes: Int
         /// Parsed request lines that may wait per connection before reading pauses.
@@ -38,6 +44,7 @@ public final class ControlSocketServer: Sendable {
             accessMode: ControlAccessMode,
             passwordVerifier: (@Sendable (String) -> Bool)? = nil,
             trustedAncestor: pid_t = getpid(),
+            trustedExecutables: Set<String> = [],
             maxLineBytes: Int = 4 << 20,
             maxQueuedLinesPerConnection: Int = 64,
             maxOutboxBytesPerConnection: Int = 8 << 20
@@ -46,6 +53,7 @@ public final class ControlSocketServer: Sendable {
             self.accessMode = accessMode
             self.passwordVerifier = passwordVerifier
             self.trustedAncestor = trustedAncestor
+            self.trustedExecutables = trustedExecutables
             self.maxLineBytes = maxLineBytes
             self.maxQueuedLinesPerConnection = maxQueuedLinesPerConnection
             self.maxOutboxBytesPerConnection = maxOutboxBytesPerConnection

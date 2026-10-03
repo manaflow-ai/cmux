@@ -18,24 +18,21 @@ IDENTITY_SCHEMA = "cmux-app-host-product-inputs/v2"
 MACOS_ADMISSION_JOB = "macos-compile-admission"
 
 # A product profile is the set of schemes one producer builds. The app-host
-# profile carries the whole app; the cli profile carries only what the host-free
-# CLI lane consumes -- the cmux-cli product and its test bundle.
+# profile carries the whole app.
 #
 # This is the single source of truth. compile-app-host-test-product.sh asks for
 # the scheme list rather than repeating it: if the built schemes and the
 # identity ever disagree, a partial product reuses under a full product's key
 # and a consumer silently tests something that was never built.
 PRODUCT_PROFILES = {
-    # The app scheme builds first so its warning log keeps the warning-budget
-    # scope; the CLI test scheme then reuses the same package objects.
-    "app-host": ("cmux", "cmux-cli-tests"),
-    "cli": ("cmux-cli-tests",),
+    "app-host": ("cmux",),
 }
 # The schemes compiled with build-for-testing, each of which writes one
 # .xctestrun manifest. Every other scheme (the cmux-next app, whose scheme has
 # no test targets) compiles with a plain build: build-for-testing refuses a
-# scheme with no testables.
-TEST_SCHEMES = frozenset({"cmux-cli-tests"})
+# scheme with no testables. No test scheme remains since the cmux-cli-tests
+# scheme was deleted with the Swift CLI.
+TEST_SCHEMES: frozenset[str] = frozenset()
 DEFAULT_PRODUCT_PROFILE = "app-host"
 
 
@@ -162,7 +159,6 @@ NON_PRODUCT_RECIPE_STEPS = frozenset({
     "Upload the owned Mac's warm keys",
     "Record warm-state distance",
     "Validate Swift warning budget",
-    "Run early CLI binary smoke checks",
     "Start product publication timer",
     "Choose product artifact publication",
     "Upload compiled app-host test product",
@@ -410,9 +406,8 @@ def identity_from_tree_lines(
         "algorithm": algorithm_fingerprint(),
         "source": source_fingerprint(tree_lines),
         "recipe": recipe_fingerprint(workflow),
-        # Two profiles over one revision build different products. Keeping the
-        # profile out of the identity would let the cli product answer an
-        # app-host consumer's cache lookup.
+        # Two profiles over one revision would build different products, so
+        # the profile is part of the identity.
         "profile": resolved,
         "schemes": " ".join(PRODUCT_PROFILES[resolved]),
         "actions": " ".join(scheme_action(scheme) for scheme in PRODUCT_PROFILES[resolved]),

@@ -72,8 +72,8 @@ final class ControlSnapshotPublisher {
     func publishNow() {
         guard !isStopped else { return }
         let started = ContinuousClock.now
-        let (topology, settings) = withObservationTracking {
-            (buildTopology(), services.settings?.snapshot.root)
+        let (topology, settings, tabSearch) = withObservationTracking {
+            (Self.topology(services), services.settings?.snapshot.root, TabSearchFactsBuilder.facts(services))
         } onChange: { [weak self] in
             // Runs synchronously inside the mutation; publish after it lands.
             Task { @MainActor in self?.modelChanged() }
@@ -81,6 +81,7 @@ final class ControlSnapshotPublisher {
         router.snapshots.publish { snapshot in
             snapshot.topology = topology
             snapshot.settings = settings
+            snapshot.tabSearch = tabSearch
         }
         services.apps.topologyPublished(topology)
         let elapsed = ContinuousClock.now - started
@@ -89,7 +90,9 @@ final class ControlSnapshotPublisher {
         }
     }
 
-    private func buildTopology() -> ControlTopology {
+    /// The topology of every machine, window and focus as of now (also
+    /// what Search Tabs lists in the palette).
+    static func topology(_ services: AppServices) -> ControlTopology {
         let windows: WindowManager = services.windows
         var topology = ControlTopologyMapper.topology(store: services.daemon.store) { [services] pane in
             services.paneController(for: pane)?.selectedTab?.id
@@ -109,8 +112,14 @@ final class ControlSnapshotPublisher {
                     services.paneController(for: pane)?.selectedTab?.id
                 }
                 info.sessionID = session
+                info.machine = daemon.machineID
                 return info
             }
+        }
+        // With the local daemon down, the remote sessions' workspaces are the
+        // whole tree: resolve their public ids instead of passing them through.
+        if !topology.isLoaded, topology.daemonFailure != nil, machines.remoteDaemons.contains(where: { $0.store.isLoaded }) {
+            topology.isLoaded = true
         }
         topology.windows = windows.controllers.map { controller in
             let members = windows.registry.members(of: controller.state.id)

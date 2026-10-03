@@ -37,6 +37,7 @@ declare namespace Cmux {
   type Cursor = { generation: string; revision: string }
   type DeviceId = string
   type DeviceStatus = { install: Cmux.InstallId; user: string; policy_version: number; app_version: string; mdm_keys: Array<string>; conflicts: Array<string>; reported_at: number }
+  type EmailDomain = string
   type EmptyResult = Record<string, never>
   type EnrollmentToken = { id: Cmux.EnrollmentTokenId; label: string; allowed_domains: Array<string> | null; expires_at: number | null; created_by: string; created_at: number; revoked_at: number | null; uses: number }
   type EnrollmentTokenHash = string
@@ -58,10 +59,11 @@ declare namespace Cmux {
   type FrontendProjectionSnapshot = { id: string /* frontend_projection_… */; session_id: string /* session_… */; projection: Cmux.JsonValue; frontend_id: string; window_id: string; generation: string; projection_revision: string; extra?: Record<string, Cmux.JsonValue> }
   type Grant = { id: Cmux.GrantId; grantee: string; op_classes: Array<Cmux.OpClass>; approval: "none" | "per_call" | "per_session"; expires_at: number | null; revoked_at: number | null; created_from: "install" | "ui" | "automation" | "standing_rule" }
   type GrantId = string
-  type Host = { id: Cmux.HostId; name: string; platform: Cmux.Platform; owner_user: Cmux.UserId; enrolled_by: Cmux.InstallId; enrolled_at: number }
+  type Host = { id: Cmux.HostId; name: string; platform: Cmux.Platform; owner_user: Cmux.UserId; enrolled_by: Cmux.InstallId; enrolled_at: number; kind?: Cmux.HostKind; wg_public_key?: Cmux.WgPublicKey; tags?: Array<string> }
   type HostId = string
+  type HostKind = "device" | "server"
   type InputModifier = "shift" | "control" | "alt" | "meta"
-  type Install = { id: Cmux.InstallId; device: Cmux.DeviceId; kind: Cmux.InstallKind; name: string; device_name: string; platform: Cmux.Platform; public_jwk: Cmux.PublicJwk; thumbprint: string; grant: Cmux.GrantId; created_at: number; revoked_at: number | null }
+  type Install = { id: Cmux.InstallId; device: Cmux.DeviceId; kind: Cmux.InstallKind; name: string; device_name: string; platform: Cmux.Platform; public_jwk: Cmux.PublicJwk; thumbprint: string; grant: Cmux.GrantId; created_at: number; revoked_at: number | null; bound_team?: Cmux.TeamId }
   type InstallId = string
   type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm"
   type IntegrationProvider = "github" | "linear" | "slack"
@@ -113,6 +115,9 @@ declare namespace Cmux {
   type NotificationLevel = "info" | "warning" | "error"
   type NotificationSnapshot = { id: string /* notification_… */; session_id: string /* session_… */; title: string; subtitle?: string; body: string; level: Cmux.NotificationLevel; terminal_id?: string /* terminal_… */; created_at_ms: string; unread: boolean; read_by: Array<string>; extra?: Record<string, Cmux.JsonValue> }
   type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive"
+  type PairingCode = string
+  type PairingInfo = { name: string; platform: Cmux.Platform; os_version: string; arch: "x86_64" | "aarch64"; cmux_version: string }
+  type PairingPreview = { code: Cmux.PairingCode; info: Cmux.PairingInfo; public_jwk: Cmux.PublicJwk; thumbprint: string; country: string | null; expires_at: number }
   type PairingRequestSnapshot = { id: string /* pairing_request_… */; session_id: string /* session_… */; peer: string; code: string; expires_in_seconds: string; status: "pending" | "accepted" | "rejected"; extra?: Record<string, Cmux.JsonValue> }
   type PairingResolutionResult = { pairing_request: Cmux.PairingRequestSnapshot }
   type PaneNeighborResult = { pane?: Cmux.PaneSnapshot | null }
@@ -163,12 +168,15 @@ declare namespace Cmux {
   type SidebarPluginSnapshot = { id: string /* sidebar_plugin_… */; name: string; source: string; revision?: string; active: boolean; enabled: boolean; extra?: Record<string, Cmux.JsonValue> }
   type SidebarViewSnapshot = { id: string /* sidebar_view_… */; session_id: string /* session_… */; cols: number; rows: number; running: boolean; extra?: Record<string, Cmux.JsonValue> }
   type Size = { cols: number; rows: number }
+  type SsoConnection = { id: Cmux.SsoConnectionId; kind: "oidc"; state: "draft" | "active" | "disabled"; domains: Array<Cmux.EmailDomain>; oidc: { issuer: string; client_id: string; scopes: Array<string>; authorization_endpoint: string | null; token_endpoint: string | null; jwks_uri: string | null }; secret_set: boolean; secret_generation?: number; jit: { enabled: boolean; default_role: "member" | "admin" }; created_at: number; updated_at: number }
+  type SsoConnectionId = string
   type Step = unknown
   type StreamEnd = { reason: "completed" | "canceled" | "closed" | "gap" | "error"; cursor?: Cmux.Cursor; recovery?: string; error?: Cmux.StreamError }
   type StreamError = { code: string; message: string; details: Cmux.JsonValue; retryable: boolean }
   type StreamOpened = { stream_id: string /* stream_… */; cursor?: Cmux.Cursor }
   type TabSnapshot = { id: string /* tab_… */; pane_id: string /* pane_… */; name: string | null; index: number; focused: boolean; content_kind: "terminal" | "browser"; content_id: unknown; extra?: Record<string, Cmux.JsonValue> }
   type TargetPolicy = unknown
+  type TeamDomain = { domain: Cmux.EmailDomain; state: "pending" | "verified" | "lost" | "lapsed"; record_name: string; record_value: string; requested_at: number; expires_at: number; verified_at: number | null; last_checked_at?: number; check_failures?: number }
   type TeamId = string
   type TeamIntegrationPolicy = { allowed_providers: Array<Cmux.IntegrationProvider> | null; github: { scope: "linking_user_repos" | "installation"; require_org_admin: boolean; repo_allowlist: Array<Cmux.RepoPattern> | null }; source: "default" | "admin" | "sso" | "mdm" | "team_policy"; locked: boolean; updated_at: number | null; updated_by: string | null }
   type TeamMember = { user: Cmux.UserId; role: "owner" | "admin" | "member"; display_name: string }
@@ -205,6 +213,7 @@ declare namespace Cmux {
   type ViewAttachmentStreamOpened = { stream_id: string /* stream_… */; attachment_lease: string }
   type ViewerReleaseResult = { outcome: Cmux.ViewAttachmentOutcome }
   type ViewerResizeResult = { accepted: boolean; size: Cmux.Size; outcome: Cmux.ViewAttachmentOutcome }
+  type WgPublicKey = string
   type WorkspaceSnapshot = { id: string /* workspace_… */; session_id: string /* session_… */; name: string; index: number; focused: boolean; extra?: Record<string, Cmux.JsonValue> }
   type MutationResult<T> = { value: T; generation: string; revision: string; replayed: boolean }
 }
@@ -278,6 +287,14 @@ interface CmuxGlobal {
     /** `browser.reload` (mutation, scope `browser:write`) */
     reload: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; browser: string; expected_revision?: string }, Cmux.MutationResult<Cmux.BrowserSnapshot>>
   }
+  domain: {
+    /** `domain.claim` (mutation, scope `domain:write`): Start verifying an email domain for the team (owners and admins): returns the DNS TXT record to publish. Public mail domains are refused. */
+    claim: CmuxOp<{ domain: Cmux.EmailDomain; expected_revision?: string }, Cmux.MutationResult<Cmux.TeamDomain>>
+    /** `domain.list` (read, scope `domain:read`): The team's claimed and verified email domains (owners and admins). */
+    list: CmuxOp<Record<string, never>, { team: Cmux.TeamId; domains: Array<Cmux.TeamDomain>; revision: string }>
+    /** `domain.verify` (mutation, scope `domain:write`): Check the TXT record through two DNS-over-HTTPS resolvers and, when both see it, make the team the domain's owner (owners and admins). */
+    verify: CmuxOp<{ domain: Cmux.EmailDomain; expected_revision?: string }, Cmux.MutationResult<Cmux.TeamDomain>>
+  }
   feed: {
     /** `feed.adopt` (mutation, scope `feed:write`): Handoff: a daemon's local feed owner moves one of its items (same id) to the cloud owner after a reconnect. */
     adopt: CmuxOp<{ item: Cmux.FeedItem; expected_revision?: string }, Cmux.MutationResult<{ item: Cmux.FeedItem }>>
@@ -309,6 +326,14 @@ interface CmuxGlobal {
     snooze: CmuxOp<{ items: Array<Cmux.FeedItemId>; until: number; expected_revision?: string }, Cmux.MutationResult<{ items: Array<{ id: Cmux.FeedItemId; revision: number }> }>>
     /** `feed.unarchive` (mutation, scope `feed:write`): Move archived items back to the active list. */
     unarchive: CmuxOp<{ items: Array<Cmux.FeedItemId>; expected_revision?: string }, Cmux.MutationResult<{ items: Array<{ id: Cmux.FeedItemId; revision: number }> }>>
+  }
+  firewall: {
+    /** `firewall.create` (mutation, scope `firewall:write`): Allow a validated path through the caller's private network. */
+    create: CmuxOp<{ source: { vmId?: string; vpcId?: string; tunnelId?: string; cidr?: string; public?: boolean; port?: number; protocol?: "tcp" | "udp" | "icmp" }; destination: { vmId?: string; vpcId?: string; tunnelId?: string; cidr?: string; public?: boolean; port?: number; protocol?: "tcp" | "udp" | "icmp" }; description?: string; expected_revision?: string }, Cmux.MutationResult<{ id: string; action: "allow"; source: { vmId?: string; vpcId?: string; tunnelId?: string; cidr?: string; public?: boolean; port?: number; protocol?: "tcp" | "udp" | "icmp" }; destination: { vmId?: string; vpcId?: string; tunnelId?: string; cidr?: string; public?: boolean; port?: number; protocol?: "tcp" | "udp" | "icmp" }; description?: string }>>
+    /** `firewall.get` (read, scope `firewall:read`): Read one firewall rule owned by the caller. */
+    get: CmuxOp<{ rule_id: string }, { id: string; action: "allow"; source: { vmId?: string; vpcId?: string; tunnelId?: string; cidr?: string; public?: boolean; port?: number; protocol?: "tcp" | "udp" | "icmp" }; destination: { vmId?: string; vpcId?: string; tunnelId?: string; cidr?: string; public?: boolean; port?: number; protocol?: "tcp" | "udp" | "icmp" }; description?: string }>
+    /** `firewall.list` (read, scope `firewall:read`): List firewall rules attached to the caller's private network. */
+    list: CmuxOp<{ vpc_id?: string; vm_id?: string; tunnel_id?: string }, { rules: Array<{ id: string; action: "allow"; source: { vmId?: string; vpcId?: string; tunnelId?: string; cidr?: string; public?: boolean; port?: number; protocol?: "tcp" | "udp" | "icmp" }; destination: { vmId?: string; vpcId?: string; tunnelId?: string; cidr?: string; public?: boolean; port?: number; protocol?: "tcp" | "udp" | "icmp" }; description?: string }> }>
   }
   github: {
     issue: {
@@ -345,6 +370,10 @@ interface CmuxGlobal {
     get: CmuxOp<{ machine?: string }, Cmux.MachineSnapshot>
     /** `machine.list` (read, scope `machine:read`) */
     list: CmuxOp<Record<string, never>, Array<Cmux.MachineSnapshot>>
+  }
+  network: {
+    /** `network.list` (read, scope `network:read`): List the caller-owned private Cloud networks. */
+    list: CmuxOp<Record<string, never>, { networks: Array<{ id: string; cidr: string | null; cidrV6: string | null; scope: "user" | "team" }> }>
   }
   notification: {
     /** `notification.ack` (mutation, scope `notification:write`) */
@@ -407,6 +436,14 @@ interface CmuxGlobal {
     list: CmuxOp<{ machine?: string; session?: string; workspace?: string }, Array<Cmux.ScreenSnapshot>>
     /** `screen.rename` (mutation, scope `workspace:write`) */
     rename: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen: string; name: string | null; expected_revision?: string }, Cmux.MutationResult<Cmux.ScreenSnapshot>>
+  }
+  server: {
+    pair: {
+      /** `server.pair.approve` (mutation, scope `server:write`): Approve a pairing code: register the server's install key under you and add the server to the team directory. */
+      approve: CmuxOp<{ code: Cmux.PairingCode; team: Cmux.TeamId; name: string; expected_revision?: string }, Cmux.MutationResult<{ host: Cmux.HostId; team: Cmux.TeamId; user: Cmux.UserId; install: Cmux.InstallId }>>
+      /** `server.pair.preview` (read, scope `server:read`): Show what a pending pairing code would add: the server's name, platform, key thumbprint and location. */
+      preview: CmuxOp<{ code: Cmux.PairingCode }, Cmux.PairingPreview>
+    }
   }
   session: {
     /** `session.get` (read, scope `session:read`) */
@@ -477,6 +514,18 @@ interface CmuxGlobal {
   slack: {
     /** `slack.post_as_bot` (mutation, scope `slack:external`): Post a message to a Slack channel as the cmux bot. */
     post_as_bot: CmuxOp<{ connection: Cmux.ConnectionId; channel: string; text: string; expected_revision?: string }, Cmux.MutationResult<string>>
+  }
+  sso: {
+    connection: {
+      /** `sso.connection.activate` (mutation, scope `sso:write`): Fetch the issuer's OpenID discovery document and activate the connection (owners and admins). Needs the secret and every domain verified by this team. */
+      activate: CmuxOp<{ connection: Cmux.SsoConnectionId; expected_revision?: string }, Cmux.MutationResult<Cmux.SsoConnection>>
+      /** `sso.connection.create` (mutation, scope `sso:write`): Create an OIDC connection in draft (owners and admins). Then set its client secret and activate it. */
+      create: CmuxOp<{ issuer: string; client_id: string; domains: Array<Cmux.EmailDomain>; scopes?: Array<string>; jit?: { enabled: boolean; default_role: "member" | "admin" }; expected_revision?: string }, Cmux.MutationResult<Cmux.SsoConnection>>
+      /** `sso.connection.list` (read, scope `sso:read`): The team's SSO connections, without secrets (owners and admins). */
+      list: CmuxOp<Record<string, never>, { team: Cmux.TeamId; connections: Array<Cmux.SsoConnection>; revision: string }>
+      /** `sso.connection.set_secret` (mutation, scope `sso:write`): Seal the OIDC client secret (owners and admins). The secret is never returned, logged or recorded in events. */
+      set_secret: CmuxOp<{ connection: Cmux.SsoConnectionId; client_secret: string; expected_revision?: string }, Cmux.MutationResult<Cmux.SsoConnection>>
+    }
   }
   tab: {
     /** `tab.create_browser` (mutation, scope `workspace:write`) */
@@ -579,6 +628,14 @@ interface CmuxGlobal {
     wait: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; pattern: string; timeout_ms?: string }, Cmux.TerminalWaitResult>
     /** `terminal.wait_exit` (read, scope `terminal:read`) */
     wait_exit: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; timeout_ms?: string }, Cmux.TerminalWaitExitResult>
+  }
+  tunnel: {
+    /** `tunnel.attach` (mutation, scope `tunnel:write`): Attach an owned WireGuard tunnel to an owned private network. */
+    attach: CmuxOp<{ device_fingerprint: string; network_id: string; expected_revision?: string }, Cmux.MutationResult<{ tunnel_id: string; network_id: string }>>
+    /** `tunnel.detach` (mutation, scope `tunnel:write`): Detach an owned WireGuard tunnel from an owned private network. */
+    detach: CmuxOp<{ device_fingerprint: string; network_id: string; expected_revision?: string }, Cmux.MutationResult<{ tunnel_id: string; network_id: string }>>
+    /** `tunnel.rotate-key` (mutation, scope `tunnel:write`): Rotate an owned tunnel's WireGuard public key without changing its address. */
+    "rotate-key": CmuxOp<{ device_fingerprint: string; client_public_key: string; expected_revision?: string }, Cmux.MutationResult<{ tunnel_id: string; client_public_key: string }>>
   }
   workspace: {
     /** `workspace.create` (mutation, scope `workspace:write`) */

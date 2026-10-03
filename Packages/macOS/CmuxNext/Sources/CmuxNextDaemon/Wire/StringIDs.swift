@@ -70,14 +70,19 @@ public typealias TabGroupID = DaemonStringID<StringIDKind.TabGroup>
 public typealias SavedTabGroupID = DaemonStringID<StringIDKind.SavedTabGroup>
 
 extension DaemonStringID where Kind == StringIDKind.WorkspaceKey {
-    /// A fresh key in the daemon's canonical form.
-    public static func generate() -> Self { Self(rawValue: UUID().uuidString.lowercased()) }
+    /// A fresh key in the daemon's canonical form; derived from the running
+    /// action's idempotency key when there is one (`DaemonCommandScope`).
+    public static func generate() -> Self {
+        let uuid = DaemonCommandScope.current?.nextDerivedUUID("workspace-key") ?? UUID()
+        return Self(rawValue: uuid.uuidString.lowercased())
+    }
 }
 
 extension DaemonStringID where Kind == StringIDKind.Terminal {
     /// A caller-reserved id for `create-terminal` (canonical 32-character UUID).
     public static func generate() -> Self {
-        Self(rawValue: UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: ""))
+        let uuid = DaemonCommandScope.current?.nextDerivedUUID("terminal-id") ?? UUID()
+        return Self(rawValue: uuid.uuidString.lowercased().replacingOccurrences(of: "-", with: ""))
     }
 }
 

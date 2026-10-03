@@ -68,6 +68,8 @@ public final class ActionRegistry {
     /// Every known value of a suggested argument (`ActionSuggestions.source`),
     /// supplied by the App.
     @ObservationIgnored public var argumentSuggestions: (@MainActor (String) -> [ActionEnumCase])?
+    /// Shortcut recorders open now (`ShortcutRecorder`); any open one sets `.recordingShortcut`.
+    @ObservationIgnored var openShortcutRecorders: Set<ObjectIdentifier> = []
     /// Whether free text is a valid value of a suggested argument (a theme
     /// Ghostty accepts); nil accepts any non-empty text.
     @ObservationIgnored public var argumentValidation: (@MainActor (String, String) -> Bool)?
@@ -90,12 +92,13 @@ public final class ActionRegistry {
     @ObservationIgnored public var invocationScope: (@MainActor (ActionInvocation, () -> Void) -> Void)?
     @ObservationIgnored public internal(set) var isCapturingRefusal = false
     @ObservationIgnored var capturedRefusal: String?
+    /// The captured refusal said an explicit target names nothing.
+    @ObservationIgnored var capturedRefusalIsNotFound = false
     /// A caller shows refusals itself (the palette): no beep, but unlike
     /// capturing, destructive actions still ask for confirmation.
     @ObservationIgnored public internal(set) var isReportingRefusal = false
     @ObservationIgnored var reportedRefusal: String?
     @ObservationIgnored var capturedWork: [ActionWork]?
-
     @ObservationIgnored private var indexByID: [ActionID: Int] = [:]
     @ObservationIgnored var descriptorIndexByID: [ActionID: Int] = [:]
     @ObservationIgnored var shortcutIndex: ShortcutIndex?
@@ -295,11 +298,7 @@ public final class ActionRegistry {
             return true
         }
         if needsConfirmation(id, invocation) { return gateDestructive(id, invocation) }
-        if let invocationScope {
-            invocationScope(invocation) { action.run(invocation) }
-        } else {
-            action.run(invocation)
-        }
+        runScoped(action, id, invocation)
         return true
     }
 

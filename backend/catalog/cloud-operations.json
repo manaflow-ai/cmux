@@ -1576,6 +1576,30 @@
             "kind": "primitive",
             "name": "int64"
           }
+        },
+        "kind": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "HostKind"
+          }
+        },
+        "wg_public_key": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "WgPublicKey"
+          }
+        },
+        "tags": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
         }
       }
     },
@@ -1584,6 +1608,13 @@
       "name": "string",
       "pattern": "^host_[a-z0-9]{20}$",
       "description": "A machine's session host, enrolled by its link."
+    },
+    "HostKind": {
+      "kind": "enum",
+      "values": [
+        "device",
+        "server"
+      ]
     },
     "Install": {
       "kind": "object",
@@ -1671,6 +1702,13 @@
               "name": "int64"
             }
           }
+        },
+        "bound_team": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "TeamId"
+          }
         }
       }
     },
@@ -1756,6 +1794,109 @@
         "money",
         "destructive"
       ]
+    },
+    "PairingCode": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{8}$",
+      "description": "A normalized pairing code: 8 Crockford base32 symbols, no hyphen."
+    },
+    "PairingInfo": {
+      "kind": "object",
+      "fields": {
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 80
+          }
+        },
+        "platform": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "Platform"
+          }
+        },
+        "os_version": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 80
+          }
+        },
+        "arch": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "x86_64",
+              "aarch64"
+            ]
+          }
+        },
+        "cmux_version": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 40
+          }
+        }
+      }
+    },
+    "PairingPreview": {
+      "kind": "object",
+      "fields": {
+        "code": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "PairingCode"
+          }
+        },
+        "info": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "PairingInfo"
+          }
+        },
+        "public_jwk": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "PublicJwk"
+          }
+        },
+        "thumbprint": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "country": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "expires_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      }
     },
     "Platform": {
       "kind": "enum",
@@ -3666,6 +3807,12 @@
           }
         }
       }
+    },
+    "WgPublicKey": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^[A-Za-z0-9+/]{43}=$",
+      "description": "A WireGuard public key, standard base64 of 32 bytes."
     }
   },
   "generics": {
@@ -17388,6 +17535,18 @@
             "pattern": "^inst_[a-z0-9]{20}$",
             "description": "One app, CLI or daemon install with its own keypair."
           },
+          "HostKind": {
+            "type": "string",
+            "enum": [
+              "device",
+              "server"
+            ]
+          },
+          "WgPublicKey": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9+/]{43}=$",
+            "description": "A WireGuard public key, standard base64 of 32 bytes."
+          },
           "Host": {
             "type": "object",
             "properties": {
@@ -17410,6 +17569,18 @@
               },
               "enrolled_at": {
                 "type": "integer"
+              },
+              "kind": {
+                "$ref": "#/$defs/HostKind"
+              },
+              "wg_public_key": {
+                "$ref": "#/$defs/WgPublicKey"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               }
             },
             "required": [
@@ -17833,6 +18004,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "bound_team": {
+                "$ref": "#/$defs/TeamId"
               }
             },
             "required": [
@@ -17985,6 +18159,23 @@
               "name": "DeviceId"
             }
           },
+          "op_classes": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "OpClass"
+              }
+            }
+          },
+          "bound_team": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -18061,6 +18252,15 @@
           },
           "device": {
             "$ref": "#/$defs/DeviceId"
+          },
+          "op_classes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/OpClass"
+            }
+          },
+          "bound_team": {
+            "$ref": "#/$defs/TeamId"
           }
         },
         "required": [
@@ -18132,6 +18332,23 @@
             "type": "string",
             "pattern": "^dev_[a-z0-9]{20}$",
             "description": "A device (hardware) that groups installs."
+          },
+          "OpClass": {
+            "type": "string",
+            "enum": [
+              "read",
+              "mutate-own",
+              "mutate-shared",
+              "execute",
+              "send-external",
+              "money",
+              "destructive"
+            ]
+          },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
           }
         }
       },
@@ -18209,6 +18426,11 @@
             "pattern": "^grant_[a-z0-9]{20}$",
             "description": "A server-side grant; tokens carry only its id."
           },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
           "Install": {
             "type": "object",
             "properties": {
@@ -18255,6 +18477,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "bound_team": {
+                "$ref": "#/$defs/TeamId"
               }
             },
             "required": [
@@ -18454,6 +18679,11 @@
             "pattern": "^grant_[a-z0-9]{20}$",
             "description": "A server-side grant; tokens carry only its id."
           },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
           "Install": {
             "type": "object",
             "properties": {
@@ -18500,6 +18730,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "bound_team": {
+                "$ref": "#/$defs/TeamId"
               }
             },
             "required": [
@@ -18683,6 +18916,11 @@
             "pattern": "^grant_[a-z0-9]{20}$",
             "description": "A server-side grant; tokens carry only its id."
           },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
           "Install": {
             "type": "object",
             "properties": {
@@ -18729,6 +18967,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "bound_team": {
+                "$ref": "#/$defs/TeamId"
               }
             },
             "required": [
@@ -20743,6 +20984,533 @@
         ],
         "additionalProperties": true,
         "$defs": {}
+      }
+    },
+    "server.pair.approve": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "pairing",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "code": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "PairingCode"
+            }
+          },
+          "team": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
+          "name": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 80
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "host": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "HostId"
+                }
+              },
+              "team": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "TeamId"
+                }
+              },
+              "user": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "UserId"
+                }
+              },
+              "install": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "InstallId"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:PairingDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "servers add",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "servers"
+      },
+      "docs": "Approve a pairing code: register the server's install key under you and add the server to the team directory.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "$ref": "#/$defs/PairingCode"
+          },
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "code",
+          "team",
+          "name"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "PairingCode": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{8}$",
+            "description": "A normalized pairing code: 8 Crockford base32 symbols, no hyphen."
+          },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "$ref": "#/$defs/HostId"
+          },
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "user": {
+            "$ref": "#/$defs/UserId"
+          },
+          "install": {
+            "$ref": "#/$defs/InstallId"
+          }
+        },
+        "required": [
+          "host",
+          "team",
+          "user",
+          "install"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          }
+        }
+      }
+    },
+    "server.pair.preview": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "pairing",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "code": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "PairingCode"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "PairingPreview"
+      },
+      "errors": [
+        "auth.unauthenticated",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:PairingDO",
+      "risk": "read",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "servers preview",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "servers"
+      },
+      "docs": "Show what a pending pairing code would add: the server's name, platform, key thumbprint and location.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "$ref": "#/$defs/PairingCode"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "PairingCode": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{8}$",
+            "description": "A normalized pairing code: 8 Crockford base32 symbols, no hyphen."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/PairingPreview",
+        "$defs": {
+          "PairingCode": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{8}$",
+            "description": "A normalized pairing code: 8 Crockford base32 symbols, no hyphen."
+          },
+          "Platform": {
+            "type": "string",
+            "enum": [
+              "macos",
+              "ios",
+              "linux",
+              "windows",
+              "web"
+            ]
+          },
+          "PairingInfo": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "platform": {
+                "$ref": "#/$defs/Platform"
+              },
+              "os_version": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "arch": {
+                "type": "string",
+                "enum": [
+                  "x86_64",
+                  "aarch64"
+                ]
+              },
+              "cmux_version": {
+                "type": "string",
+                "maxLength": 40
+              }
+            },
+            "required": [
+              "name",
+              "platform",
+              "os_version",
+              "arch",
+              "cmux_version"
+            ],
+            "additionalProperties": true
+          },
+          "PublicJwk": {
+            "type": "object",
+            "properties": {
+              "kty": {
+                "type": "string",
+                "enum": [
+                  "EC"
+                ]
+              },
+              "crv": {
+                "type": "string",
+                "enum": [
+                  "P-256"
+                ]
+              },
+              "x": {
+                "type": "string",
+                "minLength": 43,
+                "maxLength": 43
+              },
+              "y": {
+                "type": "string",
+                "minLength": 43,
+                "maxLength": 43
+              }
+            },
+            "required": [
+              "kty",
+              "crv",
+              "x",
+              "y"
+            ],
+            "additionalProperties": true,
+            "description": "ES256 (P-256) public key of an install."
+          },
+          "PairingPreview": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "$ref": "#/$defs/PairingCode"
+              },
+              "info": {
+                "$ref": "#/$defs/PairingInfo"
+              },
+              "public_jwk": {
+                "$ref": "#/$defs/PublicJwk"
+              },
+              "thumbprint": {
+                "type": "string"
+              },
+              "country": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "expires_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "code",
+              "info",
+              "public_jwk",
+              "thumbprint",
+              "country",
+              "expires_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "server.revoke": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "host",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "host": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "HostId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "host": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "HostId"
+                }
+              },
+              "install_revoked": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "destructive",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "servers revoke",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "servers"
+      },
+      "docs": "Remove a server from the team directory and revoke its install key (the owner; a team admin removes it from the directory).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "$ref": "#/$defs/HostId"
+          }
+        },
+        "required": [
+          "host"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "$ref": "#/$defs/HostId"
+          },
+          "install_revoked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "host",
+          "install_revoked"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          }
+        }
       }
     },
     "slack.post_as_bot": {
@@ -23303,6 +24071,18 @@
             "pattern": "^inst_[a-z0-9]{20}$",
             "description": "One app, CLI or daemon install with its own keypair."
           },
+          "HostKind": {
+            "type": "string",
+            "enum": [
+              "device",
+              "server"
+            ]
+          },
+          "WgPublicKey": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9+/]{43}=$",
+            "description": "A WireGuard public key, standard base64 of 32 bytes."
+          },
           "Host": {
             "type": "object",
             "properties": {
@@ -23325,6 +24105,18 @@
               },
               "enrolled_at": {
                 "type": "integer"
+              },
+              "kind": {
+                "$ref": "#/$defs/HostKind"
+              },
+              "wg_public_key": {
+                "$ref": "#/$defs/WgPublicKey"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               }
             },
             "required": [

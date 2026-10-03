@@ -24,13 +24,40 @@ public final class AgentPaneModel {
     /// plain chat. Cleared once the page reports a session.
     public private(set) var newTab: AgentPaneNewTab?
     /// The new tab page chose a terminal or browser (`tab.open`).
-    @ObservationIgnored public var onOpenTab: ((AgentPaneTabKind, String) -> Void)?
+    @ObservationIgnored public var onOpenTab: ((AgentPaneTabKind, String, String?) -> Void)?
+    /// The location bar picked an open tab or workspace (`tab.jump`).
+    @ObservationIgnored public var onJump: ((AgentPaneJumpTarget, String) -> Void)?
     /// The new tab page asked to change a kind's shortcut.
     @ObservationIgnored public var onEditShortcut: ((AgentPaneTabKind) -> Void)?
+    /// The new tab page's "default: X" toggle (`tab.setDefaultKind`).
+    @ObservationIgnored public var onSetDefaultKind: ((String) -> Void)?
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
     /// Opens a changed file the page names; false when it could not.
     @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget) async -> Bool)?
+    /// The quick panel's page asked to hide the panel (`quick.dismiss`).
+    @ObservationIgnored public var onQuickDismiss: (() -> Void)?
+    /// The quick panel's page asked to open its chat in the main window
+    /// (`quick.openInWindow`). Gets the chat's session, nil before the
+    /// first prompt.
+    @ObservationIgnored public var onQuickOpenInWindow: ((String?) -> Void)?
+    /// This build's URL scheme, handed to the page with every handshake so
+    /// the links it copies open in this build; nil leaves it out.
+    @ObservationIgnored public var linkScheme: String?
+    /// Set for a tab a `cmux://session/<id>` link opened: the handshake asks
+    /// the page to refuse a session the daemon does not have rather than
+    /// show the most recent one. Cleared once the page reports a session.
+    @ObservationIgnored public var sessionMustExist = false
+    /// A `#turn-<turnId>` link's turn the page has not been handed yet; the
+    /// next handshake carries it (`revealTurn`) and clears it.
+    @ObservationIgnored public var pendingRevealTurn: String?
+    /// Whether the page has asked for a handshake, so its bridge is up and
+    /// a turn can be revealed through it directly.
+    @ObservationIgnored public private(set) var hasHandshake = false
+    /// Runs a git read on the session host and returns its JSON result.
+    /// Throws an ``AgentPaneGitFailure`` saying who failed; any other error
+    /// reaches the page as `native.failed`.
+    @ObservationIgnored public var onGit: (@MainActor (AgentPaneGitRequest) async throws -> Data)?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
     /// What a new chat inherits from the tab it was opened from.
@@ -62,13 +89,24 @@ public final class AgentPaneModel {
                     handshake.cwd = seed.cwd
                     handshake.draft = seed.draft
                     handshake.prompt = seed.prompt
+                    handshake.adopt = seed.adopt
                 }
+                // The surface holds after the chat has a session (a reload
+                // of the quick panel stays compact).
+                handshake.surface = seed?.surface
                 // A new tab page is a new chat on every host, the mock included: the page
-                // never falls back to the most recent session behind it.
+                // never falls back to the most recent session behind it. Its chat starts in
+                // the page's folder unless a seed named one.
                 if sessionId == nil, let newTab {
                     handshake.newTab = newTab
                     handshake.newSession = true
+                    if handshake.cwd == nil { handshake.cwd = newTab.cwd }
                 }
+                handshake.linkScheme = linkScheme
+                if sessionMustExist, sessionId != nil { handshake.sessionMustExist = true }
+                handshake.revealTurn = pendingRevealTurn
+                pendingRevealTurn = nil
+                hasHandshake = true
                 lastError = nil
                 return AgentPaneReply.handshake(handshake)
             } catch {
@@ -77,6 +115,7 @@ public final class AgentPaneModel {
                 return AgentPaneReply.failure(code: "host_unavailable", message: message)
             }
         case .persistSession(let id):
+            sessionMustExist = false
             if id != sessionId {
                 sessionId = id
                 newTab = nil
@@ -89,9 +128,17 @@ public final class AgentPaneModel {
         case .framePacing(let intervals):
             onFramePacing?(intervals)
             return AgentPaneReply.success()
-        case .openTab(let kind, let text):
+        case .openTab(let kind, let text, let cwd):
             guard newTab != nil, let onOpenTab else { return Self.unsupported("tab.open") }
-            onOpenTab(kind, text)
+            onOpenTab(kind, text, cwd)
+            return AgentPaneReply.success()
+        case .jump(let target, let id):
+            guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }
+            onJump(target, id)
+            return AgentPaneReply.success()
+        case .setDefaultKind(let kind):
+            guard newTab != nil, let onSetDefaultKind else { return Self.unsupported("tab.setDefaultKind") }
+            onSetDefaultKind(kind)
             return AgentPaneReply.success()
         case .editShortcut(let kind):
             guard let onEditShortcut else { return Self.unsupported("shortcut.edit") }
@@ -107,6 +154,32 @@ public final class AgentPaneModel {
                 return AgentPaneReply.failure(code: "open_failed", message: Self.openFileFailedMessage)
             }
             return AgentPaneReply.success()
+        case .quickDismiss:
+            guard let onQuickDismiss else { return Self.unsupported("quick.dismiss") }
+            onQuickDismiss()
+            return AgentPaneReply.success()
+        case .quickOpenInWindow(let session):
+            guard let onQuickOpenInWindow else { return Self.unsupported("quick.openInWindow") }
+            if let session, session != sessionId {
+                sessionId = session
+                newTab = nil
+                onSessionChange?(session)
+            }
+            onQuickOpenInWindow(sessionId)
+            return AgentPaneReply.success()
+        case .git(let git):
+            guard let onGit else { return Self.gitFailure(.notConnected) }
+            do {
+                let data = try await onGit(git)
+                guard let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
+                    return Self.gitFailure(.failed)
+                }
+                return AgentPaneReply.success(value)
+            } catch {
+                return Self.gitFailure(error as? AgentPaneGitFailure ?? .failed)
+            }
+        case .invalidGit:
+            return Self.gitFailure(.invalidRequest)
         case .unsupported(let method):
             return Self.unsupported(method)
         }
@@ -120,5 +193,16 @@ public final class AgentPaneModel {
         guard checkpointAvailable != available else { return }
         checkpointAvailable = available
         onCheckpointAvailability?(available)
+    }
+}
+
+extension AgentPaneModel {
+    /// The page's reply for a failed git read: the failure's code, origin,
+    /// details and retryable under the localized text.
+    static func gitFailure(_ failure: AgentPaneGitFailure) -> [String: Any] {
+        let details = failure.details.flatMap { try? JSONSerialization.jsonObject(with: $0, options: [.fragmentsAllowed]) }
+        return AgentPaneReply.failure(
+            code: failure.code, message: gitFailedMessage, details: details,
+            retryable: failure.retryable, origin: failure.origin.rawValue)
     }
 }

@@ -4030,6 +4030,41 @@ class Screen(_Handle[ScreenId, ScreenSnapshot]):
             expected_revision=expected_revision,
         )
 
+    def update_column(
+        self,
+        column: str,
+        *,
+        sticky: Optional[bool] = None,
+        edge: Optional[str] = None,
+        mode: Optional[str] = None,
+        width: Optional[float] = None,
+        idempotency_key: Optional[str] = None,
+        expected_revision: Optional[str] = None,
+    ) -> MutationResult["Screen"]:
+        """Pin, unpin, or resize one viewport column (``column.update``).
+
+        ``column`` is the column's split ID. Pass ``sticky``, ``width``, or
+        both; ``edge`` ("left" or "right") and ``mode`` ("docked" or
+        "overlay") apply only with ``sticky=True``.
+        """
+        params: Dict[str, Any] = {**self._params(), "column": column}
+        for name, value in (("sticky", sticky), ("edge", edge), ("mode", mode), ("width", width)):
+            if value is not None:
+                params[name] = value
+        return self._client._mutation_handle(
+            Operations.SCREEN_COLUMN_UPDATE,
+            params,
+            idempotency_key,
+            expected_revision,
+            _screen_snapshot,
+            lambda snapshot: Screen(
+                self._client,
+                Selector.by_id(snapshot.id),
+                self._scope,
+                snapshot,
+            ),
+        )
+
     def focus(self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None) -> MutationResult["Screen"]:
         return self._client._mutation_handle(
             Operations.SCREEN_FOCUS,
