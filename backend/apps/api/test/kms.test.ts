@@ -206,6 +206,8 @@ describe("KMS fallback is counted, marked and re-sealed", () => {
     expect(await openCredential({ ...kmsEnv, INTEGRATIONS_KMS_PREVIOUS_KEY_ARNS: oldArn } as any, http, address, sealed)).toEqual(credential)
     expect(hosts.at(-1)).toBe("kms.eu-west-1.amazonaws.com")
     expect(kmsConfig({ ...kmsEnv, INTEGRATIONS_KMS_KEY_ARN: "arn:aws:kms:us-east-1:111122223333:alias/cmux" } as any)).toBeUndefined()
+    expect(kmsConfig({ ...kmsEnv, INTEGRATIONS_KMS_KEY_ARN: "alias/cmux" } as any)).toBeUndefined()
+    expect(kmsConfig(kmsEnv as any)?.keyArn).toBe(kmsEnv.INTEGRATIONS_KMS_KEY_ARN)
   })
 
   it("opens rows wrapped by a previous KMS key listed in INTEGRATIONS_KMS_PREVIOUS_KEY_ARNS", async () => {

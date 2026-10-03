@@ -40,10 +40,10 @@ let partialLogged = false
 export const kmsConfig = (env: Env): KmsConfig | undefined => {
   const parts = [env.INTEGRATIONS_KMS_KEY_ARN, env.INTEGRATIONS_KMS_REGION, env.INTEGRATIONS_KMS_ACCESS_KEY_ID, env.INTEGRATIONS_KMS_SECRET_ACCESS_KEY]
   // A key ARN, never an alias: Decrypt names the stored key, so blobs of an alias's earlier key would fail.
-  if (parts.every(Boolean) && !env.INTEGRATIONS_KMS_KEY_ARN!.includes(":alias/")) return { keyArn: env.INTEGRATIONS_KMS_KEY_ARN!, region: env.INTEGRATIONS_KMS_REGION!, accessKeyId: env.INTEGRATIONS_KMS_ACCESS_KEY_ID!, secretAccessKey: env.INTEGRATIONS_KMS_SECRET_ACCESS_KEY! }
+  if (parts.every(Boolean) && /^arn:aws[a-z-]*:kms:[^:]+:\d+:key\/./.test(env.INTEGRATIONS_KMS_KEY_ARN!)) return { keyArn: env.INTEGRATIONS_KMS_KEY_ARN!, region: env.INTEGRATIONS_KMS_REGION!, accessKeyId: env.INTEGRATIONS_KMS_ACCESS_KEY_ID!, secretAccessKey: env.INTEGRATIONS_KMS_SECRET_ACCESS_KEY! }
   if (parts.some(Boolean) && !partialLogged) {
     partialLogged = true
-    console.error(JSON.stringify({ msg: "INTEGRATIONS_KMS_* is only partly set or names an alias; credentials are sealed with INTEGRATIONS_KEK" }))
+    console.error(JSON.stringify({ msg: "INTEGRATIONS_KMS_* is only partly set or is not a key ARN; credentials are sealed with INTEGRATIONS_KEK" }))
   }
   return undefined
 }
