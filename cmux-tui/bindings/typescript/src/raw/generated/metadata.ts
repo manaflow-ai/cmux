@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 8617c916cf0fc7d5d327154602f3c7973973019a71386cd33d601840326fa985. */
+/* cmux-tui mux protocol 12, IR 4417669a959f92de9972db89c44c7f678f429ee8defce58656b4689075abb080. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "8617c916cf0fc7d5d327154602f3c7973973019a71386cd33d601840326fa985" as const;
+export const SDK_IR_SHA256 = "4417669a959f92de9972db89c44c7f678f429ee8defce58656b4689075abb080" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -779,6 +779,50 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "feed-local-handoff-begin": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "feed-local-owner-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Idempotent on a handing-off item; a moved item refuses with feed.invalid_state.",
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "feed-local-handoff-done": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "feed-local-owner-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Idempotent with the same home; an open item refuses with feed.invalid_state.",
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "feed-local-list": {
+    "authority": "control",
+    "since": 12,
+    "capability": "feed-local-owner-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "state is open, handing_off or moved; the app rebuilds its handoff queue from handing_off items.",
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "feed-local-read": {
+    "authority": "control",
+    "since": 12,
+    "capability": "feed-local-owner-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "All or nothing: a moved item refuses with owner.unreachable and a handing-off item with feed.moving (both retryable).",
+      "See spec/commands.md for the result object."
+    ]
   },
   "focus-direction": {
     "authority": "control",
@@ -12028,6 +12072,116 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "ExportLayoutResult"
+    }
+  },
+  "feed-local-handoff-begin": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "item": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "feed-local-handoff-done": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "home": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "item": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "feed-local-list": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "state": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "terminal_id": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "unread": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "feed-local-read": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "items": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "focus-direction": {

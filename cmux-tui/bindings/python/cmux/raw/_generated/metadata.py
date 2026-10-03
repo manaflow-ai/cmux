@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '8617c916cf0fc7d5d327154602f3c7973973019a71386cd33d601840326fa985'
+IR_SHA256 = '4417669a959f92de9972db89c44c7f678f429ee8defce58656b4689075abb080'
 
 
 @dataclass(frozen=True)
@@ -860,6 +860,53 @@ COMMANDS = {
         None,
         {
             'screen': CommandFieldMetadata(None, None),
+        },
+    ),
+    'feed-local-handoff-begin': CommandMetadata(
+        'feed-local-handoff-begin',
+        'local-admin',
+        12,
+        'feed-local-owner-v1',
+        ('local-admin',),
+        None,
+        {
+            'item': CommandFieldMetadata(None, None),
+        },
+    ),
+    'feed-local-handoff-done': CommandMetadata(
+        'feed-local-handoff-done',
+        'local-admin',
+        12,
+        'feed-local-owner-v1',
+        ('local-admin',),
+        None,
+        {
+            'home': CommandFieldMetadata(None, None),
+            'item': CommandFieldMetadata(None, None),
+        },
+    ),
+    'feed-local-list': CommandMetadata(
+        'feed-local-list',
+        'control',
+        12,
+        'feed-local-owner-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'state': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
+            'unread': CommandFieldMetadata(None, None),
+        },
+    ),
+    'feed-local-read': CommandMetadata(
+        'feed-local-read',
+        'control',
+        12,
+        'feed-local-owner-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'items': CommandFieldMetadata(None, None),
         },
     ),
     'focus-direction': CommandMetadata(

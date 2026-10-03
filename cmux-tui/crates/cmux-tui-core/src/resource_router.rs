@@ -1199,21 +1199,18 @@ fn execute_notification_effect(
         created_at_ms,
         source,
     );
-    let value = mux.notification_snapshot_value(
-        &crate::ResourceNotification {
-            id: notification_id.clone(),
-            title: title.to_string(),
-            subtitle,
-            body: body.to_string(),
-            level,
-            terminal_id,
-            created_at_ms,
-            source,
-            surface,
-        },
-        &session_id,
-        &[],
-    );
+    let notification = crate::ResourceNotification {
+        id: notification_id.clone(),
+        title: title.to_string(),
+        subtitle,
+        body: body.to_string(),
+        level,
+        terminal_id,
+        created_at_ms,
+        source,
+        surface,
+    };
+    let value = mux.notification_snapshot_value(&notification, &session_id, &[]);
     let outcome = ResourceEffectOutcome::Success(value.clone());
     let deltas = json!([{
         "kind":"upsert",
@@ -1222,12 +1219,12 @@ fn execute_notification_effect(
         "id":notification_id,
         "value":value,
     }]);
-    let revision = match mux.commit_resource_effect(
+    let revision = match mux.commit_notification_effect(
         idempotency_key,
-        "notification.create",
         fingerprint,
         &outcome,
-        Some(&deltas),
+        &deltas,
+        &notification,
     ) {
         Ok(revision) => revision,
         Err(_) => {

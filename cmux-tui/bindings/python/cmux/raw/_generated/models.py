@@ -2000,6 +2000,33 @@ class ExportLayoutRequest:
 
 
 @dataclass(frozen=True)
+class FeedLocalHandoffBeginRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-handoff-begin/request'
+    item: str
+
+
+@dataclass(frozen=True)
+class FeedLocalHandoffDoneRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-handoff-done/request'
+    home: str
+    item: str
+
+
+@dataclass(frozen=True)
+class FeedLocalListRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-list/request'
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    state: Union[str, None, MissingType] = field(default=MISSING)
+    unread: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class FeedLocalReadRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/feed-local-read/request'
+    items: List[str]
+
+
+@dataclass(frozen=True)
 class FocusDirectionRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/focus-direction/request'
     dir: PaneDirection
@@ -4125,6 +4152,10 @@ __all__ = [
     'DetachAttachedViewRequest',
     'DetachClientRequest',
     'ExportLayoutRequest',
+    'FeedLocalHandoffBeginRequest',
+    'FeedLocalHandoffDoneRequest',
+    'FeedLocalListRequest',
+    'FeedLocalReadRequest',
     'FocusDirectionRequest',
     'FocusPaneRequest',
     'ForgetSessionRequest',

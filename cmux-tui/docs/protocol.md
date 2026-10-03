@@ -186,6 +186,16 @@ when the user has seen the tab instead of sending `select-tab`.
 `list-notifications` returns the retained ledger with `created_at_ms` and an
 `acknowledged` flag, and each workspace reports `unread_count`.
 
+`feed-local-owner-v1` makes the daemon the local owner of feed items
+(plans/cmux-next/feed.md section 9.1). Each notification is also a local item,
+committed in the same transaction. Selection and focus never clear unread: a
+client acknowledges with `ack-tab-notifications`, which also reads the tab's
+items. The app drives the move of an item to the cloud owner with
+`feed-local-handoff-begin` and `feed-local-handoff-done` (trusted local
+connections only) and rebuilds its queue at launch from
+`feed-local-list {state:"handing_off"}`. A moved item refuses reads with
+`owner.unreachable`, which is retryable; nothing queues.
+
 `tab-groups-v1` adds tab groups inside a pane's strip. Panes
 report `tab_groups` (id, name, color, collapsed, saved id, start, count,
 surfaces) and tabs report `group`. Members stay contiguous. Every change is

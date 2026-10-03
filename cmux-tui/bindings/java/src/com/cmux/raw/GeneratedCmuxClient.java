@@ -313,6 +313,26 @@ public abstract class GeneratedCmuxClient {
         return ExportLayoutResult.fromWire(result);
     }
 
+    public final Object feedLocalHandoffBegin(FeedLocalHandoffBeginRequest request) throws CmuxException {
+        Object result = execute(Commands.FEED_LOCAL_HANDOFF_BEGIN, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object feedLocalHandoffDone(FeedLocalHandoffDoneRequest request) throws CmuxException {
+        Object result = execute(Commands.FEED_LOCAL_HANDOFF_DONE, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object feedLocalList(FeedLocalListRequest request) throws CmuxException {
+        Object result = execute(Commands.FEED_LOCAL_LIST, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object feedLocalRead(FeedLocalReadRequest request) throws CmuxException {
+        Object result = execute(Commands.FEED_LOCAL_READ, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final FocusDirectionResult focusDirection(FocusDirectionRequest request) throws CmuxException {
         Object result = execute(Commands.FOCUS_DIRECTION, request.toWire());
         return FocusDirectionResult.fromWire(result);

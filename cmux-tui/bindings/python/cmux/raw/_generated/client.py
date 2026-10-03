@@ -192,6 +192,18 @@ class GeneratedClientMixin:
     def export_layout(self, screen: Union[Id, None, MissingType] = MISSING) -> ExportLayoutResult:
         return self._invoke_command('export-layout', ExportLayoutRequest(screen=screen))
 
+    def feed_local_handoff_begin(self, item: str) -> JsonValue:
+        return self._invoke_command('feed-local-handoff-begin', FeedLocalHandoffBeginRequest(item=item))
+
+    def feed_local_handoff_done(self, home: str, item: str) -> JsonValue:
+        return self._invoke_command('feed-local-handoff-done', FeedLocalHandoffDoneRequest(home=home, item=item))
+
+    def feed_local_list(self, *, terminal_id: Union[str, None, MissingType] = MISSING, state: Union[str, None, MissingType] = MISSING, unread: Union[bool, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('feed-local-list', FeedLocalListRequest(terminal_id=terminal_id, state=state, unread=unread))
+
+    def feed_local_read(self, items: List[str]) -> JsonValue:
+        return self._invoke_command('feed-local-read', FeedLocalReadRequest(items=items))
+
     def focus_direction(self, dir: PaneDirection, *, pane: Union[Id, None, MissingType] = MISSING) -> FocusDirectionResult:
         return self._invoke_command('focus-direction', FocusDirectionRequest(dir=dir, pane=pane))
 
@@ -697,6 +709,10 @@ GeneratedClientMixin.delete_workspace_group.__cmux_command__ = COMMANDS['delete-
 GeneratedClientMixin.detach_attached_view.__cmux_command__ = COMMANDS['detach-attached-view']
 GeneratedClientMixin.detach_client.__cmux_command__ = COMMANDS['detach-client']
 GeneratedClientMixin.export_layout.__cmux_command__ = COMMANDS['export-layout']
+GeneratedClientMixin.feed_local_handoff_begin.__cmux_command__ = COMMANDS['feed-local-handoff-begin']
+GeneratedClientMixin.feed_local_handoff_done.__cmux_command__ = COMMANDS['feed-local-handoff-done']
+GeneratedClientMixin.feed_local_list.__cmux_command__ = COMMANDS['feed-local-list']
+GeneratedClientMixin.feed_local_read.__cmux_command__ = COMMANDS['feed-local-read']
 GeneratedClientMixin.focus_direction.__cmux_command__ = COMMANDS['focus-direction']
 GeneratedClientMixin.focus_pane.__cmux_command__ = COMMANDS['focus-pane']
 GeneratedClientMixin.forget_session.__cmux_command__ = COMMANDS['forget-session']

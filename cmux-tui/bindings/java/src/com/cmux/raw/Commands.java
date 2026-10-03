@@ -70,6 +70,10 @@ public final class Commands {
     public static final CommandMetadata DETACH_ATTACHED_VIEW = new CommandMetadata("detach-attached-view", Authority.FRONTEND, 10, "view-attachment-detach-v1", StreamKind.NONE, Map.ofEntries(Map.entry("view", 12L)), Map.ofEntries(Map.entry("view", "shared-sizing-v1")));
     public static final CommandMetadata DETACH_CLIENT = new CommandMetadata("detach-client", Authority.CONTROL, 6, null, StreamKind.NONE, Map.ofEntries(Map.entry("by", 12L), Map.entry("surface", 12L)), Map.ofEntries(Map.entry("by", "shared-sizing-v1"), Map.entry("surface", "shared-sizing-v1")));
     public static final CommandMetadata EXPORT_LAYOUT = new CommandMetadata("export-layout", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata FEED_LOCAL_HANDOFF_BEGIN = new CommandMetadata("feed-local-handoff-begin", Authority.LOCAL_ADMIN, 12, "feed-local-owner-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata FEED_LOCAL_HANDOFF_DONE = new CommandMetadata("feed-local-handoff-done", Authority.LOCAL_ADMIN, 12, "feed-local-owner-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata FEED_LOCAL_LIST = new CommandMetadata("feed-local-list", Authority.CONTROL, 12, "feed-local-owner-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata FEED_LOCAL_READ = new CommandMetadata("feed-local-read", Authority.CONTROL, 12, "feed-local-owner-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FOCUS_DIRECTION = new CommandMetadata("focus-direction", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FOCUS_PANE = new CommandMetadata("focus-pane", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FORGET_SESSION = new CommandMetadata("forget-session", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -282,6 +286,10 @@ public final class Commands {
         values.put("detach-attached-view", DETACH_ATTACHED_VIEW);
         values.put("detach-client", DETACH_CLIENT);
         values.put("export-layout", EXPORT_LAYOUT);
+        values.put("feed-local-handoff-begin", FEED_LOCAL_HANDOFF_BEGIN);
+        values.put("feed-local-handoff-done", FEED_LOCAL_HANDOFF_DONE);
+        values.put("feed-local-list", FEED_LOCAL_LIST);
+        values.put("feed-local-read", FEED_LOCAL_READ);
         values.put("focus-direction", FOCUS_DIRECTION);
         values.put("focus-pane", FOCUS_PANE);
         values.put("forget-session", FORGET_SESSION);

@@ -16906,6 +16906,148 @@
    "constraints": [
     "Trusted local connections bound to the local user only. Mints a new token; the old one stops working. See spec/commands.md."
    ]
+  },
+  "feed-local-list": {
+   "authority": "control",
+   "since": 12,
+   "capability": "feed-local-owner-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "state": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "unread": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "state is open, handing_off or moved; the app rebuilds its handoff queue from handing_off items.",
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "feed-local-read": {
+   "authority": "control",
+   "since": 12,
+   "capability": "feed-local-owner-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "items": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "All or nothing: a moved item refuses with owner.unreachable and a handing-off item with feed.moving (both retryable).",
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "feed-local-handoff-begin": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "feed-local-owner-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "item": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Idempotent on a handing-off item; a moved item refuses with feed.invalid_state.",
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "feed-local-handoff-done": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "feed-local-owner-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "item": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "home": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Idempotent with the same home; an open item refuses with feed.invalid_state.",
+    "See spec/commands.md for the result object."
+   ]
   }
  },
  "events": {
