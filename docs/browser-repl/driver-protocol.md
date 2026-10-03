@@ -166,7 +166,9 @@ native (`BrowserReplBoundary` in the session, and the driver):
   window remains. Captures get `secretMasks
   [{ value, domains }]` (plain values, and the codes of a TOTP secret a
   server still accepts: the current window and one on each side); the
-  driver masks only in frames on those domains.
+  driver masks only in frames on those domains, and refuses the capture
+  (`invalid`) when masking fails in one of them or a scan after the
+  capture finds a value rendered unmasked.
   Results, events, fetch responses, output, errors, written files and
   files read back are redacted by the session.
 - Domain policy: the session refuses `tab.navigate`/`tabs.open` to a blocked

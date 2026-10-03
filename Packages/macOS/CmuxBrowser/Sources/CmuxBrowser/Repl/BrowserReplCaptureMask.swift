@@ -45,11 +45,22 @@ extension WKContentWorld {
 /// The session sends a capture its `secretMasks` (`[{ value, domains }]`).
 /// In every frame whose origin is on a secret's domains (the only frames it
 /// can be typed into), fields and text holding a value render as password
-/// dots for the length of the capture. Other frames never get a value. The
-/// scan runs in a content world of its own, which page scripts and agent
-/// code cannot reach, and which sees closed shadow roots as the agent's
-/// world does, so a value the agent can read there is masked there too. Each element keeps a count, so concurrent captures do
-/// not unmask each other.
+/// dots (`-webkit-text-security`) for the length of the capture. Other
+/// frames never get a value. The scan runs in a content world of its own,
+/// which page scripts and agent code cannot reach, and which sees closed
+/// shadow roots as the agent's world does, so a value the agent can read
+/// there is masked there too.
+///
+/// It fails closed. The capture is refused when the mask step fails in any
+/// of those frames, or when, after the capture, a fresh scan of the tab's
+/// frames finds an element holding a value that does not render masked
+/// (the page dropped the mask or added the value while the capture ran).
+/// The page owns its DOM, so a value it changes and restores within the
+/// capture, or draws in a form the scan does not read (a canvas, an image,
+/// split across elements, transformed), is not caught.
+///
+/// Each capture records the elements it masked under its own token and
+/// restores only those, so concurrent captures do not unmask each other.
 @MainActor
 public struct BrowserReplCaptureMask {
     struct Mask {
@@ -61,6 +72,7 @@ public struct BrowserReplCaptureMask {
     static let world = WKContentWorld.browserReplWorld(seeingClosedShadowRoots: "cmux-capture-mask")
 
     let masks: [Mask]
+    private let token = UUID().uuidString
 
     /// - Parameter secretMasks: The `secretMasks` the session added to the call.
     public init(secretMasks: [[String: Any]]) {
@@ -73,7 +85,8 @@ public struct BrowserReplCaptureMask {
 
     public var isEmpty: Bool { masks.isEmpty }
 
-    /// Runs `capture` with the values masked in `webView`.
+    /// Runs `capture` with the values masked in `webView`, or throws
+    /// `invalid` without returning the capture when masking fails.
     ///
     /// - Parameters:
     ///   - frames: Reads the tab's frames as they are now; `nil` stands for
@@ -84,21 +97,47 @@ public struct BrowserReplCaptureMask {
         _ capture: () async throws -> T
     ) async throws -> T {
         guard !isEmpty else { return try await capture() }
-        let targets = await frames()
-        await set(on: true, webView: webView, frames: targets)
+        var masked: [(frame: WKFrameInfo?, values: [String])] = []
         do {
-            let value = try await capture()
-            await set(on: false, webView: webView, frames: targets)
-            return value
+            for target in targets(await frames(), in: webView) {
+                masked.append(target)
+                try await mask(target, mode: "on", in: webView)
+            }
         } catch {
-            await set(on: false, webView: webView, frames: targets)
+            await unmask(masked, in: webView)
             throw error
         }
+        let value: T
+        do {
+            value = try await capture()
+        } catch {
+            await unmask(masked, in: webView)
+            throw error
+        }
+        do {
+            for target in targets(await frames(), in: webView) {
+                try await mask(target, mode: "verify", in: webView)
+            }
+        } catch {
+            await unmask(masked, in: webView)
+            throw error
+        }
+        await unmask(masked, in: webView)
+        return value
     }
 
     /// The values to mask in a frame with `origin`.
     func values(forOrigin origin: String) -> [String] {
         masks.filter { $0.domains.contains { $0.matches(origin: origin, secure: true) } }.map(\.value)
+    }
+
+    /// The frames on a secret's domains, with the values each may show.
+    private func targets(_ frames: [WKFrameInfo?], in webView: WKWebView) -> [(frame: WKFrameInfo?, values: [String])] {
+        frames.compactMap { frame in
+            guard let origin = origin(of: frame, in: webView) else { return nil }
+            let values = values(forOrigin: origin)
+            return values.isEmpty ? nil : (frame, values)
+        }
     }
 
     private func origin(of info: WKFrameInfo?, in webView: WKWebView) -> String? {
@@ -108,24 +147,59 @@ public struct BrowserReplCaptureMask {
         return isDefault ? "\(scheme)://\(host)" : "\(scheme)://\(host):\(url.port ?? 0)"
     }
 
-    private func set(on: Bool, webView: WKWebView, frames: [WKFrameInfo?]) async {
-        for info in frames {
-            guard let info, let origin = origin(of: info, in: webView) else { continue }
-            let values = values(forOrigin: origin)
-            guard !values.isEmpty else { continue }
-            _ = try? await webView.callAsyncJavaScript(
-                Self.maskSource, arguments: ["values": values, "on": on], in: info, contentWorld: Self.world
+    /// Masks (`on`) or checks (`verify`) one frame; throws when the step
+    /// fails or an element holding a value renders unmasked.
+    private func mask(_ target: (frame: WKFrameInfo?, values: [String]), mode: String, in webView: WKWebView) async throws {
+        let place = origin(of: target.frame, in: webView) ?? "a frame"
+        let unmasked: Any?
+        do {
+            unmasked = try await webView.callAsyncJavaScript(
+                Self.maskSource,
+                arguments: ["values": target.values, "mode": mode, "token": token],
+                in: target.frame,
+                contentWorld: Self.world
+            )
+        } catch {
+            throw BrowserReplDriverError(
+                code: "invalid",
+                message: "the capture was refused: secrets could not be masked in \(place) (\(error.localizedDescription)); try again"
+            )
+        }
+        guard let count = unmasked as? NSNumber, count.intValue == 0 else {
+            throw BrowserReplDriverError(
+                code: "invalid",
+                message: mode == "verify"
+                    ? "the capture was refused: the page in \(place) showed a secret unmasked while it was taken; try again"
+                    : "the capture was refused: a secret in \(place) could not be masked"
             )
         }
     }
 
+    private func unmask(_ targets: [(frame: WKFrameInfo?, values: [String])], in webView: WKWebView) async {
+        for target in targets {
+            // A frame that is gone holds nothing to restore.
+            _ = try? await webView.callAsyncJavaScript(
+                Self.maskSource,
+                arguments: ["values": [String](), "mode": "off", "token": token],
+                in: target.frame,
+                contentWorld: Self.world
+            )
+        }
+    }
+
+    /// `mode` is `on` (mask the elements holding `values` under `token`),
+    /// `off` (restore what `token` masked) or `verify`. `on` and `verify`
+    /// return how many elements holding a value render unmasked.
     private static let maskSource = """
-    const counts = globalThis.__cmuxSecretMasks || (globalThis.__cmuxSecretMasks = new Map());
+    const state = globalThis.__cmuxSecretMasks || (globalThis.__cmuxSecretMasks = { counts: new Map(), captures: new Map() });
     const prop = "-webkit-text-security";
-    if (!on) {
-      for (const [el, entry] of [...counts]) {
-        if (--entry.count > 0) continue;
-        counts.delete(el);
+    if (mode === "off") {
+      const masked = state.captures.get(token) || [];
+      state.captures.delete(token);
+      for (const el of masked) {
+        const entry = state.counts.get(el);
+        if (!entry || --entry.count > 0) continue;
+        state.counts.delete(el);
         if (entry.value) el.style.setProperty(prop, entry.value, entry.priority);
         else el.style.removeProperty(prop);
       }
@@ -147,14 +221,32 @@ public struct BrowserReplCaptureMask {
       }
     };
     visit(document.documentElement || document);
-    for (const el of hits) {
-      const entry = counts.get(el);
-      if (entry) entry.count++;
-      else {
-        counts.set(el, { count: 1, value: el.style.getPropertyValue(prop), priority: el.style.getPropertyPriority(prop) });
-        el.style.setProperty(prop, "disc", "important");
+    const shows = (el) => getComputedStyle(el).getPropertyValue(prop) === "none";
+    if (mode === "on") {
+      // An element without inline style (one of another namespace) is
+      // masked through its nearest styled ancestor; the property inherits.
+      const styled = (el) => {
+        for (let n = el; n; n = n.parentElement || (n.parentNode && n.parentNode.host) || null) {
+          if (n.style instanceof CSSStyleDeclaration) return n;
+        }
+        return null;
+      };
+      const masked = state.captures.get(token) || new Set();
+      state.captures.set(token, masked);
+      for (const hit of hits) {
+        const el = styled(hit);
+        if (!el || masked.has(el)) continue;
+        masked.add(el);
+        const entry = state.counts.get(el);
+        if (entry) entry.count++;
+        else {
+          state.counts.set(el, { count: 1, value: el.style.getPropertyValue(prop), priority: el.style.getPropertyPriority(prop) });
+          el.style.setProperty(prop, "disc", "important");
+        }
       }
     }
-    return hits.size;
+    let unmasked = 0;
+    for (const el of hits) if (shows(el)) unmasked++;
+    return unmasked;
     """
 }
