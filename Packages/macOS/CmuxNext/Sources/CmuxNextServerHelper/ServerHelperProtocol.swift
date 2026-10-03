@@ -14,36 +14,37 @@ public import Foundation
     func version(reply: @escaping @Sendable (Int) -> Void)
 }
 
-public nonisolated enum ServerHelperConstants {
+public struct ServerHelperConstants {
+    public nonisolated init() {}
     /// The LaunchDaemon plist in `Contents/Library/LaunchDaemons` of the app.
-    public static let plistName = "com.cmux.server.helper.plist"
+    public nonisolated let plistName = "com.cmux.server.helper.plist"
     /// The helper executable inside the app bundle (signed with the other
     /// `libexec` helpers by scripts/sign-cmux-bundle.sh).
-    public static let bundleProgram = "Contents/Resources/libexec/cmux-server-helper"
-    public static let protocolVersion = 1
+    public nonisolated let bundleProgram = "Contents/Resources/libexec/cmux-server-helper"
+    public nonisolated let protocolVersion = 1
 
     /// The launchd label and Mach service of the helper that `appBundleID`
     /// carries. Each tagged build has its own, so two builds never share a
     /// helper. Nil when the bundle id is not a plain reverse-DNS name.
-    public static func machServiceName(appBundleID: String) -> String? {
+    public nonisolated func machServiceName(appBundleID: String) -> String? {
         isPlainIdentifier(appBundleID) ? appBundleID + ".server-helper" : nil
     }
 
     /// Letters, digits, dots and hyphens only, so the value can sit inside a
     /// code-signing requirement string without quoting tricks.
-    public static func isPlainIdentifier(_ value: String) -> Bool {
+    public nonisolated func isPlainIdentifier(_ value: String) -> Bool {
         !value.isEmpty && value.count <= 155 && !value.hasPrefix(".") && !value.hasSuffix(".")
             && value.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") }
     }
 
-    static func isPlainTeam(_ value: String) -> Bool {
+    nonisolated func isPlainTeam(_ value: String) -> Bool {
         !value.isEmpty && value.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) }
     }
 
     /// The requirement the helper puts on its client: the exact app bundle
     /// that carries it, signed by the helper's own team. Nil without a team
     /// (an unsigned or ad hoc helper accepts nobody).
-    public static func clientRequirement(teamID: String?, appBundleID: String) -> String? {
+    public nonisolated func clientRequirement(teamID: String?, appBundleID: String) -> String? {
         guard let teamID, isPlainTeam(teamID), isPlainIdentifier(appBundleID) else { return nil }
         return "anchor apple generic and certificate leaf[subject.OU] = \"\(teamID)\" and identifier \"\(appBundleID)\""
     }
@@ -51,12 +52,12 @@ public nonisolated enum ServerHelperConstants {
     /// The code-signing identifier of the helper executable. codesign derives
     /// it from the file name, so the build phase and scripts/sign-cmux-bundle.sh
     /// produce the same value.
-    public static let helperIdentifier = "cmux-server-helper"
+    public nonisolated let helperIdentifier = "cmux-server-helper"
 
     /// The requirement the app puts on the helper it connects to: the helper
     /// executable signed by the app's own team. The per-build Mach service
     /// name keeps builds apart.
-    public static func helperRequirement(teamID: String?) -> String? {
+    public nonisolated func helperRequirement(teamID: String?) -> String? {
         guard let teamID, isPlainTeam(teamID) else { return nil }
         return "anchor apple generic and certificate leaf[subject.OU] = \"\(teamID)\" and identifier \"\(helperIdentifier)\""
     }
@@ -89,7 +90,7 @@ public final nonisolated class ServerHelperService: NSObject, ServerHelperProtoc
     }
 
     public func version(reply: @escaping @Sendable (Int) -> Void) {
-        reply(ServerHelperConstants.protocolVersion)
+        reply(ServerHelperConstants().protocolVersion)
     }
 
     static func apply(_ fix: ServerFix, runner: any ServerFixRunner, priors: any ServerFixPriorStore) async -> String? {

@@ -6,10 +6,11 @@
 /// Before this turns on outside DEBUG, `remote_view` tabs must move from the
 /// `cmux://remote-view` browser record to the store-native
 /// `remote-view-tabs-v1` kind (plans/cmux-next/remote-desktop.md 7).
-public nonisolated enum RemoteViewAvailability {
+public struct RemoteViewAvailability {
+    public init() {}
     #if DEBUG
-    public static let isAvailable = true
+    public let isAvailable = true
     #else
-    public static let isAvailable = false
+    public let isAvailable = false
     #endif
 }

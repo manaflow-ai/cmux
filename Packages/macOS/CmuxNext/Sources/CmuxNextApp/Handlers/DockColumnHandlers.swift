@@ -43,7 +43,7 @@ enum DockColumnHandlers {
             throw ActionFailure.invalidTarget(RefusalStrings.noColumnShown(column.id.rawValue))
         }
         let focused = content.layoutModel.focusedPane
-        guard let plan = DockDefaults.plan(screen: screen, column: column.id, pane: focused, edge: edge,
+        guard let plan = DockDefaults().plan(screen: screen, column: column.id, pane: focused, edge: edge,
                                            defaultEdge: StickyColumnHandlers.configuredEdge, mode: mode) else {
             throw ActionFailure.invalidTarget(RefusalStrings.noColumnShown(column.id.rawValue))
         }

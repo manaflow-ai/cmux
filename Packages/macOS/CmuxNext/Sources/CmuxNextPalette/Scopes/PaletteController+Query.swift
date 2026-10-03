@@ -60,13 +60,13 @@ extension PaletteController {
 
     /// The ref `palette.run` runs for row `item` of `scope`: the row is
     /// looked up among all the scope's rows (not only the top ranked ones),
-    /// then `PaletteRunSelection.pick` chooses its ref.
+    /// then `PaletteRunSelection().pick` chooses its ref.
     public func runnableRef(scope: PaletteScopeID, item: String, action: String?) async throws(PaletteRunSelection.Failure) -> PaletteActionRef {
         guard let (page, state) = await loadedPage(scope) else { throw .unknownScope }
         let rows = page.providers.compactMap { state.providerItems[$0.id] }.joined()
         guard let row = rows.first(where: { $0.id == item }) else { throw .refused(.unknownItem(scope: scope.rawValue, item: item)) }
         do throws(PaletteRunRefusal) {
-            return try PaletteRunSelection.pick(titled(row.actionRefs), title: row.title, item: item, action: action)
+            return try PaletteRunSelection().pick(titled(row.actionRefs), title: row.title, item: item, action: action)
         } catch {
             throw .refused(error)
         }

@@ -17,6 +17,7 @@ final class FeedService {
     private let source: CloudFeedSource
     private let localOwner: LocalFeedSourceAdapter
     private let github: GitHubFeedSource
+    private let showcase: Bool
     private let auth: CloudAuth
     private var started = false
     /// The account the mirror belongs to; a sign-out or another account resets it.
@@ -36,16 +37,17 @@ final class FeedService {
         return URL(string: auth.configuration.isProductionAuth ? "https://cloud-api.cmux.dev" : "https://cloud-api-staging.cmux.dev")!
     }
 
-    init(auth: CloudAuth) {
+    init(auth: CloudAuth, showcase: Bool = false) {
         self.auth = auth
+        self.showcase = showcase
         apiBaseURL = Self.apiBaseURL(auth: auth)
         // The answer's device label is the owner's record (the install); this name is only the overlay's.
         source = CloudFeedSource(apiBaseURL: apiBaseURL, device: "Mac") { [auth] in
             try await auth.tokens().access
         }
-        localOwner = LocalFeedSourceAdapter(primary: source)
-        github = GitHubFeedSource(owner: localOwner)
         var observe: (@MainActor (FeedSourceEvent) -> Void)?
+        localOwner = LocalFeedSourceAdapter(primary: showcase ? MockFeedSource() : source)
+        github = GitHubFeedSource(owner: localOwner)
         model = FeedModel(source: FeedTeeSource(localOwner) { observe?($0) })
         model.githubDetail = { [weak self] item in self?.githubDetail(for: item) }
         observe = { [weak self] in self?.observe($0) }

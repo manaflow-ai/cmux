@@ -11,9 +11,10 @@ public import Foundation
 /// client localizes from the same xcstrings files the app uses. Every row
 /// carries values the Swift validator accepts and refuses, so another
 /// validator can prove it agrees.
-public nonisolated enum SettingsSchemaExport {
+public struct SettingsSchemaExport {
+    public nonisolated init() {}
     /// Format version of the file; bump on an incompatible change.
-    public static let version = 1
+    public nonisolated let version = 1
 
     /// A key the export names that the string catalog does not have.
     public struct MissingKeys: Error, CustomStringConvertible {
@@ -22,7 +23,7 @@ public nonisolated enum SettingsSchemaExport {
     }
 
     /// The keys of a string catalog (`.xcstrings` JSON).
-    public static func catalogKeys(xcstrings data: Data) throws -> Set<String> {
+    public nonisolated func catalogKeys(xcstrings data: Data) throws -> Set<String> {
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let strings = root["strings"] as? [String: Any]
         else { throw CocoaError(.coderReadCorrupt) }
@@ -31,7 +32,7 @@ public nonisolated enum SettingsSchemaExport {
 
     /// The export document as pretty, key-sorted JSON with a trailing newline.
     /// Throws `MissingKeys` when a text names a key `catalog` lacks.
-    public static func json(catalog: Set<String>) throws -> String {
+    public nonisolated func json(catalog: Set<String>) throws -> String {
         var missing: Set<String> = []
         func text(_ text: String, _ key: String?) -> [String: Any] {
             if let key, !catalog.contains(key) { missing.insert(key) }
@@ -53,7 +54,7 @@ public nonisolated enum SettingsSchemaExport {
         return String(decoding: data, as: UTF8.self) + "\n"
     }
 
-    static func row(for descriptor: SettingDescriptor, text: (String, String?) -> [String: Any]) -> [String: Any] {
+    nonisolated func row(for descriptor: SettingDescriptor, text: (String, String?) -> [String: Any]) -> [String: Any] {
         let keys = descriptor.textKeys
         var row: [String: Any] = [
             "key": descriptor.id,
@@ -98,16 +99,20 @@ public nonisolated enum SettingsSchemaExport {
         // Kinds whose valid values only the app knows (theme names, installed
         // fonts, system sounds): another validator checks them against the
         // value domain the app publishes, not a fixed rule.
-        switch descriptor.kind {
-        case .theme: row["validation"] = "domain:theme"
-        case .fontFamily: row["validation"] = "domain:font_family"
-        case .sound: row["validation"] = "domain:sound"
-        default: row["validation"] = "portable"
+        if descriptor.path == BackdropSelectionSetting().configPath {
+            row["validation"] = "domain:backdrop_selection"
+        } else {
+            switch descriptor.kind {
+            case .theme: row["validation"] = "domain:theme"
+            case .fontFamily: row["validation"] = "domain:font_family"
+            case .sound: row["validation"] = "domain:sound"
+            default: row["validation"] = "portable"
+            }
         }
         return row
     }
 
-    static func range(_ number: SettingNumber) -> [String: Any] {
+    nonisolated func range(_ number: SettingNumber) -> [String: Any] {
         let unit: String = switch number.unit {
         case .points: "points"
         case .seconds: "seconds"
@@ -120,7 +125,7 @@ public nonisolated enum SettingsSchemaExport {
     }
 
     /// `JSONValue` as a Foundation JSON object.
-    static func foundation(_ value: JSONValue) -> Any {
+    nonisolated func foundation(_ value: JSONValue) -> Any {
         switch value {
         case .null: NSNull()
         case .bool(let bool): bool

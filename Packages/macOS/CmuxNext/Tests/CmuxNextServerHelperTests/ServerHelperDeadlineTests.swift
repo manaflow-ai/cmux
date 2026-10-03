@@ -4,7 +4,7 @@ import Testing
 
 struct ServerHelperDeadlineTests {
     @Test func aFastOperationReturnsItsValue() async throws {
-        let value = try await ServerHelperDeadline.run(limit: .seconds(30), clock: ContinuousClock(), operation: { 7 }, onTimeout: {})
+        let value = try await ServerHelperDeadline().run(limit: .seconds(30), clock: ContinuousClock(), operation: { 7 }, onTimeout: {})
         #expect(value == 7)
     }
 
@@ -26,7 +26,7 @@ struct ServerHelperDeadlineTests {
     @Test func aTimeoutEndsTheOperationThroughOnTimeout() async {
         let gate = Gate()
         await #expect(throws: ServerHelperTimedOut.self) {
-            _ = try await ServerHelperDeadline.run(limit: .milliseconds(50), clock: ContinuousClock(), operation: {
+            _ = try await ServerHelperDeadline().run(limit: .milliseconds(50), clock: ContinuousClock(), operation: {
                 await gate.wait()
                 return 1
             }, onTimeout: { gate.open() })

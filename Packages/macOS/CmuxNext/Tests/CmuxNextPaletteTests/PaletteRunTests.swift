@@ -64,7 +64,7 @@ import Testing
             try await palette.runnableRef(scope: .tabs, item: "tab:t2", action: "renameTab")
         }
         #expect(throws: PaletteRunRefusal.untyped(title: "Plain")) {
-            try PaletteRunSelection.pick([], title: "Plain", item: "plain", action: nil)
+            try PaletteRunSelection().pick([], title: "Plain", item: "plain", action: nil)
         }
     }
 

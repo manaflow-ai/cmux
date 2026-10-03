@@ -4,7 +4,7 @@ extension SettingsSchema {
         let group = SettingsText.keyed("settings.group.tasks", "Tasks")
         return [
             SettingDescriptor(
-                TasksLayoutSetting.configPath, section: .general, group: group,
+                TasksLayoutSetting().configPath, section: .general, group: group,
                 title: SettingsText.keyed("settings.tasks.layout", "Tasks Layout"),
                 help: SettingsText.keyed("settings.tasks.layout.help",
                                         "Inbox lists what needs you first, with the task beside it. Changes apply at once."),
@@ -13,7 +13,7 @@ extension SettingsSchema {
                     SettingChoice(TasksLayoutPreference.board.rawValue, SettingsText.keyed("settings.choice.tasksBoard", "Board")),
                     SettingChoice(TasksLayoutPreference.inbox.rawValue, SettingsText.keyed("settings.choice.tasksInbox", "Inbox")),
                 ]),
-                default: .string(TasksLayoutSetting.fallback.rawValue),
+                default: .string(TasksLayoutSetting().fallback.rawValue),
                 keywords: ["tasks", "issues", "board", "list", "inbox", "layout", "kanban"]
             ),
         ]

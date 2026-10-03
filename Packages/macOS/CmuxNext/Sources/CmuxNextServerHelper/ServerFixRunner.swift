@@ -18,7 +18,7 @@ public nonisolated struct ProcessFixRunner: ServerFixRunner {
 
     public func run(_ executable: URL, _ arguments: [String]) async throws -> FixRunResult {
         let child = FixChild(executable, arguments)
-        return try await ServerHelperDeadline.run(limit: limit, clock: clock, operation: { try await child.start() }, onTimeout: { child.kill() })
+        return try await ServerHelperDeadline().run(limit: limit, clock: clock, operation: { try await child.start() }, onTimeout: { child.kill() })
     }
 }
 

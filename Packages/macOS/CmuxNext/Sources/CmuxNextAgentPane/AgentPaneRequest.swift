@@ -14,8 +14,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)
     /// A settled transcript scroll's frame intervals in milliseconds, at
-    /// most ``maximumPacingFrames``; the pane picks its rendering rate from them.
+    /// most ``maximumPacingFrames``; returns the native display interval and rate mode.
     case framePacing([Double])
+    /// Applies the page's adaptive rate decision; fixed-rate panes ignore it.
+    case renderRate(Bool)
     /// The new tab page chose a terminal or browser: replace the tab with
     /// one, running or opening `text` (a command, a URL or a search), a
     /// terminal in `cwd` when the page picked a folder.
@@ -36,6 +38,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `file.open` with `{path, where}`: a changed file from the changes view,
     /// in a tab beside the agent or in the text editor.
     case openFile(path: String, target: AgentPaneFileTarget)
+    /// `browser.open` with `{url}`: a turn's local web page (its preview
+    /// card), in a browser tab of the pane. Only loopback http(s) pages
+    /// (`URL.isAgentPanePreview`); anything else is unsupported.
+    case openPreview(URL)
     /// The quick panel's page: Esc hides the panel, keeping its draft.
     case quickDismiss
     /// The quick panel's page: open its chat in the main window and hide
@@ -84,6 +90,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.renderRate":
+            if let full = params?["full"] as? Bool {
+                self = .renderRate(full)
+            } else {
+                self = .unsupported(method)
+            }
         case "tab.open":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)), kind != .agent {
                 let text = params?["text"] as? String ?? ""
@@ -115,6 +127,13 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             if let path = params?["path"] as? String, !path.isEmpty,
                let raw = params?["where"] as? String, let target = AgentPaneFileTarget(rawValue: raw) {
                 self = .openFile(path: path, target: target)
+            } else {
+                self = .unsupported(method)
+            }
+        case "browser.open":
+            if let text = params?["url"] as? String, text.count <= Self.maximumOpenTabText,
+               let url = URL(string: text), url.isAgentPanePreview {
+                self = .openPreview(url)
             } else {
                 self = .unsupported(method)
             }

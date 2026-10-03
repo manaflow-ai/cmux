@@ -1,4 +1,5 @@
 import AppKit
+import Foundation
 import Testing
 @testable import CmuxNextDesign
 
@@ -9,6 +10,23 @@ struct BackdropArtTests {
         #expect(image.isValid)
         #expect(image.size.width > 500)
         #expect(image.size.height > 500)
+    }
+
+    @Test func catalogContainsBundledCC0PaintingsAndEnumeratesSystemFiles() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Data([0x01]).write(to: directory.appendingPathComponent("z-wallpaper.jpg"))
+        try Data([0x01]).write(to: directory.appendingPathComponent("a-wallpaper.png"))
+        let catalog = BackdropCatalog(systemDirectory: directory, fileManager: .default, systemLimit: 1)
+        #expect(catalog.choices.count == BackdropArt.allCases.count + 1)
+        #expect(catalog.choices.dropFirst().first == .system(path: directory.appendingPathComponent("a-wallpaper.png").path))
+    }
+
+    @Test func tuningClampsAndPreservesUnchangedAxes() {
+        let tuning = AppearanceTuning(glassTransparency: 4, hue: .nan, saturation: -2)
+        #expect(tuning == AppearanceTuning(glassTransparency: 1, hue: 0.5, saturation: 0))
+        #expect(tuning.setting(.hue, to: 0.25) == AppearanceTuning(glassTransparency: 1, hue: 0.25, saturation: 0))
     }
 
     @Test func artInheritsAcrossScopesAndClearsWithoutChangingColors() {
@@ -54,6 +72,15 @@ struct BackdropArtTests {
         #expect((window.contentView as? WindowSurfaceView)?.backdrop(in: window).art == .wheatField)
         scope.setBackdropArt(nil)
         #expect((window.contentView as? WindowSurfaceView)?.backdrop(in: window).art == nil)
+    }
+
+    @Test func systemSelectionPropagatesToSecondaryWindows() {
+        let scope = ThemeScope(level: .room)
+        let selection = BackdropSelection.system(path: "/System/Library/Desktop Pictures/Andromeda.heic")
+        scope.setBackdropSelection(selection)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 160, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        window.install(kind: .settings, content: NSView(), scope: scope)
+        #expect((window.contentView as? WindowSurfaceView)?.backdrop(in: window).selection == selection)
     }
 
     private func pixels(_ view: NSView) throws -> [UInt8] {

@@ -33,7 +33,7 @@ struct RemoteHIDKeyMapTests {
     @Test func everyPrintableUSKeyMapsToItsHIDUsage() {
         var covered = Set<Character>()
         for (plain, shifted, keyCode, id) in Self.printable {
-            #expect(RemoteHIDKeyMap.usage(forKeyCode: UInt16(keyCode)) == 0x0007_0000 | id, "\(plain)")
+            #expect(RemoteHIDKeyMap().usage(forKeyCode: UInt16(keyCode)) == 0x0007_0000 | id, "\(plain)")
             covered.insert(plain)
             if let shifted { covered.insert(shifted) }
         }
@@ -49,10 +49,10 @@ struct RemoteHIDKeyMapTests {
             (kVK_CapsLock, 0x39),
         ]
         for (keyCode, id) in modifiers {
-            #expect(RemoteHIDKeyMap.usage(forKeyCode: UInt16(keyCode)) == 0x0007_0000 | id)
-            #expect(RemoteHIDKeyMap.isModifier(keyCode: UInt16(keyCode)))
+            #expect(RemoteHIDKeyMap().usage(forKeyCode: UInt16(keyCode)) == 0x0007_0000 | id)
+            #expect(RemoteHIDKeyMap().isModifier(keyCode: UInt16(keyCode)))
         }
-        #expect(RemoteHIDKeyMap.usage(forKeyCode: UInt16(kVK_Function)) == nil)
+        #expect(RemoteHIDKeyMap().usage(forKeyCode: UInt16(kVK_Function)) == nil)
     }
 
     @Test func editingNavigationAndFunctionKeys() {
@@ -69,7 +69,7 @@ struct RemoteHIDKeyMapTests {
             (kVK_JIS_Kana, 0x90), (kVK_JIS_Eisu, 0x91),
         ]
         for (keyCode, id) in keys {
-            #expect(RemoteHIDKeyMap.usage(forKeyCode: UInt16(keyCode)) == 0x0007_0000 | id, "kVK \(keyCode)")
+            #expect(RemoteHIDKeyMap().usage(forKeyCode: UInt16(keyCode)) == 0x0007_0000 | id, "kVK \(keyCode)")
         }
     }
 
@@ -77,9 +77,9 @@ struct RemoteHIDKeyMapTests {
         let ids = RemoteHIDKeyMap.table.filter { $0 != 0 }
         #expect(Set(ids).count == ids.count)
         for code in UInt16(0)..<0x80 {
-            guard let usage = RemoteHIDKeyMap.usage(forKeyCode: code) else { continue }
-            #expect(RemoteHIDKeyMap.keyCode(forUsage: usage) == code)
+            guard let usage = RemoteHIDKeyMap().usage(forKeyCode: code) else { continue }
+            #expect(RemoteHIDKeyMap().keyCode(forUsage: usage) == code)
         }
-        #expect(RemoteHIDKeyMap.usage(forKeyCode: 0x200) == nil)
+        #expect(RemoteHIDKeyMap().usage(forKeyCode: 0x200) == nil)
     }
 }
