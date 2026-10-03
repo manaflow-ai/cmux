@@ -1987,7 +1987,7 @@ Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `pane` | `Id` | required | Must belong to a screen with viewport columns |
+| `pane` | `Id` | required | Any pane; a screen without `columns` is one implicit column |
 | `width` | `float32` | required | Finite value from 0.1 through 1.0 |
 | `transaction` | `uint64` | default null | Samples with the same connection and transaction coalesce into one undo entry |
 
@@ -2046,13 +2046,13 @@ Result:
 object{column:Id,sticky:object{edge:"left"|"right",mode:"docked"|"overlay"}|null,transaction?:uint64}
 ```
 
-`column` is the column's `Screen.columns[].id` and `sticky` its flag after the request. `transaction` echoes the request's value and is omitted when the request had none. The `screen-changed` delta of a change carries the same transaction as a decimal string (the delta's `transaction` field is a string).
+`column` is the column's `Screen.columns[].id` and `sticky` its flag after the request. A screen without `columns` is one implicit column: pinning it fails with `sticky-column-last-scrolling` (at least one column must scroll) and unpinning succeeds with `column: 0` and no change. `transaction` echoes the request's value and is omitted when the request had none. The `screen-changed` delta of a change carries the same transaction as a decimal string (the delta's `transaction` field is a string).
 
 Errors:
 
 | Error | `error_code` | Condition |
 | --- | --- | --- |
-| `pane <id> has no viewport column` | `viewport-column-not-found` | Pane is unknown or its screen has no viewport columns |
+| `pane <id> has no viewport column` | `viewport-column-not-found` | Pane is unknown |
 | `at least one column must scroll` | `sticky-column-last-scrolling` | The change would leave no scrolling column |
 | `bad edge ...` / `bad mode ...` | `invalid-argument` | `edge` or `mode` is not one of the listed strings |
 | `bad request: ...` | none | Missing fields or wrong JSON type |
