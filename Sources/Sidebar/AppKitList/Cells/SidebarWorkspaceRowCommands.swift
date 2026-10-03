@@ -175,7 +175,9 @@ struct SidebarWorkspaceRowCommands {
 
     /// Parity with TabItemView.applyTabColor.
     func applyTabColor(_ hex: String?) {
-        tabManager?.applyWorkspaceColor(hex, toWorkspaceIds: contextMenuWorkspaceIds)
+        guard let tabManager else { return }
+        tabManager.applyWorkspaceColor(hex, toWorkspaceIds: contextMenuWorkspaceIds)
+        refreshSnapshot()
     }
 
     func promptCustomColor() {
