@@ -323,6 +323,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
+      - name: Test private R2 URL presigner
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_r2_presign.py
+
       - name: Validate CI process-tree cancellation cleanup
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_ci_process_tree_reaping.py
