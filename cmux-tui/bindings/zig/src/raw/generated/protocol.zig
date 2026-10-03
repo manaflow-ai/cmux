@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "7e6b56e9932a8f8f88925ec1afd0adb35bfe5b91cb922e2f9e8eb5727d53830c";
+pub const ir_sha256 = "e9f0de573f2426333efd1799a0cd86a77250b2eb172325f7c919ed71cd6318ca";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -2102,6 +2102,7 @@ pub const TerminalPlacement = struct {
 pub const TerminalReadRangeResult = struct {
     surface: Id,
     text: []const u8,
+    truncated: bool,
 };
 
 pub const TerminalRecord = struct {
@@ -6586,6 +6587,7 @@ pub const TerminalReadRangeRequest = struct {
     format: wire.Field([]const u8) = .absent,
     from: RowMarkerPoint,
     marker_epoch: wire.Field(u64) = .absent,
+    max_bytes: wire.Field(u64) = .absent,
     surface: Id,
     to: RowMarkerPoint,
 };

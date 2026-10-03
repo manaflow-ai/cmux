@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "7e6b56e9932a8f8f88925ec1afd0adb35bfe5b91cb922e2f9e8eb5727d53830c";
+inline constexpr std::string_view kProtocolIrSha256 = "e9f0de573f2426333efd1799a0cd86a77250b2eb172325f7c919ed71cd6318ca";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -3680,6 +3680,7 @@ struct TerminalReadRangeRequest {
     Field<std::string> format{};
     RowMarkerPoint from{};
     Field<std::uint64_t> marker_epoch{};
+    Field<std::uint64_t> max_bytes{};
     Id surface{};
     RowMarkerPoint to{};
     friend bool operator==(const TerminalReadRangeRequest&, const TerminalReadRangeRequest&) = default;
@@ -3688,6 +3689,7 @@ struct TerminalReadRangeRequest {
 struct TerminalReadRangeResult {
     Id surface{};
     std::string text{};
+    bool truncated{};
     friend bool operator==(const TerminalReadRangeResult&, const TerminalReadRangeResult&) = default;
 };
 

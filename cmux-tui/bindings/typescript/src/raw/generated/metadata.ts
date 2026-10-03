@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7e6b56e9932a8f8f88925ec1afd0adb35bfe5b91cb922e2f9e8eb5727d53830c. */
+/* cmux-tui mux protocol 12, IR e9f0de573f2426333efd1799a0cd86a77250b2eb172325f7c919ed71cd6318ca. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "7e6b56e9932a8f8f88925ec1afd0adb35bfe5b91cb922e2f9e8eb5727d53830c" as const;
+export const SDK_IR_SHA256 = "e9f0de573f2426333efd1799a0cd86a77250b2eb172325f7c919ed71cd6318ca" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2359,7 +2359,8 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "format is text (default; unwrapped lines joined with newline) or vt.",
-      "Rows that left scrollback, or markers of another marker_epoch, answer range_evicted."
+      "Rows that left scrollback, or markers of another marker_epoch, answer range_evicted.",
+      "max_bytes defaults to 1048576 and must be 1..=8388608; a longer range is cut at a character boundary and answers truncated: true."
     ]
   },
   "terminal-resources": {
@@ -8847,6 +8848,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "truncated": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
         }
       }
     },
@@ -17990,6 +17999,15 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "marker_epoch": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "max_bytes": {
           "default": null,
           "nullable": true,
           "presence": "optional",

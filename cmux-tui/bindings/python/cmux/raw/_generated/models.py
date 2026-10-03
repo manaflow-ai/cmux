@@ -1394,6 +1394,7 @@ class TerminalReadRangeResult:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalReadRangeResult'
     surface: Id
     text: str
+    truncated: bool
 
 
 @dataclass(frozen=True)
@@ -3149,6 +3150,7 @@ class TerminalReadRangeRequest:
     to: RowMarkerPoint
     format: Union[str, None, MissingType] = field(default=MISSING)
     marker_epoch: Union[int, None, MissingType] = field(default=MISSING)
+    max_bytes: Union[int, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)

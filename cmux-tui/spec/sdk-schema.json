@@ -6432,6 +6432,14 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "truncated": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
     }
    },
    "additional_properties": false
@@ -17342,6 +17350,15 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "max_bytes": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
      }
     },
     "additional_properties": false
@@ -17353,7 +17370,8 @@
    "stream": null,
    "constraints": [
     "format is text (default; unwrapped lines joined with newline) or vt.",
-    "Rows that left scrollback, or markers of another marker_epoch, answer range_evicted."
+    "Rows that left scrollback, or markers of another marker_epoch, answer range_evicted.",
+    "max_bytes defaults to 1048576 and must be 1..=8388608; a longer range is cut at a character boundary and answers truncated: true."
    ]
   }
  },
