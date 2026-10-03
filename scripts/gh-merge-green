@@ -1,0 +1,64 @@
+#!/bin/bash
+# gh-merge-green REPO#PR [--main-fix] [gh pr merge flags...]
+# Merges only when the PR head's required-in-practice checks are green.
+# main has no required status checks, so `gh pr merge --auto` merges at once; agents use this instead.
+set -euo pipefail
+ref="${1:?usage: gh-merge-green OWNER/REPO#NUMBER [--squash|--merge] }"; shift
+repo="${ref%#*}"; num="${ref#*#}"
+# --main-fix: a fix-forward PR for a red main. Skips the CI wait (Leo: don't wait on main-greening PRs), keeps the conflict-marker check.
+fix=0; args=(); for a in "$@"; do [ "$a" = --main-fix ] && fix=1 || args+=("$a"); done; set -- "${args[@]+"${args[@]}"}"
+[ $# -gt 0 ] || set -- --squash
+read -r sha base < <(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName -q '.headRefOid+" "+.baseRefName')
+# merge-gate is the authority for ci-status: a reviewed override can make the
+# gate successful while ci-status remains red. Missing counts as not green.
+must=("merge-gate")
+# Compile admission only runs when the PR touches the app; docs/web-only routes never schedule it.
+# Require it only if it was scheduled or the diff touches app code.
+if [ "$base" = main ]; then
+  # The files API paginates, unlike `gh pr diff` (HTTP 406 past 20000 lines); fail closed if it errors.
+  files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename') || { echo "not green: cannot list changed files" >&2; exit 1; }
+  if printf '%s\n' "$files" | grep -qE '\.(swift|m|mm|h|c|cpp|xcconfig|plist|entitlements|xcstrings)$|\.xcodeproj/|^(Sources|Packages|cmuxTests|cmuxUITests|ghostty|vendor)/|^Package\.(swift|resolved)$'; then
+    must+=("macos / macOS compile admission")
+  fi
+fi
+runs=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" --paginate -q '.check_runs[]|[.name,.status,(.conclusion//"")]|@tsv')
+if [ "$base" = main ] && printf '%s\n' "$runs" | grep -q '^macos / macOS compile admission'$'\t' && ! printf '%s\n' "${must[@]}" | grep -qx 'macos / macOS compile admission'; then
+  must+=("macos / macOS compile admission")
+fi
+bad=0
+[ "$fix" -eq 1 ] && must=("merge-gate")
+for name in "${must[@]+"${must[@]}"}"; do
+  line=$(printf '%s\n' "$runs" | awk -F'\t' -v n="$name" '$1==n' | tail -1)
+  if [ -z "$line" ]; then
+    echo "not green: '$name' has not run on $sha" >&2
+    if [ "$name" = merge-gate ]; then
+      echo "reason: merge-gate has not reported for the current head" >&2
+    fi
+    bad=1
+    continue
+  fi
+  st=$(cut -f2 <<<"$line"); co=$(cut -f3 <<<"$line")
+  gate_bad=0
+  if [ "$name" = merge-gate ]; then
+    [ "$co" = success ] || gate_bad=1
+  elif [ "$co" != success ] && [ "$co" != skipped ] && [ "$co" != neutral ]; then
+    gate_bad=1
+  fi
+  if [ "$st" != completed ] || [ "$gate_bad" -eq 1 ]; then
+    echo "not green: '$name' is $st/$co on $sha" >&2
+    if [ "$name" = merge-gate ]; then
+      # The gate check carries the actionable missing-requirements text in its
+      # output. Keep it on one line so this command remains easy to scan.
+      reason=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" \
+        -q '.check_runs | map(select(.name == "merge-gate")) | sort_by(.completed_at // .started_at // "") | last | [(.output.title // ""), (.output.summary // "")] | join(": ") | gsub("[\\r\\n\\t]+"; " ")' 2>/dev/null || true)
+      [ -n "$reason" ] && echo "reason: $reason" >&2
+    fi
+    bad=1
+  fi
+done
+failing=$(printf '%s\n' "$runs" | awk -F'\t' '$3=="failure"||$3=="timed_out"||$3=="cancelled"{print $1}' | sort -u)
+if [ -n "$failing" ]; then echo "note: other failing checks on $sha (merge-gate decides):" >&2; printf '%s\n' "$failing" | sed 's/^/  /' >&2; fi
+patches=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].patch // empty') || { echo "not green: cannot read the diff" >&2; bad=1; }
+if printf '%s\n' "$patches" | grep -qE '^\+(<<<<<<<|>>>>>>>|=======$)'; then echo "not green: conflict markers in the diff" >&2; bad=1; fi
+[ "$bad" -eq 0 ] || { echo "refusing to merge $ref; wait with: glaeda-gh wait pr $ref" >&2; exit 1; }
+exec gh pr merge "$num" --repo "$repo" --match-head-commit "$sha" "$@"
