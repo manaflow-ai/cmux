@@ -3921,15 +3921,11 @@ fn wg_hub_control_relays_datagrams_through_the_tunnel() {
     datagram.extend_from_slice(b"frame");
     local.send_to(&datagram, &dgram).unwrap();
     let (payload, from) = runtime
-        .block_on(async {
-            tokio::time::timeout(Duration::from_secs(10), theirs.recv_from()).await
-        })
+        .block_on(async { tokio::time::timeout(Duration::from_secs(10), theirs.recv_from()).await })
         .unwrap()
         .unwrap();
     assert_eq!(payload, b"frame");
-    runtime
-        .block_on(theirs.send_to(b"ack", from, cmux_wg::Priority::Interactive))
-        .unwrap();
+    runtime.block_on(theirs.send_to(b"ack", from, cmux_wg::Priority::Interactive)).unwrap();
     let mut buffer = [0u8; 256];
     let len = local.recv(&mut buffer).unwrap();
     assert_eq!(&buffer[..len - 3], &datagram[..datagram.len() - 5], "the header names the peer");
