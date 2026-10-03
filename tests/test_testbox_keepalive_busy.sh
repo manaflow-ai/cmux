@@ -16,18 +16,32 @@ if [[ ! -d /proc/self ]]; then
 fi
 test -x "$busy"
 
-work="$(mktemp -d)"
+work="$(cd "$(mktemp -d)" && pwd -P)"
 pids=()
 cleanup() { for pid in "${pids[@]}"; do kill "$pid" 2>/dev/null || true; done; rm -rf "$work"; }
 trap cleanup EXIT
 mkdir -p "$work/checkout/cmux-tui" "$work/elsewhere"
+
+# Wait (deadline 30 s) until process $1 works in directory $2.
+wait_for_cwd() {
+  local pid="$1" want="$2" deadline=$((SECONDS + 30))
+  until [[ "$(readlink "/proc/$pid/cwd" 2>/dev/null)" == "$want" ]]; do
+    (( SECONDS < deadline )) || { echo "FAIL: pid $pid never worked in $want" >&2; exit 1; }
+    sleep 0.05
+  done
+}
 
 # The keepalive itself runs in the checkout (the job workspace), and so does
 # its sleep: neither is use of the box.
 (cd "$work/checkout" && exec bash -c 'sleep 60 & wait') &
 keepalive="$!"
 pids+=("$keepalive")
-sleep 0.3
+wait_for_cwd "$keepalive" "$work/checkout"
+deadline=$((SECONDS + 30))
+until pgrep -P "$keepalive" -x sleep >/dev/null; do
+  (( SECONDS < deadline )) || { echo "FAIL: the keepalive's sleep never started" >&2; exit 1; }
+  sleep 0.05
+done
 if "$busy" "$work/checkout" "$keepalive"; then
   echo "FAIL: the keepalive or its own sleep counted as busy" >&2
   exit 1
@@ -36,6 +50,7 @@ fi
 # A process outside the checkout is not use of the box.
 (cd "$work/elsewhere" && exec sleep 60) &
 pids+=("$!")
+wait_for_cwd "$!" "$work/elsewhere"
 if "$busy" "$work/checkout" "$keepalive"; then
   echo "FAIL: a process outside the checkout counted as busy" >&2
   exit 1
@@ -45,7 +60,7 @@ fi
 (cd "$work/checkout/cmux-tui" && exec sleep 60) &
 worker="$!"
 pids+=("$worker")
-sleep 0.3
+wait_for_cwd "$worker" "$work/checkout/cmux-tui"
 if ! "$busy" "$work/checkout" "$keepalive"; then
   echo "FAIL: a process working in the checkout did not count as busy" >&2
   exit 1
