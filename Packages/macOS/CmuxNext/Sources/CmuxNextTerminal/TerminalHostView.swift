@@ -18,6 +18,12 @@ public final class TerminalHostView: NSView {
     /// Shown over the last screen while the link is down (click-through).
     private let banner = TerminalStatusBanner()
     private var shownStatus: TerminalConnectionStatus = .connected
+    /// "Restart Shell Here" and "Close" above the banner while the shell has ended.
+    private let deadTabBar = TerminalDeadTabBar()
+    /// The App's dead-tab actions (`tab.restart`, `closeTab`) for this tab.
+    public var deadTabActions = TerminalDeadTabActions() {
+        didSet { deadTabBar.update(exited: shownStatus == .exited, actions: deadTabActions) }
+    }
 
     /// The first cell's top-left in this view's coordinates (top-left
     /// origin): Ghostty's leading and top padding, or with
@@ -46,6 +52,12 @@ public final class TerminalHostView: NSView {
             banner.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
             banner.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -24),
         ])
+        deadTabBar.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(deadTabBar, positioned: .above, relativeTo: banner)
+        NSLayoutConstraint.activate([
+            deadTabBar.centerXAnchor.constraint(equalTo: centerXAnchor),
+            deadTabBar.bottomAnchor.constraint(equalTo: banner.topAnchor, constant: -8),
+        ])
         // A config reload can change window-padding-x.
         configObserver = NotificationCenter.default.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.needsLayout = true }
@@ -70,6 +82,7 @@ public final class TerminalHostView: NSView {
     func showStatus(_ status: TerminalConnectionStatus) {
         shownStatus = status
         banner.show(status)
+        deadTabBar.update(exited: status == .exited, actions: deadTabActions)
     }
 
     isolated deinit {

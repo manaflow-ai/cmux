@@ -286,6 +286,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         case .pty:
             let entry = services.cache.terminal(for: tab, daemon: daemon)
             services.themes.terminalDidMount(entry)
+            TabRestart.offer(on: entry, tab: tab, daemon: daemon, registry: services.registry)
             return .terminal(entry)
         case .browser where tab.isFrontendOwned:
             return services.cache.browser(for: tab).map(TabContent.browser)

@@ -24,6 +24,8 @@ public struct KeptTabRelaunch: Sendable, Equatable {
     public var name: String?
     public var pinned: Bool
     public var group: TabGroupID?
+    /// The dead terminal's public id, the `restart-tab` key's subject.
+    public var deadTerminal: ResourceID? = nil
 
     /// The kept tabs of `tree` to restart: dead terminal tabs with the
     /// workspace store's `relaunch` record, in tree order. A record without
@@ -36,7 +38,7 @@ public struct KeptTabRelaunch: Sendable, Equatable {
                     guard let relaunch = tab.relaunch else { continue }
                     steps.append(KeptTabRelaunch(workspace: workspace.key, pane: pane.id, deadSurface: tab.surface, index: index,
                                                  cwd: relaunch.cwd ?? fallbackCwd, name: tab.name, pinned: tab.pinned,
-                                                 group: tab.tabGroup))
+                                                 group: tab.tabGroup, deadTerminal: tab.terminalResourceID))
                 }
             }
         }
@@ -70,11 +72,18 @@ extension DaemonConnection {
         return result
     }
 
-    /// One kept tab: the new shell opens in the dead tab's pane, takes its
-    /// pin first (pinned tabs sort first), moves to the dead tab's current
-    /// index (re-read, so an earlier failure cannot shift it), joins its
-    /// group, and the dead tab closes.
+    /// One kept tab. With `tab-restart-v1` the daemon restarts it in place
+    /// (`restart-tab`, keyed by its dead terminal like every other restart).
+    /// Otherwise the new shell opens in the dead tab's pane, takes its pin
+    /// first (pinned tabs sort first), moves to the dead tab's current index
+    /// (re-read, so an earlier failure cannot shift it), joins its group,
+    /// and the dead tab closes.
     private func relaunch(_ step: KeptTabRelaunch) async throws {
+        if identity?.supports(DaemonCapabilities.shared.tabRestart) == true {
+            let subject = step.deadTerminal?.rawValue ?? "surface:\(step.deadSurface.rawValue)"
+            _ = try await restartTab(step.deadSurface, idempotencyKey: "tab-restart:\(subject)", fallbackCwd: step.cwd)
+            return
+        }
         let created = try await newTab(in: step.pane, options: SpawnOptions(cwd: step.cwd, name: step.name, workspace: step.workspace))
         if step.pinned, identity?.supports(DaemonCapabilities.shared.tabMetadata) == true {
             _ = try await setTabPinned(created.surface, true)

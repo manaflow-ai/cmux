@@ -136,6 +136,8 @@ public struct DaemonCapabilities: Sendable {
     /// spawns a new tab of the same kind in the source pane, in the same
     /// owner op (plans/cmux-next/layout-invariants.md).
     public let tabSplitRespawn = "tab-split-respawn-v1"
+    /// `restart-tab`: a dead terminal tab restarts in place (ownership.md 3.2).
+    public let tabRestart = "tab-restart-v1"
     /// Additive shapes the app asks for through `set-client-info`: view
     /// identity on attach, creation receipts, caller-chosen creation attempt
     /// keys, and per-terminal color overrides.
@@ -157,7 +159,8 @@ public struct DaemonCapabilities: Sendable {
                                             terminalShellArgs, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
                                             terminalCommandJournal, stickyColumns, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
-                                            attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides] }
+                                            attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
+                                            tabRestart] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the

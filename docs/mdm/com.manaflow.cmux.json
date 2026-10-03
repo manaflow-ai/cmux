@@ -715,6 +715,12 @@
       "title" : "Font Size",
       "type" : "number"
     },
+    "terminal.restartLostTerminals" : {
+      "default" : false,
+      "description" : "When a terminal's host is lost, start a new shell in the same tab and folder.",
+      "title" : "Restart Lost Terminals",
+      "type" : "boolean"
+    },
     "ui.animationSpeed" : {
       "default" : "fast",
       "description" : "ui.animationSpeed",

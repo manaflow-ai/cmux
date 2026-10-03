@@ -15720,6 +15720,137 @@
           }
         }
       }
+    },
+    "handlers.refusal.tabNotDead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "only a terminal tab whose shell ended can restart"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن إعادة تشغيل إلا لسان طرفية انتهت صدفته"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "samo tab terminala čiji je shell završio može se ponovo pokrenuti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "kun en terminalfane, hvis shell er afsluttet, kan genstartes"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nur ein Terminal-Tab, dessen Shell beendet ist, kann neu starten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "solo se puede reiniciar una pestaña de terminal cuyo shell terminó"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "seul un onglet de terminal dont le shell s'est terminé peut redémarrer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "si può riavviare solo una scheda terminale la cui shell è terminata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "シェルが終了したターミナルタブのみ再起動できます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អាចចាប់ផ្ដើមឡើងវិញបានតែថេបស្ថានីយដែលសែលបានបញ្ចប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "셸이 종료된 터미널 탭만 다시 시작할 수 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bare en terminalfane der skallet er avsluttet, kan startes på nytt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ponownie uruchomić można tylko kartę terminala, której powłoka się zakończyła"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "só é possível reiniciar uma aba de terminal cujo shell terminou"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "перезапустить можно только вкладку терминала, оболочка которой завершилась"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รีสตาร์ทได้เฉพาะแท็บเทอร์มินัลที่เชลล์จบการทำงานแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "yalnızca kabuğu sona ermiş bir terminal sekmesi yeniden başlatılabilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "перезапустити можна лише вкладку термінала, оболонка якої завершилася"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "chỉ có thể khởi động lại tab terminal có shell đã kết thúc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有 Shell 已结束的终端标签页才能重启"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只有 Shell 已結束的終端機分頁才能重新啟動"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

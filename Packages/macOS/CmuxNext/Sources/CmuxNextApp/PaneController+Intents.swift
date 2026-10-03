@@ -287,14 +287,18 @@ extension PaneController {
             select(id)
             let target = ActionTargetRef(kind: .tab, id: id.rawValue)
             guard let tab = tab(id), tab.kind == .browser else {
-                // Hibernation discards a page; a terminal has none.
-                let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: ["hibernateTab", "wakeTab"])
+                // Hibernation discards a page; a terminal has none. Only a
+                // terminal whose shell ended offers Restart.
+                let restartable = self.tab(id).map(TabRestart.isRestartable) ?? false
+                let removing: Set<ActionID> = restartable ? ["hibernateTab", "wakeTab"] : ["hibernateTab", "wakeTab", TabRestart.action]
+                let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: removing)
                 return registry.makeContextMenu(for: .tab, target: target, entries: entries)
             }
             // A browser tab offers the engine it is not on.
             let other: ActionID = tab.browserEngine == BrowserEngineTag.cef.rawValue ? "browser.openInChromium" : "browser.openInWebKit"
             // Terminal themes and keep-running do not apply to a page.
-            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: [other, "terminal.setTheme", "terminal.clearTheme", "terminal.keep"])
+            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: [other, "terminal.setTheme", "terminal.clearTheme", "terminal.keep",
+                                                                                  TabRestart.action])
             return registry.makeContextMenu(for: .tab, target: target, entries: entries, implied: .browserFocused)
         case .group(let group), .savedGroup(let group):
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue))

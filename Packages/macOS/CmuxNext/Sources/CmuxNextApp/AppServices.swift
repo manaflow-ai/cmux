@@ -74,6 +74,8 @@ final class AppServices {
     private(set) lazy var locationTrail = LocationTrailService(services: self)
     /// The merged history read side and the per-profile visit logs.
     private(set) lazy var history = HistoryService(services: self)
+    /// `terminal.restartLostTerminals`: restarts host-lost tabs.
+    private(set) lazy var lostTerminals = LostTerminalRestarter(services: self)
     /// `cmux://history`: opens the page and serves its data.
     private(set) lazy var historyPage = HistoryPageService(services: self)
     /// `cmux://agent-activity`: the computer use sessions page.

@@ -23,6 +23,10 @@ final class TerminalLinkWatch {
     private let surface: SurfaceID
     private var connected: Bool
     private var dead: Bool
+    /// The terminal the view attached to. A restart (`tab.restart`) points
+    /// the tab at a new one; the content cache then builds a new view, so
+    /// this one never re-attaches to the dead terminal.
+    private let terminal: ResourceID?
     /// The shell's folder last told to the store; only a new one is sent, so
     /// a reconnect never repeats an old view's folder onto a reused surface.
     private var directory: String?
@@ -35,6 +39,7 @@ final class TerminalLinkWatch {
         self.model = model
         connected = Self.isConnected(store.connectionState)
         dead = store.tab(surface: surface)?.dead ?? false
+        terminal = store.tab(surface: surface)?.terminalResourceID
         if dead { io.processExited() }
         forwardDirectory()
         arm()
@@ -48,6 +53,7 @@ final class TerminalLinkWatch {
         withObservationTracking {
             _ = store.connectionState
             _ = store.tab(surface: surface)?.dead
+            _ = store.tab(surface: surface)?.terminalResourceID
             _ = model?.workingDirectory
         } onChange: { [weak self] in
             // task-owner: one hop per observed change, re-arms itself; ends with the watch
@@ -59,7 +65,10 @@ final class TerminalLinkWatch {
         guard !stopped, let store, let io else { return }
         let nowConnected = Self.isConnected(store.connectionState)
         let nowDead = store.tab(surface: surface)?.dead ?? dead
-        if nowDead, !dead {
+        let restarted = store.tab(surface: surface).map { $0.terminalResourceID != terminal } ?? false
+        if restarted {
+            // Replaced by the content cache (its validity names the terminal).
+        } else if nowDead, !dead {
             io.processExited()
         } else if (nowConnected && !connected) || (dead && !nowDead) {
             io.reconnect()
