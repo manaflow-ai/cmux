@@ -773,6 +773,26 @@ Device keys (presence keys):
 - iOS sends both proofs: App Attest proves the genuine app on a genuine device but not Face ID;
   the presence signature proves a person unlocked the key.
 
+Presence-key registration route (built, backend lead, 2026-10-03):
+- `POST /v1/presence-key` with the install's own `Authorization: Bearer <install token>`.
+  Body: `{platform: "mac" | "ios", jwk, signature, attestation?, key_id?}`.
+- `jwk`: the presence key's P-256 public JWK (`kty`, `crv`, `x`, `y`).
+- `signature`: the install key (the token key, not the presence key) signs the UTF-8 string
+  `cmux-presence-key-v1\n<environment>\n<user>\n<install>\n<thumbprint>` with ES256; raw
+  r||s or DER; base64url. `environment` is the Worker ENVIRONMENT (`production`, `staging`,
+  `development`); `thumbprint` is the RFC 7638 thumbprint of `jwk`. Required on both platforms,
+  so a stolen bearer token alone cannot replace the key.
+- iOS also: `attestation` (base64url CBOR attestation object from App Attest) and `key_id` (the
+  App Attest key id, base64). The attestation's client data is the thumbprint string
+  (clientDataHash = sha256(thumbprint)). The Worker checks the chain to Apple's App Attestation
+  root, the nonce, the key id, the app id `IOS_APP_ID` (production `7WLXT3NR37.com.cmux.app`,
+  staging/development `7WLXT3NR37.dev.cmux.ios` with development keys allowed), counter 0 and
+  the AAGUID.
+- Answer: `{ok: true, value: {install, usable_from}}` (usable 24 h later) or
+  `{ok: false, error: {code, message}}` (403 for a refused signature or attestation).
+- Owner devices only: the install's registered kind must equal `platform`; sessions and agents
+  are refused.
+
 Client contract (iOS lane and the Mac Home lead):
 1. Settings shows the three levels with the section 19 copy, and the lock line when locked.
 2. A safer level: `user.text_confirm.level.set {level}`.

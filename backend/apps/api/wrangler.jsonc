@@ -80,7 +80,7 @@
     "production": {
       "name": "cmux-api",
       "workers_dev": true,
-      "vars": { "ENVIRONMENT": "production", "DASHBOARD_ORIGIN": "https://console.cmux.dev", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.dev.cmux.app.beta", "STACK_PROJECT_ID": "9790718f-14cd-4f7e-824d-eaf527a82b82" },
+      "vars": { "ENVIRONMENT": "production", "DASHBOARD_ORIGIN": "https://console.cmux.dev", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.com.cmux.app", "STACK_PROJECT_ID": "9790718f-14cd-4f7e-824d-eaf527a82b82" },
       "durable_objects": {
         "bindings": [
           { "name": "USER_DO", "class_name": "UserDO" },
