@@ -51,6 +51,32 @@ import CmuxGit
         await reader.openGate()
     }
 
+    @Test func initialProbeDefersWhileTerminalTypingIsActive() async throws {
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/probe-typing")
+        host.terminalTypingActive = true
+        let clock = ManualGitPollClock()
+        let reader = GatedMetadataReader(metadata: .repository(branch: "main", isDirty: false), gated: true)
+        let service = makeService(host: host, reader: reader, clock: clock)
+
+        service.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: "test"
+        )
+
+        await clock.waitForSleeper()
+        await clock.resumeNext()
+        await Task.yield()
+        #expect(await reader.probedDirectories.isEmpty)
+        await clock.waitForSleeper()
+        #expect(await clock.recordedDurations.last == SidebarGitMetadataService.terminalTypingQuietInterval)
+
+        host.terminalTypingActive = false
+        await clock.resumeNext()
+        await reader.openGate()
+    }
+
     /// A remote terminal panel never schedules the initial local probe.
     @Test func remoteTerminalPanelSkipsInitialProbe() async throws {
         let host = RecordingSidebarGitHost()
