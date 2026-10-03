@@ -51,6 +51,12 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "pane", title: String(localized: "argument.pane", defaultValue: "Pane", bundle: .module), kind: .target(.pane))
     }
 
+    /// A recently closed item (`closed_…`); Recently Closed lists them.
+    static var closedItem: ActionArgument {
+        ActionArgument(name: "closed", title: String(localized: "argument.closed", defaultValue: "Closed Item", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     static var tabTab: ActionArgument {
         ActionArgument(name: "tab", title: String(localized: "argument.tab", defaultValue: "Tab", bundle: .module), kind: .target(.tab))
     }

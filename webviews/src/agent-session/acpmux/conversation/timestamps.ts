@@ -12,18 +12,25 @@
 const HOUR_MS = 36e5;
 
 /// One turn's messages: its prompt's time, and its final answer's when it has one.
-export type TurnTimes = { promptAt: number; answerAt?: number };
+export type TurnTimes = { promptAt?: number; answerAt?: number };
+
+/// Zero and absent times mean the event's timestamp is unknown.
+export function hasTimestamp(at: number | undefined): at is number {
+  return typeof at === "number" && at !== 0 && Number.isFinite(new Date(at).getTime());
+}
 
 /// For each turn, whether a line shows above it. `loadedFromStart` is false when the first
 /// turn here is not the thread's first (rows before it, or older history not paged in).
 export function timestampTurns(turns: readonly TurnTimes[], now: number, loadedFromStart: boolean): boolean[] {
   let previousAnswer: number | undefined;
   return turns.map((turn, index) => {
-    const first = index === 0 && loadedFromStart && now - turn.promptAt > HOUR_MS;
-    const late = previousAnswer !== undefined && turn.promptAt - previousAnswer > HOUR_MS;
+    const show =
+      hasTimestamp(turn.promptAt) &&
+      ((index === 0 && loadedFromStart && now - turn.promptAt > HOUR_MS) ||
+        (previousAnswer !== undefined && turn.promptAt - previousAnswer > HOUR_MS));
     // The previous message is this turn's answer, or its prompt when it has none.
-    previousAnswer = turn.answerAt;
-    return first || late;
+    previousAnswer = hasTimestamp(turn.answerAt) ? turn.answerAt : undefined;
+    return show;
   });
 }
 

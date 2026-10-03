@@ -2,7 +2,7 @@
 """Reject deferred-action handles that can build recursive release chains.
 
 The parent-repository gate covers DispatchWorkItem declarations in Sources,
-CLI, ios, package Sources, and the pinned Bonsplit sources. It also rejects
+ios, package Sources, and the pinned Bonsplit sources. It also rejects
 closure-bearing deferred handles stored inline in macOS SwiftUI State, where a
 successor closure can capture a value snapshot that still owns its predecessor.
 Other gitlink dependencies such as Ghostty remain dependency-owned and must be
@@ -18,7 +18,6 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-CLI_ROOT = REPO_ROOT / "CLI"
 IOS_ROOT = REPO_ROOT / "ios"
 PACKAGES_ROOT = REPO_ROOT / "Packages"
 TYPE_DECLARATIONS = {"actor", "class", "enum", "extension", "protocol", "struct"}
@@ -89,16 +88,7 @@ class Allowance:
 # stored state. Context is part of each key so moving a function-local timeout
 # into stored owner state cannot inherit an allowance merely by preserving its
 # spelling.
-ALLOWANCES = (
-    Allowance(
-        "CLI/cmux.swift",
-        "keepaliveTimeoutWorkItem",
-        "DispatchWorkItem?",
-        "member:CMUXCLI.VMPtyWebSocketBridge",
-        1,
-        "send-queue-owned watchdog whose queued closure weakly captures the bridge",
-    ),
-)
+ALLOWANCES: tuple[Allowance, ...] = ()
 
 
 def _newline(tokens: list[Token], line: int, column: int) -> None:
@@ -631,7 +621,7 @@ def scan_declarations(source: str, path: str) -> list[Declaration]:
 
 def declarations() -> list[Declaration]:
     found: list[Declaration] = []
-    source_roots = [CLI_ROOT, IOS_ROOT]
+    source_roots = [IOS_ROOT]
     source_roots.extend(sorted(PACKAGES_ROOT.glob("*/*/Sources")))
     paths = {
         path

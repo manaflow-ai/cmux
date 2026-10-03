@@ -57,6 +57,7 @@ public final class SettingsApplier {
         if design.borders != snapshot.borders { design.borders = snapshot.borders }
         if design.focusIndicator != snapshot.focusIndicator { design.focusIndicator = snapshot.focusIndicator }
         if design.tabBarBackground != snapshot.tabBarBackground { design.tabBarBackground = snapshot.tabBarBackground }
+        if design.inactiveTabStyle != snapshot.inactiveTabStyle { design.inactiveTabStyle = snapshot.inactiveTabStyle }
         for key in MetricKey.allCases {
             let value = snapshot.metrics[key.rawValue].map { CGFloat($0) }
             let range = DesignSettings.allowedRange(key)

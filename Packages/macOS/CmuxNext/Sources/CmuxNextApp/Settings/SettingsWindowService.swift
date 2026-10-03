@@ -48,6 +48,8 @@ final class SettingsWindowService: SettingsWindowHost {
 
     // MARK: SettingsWindowHost
 
+    var systemWideRefusals: Set<ActionID> { services.globalHotKeys.conflicts }
+
     var rooms: [SettingsListRow]? {
         let local = services.machines.local
         guard local.supports(DaemonCapabilities.shared.profiles) else { return nil }

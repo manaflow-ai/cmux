@@ -39,6 +39,12 @@ struct HistoryRestorer {
 
     /// Reopens a closed tab, screen or workspace from a history list.
     func reopen(_ item: ClosedItem) {
+        if let id = DaemonClosedHistory.daemonID(fromHistoryID: item.id) {
+            guard let entry = DaemonClosedHistory.entry(id, in: services) else {
+                return services.registry.refuse(HistoryAppStrings.entryGone)
+            }
+            return DaemonClosedHistory.reopen(entry, services: services)
+        }
         let context = AppActionContext(services: services)
         switch item.kind {
         case .terminalTab, .browserTab:
@@ -59,6 +65,11 @@ struct HistoryRestorer {
 
     /// Reopens one closed tab (`nil`: the newest) where it was.
     func reopen(closedID: String?) {
+        // The newest tab a daemon recorded, when the app's tracker has none.
+        if closedID == nil, services.closedTabs?.records.isEmpty ?? true,
+           let newest = DaemonClosedHistory.entries([.tab], in: services).first {
+            return DaemonClosedHistory.reopen(newest, services: services)
+        }
         guard let tracker = services.closedTabs else { return }
         let record = closedID.map { tracker.take($0) } ?? tracker.popLast()
         guard let record else {

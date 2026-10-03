@@ -352,8 +352,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "9690c9e4e1a5a991c60952beffe5117cdbf6e7ec6420e2764ba8035e01c7b76a",
-      "size": 54517
+      "sha256": "a6ce3197e1e89de11f41fb1e1ea7e104e13d3ac0c5b7aea5b410be4651a881ec",
+      "size": 54775
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -677,8 +677,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "9104408fb483214d6c1368695922780c4a245b2aec42f3f27faed653f2cf21c8",
-      "size": 48084
+      "sha256": "51e5059e244191a272757d0d5bb9247a596d06771997932ed813443505635be9",
+      "size": 48317
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -1076,9 +1076,14 @@
       "size": 3749
     },
     {
+      "path": "NewConversationTabRequest.java",
+      "sha256": "f24a93ffff8fc857b7f3f47a978ae2a2555b3e607f23537255e0f7e3d4ee2a6b",
+      "size": 6734
+    },
+    {
       "path": "NewFrontendBrowserTabRequest.java",
-      "sha256": "61b282d0a86c153c8a73dd04474ad6cbbc95d721337995b2e047570a340c934c",
-      "size": 6585
+      "sha256": "cb0b814658523f7213c4c230a7d7f5517744fc0ca987f4f549573f2279f7890d",
+      "size": 7205
     },
     {
       "path": "NewPaneRequest.java",
@@ -1242,7 +1247,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "fb2974c3aa3708a1230e5b6c120ed9f1a1f1effa257270d403f1cea459abea8a",
+      "sha256": "6d39049493543e0981ac4bf24d1783e82d6b8fa4f362db5095977c0cd3f7a0dd",
       "size": 4943
     },
     {
@@ -1917,8 +1922,8 @@
     },
     {
       "path": "TabKind.java",
-      "sha256": "02f14095b45ea6dbb07ef7a6d15e8b83200751a887a59a943c9d11436a30a1e5",
-      "size": 855
+      "sha256": "574fa6b43bb269754219908f75af61b0a0d23b82c218e397da066907a7fc4bac",
+      "size": 889
     },
     {
       "path": "TabRenamedEvent.java",
@@ -2117,8 +2122,8 @@
     },
     {
       "path": "UpdateFrontendBrowserTabRequest.java",
-      "sha256": "6b3b706d193e29916d503828b182ef260da58ce1bf8efb5402eb95ee4d42e9f1",
-      "size": 4101
+      "sha256": "95cd68441281708cd4876a6a70d24d7a98c720cb4e558a889d4faa185b5d3ce9",
+      "size": 4724
     },
     {
       "path": "UpdatePersonalGroupRequest.java",
@@ -2257,7 +2262,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "4a59825cd43eedde1d1abef1833d07e90af4b64773ad9eacd346e4966b461d4c",
+  "ir_sha256": "9db25213cb8861aa38070472e063471f073e76674033258697acacca8a4398b7",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

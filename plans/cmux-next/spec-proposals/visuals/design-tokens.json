@@ -4,16 +4,79 @@
   "repo": "manaflow-ai/cmux",
   "branch": "feat-cmux-next",
   "sha": "1824883286a321a607429054cfde0469f588c3fb",
-  "sourceRefsSha": "dd5e6216935c9a7aadcda90a8479718a9e7b2b53",
-  "note": "Images are from the tagged build of sha (1824883286a). Source refs are path:line (Type.member) at sourceRefsSha; the symbol is the stable anchor when lines drift. Colors are formulas over the terminal theme; the resolved tables under themes.* are computed by tools/derive_theme_tokens.py, a line-for-line port of ThemeTokens.derive, and spot-checked against screenshots."
+  "sourceRefsSha": "d445a44555633407583588cacdb7cd8848c3d3dc",
+  "note": "Images are from the tagged build of sha (1824883286a); they predate the sidebar tonal step and the ChromeHover pressed fills. Source refs are path:line (Type.member) at sourceRefsSha; the symbol is the stable anchor when lines drift. Colors are formulas over the terminal theme; the resolved tables under themes.* are computed by tools/derive_theme_tokens.py, a line-for-line port of ThemeTokens.derive."
  },
  "conventions": {
   "units": "pt = macOS points (1 CSS px at devicePixelRatio 1; screenshots are 2x). Times in seconds.",
   "colorRefs": "token:<name> is a ThemeTokens field. alpha(token:x, a) replaces alpha. mix(a, b, t) = a + (b-a)*t per sRGB channel (ThemeRGB.mixed). over(fill, surface) = source-over compositing.",
   "density": "Every metric has compact and comfortable values. Default density is compact (Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DesignSettings.swift:25 (DesignSettings.density)). appearance.density in cmux.json switches it.",
   "pixelSnapping": "Strip and pill offsets snap to device pixels: snap(v)=round(v*scale)/scale, snapDown(v)=floor(v*scale+0.0001)/scale (Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneChromeMetrics.swift:69-77 (PaneChromeMetrics.snap)). Hairlines are 1/scale pt (Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/PaneChromeGeometry.swift:62 (PaneChromeGeometry.hairlineWidth)).",
-  "corners": "Two corner shapes. Continuous (cornerCurve .continuous): tab pills, tab close and new-tab buttons, sidebar rows and the selection pill, omnibar, tab group bands. Circular arcs: pane clips, pane borders, focus and attention rings and the inactive dim (circular on purpose so the browser page mask matches; Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/PaneHostView.swift:128-131 (PaneClipView)), palette rows, keycaps and the palette actions menu (NSBezierPath roundedRect; Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteRowCell.swift:41,67 (PaletteKeycapsView.draw, PaletteTableRowView.drawBackground)). Ports draw each surface with the shape listed for it.",
-  "noBlue": "No accent hue. Selection, hover and focus are the theme foreground at low alpha. The one hue chrome uses is token:highlight (the theme's ANSI 4, usually blue), and only in agent pane composer controls: the Send fill, the pressed plan toggle (highlight at 16% with highlight text) and a switch's on state (Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:72 (ThemeTokens.highlight); webviews/src/agent-session/acpmux/composerControls.css .acpmux-send, .acpmux-plan[aria-pressed=true], .acpmux-on .acpmux-switch). token:textSelection is the theme's selection-background, so it can be blue when the theme's is. Exception: group colors are user content and may be any of nine fixed hues, blue included (see groupColors)."
+  "corners": {
+   "rule": "Ports draw each surface with the corner shape the Swift code uses, pixel for pixel: the continuous path below where Swift sets cornerCurve .continuous (and for every Liquid Glass panel), circular arcs where Swift uses the CALayer default, NSBezierPath(roundedRect:) or CGPath(roundedRect:).",
+   "continuousPath": {
+    "description": "One corner of radius r: a straight edge ends extent*r from the corner, then three cubic Beziers. Points are (inset from the near vertical edge, inset from the near horizontal edge) in units of r, for the top-left corner; the other corners mirror it. Do not clamp r or the extents when extent*r exceeds half a side: the overlapping curves fill the same shape CoreAnimation draws.",
+    "extent": 1.547302,
+    "segments": [
+     {
+      "c1": [
+       1.084498,
+       0
+      ],
+      "c2": [
+       0.882045,
+       0
+      ],
+      "to": [
+       0.644148,
+       0.070748
+      ]
+     },
+     {
+      "c1": [
+       0.376057,
+       0.163004
+      ],
+      "c2": [
+       0.163004,
+       0.376057
+      ],
+      "to": [
+       0.070748,
+       0.644148
+      ]
+     },
+     {
+      "c1": [
+       0,
+       0.882045
+      ],
+      "c2": [
+       0,
+       1.084498
+      ],
+      "to": [
+       0,
+       1.547302
+      ]
+     }
+    ],
+    "start": [
+     1.547302,
+     0
+    ],
+    "accuracy": "Fitted to CALayer cornerCurve .continuous renders on macOS 26 and checked at 2x with tools/continuous_corner_check.swift: at most 3 of 255 levels on any pixel for r 4 to 12 on the chrome sizes (tab pills, +, trailing and close buttons, omnibar 24/28 with r 8, palette 640x400 r 10 and 720x480 r 12, sidebar rows, a 40x12 capsule). A square with r = half its side (the 6 pt unread dot): at most 9 levels. The iOS 7 constants (1.52866483, 1.08849323, 0.86840689, 0.66993427, 0.06549600, 0.37754822, 0.16550930) miss by up to 44 levels; do not use them.",
+    "skia": "SkPath moveTo/lineTo/cubicTo with these points, filled antialiased."
+   },
+   "continuousSurfaces": "tab pills; tab close, new-tab (+) and trailing buttons; sidebar rows, the selection pill and gap, section items and tiles, icon buttons (ChromeHover fills); the unread count pill and dot; drag lift cards; tab group chips and bands; the omnibar, its page-info chip, suggestion card and rows; hover card thumbnails; every Liquid Glass panel (NSGlassEffectView) and OverlaySurfaceView fallback",
+   "circularOnPurpose": "pane clips, pane borders, focus, glow and attention rings, the inactive dim: the browser page mask is a circular-arc path from the same radius, so the pane must match it (CmuxNextLayout/Views/PaneHostView.swift:128-131 (PaneClipView))",
+   "circularByDefault": "palette rows, keycaps and actions-menu rows (NSBezierPath roundedRect), tab status dots, drop overlay frames. Ports draw these circular too."
+  },
+  "noBlue": "No accent hue. Selection, hover and focus are the theme foreground at low alpha. The one hue chrome uses is token:highlight (the theme's ANSI 4, usually blue), and only in agent pane composer controls: the Send fill, the pressed plan toggle (highlight at 16% with highlight text) and a switch's on state (Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:79 (ThemeTokens.highlight); webviews/src/agent-session/acpmux/composerControls.css .acpmux-send, .acpmux-plan[aria-pressed=true], .acpmux-on .acpmux-switch). token:textSelection is the theme's selection-background, so it can be blue when the theme's is. Exception: group colors are user content and may be any of nine fixed hues, blue included (see groupColors).",
+  "rounding": "8-bit channels round half away from zero, as Swift's .rounded() does in ThemeRGB.description: 0.30*255 = 76.5 -> 77 (0x4D). Python round() (half to even) is wrong here. Composited values are ThemeRGB.composited; a window-server screenshot can differ by one 8-bit level (Apple System dark selectionFill: #353535 by the formula, #343434 on screen).",
+  "fractionalFontSizes": "Render fractional point sizes exactly (caption and shortcut are 10.5 pt compact). Skia takes fractional sizes; never round to 10 or 11.",
+  "panePadding": "Ports add the same pane padding as the app (layout.panePadding, else 2 compact / 4 comfortable) above the strip and around the content, so the tab pill sits 3/3 pt from the cell top and the content border at compact density (pillTop = snapDown((28 - 24 - 2)/2) = 1, gap above = 2 + 1, gap below = 28 - 1 - 24).",
+  "ciGating": "A state with a reference image gates port CI (pixel diff). A state without one is report-only (token checks and coverage) until its image exists; then it gates. Regenerated images replace the old ones in the same change."
  },
  "theme": {
   "input": {
@@ -27,126 +90,134 @@
     "value": "Ghostty default: background #282C34, foreground #FFFFFF",
     "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeInput.swift:52-59 (ThemeInput.ghosttyDefault)"
    },
-   "lightDark": "isDark = luminance(background) < luminance(foreground) (Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:104 (ThemeTokens.derive)). The app light/dark appearance picks the light: or dark: half of the theme spec."
+   "lightDark": "isDark = luminance(background) < luminance(foreground) (Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:111 (ThemeTokens.derive)). The app light/dark appearance picks the light: or dark: half of the theme spec."
   },
   "constants": {
    "minimumTextContrast": {
     "value": 4.5,
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:87 (ThemeTokens.minimumTextContrast)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:94 (ThemeTokens.minimumTextContrast)"
    },
    "minimumMarkContrast": {
     "value": 3.0,
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:89 (ThemeTokens.minimumMarkContrast)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:96 (ThemeTokens.minimumMarkContrast)"
    }
   },
   "formulas": {
    "windowBackground": {
     "value": "alpha(bg, background-opacity)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:119,131 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:126,138 (ThemeTokens.derive)"
    },
    "sidebarBackground": {
     "value": "= windowBackground",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:132 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:139 (ThemeTokens.derive)"
    },
    "contentBackground": {
     "value": "= windowBackground",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:133 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:140 (ThemeTokens.derive)"
    },
    "chromeBackground": {
     "value": "mix(bg, fg, dark ? 0.05 : 0.035)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:134 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:141 (ThemeTokens.derive)"
    },
    "elevatedBackground": {
     "value": "mix(bg, fg, dark ? 0.07 : 0.02)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:135 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:142 (ThemeTokens.derive)"
    },
    "stripBackground": {
     "value": "alpha(mix(bg, black, dark ? 0.22 : 0.05), background-opacity)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:136 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:143 (ThemeTokens.derive)"
+   },
+   "sidebarStep": {
+    "value": "alpha(fg, 0.04): the sidebar's tonal step over the window backdrop",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:144 (ThemeTokens.derive)"
+   },
+   "stripStep": {
+    "value": "alpha(black, dark ? 0.22 : 0.05): the darker tab strip's step over the window backdrop; over the opaque background it composites to stripBackground",
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:145 (ThemeTokens.derive)"
    },
    "textPrimary": {
     "value": "readable(fg, over(pressedFill,bg), 4.5): fg pushed toward white (surface lum<0.18) or black in 0.02 steps until 4.5:1",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:112,164-174 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:119,173-183 (ThemeTokens.derive)"
    },
    "textSecondary": {
     "value": "muted(textPrimary toward bg, up to 0.38, keeping 4.5:1 over over(pressedFill,bg)); steps of 0.01",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:113,178-186 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:120,187-195 (ThemeTokens.derive)"
    },
    "textTertiary": {
     "value": "muted(textPrimary toward bg, up to 0.55, keeping 3:1)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:114 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:121 (ThemeTokens.derive)"
    },
    "hoverFill": {
     "value": "alpha(fg, dark ? 0.06 : 0.05)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:107 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:114 (ThemeTokens.derive)"
    },
    "selectionFill": {
     "value": "alpha(fg, dark ? 0.10 : 0.08)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:108 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:115 (ThemeTokens.derive)"
    },
    "secondarySelectionFill": {
     "value": "alpha(fg, dark ? 0.07 : 0.055)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:142 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:151 (ThemeTokens.derive)"
    },
    "pressedFill": {
     "value": "alpha(fg, dark ? 0.14 : 0.11)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:109 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:116 (ThemeTokens.derive)"
    },
    "badgeFill": {
     "value": "alpha(fg, dark ? 0.14 : 0.10)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:144 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:153 (ThemeTokens.derive)"
    },
    "separator": {
     "value": "alpha(fg, dark ? 0.08 : 0.07); clear when appearance.borders = none",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:145 (ThemeTokens.derive); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:56 (Palette.separator)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:154 (ThemeTokens.derive); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:66 (Palette.separator)"
    },
    "paneBorder": {
     "value": "alpha(fg, dark ? 0.07 : 0.09); clear when appearance.borders = none",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:146 (ThemeTokens.derive); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:58 (Palette.paneBorder)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:155 (ThemeTokens.derive); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:68 (Palette.paneBorder)"
    },
    "focusRing": {
     "value": "alpha(fg, 0.40). The pane ring replaces the alpha with focusRing.contrast (see components.panes.focusRing)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:147 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:156 (ThemeTokens.derive)"
    },
    "glassTint": {
     "value": "alpha(bg, dark ? 0.40 : 0.30)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:148 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:157 (ThemeTokens.derive)"
    },
    "shadow": {
     "value": "mix(bg, black, 0.85)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:149 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:158 (ThemeTokens.derive)"
    },
    "textSelection": {
     "value": "selection-background if set, else mix(bg, fg, 0.22)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:150 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:159 (ThemeTokens.derive)"
    },
    "attention": {
     "value": "readable(ANSI 3, bg, 3.0)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:151 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:160 (ThemeTokens.derive)"
    },
    "danger": {
     "value": "readable(ANSI 1, bg, 3.0)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:152 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:161 (ThemeTokens.derive)"
    },
    "success": {
     "value": "readable(ANSI 2, bg, 3.0)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:153 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:162 (ThemeTokens.derive)"
    },
    "highlight": {
     "value": "readable(ANSI 4, bg, 3.0)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:120,154 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:127,163 (ThemeTokens.derive)"
    },
    "highlightText": {
     "value": "bg or textPrimary (opaque), whichever contrasts more with highlight, if >= 4.5; else black or white",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:121-128,155 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:128-135,164 (ThemeTokens.derive)"
    },
    "accent": {
     "value": "= focusRing (neutral)",
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:75 (Palette.accent)"
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:85 (Palette.accent)"
    },
    "textOnPrimary": {
     "value": "opaque contentBackground",
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:78 (Palette.textOnPrimary)"
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:88 (Palette.textOnPrimary)"
    },
    "pageBackground": {
     "value": "opaque contentBackground (browser page before first paint, error pages)",
@@ -158,8 +229,8 @@
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemeScope.swift:1-60; Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Palette.swift:3-15"
   },
   "windowBackdrop": {
-   "description": "background-opacity < 1 and blur >= 0: window is translucent, CGS blur radius applied, panes do not paint their own background. background-blur < 0: macOS glass style. Opaque otherwise.",
-   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowBackdrop.swift:1-30"
+   "description": "One backdrop per window. opaque when background-opacity is 1 and background-blur is not a glass style, or when Reduce Transparency is on. Otherwise: translucent (tint only) when background-blur is 0, frosted (NSVisualEffectView .underWindowBackground, behindWindow, active) when it is a radius, Liquid Glass regular (-1) or clear (-2). appearance.backgroundBlur (frosted, glass, glass-clear, none) overrides the material. The theme background lies over the material at background-opacity. Panes paint nothing over a material; the sidebar and the darker strip add their steps through ChromeStepView, never a second blur. The CGS radius blur is never applied on top of a material.",
+   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowBackdrop.swift (WindowBackdrop.init); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowMaterialView.swift (WindowMaterialView.apply, makeMaterialView); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowMaterialChoice.swift (WindowMaterialChoice); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ChromeStepView.swift (ChromeStepView)"
   },
   "groupColors": {
    "description": "The nine group colors shared by tab groups and workspace groups. User content, so this is the one fixed palette in chrome and the one place blue may appear outside the theme. Each is one hue at low saturation so groups stay calm next to the gray chrome. New groups never get blue automatically (TabGroupOrdering.nextColor skips it).",
@@ -244,6 +315,8 @@
     "chromeBackground": "#292929",
     "elevatedBackground": "#2E2E2E",
     "stripBackground": "#171717",
+    "sidebarStep": "#FFFFFF0A",
+    "stripStep": "#00000038",
     "textPrimary": "#FFFFFF",
     "textSecondary": "#AAAAAA",
     "textTertiary": "#888888",
@@ -265,8 +338,10 @@
     "highlightText": "#FFFFFF"
    },
    "composited": {
+    "sidebarStep": "#272727",
+    "stripStep": "#171717",
     "hoverFill": "#2C2C2C",
-    "selectionFill": "#343434",
+    "selectionFill": "#353535",
     "secondarySelectionFill": "#2E2E2E",
     "pressedFill": "#3E3E3E",
     "badgeFill": "#3E3E3E",
@@ -337,6 +412,8 @@
     "chromeBackground": "#F5F6F6",
     "elevatedBackground": "#F9FAFA",
     "stripBackground": "#F1F2F2",
+    "sidebarStep": "#0000000A",
+    "stripStep": "#0000000D",
     "textPrimary": "#000000",
     "textSecondary": "#616161",
     "textTertiary": "#7F8080",
@@ -348,7 +425,7 @@
     "separator": "#00000012",
     "paneBorder": "#00000017",
     "focusRing": "#00000066",
-    "glassTint": "#FEFFFF4C",
+    "glassTint": "#FEFFFF4D",
     "shadow": "#262626",
     "textSelection": "#ABD8FF",
     "attention": "#AC9007",
@@ -358,6 +435,8 @@
     "highlightText": "#FEFFFF"
    },
    "composited": {
+    "sidebarStep": "#F4F5F5",
+    "stripStep": "#F1F2F2",
     "hoverFill": "#F1F2F2",
     "selectionFill": "#EAEBEB",
     "secondarySelectionFill": "#F0F1F1",
@@ -430,6 +509,8 @@
     "chromeBackground": "#33373E",
     "elevatedBackground": "#373B42",
     "stripBackground": "#1F2229",
+    "sidebarStep": "#FFFFFF0A",
+    "stripStep": "#00000038",
     "textPrimary": "#FFFFFF",
     "textSecondary": "#B8B9BC",
     "textTertiary": "#93969A",
@@ -451,6 +532,8 @@
     "highlightText": "#282C34"
    },
    "composited": {
+    "sidebarStep": "#31343C",
+    "stripStep": "#1F2229",
     "hoverFill": "#353940",
     "selectionFill": "#3E4148",
     "secondarySelectionFill": "#373B42",
@@ -523,6 +606,8 @@
     "chromeBackground": "#32332C",
     "elevatedBackground": "#363730",
     "stripBackground": "#1E1F1B",
+    "sidebarStep": "#FDFFF10A",
+    "stripStep": "#00000038",
     "textPrimary": "#FDFFF1",
     "textSecondary": "#B2B4A9",
     "textTertiary": "#92938A",
@@ -544,6 +629,8 @@
     "highlightText": "#272822"
    },
    "composited": {
+    "sidebarStep": "#30312A",
+    "stripStep": "#1E1F1B",
     "hoverFill": "#34352E",
     "selectionFill": "#3C3E37",
     "secondarySelectionFill": "#363730",
@@ -616,6 +703,8 @@
     "chromeBackground": "#F7F7F7",
     "elevatedBackground": "#FBFBFB",
     "stripBackground": "#F2F2F2",
+    "sidebarStep": "#1F23280A",
+    "stripStep": "#0000000D",
     "textPrimary": "#1F2328",
     "textSecondary": "#64676B",
     "textTertiary": "#828487",
@@ -627,7 +716,7 @@
     "separator": "#1F232812",
     "paneBorder": "#1F232817",
     "focusRing": "#1F232866",
-    "glassTint": "#FFFFFF4C",
+    "glassTint": "#FFFFFF4D",
     "shadow": "#262626",
     "textSelection": "#CECFD0",
     "attention": "#4D2D00",
@@ -637,6 +726,8 @@
     "highlightText": "#FFFFFF"
    },
    "composited": {
+    "sidebarStep": "#F6F6F6",
+    "stripStep": "#F2F2F2",
     "hoverFill": "#F4F4F4",
     "selectionFill": "#EDEDEE",
     "secondarySelectionFill": "#F3F3F3",
@@ -753,7 +844,7 @@
      "comfortable": 14,
      "weight": "regular"
     },
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/OmnibarStyle.swift:54 (OmnibarStyle.font)"
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/OmnibarStyle.swift:47 (OmnibarStyle.font)"
    },
    "agentPane": {
     "value": {
@@ -762,9 +853,10 @@
      "composer": "15px / 22px system-ui",
      "code": "13px ui-monospace inline code (.cv-code, --cv-code-size); 12px/18px shell output (.cv-shell__body)"
     },
-    "source": "webviews/src/agent-session/acpmux/styles.css:1 (.acpmux-shell); webviews/src/agent-session/acpmux/conversation/conversation.css:29-34 (:root), 131-133 (.cv-code), 605-612 (.cv-shell__body)"
+    "source": "webviews/src/agent-session/acpmux/styles.css:1 (.acpmux-shell); webviews/src/agent-session/acpmux/conversation/conversation.css:28-33 (:root), 131-133 (.cv-code), 605-612 (.cv-shell__body)"
    }
-  }
+  },
+  "fractionalSizes": "Render fractional point sizes exactly (caption and shortcut are 10.5 pt compact). Skia takes fractional sizes; never round to 10 or 11."
  },
  "metrics": {
   "space": {
@@ -1018,12 +1110,17 @@
     "tint": "token:glassTint",
     "interactive": "false (macOS 27 effectIsInteractive)"
    },
-   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Glass.swift:16-33 (Glass.makePanel)"
+   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Glass.swift:40-57 (Glass.makePanel)"
   },
   "stripBackdrop": {
-   "value": "ChromeBackdropView: NSVisualEffectView .headerView, behindWindow, with the strip tint over it at 0.82 x its alpha (defaultTintOpacity). The blur shows only in a see-through window with Reduce Transparency off; otherwise the tint is solid. Hidden unless tabBarBackground=darker or the pane theme differs from the window.",
-   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneContentView.swift:15,56,185 (PaneContentView.stripBackdrop); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ChromeBackdropView.swift:17,74-81 (ChromeBackdropView.defaultTintOpacity, applyTheme)"
-  }
+   "value": "ChromeStepView painting token:stripStep over the window backdrop when tabBarBackground is darker; clear otherwise. No material of its own.",
+   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneContentView.swift:15,56-58 (PaneContentView.stripBackdrop, stripStep); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ChromeStepView.swift (ChromeStepView)"
+  },
+  "sidebarBackdrop": {
+   "value": "ChromeStepView painting token:sidebarStep over the window backdrop.",
+   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarContainerView.swift (SidebarContainerView.backdropStep)"
+  },
+  "rawGlassPanels": "Surfaces that still call Glass.makePanel (no Reduce Transparency fallback): notifications panel, tab drag ghost, update sheet, appearance studio, the tab strip overflow panel, onboarding. Not part of the documented components."
  },
  "motion": {
   "speed": {
@@ -1037,7 +1134,7 @@
   },
   "fadeCurve": {
    "value": "easeOut (CAMediaTimingFunction .easeOut = cubic-bezier(0, 0, 0.58, 1))",
-   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion.swift:38 (Motion.fadeCurve)"
+   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion.swift:51 (Motion.fadeCurve)"
   },
   "springs": {
    "move": {
@@ -1173,19 +1270,19 @@
   "loops": {
    "spinner": {
     "value": 0.9,
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:47 (MotionTunables.loopDefaults)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:49 (MotionTunables.loopDefaults)",
     "unit": "s",
     "use": "One spinner turn"
    },
    "pulse": {
     "value": 1.8,
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:48 (MotionTunables.loopDefaults)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:50 (MotionTunables.loopDefaults)",
     "unit": "s",
     "use": "Agent-waiting pulse cycle (easeInEaseOut)"
    },
    "flash": {
     "value": 0.6,
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:49 (MotionTunables.loopDefaults)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:51 (MotionTunables.loopDefaults)",
     "unit": "s",
     "use": "Pane attention flash, two blinks"
    }
@@ -1193,38 +1290,38 @@
   "marquee": {
    "delay": {
     "value": 0.6,
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:60-62 (MotionTunables.marqueeDelay)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:62-64 (MotionTunables.marqueeDelay)",
     "unit": "s"
    },
    "speed": {
     "value": 40,
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:63-65 (MotionTunables.marqueeSpeed)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:65-67 (MotionTunables.marqueeSpeed)",
     "unit": "pt/s"
    },
    "minimumScroll": {
     "value": 0.4,
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:66-68 (MotionTunables.marqueeMinimumScroll)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:68-70 (MotionTunables.marqueeMinimumScroll)",
     "unit": "s"
    },
    "hold": {
     "value": 1.2,
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:69-71 (MotionTunables.marqueeHold)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:71-73 (MotionTunables.marqueeHold)",
     "unit": "s"
    },
    "minimumTravel": {
     "value": 2,
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:72-74 (MotionTunables.marqueeMinimumTravel)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:74-76 (MotionTunables.marqueeMinimumTravel)",
     "unit": "pt"
    }
   },
   "panelScale": {
    "open": {
     "value": 0.97,
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:75-77 (MotionTunables.panelOpenScale)"
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:77-79 (MotionTunables.panelOpenScale)"
    },
    "close": {
     "value": 0.98,
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:78-80 (MotionTunables.panelCloseScale)"
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:80-82 (MotionTunables.panelCloseScale)"
    }
   },
   "reduceMotion": {
@@ -1250,9 +1347,9 @@
      "none"
     ],
     "default": "default",
-    "effect": "none clears every border, hairline and separator, disables the focus ring and attention width, and removes the omnibar editing ring (Metrics.lineWidth); focusIndicator=border then falls back to inactive dim. Target: the agent pane also draws no edge; today its composer, menu and code block edges (--acpmux-composer-edge, --cv-codeblock-ring) are not tied to the setting. Code fix in progress in a separate lane."
+    "effect": "none clears every border, hairline and separator, disables the focus ring and attention width, removes the omnibar editing ring (Metrics.lineWidth), and sets data-borders=none in the agent pane, which clears the composer, menu, tray, pill, code block and card edges; focusIndicator=border then falls back to inactive dim."
    },
-   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Borders.swift:5-52 (BorderMode); Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/LayoutStyle.swift:95-100 (LayoutStyle.applyingDesignMetrics)"
+   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Borders.swift:5-52 (BorderMode); Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/LayoutStyle.swift:99-104 (LayoutStyle.applyingDesignMetrics)"
   },
   "appearance.focusIndicator": {
    "value": {
@@ -1307,9 +1404,9 @@
     ],
     "default": "fade",
     "strength": 0.35,
-    "note": "Debug Settings tunable only (no cmux.json key yet)"
+    "cmuxJson": "focus.inactiveTabStyle (Settings > Appearance > Unfocused Pane Tabs); the Debug Settings tunable of the same name overrides it. focus.inactiveTabStrength (0.35) stays a Debug tunable."
    },
-   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FocusIndicatorTunables.swift:9-16 (FocusIndicatorTunables.inactiveTabStyle)"
+   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/PaneFocusSettings.swift (PaneFocusSettings.inactiveTabStylePath); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DesignSettings.swift (DesignSettings.inactiveTabStyle, effectiveInactiveTabStyle); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FocusIndicatorTunables.swift:9-16 (FocusIndicatorTunables.inactiveTabStyle)"
   },
   "sidebar.sectionLook": {
    "value": {
@@ -1360,17 +1457,30 @@
     "style": "arc|native|dot|braille|none (arc)",
     "size": 1,
     "thickness": 1.5,
-    "color": "token:textSecondary"
+    "color": "token:textSecondary",
+    "honorStatusStyle": "true | false | list of sources: which reporters may pick the style"
    },
-   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/StatusIndicatorState.swift:65-83 (StatusIndicatorSettings); Packages/macOS/CmuxNext/Sources/CmuxNextSettings/StatusIndicatorConfigParser.swift:7-17 (StatusIndicatorConfigParser.parse)",
+   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/StatusIndicatorState.swift:68-86 (StatusIndicatorSettings); Packages/macOS/CmuxNext/Sources/CmuxNextSettings/StatusIndicatorConfigParser.swift:7-17 (StatusIndicatorConfigParser.parse)",
    "note": "cmux.json keys: style, size (glyph share of the slot, 0.5-1.5), thickness (0.5-4 pt), color. The model field is StatusIndicatorSettings.scale."
+  },
+  "appearance.backgroundBlur": {
+   "value": {
+    "values": [
+     "frosted",
+     "glass",
+     "glass-clear",
+     "none"
+    ],
+    "default": "unset: the material Ghostty's background-blur gives"
+   },
+   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/WindowMaterialChoice.swift (WindowMaterialChoice)"
   }
  },
  "components": {
   "sidebar.workspaceRow": {
    "description": "A workspace row in the sidebar list. Text-first, fills only, no borders.",
    "sources": [
-    "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceRowView.swift:103-197 (WorkspaceRowView.hoverChanged, updateLayer, layout)",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceRowView.swift:103-190 (WorkspaceRowView.hoverChanged, updateLayer, layout)",
     "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarStyle.swift:6-37 (SidebarStyle)"
    ],
    "metrics": {
@@ -1393,7 +1503,7 @@
     },
     "closeButton": {
      "value": "iconSize+space2 (18/20) square, right inset space3",
-     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceRowView.swift:156-163 (WorkspaceRowView.layout)"
+     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceRowView.swift:149-156 (WorkspaceRowView.layout)"
     },
     "titleFade": {
      "value": "space6 (16) edge fade on clipped titles",
@@ -1416,11 +1526,11 @@
      },
      "title": {
       "value": "token:textPrimary",
-      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceRowView.swift:120 (WorkspaceRowView.updateLayer)"
+      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceRowView.swift:119 (WorkspaceRowView.updateLayer)"
      },
      "subtitle": {
       "value": "token:textSecondary",
-      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceRowView.swift:121 (WorkspaceRowView.updateLayer)"
+      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceRowView.swift:120 (WorkspaceRowView.updateLayer)"
      }
     },
     "hover": {
@@ -1429,7 +1539,8 @@
       "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceRowView.swift:128 (WorkspaceRowView.updateLayer)"
      },
      "closeButton": "shown, replaces badge; title narrows then marquees",
-     "marquee": "starts after motion.marquee.delay (not under Reduce Motion)"
+     "marquee": "starts after motion.marquee.delay (not under Reduce Motion)",
+     "motion": "fill fades over fade.hover (0.08 s) (SidebarRowView.paintFill)"
     },
     "selected(active)": {
      "background": {
@@ -1506,17 +1617,19 @@
      "verb": "notify --workspace",
      "drives": "unread badge"
     }
-   ]
+   ],
+   "surface": "rows sit on token:sidebarStep over the window backdrop"
   },
   "sidebar.unreadBadge": {
    "sources": [
-    "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/UnreadBadgeView.swift:40-58 (UnreadBadgeView.preferredWidth)"
+    "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/UnreadBadgeView.swift:47-65 (UnreadBadgeView.preferredWidth)"
    ],
    "metrics": {
     "height": "iconSize (14/16)",
     "countWidth": "max(badgeHeight+space2, textWidth+space4)",
     "dot": "space3 (6) diameter",
-    "radius": "height/2"
+    "radius": "height/2",
+    "countText": "the count, or 99+ above 99"
    },
    "typography": {
     "count": "typography.shortcut (SF Mono 10.5 medium)"
@@ -1525,17 +1638,17 @@
     "count": {
      "fill": {
       "value": "token:badgeFill",
-      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/UnreadBadgeView.swift:55 (UnreadBadgeView.updateLayer)"
+      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/UnreadBadgeView.swift:62 (UnreadBadgeView.updateLayer)"
      },
      "text": {
       "value": "token:textPrimary",
-      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/UnreadBadgeView.swift:50 (UnreadBadgeView.updateLayer)"
+      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/UnreadBadgeView.swift:57 (UnreadBadgeView.updateLayer)"
      }
     },
     "dot": {
      "fill": {
       "value": "alpha(token:textPrimary, 0.85)",
-      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/UnreadBadgeView.swift:53 (UnreadBadgeView.updateLayer)"
+      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/UnreadBadgeView.swift:60 (UnreadBadgeView.updateLayer)"
      }
     },
     "rowHover": "badge hidden, close button shown"
@@ -1544,9 +1657,9 @@
   "sidebar.statusIndicator": {
    "description": "Shared status indicator (StatusIndicatorLayer) for sidebar rows, section headers and tabs: arc, native spinner, dot, progress ring, check.",
    "sources": [
-    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/StatusIndicatorPlan.swift:58-88 (StatusIndicatorPlan.staticPlan)",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/StatusIndicatorPlan.swift:63-93 (StatusIndicatorPlan.staticPlan)",
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/StatusIndicatorTunables.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/StatusIndicatorLayer.swift:34-37,279-281 (StatusIndicatorLayer.Colors.current)"
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/StatusIndicator/StatusIndicatorLayer.swift:34-37,323-325 (StatusIndicatorLayer.Colors.current)"
    ],
    "metrics": {
     "slot": "smallIconSize - space1 (10/12) in rows; icon frame inset space1 in tabs",
@@ -1555,11 +1668,12 @@
     "dotScale": 0.5,
     "trackOpacity": 0.22,
     "pulseLow": 0.35,
-    "nativeSteps": 8
+    "nativeSteps": 8,
+    "braille": "10 frames ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ stepped over loop.spinner (0.9 s), drawn in the terminal font family (else SF Mono) fitted to the slot"
    },
    "states": {
     "idle": "hidden",
-    "busy": "arc spinning (loop.spinner 0.9 s) in token:textSecondary (or appearance.statusIndicator.color); with progress a ring over a 0.22 track",
+    "busy": "arc spinning (loop.spinner 0.9 s) in token:textSecondary (or appearance.statusIndicator.color); with progress a ring over a 0.22 track; braille style: the braille frames",
     "waiting": "dot, pulse (loop.pulse 1.8 s, low 0.35), token:attention",
     "error": "dot token:danger, static",
     "success": "check token:success",
@@ -1593,7 +1707,7 @@
   "sidebar.sectionItem": {
    "description": "Sticky section items (Home, Settings, Account). The look picks headers and lines; each section's arrangement (list, inline, grid) picks how items flow.",
    "sources": [
-    "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/Sections/SidebarItemRowView.swift:73-128 (SidebarItemRowView.configure)",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/Sections/SidebarItemRowView.swift:110-165 (SidebarItemRowView.configure)",
     "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/Sections/SidebarRegionView.swift:72-160 (SidebarRegionView.apply, updateLayer)",
     "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/Sections/SidebarRegionMetrics+Standard.swift:6-13 (SidebarRegionMetrics.standard)"
    ],
@@ -1616,35 +1730,40 @@
     "default": {
      "title": {
       "value": "token:textPrimary",
-      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/Sections/SidebarItemRowView.swift:90 (SidebarItemRowView.updateLayer)"
+      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/Sections/SidebarItemRowView.swift:115 (SidebarItemRowView.updateLayer)"
      },
      "icon": {
       "value": "token:textSecondary (token:textOnPrimary on a colored list chip)",
-      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/Sections/SidebarItemRowView.swift:91-92 (SidebarItemRowView.updateLayer)"
+      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/Sections/SidebarItemRowView.swift:116-117 (SidebarItemRowView.updateLayer)"
      },
      "fill": {
       "value": "none; tray tile: token:hoverFill at rest",
-      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/Sections/SidebarItemRowView.swift:87 (SidebarItemRowView.updateLayer)"
+      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/Sections/SidebarItemRowView.swift:110-127 (SidebarItemRowView.updateLayer, fill)"
      }
     },
     "hover": {
      "fill": {
       "value": "token:hoverFill",
-      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/Sections/SidebarItemRowView.swift:88 (SidebarItemRowView.updateLayer)"
-     }
+      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/Sections/SidebarItemRowView.swift:123-127 (SidebarItemRowView.fill)"
+     },
+     "motion": "fill fades over fade.hover (0.08 s)"
     },
     "active": {
      "fill": {
       "value": "token:selectionFill",
-      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/Sections/SidebarItemRowView.swift:88 (SidebarItemRowView.updateLayer)"
+      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/Sections/SidebarItemRowView.swift:123-127 (SidebarItemRowView.fill)"
      },
      "icon": "token:textPrimary"
     },
     "missing": {
      "opacity": {
       "value": 0.5,
-      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/Sections/SidebarItemRowView.swift:80 (SidebarItemRowView.configure)"
+      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/Sections/SidebarItemRowView.swift:105 (SidebarItemRowView.configure)"
      }
+    },
+    "pressed": {
+     "fill": "token:pressedFill (wins over active)",
+     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/Sections/SidebarItemRowView.swift:123-127 (SidebarItemRowView.fill)"
     }
    },
    "variants": {
@@ -1660,16 +1779,17 @@
    },
    "arrangements": {
     "list": "one row per item: icon and label (default)",
-    "inline": "items side by side as chips (icon + label, no badge, pill = chip bounds, glyph at space2, label space2 after it; width space2 + iconBox + space2 + label + 2*space2); icons only when labels do not fit; a second line only when icons do not fit",
+    "inline": "items side by side as chips (icon + label, unread count badge after the label (space2 gap), pill = chip bounds, glyph at space2, label space2 after it; width space2 + iconBox + space2 + label + 2*space2, plus badge width + space2 when a count shows); icons only when labels do not fit; a second line only when icons do not fit",
     "grid": "tiles in columns (align fill stretches them; columns nil = as many as fit at tileMinWidth)",
     "gap": "arrangement.gap or tileGap (space2)",
     "forcedByLook": "tray forces built-in sections into a grid of tiles; linesIcons forces them inline, icons only",
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Sections/SectionArrangement.swift:7-44 (SectionArrangement); Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Sections/SectionFlow.swift:6-35 (SectionFlow.mode); Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/Sections/SidebarItemRowView.swift:59-66,96-125 (SidebarItemRowView.chipWidth, layout)"
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Sections/SectionArrangement.swift:8-45 (SectionArrangement); Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Sections/SectionFlow.swift:26-37 (SectionFlow.mode); Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/Sections/SidebarItemRowView.swift:70-77,133-162 (SidebarItemRowView.chipWidth, layout)"
    }
   },
   "sidebar.iconButton": {
    "sources": [
-    "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarIconButton.swift:17-60 (SidebarIconButton.init)"
+    "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarIconButton.swift (SidebarIconButton)",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ChromeHover.swift (ChromeHover.fillColor, refresh)"
    ],
    "metrics": {
     "size": "sidebarHeaderHeight square",
@@ -1682,9 +1802,14 @@
      "fill": "none"
     },
     "hover": {
-     "fill": "token:hoverFill"
+     "fill": "token:hoverFill (fades 0.08 s)",
+     "tint": "token:textPrimary"
     },
-    "pressed": "no distinct state in code"
+    "pressed": {
+     "fill": "token:pressedFill",
+     "tint": "token:textPrimary"
+    },
+    "focused": "1.5 pt token:focusRing outline (ChromeHover)"
    }
   },
   "tabs.strip": {
@@ -1692,7 +1817,7 @@
    "sources": [
     "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabStripMetrics.swift:103-144 (TabStripMetrics.init)",
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneChromeMetrics.swift:49-62 (PaneChromeMetrics.pillTop)",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneContentView.swift:56,185 (PaneContentView.stripTint)"
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneContentView.swift:56-58,183 (PaneContentView.stripStep)"
    ],
    "metrics": {
     "height": "tabStripHeight (28/36); resolved = pillTop + tabHeight + tabGap with pane padding",
@@ -1708,13 +1833,13 @@
     "default": {
      "background": {
       "value": "token:windowBackground (tabBarBackground window)",
-      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneContentView.swift:56 (PaneContentView.stripTint)"
+      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneContentView.swift:56-58 (PaneContentView.stripStep)"
      }
     },
     "darker": {
      "background": {
       "value": "token:stripBackground",
-      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneContentView.swift:56 (PaneContentView.stripTint)"
+      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneContentView.swift:56-58 (PaneContentView.stripStep)"
      }
     },
     "hover": "trailing buttons reveal while the pointer is in the strip (TabStripButtonReveal)"
@@ -1728,7 +1853,7 @@
   },
   "tabs.tab": {
    "sources": [
-    "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabCell.swift:195-218,256-353 (TabCell.applyColors, layoutLayers)",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabCell.swift:195-218,256-353 (TabCell.updateColors, applyColors, layoutLayers)",
     "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabTunables.swift:15-33 (TabTunables.compactTabWidth)"
    ],
    "metrics": {
@@ -1828,7 +1953,8 @@
    "metrics": {
     "size": "16",
     "radius": "itemCornerRadius - space1",
-    "glyphStroke": "space1*0.65 (1.3), round caps"
+    "glyphStroke": "space1*0.65 (1.3), round caps",
+    "glyphBox": "space4 - space1/2 (7 pt) square centered in the 16 pt button; the x runs corner to corner of that box"
    },
    "states": {
     "default": {
@@ -1847,7 +1973,7 @@
     },
     "pressed": {
      "fill": {
-      "value": "token:selectionFill",
+      "value": "token:pressedFill",
       "source": "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabCell+LazyLayers.swift:62 (TabCell.applyCloseColors)"
      }
     }
@@ -1860,7 +1986,10 @@
    "metrics": {
     "width": "tabHeight",
     "radius": "itemCornerRadius",
-    "glyphStroke": "space1*0.7 (1.4)"
+    "glyphStroke": "space1*0.7 (1.4)",
+    "fill": "a square of min(width, height) = tabHeight (24/30), centered, radius itemCornerRadius, continuous",
+    "glyph": "+ with arms space2 + space1/2 (5 pt) from the center: span 10 pt, stroke space1*0.7 (1.4), round caps; the center snaps to the device pixel grid (round(mid*scale)/scale)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/NewTabButtonView.swift:41-60 (NewTabButtonView.layout)"
    },
    "states": {
     "default": {
@@ -1879,7 +2008,7 @@
     },
     "pressed": {
      "fill": {
-      "value": "token:selectionFill",
+      "value": "token:pressedFill",
       "source": "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/NewTabButtonView.swift:79 (NewTabButtonView.updateColors)"
      },
      "note": "pressed is not animated"
@@ -1902,9 +2031,17 @@
      "tint": "token:textPrimary"
     },
     "pressed": {
-     "fill": "token:selectionFill",
+     "fill": "token:pressedFill",
      "tint": "token:textPrimary"
     }
+   },
+   "metrics": {
+    "size": "tabHeight - space2 (20 compact / 26 comfortable) square, radius itemCornerRadius, continuous",
+    "gap": "trailingButtonSpacing space1 (2)",
+    "leadingGap": "trailingGroupGap space2 (4)",
+    "icon": "SF Symbol smallIconSize (12/14) in an iconSize (14/16) box",
+    "note": "images/tabs/*-trailing-button-hover.png shows the + button (24 pt), not a trailing button; no trailing-button hover image exists yet",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabStripMetrics.swift:127-131 (TabStripMetrics.init); Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabStripButtonGroupView.swift:107-114 (TabStripButtonGroupView.buttonFrames)"
    }
   },
   "tabs.inactivePaneEmphasis": {
@@ -1919,14 +2056,17 @@
      "primary": 3.5,
      "secondary": 2.5,
      "tertiary": 2.0
-    }
+    },
+    "fadeStep": 0.02,
+    "fadeStepNote": "fade(color, fraction, floor): start at fraction, step down by 0.02 while the mixed color is under min(floor, its own contrast) against the page; tonal and quiet fade tertiary by strength/2 (ChromeEmphasis.swift ThemeTokens.emphasized)"
    },
    "variants": {
     "focus.inactiveTabStyle": {
      "fade": "text tiers mixed toward the page by strength until contrast floors; selectionFill and hoverFill alpha *(1-strength)",
      "tonal": "primary<-secondary, secondary<-tertiary, tertiary faded strength/2; selectionFill = hoverFill alpha *(1-strength/2)",
      "quiet": "primary<-secondary, secondary/tertiary faded strength/2; selectionFill transparent"
-    }
+    },
+    "cmuxJson": "focus.inactiveTabStyle: fade (default) | tonal | quiet"
    },
    "resolved": {
     "appleSystemDark": {
@@ -2086,7 +2226,7 @@
   },
   "panes.pane": {
    "sources": [
-    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/LayoutStyle.swift:9-120 (LayoutStyle)",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/LayoutStyle.swift:14-125 (LayoutStyle)",
     "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/PaneOverlayView.swift:115-230 (PaneOverlayView)",
     "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ScreenContentView.swift:252-275 (ScreenContentView.updateChrome)"
    ],
@@ -2228,7 +2368,7 @@
      "rules": "token:separator above and below the list",
      "shadow": {
       "value": "alpha(token:shadow,0.22), blur space6+space4 (24), offset y space4 (8)",
-      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteContentView.swift:247-251 (PaletteContentView.applyColors)"
+      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteContentView.swift:250-254 (PaletteContentView.applyColors)"
      },
      "caret": "token:textPrimary",
      "textSelection": "token:selectionFill"
@@ -2266,7 +2406,7 @@
   },
   "browser.toolbar": {
    "sources": [
-    "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/OmnibarStyle.swift:15-92 (OmnibarStyle)",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/OmnibarStyle.swift:8-85 (OmnibarStyle)",
     "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/ChromeButtons.swift:40-135 (ChromeIconButton)",
     "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/OmnibarViews.swift:40-60 (OmnibarPillView.refresh)",
     "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/ProgressLineView.swift:61 (ProgressLineView.updateColor)",
@@ -2302,13 +2442,13 @@
     "omnibar.idle": {
      "fill": {
       "value": "token:chromeBackground",
-      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/OmnibarStyle.swift:80 (OmnibarStyle.barFill)"
+      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/OmnibarStyle.swift:73 (OmnibarStyle.barFill)"
      }
     },
     "omnibar.hover": {
      "fill": {
       "value": "token:elevatedBackground",
-      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/OmnibarStyle.swift:81 (OmnibarStyle.barHoverFill)"
+      "source": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/UI/OmnibarStyle.swift:74 (OmnibarStyle.barHoverFill)"
      }
     },
     "omnibar.editing": {
@@ -2358,9 +2498,9 @@
   "agentPane": {
    "description": "Web UI (React) themed by the native bridge (AgentPaneTheme.swift).",
    "sources": [
-    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTheme.swift:17-52 (AgentPaneTheme.values)",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTheme.swift:28-63 (AgentPaneTheme.values)",
     "webviews/src/agent-session/acpmux/styles.css",
-    "webviews/src/agent-session/acpmux/conversation/conversation.css:11-34,443-445,644-669"
+    "webviews/src/agent-session/acpmux/conversation/conversation.css:10-33,447-449,654-679"
    ],
    "bridge": {
     "--agent-page-bg": "contentBackground (transparent when the window is translucent)",
@@ -2385,7 +2525,7 @@
     "header": "44px, padding 0 8px",
     "threadColumn": "max 760px, gutter 18px",
     "conversationColumn": "720px, gutter 26.5px",
-    "userBubble": "max-width 70%, padding 10.5px 16px 9.5px, radius 16px, fill text 5% (.cv-user__bubble, conversation.css:58-62)",
+    "userBubble": "max-width 70%, padding 10.5px 16px 9.5px, radius 16px, fill text 5% (.cv-user__bubble, conversation.css:57-61)",
     "composerBox": "radius 22px, inset 0.5px edge",
     "composerField": "15px/22px, padding 15px 16px 8px",
     "composerBar": "48px, gap 4px, padding 0 8px",
@@ -2438,8 +2578,9 @@
     "plan.pressed": "fill alpha(highlight, 16%), text highlight",
     "switch.on": "track highlight, knob highlightText"
    },
-   "timestamps": "Turn footer: 'Worked for Ns', copy icon, time; color --cv-text-dim (textTertiary), tabular numbers (webviews/src/agent-session/acpmux/conversation/conversation.css:659-669)",
-   "bordersNone": "Target: no edge anywhere. The bridge clears --agent-border and --agent-border-strong; the composer edge (--acpmux-composer-edge, 0.5px inset text 18%), menu edges and code block ring (--cv-codeblock-ring) still draw today. Code fix in progress in a separate lane."
+   "timestamps": "Turn footer: 'Worked for Ns', copy icon, time; color --cv-text-dim (textTertiary), tabular numbers (webviews/src/agent-session/acpmux/conversation/conversation.css:669-679)",
+   "bordersNone": "The bridge sends borders; applyAgentTheme sets data-borders=none on the root. The stylesheets then clear --agent-border, --agent-border-strong, --acpmux-composer-edge (composer, menu, slash menu, tray), --acpmux-pill-edge, --cv-codeblock-ring and --cv-card-ring; checkboxes switch to a fill (webviews/src/agent-session/shared/theme.ts applyAgentTheme; acpmux/styles.css :root[data-borders=none]; conversation.css :root[data-borders=\"none\"]).",
+   "motion": "The bridge passes the hover, focus, fadeIn and fadeOut durations (Motion policy, so Reduce Motion and speed apply) as --agent-motion-hover, --agent-motion-focus, --agent-motion-in, --agent-motion-out."
   },
   "tabs.groups": {
    "description": "Tab group chip, underline and wash. Colors: theme.groupColors.",
@@ -2463,6 +2604,18 @@
     "underline": "groupColor.swatch",
     "wash": "groupColor.wash"
    }
+  },
+  "chromeHover": {
+   "description": "The shared hover, pressed, selected and focus look for chrome controls: pressed over selected over hovered.",
+   "states": {
+    "hover": "token:hoverFill",
+    "selected": "token:selectionFill",
+    "pressed": "token:pressedFill",
+    "focused": "1.5 pt token:focusRing outline (0 under borders none)"
+   },
+   "motion": "fills fade over fade.hover from the value on screen",
+   "users": "sidebar rows, section items and icon buttons, tab strip trailing buttons, the + button, tab close buttons, onboarding rows",
+   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ChromeHover.swift (ChromeHover.fillColor, paint, refresh)"
   }
  }
 }

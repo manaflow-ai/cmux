@@ -4,6 +4,7 @@ import { apiHandler } from "./http.ts"
 import { handleAutomationHook } from "./ingress/automation-hook.ts"
 import { handleProviderHook } from "./ingress/provider-hook.ts"
 import { handleSsoDiscover } from "./sso-discover.ts"
+import { handlePairBegin, handlePairWait } from "./pair-routes.ts"
 import { handleSsoCallback, handleSsoRedeem, handleSsoStart } from "./sso-routes.ts"
 
 export { AccountIndexDO } from "./account-index-do.ts"
@@ -11,6 +12,7 @@ export { AddressDO } from "./address-do.ts"
 export { ConversationDO } from "./conversation-do.ts"
 export { MuxDO } from "./mux-do.ts"
 export { DomainDO } from "./domain-do.ts"
+export { PairingDO } from "./pairing-do.ts"
 export { AutomationRunWorkflow } from "./automation-workflow.ts"
 export { ConnectionDO } from "./connection-do.ts"
 export { FeedDO } from "./feed-do.ts"
@@ -51,6 +53,9 @@ export default {
     const hook = url.pathname.match(/^\/v1\/hooks\/automation\/([^/]+)\/([^/]+)$/)
     if (hook) return handleAutomationHook(request, env, hook[1]!, hook[2]!)
     if (url.pathname === "/v1/sso/discover") return handleSsoDiscover(request, env)
+    // cmux server pairing: no account on the server side; each route verifies its own proof.
+    if (url.pathname === "/v1/pair/begin") return handlePairBegin(request, env)
+    if (url.pathname === "/v1/pair/wait") return handlePairWait(request, env)
     if (url.pathname === "/v1/sso/start") return handleSsoStart(request, env)
     const ssoCallbackPath = url.pathname.match(/^\/v1\/sso\/callback\/([^/]+)$/)
     if (ssoCallbackPath) return handleSsoCallback(request, env, ssoCallbackPath[1]!)

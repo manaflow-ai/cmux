@@ -38,7 +38,7 @@ struct TabPaneTerminalBindingTests {
         #expect(Coverage.run(services, "column.center") == .refused(MiscHandlerStrings.noPane))
         #expect(Coverage.run(services, "column.center", target: ActionTargetRef(kind: .column, id: "c9")) == .refused("no column c9 is shown"))
         let missing = ActionTargetRef(kind: .tab, id: "missing")
-        #expect(Coverage.run(services, "tab.moveToNewColumn", target: missing) == .refused("no tab missing"))
+        #expect(Coverage.run(services, "tab.moveToNewColumn", target: missing) == .notFound("no tab missing"))
         #expect(Coverage.run(services, "reopenClosedBrowserPanel") == .refused("no recently closed tab"))
     }
 }

@@ -61,6 +61,10 @@ enum TabHandlers {
         let history = ClosedTabTracker(services: ctx.services)
         ctx.services.closedTabs = history
         registry.bind("reopenClosedBrowserPanel", invoke: { _ in
+            // The daemon's history first; the app's tracker covers daemons without it.
+            if let entry = DaemonClosedHistory.entries([.tab], in: ctx.services).first {
+                return DaemonClosedHistory.reopen(entry, services: ctx.services)
+            }
             guard let record = history.popLast() ?? ctx.refuse(RefusalStrings.noRecentlyClosedTab) else { return }
             history.reopen(record, fallback: ctx.services.windows.active?.focusedPane)
         })
@@ -77,22 +81,37 @@ enum TabHandlers {
             // 9 always selects the last tab.
             pane.select(number >= 9 ? ids[ids.count - 1] : ids[min(number - 1, ids.count - 1)])
         })
+        registry.bind("palette.goToTab", invoke: { invocation in
+            guard let ref = invocation["tab"]?.targetValue ?? invocation.target ?? ctx.refuse(RefusalStrings.tabArgumentRequired) else { return }
+            reveal(tabID: ref.id, ctx: ctx)
+        })
+        // `cmux tab <id> focus`: the same path, by target.
+        registry.bind("tab.focus", invoke: { invocation in
+            guard let ref = invocation.target ?? ctx.scope(invocation).tab.map({ ActionTargetRef(kind: .tab, id: $0.id.rawValue) })
+                ?? ctx.refuse(RefusalStrings.tabArgumentRequired) else { return }
+            reveal(tabID: ref.id, ctx: ctx)
+        })
     }
 
-    /// Shows the tab's workspace in the active window, then selects and focuses it.
+    /// Shows the tab in the window that lists its workspace (the active
+    /// window takes the workspace when no window lists it), selects it and
+    /// focuses its pane. Selection is the window's (state-ownership.md 3);
+    /// the change is saved in the window's record at once.
     static func reveal(tabID: String, ctx: AppActionContext) {
-        guard let (_, paneModel) = ctx.services.locateTab(tabID) ?? ctx.refuse(RefusalStrings.noTab(tabID)) else { return }
-        if let pane = ctx.services.paneController(for: paneModel) {
-            pane.select(StripTabID(tabID))
-            if let window = pane.view.window { WindowActivation.show(window, .raise) }
-            return
+        // tab.focus and Go to Tab focus by purpose (`focuses`); any other
+        // caller only with the run's view-change permission.
+        guard ViewChangePolicy.allowed() else { return }
+        guard let (tab, paneModel) = ctx.services.locateTab(tabID) ?? ctx.notFound(RefusalStrings.noTab(tabID)) else { return }
+        let owner = ctx.services.machines.allWorkspaces.first { workspace, _ in
+            workspace.screens.contains { $0.panes.contains { $0 === paneModel } }
         }
-        guard let window = ctx.services.windows.active ?? ctx.refuse(RefusalStrings.noWindowOpen) else { return }
-        let workspace = ctx.services.activeDaemon.store.workspaces.first { $0.screens.contains { $0.panes.contains { $0 === paneModel } } }
-        guard let workspace else { return }
-        window.state.selection.select(tabID, in: paneModel.id)
-        window.focus.send(.selectTab(pane: paneModel.id, tab: tabID, workspace: workspace.id, source: .intent))
-        ctx.services.windows.show(workspaceID: workspace.id, in: window.state)
+        guard let workspace = owner?.0 ?? ctx.notFound(RefusalStrings.noTab(tabID)) else { return }
+        guard let controller = ctx.window(showing: workspace.id) ?? ctx.refuse(RefusalStrings.noWindowOpen) else { return }
+        controller.state.selection.select(tab.id, in: paneModel.id)
+        controller.focus.send(.selectTab(pane: paneModel.id, tab: tab.id, workspace: workspace.id, source: .intent))
+        ctx.services.paneController(for: paneModel)?.select(StripTabID(tab.id))
+        ctx.services.windows.recordSaver.stateDidChange(controller.state)
+        if let window = controller.window { WindowActivation.show(window, .raise) }
     }
 
     private static func bindMoves(_ registry: ActionRegistry, _ ctx: AppActionContext) {

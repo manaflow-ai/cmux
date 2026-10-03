@@ -57,7 +57,8 @@ final class ClosedTabTracker {
     }
 
     /// Connected machines only: a machine that drops takes its tabs and
-    /// workspaces out together, so nothing on it counts as closed.
+    /// workspaces out together, so nothing on it counts as closed. A daemon
+    /// that records closed history itself (`DaemonClosedHistory`) is skipped.
     private static func structure(of daemons: [DaemonService]) -> Structure {
         var tabs: [(TabModel, ClosedTabHistory.Record)] = []
         var live: Set<String> = []
@@ -65,8 +66,10 @@ final class ClosedTabTracker {
         for daemon in daemons {
             let store = daemon.store
             // The launch snapshot's provisional tree is not live: a tab it
-            // shows that the live tree lacks was not closed in this app.
-            guard case .connected = store.connectionState, store.isLoaded, !store.isProvisional else { continue }
+            // shows that the live tree lacks was not closed in this app. A
+            // daemon that records closed history keeps it instead.
+            guard case .connected = store.connectionState, store.isLoaded, !store.isProvisional,
+                  !store.servesStateResources else { continue }
             let machine = daemon.machineID
             generations[machine] = store.generation?.rawValue ?? ""
             for workspace in store.workspaces {
@@ -178,8 +181,7 @@ final class ClosedTabTracker {
                 if let terminal = record.terminalResourceID, let path {
                     do {
                         let tab = try await restorer.project(ResourceID(rawValue: terminal), path, record.index)
-                        controller?.pendingSelectTab = tab.rawValue
-                        controller.map { $0.apply($0.snapshot()) }
+                        controller?.selectWhenReported(tab: tab.rawValue)
                         return nil
                     } catch {
                         // Ended (reaped, exited, or closed): start a new shell there.
@@ -188,8 +190,7 @@ final class ClosedTabTracker {
                 }
                 do {
                     let surface = try await restorer.spawn(spawn)
-                    controller?.pendingSelectSurface = surface
-                    controller.map { $0.apply($0.snapshot()) }
+                    controller?.selectWhenReported(surface: surface)
                     controller?.workspace?.expectFocus(on: surface)
                     return nil
                 } catch {

@@ -67,6 +67,7 @@ impl SplitRespawnRequest {
                     title: None,
                     favicon_url: None,
                     profile_id: self.profile_id,
+                    owner: None,
                 };
                 record.validate()?;
                 Ok(crate::mux::SplitRespawn::Browser(record))

@@ -56,13 +56,12 @@ final class SidebarBridge {
 
     private func observe() {
         let machines = services.machines
-        let board = services.statusBoard
         let registry = services.windows.registry
         guard let windowState = state else { return }
         observation = Task { [weak self] in
             // `state.id` is read inside: the launch window adopts a saved id.
             for await sections in Observations({
-                Self.sections(machines, statuses: board, members: registry.members(of: windowState.id), profile: windowState.profileID)
+                Self.sections(machines, members: registry.members(of: windowState.id), profile: windowState.profileID)
             }) {
                 guard let self, self.model.sections != sections else { continue }
                 self.model.sections = sections
@@ -84,7 +83,7 @@ final class SidebarBridge {
                 guard let self else { return }
                 state.sidebarWidth = Double(width)
                 state.sidebarHidden = presentation == .hidden
-                self.services.windows.stateDidChange(state)
+                self.services.windows.recordSaver.stateDidChange(state)
             }
         }
         selectionObservation = Task { [weak self] in
@@ -102,11 +101,11 @@ final class SidebarBridge {
     /// This window's sidebar: every machine section, listing only the
     /// workspaces the window owns (`WindowRegistry`) in the profile it shows
     /// (`WindowProfiles`).
-    static func sections(_ machines: MachineRegistry, statuses: WorkspaceStatusBoard, members: [String],
+    static func sections(_ machines: MachineRegistry, members: [String],
                          profile: ProfileID) -> [SidebarRowSection] {
         let visible = WindowProfiles.visible(members, profile: profile, machines: machines)
         let pinned = Set(machines.daemons.flatMap { $0.store.workspaces.filter(\.pinned).map(\.id) })
-        let filtered = SidebarMembership.filter(sections(machines, statuses: statuses, profile: profile), members: Set(visible))
+        let filtered = SidebarMembership.filter(sections(machines, profile: profile), members: Set(visible))
         return SidebarMembership.pinnedFirst(filtered, pinned: pinned)
     }
 
@@ -122,21 +121,20 @@ final class SidebarBridge {
     /// One section per machine: the local daemon, then each Cloud machine
     /// (empty while it connects), with the workspaces and groups of
     /// `profile` (all of them on a machine without that profile).
-    static func sections(_ machines: MachineRegistry, statuses: WorkspaceStatusBoard, profile: ProfileID) -> [SidebarRowSection] {
-        let status = { (id: String) in statuses.line(for: id) }
+    static func sections(_ machines: MachineRegistry, profile: ProfileID) -> [SidebarRowSection] {
         let showsUnread = DesignSettings.shared.attention.showsOnSidebar
         var sections = SidebarMapping.shared.sections(PersonalSidebar.sections(of: machines.local, room: profile, machines: machines),
                                                machine: machine(for: machines.local, name: Strings.localMachine, kind: .local),
-                                               showsUnread: showsUnread, statusLine: status)
+                                               showsUnread: showsUnread)
         for session in machines.cloud {
             let header = machine(for: session.daemon, name: session.machine.title, kind: .cloud, live: session.machine.status.isLive,
                                  compatibility: machines.compatibility(of: session.daemon))
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
-                                                machine: header, showsUnread: showsUnread, statusLine: status)
+                                                machine: header, showsUnread: showsUnread)
         }
         for session in machines.ssh {
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
-                                                machine: sshMachine(session, machines: machines), statusLine: status)
+                                                machine: sshMachine(session, machines: machines))
         }
         return sections
     }
@@ -181,7 +179,7 @@ final class SidebarBridge {
         case .layoutItem(let id):
             return layoutItemMenu(id)
         case .layoutSection(let id):
-            return registry.makeContextMenu(for: .sidebarSection, target: ActionTargetRef(kind: .sidebarSection, id: id.rawValue))
+            return layoutSectionMenu(id)
         }
     }
 

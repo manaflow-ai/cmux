@@ -12,6 +12,7 @@ use crate::resource::{
 };
 use crate::resource_mutation::ResourceMutationPlan;
 use crate::server::MAX_CREATION_SELECTOR_FALLBACKS;
+use crate::terminal_end::DetachProof;
 use crate::workspace_registry::{
     RegistryPane, RegistryScreen, RegistryTab, RegistryViewportColumn, ResourceCreationPreparation,
     ResourceCreationRecovery, ResourcePatchCommit, ResourceWorkspaceClose, ResourceWorkspaceLedger,
@@ -21,10 +22,13 @@ use crate::{ResolvedResourcePath, ResourceSelectors, ResourceTarget, SurfaceKind
 use cmux_layout_reducer::LayoutOpKind;
 
 mod batch_close;
+mod column_update;
 mod layout_projection;
+mod published_screen;
 mod structural_move;
 pub(crate) use batch_close::{BatchCloseOutcome, BatchCloseTarget};
 use layout_projection::sync_layout_column_projection;
+use published_screen::screen_value;
 pub(super) use structural_move::structural_tab_move_plan;
 
 #[derive(Clone, Copy)]
@@ -285,8 +289,9 @@ impl Mux {
         correlation_key: &str,
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
+        mark: crate::state::home_store::EmptyWorkspaceMark,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        let fingerprint = json!({
+        let mut fingerprint = json!({
             "operation":"workspace.create",
             "selectors":&selectors,
             "fields":{
@@ -294,6 +299,9 @@ impl Mux {
                 "name":&name,
             },
         });
+        if let Some((field, value)) = mark.fingerprint_field() {
+            fingerprint["fields"][field] = value;
+        }
         if let Some(name) = name.as_deref() {
             Self::validate_workspace_name(name)?;
         }
@@ -356,6 +364,7 @@ impl Mux {
             .as_str()
             .context("stored workspace creation omitted its key")?
             .to_string();
+        let marked_key = key.clone();
         let name = intent["name"]
             .as_str()
             .context("stored workspace creation omitted its name")?
@@ -450,6 +459,8 @@ impl Mux {
         {
             *self.resource_mutation_metrics.lock().unwrap() = Some(plan.metrics);
         }
+        let marked = public_id.as_str().to_string();
+        let write_mark = move |tx: &rusqlite::Transaction<'_>| mark.write(tx, &marked, &marked_key);
         let (commit, workspace_revision) = registry.commit_resource_creation_patch(
             correlation_key,
             mutation,
@@ -460,6 +471,8 @@ impl Mux {
             &created_path,
             &plan.deltas,
             plan.workspace_ledger.as_ref(),
+            mark.writes()
+                .then_some(&write_mark as crate::workspace_registry::RegistryTransactionWrite<'_>),
         )?;
         plan.apply(&mut state, &commit, workspace_revision);
         // Push the same coarse tree event a terminal-bearing create emits
@@ -685,6 +698,13 @@ impl Mux {
                     fingerprint: &fingerprint,
                 },
             )?,
+            ResourceOperation::ColumnUpdate => self.resource_update_column(
+                selectors,
+                &fields,
+                expected_revision,
+                mutation,
+                &fingerprint,
+            )?,
             ResourceOperation::TabRename => self.resource_rename_tab(
                 selectors,
                 nullable_name(&fields)?,
@@ -716,7 +736,7 @@ impl Mux {
         Ok(commit)
     }
 
-    pub(super) fn emit_resource_topology_legacy_events(
+    pub(crate) fn emit_resource_topology_legacy_events(
         &self,
         operation: ResourceOperation,
         commit: &ResourcePatchCommit,
@@ -731,6 +751,7 @@ impl Mux {
                 | ResourceOperation::PaneZoom
                 | ResourceOperation::PaneSplitRatioSet
                 | ResourceOperation::PaneViewportWidthSet
+                | ResourceOperation::ColumnUpdate
                 | ResourceOperation::WorkspaceLayoutApply
                 | ResourceOperation::ScreenLayoutUndo
                 | ResourceOperation::PaneCreate
@@ -2625,11 +2646,15 @@ impl Mux {
                     ) {
                         Ok(committed) => committed,
                         Err(error) => {
-                            let error = ResourceError::operation_failed(
-                                &operation_name,
-                                format!("{error:#}"),
-                                json!({"idempotency_key":mutation.id}),
-                            );
+                            // A refused home close is a typed, committed failure.
+                            let error = crate::state::home_store::resource_error(&error)
+                                .unwrap_or_else(|| {
+                                    ResourceError::operation_failed(
+                                        &operation_name,
+                                        format!("{error:#}"),
+                                        json!({"idempotency_key":mutation.id}),
+                                    )
+                                });
                             if self
                                 .commit_resource_effect(
                                     &mutation.id,
@@ -2659,9 +2684,12 @@ impl Mux {
                     Err(error)
                         if error
                             .downcast_ref::<ResourceError>()
-                            .is_some_and(|error| error.code == "confirmation.required") =>
+                            .is_some_and(|error| error.code == "confirmation.required")
+                            || crate::state::home_store::resource_error(&error).is_some() =>
                     {
-                        let error = error.downcast_ref::<ResourceError>().expect("checked").clone();
+                        let error = crate::state::home_store::resource_error(&error)
+                            .or_else(|| error.downcast_ref::<ResourceError>().cloned())
+                            .expect("checked");
                         let outcome = ResourceEffectOutcome::Failure(error.clone());
                         if self
                             .commit_resource_effect(
@@ -2927,8 +2955,10 @@ impl Mux {
             return Err(terminal_close_state_error("terminal resource changed hosts"));
         }
         let content_id = ContentPublicId::Terminal(public_id.clone());
-        let (target, mut plan) =
-            if let Some(runtime) = state.terminal_catalog.get(&public_id).cloned() {
+        let runtime = state.terminal_catalog.get(&public_id).cloned();
+        let has_views = !state.placements_of_content(&content_id).is_empty();
+        let (target, mut plan) = if runtime.is_some() || has_views {
+            if let Some(runtime) = runtime {
                 let host = self.resource_terminal_host_identity(&runtime).ok_or_else(|| {
                     terminal_close_state_error("terminal runtime omitted its durable host identity")
                 })?;
@@ -2938,42 +2968,56 @@ impl Mux {
                 if let Some(expected) = expected_incarnation {
                     anyhow::ensure!(host.incarnation == expected, "terminal_incarnation_mismatch");
                 }
-                let target = state.placements_of_content(&content_id).first().copied();
-                let plan = self.resource_close_plan_locked(
-                    ResourceOperation::TerminalClose,
-                    EffectSlots {
-                        workspace: None,
-                        screen: None,
-                        pane: None,
-                        tab: None,
-                        terminal: Some(public_id.clone()),
-                    },
-                    &registry,
-                    &state,
-                    &notifications,
-                )?;
-                (target, plan)
             } else {
-                if !state.placements_of_content(&content_id).is_empty() {
+                // An exited terminal keeps dead views after its runtime is
+                // gone (a host loss, invariant 3, or a keep-layout tab);
+                // explicit close retires them with the receipt.
+                let record = registry.terminal_record(terminal_id)?.ok_or_else(|| {
+                    terminal_close_state_error(format!("terminal close omitted host {terminal_id}"))
+                })?;
+                if record.lifecycle != TerminalLifecycle::Exited {
                     return Err(terminal_close_state_error(format!(
                         "live terminal resource {public_id} has views but no runtime owner"
                     )));
                 }
-                (
-                    None,
-                    ResourceClosePlan {
-                        state: state.clone(),
-                        removed: Vec::new(),
-                        terminal_runtime: None,
-                        closed_terminal_public_id: Some(public_id.clone()),
-                        terminal_batch: Vec::new(),
-                        workspace_close: None,
-                        delta: None,
-                        changed_screens: Vec::new(),
-                        selection_resync: false,
-                    },
-                )
-            };
+                if let Some(expected) = expected_incarnation {
+                    anyhow::ensure!(
+                        record.incarnation.as_deref() == Some(expected),
+                        "terminal_incarnation_mismatch"
+                    );
+                }
+            }
+            let target = state.placements_of_content(&content_id).first().copied();
+            let plan = self.resource_close_plan_locked(
+                ResourceOperation::TerminalClose,
+                EffectSlots {
+                    workspace: None,
+                    screen: None,
+                    pane: None,
+                    tab: None,
+                    terminal: Some(public_id.clone()),
+                },
+                &registry,
+                &state,
+                &notifications,
+            )?;
+            (target, plan)
+        } else {
+            (
+                None,
+                ResourceClosePlan {
+                    state: state.clone(),
+                    removed: Vec::new(),
+                    terminal_runtime: None,
+                    closed_terminal_public_id: Some(public_id.clone()),
+                    terminal_batch: Vec::new(),
+                    workspace_close: None,
+                    delta: None,
+                    changed_screens: Vec::new(),
+                    selection_resync: false,
+                },
+            )
+        };
         let mut projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
         if !projection.patch.changes.iter().any(|change| {
@@ -3078,8 +3122,11 @@ impl Mux {
         }))
     }
 
+    /// Views of an exited terminal to remove in the exit's commit. Requires
+    /// a [`DetachProof`]: only a process end may detach (invariant 3).
     pub(super) fn terminal_exit_detach_projection_locked(
         &self,
+        _proof: DetachProof,
         registry: &WorkspaceRegistry,
         state: &State,
         terminal_id: &str,
@@ -3230,6 +3277,13 @@ impl Mux {
             terminal.lifecycle == TerminalLifecycle::Exited,
             "terminal {terminal_id} is not exited"
         );
+        // Invariant 3: a receipt of a host loss (outcome unknown) keeps the
+        // tabs, dead; only a recorded exit status or signal detaches them,
+        // and a signal during a session shutdown counts as a host loss.
+        let end = self.session_shutdown.classify(TerminalEnd::from_receipt(terminal.exit.as_ref()));
+        let Some(proof) = end.detach_proof() else {
+            return Ok(false);
+        };
         let Some(terminal_public_id) = registry.terminal_resource_id(terminal_id)? else {
             return Ok(false);
         };
@@ -3249,6 +3303,7 @@ impl Mux {
             return Ok(false);
         }
         let Some(projection) = self.terminal_exit_detach_projection_locked(
+            proof,
             &registry,
             &state,
             terminal_id,
@@ -3509,9 +3564,11 @@ impl Mux {
                 let placements = state
                     .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
                     .to_vec();
+                // An exited terminal may keep dead views without a runtime
+                // (a host loss, or a keep-layout tab); a live one may not.
                 if runtime.is_none() {
                     anyhow::ensure!(
-                        placements.is_empty(),
+                        placements.is_empty() || terminal.lifecycle == TerminalLifecycle::Exited,
                         "live terminal resource {public_id} has views but no runtime owner"
                     );
                 }
@@ -3570,6 +3627,10 @@ impl Mux {
         let mut workspace_close = None;
         let mut workspace_was_active = false;
         if let Some((workspace, index, workspace_key)) = workspace_metadata {
+            // `home_not_closable`: refused before any terminal ends.
+            registry.read_state(|connection| {
+                crate::state::home_store::refuse_close_key(connection, &workspace_key)
+            })?;
             workspace_was_active = projected.active_workspace == index;
             let previous_active = projected.active_pane();
             let active_id =
@@ -4476,6 +4537,7 @@ impl Mux {
                             Some(workspace_key),
                             workspace_public_id,
                             &workspace_mutation,
+                            false,
                         )?;
                         self.create_browser_surface_in_workspace(
                             placement.workspace,
@@ -4715,11 +4777,15 @@ impl Mux {
     ) -> anyhow::Result<CreatedTerminalEffect> {
         let (workspace_key, workspace_public_id, workspace_mutation) =
             self.effect_workspace_reservation(intent)?;
+        // `workspace.create {ephemeral: true}` stages the flag with the
+        // workspace row; the request's fields are part of its fingerprint.
+        let ephemeral = intent["fields"]["ephemeral"].as_bool().unwrap_or(false);
         let placement = self.create_empty_workspace_for_resource_effect(
             workspace_name,
             Some(workspace_key),
             workspace_public_id,
             &workspace_mutation,
+            ephemeral,
         )?;
         self.effect_create_terminal_in_workspace(intent, placement.workspace, options)
     }
@@ -6057,23 +6123,6 @@ fn workspace_value(
     }))
 }
 
-fn screen_value(
-    screen: &RegistryScreen,
-    topology: &ResourceTopologySnapshot,
-    active_workspace: Option<&WorkspacePublicId>,
-    active_screen: Option<&ScreenPublicId>,
-) -> anyhow::Result<Value> {
-    Ok(json!({
-        "id":screen.public_id,
-        "workspace_id":screen.workspace_id,
-        "name":screen.name,
-        "index":u32::try_from(screen.position).context("screen index exceeds uint32")?,
-        "focused":active_workspace == Some(&screen.workspace_id)
-            && active_screen == Some(&screen.public_id),
-        "layout":layout_document(screen, topology)?,
-    }))
-}
-
 fn pane_value(
     state: &State,
     pane: &RegistryPane,
@@ -6118,72 +6167,6 @@ fn tab_value(tab: &RegistryTab, topology: &ResourceTopologySnapshot) -> anyhow::
     let pane = topology_pane(topology, &tab.pane_id)?;
     u32::try_from(tab.position).context("tab index exceeds uint32")?;
     Ok(tab.public_value(pane.active_tab.as_ref() == Some(&tab.public_id)))
-}
-
-fn layout_document(
-    screen: &RegistryScreen,
-    topology: &ResourceTopologySnapshot,
-) -> anyhow::Result<Value> {
-    let root = if screen.viewport.columns.is_empty() {
-        layout_node_value(&screen.layout, topology)?
-    } else {
-        json!({
-            "kind":"viewport",
-            "base_width":screen.viewport.base_width.context("viewport has no base width")?,
-            "columns":screen.viewport.columns.iter().map(|column| {
-                Ok(json!({
-                    "column_id":column.id,
-                    "width":column.width,
-                    "root":layout_node_value(&column.layout, topology)?,
-                }))
-            }).collect::<anyhow::Result<Vec<_>>>()?,
-        })
-    };
-    Ok(json!({
-        "version":1,
-        "screen_id":screen.public_id,
-        "active_pane_id":screen.active_pane,
-        "zoomed_pane_id":screen.zoomed_pane,
-        "root":root,
-    }))
-}
-
-fn layout_node_value(
-    node: &RegistryLayoutNode,
-    topology: &ResourceTopologySnapshot,
-) -> anyhow::Result<Value> {
-    Ok(match node {
-        RegistryLayoutNode::Leaf { pane } => {
-            let record = topology_pane(topology, pane)?;
-            let tabs = topology.tabs.iter().filter(|tab| &tab.pane_id == pane).collect::<Vec<_>>();
-            let mut value = json!({
-                "kind":"leaf",
-                "pane_id":pane,
-                "tab_ids":tabs.iter().map(|tab| &tab.public_id).collect::<Vec<_>>(),
-            });
-            if let Some(active) = &record.active_tab {
-                value["active_tab_id"] = json!(active);
-            }
-            value
-        }
-        RegistryLayoutNode::Split { split, direction, ratio, first, second } => json!({
-            "kind":"split",
-            "split_id":split,
-            "direction":match direction.as_str() {
-                "right" | "horizontal" => "horizontal",
-                "down" | "vertical" => "vertical",
-                other => anyhow::bail!("invalid durable split direction {other:?}"),
-            },
-            "ratio":ratio,
-            "first":layout_node_value(first, topology)?,
-            "second":layout_node_value(second, topology)?,
-        }),
-        RegistryLayoutNode::Stack { panes, expanded } => json!({
-            "kind":"stack",
-            "pane_ids":panes,
-            "expanded_pane_id":expanded,
-        }),
-    })
 }
 
 fn focus_deltas(
@@ -6663,58 +6646,7 @@ fn set_node_split_ratios(node: &mut Node, ratios: &std::collections::BTreeMap<Sp
 }
 
 #[cfg(test)]
-mod structural_tab_move_tests {
-    use super::*;
-
-    /// Build a terminal tab fixture with the requested durable placement.
-    fn tab(id: &str, pane_id: &str, position: usize) -> RegistryTab {
-        RegistryTab {
-            name_source: Default::default(),
-            name_revision: 0,
-            public_id: TabPublicId::parse(id.to_string()).unwrap(),
-            pane_id: PanePublicId::parse(pane_id.to_string()).unwrap(),
-            position,
-            content_id: ContentPublicId::Terminal(
-                TerminalPublicId::parse("term_00000000000000000000000000000001".to_string())
-                    .unwrap(),
-            ),
-            name: None,
-            browser_url: None,
-            terminal_id: Some("term_00000000000000000000000000000001".to_string()),
-        }
-    }
-
-    /// Reindex the moved tab and existing target tabs without touching others.
-    #[test]
-    fn target_tab_positions_reindex_moved_and_target_tabs_only() {
-        let target_pane =
-            PanePublicId::parse("pane_00000000000000000000000000000001".to_string()).unwrap();
-        let other_pane =
-            PanePublicId::parse("pane_00000000000000000000000000000002".to_string()).unwrap();
-        let moved = tab("tab_00000000000000000000000000000001", other_pane.as_str(), 0);
-        let target_a = tab("tab_00000000000000000000000000000002", target_pane.as_str(), 0);
-        let target_b = tab("tab_00000000000000000000000000000003", target_pane.as_str(), 1);
-        let unrelated = tab("tab_00000000000000000000000000000004", other_pane.as_str(), 1);
-        let mut tabs = vec![moved, target_a, target_b, unrelated];
-
-        let target_order = vec![
-            TabPublicId::parse("tab_00000000000000000000000000000003".to_string()).unwrap(),
-            TabPublicId::parse("tab_00000000000000000000000000000001".to_string()).unwrap(),
-            TabPublicId::parse("tab_00000000000000000000000000000002".to_string()).unwrap(),
-            // Malformed duplicate IDs retain the first-match position from
-            // the previous `position` scan.
-            TabPublicId::parse("tab_00000000000000000000000000000001".to_string()).unwrap(),
-        ];
-        reindex_target_tab_positions(&mut tabs, &target_pane, &target_order);
-
-        assert_eq!(tabs[0].pane_id, target_pane);
-        assert_eq!(tabs[0].position, 1);
-        assert_eq!(tabs[1].position, 2);
-        assert_eq!(tabs[2].position, 0);
-        assert_eq!(tabs[3].pane_id, other_pane);
-        assert_eq!(tabs[3].position, 1);
-    }
-}
+mod structural_tab_move_tests;
 
 #[cfg(test)]
 mod creation_recovery_tests {

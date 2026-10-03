@@ -19,11 +19,15 @@ public nonisolated struct LayoutSection: Hashable, Sendable, Codable, Identifiab
     /// region's share of the sidebar height.
     public var maxRows: Int?
     public var content: SectionContent
+    /// The app section this is (`<app id>#<section id>`), content `app` only.
+    public var contribution: String?
     /// Empty for the workspaces section.
     public var items: [LayoutItem]
 
     public init(id: LayoutSectionID, title: String? = nil, showsTitle: Bool = true, region: SidebarRegion, look: SectionLook = .list,
-                arrangement: SectionArrangement = .list, room: String? = nil, maxRows: Int? = nil, content: SectionContent = .items, items: [LayoutItem] = []) {
+                arrangement: SectionArrangement = .list, room: String? = nil, maxRows: Int? = nil, content: SectionContent = .items, contribution: String? = nil,
+                items: [LayoutItem] = []) {
+        self.contribution = contribution
         self.id = id
         self.title = title
         self.showsTitle = showsTitle
@@ -37,7 +41,7 @@ public nonisolated struct LayoutSection: Hashable, Sendable, Codable, Identifiab
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, region, look, arrangement, room, content, items
+        case id, title, region, look, arrangement, room, content, contribution, items
         case showsTitle = "shows_title"
         case maxRows = "max_rows"
     }
@@ -55,11 +59,20 @@ public nonisolated struct LayoutSection: Hashable, Sendable, Codable, Identifiab
         room = try c.decodeIfPresent(String.self, forKey: .room)
         maxRows = try c.decodeIfPresent(Int.self, forKey: .maxRows)
         content = try c.decode(SectionContent.self, forKey: .content)
+        contribution = try c.decodeIfPresent(String.self, forKey: .contribution)
         items = try c.decodeIfPresent([LayoutItem].self, forKey: .items) ?? []
     }
 
     /// The header title to draw, or nil for no header.
     public var headerTitle: String? { showsTitle ? title : nil }
+
+    /// The app that owns this section: the id before `#` of an app
+    /// section's contribution, else nil.
+    public var owningAppID: String? {
+        guard content == .app, let contribution, let hash = contribution.firstIndex(of: "#") else { return nil }
+        let id = String(contribution[..<hash])
+        return id.isEmpty ? nil : id
+    }
 
     /// Whether the section shows while `room` is shown.
     public func isVisible(inRoom room: String?) -> Bool { self.room == nil || self.room == room }

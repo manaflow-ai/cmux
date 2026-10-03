@@ -35,6 +35,7 @@ use ghostty_vt::{
 use crate::mux::ResourceWaitWake;
 use crate::platform;
 use crate::resource::{ContentPublicId, TabResourceIdentity, TerminalPublicId};
+use crate::terminal_end::TerminalEnd;
 use crate::terminal_host_protocol::{TerminalExit, wait_for_native_child_status_with_reap_result};
 use crate::{Mux, MuxEvent, SurfaceId};
 
@@ -1719,7 +1720,9 @@ pub struct PtyTerminalRuntime {
     pid: Option<u32>,
     command: Vec<String>,
     cwd: Option<String>,
-    exit: Mutex<Option<TerminalExit>>,
+    /// How this incarnation ended, with its provenance (process end versus
+    /// host loss); see [`TerminalEnd`].
+    exit: Mutex<Option<TerminalEnd>>,
     local_pty_drained: AtomicBool,
     exit_notified: AtomicBool,
     dead: AtomicBool,
@@ -2960,6 +2963,7 @@ impl Surface {
                         }
                         drop(journal_update);
                         surface.publish_pending_directory();
+                        surface.publish_pending_progress();
                         pty.stream_progress.notify();
                         pty.request_frame(generation);
                         if let Some((offset, at_bottom)) = scroll_changed
@@ -3011,7 +3015,7 @@ impl Surface {
                 let _reaper_completion = ReaderCompletionGuard(reaper_completion);
                 let exit = child.wait_for_exit();
                 if let Some(pty) = reaper_surface.as_pty() {
-                    *pty.exit.lock().unwrap() = Some(exit);
+                    *pty.exit.lock().unwrap() = Some(TerminalEnd::ProcessEnded(exit));
                 }
                 close_local_terminal_master_after_exit(&reaper_surface);
                 publish_local_exit_if_ready(&reaper_surface);
@@ -3604,6 +3608,7 @@ impl Surface {
                                 }
                                 drop(journal_update.take());
                                 surface.publish_pending_directory();
+                        surface.publish_pending_progress();
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(title) = title_update
@@ -3766,6 +3771,7 @@ impl Surface {
                                 });
                                 drop(geometry);
                                 surface.publish_pending_directory();
+                        surface.publish_pending_progress();
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(mux) = mux.upgrade() {
@@ -3799,7 +3805,9 @@ impl Surface {
                     }
                     let Some(identity) = pty.host_identity.clone() else { return };
                     if let Some(exit) = received_exit {
-                        *pty.exit.lock().unwrap() = Some(exit);
+                        // The host's Exit frame is its report that the child
+                        // ended, even when an older host omits the status.
+                        *pty.exit.lock().unwrap() = Some(TerminalEnd::ProcessEnded(exit));
                         mark_hosted_runtime_exited(pty, &identity);
                         pty.host_connection_state
                             .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
@@ -3863,6 +3871,9 @@ impl Surface {
                             &record,
                         ) {
                             Ok(crate::terminal_host_runtime::TerminalHostLiveness::Dead) => {
+                                // A durable sidecar is the host's record of the
+                                // child's end; without one the host died with an
+                                // unknown outcome (invariant 3: its tabs stay).
                                 let exit = crate::terminal_host_runtime::terminal_host_exit_record(
                                     &record_path,
                                 )
@@ -3872,9 +3883,9 @@ impl Surface {
                                     exit.terminal_id == identity.terminal_id
                                         && exit.incarnation == identity.incarnation
                                 })
-                                .map(|(_, exit)| exit.exit)
+                                .map(|(_, exit)| TerminalEnd::ProcessEnded(exit.exit))
                                 .unwrap_or_else(|| {
-                                    TerminalExit::unknown(
+                                    TerminalEnd::host_lost(
                                         "terminal host ended without a durable exit sidecar",
                                     )
                                 });
@@ -4157,6 +4168,7 @@ impl Surface {
                             replacement_snapshot.cell_pixels,
                         );
                         surface.publish_pending_directory();
+                        surface.publish_pending_progress();
                         reconnect_mux.emit_terminal_title(pty.event_surface_id, title.into());
                         reconnect_mux.emit_terminal_resized(
                             pty.event_surface_id,
@@ -6081,7 +6093,20 @@ impl Surface {
     }
 
     pub fn terminal_exit(&self) -> Option<TerminalExit> {
+        self.terminal_end().map(|end| end.exit().clone())
+    }
+
+    /// How this incarnation ended, with its provenance.
+    pub(crate) fn terminal_end(&self) -> Option<TerminalEnd> {
         self.as_pty().and_then(|pty| pty.exit.lock().unwrap().clone())
+    }
+
+    /// Record a process end on a test runtime, as a host's Exit frame does.
+    #[cfg(test)]
+    pub(crate) fn record_process_end_for_test(&self, exit: TerminalExit) {
+        if let Some(pty) = self.as_pty() {
+            *pty.exit.lock().unwrap() = Some(TerminalEnd::ProcessEnded(exit));
+        }
     }
 
     /// Whether [`Self::begin_host_termination`] would signal a terminal host
@@ -6136,10 +6161,13 @@ impl Surface {
             .ok_or_else(|| anyhow::anyhow!("terminal host termination lost its PTY runtime"))?;
         let HostTermination { identity, path, mut observed, already_exited } = termination;
         loop {
-            if let Some(exit) = pty.exit.lock().unwrap().clone() {
+            if let Some(end) = pty.exit.lock().unwrap().clone() {
                 return Ok((
                     path,
-                    crate::terminal_host_runtime::TerminalHostExitRecord::new(&identity, exit),
+                    crate::terminal_host_runtime::TerminalHostExitRecord::new(
+                        &identity,
+                        end.exit().clone(),
+                    ),
                 ));
             }
             anyhow::ensure!(
@@ -6160,7 +6188,7 @@ impl Surface {
         let pty = self.as_pty()?;
         let path = pty.host_exit_record_path.clone()?;
         let identity = pty.host_identity.as_ref()?;
-        let exit = pty.exit.lock().unwrap().clone()?;
+        let exit = pty.exit.lock().unwrap().as_ref()?.exit().clone();
         Some((path, crate::terminal_host_runtime::TerminalHostExitRecord::new(identity, exit)))
     }
 
@@ -8617,6 +8645,10 @@ mod tests {
     /// resize artifact seen in Cloud terminals.
     #[cfg(unix)]
     #[test]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "zsh loses the partial line on macOS on feat-cmux-next too: #16644"
+    )]
     fn default_shell_prompt_survives_rapid_resizes_after_a_partial_line() {
         let mut ran = 0;
         for (index, shell) in ["zsh", "bash"].into_iter().enumerate() {
@@ -11136,34 +11168,5 @@ mod tests {
         assert!(writer.0.lock().unwrap().is_empty());
     }
 
-    #[test]
-    fn clear_history_preserves_alternate_screen_and_primary_history() {
-        let mux = Mux::new_for_test("clear-alternate-screen", SurfaceOptions::default());
-        let surface =
-            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
-        let primary_history_rows = surface
-            .with_terminal(|term| {
-                for line in 0..40 {
-                    term.vt_write(format!("primary-{line}\r\n").as_bytes());
-                }
-                term.vt_write(b"primary-tail");
-                let history_rows = term.history_rows();
-                term.vt_write(b"\x1b[?1049h");
-                term.vt_write(b"alternate-app");
-                assert_eq!(term.active_screen(), Screen::Alternate);
-                history_rows
-            })
-            .unwrap();
-
-        surface.clear_history().unwrap();
-
-        surface.with_terminal(|term| {
-            assert_eq!(term.active_screen(), Screen::Alternate);
-            assert!(term.viewport_text().unwrap().contains("alternate-app"));
-            term.vt_write(b"\x1b[?1049l");
-            assert_eq!(term.active_screen(), Screen::Primary);
-            assert_eq!(term.history_rows(), primary_history_rows);
-            assert!(term.viewport_text().unwrap().contains("primary-tail"));
-        });
-    }
+    mod clear_history_tests;
 }

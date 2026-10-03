@@ -39,6 +39,7 @@ nonisolated enum SettingsWindowStrings {
     static var shellIntegrationUnknown: String { text("settingsWindow.shellIntegrationUnknown", "Set by the Ghostty config") }
     static var keyboardHint: String { text("settingsWindow.keyboardHint", "Click a shortcut to record a new one. Esc cancels.") }
     static var conflict: String { text("settingsWindow.conflict", "Another action uses this shortcut in the same place.") }
+    static var systemWideRefused: String { text("settingsWindow.systemWideRefused", "Another app or global shortcut holds this key, so it works only while cmux is in front.") }
     static var roomsUnavailable: String { text("settingsWindow.roomsUnavailable", "Spaces need a newer cmux-tui on this Mac.") }
     static var roomsEmpty: String { text("settingsWindow.roomsEmpty", "No spaces yet.") }
     static var browserProfilesTitle: String { text("settingsWindow.browserProfiles", "Browser Profiles") }

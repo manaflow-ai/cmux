@@ -100,8 +100,8 @@ public final class RegistryControlBridge: ControlActionExecutor {
         guard action.isEnabled() else { return .disabled }
         if registry.needsConfirmation(id, invocation) { return .confirmationRequired }
         var ran = false
-        let refusal = registry.capturingRefusal { ran = registry.perform(id, invocation: invocation) }
-        if let refusal { return .refused(refusal) }
+        let refusal = registry.capturingTypedRefusal { ran = registry.perform(id, invocation: invocation) }
+        if let refusal { return refusal.isNotFound ? .notFound(refusal.reason) : .refused(refusal.reason) }
         return ran ? .ran : .disabled
     }
 
@@ -167,7 +167,9 @@ public final class RegistryControlBridge: ControlActionExecutor {
         info.unavailableReason = registry.unavailableReason(for: descriptor.id)
         info.isDestructive = descriptor.isDestructive
         info.startsTerminal = descriptor.startsTerminal
+        info.isCLI = descriptor.cli
         info.waitsForResult = descriptor.waitsForResult
+        info.focuses = descriptor.focuses
         return info
     }
 
@@ -198,6 +200,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         (.simulatorFocused, "simulatorFocused"),
         (.agentPaneFocused, "agentPaneFocused"),
         (.checkpointCaptureAvailable, "checkpointCaptureAvailable"),
+        (.recordingShortcut, "recordingShortcut"),
         (.diffViewerFocused, "diffViewerFocused"),
         (.filePreviewFocused, "filePreviewFocused"),
         (.markdownFocused, "markdownFocused"),

@@ -7,9 +7,13 @@
 //! headless) session over that socket, which is how detach/reattach works.
 
 #[cfg(unix)]
+mod acp;
+#[cfg(unix)]
 mod agent_browser_provider;
 mod agent_hook_install;
 mod app;
+#[cfg(unix)]
+mod app_identity;
 mod browser_input;
 #[cfg(unix)]
 mod claude_wrapper;
@@ -179,6 +183,24 @@ fn install_signal_handlers() -> io::Result<()> {
     // for the process lifetime. CLI exit and daemon shutdown reclaim them.
     std::mem::forget(wake_reader);
     std::mem::forget(wake_writer);
+    Ok(())
+}
+
+/// Give SIGTERM, SIGINT and SIGHUP back their default action (end the
+/// process). A CLI stream that cannot start its cancellation watcher uses
+/// this instead of waking on a read timeout to look for a pending signal.
+#[cfg(unix)]
+pub(crate) fn restore_default_termination_signals() -> io::Result<()> {
+    for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+        // SAFETY: SIG_DFL is a valid disposition for these signals.
+        if unsafe { libc::signal(signal, libc::SIG_DFL) } == libc::SIG_ERR {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    // A signal that arrived before the reset already set the flag.
+    if shutdown_requested() {
+        return Err(io::Error::from(io::ErrorKind::Interrupted));
+    }
     Ok(())
 }
 
@@ -580,6 +602,9 @@ struct Args {
     agent_browser_provider: bool,
     owner_host_fg: Option<cmux_tui_core::Rgb>,
     owner_host_bg: Option<cmux_tui_core::Rgb>,
+    /// Private launch contract of `local_owner`: a descriptor to write one
+    /// byte to once this headless owner accepts clients.
+    owner_ready_fd: Option<i32>,
     terminal_reap_grace: Option<std::time::Duration>,
 }
 
@@ -683,6 +708,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         agent_browser_provider: false,
         owner_host_fg: None,
         owner_host_bg: None,
+        owner_ready_fd: None,
         terminal_reap_grace: None,
     };
     let mut args = args.into_iter().peekable();
@@ -916,6 +942,13 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     &mut out.owner_host_bg
                 };
                 if slot.replace(color).is_some() {
+                    return Err(format!("{arg} may be supplied only once"));
+                }
+            }
+            local_owner::OWNER_READY_FD_ARG => {
+                let value = args.next().ok_or_else(|| format!("{arg} needs a value"))?;
+                let fd = local_owner::claim_ready_fd(&value)?;
+                if out.owner_ready_fd.replace(fd).is_some() {
                     return Err(format!("{arg} may be supplied only once"));
                 }
             }
@@ -1405,6 +1438,7 @@ const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--term",
     "--owner-host-fg",
     "--owner-host-bg",
+    local_owner::OWNER_READY_FD_ARG,
 ];
 
 /// Return the first argument after a startup option and its value.
@@ -1596,6 +1630,18 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
 }
 
 fn main() -> std::process::ExitCode {
+    // One binary ships as `cmux` (this CLI and mux) and as `acpmux` through a
+    // symlink, so both always have the same version.
+    #[cfg(unix)]
+    if std::env::args_os()
+        .next()
+        .as_deref()
+        .and_then(|argv0| Path::new(argv0).file_name())
+        .is_some_and(|name| name == "acpmux")
+    {
+        let code = acp::run_standalone(std::env::args_os().skip(1).collect());
+        return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
+    }
     // Hook helper mode for hosts that received only this binary (see
     // `agent_hook_install::HOOK_MODE_ARG`). It runs inside a provider's hook,
     // so it touches no daemon, log, or config state.
@@ -1675,6 +1721,14 @@ fn run_main() {
             client_log::exit(1);
         }
         return;
+    }
+    // `cmux acp …` runs acpmux in this process. It needs none of the mux's
+    // provider credentials or signal handlers.
+    #[cfg(unix)]
+    if raw_args.first().map(String::as_str) == Some("acp") {
+        discard_provider_secret_environment();
+        let args = std::env::args_os().skip(2).collect();
+        client_log::exit(acp::run(args));
     }
     if config::is_ghostty_config_helper_invocation(&raw_args) {
         if let Err(error) = harden_provider_secret_process() {
@@ -2477,6 +2531,9 @@ fn run_server(
     });
     let result = if args.headless {
         mux.mark_server_lifecycle_ready();
+        if let Some(fd) = args.owner_ready_fd {
+            local_owner::signal_ready(fd);
+        }
         #[cfg(unix)]
         {
             run_headless(&mux, &socket_path, || {
@@ -2505,6 +2562,11 @@ fn run_server(
             Err(error) => Err(error),
         }
     };
+    // The owner's loop ended (a termination signal, shutdown-daemon or the
+    // last client): record the session shutdown before any teardown, so a
+    // shell that dies of the same logout signal is a host loss
+    // (`session-shutdown`), not a real end.
+    mux.begin_session_shutdown();
     let owner_event_result = owner_event_loop.map_or(Ok(()), LocalOwnerEventLoop::finish);
     if let Some(reaper) = idle_terminal_reaper {
         reaper.stop();
@@ -3188,130 +3250,7 @@ fn usage_exit(msg: &str) -> ! {
 }
 
 #[cfg(all(test, unix))]
-mod remote_args_tests {
-    use super::*;
-
-    #[test]
-    fn shorthand_server_start_uses_the_existing_lifecycle() {
-        let mut args = ["--session", "shorthand-test", "srv", "start", "--ephemeral"]
-            .map(str::to_string)
-            .to_vec();
-        rewrite_server_start(&mut args);
-        assert_eq!(args, ["--headless", "--session", "shorthand-test", "--ephemeral"]);
-    }
-
-    #[test]
-    fn daemon_accepts_native_and_durable_object_relay_registrations() {
-        let args = parse_args(
-            [
-                "--headless",
-                "--remote",
-                "--relay",
-                "relay+wss://relay.example",
-                "--relay-slot",
-                "native-route-key",
-                "--relay-ticket-command",
-                "native-ticket-command",
-                "--relay",
-                "relay+do://worker.example",
-                "--relay-slot",
-                "do-route-key",
-                "--relay-ticket-file",
-                "/tmp/do-ticket",
-            ]
-            .map(str::to_string),
-        );
-
-        let relays =
-            relay_daemon_options(args.relay_endpoints, args.relay_slots, args.relay_credentials)
-                .unwrap();
-        assert_eq!(relays.len(), 2);
-        assert_eq!(relays[0].endpoint.as_str(), "relay+wss://relay.example");
-        assert_eq!(relays[1].endpoint.as_str(), "relay+do://worker.example");
-    }
-
-    #[test]
-    fn daemon_rejects_inline_relay_ticket() {
-        const CHILD_ENV: &str = "CMUX_DAEMON_RELAY_TICKET_LOCALE_CHILD";
-        if std::env::var_os(CHILD_ENV).is_none() {
-            let output = std::process::Command::new(std::env::current_exe().unwrap())
-                .arg("remote_args_tests::daemon_rejects_inline_relay_ticket")
-                .arg("--exact")
-                .arg("--nocapture")
-                .env(CHILD_ENV, "1")
-                .env("LC_ALL", "ja_JP.UTF-8")
-                .output()
-                .unwrap();
-            assert!(
-                output.status.success(),
-                "Japanese daemon relay-ticket rejection child failed:\nstdout:\n{}\nstderr:\n{}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
-            return;
-        }
-
-        let marker = "inline-daemon-secret-marker";
-        let error = parse_args_result(
-            [
-                "--headless",
-                "--remote",
-                "--relay",
-                "relay+wss://relay.example",
-                "--relay-slot",
-                "routing-key",
-                "--relay-ticket",
-                marker,
-            ]
-            .map(str::to_string),
-        )
-        .expect_err("inline daemon relay ticket was accepted");
-        assert!(!error.contains(marker));
-        assert_eq!(
-            error,
-            localization::catalog_for_locale("ja_JP.UTF-8")
-                .remote_client
-                .inline_relay_ticket_rejected
-        );
-    }
-
-    #[test]
-    fn inline_relay_ticket_scanner_preserves_command_argument_literals() {
-        let args =
-            ["--relay-ticket-command", "helper", "--relay-ticket-command-arg", "--relay-ticket"]
-                .map(str::to_string);
-
-        assert!(!has_inline_relay_ticket_argument(&args));
-    }
-
-    #[test]
-    fn remote_state_directory_enables_remote_daemon_mode() {
-        let args = parse_args(["--remote-state-dir", "/tmp/cmux-remote-state"].map(str::to_string));
-
-        assert!(args.remote);
-        assert_eq!(args.remote_state_dir, Some(PathBuf::from("/tmp/cmux-remote-state")));
-    }
-
-    #[test]
-    fn remote_http_enables_remote_daemon_mode() {
-        let args = parse_args(["--remote-http", "127.0.0.1:8765"].map(str::to_string));
-
-        assert!(args.remote);
-        assert_eq!(args.remote_http.as_deref(), Some("127.0.0.1:8765"));
-    }
-
-    #[test]
-    fn malformed_relay_endpoint_errors_do_not_echo_credentials() {
-        let error = relay_daemon_options(
-            vec!["relay+wss://dont-leak-me@[".into()],
-            vec!["routing-key".into()],
-            vec![RelayCredentialArg::File("/tmp/relay-ticket".into())],
-        )
-        .expect_err("malformed relay endpoint should fail");
-
-        assert!(!error.to_string().contains("dont-leak-me"));
-    }
-}
+mod remote_args_tests;
 
 #[cfg(test)]
 mod tests {

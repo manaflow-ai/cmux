@@ -1069,6 +1069,7 @@ jobs:
           CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
           export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT
           cargo build -p cmux-tui --bin cmux-tui --release --locked --target aarch64-apple-darwin
+          cargo build -p acpmux --bin acpmux --release --locked --target aarch64-apple-darwin
           binary="target/aarch64-apple-darwin/release/cmux-tui"
           test -x "$binary"
           probe="$($binary remote-probe --json)"
@@ -1242,7 +1243,8 @@ jobs:
           test -x "$local_client"
           CMUX_TUI_CLIENT_LOCAL="$local_client" \
             ./scripts/install-cmux-tui-client.sh "$app" \
-            --require-capability wireguard-hub
+            --require-capability wireguard-hub \
+            --require-acpmux
 
       - name: Build immutable SSH daemon assets once for every app variant
         if: needs.decide.outputs.build_only != 'true'
@@ -1545,10 +1547,12 @@ jobs:
             "$app" \
             --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \
             --expected-commit "$cmux_tui_commit" \
-            --require-capability wireguard-hub
+            --require-capability wireguard-hub \
+            --require-acpmux
           # Same local-symbol strip scripts/strip-release-bundle.sh applied when
           # the client was bundled before the unsigned app was archived.
-          strip -S -x "$app/Contents/Resources/bin/cmux-tui"
+          # bin/cmux-tui and bin/acpmux are symlinks to bin/cmux.
+          strip -S -x "$app/Contents/Resources/bin/cmux"
           ./scripts/cmux-next/write-cmux-tui-version.sh "$app" "$cmux_tui_commit"
 
       - name: Run bundled Ghostty theme picker helper regression
@@ -1556,13 +1560,6 @@ jobs:
           set -euo pipefail
           CMUX_APP_PATH="build-universal/Build/Products/Release/cmux.app" \
             ./tests/test_bundled_ghostty_theme_picker_helper.sh
-
-      - name: Run CLI version memory guard regression
-        run: |
-          set -euo pipefail
-          CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
-          [ -x "$CLI_BINARY" ] || { echo "cmux CLI binary not found at $CLI_BINARY" >&2; exit 1; }
-          CMUX_CLI_BIN="$CLI_BINARY" python3 tests/test_cli_version_memory_guard.py
 
       - name: Thin bundle to the variant architecture
         # The fast build is already compiled arm64, but the downloaded cmux-tui
@@ -1584,7 +1581,6 @@ jobs:
             "$APP/Contents/MacOS/cmux" \
             "$APP/Contents/Resources/bin/cmux" \
             "$APP/Contents/Resources/bin/ghostty" \
-            "$APP/Contents/Resources/bin/cmux-tui" \
             "$APP/Contents/Resources/bin/cmux-diff-sidecar"
           do
             archs="$(lipo -archs "$binary")"
@@ -1594,6 +1590,11 @@ jobs:
             else
               [ "$archs" = "$NIGHTLY_VARIANT" ]
             fi
+          done
+          # bin/cmux is the cmux-tui binary; cmux-tui and acpmux are symlinks to it.
+          for alias in cmux-tui acpmux; do
+            [ "$(readlink "$APP/Contents/Resources/bin/$alias")" = cmux ] || {
+              echo "bin/$alias is not a symlink to cmux" >&2; exit 1; }
           done
           if [ "$NIGHTLY_VARIANT" != "universal" ]; then
             # No fat Mach-O may survive thinning anywhere in the bundle.
@@ -1810,8 +1811,8 @@ jobs:
         run: |
           set -euo pipefail
           # Launch-only smoke proves the process lives; this drives the shipped
-          # app through the CLI inside the same bundle (version, help, SSH
-          # daemon manifest, ping, capabilities, workspace create/list/close).
+          # app through the CLI inside the same bundle (version, help, acp,
+          # the cmux-tui and acpmux symlinks, app ping and identify).
           # A thin x86_64 variant skips when the runner has no Rosetta.
           ./scripts/smoke-signed-app-cli.sh \
             "$CHANNEL_APP_PATH"

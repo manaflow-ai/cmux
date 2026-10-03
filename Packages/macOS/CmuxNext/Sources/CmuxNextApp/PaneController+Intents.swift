@@ -57,8 +57,12 @@ extension PaneController {
 
     /// A user selection (strip click, shortcut, palette, CLI): goes through
     /// the focus coordinator, which selects and focuses (`applySelection`).
+    /// An action run without view-change permission selects nothing.
     func select(_ id: StripTabID, source: FocusEvent.Source = .intent) {
-        guard let workspace else { return applySelection(id) }
+        guard let workspace else {
+            guard ViewChangePolicy.allowed() else { return }
+            return applySelection(id)
+        }
         workspace.focus.send(.selectTab(pane: paneKey, tab: id.rawValue, source: source))
     }
 
@@ -75,7 +79,7 @@ extension PaneController {
         state.selection.select(id.rawValue, in: paneKey)
         stripModel.selectedID = id
         services.presentation.setNeedsShowSelected(self)
-        services.windows.stateDidChange(state)
+        services.windows.recordSaver.stateDidChange(state)
     }
 
     /// Selects the neighbor `offset` tabs away, wrapping.
@@ -108,8 +112,7 @@ extension PaneController {
                 if let agent, let agentCwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(agentCwd) { start = agentCwd }
                 let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace, keep: keep))
                 if let text { try await connection.send(created.surface, text: text) }
-                pendingSelectSurface = created.surface
-                apply(snapshot())
+                selectWhenReported(surface: created.surface)
                 self.workspace?.expectFocus(on: created.surface, generation: intent)
                 then?(created.surface)
                 return nil
@@ -156,8 +159,7 @@ extension PaneController {
                     if let child { pageRequests.adopt(child, surface: surface) }
                     then?(surface)
                     guard !background else { return nil }
-                    pendingSelectSurface = surface
-                    apply(snapshot())
+                    selectWhenReported(surface: surface)
                     workspace?.expectFocus(on: surface, target: url == nil ? .addressBar : .content, generation: intent)
                     return nil
                 } catch {
@@ -236,7 +238,7 @@ extension PaneController {
         guard let tab = tab(id) else { return }
         // Focus follows only a move this client's user started (CLI and
         // agents never change this client's focus unless they ask).
-        if target !== self, services.viewChangeAllowed { workspace?.focus.followMovedTab(tab.id, from: paneKey) }
+        if target !== self, ViewChangePolicy.allowed() { workspace?.focus.followMovedTab(tab.id, from: paneKey) }
         TabMoves.move(tab, to: target.pane, index: index, services: services) { [weak self, weak target] ok in
             guard !ok else { return }
             self?.resyncStrip()
@@ -248,12 +250,15 @@ extension PaneController {
     func setPinned(_ id: StripTabID, pinned: Bool) {
         guard let tab = tab(id) else { return }
         let surface = tab.surface
-        guard daemon.supports(DaemonCapabilities.shared.tabMetadata) else {
+        // `tab.pin`/`tab.unpin` on a daemon with state resources.
+        let resource = daemon.store.servesStateResources ? tab.resourceID : nil
+        guard resource != nil || daemon.supports(DaemonCapabilities.shared.tabMetadata) else {
             services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.shared.tabMetadata))
             return
         }
         services.registry.track(Task {
             let ok = await daemon.intend("set-tab-pinned", .setTabPinned(surface: surface, pinned: pinned)) { connection in
+                if let resource { return try await connection.state.setTabPinned(resource, pinned) }
                 _ = try await connection.setTabPinned(surface, pinned)
             }
             if !ok { resyncStrip() }
