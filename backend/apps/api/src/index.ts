@@ -9,6 +9,7 @@ import { handleInviteCard, handleInvitePreview } from "./home-routes.ts"
 import type { PresenceKeyBody } from "./user-do.ts"
 import { handlePairBegin, handlePairWait } from "./pair-routes.ts"
 import { handleSsoCallback, handleSsoRedeem, handleSsoStart } from "./sso-routes.ts"
+import { sweepDeps, sweepFeedText } from "./feed-sweep.ts"
 
 export { AccountIndexDO } from "./account-index-do.ts"
 export { AddressDO } from "./address-do.ts"
@@ -108,5 +109,11 @@ export default {
     const providerHook = url.pathname.match(/^\/v1\/hooks\/(github|slack|linear)$/)
     if (providerHook) return handleProviderHook(request, env, providerHook[1] as "github" | "slack" | "linear")
     return apiHandler(request)
+  },
+  // Cron (wrangler triggers): the feed text sweep (feed-sweep.ts).
+  // Awaited, not waitUntil: the run gets the cron limit, and a throw shows as a failed run.
+  async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+    const report = await sweepFeedText(sweepDeps(env))
+    console.log(JSON.stringify({ msg: "feed.sweep", ...report }))
   }
 } satisfies ExportedHandler<Env>
