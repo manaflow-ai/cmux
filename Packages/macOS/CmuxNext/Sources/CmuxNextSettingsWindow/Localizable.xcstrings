@@ -10480,6 +10480,124 @@
           }
         }
       }
+    },
+    "settingsWindow.backdropArt.credit": {
+      "comment": "Optional public-domain backdrop art and its museum attribution.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wheat Field with Cypresses · Vincent van Gogh · 1889 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weizenfeld mit Zypressen · Vincent van Gogh · 1889 · Metropolitan Museum of Art · CC0"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Champ de blé avec cyprès · Vincent van Gogh · 1889 · Metropolitan Museum of Art · CC0"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حقل قمح مع أشجار السرو · فنسنت فان غوخ · 1889 · متحف المتروبوليتان للفنون · CC0"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Campo de trigo con cipreses · Vincent van Gogh · 1889 · Museo Metropolitano de Arte · CC0"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有絲柏的麥田 · 文森·梵谷 · 1889 · 大都會藝術博物館 · CC0"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有柏树的麦田 · 文森特·梵高 · 1889 · 大都会艺术博物馆 · CC0"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이프러스가 있는 밀밭 · 빈센트 반 고흐 · 1889 · 메트로폴리탄 미술관 · CC0"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "糸杉のある麦畑 · フィンセント・ファン・ゴッホ · 1889 · メトロポリタン美術館 · CC0"
+          }
+        }
+      }
+    },
+    "settingsWindow.backdropArt.source": {
+      "comment": "Optional public-domain backdrop art and its museum attribution.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Painting attribution and source"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildnachweis und Quelle"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crédit et source du tableau"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسب اللوحة ومصدرها"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atribución y fuente de la pintura"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "畫作資訊與來源"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画作信息与来源"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그림 저작자와 출처"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "絵画の作者情報と出典"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

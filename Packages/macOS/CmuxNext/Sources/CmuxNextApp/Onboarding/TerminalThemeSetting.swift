@@ -23,6 +23,12 @@ final class TerminalThemeSetting {
         var background: WindowBackgroundOverride
     }
 
+    private let backdropScope: ThemeScope
+
+    init(backdropScope: ThemeScope) {
+        self.backdropScope = backdropScope
+    }
+
     private var applied: State?
     private var observation: Task<Void, Never>?
 
@@ -32,6 +38,7 @@ final class TerminalThemeSetting {
                 // Parsed and validated in `CmuxConfigSnapshot` (a bad value is
                 // a diagnostic and keeps the Ghostty config's).
                 let font = GhosttyRuntime.FontOverride(family: snapshot.terminalFontFamily, size: snapshot.terminalFontSize)
+                self?.backdropScope.setBackdropArt(snapshot.backdropArt)
                 self?.apply(State(theme: snapshot.appTheme, font: font, background: snapshot.windowBackground))
             }
         }

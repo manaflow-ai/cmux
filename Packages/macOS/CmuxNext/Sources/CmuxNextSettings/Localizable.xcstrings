@@ -32357,6 +32357,183 @@
           }
         }
       }
+    },
+    "settings.appearance.backdropArt": {
+      "comment": "Optional public-domain backdrop art and its museum attribution.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backdrop Art"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hintergrundkunst"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Œuvre en arrière-plan"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لوحة الخلفية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arte de fondo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景藝術"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景艺术"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배경 그림"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景アート"
+          }
+        }
+      }
+    },
+    "settings.appearance.backdropArt.help": {
+      "comment": "Optional public-domain backdrop art and its museum attribution.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein gemeinfreies Gemälde hinter dem Fenstermaterial. Verringere die Deckkraft, um es sichtbar zu machen. Der Bildnachweis ist oben verlinkt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un tableau du domaine public derrière le matériau de la fenêtre. Réduisez l’opacité pour le voir. Le crédit est accessible ci-dessus."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لوحة في الملكية العامة خلف مادة النافذة. قلّل التعتيم لإظهارها. رابط نسب العمل موجود أعلاه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una pintura de dominio público detrás del material de la ventana. Reduce la opacidad para verla. La atribución está enlazada arriba."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在視窗材質後方顯示公有領域畫作。降低不透明度即可看見。上方提供作品出處連結。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在窗口材质后方显示公有领域画作。降低不透明度即可看见。上方提供作品出处链接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창 재질 뒤에 퍼블릭 도메인 그림을 표시합니다. 불투명도를 낮추면 보입니다. 위에 작품 출처 링크가 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウのマテリアルの背後にパブリックドメインの絵画を表示します。不透明度を下げると見えます。上に作品の出典リンクがあります。"
+          }
+        }
+      }
+    },
+    "settings.choice.wheatField": {
+      "comment": "Optional public-domain backdrop art and its museum attribution.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wheat Field with Cypresses"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weizenfeld mit Zypressen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Champ de blé avec cyprès"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حقل قمح مع أشجار السرو"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Campo de trigo con cipreses"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有絲柏的麥田"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有柏树的麦田"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이프러스가 있는 밀밭"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "糸杉のある麦畑"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
