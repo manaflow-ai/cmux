@@ -5,30 +5,14 @@ import { connectionsDomain, expiredForgets, githubRepoAllowed, lockNoticePending
 import { decodeParams } from "./domains/common.ts"
 import type { Env } from "./env.ts"
 import { aadFor, open, seal, type SealedSecret } from "./integrations/crypto.ts"
+import type { ExternalReply, ProviderEvent } from "./integrations/external.ts"
+import { createWatchTable, nextWatchAt } from "./integrations/gmail-push.ts"
+import { dropGmailWatch, onGmailPush, runWatchWork, startWatchSafely, type GooglePush, type WatchHost } from "./integrations/google-watches.ts"
 import { createRevocationTable, drainRevocations, nextRevocationAt, takeCredentialForRevocation } from "./integrations/revocations.ts"
 import { ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 
-/** The HTTP shape of one op result (http.ts OpResponse). */
-export interface ExternalReply {
-  readonly ok: boolean
-  readonly op: string
-  readonly value?: unknown
-  readonly error?: { readonly code: string; readonly message: string; readonly retryable: boolean }
-  readonly transaction: string
-  readonly idempotency_key: string
-  readonly replayed: boolean
-  readonly stream: string
-  readonly sequence: number
-}
-
-export interface ProviderEvent {
-  readonly provider: IntegrationProvider
-  readonly account: string
-  readonly delivery_id: string
-  readonly event: string
-  readonly payload: unknown
-}
+export type { ExternalReply, ProviderEvent } from "./integrations/external.ts"
 
 /** Synchronous, so the ledger check and insert happen in one turn with no await between. */
 const sha256 = (s: string) => createHash("sha256").update(s).digest("base64url")
@@ -69,6 +53,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     sql.exec(`CREATE INDEX IF NOT EXISTS external_calls_created ON external_calls (created_at)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS refused_system_ops (key TEXT PRIMARY KEY, code TEXT NOT NULL, at INTEGER NOT NULL)`)
     createRevocationTable(sql)
+    createWatchTable(sql)
   }
 
   protected read(state: ConnectionsState, op: string, _params: unknown, principal: Principal): ReadResult {
@@ -107,8 +92,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const forget = expiredForgets(state).find((p) => !skip.has(`forget:${p.connection}`))
     if (forget) times.push(forget.at)
     if (lockNoticePending(state)) times.push(Math.max(_now, this.noticeRetryAt ?? _now))
-    const revocation = nextRevocationAt(this.ctx.storage.sql)
-    if (revocation !== null) times.push(revocation)
+    for (const t of [nextRevocationAt(this.ctx.storage.sql), nextWatchAt(this.ctx.storage.sql)]) if (t !== null) times.push(t)
     return times.length === 0 ? null : Math.min(...times)
   }
 
@@ -176,6 +160,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const entity = this.ctx.storage.sql.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`).toArray()[0]?.entity
     if (entity) await this.deliverLockNotice(entity, now)
     await this.revokeAtProviders(now)
+    await runWatchWork(this.watchHost(), engine.currentState.connections, now)
     const skip = this.skipped()
     for (const p of pendingExpiries(engine.currentState)) {
       if (p.at > now) break
@@ -198,6 +183,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       this.scheduleAlarm()
       void this.revokeAtProviders(Date.now())
     }
+    void dropGmailWatch(this.watchHost(), c.id)
     if (c.account) void this.index(c.account.key).remove(c.owner, c.id).catch((e) => console.error(JSON.stringify({ msg: "account index remove failed", connection: c.id, error: String(e) })))
   }
 
@@ -374,7 +360,36 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       await this.index(approved.account.key).remove(c.owner, c.id).catch(() => undefined)
       throw new ProviderError("integration.state_invalid", rej.message)
     }
-    return this.boundEngine!.currentState.connections[c.id]!
+    const active = this.boundEngine!.currentState.connections[c.id]!
+    // Gmail push for new-mail triggers (G3); a failure here retries from the alarm, never fails the link.
+    await startWatchSafely(this.watchHost(), active, Date.now())
+    this.scheduleAlarm()
+    return active
+  }
+
+  /** What the Gmail watch lifecycle needs from this object (integrations/google-watches.ts). */
+  private watchHost(): WatchHost {
+    return {
+      sql: this.ctx.storage.sql,
+      env: this.env,
+      http: this.http,
+      credential: (c) => this.usableCredential(c),
+      alias: async (op, alias, owner, connection) => void (await this.index(alias)[op](owner, connection)),
+      deliver: async (c, m) => {
+        const scheduler = this.env.SCHEDULER_DO.get(this.env.SCHEDULER_DO.idFromName(c.owner))
+        await scheduler.deliverEvent(c.owner, { connection: c.id, sharing: c.sharing, created_by: c.created_by, provider: "gmail", event: "mail.message.received", delivery_id: m.message_id, payload: { connection: c.id, ...m } })
+      },
+      status: (c, status, detail) => void this.submitSystem("connection.status", { connection: c.id, status, ...(detail ? { detail } : {}) }, `status:${c.id}:watch:${status}:${Date.now()}`)
+    }
+  }
+
+  /** RPC from the Google push routes (ingress/google-hooks.ts), after they verified the request. */
+  async googlePush(entity: string, push: GooglePush): Promise<{ status: string; delivered: number }> {
+    const bound = this.ctx.storage.sql.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`).toArray()[0]
+    if (!bound || bound.entity !== entity) return { status: "ignored", delivered: 0 }
+    const c = this.bind(entity).currentState.connections[push.connection]
+    // Calendar channels arrive with slice G2; until then a calendar push is ignored.
+    return push.kind === "gmail" ? onGmailPush(this.watchHost(), c, push.historyId) : { status: "ignored", delivered: 0 }
   }
 
   /** The connection's credential, refreshed (and sealed) first when the provider says it expired. */

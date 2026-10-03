@@ -90,6 +90,15 @@ export interface Env {
    * (gmail.readonly, gmail.modify). Unset in production until Google's security assessment passes.
    */
   readonly GOOGLE_RESTRICTED_SCOPES?: string
+  /** Gmail push: the Pub/Sub topic `projects/<project>/topics/<topic>` that users.watch publishes to; unset = no watches. */
+  readonly GOOGLE_PUBSUB_TOPIC?: string
+  /** Gmail push: the audience and the service-account email of the push subscription's OIDC token (the Worker route checks both). */
+  readonly GOOGLE_PUBSUB_AUDIENCE?: string
+  readonly GOOGLE_PUBSUB_SERVICE_ACCOUNT?: string
+  /** Test only (ENVIRONMENT=test): a JWKS JSON string that replaces Google's published keys for Pub/Sub tokens. */
+  readonly GOOGLE_PUBSUB_TEST_JWKS?: string
+  /** Workers rate limit counted only for refused Google push requests (per client IP). */
+  readonly GOOGLE_HOOK_FAIL_LIMIT?: RateLimit
   /** Home (plans/cmux-next/home-messaging.md): one ConversationDO per conversation. */
   readonly CONVERSATION_DO: DurableObjectNamespace<ConversationDO>
   /** One MuxDO per chief: its wake queue. */

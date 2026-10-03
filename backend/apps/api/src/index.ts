@@ -3,6 +3,7 @@ import type { Env } from "./env.ts"
 import { apiHandler } from "./http.ts"
 import { handleAutomationHook } from "./ingress/automation-hook.ts"
 import { handleProviderHook } from "./ingress/provider-hook.ts"
+import { handleGooglePubsub } from "./ingress/google-hooks.ts"
 import { handleSsoDiscover } from "./sso-discover.ts"
 import { handleInviteCard, handleInvitePreview } from "./home-routes.ts"
 import type { PresenceKeyBody } from "./user-do.ts"
@@ -101,6 +102,8 @@ export default {
     const ssoCallbackPath = url.pathname.match(/^\/v1\/sso\/callback\/([^/]+)$/)
     if (ssoCallbackPath) return handleSsoCallback(request, env, ssoCallbackPath[1]!)
     if (url.pathname === "/v1/sso/redeem") return handleSsoRedeem(request, env)
+    // Google push receivers: staging and development only until the backend lead reviews them for production.
+    if (env.ENVIRONMENT !== "production" && url.pathname === "/v1/hooks/google/pubsub") return handleGooglePubsub(request, env)
     const providerHook = url.pathname.match(/^\/v1\/hooks\/(github|slack|linear)$/)
     if (providerHook) return handleProviderHook(request, env, providerHook[1] as "github" | "slack" | "linear")
     return apiHandler(request)
