@@ -68,7 +68,7 @@ final class CloudTreeMachineReorderLift: NSObject {
         sequence: Int, source: CloudTreeNode, siblings: [CloudTreeNode], pressY: CGFloat? = nil,
         isPeer: (CloudTreeNode) -> Bool, closes: (CloudTreeNode) -> Bool, onLeave: (() -> Void)? = nil,
         collapse: ([CloudTreeNode]) -> Void
-    ) {
+    ) -> Bool {
         guard let outline else { return false }
         discard()
         let before = visualTops()
