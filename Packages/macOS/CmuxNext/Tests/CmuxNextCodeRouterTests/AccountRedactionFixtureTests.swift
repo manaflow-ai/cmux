@@ -6,6 +6,7 @@ import Testing
 let hostileEmails = [
     "user@bücher.de", #""john doe"@example.com"#, "someone%40example.com", "Someone%40Example.com", "someone＠example.com",
     "user@[10.0.0.1]", "u@exa_mple.com", "jörg@example.com", "someone@example.com",
+    "someone@\u{0301}example.com", "someone%2540example.com", "someone\u{FE6B}example.com",
 ]
 
 @Suite struct HostileEmailRedactionTests {
@@ -107,16 +108,17 @@ extension CodeRouterClientTests {
         #expect(before == renamed, "renaming keeps the handle")
         let unlabeled = try await handles([Self.row("k3", label: ""), Self.row("k4", label: "")])
         #expect(unlabeled[0] != unlabeled[1], "rows without a label or id fall back to the row id")
-        // An existing server `account` field is never overwritten.
+        // A server `account` field moves to `server_account`.
         FakeCodeRouter.reset(["GET /api/coderouter/accounts": (200, #"{"accounts":["# + Self.row("k5", label: "work", extra: #","account":"server-value""#) + "]}")])
         let reply = try await client.request("GET", "/api/coderouter/accounts")
         let rows = try #require((try JSONSerialization.jsonObject(with: reply) as? [String: Any])?["accounts"] as? [[String: Any]])
-        #expect(rows.first?["account"] as? String == "server-value")
+        #expect(AccountLabel.isValidHandle(rows.first?["account"] as? String ?? ""), "the handle always wins")
+        #expect(rows.first?["server_account"] as? String == "server-value", "the server value moves aside")
     }
 
     @Test func nonJSONRepliesAndErrorCodesAreRedacted() async throws {
         FakeCodeRouter.reset([
-            "GET /api/coderouter/vm-usage/team": (200, "plain text for someone＠example.com and jörg@example.com"),
+            "GET /api/coderouter/vm-usage/team": (200, #"plain text for someone＠example.com, jörg@example.com, a&#64;example.com, b&#x40;example.com and c\u0040example.com"#),
             "POST /api/coderouter/claude-upstream": (400, #"{"error":"exists:someone@example.com","message":"user%40example.com"}"#),
         ])
         let text = try await client.request("GET", "/api/coderouter/vm-usage/team")

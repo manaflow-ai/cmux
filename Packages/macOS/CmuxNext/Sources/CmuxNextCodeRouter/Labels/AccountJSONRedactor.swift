@@ -4,7 +4,7 @@ import Foundation
 /// Everywhere: every string has its emails shortened, and a key that holds
 /// an email is replaced by its handle. On account endpoints, every account
 /// row (an object with an `id` and a `provider` or `kind`) also gets an
-/// `account` handle (unless the server already sent one), a redacted
+/// `account` handle (a server `account` value moves to `server_account`), a redacted
 /// `label`, and loses `providerAccountId` and `providerUserId`. Ids,
 /// states and masked keys pass through unchanged.
 struct AccountJSONRedactor {
@@ -20,7 +20,7 @@ struct AccountJSONRedactor {
     func redact(_ data: Data) -> Data {
         guard !data.isEmpty else { return data }
         guard let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
-            return Data(EmailRedaction.redactEmails(in: String(decoding: data, as: UTF8.self)).utf8)
+            return Data(EmailRedaction.redactEmails(inBody: String(decoding: data, as: UTF8.self)).utf8)
         }
         return (try? JSONSerialization.data(withJSONObject: redact(value: object), options: [.fragmentsAllowed])) ?? Data("{}".utf8)
     }
@@ -41,7 +41,9 @@ struct AccountJSONRedactor {
             output[safeKey] = redact(value: value)
         }
         guard accountRows, let account = accountLabel(object) else { return output }
-        if output["account"] == nil { output["account"] = account.handle }
+        // The handle always wins; a server `account` value (already redacted) moves aside.
+        if let server = output["account"] { output["server_account"] = server }
+        output["account"] = account.handle
         if let label = object["label"] as? String, !label.isEmpty { output["label"] = account.display }
         output["providerAccountId"] = nil
         output["providerUserId"] = nil
