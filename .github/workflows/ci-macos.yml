@@ -910,9 +910,10 @@ jobs:
             echo "::warning::stale DerivedData dependency output detected; retrying compile from a clean tree"
             compile_workers_running() {
               local compiler pgrep_status
-              # xcodebuild hands work to these long-lived services, which can
-              # keep writing DerivedData after the client exits.
-              for compiler in xcodebuild XCBBuildService swift-driver llbuild swift-frontend swiftc clang ld; do
+              # Probe the invocation and short-lived compiler workers. The
+              # Xcode build service is a persistent daemon shared by jobs, so
+              # a global probe would mistake an idle daemon for this build.
+              for compiler in xcodebuild swift-frontend swiftc clang ld; do
                 if pgrep -x "$compiler" >/dev/null 2>&1; then
                   return 0
                 else

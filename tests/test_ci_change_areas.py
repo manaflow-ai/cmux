@@ -5778,8 +5778,8 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert 'tee -a "$compile_log"' not in admission
     assert "if compile_once; then" in admission
     assert 'compile_workers_running()' in admission
-    assert 'for compiler in xcodebuild XCBBuildService swift-driver llbuild swift-frontend swiftc clang ld' in admission
-    assert 'for compiler in xcodebuild XCBBuildService swift-driver llbuild swift-frontend swiftc clang ld' in admission
+    assert 'for compiler in xcodebuild swift-frontend swiftc clang ld' in admission
+    assert 'for compiler in xcodebuild swift-frontend swiftc clang ld' in admission
     assert "scripts/ci/compile-app-host-test-product.sh canonical-resolve" in admission
     compile_script = (ROOT / "scripts/ci/compile-app-host-test-product.sh").read_text(encoding="utf-8")
     assert "build-for-testing" in compile_script
