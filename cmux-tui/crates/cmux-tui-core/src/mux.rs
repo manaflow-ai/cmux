@@ -21,6 +21,7 @@ mod session_paths;
 mod sticky_columns;
 pub(crate) mod tab_drag;
 pub(crate) mod tab_groups;
+pub(crate) mod tab_restart;
 pub(crate) mod tab_strip;
 
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
@@ -984,8 +985,7 @@ pub enum MuxEvent {
         offset: u64,
         at_bottom: bool,
     },
-    /// The workspace/screen/pane/tab tree changed (from any frontend or
-    /// the control socket).
+    /// The workspace/screen/pane/tab tree changed (from any frontend or the control socket).
     TreeChanged,
     /// Delta subscribers need a coarse snapshot resync for a selection-only change.
     TreeSelectionChanged,

@@ -14112,6 +14112,76 @@
     "See spec/commands.md for the result object."
    ]
   },
+  "restart-tab": {
+   "authority": "control",
+   "since": 12,
+   "capability": "tab-restart-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "TabRef"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "idempotency_key": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "cwd": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "env": {
+      "type": {
+       "kind": "map",
+       "values": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "surface names a live terminal tab whose terminal has ended (host lost, keep_on_exit, or keep-layout).",
+     "A replayed idempotency_key returns the first result with replayed true."
+    ]
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
   "list-saved-tab-groups": {
    "authority": "control",
    "since": 12,

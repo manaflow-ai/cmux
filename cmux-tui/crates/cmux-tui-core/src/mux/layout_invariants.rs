@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 use cmux_layout_reducer::{
     Column, LayoutOp, LayoutOpKind, LayoutState, Screen, TabContent, Workspace, apply,
-    introduced_violations, placement_mismatches,
+    introduced_violations, introduced_violations_for, placement_mismatches,
 };
 use serde_json::json;
 
@@ -55,6 +55,8 @@ const TAB_CONSERVING_OPERATIONS: &[&str] = &[
     "screen.group.remove",
     "screen.group.move",
     "terminal.move",
+    // A restart swaps a dead tab's content in place (`RestartTab`).
+    "tab.restart",
 ];
 
 /// Whether `operation` must conserve tabs, so the daemon validates its
@@ -136,11 +138,23 @@ pub(crate) fn transition_problems(
     model: Option<&LayoutState>,
     after: &State,
 ) -> Vec<String> {
+    transition_problems_for(before, model, None, after)
+}
+
+/// [`transition_problems`] for the op `kind` when the plan declares one:
+/// its explicit closes, creations and restarts are allowed tab changes.
+pub(crate) fn transition_problems_for(
+    before: &LayoutState,
+    model: Option<&LayoutState>,
+    kind: Option<&LayoutOpKind>,
+    after: &State,
+) -> Vec<String> {
     let after = project(after);
-    let mut problems = introduced_violations(before, &after, &BTreeSet::new())
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>();
+    let violations = match kind {
+        Some(kind) => introduced_violations_for(before, &after, kind),
+        None => introduced_violations(before, &after, &BTreeSet::new()),
+    };
+    let mut problems = violations.iter().map(ToString::to_string).collect::<Vec<_>>();
     if let Some(model) = model {
         problems.extend(
             placement_mismatches(model, &after)
@@ -157,9 +171,10 @@ pub(crate) fn validate_layout_transition(
     operation: &str,
     before: &LayoutState,
     model: Option<&LayoutState>,
+    kind: Option<&LayoutOpKind>,
     after: &State,
 ) -> anyhow::Result<()> {
-    let problems = transition_problems(before, model, after);
+    let problems = transition_problems_for(before, model, kind, after);
     if problems.is_empty() { Ok(()) } else { Err(rejection(operation, problems)) }
 }
 
