@@ -39,6 +39,10 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         libc::pthread_sigmask(libc::SIG_SETMASK, &empty, std::ptr::null_mut());
     }
     crate::daemon::set_daemon_prefix(invocation.daemon_prefix.clone());
+    // An agent host serves one harness for its controller; it has no CLI.
+    if args.first().is_some_and(|a| a == crate::agent_host::HOST_ARG) {
+        return crate::agent_host::host::main();
+    }
     if let Some(home) = invocation.home.clone() {
         crate::config::set_home_override(home);
     }

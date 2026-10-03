@@ -317,6 +317,28 @@ impl Hub {
                 }
             }
         }
+        let ids = json!({"promptId": prompt_id, "turnId": turn_id, "turnSeq": turn_seq});
+        let mut result =
+            self.finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq).await;
+        drop(guard);
+        if let Ok(v) = &mut result {
+            merge_mux_meta(v, ids);
+        }
+        result
+    }
+
+    /// Settle a turn once its `session/prompt` answered (or failed): record
+    /// `turn_end`/`turn_error` and `turn_result`, and the session status.
+    /// Also settles a turn recovered from an adopted agent host.
+    pub(super) async fn finish_turn(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+        mut result: Result<Value, RpcError>,
+        prompt_id: &str,
+        turn_id: &str,
+        turn_seq: u64,
+    ) -> Result<Value, RpcError> {
         *session.turn.lock().unwrap() = None;
         // A process that died without answering: say what it printed last.
         if let Err(e) = &mut result {
@@ -355,7 +377,6 @@ impl Hub {
         if let Some(e) = harness_failure {
             result = Err(e);
         }
-        let ids = json!({"promptId": prompt_id, "turnId": turn_id, "turnSeq": turn_seq});
         match &result {
             Ok(v) => {
                 let stop = v.get("stopReason").cloned().unwrap_or(Value::Null);
@@ -404,10 +425,6 @@ impl Hub {
             );
         }
         self.save_meta(session);
-        drop(guard);
-        if let Ok(v) = &mut result {
-            merge_mux_meta(v, ids);
-        }
         result
     }
 
@@ -812,6 +829,10 @@ impl Hub {
                 .await;
             }
             child.kill().await;
+        } else {
+            // A host this daemon could not adopt keeps running until the user
+            // ends the session: end it without its protocol (frozen path).
+            self.end_unadopted_host(session);
         }
         *session.turn.lock().unwrap() = None;
         self.set_status(session, SessionStatus::Closed);
@@ -827,6 +848,7 @@ impl Hub {
                     dir: "mux".into(),
                     kind: "purged".into(),
                     msg: json!({"sessionId": session.id}),
+                    host_seq: None,
                 },
                 remote: None,
             });
@@ -855,7 +877,16 @@ impl Hub {
         const LOCK: std::time::Duration = std::time::Duration::from_millis(200);
         let sessions = self.sessions();
         let mut children = Vec::new();
+        let mut hosted = Vec::new();
         for s in &sessions {
+            // An agent under a host keeps running, with its turn and its
+            // permission prompts, for the next daemon to adopt.
+            if let Ok(slot) = tokio::time::timeout(LOCK, s.child.lock()).await
+                && let Some(child) = slot.as_ref().filter(|c| c.host_record().is_some())
+            {
+                hosted.push(child.clone());
+                continue;
+            }
             self.revoke_permission_chat(s);
             self.cancel_pending_permissions(s);
             if let Ok(mut slot) = tokio::time::timeout(LOCK, s.child.lock()).await
@@ -868,6 +899,8 @@ impl Hub {
                 self.set_status(s, SessionStatus::Idle);
             }
         }
+        let detach = futures::future::join_all(hosted.iter().map(|c| c.detach(SHUTDOWN_GRACE)));
+        let _ = tokio::time::timeout(SHUTDOWN_GRACE + LOCK * 2, detach).await;
         let stop = futures::future::join_all(children.iter().map(|c| c.terminate(SHUTDOWN_GRACE)));
         if tokio::time::timeout(SHUTDOWN_GRACE + LOCK * 2, stop).await.is_err() {
             tracing::warn!("agents did not stop within {SHUTDOWN_GRACE:?}");

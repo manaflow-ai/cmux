@@ -26,7 +26,7 @@ impl Hub {
                         hub.on_agent_request(s, id, m, params, epoch, turn_id).await
                     });
                 }
-                Inbound::Stderr(line) => {
+                Inbound::Stderr(line, host_seq) => {
                     let line = short_text(&line, 4000);
                     tracing::debug!(session = %session.id, "stderr: {line}");
                     if !line.trim().is_empty() {
@@ -36,9 +36,15 @@ impl Hub {
                         }
                         tail.push_back(line.clone());
                     }
-                    self.append(&session, "mux", "stderr", json!({"text": line}));
+                    self.append_with_host_seq(
+                        &session,
+                        "mux",
+                        "stderr",
+                        json!({"text": line}),
+                        host_seq,
+                    );
                 }
-                Inbound::Exited { pid, code } => {
+                Inbound::Exited { pid, code, host_seq } => {
                     {
                         let mut slot = session.child.lock().await;
                         // A late exit from a process that was already replaced
@@ -52,11 +58,12 @@ impl Hub {
                     self.revoke_permission_chat(&session);
                     let intentional =
                         matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
-                    self.append(
+                    self.append_with_host_seq(
                         &session,
                         "mux",
                         if intentional { "stopped" } else { "exited" },
                         json!({"code": code}),
+                        host_seq,
                     );
                     if !intentional {
                         self.set_status(&session, SessionStatus::Disconnected);
@@ -128,7 +135,8 @@ impl Hub {
         };
         if m == method::SESSION_REQUEST_PERMISSION {
             let params = params.unwrap_or(Value::Null);
-            let result = self.handle_permission(&session, params, epoch, turn_id).await;
+            let result =
+                self.handle_permission_for(&session, params, epoch, turn_id, Some(&id)).await;
             let _ = child.respond(id, Ok(result)).await;
             return;
         }
@@ -279,6 +287,20 @@ impl Hub {
         epoch: u64,
         turn_id: Option<String>,
     ) -> Value {
+        self.handle_permission_for(session, request, epoch, turn_id, None).await
+    }
+
+    /// `handle_permission` for the agent's own `session/request_permission`
+    /// with JSON-RPC id `agent_request_id`, recorded so a controller that
+    /// adopts the agent's host can still answer it.
+    pub(super) async fn handle_permission_for(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        request: Value,
+        epoch: u64,
+        turn_id: Option<String>,
+        agent_request_id: Option<&Id>,
+    ) -> Value {
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock().unwrap();
@@ -387,7 +409,7 @@ impl Hub {
                 permission_id.clone(),
                 PendingPermission { request: request.clone(), reply: tx },
             );
-            self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id}));
+            self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id}));
             let prev = session.status();
             self.set_status(session, SessionStatus::Waiting);
             (rx, prev, grouping, permission_id)

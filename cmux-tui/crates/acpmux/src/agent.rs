@@ -35,16 +35,47 @@ pub enum Inbound {
         method: String,
         params: Option<Value>,
     },
-    Stderr(String),
+    /// One stderr line; `host_seq` names the agent host entry it came from.
+    Stderr(String, Option<u64>),
     /// The agent process with this pid exited. The pid tells a late exit of
     /// a replaced process apart from the current one.
     Exited {
         pid: Option<u32>,
         code: Option<i32>,
+        host_seq: Option<u64>,
     },
 }
 
-pub type Tap = Arc<dyn Fn(Direction, &Message) + Send + Sync>;
+/// Logs one wire message. The `u64` is the agent host entry it logs, when
+/// the agent runs under a host (`hostSeq` on the record).
+pub type Tap = Arc<dyn Fn(Direction, &Message, Option<u64>) + Send + Sync>;
+
+/// A Claude stream-json harness's translator state.
+#[derive(Debug, Clone, Default)]
+pub struct ClaudeState {
+    pub session_id: Option<String>,
+    pub modes: Value,
+    pub config_options: Value,
+}
+
+/// The answer to one request, as `ChildAgent::request` returns it.
+pub type Response = oneshot::Receiver<Result<Value, RpcError>>;
+
+/// The agent runs under an `__agent-host` process (durable sessions).
+struct Hosted {
+    link: Arc<crate::agent_host::link::Link>,
+    exited: std::sync::atomic::AtomicBool,
+    exit: tokio::sync::Notify,
+}
+
+/// How a hosted agent was reached.
+pub enum Attached {
+    /// The agent, what its host reported, and a receiver per id in
+    /// `awaiting`, registered before any replayed entry was read.
+    Ready(Arc<ChildAgent>, crate::agent_host::link::Adopted, Vec<Response>),
+    /// The host runs a protocol this build does not speak; it keeps running.
+    Incompatible { min: u16, max: u16, host_build: String },
+}
 
 /// How long `kill` lets the agent's process group exit after SIGTERM.
 const KILL_GRACE: std::time::Duration = std::time::Duration::from_millis(300);
@@ -71,8 +102,81 @@ pub struct ChildAgent {
     pending: Arc<Mutex<Pending>>,
     tap: Tap,
     pub pid: Option<u32>,
-    /// Present when the child speaks Claude's stream-json instead of ACP.
+    /// Present when the child speaks Claude's stream-json instead of ACP
+    /// and runs directly under acpmux (a host owns its own translator).
     pub translator: Option<Arc<crate::claude_stdio::Translator>>,
+    hosted: Option<Hosted>,
+}
+
+/// The harness command line and environment, as acpmux runs it: the login
+/// environment, no nested-agent markers, the session's `ACPMUX_*` caller
+/// context, and the profile's env. Shared by direct children and hosts.
+pub(crate) fn harness_command(
+    name: &str,
+    profile: &HarnessProfile,
+    cwd: &std::path::Path,
+    command_line: Option<(String, Vec<String>)>,
+    session: Option<(&str, &str)>,
+) -> Result<Command> {
+    let owned: (String, Vec<String>) = match command_line {
+        Some(c) => c,
+        None => {
+            let (program, args) = profile
+                .argv
+                .split_first()
+                .ok_or_else(|| anyhow!("agent {name} has an empty argv"))?;
+            (program.clone(), args.to_vec())
+        }
+    };
+    let (program, args) = (&owned.0, &owned.1);
+    let mut cmd = Command::new(program);
+    crate::login_env::apply_tokio(&mut cmd);
+    crate::config::scrub_nested_claude_env_tokio(&mut cmd);
+    // Caller context, herdr-style: the agent knows which session it is.
+    for (k, _) in std::env::vars_os() {
+        if k.to_string_lossy().starts_with("ACPMUX_") {
+            cmd.env_remove(&k);
+        }
+    }
+    // A nested launch must not be taken for its parent's thread.
+    cmd.env_remove("CODEX_THREAD_ID").env_remove("OMPCODE");
+    if let Some((id, sname)) = session {
+        cmd.env("ACPMUX_ENV", "1")
+            .env("ACPMUX_SESSION_ID", id)
+            .env("ACPMUX_SESSION_NAME", sname)
+            .env("ACPMUX_SOCKET", crate::config::socket_path());
+    }
+    cmd.args(args)
+        .envs(profile.env.iter())
+        // Claude refuses to nest inside another Claude session.
+        .env_remove("CLAUDECODE")
+        .env_remove("CLAUDE_CODE_ENTRYPOINT")
+        .current_dir(cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        // Own process group, so stopping the session stops everything the
+        // agent started underneath it (background shells included).
+        .process_group(0)
+        .kill_on_drop(true);
+    Ok(cmd)
+}
+
+/// The full environment `cmd` gives its child (inherited, then changed).
+pub(crate) fn command_env(cmd: &Command) -> Vec<(String, String)> {
+    let mut env: std::collections::BTreeMap<String, String> = std::env::vars().collect();
+    for (k, v) in cmd.as_std().get_envs() {
+        let k = k.to_string_lossy().into_owned();
+        match v {
+            Some(v) => {
+                env.insert(k, v.to_string_lossy().into_owned());
+            }
+            None => {
+                env.remove(&k);
+            }
+        }
+    }
+    env.into_iter().collect()
 }
 
 impl ChildAgent {
@@ -102,47 +206,7 @@ impl ChildAgent {
         // it can drive its own session and siblings through the CLI.
         session: Option<(&str, &str)>,
     ) -> Result<Arc<Self>> {
-        let owned: (String, Vec<String>) = match command_line {
-            Some(c) => c,
-            None => {
-                let (program, args) = profile
-                    .argv
-                    .split_first()
-                    .ok_or_else(|| anyhow!("agent {name} has an empty argv"))?;
-                (program.clone(), args.to_vec())
-            }
-        };
-        let (program, args) = (&owned.0, &owned.1);
-        let mut cmd = Command::new(program);
-        crate::login_env::apply_tokio(&mut cmd);
-        crate::config::scrub_nested_claude_env_tokio(&mut cmd);
-        // Caller context, herdr-style: the agent knows which session it is.
-        for (k, _) in std::env::vars_os() {
-            if k.to_string_lossy().starts_with("ACPMUX_") {
-                cmd.env_remove(&k);
-            }
-        }
-        // A nested launch must not be taken for its parent's thread.
-        cmd.env_remove("CODEX_THREAD_ID").env_remove("OMPCODE");
-        if let Some((id, sname)) = session {
-            cmd.env("ACPMUX_ENV", "1")
-                .env("ACPMUX_SESSION_ID", id)
-                .env("ACPMUX_SESSION_NAME", sname)
-                .env("ACPMUX_SOCKET", crate::config::socket_path());
-        }
-        cmd.args(args)
-            .envs(profile.env.iter())
-            // Claude refuses to nest inside another Claude session.
-            .env_remove("CLAUDECODE")
-            .env_remove("CLAUDE_CODE_ENTRYPOINT")
-            .current_dir(cwd)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            // Own process group, so stopping the session stops everything the
-            // agent started underneath it (background shells included).
-            .process_group(0)
-            .kill_on_drop(true);
+        let mut cmd = harness_command(name, profile, cwd, command_line, session)?;
         let mut child = cmd
             .spawn()
             .with_context(|| format!("spawn agent {name}: {}", profile.argv.join(" ")))?;
@@ -162,6 +226,7 @@ impl ChildAgent {
             tap: tap.clone(),
             pid,
             translator: translator.clone(),
+            hosted: None,
         });
 
         // Writer task.
@@ -183,7 +248,7 @@ impl ChildAgent {
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
-                    let _ = inbound.send(Inbound::Stderr(line)).await;
+                    let _ = inbound.send(Inbound::Stderr(line, None)).await;
                 }
             });
         }
@@ -233,7 +298,7 @@ impl ChildAgent {
                             Ok(v) => v,
                             Err(_) => {
                                 let _ = inbound
-                                    .send(Inbound::Stderr(format!("[non-json stdout] {line}")))
+                                    .send(Inbound::Stderr(format!("[non-json stdout] {line}"), None))
                                     .await;
                                 continue;
                             }
@@ -247,11 +312,15 @@ impl ChildAgent {
                                 .map(|s| format!(".{s}"))
                                 .unwrap_or_default()
                         );
-                        tap(Direction::In, &Message::notification(&kind, raw.clone()));
+                        tap(Direction::In, &Message::notification(&kind, raw.clone()), None);
                         let translated = tr.inbound(&raw).await;
                         // Answers the translator owes claude itself.
                         for l in tr.take_stdin_replies().await {
-                            tap(Direction::Out, &Message::notification("claude.stdin", l.clone()));
+                            tap(
+                                Direction::Out,
+                                &Message::notification("claude.stdin", l.clone()),
+                                None,
+                            );
                             let mut s = l.to_string();
                             s.push('\n');
                             let _ = agent_for_exit.stdin_tx.send(s).await;
@@ -260,20 +329,20 @@ impl ChildAgent {
                         // native ACP traffic, so the log and viewers see them.
                         for m in &translated {
                             if !matches!(m, Message::Response { .. }) {
-                                tap(Direction::In, m);
+                                tap(Direction::In, m, None);
                             }
                         }
                         translated
                     } else {
                         match Message::parse(&line) {
                             Ok(m) => {
-                                tap(Direction::In, &m);
+                                tap(Direction::In, &m, None);
                                 vec![m]
                             }
                             Err(e) => {
                                 tracing::warn!(agent = %agent_for_exit.name, "bad line from agent: {e}: {line}");
                                 let _ = inbound
-                                    .send(Inbound::Stderr(format!("[non-json stdout] {line}")))
+                                    .send(Inbound::Stderr(format!("[non-json stdout] {line}"), None))
                                     .await;
                                 continue;
                             }
@@ -307,7 +376,9 @@ impl ChildAgent {
                 }
                 drop(p);
                 let code = agent_for_exit.wait_exit().await;
-                let _ = inbound.send(Inbound::Exited { pid: agent_for_exit.pid, code }).await;
+                let _ = inbound
+                    .send(Inbound::Exited { pid: agent_for_exit.pid, code, host_seq: None })
+                    .await;
             });
         }
         Ok(agent)
@@ -331,6 +402,10 @@ impl ChildAgent {
     }
 
     pub async fn kill(&self) {
+        if self.hosted.is_some() {
+            self.terminate(KILL_GRACE).await;
+            return;
+        }
         let mut guard = self.child.lock().await;
         // The saved group id, not `child.id()`: once the leader is reaped
         // that is None, and its background processes would survive.
@@ -358,6 +433,24 @@ impl ChildAgent {
     /// to `grace` for it to exit, then SIGKILL the group (stragglers
     /// included). Never waits on a lock or a pipe without a deadline.
     pub async fn terminate(&self, grace: std::time::Duration) {
+        if let Some(h) = &self.hosted {
+            if h.exited.load(Ordering::SeqCst) || h.link.is_closed() {
+                return;
+            }
+            let exited = h.exit.notified();
+            tokio::pin!(exited);
+            exited.as_mut().enable();
+            if h.exited.load(Ordering::SeqCst) {
+                return;
+            }
+            if h.link.terminate(grace).await.is_ok() {
+                // The host's exit entry ends the wait; the bound covers a
+                // host that cannot report it.
+                let _ = tokio::time::timeout(grace + std::time::Duration::from_secs(1), exited)
+                    .await;
+            }
+            return;
+        }
         let pgid = self.pid.map(|p| p as i32);
         if let Some(pg) = pgid {
             unsafe {
@@ -385,6 +478,9 @@ impl ChildAgent {
     }
 
     pub async fn is_alive(&self) -> bool {
+        if let Some(h) = &self.hosted {
+            return !h.exited.load(Ordering::SeqCst) && !h.link.is_closed();
+        }
         let mut guard = self.child.lock().await;
         match guard.as_mut() {
             Some(child) => matches!(child.try_wait(), Ok(None)),
@@ -393,7 +489,11 @@ impl ChildAgent {
     }
 
     async fn write(&self, msg: &Message) -> Result<()> {
-        (self.tap)(Direction::Out, msg);
+        if let Some(h) = &self.hosted {
+            // The host writes it and logs it back as an `out` entry.
+            return h.link.line(msg.to_value()).await;
+        }
+        (self.tap)(Direction::Out, msg, None);
         if let Some(tr) = &self.translator {
             match tr.outbound(msg).await {
                 crate::claude_stdio::Outbound::Lines(lines) => {
@@ -401,6 +501,7 @@ impl ChildAgent {
                         (self.tap)(
                             Direction::Out,
                             &Message::notification("claude.stdin", l.clone()),
+                            None,
                         );
                         let mut s = l.to_string();
                         s.push('\n');
@@ -456,5 +557,170 @@ impl ChildAgent {
             Err(e) => Message::err(id, e),
         };
         self.write(&msg).await
+    }
+
+    /// Register interest in the response to a request a previous controller
+    /// sent this agent (a recovered turn); it arrives like any other.
+    pub async fn await_response(&self, id: Id) -> oneshot::Receiver<Result<Value, RpcError>> {
+        let (tx, rx) = oneshot::channel();
+        self.pending.lock().await.map.insert(key(&id), tx);
+        rx
+    }
+
+    /// The Claude translator's state, wherever the translator runs.
+    pub async fn claude_state(&self) -> Option<ClaudeState> {
+        if let Some(tr) = &self.translator {
+            return Some(ClaudeState {
+                session_id: tr.session_id.lock().await.clone(),
+                modes: tr.modes_value().await,
+                config_options: tr.config_options_value().await,
+            });
+        }
+        let reply = self.hosted.as_ref()?.link.query().await.ok()?;
+        Some(ClaudeState {
+            session_id: reply.claude_session_id,
+            modes: reply.modes?,
+            config_options: reply.config_options.unwrap_or(Value::Null),
+        })
+    }
+
+    /// The host record when this agent runs under a host.
+    pub fn host_record(&self) -> Option<&crate::agent_host::HostRecord> {
+        self.hosted.as_ref().map(|h| &h.link.record)
+    }
+
+    /// Leave a hosted agent running and let go of it (daemon shutdown or
+    /// upgrade). A direct child cannot outlive acpmux and is terminated.
+    pub async fn detach(&self, grace: std::time::Duration) {
+        match &self.hosted {
+            Some(h) => {
+                let _ = tokio::time::timeout(grace, h.link.detach()).await;
+            }
+            None => self.terminate(grace).await,
+        }
+    }
+
+    /// Start the agent under a new `__agent-host` process.
+    pub async fn spawn_hosted(
+        name: &str,
+        spec: crate::agent_host::SpawnSpec,
+        launcher: &crate::agent_host::link::HostLauncher,
+        inbound: mpsc::Sender<Inbound>,
+        tap: Tap,
+    ) -> Result<Arc<Self>> {
+        let record = crate::agent_host::link::spawn(launcher, &spec).await?;
+        match Self::attach_hosted(name, record, 0, Vec::new(), inbound, tap).await? {
+            Attached::Ready(agent, _, _) => Ok(agent),
+            Attached::Incompatible { .. } => Err(anyhow!("a host of this build refused it")),
+        }
+    }
+
+    /// Become the owner of a running host and resume after `resume_after`,
+    /// the last entry of it already in the session log.
+    pub async fn attach_hosted(
+        name: &str,
+        record: crate::agent_host::HostRecord,
+        resume_after: u64,
+        awaiting: Vec<Id>,
+        inbound: mpsc::Sender<Inbound>,
+        tap: Tap,
+    ) -> Result<Attached> {
+        use crate::agent_host::link::{Connect, connect};
+        let (link, adopted) = match connect(record, resume_after).await? {
+            Connect::Ready(link, adopted) => (Arc::new(link), adopted),
+            Connect::Incompatible { min, max, host_build } => {
+                return Ok(Attached::Incompatible { min, max, host_build });
+            }
+        };
+        // Never reuse an id the harness may still answer.
+        let (stdin_tx, _unused) = mpsc::channel::<String>(1);
+        // Answers to requests a previous controller sent may be among the
+        // replayed entries: register them before the reader starts.
+        let mut map = HashMap::new();
+        let mut responses = Vec::new();
+        for id in awaiting {
+            let (tx, rx) = oneshot::channel();
+            map.insert(key(&id), tx);
+            responses.push(rx);
+        }
+        let pending = Arc::new(Mutex::new(Pending { map }));
+        let agent = Arc::new(Self {
+            name: name.to_owned(),
+            child: Mutex::new(None),
+            stdin_tx,
+            next_id: AtomicI64::new(adopted.max_out_id.max(0) + 1),
+            pending: pending.clone(),
+            tap: tap.clone(),
+            pid: adopted.harness_pid,
+            translator: None,
+            hosted: Some(Hosted {
+                link: link.clone(),
+                exited: std::sync::atomic::AtomicBool::new(false),
+                exit: tokio::sync::Notify::new(),
+            }),
+        });
+        let reader = agent.clone();
+        tokio::spawn(async move {
+            let mut entries = link.entries.lock().await;
+            while let Some((h, entry)) = entries.recv().await {
+                reader.on_host_entry(h, entry, &inbound).await;
+                if link.ack(h).await.is_err() {
+                    break;
+                }
+            }
+            // The connection ended: superseded, detached, or the host died.
+            let mut p = pending.lock().await;
+            for (_, tx) in p.map.drain() {
+                let _ = tx.send(Err(RpcError::internal("agent process closed")));
+            }
+        });
+        Ok(Attached::Ready(agent, adopted, responses))
+    }
+
+    async fn on_host_entry(&self, h: u64, entry: crate::agent_host::Entry, inbound: &mpsc::Sender<Inbound>) {
+        use crate::agent_host::{Entry, TapDir};
+        match entry {
+            Entry::Tap { dir, msg } => {
+                if let Ok(m) = Message::from_value(msg) {
+                    let d = if dir == TapDir::In { Direction::In } else { Direction::Out };
+                    (self.tap)(d, &m, Some(h));
+                }
+            }
+            Entry::In { msg } => {
+                let Ok(m) = Message::from_value(msg) else { return };
+                (self.tap)(Direction::In, &m, Some(h));
+                match m {
+                    Message::Response { id, result, error } => {
+                        if let Some(tx) = self.pending.lock().await.map.remove(&key(&id)) {
+                            let _ = tx.send(match error {
+                                Some(e) => Err(e),
+                                None => Ok(result.unwrap_or(Value::Null)),
+                            });
+                        }
+                    }
+                    Message::Request { id, method, params } => {
+                        let _ = inbound.send(Inbound::Request { id, method, params }).await;
+                    }
+                    Message::Notification { method, params } => {
+                        let _ = inbound.send(Inbound::Notification { method, params }).await;
+                    }
+                }
+            }
+            Entry::Err { line } => {
+                let _ = inbound.send(Inbound::Stderr(line, Some(h))).await;
+            }
+            Entry::Exit { code } => {
+                let mut p = self.pending.lock().await;
+                for (_, tx) in p.map.drain() {
+                    let _ = tx.send(Err(RpcError::internal("agent process closed")));
+                }
+                drop(p);
+                if let Some(hosted) = &self.hosted {
+                    hosted.exited.store(true, Ordering::SeqCst);
+                    hosted.exit.notify_waiters();
+                }
+                let _ = inbound.send(Inbound::Exited { pid: self.pid, code, host_seq: Some(h) }).await;
+            }
+        }
     }
 }

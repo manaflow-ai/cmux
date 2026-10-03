@@ -11,6 +11,7 @@
 
 pub mod adopt;
 pub mod agent;
+pub mod agent_host;
 pub mod claude_stdio;
 pub mod cli;
 pub mod client;
