@@ -14,22 +14,21 @@ use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::time::Duration;
 
 pub fn run(opts: &Opts) -> Res<()> {
-    // No default: the host must listen only on a private VPC or overlay address in phase 1,
-    // because the hello's principal claims are trusted until the link token arrives.
-    let bind: IpAddr =
-        opts.get("bind").ok_or("--bind <private VPC or overlay address> is required")?.parse()?;
-    if !is_private(bind) && opts.get("allow-non-private") != Some("1") {
-        return Err(format!(
-            "--bind {bind} is not a loopback, RFC 1918, CGNAT (100.64/10) or ULA address; phase 1 trusts the hello's \
-             claims, so it must not listen there (override: --allow-non-private 1)"
-        )
-        .into());
+    // Until the link token (lane 12) authenticates hello claims, the host trusts them, so by
+    // default it listens on loopback only and refuses every non-loopback peer. A private
+    // single-tenant overlay needs the explicit flag below.
+    let reach = if opts.get("single-tenant-overlay") == Some("1") { Reach::SingleTenantOverlay } else { Reach::LoopbackOnly };
+    let bind: IpAddr = opts.str_or("bind", "127.0.0.1").parse()?;
+    if let Err(e) = bind_allowed(bind, reach) {
+        return Err(e.into());
     }
     eprintln!(
-        "cmux-rd host: phase 1 trusts the principal claims in each hello: every process that can reach {bind} can \
-         claim the owner and an interactive person, including agent VMs on a team VPC and every tailnet \
-         node on a 100.64/10 address. Use loopback (through SSH or a tunnel) or a single-tenant overlay \
-         until the link token (lane 12) replaces the claims."
+        "cmux-rd host: development only. The host trusts the principal claims in each hello until the link \
+         token (lane 12) authenticates them, so it serves {}.",
+        match reach {
+            Reach::LoopbackOnly => "loopback peers only (reach it through SSH or a tunnel)",
+            Reach::SingleTenantOverlay => "a private single-tenant overlay (--single-tenant-overlay 1): every process on that network can claim the owner",
+        }
     );
     let port: u16 = opts.num_or("port", OVERLAY_PORT)?;
     let owner =
@@ -70,6 +69,13 @@ pub fn run(opts: &Opts) -> Res<()> {
             }
         };
         let peer = stream.peer_addr().map(|a| a.to_string()).unwrap_or_default();
+        match stream.peer_addr() {
+            Ok(addr) if peer_allowed(addr.ip(), reach) => {}
+            _ => {
+                eprintln!("refused peer {peer}: not allowed in {reach:?} mode");
+                continue;
+            }
+        }
         match serve_viewer(stream, &udp, &mut table, &cfg) {
             Ok(reason) => eprintln!("viewer {peer} ended: {reason}"),
             Err(e) => eprintln!("viewer {peer} failed: {e}"),
@@ -81,6 +87,15 @@ pub fn run(opts: &Opts) -> Res<()> {
     Ok(())
 }
 
+/// Which peers the host serves while hello claims are unauthenticated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reach {
+    /// The default: loopback binds and loopback peers only.
+    LoopbackOnly,
+    /// Explicit opt-in: a private single-tenant overlay (RFC 1918, CGNAT, ULA) or loopback.
+    SingleTenantOverlay,
+}
+
 /// Loopback, RFC 1918, CGNAT (overlay) or IPv6 ULA; never the unspecified address.
 fn is_private(ip: IpAddr) -> bool {
     match ip {
@@ -89,6 +104,27 @@ fn is_private(ip: IpAddr) -> bool {
             v4.is_loopback() || v4.is_private() || (o[0] == 100 && (o[1] & 0xc0) == 64)
         }
         IpAddr::V6(v6) => v6.is_loopback() || (v6.segments()[0] & 0xfe00) == 0xfc00,
+    }
+}
+
+/// May the host listen on `bind` in this mode?
+pub fn bind_allowed(bind: IpAddr, reach: Reach) -> Result<(), String> {
+    match reach {
+        Reach::LoopbackOnly if bind.is_loopback() => Ok(()),
+        Reach::LoopbackOnly => Err(format!(
+            "--bind {bind} is not loopback; until the link token authenticates hello claims, the host binds \
+             loopback only (a private single-tenant overlay needs --single-tenant-overlay 1)"
+        )),
+        Reach::SingleTenantOverlay if is_private(bind) => Ok(()),
+        Reach::SingleTenantOverlay => Err(format!("--bind {bind} is not a loopback or private overlay address")),
+    }
+}
+
+/// May a viewer connecting from `peer` be served in this mode? Checked before the hello is read.
+pub fn peer_allowed(peer: IpAddr, reach: Reach) -> bool {
+    match reach {
+        Reach::LoopbackOnly => peer.is_loopback(),
+        Reach::SingleTenantOverlay => is_private(peer),
     }
 }
 
@@ -238,4 +274,39 @@ fn stream_session(
     let reason = media.run(stream, reader, udp, table, session, principal);
     media.release_input();
     Ok(reason)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ip(s: &str) -> IpAddr {
+        s.parse().expect("ip")
+    }
+
+    #[test]
+    fn default_mode_refuses_every_non_loopback_peer() {
+        for peer in ["10.250.93.2", "100.64.1.2", "192.168.1.5", "8.8.8.8", "fd7c::1", "2001:db8::1"] {
+            assert!(!peer_allowed(ip(peer), Reach::LoopbackOnly), "{peer}");
+        }
+        assert!(peer_allowed(ip("127.0.0.1"), Reach::LoopbackOnly));
+        assert!(peer_allowed(ip("::1"), Reach::LoopbackOnly));
+    }
+
+    #[test]
+    fn default_mode_binds_loopback_only() {
+        assert!(bind_allowed(ip("127.0.0.1"), Reach::LoopbackOnly).is_ok());
+        for bind in ["0.0.0.0", "10.250.93.1", "100.64.0.1", "::"] {
+            assert!(bind_allowed(ip(bind), Reach::LoopbackOnly).is_err(), "{bind}");
+        }
+    }
+
+    #[test]
+    fn overlay_mode_is_private_only() {
+        assert!(bind_allowed(ip("10.250.93.1"), Reach::SingleTenantOverlay).is_ok());
+        assert!(bind_allowed(ip("0.0.0.0"), Reach::SingleTenantOverlay).is_err());
+        assert!(bind_allowed(ip("8.8.8.8"), Reach::SingleTenantOverlay).is_err());
+        assert!(peer_allowed(ip("10.250.93.2"), Reach::SingleTenantOverlay));
+        assert!(!peer_allowed(ip("8.8.8.8"), Reach::SingleTenantOverlay));
+    }
 }

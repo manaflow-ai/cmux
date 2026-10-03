@@ -7,7 +7,7 @@ packetizer, reassembly, frame gate, congestion control, input, sessions and acce
 policy): `cmux-rd-core`.
 
 ```
-cmux-rd host    --owner USER --bind PRIVATE_ADDR [--display :99] [--port 4103] [--codec openh264]
+cmux-rd host    --owner USER [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99] [--port 4103] [--codec openh264]
 cmux-rd bench   --addr HOST:4103 [--carrier udp|stream] [--samples 300] [--user USER]
 cmux-rd testapp --display :99 --workload marker|text|motion|idle
 ```
@@ -36,7 +36,10 @@ VM), never on a Mac: `cargo build --release`.
 
 ## Security (phase 1)
 
-- `--bind` has no default and must be a loopback, RFC 1918, CGNAT or ULA address.
+- Development only. By default the host binds loopback (`--bind 127.0.0.1`) and refuses every
+  non-loopback peer before it reads the hello. Reach it through SSH or a tunnel. A private
+  single-tenant overlay (RFC 1918, CGNAT or ULA address) needs the explicit
+  `--single-tenant-overlay 1`; public addresses are always refused.
 - Known gap until the overlay link token (lane 12) replaces them: the host trusts the
   principal claims in the `hello`. Every process that can reach the bind address can claim
   the owner and an interactive person, including agent VMs on a team VPC and every tailnet
