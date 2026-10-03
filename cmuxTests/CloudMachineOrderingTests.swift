@@ -134,7 +134,9 @@ struct CloudMachineOrderingTests {
         #expect(outline.machineLift.slot == 2, "c keeps its place among a, b and d")
         try fixture.end(drag)
         #expect(fixture.order == ["a", "b", "c", "d"])
-        #expect(outline.isItemExpanded(try fixture.root("a")) && outline.isItemExpanded(try fixture.root("b")))
+        let reopenedA = try fixture.root("a")
+        let reopenedB = try fixture.root("b")
+        #expect(outline.isItemExpanded(reopenedA) && outline.isItemExpanded(reopenedB))
     }
 
     @Test("A lifted drag released on its own slot moves nothing and reopens machines")
