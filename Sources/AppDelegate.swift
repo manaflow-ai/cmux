@@ -19632,13 +19632,14 @@ private extension NSWindow {
         if event.type == .keyDown, let app = AppDelegate.shared, cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: app) { return }
         let terminalInputIsRouted: Bool = {
             guard event.type == .keyDown,
-                  let context = contextForMainWindow(self) ?? contextForMainTerminalWindow(self),
+                  let app = AppDelegate.shared,
+                  let context = app.contextForMainWindow(self) ?? app.contextForMainTerminalWindow(self),
                   context.tabManager.selectedWorkspace?.focusedTerminalInputTarget() != nil else {
                 return false
             }
             guard let firstResponder = self.firstResponder else { return true }
-            return !shouldRespectForeignFirstResponder(firstResponder, in: self, isRightSidebarOwner: {
-                isRightSidebarFocusResponder($0, in: self)
+            return !app.shouldRespectForeignFirstResponder(firstResponder, in: self, isRightSidebarOwner: {
+                app.isRightSidebarFocusResponder($0, in: self)
             })
         }()
         if terminalInputIsRouted { AppDelegate.shared?.recordTypingActivity() }
