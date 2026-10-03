@@ -115,7 +115,9 @@ public extension OnboardingServices {
     func scanAgentChats() async -> [AgentChat] { [] }
     func resumeChats(_ chats: [AgentChat]) {}
     var canImportClassicSessions: Bool { false }
-    func scanClassicSessions() async -> [ClassicSessionWorkspace] { (try? ClassicSessionImporter().read()) ?? [] }
+    func scanClassicSessions() async -> [ClassicSessionWorkspace] {
+        await Task.detached { (try? ClassicSessionImporter().read()) ?? [] }.value
+    }
     func importClassicSessions(_ workspaces: [ClassicSessionWorkspace]) {}
     var homeDirectory: URL { FileManager.default.homeDirectoryForCurrentUser }
 }

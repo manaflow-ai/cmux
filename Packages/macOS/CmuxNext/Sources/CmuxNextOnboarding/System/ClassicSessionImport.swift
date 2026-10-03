@@ -18,6 +18,7 @@ public nonisolated struct ClassicSessionImporter: Sendable {
     /// Returns the saved workspaces, or an empty list when classic cmux has no snapshot.
     public func read() throws -> [ClassicSessionWorkspace] {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
+        // concurrency-allow: callers hop to a detached utility task; the synchronous API stays fixture-testable.
         let data = try Data(contentsOf: fileURL, options: [.mappedIfSafe])
         return try decode(data)
     }
