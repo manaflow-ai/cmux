@@ -36,7 +36,7 @@ struct CloudWorkspaceSidebarPresentation {
     @MainActor
     static func deviceLabel(workspace: Workspace, catalog: SurfaceCatalog? = nil) -> String? {
         let catalog = catalog ?? .shared
-        deviceLabel(workspace: workspace, machines: deviceMachines(for: workspace, catalog: catalog), catalog: catalog)
+        return deviceLabel(workspace: workspace, machines: deviceMachines(for: workspace, catalog: catalog), catalog: catalog)
     }
 
     static var unavailableDirectory: String {
