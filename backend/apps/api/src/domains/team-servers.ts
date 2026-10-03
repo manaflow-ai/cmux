@@ -8,8 +8,10 @@ import type { TeamState } from "./team.ts"
  * Servers in the team directory (plans/cmux-next/server.md 6). A server is a
  * host of kind `server` with the tag `tag:server`, owned by the user who
  * approved its pairing. TeamDO is the single writer; the Worker's approve
- * route reaches `server.enrolled` only through `TeamDO.enrollServer`, which
- * checks the approver's role first.
+ * route reaches `server.enrolled` only through `TeamDO.enrollServer`.
+ * `server.enrolled` checks the approver's role in the same commit as its
+ * outcome: the host, or (role lost after the Worker registered the install)
+ * a refusal plus the pending revocation of that install.
  */
 
 type Row = { kind: string; entity: string; payload: unknown }
@@ -45,13 +47,27 @@ export const reduceServerInstallRevoked = (state: TeamState, params: unknown): O
   return { ok: true, state: { ...state, server_revocations: rest }, value: { install } }
 }
 
+/** What `server.enrolled` answers when the approver may no longer add servers (TeamDO.enrollServer reads it). */
+export interface ServerEnrollRefused {
+  readonly refused: true
+  readonly install: string
+  readonly message: string
+}
+
+const ENROLL_REFUSED = "only team owners and admins may add a server"
+
 export const reduceServerEnrolled = (state: TeamState, params: unknown, ctx: ReduceContext): Out => {
   if (!state.team) return reject("validation.invalid", "team not initialized")
   const v = params as { install: string; name: string; platform: typeof Host.Type["platform"]; wg_public_key: string; owner_user: string; approved_by: string }
-  if (!state.members[v.owner_user]) return reject("auth.forbidden", "the server owner is not a member of this team")
   // One host per install: a replayed or repeated approval of the same install keeps the host id.
   const existing = Object.values(state.hosts).find((h) => h.enrolled_by === v.install)
   if (existing && existing.kind !== "server") return reject("validation.invalid", "this install is already a device host")
+  if (!mayEnrollServer(state, v.approved_by)) {
+    // A host already exists: an earlier commit decided this enrollment; server.revoke owns that host.
+    if (existing) return reject("auth.forbidden", ENROLL_REFUSED)
+    return refuseEnrollment(state, ctx, v)
+  }
+  if (!state.members[v.owner_user]) return reject("auth.forbidden", "the server owner is not a member of this team")
   const host: typeof Host.Type = {
     id: existing?.id ?? ctx.newId("host"),
     name: v.name,
@@ -71,6 +87,27 @@ export const reduceServerEnrolled = (state: TeamState, params: unknown, ctx: Red
     owner_user: v.owner_user,
     approved_by: v.approved_by
   })
+}
+
+/**
+ * The approver lost the right to add servers between the Worker's role check
+ * and this commit, after UserDO registered the server's install. The refusal
+ * and a pending revocation of that install commit together, so no install is
+ * left without a host: TeamDO pushes `install.revoke_by_team` and retries until
+ * UserDO confirms. The result is a committed refusal, so a retry with the same
+ * idempotency key replays it and can never add a host for the revoked install.
+ */
+const refuseEnrollment = (state: TeamState, ctx: ReduceContext, v: { install: string; name: string; owner_user: string; approved_by: string }): Out => {
+  const value: ServerEnrollRefused = { refused: true, install: v.install, message: ENROLL_REFUSED }
+  if (state.server_revocations?.[v.install]) return { ok: true, state, value, changed: false }
+  const pending: ServerRevocation = { install: v.install, owner_user: v.owner_user, by: v.approved_by, at: ctx.now }
+  const next = { ...state, server_revocations: { ...(state.server_revocations ?? {}), [v.install]: pending } }
+  const a = appendAudit(next, state.team!.id, ctx, "server.enrolled", `server ${v.name} not paired: the approver may no longer add servers`, {
+    install: v.install,
+    approved_by: v.approved_by,
+    refused: true
+  })
+  return { ok: true, state: a.state, value, outbox: [a.outbox] }
 }
 
 /** Removes a server host; the Worker then revokes its install key in the owner's UserDO. */

@@ -12,7 +12,7 @@ import { ssoExternal } from "./team-sso-external.ts"
 import { ssoCallback, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-login.ts"
 import { stackServer, type StackServer } from "./stack-server.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
-import { mayEnrollServer } from "./domains/team-servers.ts"
+import { mayEnrollServer, type ServerEnrollRefused } from "./domains/team-servers.ts"
 import { sshCaView } from "./domains/team-ssh.ts"
 import { sshExternal } from "./team-ssh-ca.ts"
 
@@ -276,32 +276,42 @@ export class TeamDO extends OwnerDO<TeamState> {
     return { sso: Boolean(connectionForDomain(engine.currentState, domain)) }
   }
 
-  /**
-   * RPC from the Worker's `server.pair.approve` route (plans/cmux-next/server.md 6.2):
-   * the approver must be a signed-in owner or admin of this team, never an install
-   * or an agent; then the internal `server.enrolled` commits the host. Keyed by the
-   * pairing code, so a retried approval returns the same host.
-   */
-  /** May this signed-in principal add a server to this team? Checked before the approval writes anything. */
+  /** May this signed-in principal add a server to this team? An early refusal before the approval writes anything. */
   async canEnrollServer(entity: string, principal: Principal): Promise<boolean> {
     const engine = this.bind(entity)
     return principal.kind === "session" && !principal.agent && Boolean(principal.user) && mayEnrollServer(engine.currentState, principal.user)
   }
 
+  /**
+   * RPC from the Worker's `server.pair.approve` route (plans/cmux-next/server.md 6.2),
+   * after UserDO registered the server's install. `server.enrolled` checks the
+   * approver's role in the same commit as the host; when the role is gone it
+   * commits a refusal and the install's revocation instead, which this call
+   * pushes to UserDO at once (the alarm retries). Keyed by the pairing code, so
+   * a retried approval replays the same host or the same refusal.
+   */
   async enrollServer(
     entity: string,
     principal: Principal,
     params: { install: string; name: string; platform: string; wg_public_key: string },
     idempotencyKey: string
-  ): Promise<{ ok: true; host: string } | { ok: false; code: string; message: string }> {
-    const engine = this.bind(entity)
+  ): Promise<{ ok: true; host: string } | { ok: false; code: string; message: string; refused?: true }> {
+    this.bind(entity)
     if (principal.kind !== "session" || principal.agent || !principal.user) return { ok: false, code: "auth.forbidden", message: "only a signed-in user may approve a server" }
-    if (!mayEnrollServer(engine.currentState, principal.user)) return { ok: false, code: "auth.forbidden", message: "only team owners and admins may add a server" }
     const res = this.submitSystem("server.enrolled", { ...params, owner_user: principal.user, approved_by: principal.user }, idempotencyKey)
     const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
     if (!reply || reply.t !== "result") return { ok: false, code: reply && reply.t === "reject" ? reply.code : "owner.unreachable", message: reply && reply.t === "reject" ? reply.message : "no reply" }
-    return { ok: true, host: (reply.value as { id: string }).id }
+    const value = reply.value as { id: string } | ServerEnrollRefused
+    if ("refused" in value) {
+      await this.flushServerRevocations(entity)
+      return { ok: false, code: "auth.forbidden", message: value.message, refused: true }
+    }
+    return { ok: true, host: value.id }
   }
+
+  /** The owner's UserDO for revocation pushes; tests replace it to fail the RPC. */
+  userOwner = (user: string): { revokeByTeam(entity: string, team: string, install: string, by: string, idempotencyKey: string): Promise<unknown> } =>
+    this.env.USER_DO.get(this.env.USER_DO.idFromName(user))
 
   /** Backoff after a failed revocation push (in memory: a restart retries at once). */
   private revokeRetryAt: number | null = null
@@ -319,7 +329,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     const pending = Object.values(engine.currentState.server_revocations ?? {})
     const revoked: Array<string> = []
     for (const r of pending) {
-      const user = this.env.USER_DO.get(this.env.USER_DO.idFromName(r.owner_user))
+      const user = this.userOwner(r.owner_user)
       let res: { ok: boolean; code?: string }
       try {
         res = (await user.revokeByTeam(r.owner_user, entity, r.install, r.by, `team-revoke:${entity}:${r.install}`)) as { ok: boolean; code?: string }
