@@ -80,6 +80,17 @@
     "interfaces": [
       "cmux.editor/1",
       "cmux.diff.source/1"
+    ],
+    "ops": [
+      "git.status",
+      "git.diff",
+      "diff.get",
+      "diff.decide",
+      "diff.comment.add"
+    ],
+    "handles": [
+      "diff",
+      "document"
     ]
   },
   "scopes": {
@@ -91,7 +102,8 @@
   "optionalScopes": {
     "git:write": "Stage or discard a hunk when you click Stage or Discard.",
     "diff:write": "Record your accept, reject and comments on a proposed diff.",
-    "feed:write": "Send your review back to the agent that asked for it."
+    "feed:write": "Send your review back to the agent that asked for it.",
+    "embed:run": "Show file diffs in your editor app."
   },
   "handles": {
     "diff": "Open a diff resource that an agent or an automation proposed to you.",

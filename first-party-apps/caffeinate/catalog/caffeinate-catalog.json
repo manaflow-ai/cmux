@@ -28,7 +28,8 @@
       },
       "docs": "Keep the Mac awake until you stop it.",
       "since": "caffeinate/1",
-      "export": "keepAwake"
+      "export": "keepAwake",
+      "gesture": "required"
     },
     {
       "name": "caffeinate.keep_awake_hour",
@@ -136,7 +137,44 @@
       },
       "docs": "Keep the Mac awake with a preset: until stopped, for a time, or until a terminal's command, a task or a process ends.",
       "since": "caffeinate/1",
-      "export": "start"
+      "export": "start",
+      "palette": {
+        "title": "Keep Awake…",
+        "presets": [
+          {
+            "id": "until-stopped",
+            "title": {
+              "en": "Keep Awake Until Stopped",
+              "ja": "停止するまでスリープしない"
+            },
+            "args": {
+              "preset": "untilStopped"
+            }
+          },
+          {
+            "id": "one-hour",
+            "title": {
+              "en": "Keep Awake for 1 Hour",
+              "ja": "1 時間スリープしない"
+            },
+            "args": {
+              "preset": "hour"
+            }
+          },
+          {
+            "id": "while-command",
+            "title": {
+              "en": "Keep Awake While This Command Runs",
+              "ja": "このコマンドの実行中はスリープしない"
+            },
+            "args": {
+              "preset": "command"
+            },
+            "when": "paneFocused:terminal"
+          }
+        ]
+      },
+      "gesture": "optional"
     },
     {
       "name": "caffeinate.stop",
@@ -169,7 +207,8 @@
       },
       "docs": "Stop one keep-awake assertion (pwr_ id from list). Stopping one that someone else started needs a person.",
       "since": "caffeinate/1",
-      "export": "stop"
+      "export": "stop",
+      "gesture": "required"
     },
     {
       "name": "caffeinate.stop_all",
@@ -198,7 +237,8 @@
       },
       "docs": "Stop every keep-awake assertion that cmux holds.",
       "since": "caffeinate/1",
-      "export": "stopAll"
+      "export": "stopAll",
+      "gesture": "required"
     },
     {
       "name": "caffeinate.list",

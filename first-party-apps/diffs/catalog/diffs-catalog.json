@@ -120,7 +120,8 @@
       },
       "docs": "Open a proposed diff (feed review request, diff resource or automation run) for review.",
       "since": "diffs/1",
-      "export": "review"
+      "export": "review",
+      "gesture": "optional"
     },
     {
       "name": "diffs.review_latest",

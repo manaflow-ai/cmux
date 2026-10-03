@@ -94,5 +94,23 @@
     "catalog/",
     "strings/",
     "LICENSE-executor"
-  ]
+  ],
+  "notices": [
+    {
+      "path": "LICENSE-executor",
+      "title": "executor (MIT License)"
+    }
+  ],
+  "consumes": {
+    "ops": [
+      "integration.list",
+      "integration.connect",
+      "integration.status",
+      "integration.revoke",
+      "integration.tools.list",
+      "integration.tools.policy.set",
+      "integration.catalog.preview",
+      "integration.mcp.set"
+    ]
+  }
 }

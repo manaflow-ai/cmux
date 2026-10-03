@@ -295,7 +295,8 @@
       },
       "docs": "Export one note or every note as Markdown files into a folder you pick.",
       "since": "notes/1",
-      "export": "exportNotes"
+      "export": "exportNotes",
+      "gesture": "required"
     },
     {
       "name": "notes.import",
@@ -324,7 +325,8 @@
       },
       "docs": "Import Markdown files you pick as notes.",
       "since": "notes/1",
-      "export": "importNotes"
+      "export": "importNotes",
+      "gesture": "required"
     },
     {
       "name": "notes.open",

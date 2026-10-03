@@ -94,5 +94,33 @@
     "assets/",
     "catalog/",
     "strings/"
-  ]
+  ],
+  "requires": {
+    "hostCapabilities": [
+      "power.assertion/1"
+    ],
+    "platforms": [
+      "macos"
+    ]
+  },
+  "lifecycle": {
+    "onDisable": "release-owned",
+    "onUninstall": "release-owned"
+  },
+  "handles": {
+    "terminal": "Keep the Mac awake while the command in this terminal runs.",
+    "task": "Keep the Mac awake until this task is done."
+  },
+  "consumes": {
+    "ops": [
+      "power.assertion.create",
+      "power.assertion.release",
+      "power.assertion.list",
+      "power.assertion.watch"
+    ],
+    "handles": [
+      "terminal",
+      "task"
+    ]
+  }
 }

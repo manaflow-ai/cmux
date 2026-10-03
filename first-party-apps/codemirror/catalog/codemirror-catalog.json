@@ -68,7 +68,14 @@
       },
       "docs": "Save the focused editor's document, or the document handle given.",
       "since": "codemirror/1",
-      "export": "save"
+      "export": "save",
+      "keyboard": [
+        {
+          "key": "cmd+s",
+          "when": "paneFocused:editor"
+        }
+      ],
+      "gesture": "optional"
     },
     {
       "name": "codemirror.revert",
@@ -101,7 +108,8 @@
       },
       "docs": "Drop unsaved edits and show the saved revision of the document.",
       "since": "codemirror/1",
-      "export": "revert"
+      "export": "revert",
+      "gesture": "required"
     },
     {
       "name": "codemirror.toggle_read_only",

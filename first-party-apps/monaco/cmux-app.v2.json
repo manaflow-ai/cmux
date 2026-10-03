@@ -151,5 +151,38 @@
     "strings/",
     "web/",
     "THIRD_PARTY_NOTICES"
-  ]
+  ],
+  "openWith": [
+    {
+      "interface": "cmux.editor/1",
+      "types": [
+        "public.source-code",
+        "public.plain-text",
+        "public.json",
+        "net.daringfireball.markdown"
+      ],
+      "default": "ask"
+    }
+  ],
+  "handles": {
+    "document": {
+      "reason": "Edit the file you open with this editor.",
+      "rights": [
+        "read",
+        "write"
+      ],
+      "max": 64
+    }
+  },
+  "consumes": {
+    "ops": [
+      "document.open",
+      "document.edit",
+      "document.save",
+      "document.revert"
+    ],
+    "handles": [
+      "document"
+    ]
+  }
 }

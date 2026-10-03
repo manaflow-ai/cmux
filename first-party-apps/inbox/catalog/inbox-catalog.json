@@ -28,7 +28,8 @@
       },
       "docs": "Open the Inbox pane.",
       "since": "inbox_app/1",
-      "export": "openInbox"
+      "export": "openInbox",
+      "gesture": "optional"
     },
     {
       "name": "inbox_app.mark_all_read",
@@ -92,7 +93,8 @@
       },
       "docs": "Select the next inbox item and, by default, open it.",
       "since": "inbox_app/1",
-      "export": "nextItem"
+      "export": "nextItem",
+      "gesture": "optional"
     },
     {
       "name": "inbox_app.previous_item",
@@ -127,7 +129,8 @@
       },
       "docs": "Select the previous inbox item and, by default, open it.",
       "since": "inbox_app/1",
-      "export": "previousItem"
+      "export": "previousItem",
+      "gesture": "optional"
     },
     {
       "name": "inbox_app.open_item",
@@ -161,7 +164,8 @@
       },
       "docs": "Open an inbox item (the selected one when no id is given).",
       "since": "inbox_app/1",
-      "export": "openItem"
+      "export": "openItem",
+      "gesture": "optional"
     },
     {
       "name": "inbox_app.mark_done",
