@@ -27,10 +27,13 @@ function bystander(): ChildProcess {
   return child;
 }
 
-function startTime(pid: number): string {
-  return spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], { env: { ...process.env, LC_ALL: "C", TZ: "UTC" } })
+/** The OS start time of a process, epoch ms. */
+function startMs(pid: number): number {
+  const text = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], { env: { ...process.env, LC_ALL: "C", TZ: "UTC" } })
     .stdout.toString()
-    .trim();
+    .trim()
+    .replace(/\s+/g, " ");
+  return Date.parse(`${text} UTC`);
 }
 
 describe("MUX_HOME lock and pid reuse", () => {
@@ -38,7 +41,7 @@ describe("MUX_HOME lock and pid reuse", () => {
     const path = lockPath();
     const other = bystander();
     // The crashed owner had this pid but started at another time.
-    writeFileSync(path, `${other.pid}\nThu Jan  1 00:00:00 1970\n`);
+    writeFileSync(path, `${other.pid}\n0\n`);
     const release = takeLock(path);
     expect(release).toBeDefined();
     expect(Number(readFileSync(path, "utf8").split("\n")[0])).toBe(process.pid);
@@ -49,7 +52,7 @@ describe("MUX_HOME lock and pid reuse", () => {
     const path = lockPath();
     const other = bystander();
     const pid = other.pid ?? 0;
-    writeFileSync(path, `${pid}\n${startTime(pid)}\n`);
+    writeFileSync(path, `${pid}\n${startMs(pid)}\n`);
     expect(takeLock(path)).toBeUndefined();
   });
 });
