@@ -9,6 +9,7 @@ mod host_close;
 mod host_death_tests;
 mod idle_close;
 mod kitty_reservation;
+pub(crate) mod launch_identity;
 pub(crate) mod layout_invariants;
 mod layout_ratio_error;
 mod personal;
@@ -2548,6 +2549,8 @@ pub struct Mux {
     /// attached clients stay where they are.
     last_reported_focus: Mutex<Option<(PaneId, Option<usize>)>>,
     conversations: crate::conversation_store::ConversationHost,
+    /// The launch keys (plans/cmux-next/identity.md section 2).
+    launch_identity: launch_identity::LaunchIdentity,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -2988,7 +2991,11 @@ impl Mux {
             );
         surface_options.browser_session_name = session.clone();
         Self::rebuild_split_screen_index(&mut state);
+        let launch_identity = launch_identity::LaunchIdentity::load(
+            registry.session_journal_database_path().as_deref().and_then(Path::parent),
+        );
         let mux = Arc::new(Mux {
+            launch_identity,
             workspace_registry: SignaledMutex::new(registry),
             session_public_id,
             machine_public_id,

@@ -289,3 +289,23 @@ fn stopped_owner_reload_error_is_localized_for_human_output() {
         assert!(status.success(), "{locale} localization probe failed");
     }
 }
+
+#[test]
+fn the_launch_credential_goes_only_to_the_terminals_own_session() {
+    use std::path::{Path, PathBuf};
+    let own = Some(PathBuf::from("/tmp/cmux-tui-test/own.sock"));
+    let credential = Some("cmuxlc1.k.c.m".to_string());
+    assert_eq!(
+        super::launch_credential_from(credential.clone(), own.clone(), Path::new("/tmp/cmux-tui-test/own.sock")),
+        credential
+    );
+    assert_eq!(
+        super::launch_credential_from(credential.clone(), own.clone(), Path::new("/tmp/cmux-tui-test/other.sock")),
+        None
+    );
+    assert_eq!(super::launch_credential_from(credential, None, Path::new("/tmp/x.sock")), None);
+    assert_eq!(
+        super::launch_credential_from(Some(String::new()), own, Path::new("/tmp/cmux-tui-test/own.sock")),
+        None
+    );
+}

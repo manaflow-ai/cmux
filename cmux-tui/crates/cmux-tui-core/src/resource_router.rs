@@ -710,6 +710,26 @@ pub(crate) struct ParsedResourceRequest {
     pub envelope: RequestEnvelope,
     pub selectors: ResourceSelectors,
     pub fields: Map<String, Value>,
+    /// Who made the request, resolved by the connection dispatcher from the
+    /// envelope's credential (the local user when none is presented).
+    pub actor: cmux_local_auth::Actor,
+}
+
+impl ParsedResourceRequest {
+    /// A `WorkspaceMutation` with this request's idempotency key, `origin`
+    /// and actor.
+    pub(crate) fn mutation(
+        &self,
+        origin: &str,
+    ) -> anyhow::Result<crate::workspace_registry::WorkspaceMutation> {
+        let key = self
+            .envelope
+            .idempotency_key
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("mutation without an idempotency key"))?;
+        Ok(crate::workspace_registry::WorkspaceMutation::new(key, origin)?
+            .with_actor(self.actor.clone()))
+    }
 }
 
 pub(crate) fn is_resource_protocol_message(message: &str) -> bool {
@@ -793,7 +813,12 @@ pub(crate) fn parse_resource_request(
     })?;
     envelope.validate()?;
     let (selectors, fields) = validate_catalog_params(envelope.operation, &envelope.params)?;
-    Ok(ParsedResourceRequest { envelope, selectors, fields })
+    Ok(ParsedResourceRequest {
+        envelope,
+        selectors,
+        fields,
+        actor: cmux_local_auth::Actor::local_user(),
+    })
 }
 
 fn dispatch_resource_request(
@@ -1259,15 +1284,7 @@ fn ack_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Value,
             )
         })
         .collect::<Result<Vec<_>, ResourceError>>()?;
-    let mutation = crate::workspace_registry::WorkspaceMutation::new(
-        request
-            .envelope
-            .idempotency_key
-            .clone()
-            .expect("catalog-validated mutations have an idempotency key"),
-        "resource-api",
-    )
-    .map_err(resource_operation_error)?;
+    let mutation = request.mutation("resource-api").map_err(resource_operation_error)?;
     let ack = mux
         .ack_notifications(
             &mutation,
@@ -1290,15 +1307,7 @@ fn clear_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
             )
         })
         .transpose()?;
-    let mutation = crate::workspace_registry::WorkspaceMutation::new(
-        request
-            .envelope
-            .idempotency_key
-            .clone()
-            .expect("catalog-validated mutations have an idempotency key"),
-        "resource-api",
-    )
-    .map_err(resource_operation_error)?;
+    let mutation = request.mutation("resource-api").map_err(resource_operation_error)?;
     let commit = mux
         .clear_notifications(&mutation, expected_revision(&request.fields)?, terminal_id.as_ref())
         .map_err(|error| {

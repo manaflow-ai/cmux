@@ -101,8 +101,8 @@ impl WorkspaceRegistry {
         )?;
         tx.execute(
             "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+               origin, idempotency_key, operation, fingerprint, result_json, committed_revision, actor_json
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 mutation.origin,
                 mutation.id,
@@ -110,6 +110,7 @@ impl WorkspaceRegistry {
                 fingerprint,
                 result_json,
                 sqlite_revision,
+                crate::workspace_registry::mutation_actor_json(&mutation.actor),
             ],
         )?;
         append_resource_journal_record(

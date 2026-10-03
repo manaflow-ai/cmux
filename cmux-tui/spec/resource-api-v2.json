@@ -444,7 +444,8 @@
         "id": {"$ref": "#/$defs/requestId"},
         "operation": {"$ref": "#/$defs/operation"},
         "params": {"type": "object"},
-        "idempotency_key": {"$ref": "#/$defs/idempotencyKey"}
+        "idempotency_key": {"$ref": "#/$defs/idempotencyKey"},
+        "credential": {"type": "string", "minLength": 1, "maxLength": 2048}
       },
       "allOf": [
         {

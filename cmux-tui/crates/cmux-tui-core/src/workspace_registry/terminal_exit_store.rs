@@ -341,14 +341,15 @@ impl WorkspaceRegistry {
         )?;
         tx.execute(
             "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, 'terminal-exited', ?3, ?4, ?5)",
+               origin, idempotency_key, operation, fingerprint, result_json, committed_revision, actor_json
+             ) VALUES(?1, ?2, 'terminal-exited', ?3, ?4, ?5, ?6)",
             params![
                 &mutation.origin,
                 &mutation.id,
                 &fingerprint_json,
                 &result_json,
                 sqlite_resource_revision,
+                crate::workspace_registry::mutation_actor_json(&mutation.actor),
             ],
         )?;
         append_resource_journal_record(

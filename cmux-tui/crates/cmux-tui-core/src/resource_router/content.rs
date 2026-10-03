@@ -1234,15 +1234,7 @@ fn destination_selectors(
 }
 
 fn resource_mutation(request: &ParsedResourceRequest) -> Result<WorkspaceMutation, ResourceError> {
-    WorkspaceMutation::new(
-        request
-            .envelope
-            .idempotency_key
-            .clone()
-            .expect("catalog-validated mutations have an idempotency key"),
-        "resource-api",
-    )
-    .map_err(super::operation_failed)
+    request.mutation("resource-api").map_err(super::operation_failed)
 }
 
 fn intent_fields<'a>(

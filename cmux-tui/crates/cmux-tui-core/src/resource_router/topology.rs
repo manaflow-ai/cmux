@@ -279,7 +279,7 @@ fn create_workspace(
         return dispatch_exact_topology_mutation(mux, ResourceOperation::WorkspaceCreate, request);
     }
     let ephemeral = request.fields.get("ephemeral").and_then(Value::as_bool).unwrap_or(false);
-    let mutation = mutation(&request.envelope)?;
+    let mutation = mutation(&request)?;
     let correlation_key =
         request.fields.get("correlation_key").and_then(Value::as_str).unwrap_or(&mutation.id);
     let commit = mux
@@ -306,7 +306,7 @@ fn dispatch_exact_topology_mutation(
     operation: ResourceOperation,
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
-    let mutation = mutation(&request.envelope)?;
+    let mutation = mutation(&request)?;
     let expected_revision = expected_revision(&request.fields)?;
     let commit = mux
         .resource_topology_operation(
@@ -395,12 +395,8 @@ fn result_id<'a>(
     })
 }
 
-fn mutation(envelope: &RequestEnvelope) -> Result<WorkspaceMutation, ResourceError> {
-    WorkspaceMutation::new(
-        envelope.idempotency_key.clone().expect("catalog-validated mutations have a key"),
-        "resource-api",
-    )
-    .map_err(resource_operation_error)
+fn mutation(request: &ParsedResourceRequest) -> Result<WorkspaceMutation, ResourceError> {
+    request.mutation("resource-api").map_err(resource_operation_error)
 }
 
 #[cfg(test)]
@@ -434,9 +430,11 @@ mod tests {
                 operation,
                 params: json!({}),
                 idempotency_key: key.map(str::to_string),
+                credential: None,
             },
             selectors,
             fields: fields.as_object().unwrap().clone(),
+            actor: cmux_local_auth::Actor::local_user(),
         }
     }
 

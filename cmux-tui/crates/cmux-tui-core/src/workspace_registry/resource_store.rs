@@ -168,6 +168,7 @@ pub(crate) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
            fingerprint TEXT NOT NULL,
            result_json TEXT NOT NULL,
            committed_revision INTEGER NOT NULL,
+           actor_json TEXT CHECK(actor_json IS NULL OR json_valid(actor_json)),
            PRIMARY KEY(idempotency_key)
          );
          CREATE TABLE IF NOT EXISTS resource_agent_projections (
@@ -292,6 +293,7 @@ pub(crate) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
            ON resource_agent_hook_pending(terminal_id, event_sequence, idempotency_key);",
     )?;
     screen_rows::create_column_dock_schema(transaction)?;
+    ensure_resource_mutation_actor_column(transaction)?;
     migrate_tab_name_authority(transaction)
 }
 
@@ -487,7 +489,8 @@ pub(crate) fn migrate_resource_mutations_to_session_scope(
            operation TEXT NOT NULL,
            fingerprint TEXT NOT NULL,
            result_json TEXT NOT NULL,
-           committed_revision INTEGER NOT NULL
+           committed_revision INTEGER NOT NULL,
+           actor_json TEXT CHECK(actor_json IS NULL OR json_valid(actor_json))
          );
          INSERT INTO resource_mutations(
            idempotency_key, origin, operation, fingerprint, result_json, committed_revision
@@ -997,8 +1000,8 @@ impl WorkspaceRegistry {
                     tx.execute(
                         "INSERT INTO resource_mutations(
                            origin, idempotency_key, operation, fingerprint, result_json,
-                           committed_revision
-                         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+                           committed_revision, actor_json
+                         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                         params![
                             mutation.origin,
                             mutation.id,
@@ -1007,7 +1010,8 @@ impl WorkspaceRegistry {
                             stored_result_json,
                             i64::try_from(previous_revision)
                                 .context("resource revision exceeds SQLite range")?,
-                        ],
+                                crate::workspace_registry::mutation_actor_json(&mutation.actor),
+                            ],
                     )?;
                     prune_resource_mutations(&tx)?;
                     tx.commit()?;
@@ -1068,8 +1072,8 @@ impl WorkspaceRegistry {
         )?;
         tx.execute(
             "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+               origin, idempotency_key, operation, fingerprint, result_json, committed_revision, actor_json
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 mutation.origin,
                 mutation.id,
@@ -1077,6 +1081,7 @@ impl WorkspaceRegistry {
                 fingerprint,
                 result_json,
                 sqlite_revision,
+                crate::workspace_registry::mutation_actor_json(&mutation.actor),
             ],
         )?;
         append_resource_journal_record(
@@ -1153,8 +1158,8 @@ impl WorkspaceRegistry {
         )?;
         tx.execute(
             "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+               origin, idempotency_key, operation, fingerprint, result_json, committed_revision, actor_json
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 mutation.origin,
                 mutation.id,
@@ -1162,6 +1167,7 @@ impl WorkspaceRegistry {
                 fingerprint,
                 result_json,
                 sqlite_revision,
+                crate::workspace_registry::mutation_actor_json(&mutation.actor),
             ],
         )?;
         append_resource_journal_record(
@@ -1258,8 +1264,8 @@ impl WorkspaceRegistry {
         )?;
         tx.execute(
             "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+               origin, idempotency_key, operation, fingerprint, result_json, committed_revision, actor_json
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 mutation.origin,
                 mutation.id,
@@ -1267,6 +1273,7 @@ impl WorkspaceRegistry {
                 fingerprint,
                 result_json,
                 sqlite_revision,
+                crate::workspace_registry::mutation_actor_json(&mutation.actor),
             ],
         )?;
         append_resource_journal_record(
@@ -1530,8 +1537,8 @@ impl WorkspaceRegistry {
         )?;
         tx.execute(
             "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+               origin, idempotency_key, operation, fingerprint, result_json, committed_revision, actor_json
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 mutation.origin,
                 mutation.id,
@@ -1539,6 +1546,7 @@ impl WorkspaceRegistry {
                 fingerprint,
                 result_json,
                 sqlite_revision,
+                crate::workspace_registry::mutation_actor_json(&mutation.actor),
             ],
         )?;
         append_resource_journal_record(
@@ -1649,8 +1657,8 @@ impl WorkspaceRegistry {
         )?;
         tx.execute(
             "INSERT INTO resource_mutations(
-               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+               origin, idempotency_key, operation, fingerprint, result_json, committed_revision, actor_json
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 mutation.origin,
                 mutation.id,
@@ -1658,6 +1666,7 @@ impl WorkspaceRegistry {
                 fingerprint,
                 result_json,
                 sqlite_revision,
+                crate::workspace_registry::mutation_actor_json(&mutation.actor),
             ],
         )?;
         append_resource_journal_record(
@@ -5326,6 +5335,28 @@ fn ensure_no_foreign_key_violations(transaction: &Transaction<'_>) -> anyhow::Re
         anyhow::bail!(
             "resource topology foreign-key violation: table={table} rowid={rowid} parent={parent:?} index={index}"
         );
+    }
+    Ok(())
+}
+
+/// Add `actor_json` to registries created before the actor stamp
+/// (plans/cmux-next/identity.md section 3). Rows written before it have no
+/// actor (NULL). Forward-only: an older daemon does not write the column, so
+/// rolling back after the new daemon ran leaves later rows without actors.
+pub(crate) fn ensure_resource_mutation_actor_column(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    let has_actor = transaction
+        .prepare("PRAGMA table_info(resource_mutations)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|column| column == "actor_json");
+    if !has_actor {
+        transaction.execute_batch(
+            "ALTER TABLE resource_mutations ADD COLUMN actor_json TEXT
+               CHECK(actor_json IS NULL OR json_valid(actor_json));",
+        )?;
     }
     Ok(())
 }

@@ -623,6 +623,11 @@ pub struct RequestEnvelope {
     pub params: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idempotency_key: Option<String>,
+    /// The caller's launch credential (`CMUX_LAUNCH_CREDENTIAL`), local
+    /// socket only (plans/cmux-next/identity.md section 3). It names the
+    /// actor; it is never part of the idempotency fingerprint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential: Option<String>,
 }
 
 impl RequestEnvelope {

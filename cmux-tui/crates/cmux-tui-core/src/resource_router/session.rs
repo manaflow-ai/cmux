@@ -154,15 +154,7 @@ fn update_terminal_defaults(
         },
     };
     let value = terminal_defaults_snapshot(colors);
-    let mutation = WorkspaceMutation::new(
-        request
-            .envelope
-            .idempotency_key
-            .clone()
-            .expect("validated mutations have an idempotency key"),
-        "resource-api",
-    )
-    .map_err(resource_operation_error)?;
+    let mutation = request.mutation("resource-api").map_err(resource_operation_error)?;
     let fields = Value::Object(request.fields.clone());
     let commit = mux
         .resource_update_terminal_defaults_selected(
@@ -249,6 +241,7 @@ mod tests {
                 operation,
                 params: json!({}),
                 idempotency_key: Some(idempotency_key.to_string()),
+                credential: None,
             },
             selectors: crate::ResourceSelectors {
                 machine: Some("current".to_string()),
@@ -256,6 +249,7 @@ mod tests {
                 ..Default::default()
             },
             fields: fields.as_object().unwrap().clone(),
+            actor: cmux_local_auth::Actor::local_user(),
         }
     }
 

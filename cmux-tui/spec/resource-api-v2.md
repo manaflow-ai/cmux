@@ -237,6 +237,15 @@ Failure:
 }
 ```
 
+A request may carry `credential`, the caller's launch credential
+(`CMUX_LAUNCH_CREDENTIAL` in a cmux terminal). Only the local Unix socket
+accepts it. The server verifies it and records the terminal it names as the
+request's actor beside `origin` (plans/cmux-next/identity.md in the cmux
+repository). A credential that is tampered, for another session, or for a
+closed terminal is refused with `validation.invalid` on field `credential`; a
+credential whose key was rotated away counts as absent. The credential is
+never part of the idempotency fingerprint, so a replay keeps the first actor.
+
 Reads omit `idempotency_key`. Every mutation requires a key containing 1 to
 128 UTF-8 bytes, at least one Unicode scalar outside the Unicode `White_Space`
 property, and no Unicode `Cc` control scalar. Leading, trailing, and internal
