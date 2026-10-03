@@ -170,7 +170,10 @@ impl WorkspaceRegistry {
 
     /// Drop the items of `ids` only, as notifications an older daemon wrote.
     #[cfg(test)]
-    pub(crate) fn forget_feed_local_items_for_test(&mut self, ids: &[String]) -> anyhow::Result<()> {
+    pub(crate) fn forget_feed_local_items_for_test(
+        &mut self,
+        ids: &[String],
+    ) -> anyhow::Result<()> {
         for id in ids {
             self.connection.execute("DELETE FROM feed_local_items WHERE item_id = ?1", [id])?;
         }
