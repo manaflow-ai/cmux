@@ -121,19 +121,18 @@ impl Viewer {
                 _ => {}
             }
         }
-        let mut buf = vec![0u8; 65536];
-        loop {
-            let got = match &self.udp {
-                Some((s, _)) => s.recv_from(&mut buf),
-                None => break,
-            };
-            match got {
-                Ok((n, _)) => {
-                    let d = buf[..n].to_vec();
-                    self.on_datagram(&d);
+        if let Some((sock, _)) = &self.udp {
+            let sock = sock.try_clone()?;
+            let mut buf = vec![0u8; 65536];
+            loop {
+                match sock.recv_from(&mut buf) {
+                    Ok((n, _)) => {
+                        let d = buf[..n].to_vec();
+                        self.on_datagram(&d);
+                    }
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                    Err(e) => return Err(e.into()),
                 }
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(e) => return Err(e.into()),
             }
         }
         self.reassembler.tick(now_ns() / 1000);
