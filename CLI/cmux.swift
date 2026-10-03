@@ -12938,7 +12938,11 @@ struct CMUXCLI {
             workspaceName: workspaceName,
             initialCommand: initialCommand,
             windowRaw: windowRaw ?? windowOverride,
-            noFocus: !(focus ?? Self.defaultFocusForUserOpen()),
+            // `cmux ssh` is an explicit interactive navigation command. Keep
+            // its historical behavior of selecting the connected workspace
+            // unless the caller passes `--no-focus`; script/agent callers can
+            // opt out explicitly without silently leaving the new pane behind.
+            noFocus: focus == false,
             sshOptions: agentForwarding.sshOptions,
             remoteCommand: remoteCommand,
             terminalTransport: terminalTransport,
