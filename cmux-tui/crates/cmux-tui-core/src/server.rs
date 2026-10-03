@@ -105,6 +105,7 @@ mod personal;
 mod raw_tab;
 mod responses;
 mod screen_json;
+mod session_stream;
 mod split_respawn;
 pub use launch_snapshot::{
     LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
@@ -10585,7 +10586,6 @@ fn run_session_journal_stream(
     writer: &MessageWriter,
     mut stream: SessionJournalStreamStart,
 ) {
-    // `canceled` is only set together with closing `outbound`.
     let interrupt = StreamInterrupt::new();
     writer.register_interrupt(&interrupt);
     stream.outbound.register_interrupt(&interrupt);

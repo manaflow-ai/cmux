@@ -7690,6 +7690,7 @@ fn set_terminal_scroll_offset(term: &mut Terminal, target: u64) -> bool {
 
 #[cfg(test)]
 mod tests {
+    mod attach_tap;
     use base64::Engine as _;
     use std::sync::mpsc::sync_channel;
 
@@ -8798,30 +8799,6 @@ mod tests {
             terminal_color_override_delta(&previous, &TerminalColorOverrides::default()),
             b""
         );
-    }
-
-    #[test]
-    fn attach_tap_overflow_cancels_the_shared_lifecycle_once() {
-        let lifecycle = AttachLifecycle::default();
-        let (tap, _receiver) = AttachTap::pair(lifecycle.clone(), 1, usize::MAX);
-
-        assert!(tap.try_send(AttachFrame::ColorsChanged(Arc::new(TerminalColors::default()))));
-        assert!(!tap.try_send(AttachFrame::ColorsChanged(Arc::new(TerminalColors::default()))));
-        assert!(lifecycle.is_canceled());
-        assert!(lifecycle.overflowed());
-        assert!(lifecycle.claim_overflow_report());
-        assert!(!lifecycle.claim_overflow_report());
-    }
-
-    #[test]
-    fn attach_tap_overflow_is_bounded_by_retained_bytes() {
-        let lifecycle = AttachLifecycle::default();
-        let frame_bytes = AttachFrame::Output(vec![1]).retained_bytes();
-        let (tap, _receiver) = AttachTap::pair(lifecycle.clone(), 4, frame_bytes);
-
-        assert!(tap.try_send(AttachFrame::Output(vec![1])));
-        assert!(!tap.try_send(AttachFrame::Output(vec![2])));
-        assert!(lifecycle.overflowed());
     }
 
     #[test]
