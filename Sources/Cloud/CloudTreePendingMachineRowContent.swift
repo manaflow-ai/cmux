@@ -21,7 +21,10 @@ struct CloudTreePendingMachineRowContent: View {
                 HStack(alignment: .center, spacing: style.rowGrid.dotGap) {
                     name
                     statusGlyph
+                    // In a narrow sidebar the name gives way first: the status is
+                    // what the row is saying, and the tooltip carries the rest.
                     status
+                        .layoutPriority(1)
                     Spacer(minLength: style.rowGrid.trailingGap)
                 }
             }

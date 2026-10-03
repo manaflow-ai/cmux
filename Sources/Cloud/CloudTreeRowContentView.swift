@@ -15,6 +15,9 @@ struct CloudTreeRowContentView: View {
     var presenceHeads: [WorkspacePresenceParticipant] = []
     var style: CloudTreeStyle = CloudTreeStyleStore.current
     var resources: CloudTreeMachineResourceSection? = nil
+    /// A section header's refresh, and where its icon sits (the header's one clickable spot).
+    var onRefresh: (() -> Void)? = nil
+    var onInteractiveFrame: (CGRect?) -> Void = { _ in }
 
     var body: some View {
         row
@@ -146,12 +149,39 @@ struct CloudTreeRowContentView: View {
     /// leads with its identity glyph in the shared icon slot.
     @ViewBuilder
     private func groupRow(title: String) -> some View {
-        let label = CloudTreeGroupRowContent(title: title, count: Self.groupCount(for: kind), style: style)
         if let symbol = kind.sectionHeaderSymbol {
-            CloudTreeSectionHeaderRow(style: style, symbol: symbol) { label }
+            CloudTreeSectionHeaderRow(style: style, symbol: symbol) { groupLabel(title: title) }
         } else {
-            label
+            groupLabel(title: title)
         }
+    }
+
+    @ViewBuilder
+    private func groupLabel(title: String) -> some View {
+        if let refresh = Self.sectionRefresh(for: kind), let onRefresh {
+            CloudTreeSectionRefreshHeader(
+                title: title, count: Self.groupCount(for: kind), style: style, refresh: refresh,
+                label: Self.refreshLabel(for: kind), action: onRefresh, onInteractiveFrame: onInteractiveFrame
+            )
+        } else {
+            CloudTreeGroupRowContent(title: title, count: Self.groupCount(for: kind), style: style)
+        }
+    }
+
+    /// The refresh icon a section header carries after its count; nil shows none.
+    static func sectionRefresh(for kind: CloudTreeNode.Kind) -> CloudTreeSectionRefresh? {
+        switch kind {
+        case .cloudMachinesSection(_, _, let refresh): refresh
+        case .devicesSection(let section): CloudTreeSectionRefresh(isRefreshing: section.isRefreshing)
+        default: nil
+        }
+    }
+
+    private static func refreshLabel(for kind: CloudTreeNode.Kind) -> String {
+        if case .cloudMachinesSection = kind {
+            return String(localized: "cloudTree.action.refreshCloudMachines", defaultValue: "Refresh Cloud Machines")
+        }
+        return String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")
     }
 
     /// The count a group header shows after its title ("My Devices 2"); nil shows none.

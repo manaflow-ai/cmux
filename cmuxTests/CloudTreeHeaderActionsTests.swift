@@ -103,17 +103,16 @@ struct CloudTreeHeaderActionsTests {
         #expect(title.frame == restingTitleFrame)
     }
 
-    @Test("Section refresh icons show with the fleet and stay on screen while refreshing")
+    @Test("Section headers carry their refresh icon after the count, not with the hover buttons")
     func sectionRefresh() {
         let idle = CloudTreeNode.Kind.cloudMachinesSection(canCreateMachine: false, refresh: CloudTreeSectionRefresh())
-        #expect(CloudTreeRowHoverButtons.hasButtons(for: idle), "a plan at its limit still refreshes")
-        #expect(!CloudTreeRowHoverButtons.showsAtRest(for: idle))
-        let running = CloudTreeNode.Kind.cloudMachinesSection(
-            canCreateMachine: true, refresh: CloudTreeSectionRefresh(isRefreshing: true)
-        )
-        #expect(CloudTreeRowHoverButtons.showsAtRest(for: running))
-        #expect(!CloudTreeRowHoverButtons.showsAtRest(for: .devicesSection(CloudTreeDevicesSection())))
-        #expect(CloudTreeRowHoverButtons.showsAtRest(for: .devicesSection(CloudTreeDevicesSection(isRefreshing: true))))
+        #expect(CloudTreeRowContentView.sectionRefresh(for: idle) == CloudTreeSectionRefresh(), "a plan at its limit still refreshes")
+        #expect(!CloudTreeRowHoverButtons.hasButtons(for: idle))
+        #expect(CloudTreeRowContentView.sectionRefresh(for: .cloudMachinesSection(canCreateMachine: true)) == nil,
+                "no refresh while Cloud is off")
+        let running = CloudTreeNode.Kind.devicesSection(CloudTreeDevicesSection(isRefreshing: true))
+        #expect(CloudTreeRowContentView.sectionRefresh(for: running)?.isRefreshing == true)
+        #expect(CloudTreeRowContentView.sectionRefresh(for: .devicesSection(CloudTreeDevicesSection()))?.isRefreshing == false)
     }
 
     /// The header renders while Cloud Machines is off too; there it has nothing

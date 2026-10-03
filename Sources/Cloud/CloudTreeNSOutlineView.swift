@@ -259,7 +259,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
                 return !controls.isHiddenOrHasHiddenAncestor
             }
             if let actionHost = candidate as? CloudTreePassthroughHostingView,
-               !actionHost.passesThrough {
+               actionHost.acceptsClick(event) {
                 return !actionHost.isHiddenOrHasHiddenAncestor
             }
             view = candidate.superview
