@@ -250,6 +250,50 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
         return redactCodes(out, at: date)
     }
 
+    /// `data` with every registered value and its encodings masked. UTF-8
+    /// text is redacted as text. Other bytes (an image, an archive, text in
+    /// another encoding) get each value's UTF-8 bytes and its escaped forms
+    /// replaced by the mask's, then the ASCII forms (percent-encoded, Base64,
+    /// TOTP codes) matched over a Latin-1 view, one character per byte. The
+    /// cost is a few linear passes over the bytes. A value the bytes hold
+    /// only compressed or in another encoding is not found.
+    public func redact(_ data: Data) -> Data {
+        let matchers = lock.withLock { self.matchers }
+        guard !matchers.isEmpty, !data.isEmpty else { return data }
+        if let text = String(data: data, encoding: .utf8) {
+            let redacted = redact(text)
+            return redacted == text ? data : Data(redacted.utf8)
+        }
+        var out = data
+        for matcher in matchers {
+            let mask = Data(matcher.mask.utf8)
+            for literal in matcher.literals {
+                out = Self.replace(Data(literal.utf8), with: mask, in: out)
+            }
+        }
+        guard let latin = String(data: out, encoding: .isoLatin1) else { return out }
+        let redacted = redact(latin)
+        guard redacted != latin else { return out }
+        // A mask outside Latin-1 (a name in another script) is written lossily; it still hides the value.
+        return redacted.data(using: .isoLatin1, allowLossyConversion: true) ?? out
+    }
+
+    private static func replace(_ needle: Data, with replacement: Data, in data: Data) -> Data {
+        guard !needle.isEmpty, var hit = data.range(of: needle) else { return data }
+        var out = Data()
+        out.reserveCapacity(data.count)
+        var start = data.startIndex
+        while true {
+            out.append(data[start..<hit.lowerBound])
+            out.append(replacement)
+            start = hit.upperBound
+            guard let next = data.range(of: needle, in: start..<data.endIndex) else { break }
+            hit = next
+        }
+        out.append(data[start..<data.endIndex])
+        return out
+    }
+
     /// Masks the valid TOTP codes where they stand as a whole number (a code
     /// inside a longer run of digits is another number).
     private func redactCodes(_ text: String, at date: Date) -> String {
