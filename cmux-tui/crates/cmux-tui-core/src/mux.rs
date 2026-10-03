@@ -5707,7 +5707,22 @@ impl Mux {
         &self,
         terminal_id: &TerminalPublicId,
     ) -> Option<SurfaceId> {
-        self.state.lock().unwrap().terminal_catalog.get(terminal_id).map(|surface| surface.id)
+        // A tab that shows the terminal first: a restarted tab (`restart-tab`)
+        // shows a runtime whose own id is not a placement, and attaching
+        // clients expect the tab's surface. Else the runtime (no tab).
+        let state = self.state.lock().unwrap();
+        let runtime = state.terminal_catalog.get(terminal_id)?;
+        let placement = state
+            .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
+            .iter()
+            .copied()
+            .find(|placement| {
+                state
+                    .surfaces
+                    .get(placement)
+                    .is_some_and(|view| view.shares_terminal_runtime(runtime))
+            });
+        Some(placement.unwrap_or(runtime.id))
     }
 
     pub(crate) fn resource_selectors_for_pane(
