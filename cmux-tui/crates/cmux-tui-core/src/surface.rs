@@ -6742,13 +6742,11 @@ impl Surface {
     }
 }
 
+/// Set `key` to `value`, dropping every earlier entry for it: both spawn
+/// paths apply the list last-wins, so a duplicate must never survive.
 fn set_surface_environment(options: &mut SurfaceOptions, key: &str, value: &str) {
-    if let Some((_, current)) = options.extra_env.iter_mut().find(|(candidate, _)| candidate == key)
-    {
-        *current = value.into();
-    } else {
-        options.extra_env.push((key.into(), value.into()));
-    }
+    options.extra_env.retain(|(candidate, _)| candidate != key);
+    options.extra_env.push((key.into(), value.into()));
 }
 
 fn configure_agent_browser_session(options: &mut SurfaceOptions, terminal_id: &str) {

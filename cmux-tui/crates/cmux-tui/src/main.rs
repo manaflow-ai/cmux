@@ -1829,6 +1829,10 @@ fn run_main() {
         client_log::exit(cli::run(&raw_args, &usage()));
     }
     let args = parse_args(raw_args);
+    // A mux started by hand inside a cmux terminal must not act as that
+    // terminal, and its helpers (plugins, providers) must not inherit the
+    // credential: only `spawn_prelude` gives a child one.
+    remove_secret_environment_variable("CMUX_LAUNCH_CREDENTIAL");
     #[cfg(unix)]
     let provider_token = CapturedProviderToken::capture();
     let provider_workspace_authority = CapturedProviderWorkspaceAuthority::capture();
