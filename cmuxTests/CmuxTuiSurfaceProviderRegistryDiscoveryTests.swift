@@ -266,6 +266,49 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
         await registry.accessDidEnd()
     }
 
+    @Test("A later team switch and sign-out cancel background detail work")
+    func teamSwitchCancelsBackgroundDetails() async {
+        let catalog = SurfaceCatalog()
+        let firstStarted = CloudLinkFirstValue<Bool>()
+        let secondStarted = CloudLinkFirstValue<Bool>()
+        let firstCancelled = CloudLinkFirstValue<Bool>()
+        let secondCancelled = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        let firstReady = CloudLinkFirstValue<Bool>()
+        let secondReady = CloudLinkFirstValue<Bool>()
+        var team = "team-a"
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: { VMListPage(vms: [machine(team)], limits: nil) },
+            activeTeamID: { team },
+            refreshProvider: { provider, _ in
+                let first = provider.ownerTeamID == "team-a"
+                (first ? firstStarted : secondStarted).resolve(true)
+                _ = await release.result
+                (first ? firstCancelled : secondCancelled).resolve(Task.isCancelled)
+                return true
+            }
+        )
+        registry.start(catalog: catalog)
+        let first = Task { await registry.teamScopeDidChange(); firstReady.resolve(true) }
+        #expect(await boundedResult(firstStarted))
+        #expect(await boundedResult(firstReady))
+        team = "team-b"
+        let second = Task { await registry.teamScopeDidChange(); secondReady.resolve(true) }
+        #expect(await boundedResult(secondStarted))
+        #expect(await boundedResult(secondReady))
+        #expect(await boundedResult(firstCancelled))
+        #expect(registry.provider(machineID: "team-a") == nil)
+        #expect(registry.provider(machineID: "team-b")?.ownerTeamID == "team-b")
+        await registry.accessDidEnd()
+        #expect(await boundedResult(secondCancelled))
+        release.resolve(true)
+        await first.value
+        await second.value
+        #expect(catalog.snapshot.machines.isEmpty)
+    }
+
     @Test("A saved machine can resolve its private route before the first background list")
     func privateRouteDiscoversBeforeFirstPoll() async {
         let catalog = SurfaceCatalog()
