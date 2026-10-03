@@ -15,6 +15,18 @@ struct HibernationPlannerTests {
         #expect(plan.exemptions["a"] == .disabled)
     }
 
+    /// Waking a page restores its history and loads the current entry. When
+    /// that entry is a form submission (POST), WebKit sends it again with no
+    /// prompt (payment, delete): such a page never hibernates, even under
+    /// critical pressure.
+    @Test func aPageShowingAFormSubmissionNeverHibernates() {
+        let plan = HibernationPlanner.plan(BrowserHibernationSetting(mode: .aggressive), pressure: .critical,
+                                           candidates: [Candidate(key: "post", hiddenFor: 100_000, showsFormSubmission: true),
+                                                        Candidate(key: "get", hiddenFor: 100_000)])
+        #expect(plan.due == ["get"])
+        #expect(plan.exemptions["post"] == .formSubmission)
+    }
+
     @Test func timeThresholdsFollowTheMode() {
         let candidates = [Candidate(key: "old", hiddenFor: 61 * 60), Candidate(key: "new", hiddenFor: 5 * 60)]
         let moderate = HibernationPlanner.plan(.fallback, pressure: .normal, candidates: candidates)
