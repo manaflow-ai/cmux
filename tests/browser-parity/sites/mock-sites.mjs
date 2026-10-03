@@ -308,9 +308,15 @@ const VIDEOS = {
   // Web tracks need the player's token; the IOS client is refused, ANDROID_VR answers.
   vidNative03: { title: "Native Captions", pot: true, clients: ["ANDROID_VR"] },
   vidNoCaps04: { title: "No Captions", pot: false, none: true },
+  // Page data whose caption track URLs point at another site (github.com,
+  // which holds a session cookie); the player itself loads YouTube's.
+  vidForeign5: { title: "Foreign Captions", pot: false, captionOrigin: "https://github.com" },
 };
 
-const captionsFor = (id, client) => ({ playerCaptionsTracklistRenderer: { captionTracks: [{ baseUrl: `https://www.youtube.com/api/timedtext?v=${id}&lang=en&c=${client}`, languageCode: "en", name: { simpleText: "English" } }, { baseUrl: `https://www.youtube.com/api/timedtext?v=${id}&lang=en&kind=asr&c=${client}`, languageCode: "en", kind: "asr", name: { simpleText: "English (auto-generated)" } }] } });
+const captionsFor = (id, client) => {
+  const origin = (VIDEOS[id] && VIDEOS[id].captionOrigin) || "https://www.youtube.com";
+  return { playerCaptionsTracklistRenderer: { captionTracks: [{ baseUrl: `${origin}/api/timedtext?v=${id}&lang=en&c=${client}`, languageCode: "en", name: { simpleText: "English" } }, { baseUrl: `${origin}/api/timedtext?v=${id}&lang=en&kind=asr&c=${client}`, languageCode: "en", kind: "asr", name: { simpleText: "English (auto-generated)" } }] } };
+};
 
 function watchPage(id) {
   const v = VIDEOS[id];

@@ -53,6 +53,13 @@ test("youtube.transcript: InnerTube native clients through the session, in order
   assert.ok(!reqs.some((u) => /\/watch\?v=vidNative03/.test(u)), "no watch page and no tab were needed");
 });
 
+test("youtube.transcript fetches caption URLs only on YouTube's hosts", async () => {
+  const before = env.state.requests.length;
+  assert.equal(await s.value('sites.youtube.transcript("vidForeign5")'), "Hello world from Foreign Captions");
+  const off = env.state.requests.slice(before).filter((r) => !r.url.startsWith("https://www.youtube.com/"));
+  assert.deepEqual(off.map((r) => r.url), [], "no caption request left YouTube");
+});
+
 test("youtube.transcript: a video without captions fails clearly", async () => {
   assert.match(await s.error('sites.youtube.transcript("vidNoCaps04")'), /no_captions|has no captions/);
   assert.match(await s.error('sites.youtube.transcript("vidNoCaps04")'), /video vidNoCaps04 has no captions/);
