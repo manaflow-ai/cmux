@@ -15,6 +15,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # toolchain, or the fake git/cargo in tests/test_cmux_cua_build_cache_safety.py)
 # must keep precedence over Homebrew's copies.
 export PATH="${PATH:+${PATH}:}${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin"
+export CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP="${CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP:-none}"
 
 OUTPUT=""
 ARCHS_RAW=""
