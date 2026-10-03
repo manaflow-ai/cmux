@@ -186,6 +186,7 @@ class PathRoutingStructure(unittest.TestCase):
         route = jobs["path_route"]
         self.assertIn("native", route["outputs"])
         self.assertIn("macos", route["outputs"])
+        self.assertIn("swift", route["outputs"])
         self.assertIn("needs.path_route.outputs.macos", jobs["macos-placement"]["if"])
         self.assertIn("needs.path_route.outputs.native", jobs["swift-test"]["if"])
         self.assertIn("needs.path_route.outputs.native", jobs["release-compile"]["if"])
@@ -193,8 +194,17 @@ class PathRoutingStructure(unittest.TestCase):
         route_script = route["steps"][-1]["run"]
         self.assertIn("webviews/*", route_script)
         self.assertIn("web/*", route_script)
+        self.assertIn("*.swift", route_script)
         self.assertIn("Packages/macOS/CmuxNext/*", route_script)
         self.assertIn("Packages/*", route_script)
+
+    def test_feat_next_ci_status_waits_for_release_compile_on_swift_changes(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        gate = jobs["ci-status"]
+        self.assertIn("release-compile", gate["needs"])
+        gate_run = gate["steps"][0]["run"]
+        self.assertIn("route.get(\"swift\")", gate_run)
+        self.assertIn("github.base_ref == 'feat-cmux-next'", gate["if"])
 
 if __name__ == "__main__":
     unittest.main()

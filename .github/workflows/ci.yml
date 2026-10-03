@@ -1394,6 +1394,7 @@ jobs:
           compression-level: 0
 
   ci-status:
+    name: ${{ github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && 'ci-status (delegated to cmux-next)' || 'ci-status' }}
     needs:
       - changes
       - static-preflight
@@ -1425,9 +1426,6 @@ jobs:
           import sys
 
           needs = json.loads(os.environ["CI_NEEDS"])
-          if os.environ.get("GITHUB_EVENT_NAME") == "pull_request" and os.environ.get("GITHUB_BASE_REF") == "feat-cmux-next":
-              print("feat-cmux-next uses cmux-next and its current product lanes")
-              raise SystemExit(0)
           allowed = {"success", "skipped"}
           bad = {
               name: data["result"]

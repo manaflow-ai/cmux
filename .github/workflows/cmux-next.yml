@@ -38,6 +38,8 @@ on:
       - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/download-prebuilt-ghosttykit.sh
+      - '**/*.swift'
+      - '**/Package.swift'
       - .github/workflows/cmux-next.yml
       - tests/test_cmux_next_checks_workflow.py
   push:
@@ -76,6 +78,8 @@ on:
       - plans/cmux-next/daemon-capabilities.json
       - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
+      - '**/*.swift'
+      - '**/Package.swift'
       - .github/workflows/cmux-next.yml
       - tests/test_cmux_next_checks_workflow.py
   workflow_dispatch:
@@ -121,6 +125,7 @@ jobs:
     outputs:
       native: ${{ steps.route.outputs.native }}
       macos: ${{ steps.route.outputs.macos }}
+      swift: ${{ steps.route.outputs.swift }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -139,11 +144,13 @@ jobs:
           if [[ "$EVENT_NAME" != pull_request ]]; then
             echo "native=true" >> "$GITHUB_OUTPUT"
             echo "macos=true" >> "$GITHUB_OUTPUT"
+            echo "swift=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           native=false
           webview=false
+          swift=false
           files="$(git diff --no-renames --name-only "$BASE_SHA" "$HEAD_SHA")"
           if [[ -z "$files" ]]; then
             native=true
@@ -155,6 +162,10 @@ jobs:
                   webview=true
                   ;;
                 web/*|workers/*|config/vite-plus/*|docs/*|design/*|plans/*|*.md|*.mdx|*.txt|README|README.*|package.json|bun.lock|biome.json|bunfig.toml|.npmrc|.vercelignore|vercel.json)
+                  ;;
+                *.swift)
+                  native=true
+                  swift=true
                   ;;
                 Packages/macOS/CmuxNext/*)
                   native=true
@@ -173,7 +184,8 @@ jobs:
           [[ "$native" == true || "$webview" == true ]] && macos=true
           echo "native=$native" >> "$GITHUB_OUTPUT"
           echo "macos=$macos" >> "$GITHUB_OUTPUT"
-          echo "native=$native webview=$webview macos=$macos"
+          echo "swift=$swift" >> "$GITHUB_OUTPUT"
+          echo "native=$native swift=$swift webview=$webview macos=$macos"
 
   macos-placement:
     needs: path_route
@@ -652,3 +664,45 @@ jobs:
             derived_data="$RUNNER_TEMP/cmux-scheme-compile"
           fi
           scripts/cmux-next/check-cmux-scheme-compile.sh "$derived_data"
+
+  # The generic CI router keeps its historical ci-status check for main and
+  # other bases. Pull requests into feat-cmux-next get this same check name
+  # from this workflow so it cannot turn green before the exact PR head's
+  # Release compile has passed.
+  ci-status:
+    needs: [path_route, checks, swift-test, release-compile, cmux-scheme-compile]
+    if: ${{ always() && !cancelled() && github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' }}
+    name: ci-status
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Require the exact-head Release compile for Swift changes
+        env:
+          CI_NEEDS: ${{ toJSON(needs) }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          needs = json.loads(os.environ["CI_NEEDS"])
+          route = needs["path_route"]["outputs"]
+          allowed = {"success", "skipped"}
+          bad = {
+              name: data["result"]
+              for name, data in sorted(needs.items())
+              if data["result"] not in allowed
+          }
+          if route.get("swift") == "true" and needs["release-compile"]["result"] != "success":
+              bad["release-compile"] = needs["release-compile"]["result"]
+          if bad:
+              for name, result in bad.items():
+                  print(f"{name}: {result}", file=sys.stderr)
+              sys.exit(1)
+          print(f"ci-status: exact PR head {os.environ['HEAD_SHA']} passed routed checks")
+          if route.get("swift") == "true":
+              print("ci-status: Swift change has a successful cmux-next Release compile")
+          else:
+              print("ci-status: no Swift change; Release compile not required")
+          PY
