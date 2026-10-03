@@ -239,7 +239,11 @@ impl Receiver {
         let arrivals: Vec<Arrival> = self.arrivals.drain(..take).collect();
         let fb = if overflow {
             // Arrivals beyond one message go out first, without the rest.
-            Feedback { acked_frame: self.reassembler.last_released(), arrivals, ..Feedback::default() }
+            Feedback {
+                acked_frame: self.reassembler.last_released(),
+                arrivals,
+                ..Feedback::default()
+            }
         } else {
             self.last_feedback_us = Some(now_us);
             self.released_since_feedback = false;
@@ -309,8 +313,10 @@ impl Receiver {
                     self.arrivals.pop_front();
                 }
                 // Viewer monotonic microseconds; the field wraps and only differences matter.
-                self.arrivals
-                    .push_back(Arrival { transport_seq: header.transport_seq, arrival_us: now_us as u32 });
+                self.arrivals.push_back(Arrival {
+                    transport_seq: header.transport_seq,
+                    arrival_us: now_us as u32,
+                });
                 let released = self.reassembler.push(&header, payload, now_us);
                 released.into_iter().for_each(|f| self.on_released(f));
                 self.count_losses();

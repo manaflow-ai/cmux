@@ -283,8 +283,11 @@ pub unsafe extern "C" fn cmux_rd_receiver_pop_message(
     with_receiver(receiver, |h| {
         h.current_message = h.inner.pop_message();
         let Some(message) = h.current_message.as_ref() else { return 0 };
-        let value =
-            CmuxRdMessage { data: message.bytes.as_ptr(), len: message.bytes.len(), kind: message.kind };
+        let value = CmuxRdMessage {
+            data: message.bytes.as_ptr(),
+            len: message.bytes.len(),
+            kind: message.kind,
+        };
         // SAFETY: checked non-NULL; writable by contract.
         unsafe { out.write(value) };
         1

@@ -3,7 +3,10 @@
 
 use super::*;
 use cmux_rd_core::packetize::Packetizer;
-use cmux_rd_proto::{DatagramHeader, DatagramKind, Feedback, FrameBody, HEADER_LEN, MAX_DATAGRAM_VPC, REF_NONE, flags};
+use cmux_rd_proto::{
+    DatagramHeader, DatagramKind, Feedback, FrameBody, HEADER_LEN, MAX_DATAGRAM_VPC, REF_NONE,
+    flags,
+};
 
 fn body(frame: u32, len: usize, keyframe: bool) -> FrameBody {
     FrameBody {
@@ -123,14 +126,30 @@ fn stream_carrier_splits_frames_and_queues_control() {
     let mut len = 0usize;
     // SAFETY: readable payload, writable buffer and length.
     let rc = unsafe {
-        cmux_rd_encode_stream_frame(1, control.as_ptr(), control.len(), buf.as_mut_ptr(), buf.len(), &mut len)
+        cmux_rd_encode_stream_frame(
+            1,
+            control.as_ptr(),
+            control.len(),
+            buf.as_mut_ptr(),
+            buf.len(),
+            &mut len,
+        )
     };
     assert_eq!(rc, CMUX_RD_OK);
     stream.extend_from_slice(&buf[..len]);
     let sent = frames(2, 2500, 0);
     for d in sent.iter().flat_map(|(_, ds)| ds) {
         // SAFETY: as above.
-        let rc = unsafe { cmux_rd_encode_stream_frame(2, d.as_ptr(), d.len(), buf.as_mut_ptr(), buf.len(), &mut len) };
+        let rc = unsafe {
+            cmux_rd_encode_stream_frame(
+                2,
+                d.as_ptr(),
+                d.len(),
+                buf.as_mut_ptr(),
+                buf.len(),
+                &mut len,
+            )
+        };
         assert_eq!(rc, CMUX_RD_OK);
         stream.extend_from_slice(&buf[..len]);
     }
@@ -188,22 +207,36 @@ fn bad_input_is_refused() {
     assert_eq!(push(&r, &[0x11, 0x01], 0), CMUX_RD_ERR_INVALID);
     assert_eq!(push(&r, &[0x21; HEADER_LEN], 0), CMUX_RD_ERR_INVALID);
     // SAFETY: NULL bytes with a length are refused before any read.
-    assert_eq!(unsafe { cmux_rd_receiver_push_datagram(r.0, std::ptr::null(), 4, 0) }, CMUX_RD_ERR_NULL);
+    assert_eq!(
+        unsafe { cmux_rd_receiver_push_datagram(r.0, std::ptr::null(), 4, 0) },
+        CMUX_RD_ERR_NULL
+    );
     // SAFETY: NULL receiver is refused.
     assert_eq!(unsafe { cmux_rd_receiver_tick(std::ptr::null_mut(), 0) }, CMUX_RD_ERR_NULL);
     // SAFETY: live receiver; wrong carrier.
-    assert_eq!(unsafe { cmux_rd_receiver_push_stream(r.0, [1u8].as_ptr(), 1, 0) }, CMUX_RD_ERR_CARRIER);
+    assert_eq!(
+        unsafe { cmux_rd_receiver_push_stream(r.0, [1u8].as_ptr(), 1, 0) },
+        CMUX_RD_ERR_CARRIER
+    );
     // SAFETY: NULL is allowed and returns the sentinel.
     assert_eq!(unsafe { cmux_rd_receiver_next_deadline_us(std::ptr::null()) }, u64::MAX);
     let s = receiver(CMUX_RD_CARRIER_STREAM);
     // SAFETY: live receiver, readable bytes.
-    assert_eq!(unsafe { cmux_rd_receiver_push_stream(s.0, [9u8, 0, 0, 0, 0].as_ptr(), 5, 0) }, CMUX_RD_ERR_FAILED);
+    assert_eq!(
+        unsafe { cmux_rd_receiver_push_stream(s.0, [9u8, 0, 0, 0, 0].as_ptr(), 5, 0) },
+        CMUX_RD_ERR_FAILED
+    );
     // The failure is sticky.
     // SAFETY: as above.
-    assert_eq!(unsafe { cmux_rd_receiver_push_stream(s.0, [1u8, 0, 0, 0, 0].as_ptr(), 5, 0) }, CMUX_RD_ERR_FAILED);
+    assert_eq!(
+        unsafe { cmux_rd_receiver_push_stream(s.0, [1u8, 0, 0, 0, 0].as_ptr(), 5, 0) },
+        CMUX_RD_ERR_FAILED
+    );
     let mut len = 0usize;
     // SAFETY: unknown kind is refused before any write.
-    let rc = unsafe { cmux_rd_encode_stream_frame(5, std::ptr::null(), 0, std::ptr::null_mut(), 0, &mut len) };
+    let rc = unsafe {
+        cmux_rd_encode_stream_frame(5, std::ptr::null(), 0, std::ptr::null_mut(), 0, &mut len)
+    };
     assert_eq!(rc, CMUX_RD_ERR_INVALID);
 }
 
@@ -347,7 +380,7 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
     assert!(header.contains(&format!("#define CMUX_RD_FLAG_KEYFRAME 0x0{}u", flags::KEYFRAME)));
     assert!(header.contains(&format!("#define CMUX_RD_FLAG_RECOVERY 0x0{}u", flags::RECOVERY)));
     // Layouts on 64-bit targets (the Swift tests check the imported layouts).
-    assert_eq!(std::mem::size_of::<CmuxRdFrame>(), 40);
-    assert_eq!(std::mem::size_of::<CmuxRdMessage>(), 24);
-    assert_eq!(std::mem::size_of::<CmuxRdStats>(), 24);
+    assert_eq!(size_of::<CmuxRdFrame>(), 40);
+    assert_eq!(size_of::<CmuxRdMessage>(), 24);
+    assert_eq!(size_of::<CmuxRdStats>(), 24);
 }
