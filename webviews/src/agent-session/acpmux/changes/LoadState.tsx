@@ -1,8 +1,23 @@
 // The changes view while a scope loads, when it fails, and when it has nothing, as
-// centered states: "Couldn't load changes" with Retry, and "No changes".
+// centered states: "Couldn't load changes" with Retry, and "No changes". A turn whose
+// starting checkpoint acpmux could not take says its changes are unavailable.
 import React from "react";
+import { t } from "../i18n";
 
-export function LoadState({ state, onRetry }: { state: "loading" | "error" | "empty"; onRetry: () => void }) {
+export function LoadState({
+  state,
+  onRetry,
+}: {
+  state: "loading" | "error" | "empty" | "unavailable";
+  onRetry: () => void;
+}) {
+  if (state === "unavailable")
+    return (
+      <output className="acpmux-changes-state" data-state="unavailable">
+        <strong>{t("changes.turnUnavailable")}</strong>
+        <span className="acpmux-changes-state-body">{t("changes.turnUnavailableBody")}</span>
+      </output>
+    );
   if (state === "loading")
     return (
       <output className="acpmux-changes-state">

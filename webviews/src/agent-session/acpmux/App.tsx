@@ -179,6 +179,7 @@ const trustSource: TrustSource = {
 const changesSource: ChangesSource = {
   diff: (scope) => callNative("git.diff", { scope, include_patch: true }),
   status: () => callNative("git.status", {}),
+  checkpointDiff: (from, to) => callNative("git.checkpoint.diff", { from, ...(to ? { to } : {}), include_patch: true }),
 };
 /// The host opens a changed file in a tab beside the agent or in the editor (`file.open`).
 const openChangedFile = (path: string, where: "tab" | "editor") => callNative("file.open", { path, where });
@@ -878,6 +879,14 @@ function AcpmuxPane() {
     if (diffActivity.current?.key !== key) diffActivity.current = { key, files: turnFiles(activity) };
     return diffActivity.current.files;
   }, [diffView, diffOpen, snapshot.rows]);
+  // The shown turn's checkpoints, from its summary row once the turn has ended.
+  const diffCheckpoint = useMemo(
+    () =>
+      diffView && diffOpen
+        ? turnRows(snapshot.rows, diffView.rowId).find((row) => row.kind === "turnSummary")?.checkpoint
+        : undefined,
+    [diffView, diffOpen, snapshot.rows],
+  );
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   /// Who is signed in, when the host says: the sidebar's account row.
   const [account, setAccount] = useState<SidebarAccount>();
@@ -1270,6 +1279,8 @@ function AcpmuxPane() {
           "chat.handoff.discard": async () => persistSession(await client.discardHandoff()),
           "git.diff": ({ scope }) => client.gitDiff(String(scope)),
           "git.status": () => client.gitStatus(),
+          "git.checkpoint.diff": ({ from, to }) =>
+            client.gitCheckpointDiff(String(from), typeof to === "string" ? to : undefined),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
@@ -1595,6 +1606,7 @@ function AcpmuxPane() {
                     }
                     checkpointReview={checkpoints.review}
                     review={hunkReview}
+                    turnCheckpoint={diffCheckpoint}
                   />
                 )}
               </div>

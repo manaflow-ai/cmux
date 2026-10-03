@@ -1,3 +1,4 @@
+import type { TurnCheckpoint } from "./changes/model";
 import type { PermissionClientState } from "./permissions/protocol";
 import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
@@ -28,6 +29,8 @@ export type AcpmuxRow = {
   settled?: boolean;
   /// A "Worked for" disclosure of a turn without timing reads "N previous messages" (conversation/turns.ts).
   previous?: number;
+  /// A turn summary's checkpoints, when acpmux recorded them (changes/model.ts).
+  checkpoint?: TurnCheckpoint;
 };
 
 export type AcpmuxActivity = {

@@ -48,12 +48,39 @@ export type GitStatus = {
 
 export type ChangesLoad =
   | { state: "loading" }
+  | { state: "unavailable"; reason?: string }
   | { state: "error"; message?: string }
   | { state: "loaded"; changeSet: ChangeSet };
 
 /// Where the view reads a scope from: the session host, or the mock daemon in mock mode.
-/// `status` names the branch the Branch scope compares with its base.
-export type ChangesSource = { diff: (scope: ChangeScope) => Promise<unknown>; status?: () => Promise<unknown> };
+/// `status` names the branch the Branch scope compares with its base. `checkpointDiff`
+/// reads a turn between the checkpoint acpmux took before its prompt and the one it took
+/// when it ended (or the working tree while it runs).
+export type ChangesSource = {
+  diff: (scope: ChangeScope) => Promise<unknown>;
+  status?: () => Promise<unknown>;
+  checkpointDiff?: (from: string, to?: string) => Promise<unknown>;
+};
+
+/// A turn's checkpoints as acpmux records them on its turn summary: `from` taken before the
+/// prompt went out and `to` when the turn ended. `from: null` means acpmux could not take one
+/// (the prompt went anyway), so the turn's repository changes are unavailable; `reason`
+/// says why when acpmux sent one.
+export type TurnCheckpoint = { from: string | null; to?: string; reason?: string };
+
+/// The turn's checkpoints from a `turn_result` message, or undefined when acpmux recorded
+/// none (an acpmux that predates checkpoints: the view reads the turn from its transcript).
+export function readTurnCheckpoint(message: unknown): TurnCheckpoint | undefined {
+  if (!message || typeof message !== "object" || !("checkpointId" in message)) return undefined;
+  const raw = message as Record<string, unknown>;
+  const from = text(raw.checkpointId);
+  if (!from) {
+    const reason = text(raw.checkpointError);
+    return reason ? { from: null, reason } : { from: null };
+  }
+  const to = text(raw.endCheckpointId);
+  return to ? { from, to } : { from };
+}
 
 /// The checked-out branch and the base the Branch scope compares it with, from `git.status`,
 /// or undefined on a detached head or without a base.
