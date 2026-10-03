@@ -16435,6 +16435,10 @@ mod personal_tests;
 mod sticky_columns_tests;
 
 #[cfg(test)]
+#[path = "server/rows_tests.rs"]
+mod rows_tests;
+
+#[cfg(test)]
 #[path = "server/personal_terminal_tests.rs"]
 mod personal_terminal_tests;
 
