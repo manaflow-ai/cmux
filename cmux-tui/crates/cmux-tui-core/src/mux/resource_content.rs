@@ -13,13 +13,15 @@ use crate::resource::{
 use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonical_order};
 use crate::workspace_registry::{
     RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource, RegistryBrowserStatus,
-    RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab, RegistryWorkspace,
-    ResourceChange, ResourcePatch, ResourcePatchCommit, WorkspaceMutation, WorkspaceRegistry,
+    RegistryLayoutNode, RegistryPane, RegistryTab, RegistryWorkspace, ResourceChange,
+    ResourcePatch, ResourcePatchCommit, WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{ResourceSelectors, ResourceTarget, SurfaceId};
 use live_screen::registry_screen_from_live;
+use published_screens::PublishedScreens;
 
 mod live_screen;
+mod published_screens;
 
 impl Mux {
     pub(crate) fn resource_project_terminal_selected(
@@ -695,6 +697,7 @@ impl Mux {
         let mut live_browsers = HashSet::new();
         let mut changes = Vec::new();
         let mut public = Vec::new();
+        let mut screens = PublishedScreens::default();
 
         for (workspace_index, workspace) in state.workspaces.iter().enumerate() {
             live_workspaces.insert(workspace.public_id.clone());
@@ -734,21 +737,13 @@ impl Mux {
                 live_screens.insert(screen.public_id.clone());
                 let durable =
                     registry_screen_from_live(state, &workspace.public_id, screen_index, screen)?;
-                let public_layout = public_layout_from_registry(&durable, state)?;
-                changes.push(ResourceChange::UpsertScreen(durable.clone()));
-                public.push((
-                    "screen",
-                    screen.public_id.to_string(),
-                    json!({
-                        "id":screen.public_id,
-                        "workspace_id":workspace.public_id,
-                        "name":screen.name,
-                        "index":screen_index,
-                        "focused":workspace_index == state.active_workspace
-                            && workspace.active_screen == screen_index,
-                        "layout":public_layout,
-                    }),
-                ));
+                screens.defer(
+                    &mut public,
+                    durable.clone(),
+                    workspace_index == state.active_workspace
+                        && workspace.active_screen == screen_index,
+                );
+                changes.push(ResourceChange::UpsertScreen(durable));
 
                 for pane_slot in screen.root.pane_ids_vec() {
                     let pane = state
@@ -1064,6 +1059,7 @@ impl Mux {
             }
         }
 
+        screens.publish(&mut public, &changes)?;
         let mut deltas = Vec::new();
         let live_keys = public
             .iter()
@@ -1230,53 +1226,6 @@ fn split_public_id(state: &State, split: crate::SplitId) -> anyhow::Result<Split
         .get(&split)
         .cloned()
         .with_context(|| format!("split {split} has no public identity"))
-}
-
-fn public_layout_from_registry(screen: &RegistryScreen, state: &State) -> anyhow::Result<Value> {
-    Ok(json!({
-        "version":1,
-        "screen_id":screen.public_id,
-        "active_pane_id":screen.active_pane,
-        "zoomed_pane_id":screen.zoomed_pane,
-        "root":public_layout_node(&screen.layout, state)?,
-    }))
-}
-
-fn public_layout_node(node: &RegistryLayoutNode, state: &State) -> anyhow::Result<Value> {
-    Ok(match node {
-        RegistryLayoutNode::Leaf { pane } => {
-            let slot =
-                state.resource_indexes.panes.get(pane).context("layout pane has no live slot")?;
-            let pane_state = state.panes.get(slot).context("layout pane is missing")?;
-            json!({
-                "kind":"leaf",
-                "pane_id":pane,
-                "tab_ids":pane_state.tabs.iter().filter_map(|surface| {
-                    state.resource_indexes.tab_ids.get(surface)
-                }).collect::<Vec<_>>(),
-                "active_tab_id":pane_state.tabs.get(pane_state.active_tab).and_then(|surface| {
-                    state.resource_indexes.tab_ids.get(surface)
-                }),
-            })
-        }
-        RegistryLayoutNode::Split { split, direction, ratio, first, second } => json!({
-            "kind":"split",
-            "split_id":split,
-            "direction":match direction.as_str() {
-                "right" => "horizontal",
-                "down" => "vertical",
-                other => other,
-            },
-            "ratio":f64::from(*ratio),
-            "first":public_layout_node(first, state)?,
-            "second":public_layout_node(second, state)?,
-        }),
-        RegistryLayoutNode::Stack { panes, expanded } => json!({
-            "kind":"stack",
-            "pane_ids":panes,
-            "expanded_pane_id":expanded,
-        }),
-    })
 }
 
 fn push_delete_delta(changes: &mut Vec<Value>, resource: &str, id: &str) {

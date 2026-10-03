@@ -40,6 +40,8 @@ public struct ControlTabInfo: Sendable, Hashable {
     public var hasUnread: Bool
     public var tabGroupID: String?
     public var agentState: String?
+    /// The agent running in the tab (`claude`, `codex`), when known.
+    public var agent: String?
     /// A remote-terminal tab's terminal: its session (`registry_id`) and
     /// host terminal id there (data-model.md 1.2b).
     public var remoteSessionID: String?

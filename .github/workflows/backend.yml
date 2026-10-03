@@ -92,6 +92,9 @@ jobs:
         env:
           OWNERSHIP_SEEDS: "1500"
         run: bun run test
+      - name: SAML validator (signature wrapping, comment injection, c14n vs xml-crypto)
+        working-directory: backend/packages/saml
+        run: bun run test
       - name: API Worker tests (workerd)
         working-directory: backend/apps/api
         run: bun run test

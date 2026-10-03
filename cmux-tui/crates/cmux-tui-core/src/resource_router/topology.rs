@@ -1936,4 +1936,5 @@ mod tests {
     }
 
     mod snapshot_mutation_tests;
+    mod split_events_projection_tests;
 }

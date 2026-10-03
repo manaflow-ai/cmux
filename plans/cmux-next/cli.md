@@ -252,3 +252,8 @@ the CLI requests that came with the merge, with the decision taken.
     `cmux terminal <t> wait --until …` (status lead), `cmux browser repl|host` (browser
     lead), `cmux cua …` (CUA lead), `cmux apps …` (app platform), `cmux task …` (tasks,
     `cmux_tasks::cli::run` mount after this PR merges).
+18. The base-only Swift CLI/config files `CmuxConfigSchema.generated.swift` and
+    `ShortcutAction.swift` with its three extensions stay deleted with the Swift CLI
+    cutover; any CLI-facing behavior from their base changes must be ported to Rust or
+    recorded here. The old root `Resources/Localizable.xcstrings` remains deleted; its
+    legacy `cli.*` catalog is tracked by item 5.
