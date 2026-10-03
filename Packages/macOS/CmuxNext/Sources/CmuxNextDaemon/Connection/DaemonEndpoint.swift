@@ -108,6 +108,10 @@ public struct DaemonCapabilities: Sendable {
     /// accept edges `top` and `bottom`, sent back as `columns[].dock`
     /// (plans/cmux-next/layout-model.md).
     public let edgeDocks = "edge-docks-v1"
+    /// `move-tab-to-column` `respawn`: a pane's only tab moves into a new
+    /// column and leaves a fresh tab of the same kind (Dock Column on a
+    /// screen with one tab).
+    public let tabColumnRespawn = "tab-column-respawn-v1"
     /// `create-terminal {detached: true}`: a kept terminal with no tab.
     public let detachedTerminals = "detached-terminals-v1"
     /// Personal state kept only on the home (local) session
@@ -159,7 +163,7 @@ public struct DaemonCapabilities: Sendable {
                                             terminalReap, batchClose, loopbackForward, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
-                                            terminalCommandJournal, stickyColumns, edgeDocks, endTerminalsKeepLayout, stateResources,
+                                            terminalCommandJournal, stickyColumns, edgeDocks, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides] }
 

@@ -2299,6 +2299,7 @@ class MoveTabToColumnRequest:
     pane: Union[Id, None, MissingType] = field(default=MISSING)
     screen: Union[Id, None, MissingType] = field(default=MISSING)
     after_column: Union[Id, None, MissingType] = field(default=MISSING)
+    respawn: Union[SplitRespawn, None, MissingType] = field(default=MISSING)
     sticky: Union[ColumnPin, None, MissingType] = field(default=MISSING)
     transaction: Union[str, None, MissingType] = field(default=MISSING)
     width: Union[float, None, MissingType] = field(default=MISSING)

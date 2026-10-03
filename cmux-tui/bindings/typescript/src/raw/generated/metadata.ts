@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 8617c916cf0fc7d5d327154602f3c7973973019a71386cd33d601840326fa985. */
+/* cmux-tui mux protocol 12, IR 9a93a666e8f059fe58fafce71e3c8f25d47a930c49c9058ed455f3ca46b21d7b. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "8617c916cf0fc7d5d327154602f3c7973973019a71386cd33d601840326fa985" as const;
+export const SDK_IR_SHA256 = "9a93a666e8f059fe58fafce71e3c8f25d47a930c49c9058ed455f3ca46b21d7b" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1171,6 +1171,10 @@ export const COMMAND_METADATA = {
     "since": 12,
     "capability": "tab-drag-v1",
     "fields": {
+      "respawn": {
+        "since": 12,
+        "capability": "tab-column-respawn-v1"
+      },
       "sticky": {
         "since": 12,
         "capability": "edge-docks-v1"
@@ -13192,6 +13196,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "Id"
+          }
+        },
+        "respawn": {
+          "capability": "tab-column-respawn-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "SplitRespawn"
           }
         },
         "screen": {

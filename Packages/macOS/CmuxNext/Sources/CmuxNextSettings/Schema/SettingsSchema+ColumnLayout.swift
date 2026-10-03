@@ -30,8 +30,11 @@ extension SettingsSchema {
                 ColumnLayoutSettings.stickyEdgePath, section: .general, group: columns,
                 title: SettingsText.keyed("settings.layout.stickyColumnEdge", "Sticky Column Edge"),
                 kind: .choice([
+                    SettingChoice(StickyDefaultEdge.nearest.rawValue, SettingsText.keyed("settings.choice.nearestEdge", "Nearest Edge")),
                     SettingChoice(StickyDefaultEdge.right.rawValue, SettingsText.keyed("settings.choice.right", "Right")),
                     SettingChoice(StickyDefaultEdge.left.rawValue, SettingsText.keyed("settings.choice.left", "Left")),
+                    SettingChoice(StickyDefaultEdge.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
+                    SettingChoice(StickyDefaultEdge.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),
                 ]),
                 default: .string(ColumnLayoutSettings.stickyEdgeFallback.rawValue), keywords: ["sticky", "pin", "column"]
             ),

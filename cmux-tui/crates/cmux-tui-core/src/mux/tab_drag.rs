@@ -49,6 +49,25 @@ impl SourceGuard {
     }
 }
 
+/// Where `move-tab-to-column` puts the tab: a new column after
+/// `after_column` (default: right of `pane`'s column), `width` a viewport
+/// fraction (default the standard column width), pinned at `sticky`.
+#[derive(Debug, Clone, Copy)]
+pub struct ColumnMove {
+    pub pane: PaneId,
+    pub after_column: Option<SplitId>,
+    pub width: Option<f32>,
+    pub sticky: Option<ColumnSticky>,
+}
+
+fn validated_column_width(width: Option<f32>) -> anyhow::Result<f32> {
+    let width = width.unwrap_or(DEFAULT_VIEWPORT_PANE_WIDTH);
+    if !width.is_finite() || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width) {
+        return Err(ViewportWidthError::OutOfRange { width }.into());
+    }
+    Ok(width)
+}
+
 fn validate_split_ratio(ratio: Option<f32>) -> anyhow::Result<()> {
     if let Some(ratio) = ratio {
         anyhow::ensure!(
@@ -254,21 +273,62 @@ impl Mux {
             }),
         };
         layout_invariants::model_result("tab.drag", &model, &kind)?;
+        let destination = TabDragDestination::Split { pane, edge, ratio };
+        self.commit_tab_drag_respawning(surface, pane, destination, respawn, transaction)
+    }
+
+    /// `move-tab-to-column` with `respawn` (`tab-column-respawn-v1`): move
+    /// a pane's only tab into a new column (pinned when `sticky` is set) and
+    /// leave a fresh tab of the given kind in its pane, with the same
+    /// two-commit guard as [`Self::move_tab_to_split_respawning`]. Docking a
+    /// screen's only tab uses it: the strip keeps a column to scroll.
+    pub fn move_tab_to_column_respawning(
+        self: &Arc<Self>,
+        surface: SurfaceId,
+        destination: ColumnMove,
+        respawn: SplitRespawn,
+        transaction: Option<String>,
+    ) -> anyhow::Result<TabDragOutcome> {
+        let ColumnMove { pane, after_column, width, sticky } = destination;
+        let width = validated_column_width(width)?;
+        let source = self.with_state(|state| state.pane_of(surface));
+        let source = source.context("tab has no pane")?;
+        self.with_state(|state| {
+            anyhow::ensure!(
+                state.panes.get(&source).is_some_and(|candidate| candidate.tabs == [surface]),
+                "bad request: respawn applies only to a pane's only tab"
+            );
+            Ok(())
+        })?;
+        let destination = TabDragDestination::Column { pane, after_column, width, sticky };
+        self.commit_tab_drag_respawning(surface, source, destination, respawn, transaction)
+    }
+
+    /// Creates the fresh tab in `source` first, so that pane never empties,
+    /// then commits the drag while `source` holds exactly the fresh and the
+    /// dragged tab. A failed drag closes the fresh tab again.
+    fn commit_tab_drag_respawning(
+        self: &Arc<Self>,
+        surface: SurfaceId,
+        source: PaneId,
+        destination: TabDragDestination,
+        respawn: SplitRespawn,
+        transaction: Option<String>,
+    ) -> anyhow::Result<TabDragOutcome> {
         let size = self.surface(surface).map(|runtime| runtime.size());
         let fresh = match respawn {
-            SplitRespawn::Terminal(spawn) => self.new_tab_with_options(Some(pane), spawn, size)?,
+            SplitRespawn::Terminal(spawn) => self.new_tab_with_options(Some(source), spawn, size)?,
             SplitRespawn::Browser(record) => {
-                self.new_frontend_browser_tab(Some(pane), record, size)?
+                self.new_frontend_browser_tab(Some(source), record, size)?
             }
         };
-        let destination = TabDragDestination::Split { pane, edge, ratio };
-        let guard = SourceGuard { pane, tabs: [fresh.id, surface] };
+        let guard = SourceGuard { pane: source, tabs: [fresh.id, surface] };
         match self.commit_tab_drag_guarded(surface, destination, transaction, Some(guard)) {
             Ok(outcome) => Ok(outcome),
             Err(error) => {
                 if let Err(close) = self.close_surface(fresh.id) {
                     eprintln!(
-                        "cmux-tui: respawn split could not close fresh tab {}: {close:#}",
+                        "cmux-tui: respawn drag could not close fresh tab {}: {close:#}",
                         fresh.id
                     );
                 }
@@ -287,12 +347,7 @@ impl Mux {
         sticky: Option<ColumnSticky>,
         transaction: Option<String>,
     ) -> anyhow::Result<TabDragOutcome> {
-        let width = width.unwrap_or(DEFAULT_VIEWPORT_PANE_WIDTH);
-        if !width.is_finite()
-            || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
-        {
-            return Err(ViewportWidthError::OutOfRange { width }.into());
-        }
+        let width = validated_column_width(width)?;
         self.commit_tab_drag(
             surface,
             TabDragDestination::Column { pane, after_column, width, sticky },

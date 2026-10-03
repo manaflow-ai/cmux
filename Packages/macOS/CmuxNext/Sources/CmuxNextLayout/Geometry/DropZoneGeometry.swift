@@ -75,23 +75,34 @@ public nonisolated enum DropZoneGeometry {
         return nil
     }
 
-    /// DD1: a top or bottom edge band that opens a dock, while that edge has
-    /// none (view coordinates). Nil elsewhere.
+    /// DD1: an edge band that opens a dock, while that edge has none (view
+    /// coordinates). Nil elsewhere. Top and bottom bands are `dockDropBand`
+    /// deep; the side bands are half that, so the outer panes keep their
+    /// left and right split zones. Top and bottom win in the corners.
     public static func dockTarget(atView point: CGPoint, screen: ScreenID, geometry: ScreenGeometry, style: LayoutStyle) -> DropTarget? {
-        let band = min(style.dockDropBand, geometry.viewport.height / 4)
+        let size = geometry.viewport
+        let band = min(style.dockDropBand, size.height / 4)
+        let side = min(style.dockDropBand / 2, size.width / 8)
         let free = { (edge: StickyEdge) in !geometry.sticky.contains { $0.sticky.edge == edge } }
         if point.y <= band, free(.top) { return .newDock(screen: screen, edge: .top) }
-        if point.y >= geometry.viewport.height - band, free(.bottom) { return .newDock(screen: screen, edge: .bottom) }
+        if point.y >= size.height - band, free(.bottom) { return .newDock(screen: screen, edge: .bottom) }
+        if point.x <= side, free(.left) { return .newDock(screen: screen, edge: .left) }
+        if point.x >= size.width - side, free(.right) { return .newDock(screen: screen, edge: .right) }
         return nil
     }
 
-    /// Where a new top or bottom dock would sit (view coordinates): a third
-    /// of the height, at most half, across the screen less its gaps.
+    /// Where a new dock would sit (view coordinates): a band 30% of the
+    /// height across the screen, or a side column 30% of the width down it,
+    /// less the strip gaps.
     static func dockPreview(_ edge: StickyEdge, geometry: ScreenGeometry, style: LayoutStyle) -> CGRect {
         let size = geometry.viewport
-        let height = min(size.height * 0.3, size.height * StickyStripGeometry.maxBandShare)
         let gap = style.stripGap
-        return CGRect(x: gap, y: edge == .top ? 0 : size.height - height, width: max(1, size.width - gap * 2), height: height)
+        if edge.isBand {
+            let height = min(size.height * 0.3, size.height * StickyStripGeometry.maxBandShare)
+            return CGRect(x: gap, y: edge == .top ? 0 : size.height - height, width: max(1, size.width - gap * 2), height: height)
+        }
+        let width = size.width * 0.3
+        return CGRect(x: edge == .left ? gap : size.width - width - gap, y: 0, width: max(1, width), height: size.height)
     }
 
     /// The whole region a drop on `target` divides (content space): the

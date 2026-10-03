@@ -45,7 +45,7 @@ public final class DesignSettings {
     /// `layout.splitSizing`: what a split does to its column.
     public var splitSizing: SplitSizing = .even
     /// `layout.stickyColumnEdge`, `layout.stickyColumnMode`.
-    public var stickyColumnEdge: StickyDefaultEdge = .right
+    public var stickyColumnEdge: StickyDefaultEdge = .nearest
     public var stickyColumnMode: StickyDefaultMode = .docked
     /// `layout.frameOrientation`: column-major (side docks full height) or
     /// row-major (top and bottom docks full width), plans/cmux-next/layout-model.md.

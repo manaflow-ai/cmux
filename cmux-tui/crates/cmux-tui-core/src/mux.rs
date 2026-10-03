@@ -51,7 +51,7 @@ pub use screen_groups::{
 };
 pub use sticky_columns::{ColumnStickyError, ColumnStickyOutcome, parse_column_sticky};
 use tab_drag::restore_dragged_tab;
-pub use tab_drag::{SplitRespawn, TabDragOutcome, TabDropEdge};
+pub use tab_drag::{ColumnMove, SplitRespawn, TabDragOutcome, TabDropEdge};
 pub(crate) use tab_groups::{PaneTabGroup, pane_tab_groups};
 pub use tab_groups::{TabGroupDestination, TabGroupOutcome};
 pub use terminal_reap::{

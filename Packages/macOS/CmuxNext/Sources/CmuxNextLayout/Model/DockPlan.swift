@@ -21,10 +21,39 @@ public nonisolated enum DockDefaults {
         min(max(current, widthRange.lowerBound), widthRange.upperBound)
     }
 
-    /// Red stub: replaced by the real rule in the next commit.
-    public static func edge(for column: ColumnID, in layout: ScreenLayout) -> StickyEdge { .top }
+    /// The edge a column docks to by default: left for the leftmost of
+    /// several scrolling columns, else right. A side another column holds
+    /// yields to the free side, so docking never silently undocks another.
+    public static func edge(for column: ColumnID, in layout: ScreenLayout) -> StickyEdge {
+        let scrolling = layout.columns.filter { $0.sticky == nil }
+        let near: StickyEdge = scrolling.count > 1 && scrolling.first?.id == column ? .left : .right
+        let held = { (edge: StickyEdge) in layout.columns.contains { $0.id != column && $0.sticky?.edge == edge } }
+        let far: StickyEdge = near == .left ? .right : .left
+        return held(near) && !held(far) ? far : near
+    }
 
-    /// Red stub: replaced by the real rule in the next commit.
-    public static func plan(screen: LayoutScreen, column: ColumnID, pane: PaneID?, edge: StickyEdge?,
-                            mode: StickyMode) -> DockPlan? { nil }
+    /// What docking `column` does. `edge` nil uses the column's own edge
+    /// when it has one, else `defaultEdge` (cmux.json
+    /// `layout.stickyColumnEdge` when set), else `edge(for:in:)`. Asking for the state the
+    /// column already has (same mode, no other edge) undocks it, so running
+    /// the action again is the undo. `pane` is the pane whose tab moves when
+    /// the column must keep scrolling (default: the column's first pane).
+    /// Nil only when the screen has no such column.
+    public static func plan(screen: LayoutScreen, column id: ColumnID, pane: PaneID?, edge: StickyEdge?,
+                            defaultEdge: StickyEdge? = nil, mode: StickyMode) -> DockPlan? {
+        guard let column = screen.column(id: id) else { return nil }
+        if let current = column.sticky, current.mode == mode, edge == nil || edge == current.edge {
+            return .undock(id)
+        }
+        let chosen = edge ?? column.sticky?.edge ?? defaultEdge ?? self.edge(for: id, in: screen.layout)
+        let target = StickyColumn(edge: chosen, mode: mode)
+        let width = self.width(for: column.width)
+        // The implicit column, or the last scrolling one, must keep scrolling.
+        let othersScroll = screen.layout.columns.contains { $0.id != id && $0.sticky == nil }
+        if id == screen.implicitColumnID || (column.sticky == nil && !othersScroll) {
+            guard let anchor = pane.flatMap({ column.root.contains($0) ? $0 : nil }) ?? column.root.panes.first else { return nil }
+            return .moveTab(anchor, target, width: width)
+        }
+        return .pin(id, target, width: width)
+    }
 }

@@ -86,11 +86,19 @@ never sticky; column order is unchanged, so older clients render the column in p
 
 ## Entry points
 
-Palette and CLI (`cmux action run` or the verbs): Make Column Sticky (`column make-sticky`,
-optional `edge` left|right, `mode` docked|overlay), Make Column Sticky on Left
-(`column make-sticky-left`), Unstick Column (`column unstick`), Toggle Floating Sticky Column
-(`column toggle-sticky-overlay`: the targeted column if sticky, else the screen's sticky column,
-else the column as a right overlay), Toggle Column Scroll Bar (`settings toggle-column-scrollbar`).
+Palette and CLI (`cmux action run` or the verbs): Dock Column (`column dock`, Ctrl-Cmd-P by default,
+optional `edge` left|right|top|bottom, `mode` docked|overlay). cmux.json `layout.stickyColumnEdge`
+and `layout.stickyColumnMode`, when set, are its defaults. Unset, it docks (not floats) the column
+on the edge it is nearer to (left for the leftmost of several scrolling columns, else right; a side
+another column holds yields to the free side), at its width clamped to 25-40%, width and pin in one
+transaction (one undo). Running it again on a docked column undocks it. On a screen's only
+scrolling column, which must keep scrolling, the focused tab moves into a new docked column
+(`move-tab-to-column` with `sticky`); when it is the screen's only tab, a fresh tab of the same kind
+(a terminal in the same directory) stays in the strip (`respawn`, `tab-column-respawn-v1`). Only a
+kind that cannot respawn (an agent chat, an incognito page) refuses there. A tab dragged to a window
+edge band docks at that edge. Dock Column Left/Right/Top/Bottom (`column dock-left|dock-right|dock-top|dock-bottom`),
+Float Column (`column float`, the same rule in overlay mode), Undock Column (`column undock`),
+Move Tab to New Sticky Column (`tab move-to-new-sticky-column`), Toggle Column Scroll Bar (`settings toggle-column-scrollbar`).
 Column and pane context menus. Directional focus treats the left sticky column as before the
 strip and the right one as after its end. `debug.sticky` reports sticky frames, strip range, scrollbar and
 pane stacking, and with `pane` + `sticky` (+ `edge`, `mode`) changes a column through the same

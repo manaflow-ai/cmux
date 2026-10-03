@@ -205,13 +205,16 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>right</string>
+			<string>nearest</string>
 			<key>pfm_name</key>
 			<string>layout.stickyColumnEdge</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>nearest</string>
 				<string>right</string>
 				<string>left</string>
+				<string>top</string>
+				<string>bottom</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Sticky Column Edge</string>
