@@ -72,6 +72,8 @@ Platform gaps found by the earlier v2 sketch (still open):
 - No ent_… handle for one dropped file; the 12.4 payload passes the dragger's handle.
 - No fs.search op named in cmux.fs.provider/1 (needed for the search provider without a crawl).
 
+Update (2026-10-03): the manifest v2 extensions (app-platform.md 12.5) now hold the items above that this app needed; `cmux-app.v2.json` and its catalog declare them (scopes, handles, keyboard, gestures, presets, requires, lifecycle, documents, openWith, notices, drag/drop and `consumes` as applicable). Items that depend on missing runtime support (embed node, pane-routed commands, native servers) stay open.
+
 ## Platform gaps
 
 1. No scroll container and no visible-range events: lists page 22 rows at a time.

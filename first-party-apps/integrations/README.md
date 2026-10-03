@@ -97,6 +97,8 @@ Platform gaps found by the earlier v2 sketch (still open):
 - No Table or Segmented control in V7's component list: the Allow / Ask / Block control is three tappable Texts.
 - cmux.feed.source/1 has no schema yet for action buttons that answer with a policy change (Always allow).
 
+Update (2026-10-03): the manifest v2 extensions (app-platform.md 12.5) now hold the items above that this app needed; `cmux-app.v2.json` and its catalog declare them (scopes, handles, keyboard, gestures, presets, requires, lifecycle, documents, openWith, notices, drag/drop and `consumes` as applicable). Items that depend on missing runtime support (embed node, pane-routed commands, native servers) stay open.
+
 ## Platform gaps (most important first)
 
 1. No secure input and no URL open for apps: the secret sheet and the OAuth approval page must be host behavior on `integration.connect` (contract item 6); the app says when the host did not open the page.

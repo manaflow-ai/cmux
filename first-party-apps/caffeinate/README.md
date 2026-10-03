@@ -108,6 +108,8 @@ The v2 schema cannot hold these parts of the app, so the manifest leaves them ou
 4. Palette presets with arguments and a `when` condition: a catalog op has one palette title. The presets are the ops `caffeinate.keep_awake` and `caffeinate.keep_awake_hour`, as in v1.
 5. Top-level CLI verbs (`cmux power keep-awake`, `power list`, `power stop`), output schemas and code mode: the earlier sketch is kept in `proposed/caffeinate-host-catalog.json`; the CLI request stays with the CLI owner.
 
+Update (2026-10-03): the manifest v2 extensions (app-platform.md 12.5) now hold the items above that this app needed; `cmux-app.v2.json` and its catalog declare them (scopes, handles, keyboard, gestures, presets, requires, lifecycle, documents, openWith, notices, drag/drop and `consumes` as applicable). Items that depend on missing runtime support (embed node, pane-routed commands, native servers) stay open.
+
 ## Platform gaps (most important first)
 
 1. No menu bar placement: the schema allows `titlebar`, `roomBar`, `statusStrip`. Proposal: `cmux.status/1` with `placement: "menuBar"` (an `NSStatusItem` that hosts the scene). The prototype declares `statusStrip`.

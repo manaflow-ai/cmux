@@ -80,6 +80,8 @@ Platform gaps found by the earlier v2 sketch (still open):
 - No ScrollView and no vertical alignment for HStack in the scene (split view clips at the pane height).
 - No confirmation primitive for destructive scene actions (Discard uses a second tap).
 
+Update (2026-10-03): the manifest v2 extensions (app-platform.md 12.5) now hold the items above that this app needed; `cmux-app.v2.json` and its catalog declare them (scopes, handles, keyboard, gestures, presets, requires, lifecycle, documents, openWith, notices, drag/drop and `consumes` as applicable). Items that depend on missing runtime support (embed node, pane-routed commands, native servers) stay open.
+
 ## Platform gaps (most important first)
 
 1. No interfaces or embeds: no `implements`/`consumes` in the manifest, no `ui.embed.*`, and no `Embed` scene node to place a mount. The app feature-detects a global `Embed` builder and otherwise uses its own scene diff.
