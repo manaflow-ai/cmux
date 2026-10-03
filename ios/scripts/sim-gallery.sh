@@ -34,6 +34,27 @@ if [[ "${SIM_GALLERY_ONLY:-}" == conversation ]]; then
   ls -1 "$out"; exit 0
 fi
 
+# SIM_GALLERY_ONLY=homehost: the UIKit host on the render core: a group
+# conversation (run grouping, sender names) at the default text size and at
+# the largest accessibility size, and a search hit about 200 messages back
+# (three older pages) opened from search, scrolled to the hit.
+if [[ "${SIM_GALLERY_ONLY:-}" == homehost ]]; then
+  xcrun simctl ui "$udid" appearance light
+  for size in large accessibility-extra-extra-extra-large; do
+    xcrun simctl ui "$udid" content_size "$size"
+    SIMCTL_CHILD_CMUX_IOS_HOME_PREVIEW=1 SIMCTL_CHILD_CMUX_IOS_OPEN_CONVERSATION=group \
+      xcrun simctl launch --terminate-running-process "$udid" "$bundle" >/dev/null
+    settle 7; shot "homehost-group-$size"
+  done
+  xcrun simctl ui "$udid" content_size large
+  SIMCTL_CHILD_CMUX_IOS_HOME_PREVIEW=1 SIMCTL_CHILD_CMUX_IOS_OPEN_SEARCH="blocking" \
+    SIMCTL_CHILD_CMUX_IOS_OPEN_SEARCH_HIT="${SIM_GALLERY_SEARCH_HIT:-10}" \
+    xcrun simctl launch --terminate-running-process "$udid" "$bundle" >/dev/null
+  settle 9; shot "homehost-search-hit"
+  xcrun simctl terminate "$udid" "$bundle" >/dev/null 2>&1 || true
+  ls -1 "$out"; exit 0
+fi
+
 if [[ "${SIM_GALLERY_ONLY:-}" != terminal ]]; then
 xcrun simctl ui "$udid" appearance light
 xcrun simctl launch --terminate-running-process "$udid" "$bundle" >/dev/null

@@ -43,9 +43,17 @@ final class HomeRowHostView: UIView, UIContextMenuInteractionDelegate {
 
     // MARK: Accessibility
 
-    /// The rows or the viewport changed; elements are rebuilt on the next read.
+    /// The viewport or the draft changed; elements are rebuilt on the next read.
     func invalidateAccessibility() {
         elements = nil
+    }
+
+    /// The rows changed (a new message, an older page): VoiceOver re-reads
+    /// the list. Not posted for scroll steps, which only move the viewport.
+    func rowsChanged() {
+        elements = nil
+        guard UIAccessibility.isVoiceOverRunning else { return }
+        UIAccessibility.post(notification: .layoutChanged, argument: nil)
     }
 
     override var accessibilityElements: [Any]? {
@@ -65,19 +73,19 @@ final class HomeRowHostView: UIView, UIContextMenuInteractionDelegate {
         e.accessibilityIdentifier = item.id
         e.accessibilityTraits = .staticText
         e.accessibilityFrameInContainerSpace = item.frame
-        if let hit = controller?.hit(at: CGPoint(x: item.frame.midX, y: item.frame.midY)) {
-            e.accessibilityCustomActions = customActions(for: hit)
+        if let key = item.item {
+            e.accessibilityCustomActions = customActions(item: key, text: item.label)
         }
         return e
     }
 
-    private func customActions(for hit: HomeHit) -> [UIAccessibilityCustomAction] {
-        let text = hit.text
+    /// Copy (the part's text, the element's label) and the refused-send actions.
+    private func customActions(item: IdempotencyKey, text: String) -> [UIAccessibilityCustomAction] {
         var actions = [UIAccessibilityCustomAction(name: HomeText.copy, image: UIImage(systemName: "doc.on.doc")) { _ in
             MainActor.assumeIsolated { UIPasteboard.general.string = text }
             return true
         }]
-        for action in failureActions(hit.item) {
+        for action in failureActions(item) {
             let run = action.run
             actions.append(UIAccessibilityCustomAction(name: action.title, image: action.image) { _ in
                 MainActor.assumeIsolated { run() }
@@ -129,7 +137,9 @@ final class HomeRowHostView: UIView, UIContextMenuInteractionDelegate {
         guard !bubble.isEmpty, let snapshot = resizableSnapshotView(from: bubble, afterScreenUpdates: false,
                                                                     withCapInsets: .zero) else { return nil }
         let parameters = UIPreviewParameters()
-        parameters.visiblePath = UIBezierPath(roundedRect: snapshot.bounds, cornerRadius: min(15, bubble.height / 2))
+        // The core's bubble radius scales with Dynamic Type (`textScale`).
+        let radius = 15 * (controller?.textScale ?? 1)
+        parameters.visiblePath = UIBezierPath(roundedRect: snapshot.bounds, cornerRadius: min(radius, bubble.height / 2))
         parameters.backgroundColor = .clear
         let target = UIPreviewTarget(container: self, center: CGPoint(x: bubble.midX, y: bubble.midY))
         return UITargetedPreview(view: snapshot, parameters: parameters, target: target)

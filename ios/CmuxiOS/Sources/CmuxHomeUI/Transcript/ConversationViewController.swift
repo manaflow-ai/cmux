@@ -22,11 +22,16 @@ final class ConversationViewController: UIViewController {
     private var openTask: Task<Void, Never>?
     private var foregroundObservers: [any NSObjectProtocol] = []
 
-    /// `focus` is the search hit to show. The render core cannot scroll to a
-    /// message yet (cli-requests/homerender-ios-host.md), so it opens at the newest message.
-    init(store: HomeStore, conversation: ConversationID, focus: IdempotencyKey? = nil) {
+    /// The search hit to open at, until its row is loaded and shown (nil
+    /// after that, or once the user scrolls).
+    private var pendingFocus: HomeTranscriptFocus?
+
+    /// `focus` is the search hit to show: the conversation opens scrolled to
+    /// it, loading older pages until its row exists.
+    init(store: HomeStore, conversation: ConversationID, focus: HomeTranscriptFocus? = nil) {
         self.store = store
         self.conversation = conversation
+        pendingFocus = focus
         super.init(nibName: nil, bundle: nil)
         hidesBottomBarWhenPushed = true
     }
@@ -53,6 +58,12 @@ final class ConversationViewController: UIViewController {
                 MainActor.assumeIsolated { self?.setVisible(visible && self?.viewIfLoaded?.window != nil) }
             })
         }
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // The first layout with a real size can come after the transcript attached.
+        if pendingFocus != nil { revealFocus() }
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -96,31 +107,46 @@ final class ConversationViewController: UIViewController {
         self.view.addSubview(view)
         transcript = view
         view.scroll.rowHost.failureActions = { [weak self] key in self?.failureActions(for: key) ?? [] }
-        let controller = view.controller
-        binding = HomeStoreBinding(store: store, controller: controller)
-        // The binding's refusal path refills the core's own field; this host
-        // draws a UIKit field, so it performs the intents itself.
-        controller.onIntent = { [weak self] intent in self?.perform(intent) }
-        controller.isVisibleToUser = isVisible
+        view.onRowsChange = { [weak self] in self?.revealFocus() }
+        view.scroll.panGestureRecognizer.addTarget(self, action: #selector(userScrolled))
+        // Sends, refusals (the draft comes back through `onRestoreDraft`),
+        // read cursors and older pages all go through the binding.
+        binding = HomeStoreBinding(store: store, controller: view.controller)
+        view.controller.isVisibleToUser = isVisible
         observation.renderNow()
+        view.layoutIfNeeded()
+        revealFocus()
     }
 
-    private func perform(_ intent: HomeIntent) {
-        let store = self.store
-        Task { [weak self] in
-            do {
-                _ = try await store.perform(intent.op, key: intent.key)
-            } catch is HomeRejection {
-                // Refused before it reached the log (offline, nothing queues):
-                // give the text back. A logged refusal stays as "Not Delivered".
-                guard case .sendMessage(let id, let parts) = intent.op,
-                      !store.transcript(for: id).contains(where: { $0.key == intent.key }) else { return }
-                self?.transcript?.controller.restoreDraft(for: intent.key)
-                self?.transcript?.restoreDraft(parts.map(\.plainText).joined())
-            } catch {
-                // HomeSendState.pendingResend: the store resends with the same key.
-            }
+    // MARK: Search hit
+
+    /// Scrolls to the search hit once its row exists. Until then each rows
+    /// change (an older page arrived) tries again, and the next older page
+    /// is requested while the history can still hold the hit.
+    private func revealFocus() {
+        guard let focus = pendingFocus, let controller = transcript?.controller, controller.size.width > 0 else { return }
+        let key = focus.seq.flatMap(controller.item(withSeq:)) ?? focus.key
+        if controller.scroll(to: key, anchor: .center) {
+            pendingFocus = nil
+            return
         }
+        let oldest = store.transcript(for: conversation).lazy.compactMap(\.seq).min()
+        let olderCanHoldIt = switch (focus.seq, oldest) {
+        case (let seq?, let oldest?): seq < oldest
+        default: true
+        }
+        guard olderCanHoldIt, store.hasOlderMessages(in: conversation) else {
+            pendingFocus = nil
+            return
+        }
+        let store = self.store
+        let id = conversation
+        Task { await store.loadOlder(id) }
+    }
+
+    /// The user took over the scroll: stop moving to the hit.
+    @objc private func userScrolled(_ pan: UIPanGestureRecognizer) {
+        if pan.state == .began { pendingFocus = nil }
     }
 
     private func failureActions(for key: IdempotencyKey) -> [HomeMessageAction] {
