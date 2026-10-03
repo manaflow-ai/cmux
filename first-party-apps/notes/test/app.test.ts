@@ -221,6 +221,17 @@ describe("markdown export and import through picked handles", () => {
     expect(texts(host, "m")).toContain("Imported 2 notes")
   })
 
+  test("a palette run with the command's gesture token presents that token to the panel", async () => {
+    const { host, server } = makeHost({ settings: { variant: "list" } })
+    host.mount("m", "renderNotes", {})
+    await host.settle(20)
+    const r = await run(host, "exportNotes", {}, { gesture: "g_palette" })
+    expect(r.ok).toBe(true)
+    const pick = host.calls.find((c) => c.name === "fs.pick")!
+    expect(pick.options.gesture).toBe("g_palette")
+    expect(server.written.length).toBeGreaterThan(0)
+  })
+
   test("from the palette (no gesture) the panel is refused and nothing is written", async () => {
     const { host, server } = makeHost()
     expect((await run(host, "exportNotes", {})).body.code).toBe("gesture.required")
