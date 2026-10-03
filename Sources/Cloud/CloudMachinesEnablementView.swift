@@ -13,6 +13,8 @@ import SwiftUI
 struct CloudMachinesEnablementView: View {
     let coordinator: CloudActivationCoordinator
     let accountFlow: HostAccountFlow?
+    /// Whether a billing plan request has finished for this account. When it
+    /// failed, the plan is still unknown and the server decides on enable.
     let billingPlanLoaded: Bool
     let chromeBackgroundColor: NSColor
 
@@ -77,10 +79,11 @@ struct CloudMachinesEnablementView: View {
     }
 
     private var heroSymbol: String {
-        if isProGated { return "lock.circle" }
+        // Same cloud as the enable screen; the title and Upgrade button say why.
+        if isProGated { return "cloud.fill" }
         switch coordinator.state {
         case .disabled, .cancelled, .enabling, .enabled: return "cloud.fill"
-        case .failed(.requiresPro): return "lock.circle"
+        case .failed(.requiresPro): return "cloud.fill"
         case .failed(.signInRequired): return "person.crop.circle.badge.plus"
         case .failed(.serviceUnavailable): return "exclamationmark.icloud"
         case .unavailable: return "icloud.slash"
@@ -88,10 +91,10 @@ struct CloudMachinesEnablementView: View {
     }
 
     private var heroTint: Color {
-        if isProGated { return .secondary }
+        if isProGated { return .accentColor }
         switch coordinator.state {
         case .disabled, .cancelled, .enabling, .enabled, .failed(.signInRequired): return .accentColor
-        case .failed(.requiresPro): return .secondary
+        case .failed(.requiresPro): return .accentColor
         case .failed(.serviceUnavailable): return .orange
         case .unavailable: return .secondary
         }
@@ -103,7 +106,7 @@ struct CloudMachinesEnablementView: View {
         }
         switch coordinator.state {
         case .disabled, .cancelled, .enabled:
-            return String(localized: "cloud.enable.title", defaultValue: "Use Cloud Machines")
+            return String(localized: "cloud.enable.title.enable", defaultValue: "Enable Cloud Machines")
         case .enabling:
             return String(localized: "cloud.enable.loading.title", defaultValue: "Setting up Cloud Machines…")
         case .failed(.requiresPro):
@@ -164,7 +167,7 @@ struct CloudMachinesEnablementView: View {
     private var actionContent: some View {
         switch coordinator.state {
         case .disabled, .cancelled:
-            if !billingPlanLoaded {
+            if !billingPlanLoaded && !isPlanKnown {
                 Text(String(localized: "cloud.enable.planChecking", defaultValue: "Checking your cmux plan…"))
                     .cmuxFont(size: 12)
                     .foregroundStyle(.secondary)
@@ -183,14 +186,18 @@ struct CloudMachinesEnablementView: View {
                     Text(String(localized: "cloud.enable.action", defaultValue: "Enable Cloud"))
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .cloudProminentButtonStyle()
                 .controlSize(.regular)
                 .accessibilityIdentifier("CloudMachinesEnableButton")
-            Text(String(localized: "cloud.enable.planNote", defaultValue: "Requires a cmux Pro plan."))
-                    .cmuxFont(size: 11)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
+                // A known Pro plan needs no reminder; the note only explains
+                // what enable will check when the plan could not be loaded.
+                if !isPlanKnown {
+                    Text(String(localized: "cloud.enable.planNote", defaultValue: "Requires a cmux Pro plan."))
+                        .cmuxFont(size: 11)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         case .enabling:
             actionButton(
@@ -227,8 +234,14 @@ struct CloudMachinesEnablementView: View {
         }
     }
 
+    /// The account's plan is known (not just "a request finished").
+    private var isPlanKnown: Bool {
+        accountFlow?.hasLoadedBillingPlan == true
+    }
+
+    /// Free accounts see Upgrade to Pro in place of Enable Cloud.
     private var isProGated: Bool {
-        billingPlanLoaded && accountFlow?.isProActive != true
+        isPlanKnown && accountFlow?.isProActive != true
     }
 
     private func retryButton(prominent: Bool) -> some View {
@@ -254,10 +267,22 @@ struct CloudMachinesEnablementView: View {
         .controlSize(.regular)
         .accessibilityIdentifier(identifier)
         if prominent {
-            button.buttonStyle(.borderedProminent)
+            button.cloudProminentButtonStyle()
         } else {
             button.buttonStyle(.bordered)
         }
+    }
+}
+
+extension View {
+    /// `.borderedProminent` that stays blue when the window is inactive.
+    /// The right sidebar forces its own color scheme
+    /// (`RightSidebarPanelView`); when that disagrees with the window's
+    /// appearance, AppKit draws the inactive gray bezel under SwiftUI's white
+    /// prominent label and the button all but disappears after a click away.
+    func cloudProminentButtonStyle() -> some View {
+        buttonStyle(.borderedProminent)
+            .environment(\.controlActiveState, .key)
     }
 }
 

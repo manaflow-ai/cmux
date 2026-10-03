@@ -142,7 +142,18 @@ struct MachinesPanelView: View {
                 billingPlanLoaded = false
                 return
             }
-            billingPlanLoaded = false
+            // The panel is rebuilt whenever the sidebar switches modes. Start
+            // from the account's last answer so Enable Cloud / Upgrade stays
+            // on screen while it refreshes, instead of flashing "Checking…".
+            billingPlanLoaded = accountFlow.hasLoadedBillingPlan
+            // Never hold Enable Cloud behind a slow plan check. After a moment
+            // the screen stops waiting; if the plan then answers Free, Upgrade
+            // replaces the button.
+            let stopWaiting = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(2))
+                if !Task.isCancelled { billingPlanLoaded = true }
+            }
+            defer { stopWaiting.cancel() }
             await accountFlow.refreshBillingPlan()
             guard !Task.isCancelled,
                   accountFlow.isAuthenticated,
@@ -501,7 +512,7 @@ struct MachinesPanelView: View {
                     Text(String(localized: "machines.empty.create", defaultValue: "New Machine"))
                         .cmuxFont(size: 12)
                 }
-                .buttonStyle(.borderedProminent)
+                .cloudProminentButtonStyle()
                 .controlSize(.small)
                 .padding(.top, 2)
                 if let plan = viewModel.plan, !plan.isPaidPlan {
