@@ -604,18 +604,26 @@ struct CloudTreeNodeActions {
             let key = CloudPortShareStore.Key(machineID: resource.machine.rawValue, port: port)
             guard !store.isCreating(key) else { return }
             store.set(.creating, for: key)
+            // Making a link can take a while; if something else lands on the
+            // clipboard meanwhile, don't replace it. The row says the link is
+            // ready instead, and the next click copies it straight away.
+            let clipboardAtClick = NSPasteboard.general.changeCount
             run(
                 String(localized: "cloudTree.port.share.creating", defaultValue: "Creating link\u{2026}"),
                 { catalog in
                     do {
                         guard let provider = catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider,
                               let client = VMClient.shared else {
-                            throw SurfaceCatalogError.unsupported(SurfaceCatalog.portPreviewUnavailableMessage(machineID: resource.machine.rawValue))
+                            throw CloudPortShareFailure.unavailable
                         }
                         let publication = try await CloudPortShareService(api: client)
                             .share(vmID: provider.machineID, port: port, teamID: provider.ownerTeamID)
-                        Self.copyToPasteboard(publication.url)
-                        store.set(.copied(publication.accessMode), for: key, holdFor: .seconds(2))
+                        if NSPasteboard.general.changeCount == clipboardAtClick {
+                            Self.copyToPasteboard(publication.url)
+                            store.set(.copied(publication.accessMode), for: key, holdFor: .seconds(2))
+                        } else {
+                            store.set(.ready, for: key, holdFor: .seconds(10))
+                        }
                     } catch is CancellationError {
                         store.clear(key)
                         throw CancellationError()
@@ -625,13 +633,15 @@ struct CloudTreeNodeActions {
                     }
                 },
                 failureDescription: { error in
-                    switch error as? CloudPortShareError {
-                    case .stillProvisioning:
+                    switch error {
+                    case CloudPortShareError.stillProvisioning:
                         return String(localized: "cloudTree.port.share.error.timeout", defaultValue: "The link is still being set up. Try sharing again in a minute.")
-                    case .unavailable:
-                        return String(localized: "cloudTree.port.share.error.unavailable", defaultValue: "The Cloud service couldn't create a link for this port. Try again.")
-                    case nil:
+                    case VMClientError.notSignedIn, VMClientError.sessionRefreshFailed:
                         return (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                    default:
+                        // Server and client errors here are written for the
+                        // CLI ("Run `cmux ...`"); the sidebar gets plain copy.
+                        return String(localized: "cloudTree.port.share.error.unavailable", defaultValue: "The Cloud service couldn't create a link for this port. Try again.")
                     }
                 }
             )
@@ -647,4 +657,9 @@ struct CloudTreeNodeActions {
         cmuxDebugLog("cloudTree.copyToPasteboard ok=\(ok) chars=\(text.count)")
         #endif
     }
+}
+
+/// The machine isn't reachable through a Cloud provider right now.
+private enum CloudPortShareFailure: Error {
+    case unavailable
 }

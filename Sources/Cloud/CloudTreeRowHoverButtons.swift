@@ -189,12 +189,14 @@ struct CloudTreeRowHoverButtons: View {
 /// once it is on the clipboard.
 private struct CloudPortShareButton: View {
     let key: CloudPortShareStore.Key
-    @ObservedObject var store: CloudPortShareStore
+    let store: CloudPortShareStore
     let action: () -> Void
 
     var body: some View {
         let phase = store.phase(for: key)
-        HStack(spacing: 2) {
+        // No transition: the controls host resizes with the note, and an
+        // animated swap slides the note out under the row's content.
+        HStack(spacing: 4) {
             if let status = status(phase) {
                 // The row's content keeps its trailing edge at just below
                 // required priority, so the controls host shrinks to its
@@ -205,7 +207,6 @@ private struct CloudPortShareButton: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .fixedSize()
-                    .transition(.opacity)
             }
             MachinesChromeIconButton(
                 symbolName: symbolName(phase),
@@ -216,14 +217,13 @@ private struct CloudPortShareButton: View {
             .help(label(phase))
             .accessibilityIdentifier("CloudPortShareButton")
         }
-        .animation(.easeOut(duration: 0.15), value: phase)
     }
 
     private func symbolName(_ phase: CloudPortShareStore.Phase?) -> String {
         switch phase {
         case .copied: return "checkmark"
         case .failed: return "exclamationmark.triangle"
-        case .creating, nil: return "link"
+        case .creating, .ready, nil: return "link"
         }
     }
 
@@ -235,6 +235,8 @@ private struct CloudPortShareButton: View {
             return String(localized: "cloudTree.port.share.creating", defaultValue: "Creating link\u{2026}")
         case .copied:
             return String(localized: "cloudTree.port.share.copied", defaultValue: "Copied to clipboard")
+        case .ready:
+            return String(localized: "cloudTree.port.share.ready", defaultValue: "Link ready")
         case .failed, nil:
             return nil
         }
@@ -250,6 +252,8 @@ private struct CloudPortShareButton: View {
             return String(localized: "cloudTree.port.share.copiedPersonal", defaultValue: "Link copied. Only you can open it.")
         case .copied(.public):
             return String(localized: "cloudTree.port.share.copiedPublic", defaultValue: "Link copied. Anyone with the link can open it.")
+        case .ready:
+            return String(localized: "cloudTree.port.share.readyHelp", defaultValue: "The link is ready. Click to copy it.")
         case .failed:
             return String(localized: "cloudTree.port.share.failed", defaultValue: "Couldn't create link")
         case nil:

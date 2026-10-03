@@ -1,13 +1,17 @@
-import Combine
 import Foundation
+import Observation
 
 /// Per-port Share progress, so the port row can show a spinner while its link
 /// is being made and a checkmark once it has been copied.
 @MainActor
-public final class CloudPortShareStore: ObservableObject {
+@Observable
+public final class CloudPortShareStore {
     public enum Phase: Equatable, Sendable {
         case creating
         case copied(VMPublicationAccessMode)
+        /// The link is ready but wasn't copied, because the clipboard changed
+        /// while it was being made. Clicking again copies it at once.
+        case ready
         case failed
     }
 
@@ -20,12 +24,19 @@ public final class CloudPortShareStore: ObservableObject {
         }
     }
 
+    public typealias Sleep = @Sendable (Duration) async throws -> Void
+
     public static let shared = CloudPortShareStore()
 
-    @Published public private(set) var phases: [Key: Phase] = [:]
-    private var resetTasks: [Key: Task<Void, Never>] = [:]
+    public private(set) var phases: [Key: Phase] = [:]
+    @ObservationIgnored private var resetTasks: [Key: Task<Void, Never>] = [:]
+    @ObservationIgnored private let sleep: Sleep
 
-    public init() {}
+    /// `sleep` times the auto-dismiss of a finished phase (a brief "copied"
+    /// note); it is injected so tests don't wait in real time.
+    public init(sleep: @escaping Sleep = { try await Task.sleep(for: $0) }) {
+        self.sleep = sleep
+    }
 
     public func phase(for key: Key) -> Phase? { phases[key] }
 
@@ -37,9 +48,10 @@ public final class CloudPortShareStore: ObservableObject {
         resetTasks[key] = nil
         phases[key] = phase
         guard let holdFor else { return }
+        let sleep = sleep
         resetTasks[key] = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: holdFor)
-            guard !Task.isCancelled, let self, self.phases[key] == phase else { return }
+            do { try await sleep(holdFor) } catch { return }
+            guard let self, self.phases[key] == phase else { return }
             self.phases[key] = nil
             self.resetTasks[key] = nil
         }

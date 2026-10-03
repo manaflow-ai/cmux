@@ -5,13 +5,15 @@ import Foundation
 public protocol CloudPortPublishing: Sendable {
     func listPublications(scopeTeamID: String?) async throws -> [VMPublication]
     func createDefaultPublication(vmID: String, port: Int, scopeTeamID: String?) async throws -> VMPublication
-    func verifyPublication(id: String, scopeTeamID: String?) async throws -> VMPublication
     func deletePublication(id: String, scopeTeamID: String?) async throws
 }
 
 extension VMClient: CloudPortPublishing {
     /// No access mode and no team: the server picks team access for a team
-    /// machine and owner-only access for a personal one.
+    /// machine and owner-only access for a personal one. Repeating it is safe:
+    /// the generated hostname is fixed per machine and port, so the server
+    /// returns the existing row and resumes provisioning it, including a row a
+    /// teammate created.
     public func createDefaultPublication(vmID: String, port: Int, scopeTeamID: String?) async throws -> VMPublication {
         try await createPublication(
             vmID: vmID,
@@ -25,26 +27,27 @@ extension VMClient: CloudPortPublishing {
 }
 
 public enum CloudPortShareError: Error, Equatable, Sendable {
-    /// The link exists but its route never became ready within the wait.
+    /// The link exists but did not start serving within the wait.
     case stillProvisioning
-    /// The service reports the publication can't serve (for example `unavailable`).
-    case unavailable(state: String)
 }
 
 /// Finds or creates the shareable link for one machine port, and waits until
 /// it serves before handing it back, so a copied link is never a dead one.
+///
+/// The wait polls because the service has no push channel for publication
+/// readiness; the delays and the sleep are injected so tests run without real
+/// time.
 public struct CloudPortShareService: Sendable {
     public typealias Sleep = @Sendable (Duration) async throws -> Void
     /// Asks the link once, signed out, whether the edge can serve it, and
     /// returns the HTTP status, or nil when the edge could not be reached.
     public typealias Probe = @Sendable (URL) async -> Int?
 
-    /// Waits between readiness checks. Creation provisions the route right
-    /// away; the wait only covers the edge certificate catching up.
+    /// Waits between readiness checks, about a minute in total. Creation
+    /// provisions the route right away; the wait covers the edge catching up.
     public static let defaultPollDelays: [Duration] = [
-        .seconds(1), .seconds(2), .seconds(3), .seconds(5), .seconds(5),
-        .seconds(10), .seconds(10), .seconds(15), .seconds(15), .seconds(15),
-        .seconds(15), .seconds(15),
+        .seconds(1), .seconds(2), .seconds(3), .seconds(4), .seconds(5),
+        .seconds(5), .seconds(10), .seconds(10), .seconds(10), .seconds(10),
     ]
 
     private let api: any CloudPortPublishing
@@ -64,43 +67,38 @@ public struct CloudPortShareService: Sendable {
         self.probe = probe
     }
 
-    /// The live publication for this port, if there is one.
+    /// The live cmux-generated link for this port, if there is one. A custom
+    /// domain on the same port is left alone: it may still be waiting on the
+    /// user's DNS, and it isn't the link Share hands out.
     public func existing(vmID: String, port: Int, teamID: String?) async throws -> VMPublication? {
         try await api.listPublications(scopeTeamID: teamID).first {
-            $0.vmID == vmID && $0.port == port && Self.isLive($0.state)
+            $0.vmID == vmID && $0.port == port && $0.domainKind == "generated" && Self.isLive($0.state)
         }
     }
 
-    /// Reuses the port's publication (whatever its access) or creates one with
-    /// the server's default access, then waits until the link itself answers:
-    /// `active` on the server can run ahead of the edge, which shows a 503
-    /// page until its authorization check and route are ready.
+    /// Reuses the port's generated link (whatever its access) or creates one
+    /// with the server's default access, then waits until the link itself
+    /// answers: `active` on the server can run ahead of the edge, which shows
+    /// a 503 page until its authorization check and route are ready.
     public func share(vmID: String, port: Int, teamID: String?) async throws -> VMPublication {
-        var publication: VMPublication
-        if let found = try await existing(vmID: vmID, port: port, teamID: teamID) {
-            publication = found
-        } else {
-            publication = try await api.createDefaultPublication(vmID: vmID, port: port, scopeTeamID: teamID)
-        }
         var delays = pollDelays.makeIterator()
+        var publication = try await existing(vmID: vmID, port: port, teamID: teamID)
         while true {
-            switch publication.state {
-            case "active":
-                // Only protected links can be probed without side effects; a
-                // public link would send the request to the user's app.
-                guard publication.accessMode != .public else { return publication }
-                if let url = URL(string: publication.url), let status = await probe(url), status < 500 {
-                    return publication
+            if publication?.state != "active" {
+                // Creating again resumes a provisioning or unavailable row. A
+                // row still being removed (409) or a busy provisioning lease
+                // (503) only means "not yet".
+                do {
+                    publication = try await api.createDefaultPublication(vmID: vmID, port: port, scopeTeamID: teamID)
+                } catch VMClientError.httpStatus(let status, _) where status == 409 || status == 503 {
+                    publication = nil
                 }
-                guard let delay = delays.next() else { throw CloudPortShareError.stillProvisioning }
-                try await sleep(delay)
-            case "provisioning":
-                guard let delay = delays.next() else { throw CloudPortShareError.stillProvisioning }
-                try await sleep(delay)
-                publication = try await api.verifyPublication(id: publication.id, scopeTeamID: teamID)
-            default:
-                throw CloudPortShareError.unavailable(state: publication.state)
             }
+            if let current = publication, current.state == "active", await serves(current) {
+                return current
+            }
+            guard let delay = delays.next() else { throw CloudPortShareError.stillProvisioning }
+            try await sleep(delay)
         }
     }
 
@@ -109,13 +107,21 @@ public struct CloudPortShareService: Sendable {
         try await api.deletePublication(id: publicationID, scopeTeamID: teamID)
     }
 
+    /// A public link would send the probe to the user's app, so it is taken as
+    /// is. A protected link must answer the signed-out probe the way cmux's
+    /// authorization check does (401), or serve or redirect; anything else,
+    /// such as the edge's 503 or a 404 for a route it doesn't know yet, waits.
+    private func serves(_ publication: VMPublication) async -> Bool {
+        guard publication.accessMode != .public else { return true }
+        guard let url = URL(string: publication.url), let status = await probe(url) else { return false }
+        return (200..<400).contains(status) || status == 401
+    }
+
     /// A signed-out POST to a protected link. cmux's authorization check
-    /// answers it with 401 without starting a sign-in or reaching the machine,
-    /// so a 401 means the edge and its check are both serving; the edge's own
-    /// 503 means they aren't yet.
+    /// answers it with 401 without starting a sign-in or reaching the machine.
     public static let signedOutStatus: Probe = { url in
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 10
+        configuration.timeoutIntervalForRequest = 5
         configuration.httpCookieStorage = nil
         configuration.httpShouldSetCookies = false
         let session = URLSession(configuration: configuration, delegate: NoRedirects(), delegateQueue: nil)
