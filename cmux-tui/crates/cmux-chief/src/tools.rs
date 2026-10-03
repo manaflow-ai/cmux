@@ -23,9 +23,9 @@ pub struct ProfileTool {
     pub group: String,
 }
 
-/// The tools of `profile`, in catalog order, from a catalog in the
-/// `resource-operations-v2.json` shape (`operations` maps names to
-/// descriptors).
+/// The tools of `profile`, in operation name order (serde_json keeps object
+/// keys sorted), from a catalog in the `resource-operations-v2.json` shape
+/// (`operations` maps names to descriptors).
 pub fn profile_tools(catalog: &Value, profile: &str) -> Vec<ProfileTool> {
     let Some(operations) = catalog.get("operations").and_then(Value::as_object) else {
         return Vec::new();
@@ -43,6 +43,12 @@ pub fn profile_tools(catalog: &Value, profile: &str) -> Vec<ProfileTool> {
                 _ => return None,
             };
             Some(ProfileTool {
+                // The same rule as `cmux mcp serve` (cmux-tui cli/mcp/v2_tools.rs
+                // `tool_name`). That rule lives in the cmux-tui binary crate, which
+                // cmux-chief cannot depend on (cmux-tui is the top of the graph). The
+                // only crate both reach, cmux-conversation, is the conversation model,
+                // and cmux-tui reaches it only through cmux-tui-core: sharing the rule
+                // there would add a direct edge and mix concerns, so it is not shared.
                 name: operation.replace('.', "_"),
                 operation: operation.clone(),
                 mutation,

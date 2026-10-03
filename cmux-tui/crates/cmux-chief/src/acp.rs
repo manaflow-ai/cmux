@@ -51,10 +51,14 @@ pub struct SessionSummary {
 pub struct AcpmuxEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    /// A missing seq reads as 0 (folded, never deduped), as in TypeScript.
+    #[serde(default)]
     pub seq: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub at: Option<u64>,
+    #[serde(default)]
     pub dir: String,
+    #[serde(default)]
     pub kind: String,
     #[serde(default)]
     pub msg: Map<String, Value>,
