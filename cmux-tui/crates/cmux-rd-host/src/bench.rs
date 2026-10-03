@@ -281,7 +281,14 @@ pub fn run(opts: &Opts) -> Res<()> {
             return Err(format!("ended before the first frame: {e}").into());
         }
         if now_ns() - start > 15_000_000_000 {
-            return Err("no marker within 15 s".into());
+            return Err(format!(
+                "no marker within 15 s (bytes {}, frames released {}, decode errors {}, losses {:?})",
+                v.bytes,
+                v.frames,
+                v.decode_errors,
+                v.reassembler.take_losses().into_iter().take(5).collect::<Vec<_>>()
+            )
+            .into());
         }
     }
     let (b0, f0, c0, t_begin) = (v.bytes, v.frames, cpu_s(), now_ns());
