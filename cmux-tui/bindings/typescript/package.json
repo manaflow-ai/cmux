@@ -8,7 +8,7 @@
     "directory": "cmux-tui/bindings/typescript"
   },
   "homepage": "https://github.com/manaflow-ai/cmux/tree/main/cmux-tui/bindings/typescript",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "keywords": [
     "cmux",
     "terminal",

@@ -67,9 +67,9 @@ Windows input and worktree handling, or sidebar focus. They do not change
 `src/detect` or the manifests. The agent-surface revision is the reproducible
 capability-audit pin.
 
-The original cmux portions of this package are licensed under MIT. The full
-text is in `LICENSE-MIT`. The Apache-2.0 text for the derived herdr material is
-in `manifests/LICENSE`.
+The original cmux portions of this package are licensed under GPL-3.0-or-later.
+The full text is in `LICENSE`. The Apache-2.0 text for the derived herdr material
+is in `manifests/LICENSE`.
 
 The detector engine in `src/manifest.rs` is adapted from herdr's
 `src/detect/manifest.rs` semantics. It keeps the attribution above and adds
