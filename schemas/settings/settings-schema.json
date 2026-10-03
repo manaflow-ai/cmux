@@ -130,7 +130,7 @@
           "value" : "afterSidebar"
         }
       ],
-      "default" : "off",
+      "default" : "leading",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.window",

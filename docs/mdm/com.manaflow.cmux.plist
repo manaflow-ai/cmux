@@ -47,7 +47,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>off</string>
+			<string>leading</string>
 			<key>pfm_description</key>
 			<string>Shows the sidebar's pinned sections as a column of icons beside it.</string>
 			<key>pfm_name</key>

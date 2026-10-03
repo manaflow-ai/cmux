@@ -18,9 +18,9 @@ The left sidebar is an ordered list of **sections** in three **regions**:
 
 | Region | Behavior | Default content |
 | --- | --- | --- |
-| Top | sticky under the titlebar row; never scrolls with the list | section (hidden title): Home, then the App Store, built-in look |
+| Top | sticky under the titlebar row; never scrolls with the list | section (hidden title, `max_rows` 4): Home, the App Store, History, Notifications, Settings, Customize Appearance, CodeRouter, built-in look. With the default rail (section 11) the first four are rail buttons and the rest sit under its More menu |
 | Middle | scrolls; the only region that takes all leftover height | the Workspaces section (pinned workspaces, machines, groups; Leo's stack + history layer lives here unchanged) |
-| Bottom | sticky above the space bar | section (hidden title), one line: Settings (icon + label) at the leading edge, the account avatar (icon only) at the trailing edge |
+| Bottom | sticky above the space bar | section (hidden title), one line: the account avatar (icon only); pinned to the rail's bottom by default |
 
 Every section has: an optional title (hidden titles draw no header), a region, an ordered item list, a
 **look** (`builtIn`: compact rows that read as app chrome, like Home; `list`: rows that look like
@@ -306,3 +306,30 @@ Lawrence (2026-10-02): sections subsume Leo's window rail (#16740). The rail bec
 look of sections: a leading vertical region whose sections draw as icon columns (the lines-icons
 look turned vertical). Leo's lane builds the rail look on top of the section layout; shared files go
 through the coordinator.
+
+Rail by default (Leo, 2026-10-03: keep Home and the App Store, but tuck them into a skinny strip like
+the Codex app). `window.rail` defaults to "leading": the rail sits at the window's leading edge and
+the sidebar beside it is an inset panel (rounded top leading corner, the theme's `sidebarStep` fill
+over the backdrop), starting directly with the workspace list. The rail draws the sticky bands: the
+top band from the top, the bottom band pinned to the bottom. In the rail look a section's
+`max_rows` caps its buttons; the rest go under a More ("...") button placed after that section's
+buttons (a short window also spills the last buttons into it, in document order). The default
+layout (section 1) gives:
+
+| Rail | Items |
+| --- | --- |
+| top | Home, App Store, History, Notifications |
+| More menu | Settings, Customize Appearance, CodeRouter |
+| bottom | Account |
+
+Settings sits under More like in the Codex app, where it is reached from a menu rather than the
+strip; ⌘, opens it anyway. Unread items show a dot on their icon (no count; the tooltip and
+VoiceOver carry it). With `window.rail` "off" the same layout shows as sidebar bands (the top band
+four rows tall, then scrolling).
+
+Migration: a stored layout whose sections equal the pre-rail default (top: Home, App Store,
+CodeRouter; bottom line: Settings, Account; `SidebarLayoutDocument.preRailDefaults`) is moved to the
+new default once per app session with ordinary ops through the owner (add History and Notifications,
+move Settings up, add Customize Appearance, set `max_rows` 4). Any other stored layout is the user's
+and is left alone. The Rust store's defaults must match `SidebarLayoutDocument.defaults` when #16842
+lands, and the shared fixture (`sidebar-layout-cases.json`) already expects the new default.
