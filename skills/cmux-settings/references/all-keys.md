@@ -58,6 +58,7 @@ Terminal presentation settings from Settings > Terminal.
 | `terminal.sessionContentMaxWidth` | boolean or number | `false` | Optional maximum width, in points, for terminal and built-in agent chat content. Set false to use the full pane width. |
 | `terminal.sessionContentAlignment` | `"left"` or `"center"` or `"right"` | `"center"` | Horizontal placement for terminal and built-in agent chat content when sessionContentMaxWidth is enabled. |
 | `terminal.copyOnSelect` | boolean | `false` | When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior. |
+| `terminal.showCopyConfirmation` | boolean | `false` | Briefly show "Copied to clipboard" at the bottom of a terminal after selecting text copies it. Applies whether copyOnSelect or Ghostty's copy-on-select turned copying on. Copies made with a keyboard shortcut or by a program (OSC 52) never show it. |
 | `terminal.confirmUnsafePaste` | boolean | `false` | When true, a paste that Ghostty's clipboard-paste-protection flags as unsafe (for example, text with a line break going to a program that has not enabled bracketed paste) waits for confirmation in a sheet attached to the terminal's window. When false, cmux pastes it without asking. OSC 52 clipboard reads are not affected. |
 | `terminal.reflowHardWrapOnCopy` | boolean | `false` | When true, copying terminal text also joins a line that exactly fills the terminal width onto the next line, undoing hard wraps a program inserted at the grid edge. Soft-wrapped rows are always joined. |
 | `terminal.textEditingGestures` | boolean | `false` | Replay macOS text-editing gestures as line-editor keys at the shell prompt: Command and Option arrow keys move by line and word, and Command and Option Delete kill by line and word. While a full-screen application (vim, less, htop, tmux) has the terminal on the alternate screen, it gets the keys as if gestures were off, unless textEditingGesturesInFullScreenApps is on. Ghostty's own bindings still apply there, so Command+Left sends Ctrl+A and Option+Left sends Esc b. |
@@ -190,6 +191,14 @@ Socket control and automation settings from Settings > Automation.
 | `automation.ampIntegration` | boolean | `true` | Enable cmux integration hooks for Amp. When disabled, the bundled plugin stays inactive without needing to be removed. |
 | `automation.kiroIntegration` | boolean | `true` | Enable cmux integration hooks for Kiro CLI. |
 | `automation.kiroNotificationLevel` | `"minimal"` or `"standard"` or `"verbose"` | `"standard"` | Controls how many Kiro tool events appear in Feed. |
+
+## agentMessages
+
+Agent-to-agent messages sent with `cmux agent message`. Per-agent and per-workspace opt-outs are set with `cmux agent messages off`.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `agentMessages.enabled` | boolean | `true` | Allow agents to message each other through cmux. When false, `cmux agent message` fails, nothing is stored, and messages already queued are marked failed instead of being delivered. |
 
 ## browser
 

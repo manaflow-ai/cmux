@@ -16,11 +16,9 @@ import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
 import CmuxTerminal
-
 struct cmuxApp: App {
     /// App-owned settings graph, injected into each SwiftUI hosting root.
     private let settingsRuntime: SettingsRuntime
-
     /// Single owner of the independently launched Computer Use helper daemon.
     private let computerUseRuntimeService: ComputerUseRuntimeService
 
@@ -188,6 +186,17 @@ struct cmuxApp: App {
         let devices = MacDevicesComposition(defaults: .standard, catalog: settingsCatalog)
         let devicesRegistry = devices.registry
         let computersService = devices.computers
+        let hostSettingsActions = HostSettingsActions(
+            configFileURL: configFileURL,
+            computerUseRuntimeService: computerUseRuntimeService,
+            browserDataImportCoordinator: browserDataImportCoordinator,
+            computersActions: devices.settingsActions,
+            runComputerUseOnboardingAction: { startingPoint in
+                AppDelegate.shared?.computerUseUXCoordinator.presentOnboardingFromSettings(
+                    startingAt: startingPoint
+                )
+            }
+        )
         self.settingsRuntime = SettingsRuntime(
             catalog: settingsCatalog,
             userDefaultsStore: devices.defaultsStore,
@@ -195,17 +204,7 @@ struct cmuxApp: App {
             secretStore: secretStore,
             errorLog: SettingsErrorLog(),
             accountFlow: authComposition.accountFlow,
-            hostActions: HostSettingsActions(
-                configFileURL: configFileURL,
-                computerUseRuntimeService: computerUseRuntimeService,
-                browserDataImportCoordinator: browserDataImportCoordinator,
-                computersActions: devices.settingsActions,
-                runComputerUseOnboardingAction: { startingPoint in
-                    AppDelegate.shared?.computerUseUXCoordinator.presentOnboardingFromSettings(
-                        startingAt: startingPoint
-                    )
-                }
-            ),
+            hostActions: hostSettingsActions,
             shortcutDefaultResolver: Self.makeShortcutDefaultResolver()
         )
         StartupBreadcrumbLog.append("app.init.settingsRuntime.created")
@@ -323,6 +322,7 @@ struct cmuxApp: App {
             devicesRegistry: devicesRegistry,
             computersService: computersService
         )
+        hostSettingsActions.cloudActivationCoordinator = appDelegate.cloudActivationCoordinator
         historyMenuCoordinator.refreshIfNeeded()
         StartupBreadcrumbLog.append("app.init.delegate.configured")
     }
@@ -1713,6 +1713,7 @@ private struct MainWindowBootstrapView: View {
     }
 }
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
+    "cmux.newMachine",
     "cmux.settings",
     "cmux.about",
     "cmux.licenses",

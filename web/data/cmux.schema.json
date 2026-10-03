@@ -811,6 +811,11 @@
           "descriptionKey": "schemaDescriptions.terminal.copyOnSelect",
           "description": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior."
         },
+        "showCopyConfirmation": {
+          "type": "boolean",
+          "default": false,
+          "description": "Briefly show \"Copied to clipboard\" at the bottom of a terminal after selecting text copies it. Applies whether copyOnSelect or Ghostty's copy-on-select turned copying on. Copies made with a keyboard shortcut or by a program (OSC 52) never show it."
+        },
         "reflowHardWrapOnCopy": {
           "type": "boolean",
           "default": false,
@@ -1785,6 +1790,20 @@
           "minimum": 1,
           "default": 10,
           "description": "Number of ports reserved per workspace."
+        }
+      }
+    },
+    "agentMessages": {
+      "x-cmux-scopes": ["global"],
+      "title": "agentMessages",
+      "description": "Agent-to-agent messages sent with cmux agent message. Per-agent and per-workspace opt-outs are set with cmux agent messages off.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow agents to message each other through cmux. When false, cmux agent message fails, nothing is stored, and messages already queued are marked failed instead of being delivered."
         }
       }
     },
