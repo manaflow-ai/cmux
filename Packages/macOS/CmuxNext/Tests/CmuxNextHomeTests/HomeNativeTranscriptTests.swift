@@ -169,3 +169,30 @@ import Testing
         #expect(midError < 1, "linear test curve: halfway is halfway")
     }
 }
+
+@MainActor
+@Suite struct HomeGlassHeaderTests {
+    @Test func headerShowsTheOtherParticipantAndRowsScrollUnderIt() {
+        let me = ParticipantID("user_me")
+        let chief = ParticipantID("agent_chief")
+        let id = ConversationID("conv_header")
+        let start = Date(timeIntervalSince1970: 1_790_000_000)
+        let participants: [Participant] = [Participant(id: me, kind: .human, displayName: "Me"),
+                                           Participant(id: chief, kind: .agent, displayName: "Chief Of Staff", agentClass: .chief)]
+        let summary = ConversationSummary(id: id, participants: participants, createdAt: start, updatedAt: start, readCursors: [:])
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 628, height: 900), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let view = HomeNativeTranscriptView(conversation: id, me: me)
+        window.contentView = view
+        view.layoutSubtreeIfNeeded()
+        view.controller.update(items: [], summary: summary, typing: [], hasOlder: false)
+        view.layoutSubtreeIfNeeded()
+        #expect(view.header.name.title == "Chief Of Staff")
+        #expect(view.header.avatar.stringValue == "CO")
+        let headerHeight: CGFloat = HomeGlassHeaderView.height
+        #expect(view.header.frame.height == headerHeight)
+        #expect(view.controller.topInset == headerHeight)
+    }
+}

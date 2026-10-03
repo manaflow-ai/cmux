@@ -45,6 +45,11 @@ public final class HomeController {
     /// resize their document and move their clip view (see `scrollGeometry`).
     public var onScrollGeometryChange: (ScrollGeometry) -> Void = { _ in }
     var lastPublishedGeometry: ScrollGeometry?
+    /// The conversation's summary changed (title, participants): hosts
+    /// refresh their header.
+    public var onSummaryChange: (ConversationSummary?) -> Void = { _ in }
+    /// The latest summary from `update`.
+    public var conversationSummary: ConversationSummary? { summary }
     /// The host shows this conversation to the user (window visible, app
     /// active). Read cursors advance only while it is true.
     public var isVisibleToUser = false {
@@ -133,7 +138,9 @@ public final class HomeController {
         var change = TranscriptChange.classify(old: items, new: newItems, me: me, typing: (oldOthersTyping, newOthersTyping),
                                                read: (Self.readByOthers(summary, me: me), Self.readByOthers(newSummary, me: me)))
         items = newItems
+        let summaryChanged = newSummary != summary
         summary = newSummary
+        if summaryChanged { onSummaryChange(newSummary) }
         typing = newTyping
         if newHasOlder != hasOlder || change == .prepend { olderRequested = false }
         hasOlder = newHasOlder

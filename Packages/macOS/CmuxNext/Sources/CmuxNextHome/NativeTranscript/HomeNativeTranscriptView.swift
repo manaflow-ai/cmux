@@ -14,6 +14,7 @@ public final class HomeNativeTranscriptView: NSView {
     let scroll = HomeTranscriptScrollView()
     let rowHost = HomeRowHostView()
     let field = HomeFieldView()
+    let header = HomeGlassHeaderView()
     /// A user-chosen sent-bubble colour; nil follows the theme.
     public var accentOverride: NSColor? { didSet { applyTheme() } }
     private var observers: [any NSObjectProtocol] = []
@@ -32,6 +33,12 @@ public final class HomeNativeTranscriptView: NSView {
         rowHost.layer?.addSublayer(controller.rootLayer)
         scroll.controller = controller
         addSubview(field)
+        addSubview(header)
+        controller.topInset = HomeGlassHeaderView.height
+        controller.onSummaryChange = { [weak self] summary in
+            guard let self else { return }
+            self.header.show(summary, me: self.controller.me)
+        }
         controller.onScrollGeometryChange = { [weak self] g in self?.scroll.apply(g) }
         controller.onAccessibilityChange = { [weak self] in self?.rowHost.accessibilityChanged() }
         field.onSend = { [weak self] in self?.send() }
@@ -67,6 +74,7 @@ public final class HomeNativeTranscriptView: NSView {
         controller.rootLayer.frame = rowHost.bounds
         CATransaction.commit()
         controller.resize(to: bounds.size)
+        header.frame = CGRect(x: 0, y: 0, width: bounds.width, height: HomeGlassHeaderView.height)
         layoutField(send: false)
         scroll.apply(controller.scrollGeometry)
     }
@@ -120,5 +128,6 @@ public final class HomeNativeTranscriptView: NSView {
         let active = window?.isKeyWindow ?? true
         let accent = accentOverride
         controller.palette = performWithTheme { HomeThemePalette.resolveInScope(active: active, accentOverride: accent) }
+        performWithTheme { header.applyColors(disc: Palette.elevatedBackground, text: Palette.textPrimary) }
     }
 }
