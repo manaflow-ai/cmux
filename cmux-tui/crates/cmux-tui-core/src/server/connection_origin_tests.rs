@@ -224,3 +224,30 @@ fn a_bridged_connection_gets_the_redacted_journal() {
     assert!(format!("{refused:?}").contains("metadata"), "{refused:?}");
     mux.shutdown();
 }
+
+/// A bridged peer can neither find nor replace the browser provider, so it
+/// cannot intercept browser automation (decision 2 of the 3b-1 review).
+#[test]
+fn a_bridged_connection_cannot_touch_the_browser_provider() {
+    let mux = Mux::new_for_test("connection-origin-browser", crate::SurfaceOptions::default());
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let bridged = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let mark = String::from_utf8(remote_bridge_mark_line()).unwrap();
+    let _ = line(&mux, bridged, &writer, &outbound, &mark);
+    let get = json!({"id":3,"cmd":"get-browser-provider"}).to_string();
+    let unregister = json!({"id":4,"cmd":"unregister-browser-provider"}).to_string();
+    for request in [&get, &unregister] {
+        let reply = line(&mux, bridged, &writer, &outbound, request);
+        assert_eq!(reply["ok"], false, "{request} -> {reply}");
+    }
+    disconnect_client(&mux, bridged, false);
+
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let local = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let reply = line(&mux, local, &writer, &outbound, &get);
+    assert_eq!(reply["ok"], true, "{reply}");
+    disconnect_client(&mux, local, false);
+    mux.shutdown();
+}
