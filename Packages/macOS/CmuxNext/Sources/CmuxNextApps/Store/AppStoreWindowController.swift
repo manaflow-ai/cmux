@@ -63,7 +63,10 @@ extension AppStoreModel {
     /// The App Store content as one self-contained view: the window hosts it
     /// today; a pane (internal page tab) hosts the same view once the shared
     /// page mechanism lands.
-    public func makeContentView() -> NSView { AppStoreContentView(model: self, ownsWindowBackground: false) }
+    /// `inPane`: hosted in a pane (internal page tab): no traffic-light inset.
+    public func makeContentView(inPane: Bool = false) -> NSView {
+        AppStoreContentView(model: self, ownsWindowBackground: false, inPane: inPane)
+    }
 }
 
 /// The App Store content: one self-contained view that resolves the scene
@@ -75,10 +78,10 @@ final class AppStoreContentView: NSHostingView<AnyView> {
     /// its main window's background.
     private let ownsWindowBackground: Bool
 
-    init(model: AppStoreModel, ownsWindowBackground: Bool) {
+    init(model: AppStoreModel, ownsWindowBackground: Bool, inPane: Bool = false) {
         self.ownsWindowBackground = ownsWindowBackground
         let appearance = appearanceModel
-        super.init(rootView: AnyView(AppSceneThemedRoot(appearance: appearance) { AppStoreRootView(model: model) }))
+        super.init(rootView: AnyView(AppSceneThemedRoot(appearance: appearance) { AppStoreRootView(model: model, inPane: inPane) }))
     }
 
     @available(*, unavailable)

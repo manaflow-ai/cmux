@@ -20,8 +20,8 @@ final class AppsService {
     private var fingerprints: [String: Int] = [:]
     private var store: AppStoreWindowController?
     private var storeModel: AppStoreModel?
-    /// One store model per App Store tab (internal page), by tab key.
-    private var pageModels: [String: AppStoreModel] = [:]
+    /// The App Store tabs (internal page), one store model per tab.
+    private(set) lazy var storePages = AppStorePages { [unowned self] in makeStoreModel() }
     /// Runs previews of apps that are not installed (sample data, no grant).
     private lazy var previewHost = AppHost(sink: AppPreviewSink())
 
@@ -42,7 +42,7 @@ final class AppsService {
         Task { [weak self] in
             await self?.registry.load()
             self?.storeModel?.refresh()
-            for model in self?.pageModels.values ?? [:].values { model.refresh() }
+            self?.storePages.refreshAll()
         }
     }
 
@@ -65,9 +65,8 @@ final class AppsService {
     /// focus. Falls back to the App Store window when no main window can
     /// hold the tab.
     func showStore(appID: String? = nil, installed: Bool = false, focus: Bool = true) {
-        if let view = services.pages.show(.appStore, in: services.windows.active, focus: focus),
-           let model = pageModels[view.key] {
-            model.present(appID: appID, installed: installed)
+        if let view = services.pages.show(.appStore, in: services.windows.active, focus: focus) {
+            storePages.present(view.key, appID: appID, installed: installed)
             return
         }
         if store == nil {
@@ -134,15 +133,8 @@ extension AppsService: InternalPageProvider {
     var title: String { AppStoreModel.title }
     var symbol: String { "bag" }
 
-    func makeView(for key: String, in window: WindowController?) -> NSView {
-        let model = makeStoreModel()
-        model.refresh()
-        pageModels[key] = model
-        return model.makeContentView()
-    }
+    func makeView(for key: String, in window: WindowController?) -> NSView { storePages.makeView(for: key) }
 
-    func tabClosed(_ key: String) {
-        pageModels[key] = nil
-    }
+    func tabClosed(_ key: String) { storePages.tabClosed(key) }
 }
 
