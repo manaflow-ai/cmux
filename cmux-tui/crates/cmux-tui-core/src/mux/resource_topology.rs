@@ -3501,10 +3501,13 @@ impl Mux {
                     .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
                     .to_vec();
                 // An exited terminal may keep dead views without a runtime
-                // (a host loss, or a keep-layout tab); a live one may not.
+                // (a host loss, or a keep-layout tab), and so may a pending
+                // one (adopting, or unadoptable: R41); a live one may not.
                 if runtime.is_none() {
                     anyhow::ensure!(
-                        placements.is_empty() || terminal.lifecycle == TerminalLifecycle::Exited,
+                        placements.is_empty()
+                            || terminal.lifecycle == TerminalLifecycle::Exited
+                            || self.terminal_is_pending(&host_id),
                         "live terminal resource {public_id} has views but no runtime owner"
                     );
                 }
