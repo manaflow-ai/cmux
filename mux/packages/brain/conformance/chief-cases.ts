@@ -1055,6 +1055,28 @@ function childCases(): CorpusCase[] {
   }
 
   {
+    const c = new CaseBuilder("children: a pending permission survives a failed sessions fetch and an acpmux reconnect, then is answered");
+    boot(c);
+    c.step({ kind: "permission_pending", session_id: "s_w", permission_id: "p1", request: {} }, ["fetch_sessions"]);
+    c.step({ kind: "sessions", sessions: [], failed: true } as unknown as Input, []);
+    const writer = session("s_w", "writer", "waiting");
+    c.step({ kind: "sessions", sessions: [writer] }, ["persist", "conversation_op", "prompt"], (e) =>
+      c.check(c.get(e, "prompt").prompt_id === "perm:s_w:p1", "answered after the retry"),
+    );
+    c.step({ kind: "permission_pending", session_id: "s_v", permission_id: "p2", request: {} }, ["fetch_sessions"]);
+    c.step({ kind: "disconnected", port: "acpmux" }, []);
+    c.step(
+      { kind: "acpmux_connected", session_id: MUX_SESSION, sessions: [writer, session("s_v", "viewer", "waiting")], events: [] },
+      ["persist", "prompt", "prompt", "list_conversations"],
+      (e) => {
+        const ids = e.filter((x) => x.kind === "prompt").map((x) => (x as Of<"prompt">).prompt_id);
+        c.check(ids.join() === "perm:s_w:p1,perm:s_v:p2", `resent, then the kept permission: ${ids.join()}`);
+      },
+    );
+    cases.push(c.end());
+  }
+
+  {
     const c = new CaseBuilder("children: a permission option without an optionId prints an empty id; nested rawInput keys are sorted");
     boot(c, [summary("conv_a")], [session("s_w", "writer", "running")]);
     const request = {
