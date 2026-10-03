@@ -1782,11 +1782,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private func reprojectRestoredPanes(generation: UInt64, resourceIDs: Set<SurfaceResourceID>? = nil) {
         guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { return }
         reprojectRestoredBrowserPanes(generation: generation, resourceIDs: resourceIDs)
+        let projectionsByResource = resourceIDs.map { catalog.projections(of: $0) }
         let terminals = catalog.authoritativeSnapshot.resources(on: machine).filter {
             $0.kind == .terminal && (resourceIDs == nil || resourceIDs!.contains($0.id))
         }
         for terminal in terminals {
-            for projection in catalog.projections(of: terminal.id) where !materializedPanels.contains(projection.panelID) {
+            for projection in (resourceIDs == nil ? catalog.projections(of: terminal.id) : projectionsByResource?[terminal.id] ?? []) where !materializedPanels.contains(projection.panelID) {
                 guard cloudState.map({ catalog.cloudWorkspaceProjectionCoordinator.retainsProjection(projection, in: $0, catalog: catalog) }) != false,
                       let workspace = AppDelegate.shared?.workspace(containingSurfaceID: projection.panelID),
                       let paneID = SurfacePaneFactory.paneID(ofPanel: projection.panelID, in: projection.workspaceID) else {

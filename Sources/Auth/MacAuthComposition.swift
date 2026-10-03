@@ -453,31 +453,15 @@ enum UnsolicitedAuthCallbackApprovalPrompt {
     }
 
     private static func message(for request: UnsolicitedAuthCallbackApprovalRequest) -> String {
-        let account: String
-        if let email = request.accountEmail {
-            account = String(
-                localized: "account.callbackApproval.message.email",
-                defaultValue: "A link is asking cmux to sign in as \(email). Continue only if you just signed in to cmux in your browser."
-            )
-        } else {
-            account = String(
-                localized: "account.callbackApproval.message.unknown",
-                defaultValue: "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
-            )
-        }
+        let account = String(
+            localized: "account.callbackApproval.message.unknown",
+            defaultValue: "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+        )
         guard request.replacesSignedInSession else { return account }
-        let warning: String
-        if let current = request.currentAccountEmail {
-            warning = String(
-                localized: "account.callbackApproval.replace.current",
-                defaultValue: "You\u{2019}re signed in as \(current). Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn\u{2019}t just choose this account yourself, click Don\u{2019}t Sign In."
-            )
-        } else {
-            warning = String(
-                localized: "account.callbackApproval.replace.generic",
-                defaultValue: "You\u{2019}re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn\u{2019}t just choose this account yourself, click Don\u{2019}t Sign In."
-            )
-        }
+        let warning = String(
+            localized: "account.callbackApproval.replace.generic",
+            defaultValue: "You\u{2019}re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn\u{2019}t just choose this account yourself, click Don\u{2019}t Sign In."
+        )
         return "\(account)\n\n\(warning)"
     }
 }
