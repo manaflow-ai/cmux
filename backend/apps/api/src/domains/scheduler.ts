@@ -467,7 +467,16 @@ export const schedulerDomain: Domain<SchedulerState> = {
         if (!d.ok) return d
         const next = applyRunPolicy(state.run_policy, d.value)
         if (!next) return { ok: true, state, value: state.run_policy ?? null, changed: false }
-        return { ok: true, state: { ...state, run_policy: next }, value: next }
+        if (next.runs_allowed) return { ok: true, state: { ...state, run_policy: next }, value: next }
+        // A deny also cancels queued runs without a Workflow; started runs keep running (coordinator 2026-10-03).
+        let runs: Readonly<Record<string, RunRecord>> = state.runs
+        const outbox: Array<OutboxItem> = []
+        for (const id of Object.keys(state.automations)) {
+          const c = cancelQueued(runs, id, ctx.now, "your team no longer allows automation runs (agents.allowedClasses)")
+          runs = c.runs
+          outbox.push(...c.outbox)
+        }
+        return { ok: true, state: { ...state, run_policy: next, runs }, value: next, outbox }
       }
 
       case "automation.settings.set": {

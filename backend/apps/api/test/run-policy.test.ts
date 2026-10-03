@@ -1,7 +1,9 @@
 import { env, exports } from "cloudflare:workers"
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
+import { idFactory, MemoryRows, type Principal, type ReduceContext } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
+import { schedulerDomain, type SchedulerState } from "../src/domains/scheduler.ts"
 
 /**
  * agents.allowedClasses `run` (enterprise P17-4): runs start inside SchedulerDO, so TeamDO pushes
@@ -50,6 +52,36 @@ describe("run class of agents.allowedClasses (workerd)", { timeout: 60_000 }, ()
     await setClasses(t, team, ["mux", "agent", "run"])
     const allowed = await op(t, "automation.run", { automation })
     expect(allowed.ok, JSON.stringify(allowed)).toBe(true)
+  })
+
+  it("a deny cancels queued runs that have no Workflow yet; started runs keep running (pure)", () => {
+    const user: Principal = { identity: "session:user_aaaaaaaaaaaaaaaaaaaa", kind: "session", user: "user_aaaaaaaaaaaaaaaaaaaa", team: "team_aaaaaaaaaaaaaaaaaaaa" }
+    const system: Principal = { identity: "system:team", kind: "system" }
+    let n = 0
+    const ctx = (principal: Principal): ReduceContext => ({ principal, now: 1_800_000_000_000, tx: `tx${n}`, newId: idFactory(`tx${n++}`), rows: new MemoryRows() })
+    let s: SchedulerState = schedulerDomain.initial()
+    const created = schedulerDomain.reduce(s, "automation.create", { name: "x", triggers: [{ type: "manual" }], body: { type: "steps", steps: [{ type: "note", text: "n" }] }, concurrency: { max: 10, on_limit: "queue" } }, ctx(user))
+    if (!created.ok) throw new Error(created.code)
+    s = created.state
+    const automation = Object.keys(s.automations)[0]!
+    const ids: Array<string> = []
+    for (let i = 0; i < 2; i++) {
+      const r = schedulerDomain.reduce(s, "automation.run", { automation }, ctx(user))
+      if (!r.ok) throw new Error(r.code)
+      s = r.state
+      ids.push((r.value as { id: string }).id)
+    }
+    const started = schedulerDomain.reduce(s, "run.dispatched", { run: ids[0] }, ctx(system))
+    if (!started.ok) throw new Error(started.code)
+    s = started.state
+    const denied = schedulerDomain.reduce(s, "scheduler.run_policy", { version: 3, runs_allowed: false }, ctx(system))
+    if (!denied.ok) throw new Error(denied.code)
+    expect(denied.state.runs[ids[0]!]).toMatchObject({ state: "queued", dispatched: true })
+    expect(denied.state.runs[ids[1]!]).toMatchObject({ state: "cancelled", error: { code: "automation.stopped" } })
+    expect(denied.outbox).toHaveLength(1)
+    // An older or repeated push changes nothing.
+    expect(schedulerDomain.reduce(denied.state, "scheduler.run_policy", { version: 2, runs_allowed: true }, ctx(system))).toMatchObject({ ok: true, changed: false })
+    expect(schedulerDomain.reduce(denied.state, "automation.run", { automation }, ctx(user))).toMatchObject({ ok: false, code: "policy.denied" })
   })
 
   it("a cron fire while runs are not allowed advances the schedule and starts no run", async () => {
