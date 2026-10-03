@@ -21,6 +21,26 @@ export { DEFAULT_CONVERSATION_KEY, MUX_SESSION_NAME };
 // answers come back as inputs. Every effect is keyed so an owner dedupes a
 // replay (promptId at acpmux, idempotency key at the conversation owner).
 
+/** The timers the shell uses for request timeouts and the outbox retry; tests inject a fake one. */
+export interface Clock {
+  setTimeout(fn: () => void, ms: number): unknown;
+  clearTimeout(handle: unknown): void;
+}
+
+const realClock: Clock = {
+  setTimeout(fn, ms) {
+    const timer = setTimeout(fn, ms);
+    timer.unref?.();
+    return timer;
+  },
+  clearTimeout(handle) {
+    clearTimeout(handle as ReturnType<typeof setTimeout>);
+  },
+};
+
+/** A daemon request that got no answer within the request timeout. */
+export class RequestTimeoutError extends Error {}
+
 export interface HostOptions {
   daemonSocket: string;
   acpmuxSocket: string;
@@ -46,6 +66,10 @@ export interface HostOptions {
   log?: (line: string) => void;
   /** Reconnect backoff after a failed or lost connection. */
   backoff?: { initialMs: number; maxMs: number };
+  /** Timers for request timeouts and the outbox retry (default: real timers). */
+  clock?: Clock;
+  /** How long one daemon request may take before the connection counts as lost (default 30 s). */
+  requestTimeoutMs?: number;
 }
 
 export class HostAlreadyRunningError extends Error {}
@@ -59,7 +83,8 @@ export class MuxHost {
   private stopped = false;
   private readonly stoppedSignal: Promise<void>;
   private signalStop!: () => void;
-  private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly timers = new Map<string, unknown>();
+  private readonly clock: Clock;
   private readonly queue: { effect: Effect; daemon?: DaemonClient; acpmux?: AcpmuxClient }[] = [];
   private draining = false;
 
@@ -76,6 +101,7 @@ export class MuxHost {
   constructor(private readonly options: HostOptions) {
     this.log = options.log ?? ((line) => console.error(`${new Date().toISOString()} mux host: ${line}`));
     this.stateFile = new HostStateFile(options.paths.hostState);
+    this.clock = options.clock ?? realClock;
     this.ready = new Promise((resolve) => (this.readyResolve = resolve));
     this.stoppedSignal = new Promise((resolve) => (this.signalStop = resolve));
     this.fatal = new Promise<never>((_, reject) => (this.fail = reject));
@@ -104,7 +130,7 @@ export class MuxHost {
     if (this.stopped) return;
     this.stopped = true;
     this.signalStop();
-    for (const timer of this.timers.values()) clearTimeout(timer);
+    for (const timer of this.timers.values()) this.clock.clearTimeout(timer);
     this.timers.clear();
     this.daemon?.close();
     this.acpmux?.close();
@@ -186,15 +212,14 @@ export class MuxHost {
         this.readyResolve();
         return;
       case "arm_timer": {
-        clearTimeout(this.timers.get(effect.key));
-        const timer = setTimeout(
+        this.clock.clearTimeout(this.timers.get(effect.key));
+        const timer = this.clock.setTimeout(
           () => {
             this.timers.delete(effect.key);
             this.feed({ kind: "timer", key: effect.key });
           },
           Math.max(0, effect.at - Date.now()),
         );
-        timer.unref?.();
         this.timers.set(effect.key, timer);
         return;
       }
@@ -231,12 +256,12 @@ export class MuxHost {
     switch (effect.kind) {
       case "conversation_op":
         try {
-          const result = await daemon.op({
+          const result = await this.timed(daemon, "op", daemon.op({
             conversation: effect.conversation,
             idempotency_key: effect.idempotency_key,
             actor: AGENT_MUX,
             op: effect.op,
-          });
+          }));
           this.feed({ kind: "op_result", idempotency_key: effect.idempotency_key, change: result.change });
         } catch (error) {
           // A reject carries the owner's reason; a lost connection arrives as `disconnected`.
@@ -246,16 +271,16 @@ export class MuxHost {
         return;
       case "typing":
         try {
-          await daemon.typing(effect.conversation, AGENT_MUX, effect.on);
+          await this.timed(daemon, "typing", daemon.typing(effect.conversation, AGENT_MUX, effect.on));
         } catch (error) {
           this.log(`typing ${effect.on ? "on" : "off"} failed: ${String(error)}`);
         }
         return;
       case "list_conversations":
-        this.read(daemon, undefined, daemon.list(), (conversations) => ({ kind: "conversations_listed", conversations }));
+        this.read(daemon, undefined, this.timed(daemon, "list", daemon.list()), (conversations) => ({ kind: "conversations_listed", conversations }));
         return;
       case "fetch_snapshot":
-        this.read(daemon, effect.conversation, daemon.snapshot(effect.conversation, effect.tail), ({ conversation, messages }) => ({
+        this.read(daemon, effect.conversation, this.timed(daemon, "snapshot", daemon.snapshot(effect.conversation, effect.tail)), ({ conversation, messages }) => ({
           kind: "snapshot",
           conversation,
           messages,
@@ -265,11 +290,38 @@ export class MuxHost {
         this.read(
           daemon,
           effect.conversation,
-          daemon.history(effect.conversation, effect.before_seq, effect.limit),
+          this.timed(daemon, "history", daemon.history(effect.conversation, effect.before_seq, effect.limit)),
           (messages) => ({ kind: "history", conversation: effect.conversation, messages }),
         );
         return;
     }
+  }
+
+  /**
+   * A daemon request bounded by the request timeout. A timeout counts as a
+   * lost connection: the connection is dropped (the core sees
+   * `disconnected {daemon}`) and the reconnect retries; one stuck request
+   * cannot block the serial effect queue.
+   */
+  private timed<T>(daemon: DaemonClient, what: string, request: Promise<T>): Promise<T> {
+    const ms = this.options.requestTimeoutMs ?? 30_000;
+    return new Promise<T>((resolve, reject) => {
+      const timer = this.clock.setTimeout(() => {
+        this.log(`daemon ${what} got no answer in ${ms} ms; reconnecting`);
+        reject(new RequestTimeoutError(`${what} timed out`));
+        daemon.close();
+      }, ms);
+      request.then(
+        (value) => {
+          this.clock.clearTimeout(timer);
+          resolve(value);
+        },
+        (error) => {
+          this.clock.clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
   }
 
   /**
