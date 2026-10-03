@@ -16,6 +16,10 @@ extension CmuxTuiSurfaceProvider {
         /// The daemon did not answer the resolver within the bounded retries.
         /// The terminal may still be running; this is never "not created".
         case terminalAttachTimedOut(terminalID: String, failure: CloudTuiSurfaceIDResolution.Failure)
+        /// The daemon explicitly rejected input after the provider refreshed the
+        /// terminal's attachment. The caller can retry without guessing whether
+        /// bytes were delivered.
+        case terminalInputUnavailable(String)
         case invalidSnapshot(String)
         case snapshotOnly(String)
         case stateUnavailable(String)
@@ -76,6 +80,14 @@ extension CmuxTuiSurfaceProvider {
                     ),
                     terminalID,
                     failure.localizedDescription
+                )
+            case .terminalInputUnavailable(let id):
+                return String(
+                    format: String(
+                        localized: "cloudTree.error.terminalInputUnavailable",
+                        defaultValue: "Input to %@ is unavailable while the Cloud terminal reconnects. Retry shortly."
+                    ),
+                    id
                 )
             case .invalidSnapshot(let id):
                 return "cmux-tui returned an unversioned or malformed session snapshot for \(id)."

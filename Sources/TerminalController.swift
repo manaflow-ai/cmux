@@ -3970,6 +3970,16 @@ class TerminalController {
                     return v2Error(id: id, code: "vm_error", message: catalogError.localizedDescription)
                 }
             }
+            if case let CmuxTuiSurfaceProvider.ProviderError.terminalInputUnavailable(terminalID) = error {
+                return v2Error(
+                    id: id,
+                    code: "terminal_input_unavailable",
+                    message: String(
+                        format: "Input to %@ is unavailable while the Cloud terminal reconnects. Retry shortly.",
+                        terminalID
+                    )
+                )
+            }
             if let vmError = error as? VMClientError,
                Self.isCloudVMAuthenticationError(vmError) {
                 // Keep the auth boundary explicit for every VM verb. The CLI
