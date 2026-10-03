@@ -131,6 +131,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var recordsTerminalCommands: Bool = TerminalCommandHistorySetting.fallback
     /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
     public var notifications = NotificationPreferences()
+    /// `feed.github`: this Mac's opt-in GitHub inbox connection.
+    public var feedGitHub = FeedGitHubSettings()
     public var diagnostics: [SettingsDiagnostic]
     /// Retired keys the file still sets (`SettingsSchema.retiredKeys`):
     /// dropped without a diagnostic, listed for tooling.
@@ -233,6 +235,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.recordsTerminalCommands = recordsCommands
         if let commandsDiagnostic { snapshot.diagnostics.append(commandsDiagnostic) }
         snapshot.notifications = NotificationConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.feedGitHub = FeedGitHubSettings.parse(root, diagnostics: &snapshot.diagnostics)
         let (appTheme, appThemeDiagnostic) = AppThemeSetting().parse(root)
         snapshot.appTheme = appTheme
         if let appThemeDiagnostic { snapshot.diagnostics.append(appThemeDiagnostic) }

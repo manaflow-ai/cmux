@@ -2,16 +2,30 @@ import Foundation
 
 /// Strings of the feed panel (Resources/Localizable.xcstrings). Few labels
 /// by design: glyphs carry kind and state, posters carry their own text.
-nonisolated enum FeedStrings {
+public nonisolated enum FeedStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, bundle: .module)
     }
 
-    static var title: String { t("feed.title", "Feed") }
+    public static var title: String { t("feed.title", "Feed") }
     static var empty: String { t("feed.empty", "Nothing new") }
     static var menubarEmpty: String { t("menubar.empty", "No open requests") }
     static var openFeed: String { t("menubar.openFeed", "Open Feed") }
     static var markAllRead: String { t("feed.markAllRead", "Mark All Read") }
+    static var github: String { t("feed.github", "GitHub") }
+    static var addConnection: String { t("feed.addConnection", "Add connection") }
+    static var filterInbox: String { t("feed.filterInbox", "Filter inbox") }
+    static var allItems: String { t("feed.allItems", "All items") }
+    static var unread: String { t("feed.unread", "Unread") }
+    static var notices: String { t("feed.notices", "Notices") }
+    static var refresh: String { t("feed.refresh", "Refresh") }
+    static var noMatches: String { t("feed.noMatches", "No matching items") }
+    static var selectInboxItem: String { t("feed.selectInboxItem", "Select an inbox item") }
+    static var githubActions: String { t("feed.githubActions", "GitHub actions") }
+    static var openOnGitHub: String { t("feed.openOnGitHub", "Open on GitHub") }
+    static var checkout: String { t("feed.checkout", "Check out") }
+    static var startAgent: String { t("feed.startAgent", "Start agent") }
+    static var comment: String { t("feed.comment", "Comment") }
 
     static var needsYou: String { t("group.needsYou", "Needs you") }
     static var today: String { t("group.today", "Today") }

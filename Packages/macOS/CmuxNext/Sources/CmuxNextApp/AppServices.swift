@@ -39,6 +39,8 @@ final class AppServices {
     private(set) var cloud: CloudService!
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
     private(set) var feed: FeedService!
+    /// The wide Inbox page, backed by `feed.model`.
+    private(set) lazy var feedPage = FeedPageService(services: self)
     /// SSH machines (Connect to Machine…).
     private(set) var ssh: SSHService!
     /// Phone access; started by the account layer once signed in.

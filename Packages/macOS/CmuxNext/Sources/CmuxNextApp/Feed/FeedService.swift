@@ -15,6 +15,8 @@ final class FeedService {
     let model: FeedModel
     let apiBaseURL: URL
     private let source: CloudFeedSource
+    private let localOwner: LocalFeedSourceAdapter
+    private let github: GitHubFeedSource
     private let auth: CloudAuth
     private var started = false
     /// The account the mirror belongs to; a sign-out or another account resets it.
@@ -41,9 +43,13 @@ final class FeedService {
         source = CloudFeedSource(apiBaseURL: apiBaseURL, device: "Mac") { [auth] in
             try await auth.tokens().access
         }
+        localOwner = LocalFeedSourceAdapter(primary: source)
+        github = GitHubFeedSource(owner: localOwner)
         var observe: (@MainActor (FeedSourceEvent) -> Void)?
-        model = FeedModel(source: FeedTeeSource(source) { observe?($0) })
+        model = FeedModel(source: FeedTeeSource(localOwner) { observe?($0) })
+        model.githubDetail = { [weak self] item in self?.githubDetail(for: item) }
         observe = { [weak self] in self?.observe($0) }
+        model.onRefresh = nil
         observePresence()
         // task-owner: FeedService.accountWatch: follows sign-in, sign-out and account switches; lives with the service.
         accountWatch = Task { [weak self] in
@@ -85,6 +91,7 @@ final class FeedService {
         guard user != account else { return }
         if account != nil {
             source.reset(reason: "signed out")
+            github.resetDetails()
             started = false
         }
         account = user
@@ -102,15 +109,49 @@ final class FeedService {
 
     var isSignedIn: Bool { auth.isSignedIn }
 
+    /// Live GitHub details are held by the source only while the app runs.
+    func githubDetail(for id: String) -> GitHubFeedDetail? { github.githubDetail(for: id) }
+
+    /// Cloud owners assign the final feed id. Resolve the source's in-memory
+    /// detail by URL when that id differs from the poster's provisional id.
+    func githubDetail(for item: FeedItem) -> GitHubFeedDetail? {
+        github.githubDetail(for: item.id)
+            ?? item.context.url.flatMap { url in github.githubDetails.values.first { $0.url == url } }
+    }
+
     func stop() {
         accountWatch?.cancel()
         model.stop()
+        github.stop()
+        github.resetDetails()
         started = false
     }
 
+    /// Applies the user-owned GitHub connection setting. The source remains
+    /// stopped until the feed owner is running and the user is signed in.
+    func configureGitHub(enabled: Bool, pollIntervalSeconds: Double) {
+        githubEnabled = enabled
+        model.githubConnectionEnabled = enabled
+        model.onRefresh = enabled ? { [weak self] in
+            guard let self else { return }
+            guard self.connection == .connected else { return }
+            Task { @MainActor in await self.github.refresh() }
+        } : nil
+        github.setInterval(.seconds(pollIntervalSeconds))
+        if enabled, started, auth.isSignedIn, connection == .connected { github.start() } else if !enabled { github.stop() }
+    }
+
+    private var githubEnabled = false
+
     private func observe(_ event: FeedSourceEvent) {
         switch event {
-        case let .connection(state): connection = state
+        case let .connection(state):
+            connection = state
+            if state == .connected, githubEnabled { github.start() }
+            if case .disconnected = state {
+                github.stop()
+                github.resetConditionalRequests()
+            }
         case let .snapshot(snapshot):
             confirmed = Dictionary(snapshot.items.map { ($0.id, $0.state) }, uniquingKeysWith: { a, _ in a })
             resumeClosed()
