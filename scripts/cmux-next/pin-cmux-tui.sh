@@ -20,6 +20,8 @@
 #   to CMUX_TUI_TREE_WAIT_SECONDS (default 2700), then fails. It never falls
 #   back to another binary. To publish the tree of an unmerged branch:
 #     git push origin HEAD:refs/heads/cmux-tui-pin-<short-sha>
+#     gh workflow run cmux-tui-artifacts.yml --ref cmux-tui-pin-<short-sha>
+#   (the push alone starts a run only when its tip commit changes cmux-tui).
 #   Uncommitted changes under cmux-tui/ (or a ghostty checkout that differs
 #   from the gitlink) are not in the published binary, so `fetch` refuses
 #   them unless CMUX_NEXT_TUI_ALLOW_DIRTY=1. CMUX_NEXT_TUI_BIN=<path> bundles a
@@ -33,7 +35,7 @@
 #   bump. Refresh the pin only for a release:
 #     1. ./scripts/verify-cmux-tui-hosted.sh --filter cmux_next_ on the commit.
 #     2. Publish that commit's binaries: git push origin <sha>:refs/heads/cmux-tui-pin-<short>
-#        (the push runs the artifacts workflow).
+#        and, when the push starts no run, gh workflow run cmux-tui-artifacts.yml --ref cmux-tui-pin-<short>.
 #     3. ./scripts/cmux-next/pin-cmux-tui.sh pin --commit <sha> --verified-run <run-id>
 #     4. Commit scripts/cmux-next/cmux-tui.pin; delete the helper branch.
 #
@@ -133,7 +135,8 @@ wait_for_tree() {
         echo "  The cmux-tui artifacts workflow publishes a tree after its build and cmux_next_ daemon tests pass"
         echo "  on a pushed commit of feat-cmux-next, feat-cmux-next-acpmux or cmux-tui-pin-*."
         echo "  Check its runs: https://github.com/manaflow-ai/cmux/actions/workflows/cmux-tui-artifacts.yml"
-        echo "  For an unmerged branch: git push origin HEAD:refs/heads/cmux-tui-pin-$(git -C "$repo_root" rev-parse --short=12 HEAD)"
+        echo "  For an unmerged branch: git push origin HEAD:refs/heads/cmux-tui-pin-$(git -C "$repo_root" rev-parse --short=12 HEAD),"
+        echo "  then gh workflow run cmux-tui-artifacts.yml --ref cmux-tui-pin-$(git -C "$repo_root" rev-parse --short=12 HEAD) if the push starts no run"
         echo "  (a pull request checks its merge with the base: merge the base into the branch first)."
         echo "  When the last run for this tree failed, rerun it: gh workflow run cmux-tui-artifacts.yml --ref <that branch>."
         echo "  Or bundle a local build: CMUX_NEXT_TUI_BIN=<path>. No older binary is used instead."
