@@ -459,3 +459,17 @@ describe("reconnect backoff", () => {
     expect(waits).toEqual([20, 40, 80]);
   }, 10_000);
 });
+
+describe("stop during connect", () => {
+  test("stop() aborts an in-flight connect and leaves no socket open", async () => {
+    const w = await setup();
+    const clock = fakeClock();
+    w.daemon.hold.add("identify");
+    const host = w.host({ clock, requestTimeoutMs: 1_000 });
+    host.start();
+    await w.daemon.until(() => w.daemon.requests.some((r) => r.cmd === "identify"));
+    await host.stop();
+    expect(await settle(() => w.daemon.clientCount, 0)).toBe(0);
+    expect(w.daemon.requests.filter((r) => r.cmd === "identify").length).toBe(1);
+  });
+});
