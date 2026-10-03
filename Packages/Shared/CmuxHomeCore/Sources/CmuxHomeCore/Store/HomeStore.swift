@@ -115,6 +115,10 @@ public final class HomeStore {
     @discardableResult
     public func perform(_ op: HomeOp, key: IdempotencyKey = .make()) async throws -> HomeOpResult {
         guard isOnline else { throw HomeRejection.ownerUnreachable }
+        if case .setTyping = op {
+            // Ephemeral: no intent, nothing to settle or resend.
+            return try await source.submit(HomeIntent(key: key, op: op))
+        }
         let intent = HomeIntent(key: key, op: op)
         guard log.append(intent) else { throw HomeRejection.invalid("duplicate intent") }
         afterLogChange(op)
