@@ -174,34 +174,60 @@ fn with_no_keys_nothing_is_minted_and_nothing_verifies() {
 
 #[test]
 fn a_terminal_child_receives_its_credential_and_an_inherited_one_never_wins() {
-    let directory = ScratchDir::new("env");
-    let output = directory.path().join("credential.txt");
-    let script =
-        format!("printf %s \"$CMUX_LAUNCH_CREDENTIAL\" > '{}'; exec sleep 30", output.display());
+    // `spawn_prelude` builds the environment every terminal child starts
+    // with, on every spawn path (session host and auxiliary).
+    let (mux, terminal) = mux_with_terminal();
     let options = SurfaceOptions {
-        command: Some(vec!["/bin/sh".into(), "-c".into(), script]),
-        extra_env: vec![(LAUNCH_CREDENTIAL_ENV.into(), "cmuxlc1.forged.value.x".into())],
+        extra_env: vec![
+            (LAUNCH_CREDENTIAL_ENV.into(), "cmuxlc1.forged.value.x".into()),
+            ("OTHER".into(), "kept".into()),
+            (LAUNCH_CREDENTIAL_ENV.into(), "cmuxlc1.second.forged.y".into()),
+        ],
         ..SurfaceOptions::default()
     };
-    let mux = Mux::new_for_test("launch-identity-env", options);
-    let surface = mux.new_workspace(None, None).unwrap();
-    let terminal = surface.terminal_public_id().cloned().expect("terminal tab");
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let seen = loop {
-        if let Ok(text) = std::fs::read_to_string(&output)
-            && !text.is_empty()
-        {
-            break text;
-        }
-        assert!(Instant::now() < deadline, "the child never wrote its credential");
-        std::thread::sleep(Duration::from_millis(20));
-    };
-    assert_ne!(seen, "cmuxlc1.forged.value.x");
-    let CredentialCheck::Verified(actor) = mux.check_launch_credential(&seen) else {
+    let identity = crate::resource::TabResourceIdentity::terminal(Some(terminal.clone())).unwrap();
+    let (options, _, _reservation) = crate::surface::Surface::spawn_prelude(
+        u64::MAX - 7,
+        options,
+        &Arc::downgrade(&mux),
+        Some(&identity),
+        crate::surface::KittyQuota::AfterCommit,
+    )
+    .unwrap();
+    let values: Vec<&str> = options
+        .extra_env
+        .iter()
+        .filter(|(key, _)| key == LAUNCH_CREDENTIAL_ENV)
+        .map(|(_, value)| value.as_str())
+        .collect();
+    assert_eq!(values.len(), 1, "exactly one credential entry reaches the child");
+    let CredentialCheck::Verified(actor) = mux.check_launch_credential(values[0]) else {
         panic!("the child's credential did not verify");
     };
     assert_eq!(actor.id, terminal.as_str());
-    mux.shutdown();
+    assert!(options.extra_env.iter().any(|(key, value)| key == "OTHER" && value == "kept"));
+
+    // With no terminal id (nothing to mint for) the variable is set empty,
+    // so a value the daemon or the caller supplied never reaches the child.
+    let options = SurfaceOptions {
+        extra_env: vec![(LAUNCH_CREDENTIAL_ENV.into(), "cmuxlc1.forged.value.x".into())],
+        ..SurfaceOptions::default()
+    };
+    let (options, _, _reservation) = crate::surface::Surface::spawn_prelude(
+        u64::MAX - 8,
+        options,
+        &Arc::downgrade(&mux),
+        None,
+        crate::surface::KittyQuota::AfterCommit,
+    )
+    .unwrap();
+    let values: Vec<&str> = options
+        .extra_env
+        .iter()
+        .filter(|(key, _)| key == LAUNCH_CREDENTIAL_ENV)
+        .map(|(_, value)| value.as_str())
+        .collect();
+    assert_eq!(values, vec![""]);
 }
 
 fn stored_actor(mux: &Mux, key: &str) -> Option<String> {
