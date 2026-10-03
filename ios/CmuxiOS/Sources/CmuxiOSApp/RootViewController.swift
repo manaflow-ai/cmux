@@ -80,7 +80,7 @@ final class RootViewController: UIViewController {
         DebugLaunchTasks.homeShown(store: store, window: view.window)
         #if DEBUG
         if let kind = ProcessInfo.processInfo.environment["CMUX_IOS_OPEN_CONVERSATION"] {
-            home.debugOpenFirstConversation(kind: kind)
+            home.debugOpenFirstConversation(kind: kind, tapback: ProcessInfo.processInfo.environment["CMUX_IOS_OPEN_TAPBACK"])
         }
         if let query = ProcessInfo.processInfo.environment["CMUX_IOS_OPEN_SEARCH"] {
             let index = ProcessInfo.processInfo.environment["CMUX_IOS_OPEN_SEARCH_HIT"].flatMap { Int($0) } ?? 0
