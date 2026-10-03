@@ -158,6 +158,8 @@ struct Output {
     annexb: Vec<u8>,
     keyframe: bool,
     status: OSStatus,
+    /// The callback ran for the current frame.
+    produced: bool,
 }
 
 pub struct VideoToolbox {
@@ -209,6 +211,7 @@ extern "C" fn on_output(
     // SAFETY: refcon is the Box<Mutex<Output>> owned by the encoder, alive for the session.
     let out = unsafe { &*(refcon as *const Mutex<Output>) };
     let Ok(mut out) = out.lock() else { return };
+    out.produced = true;
     out.status = status;
     out.annexb.clear();
     if status != 0 || sb.is_null() {
@@ -324,8 +327,11 @@ impl VideoToolbox {
             r
         };
         if pb_status != 0 {
-            // SAFETY: invalidating the session we created.
-            unsafe { VTCompressionSessionInvalidate(session) };
+            // SAFETY: invalidating and releasing the session we created.
+            unsafe {
+                VTCompressionSessionInvalidate(session);
+                CFRelease(session as CFTypeRef);
+            }
             return Err(format!("CVPixelBufferCreate failed: {pb_status}").into());
         }
         let this = Self {
@@ -409,7 +415,11 @@ impl VideoToolbox {
 impl H264Encoder for VideoToolbox {
     fn encode(&mut self, pic: &I420, force_idr: bool, pts: i64, out: &mut Vec<u8>) -> Res<bool> {
         self.fill(pic)?;
-        let time = CMTime { value: pts, timescale: 1000, flags: K_CM_TIME_FLAGS_VALID, epoch: 0 };
+        if let Ok(mut o) = self.out.lock() {
+            *o = Output::default();
+        }
+        // `pts` is the capture time in microseconds (the trait's contract).
+        let time = CMTime { value: pts, timescale: 1_000_000, flags: K_CM_TIME_FLAGS_VALID, epoch: 0 };
         // SAFETY: encoding our pixel buffer on our session; CompleteFrames runs the output
         // callback before it returns, so the result is ready afterwards.
         let status = unsafe {
@@ -441,6 +451,11 @@ impl H264Encoder for VideoToolbox {
             return Err(format!("VideoToolbox encode failed: {status}").into());
         }
         let result = self.out.lock().map_err(|_| "output lock poisoned")?;
+        if !result.produced {
+            // No callback for this frame (dropped): nothing to send.
+            out.clear();
+            return Ok(false);
+        }
         if result.status != 0 {
             return Err(format!("VideoToolbox output status {}", result.status).into());
         }
