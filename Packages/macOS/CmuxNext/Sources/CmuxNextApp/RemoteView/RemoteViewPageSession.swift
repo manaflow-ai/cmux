@@ -56,7 +56,7 @@ final class RemoteViewPageSession {
     /// A session for `record`, or nil when this build cannot show it.
     static func make(record: RemoteViewTabRecord, closeTab: @escaping @MainActor () -> Void) -> RemoteViewPageSession? {
         #if DEBUG
-        guard RemoteViewAvailability.isAvailable, record.host.lowercased() == mockHost else { return nil }
+        guard RemoteViewAvailability().isAvailable, record.host.lowercased() == mockHost else { return nil }
         return RemoteViewPageSession(record: record, closeTab: closeTab)
         #else
         return nil

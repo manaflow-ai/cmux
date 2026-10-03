@@ -1,5 +1,4 @@
-// Frame pacing of transcript scrolls, reported to the host so it can choose
-// the pane's rendering rate (AgentPaneFramePacing in CmuxNextAgentPane).
+// Frame intervals of settled transcript scrolls, consumed by the page's adaptive rendering policy.
 
 export type PacingClock = {
   requestFrame: (callback: (now: number) => void) => number;

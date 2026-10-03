@@ -12,7 +12,8 @@ import { toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { workedLabel } from "./turns";
-import { ChevronRight, Copy, TurnFork } from "./icons";
+import { ChevronRight, Copy, Retry, TurnFork } from "./icons";
+import { t } from "../i18n";
 
 /// The "Worked for 15s" line; it opens the turn's commentary and tool calls.
 export function WorkedFor({ row, expanded, onToggle }: { row: AcpmuxRow; expanded: boolean; onToggle: () => void }) {
@@ -66,13 +67,15 @@ export function ToolRows({ row }: { row: AcpmuxRow }) {
 
 const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
 
-/// The quiet row under an answer: copy, fork from here (when acpmux serves forks), the time,
-/// and why the turn ended when it did not complete. A turn without a "Worked for" line (history paged in mid-turn) says its time
-/// and count here instead.
+/// The quiet row under an answer: copy, retry (the last turn, while acpmux is reachable), fork
+/// from here (when acpmux serves forks), the time, and why the turn ended when it did not
+/// complete. A turn without a "Worked for" line (history paged in mid-turn) says its time and
+/// count here instead.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const [copied, setCopied] = useState(false);
-  const { fork } = useContext(TurnActionsContext);
+  const { fork, retry } = useContext(TurnActionsContext);
   const text = row.text;
+  const prompt = row.prompt;
   const seq = row.seq;
   const failed = row.status === "failed" || row.status === "error";
   return (
@@ -82,8 +85,8 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         <button
           type="button"
           className="cv-iconbtn"
-          aria-label={copied ? "Copied" : "Copy"}
-          title={copied ? "Copied" : "Copy"}
+          aria-label={copied ? t("turn.copied") : t("turn.copy")}
+          title={copied ? t("turn.copied") : t("turn.copy")}
           onClick={() =>
             void copyText(text).then(
               () => setCopied(true),
@@ -94,18 +97,29 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           <Copy />
         </button>
       )}
+      {retry && prompt && (
+        <button
+          type="button"
+          className="cv-iconbtn"
+          aria-label={t("turn.retry")}
+          title={t("turn.retryLabel")}
+          onClick={() => retry(prompt)}
+        >
+          <Retry />
+        </button>
+      )}
       {fork && seq !== undefined && (
         <button
           type="button"
           className="cv-iconbtn"
-          aria-label="Fork from here"
-          title="Fork from here"
+          aria-label={t("turn.fork")}
+          title={t("turn.fork")}
           onClick={() => fork(seq)}
         >
           <TurnFork />
         </button>
       )}
-      {failed && <span className="cv-turn-note">{row.error || "The turn failed"}</span>}
+      {failed && <span className="cv-turn-note">{row.error || t("turn.failed")}</span>}
       <time className="cv-turn-time" dateTime={new Date(row.at).toISOString()}>
         {clock.format(row.at)}
       </time>

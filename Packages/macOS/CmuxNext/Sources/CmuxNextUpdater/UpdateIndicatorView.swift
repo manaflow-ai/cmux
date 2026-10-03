@@ -3,10 +3,12 @@ import CmuxNextDesign
 import QuartzCore
 
 /// The rail's update circle, like the Codex app's: a disc in the theme's
-/// highlight color. A waiting update shows a download glyph and installs on
-/// click; checking, downloading and installing show a ring in the glyph
-/// color (spinning, or filling with download progress). It sits in a rail
-/// button slot and takes the rail tiles' hover fill.
+/// highlight color. A waiting update shows a thin download-tray glyph and
+/// installs on click; checking, downloading and installing show a thin arc
+/// in the glyph color (spinning, or filling with download progress). Every
+/// layer is a vector shape rasterized at the window's backing scale on a
+/// pixel-aligned square, so the disc stays round and sharp. It sits in a
+/// rail button slot and takes the rail tiles' hover fill.
 @MainActor
 public final class UpdateIndicatorView: NSView {
     private(set) lazy var hover = ChromeHover(self, behindContent: true)
@@ -17,17 +19,36 @@ public final class UpdateIndicatorView: NSView {
     public private(set) var phase: UpdateIndicatorPhase = .hidden
 
     private let disc = CAShapeLayer()
-    private let glyph = CALayer()
+    private let glyph = CAShapeLayer()
     private let ring = CAShapeLayer()
     private var spinning = false
+    /// The window's backing scale; layers rasterize at it.
+    var backingScale: CGFloat = NSScreen.main?.backingScaleFactor ?? 2 {
+        didSet {
+            guard backingScale != oldValue else { return }
+            applyBackingScale()
+            needsLayout = true
+        }
+    }
+    var discFrame: CGRect { disc.frame }
+    var ringFrame: CGRect { ring.frame }
+    var ringLineWidth: CGFloat { ring.lineWidth }
+    var layerContentsScales: [CGFloat] { [disc, glyph, ring].map(\.contentsScale) }
+
+    /// Stroke width of the busy arc and the download glyph, like Codex's.
+    static let strokeWidth: CGFloat = 1.25
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         for sublayer in [disc, glyph, ring] as [CALayer] { layer?.addSublayer(sublayer) }
-        ring.fillColor = nil
-        ring.lineCap = .round
-        glyph.contentsGravity = .resizeAspect
+        for stroke in [glyph, ring] {
+            stroke.fillColor = nil
+            stroke.lineCap = .round
+            stroke.lineJoin = .round
+            stroke.lineWidth = Self.strokeWidth
+        }
+        applyBackingScale()
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
     }
@@ -59,25 +80,49 @@ public final class UpdateIndicatorView: NSView {
         needsDisplay = true
     }
 
-    /// The disc's diameter: the rail's icon box, like the account avatar.
-    var discDiameter: CGFloat { (min(bounds.width, bounds.height) - Metrics.space2 * 2).rounded() }
+    override public func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        if let scale = window?.backingScaleFactor { backingScale = scale }
+    }
+
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let scale = window?.backingScaleFactor { backingScale = scale }
+    }
+
+    /// Hand-made layers default to 1x: at 2x the disc came out soft and lumpy.
+    private func applyBackingScale() {
+        for sublayer in [disc, glyph, ring] as [CALayer] { sublayer.contentsScale = backingScale }
+    }
+
+    /// The disc's frame in `bounds`: the rail's icon box (like the account
+    /// avatar), square, and centered on device pixels at `scale`.
+    static func discRect(in bounds: CGRect, scale: CGFloat) -> CGRect {
+        let scale = max(scale, 1)
+        let side = (min(bounds.width, bounds.height) - Metrics.space2 * 2).rounded()
+        let x = ((bounds.midX - side / 2) * scale).rounded() / scale
+        let y = ((bounds.midY - side / 2) * scale).rounded() / scale
+        return CGRect(x: x, y: y, width: side, height: side)
+    }
 
     override public func layout() {
         super.layout()
         hover.layout()
-        let side = discDiameter
-        let rect = CGRect(x: ((bounds.width - side) / 2).rounded(), y: ((bounds.height - side) / 2).rounded(), width: side, height: side)
+        let rect = Self.discRect(in: bounds, scale: backingScale)
+        let side = rect.width
+        let center = CGPoint(x: rect.midX, y: rect.midY)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         disc.frame = rect
         disc.path = CGPath(ellipseIn: CGRect(origin: .zero, size: rect.size), transform: nil)
-        let glyphSide = (side * 0.5).rounded()
-        glyph.frame = CGRect(x: rect.midX - glyphSide / 2, y: rect.midY - glyphSide / 2, width: glyphSide, height: glyphSide)
-        let ringSide = (side * 0.5).rounded()
+        let glyphSide = (side * 0.5 * backingScale).rounded() / backingScale
+        glyph.frame = CGRect(x: center.x - glyphSide / 2, y: center.y - glyphSide / 2, width: glyphSide, height: glyphSide)
+        glyph.path = Self.downloadGlyphPath(side: glyphSide)
+        // Codex's arc spans about two fifths of the disc.
+        let ringSide = (side * 0.42 * backingScale).rounded() / backingScale
         ring.bounds = CGRect(x: 0, y: 0, width: ringSide, height: ringSide)
-        ring.position = CGPoint(x: rect.midX, y: rect.midY)
-        ring.lineWidth = max(1.5, (side / 14).rounded())
-        ring.path = CGPath(ellipseIn: ring.bounds.insetBy(dx: ring.lineWidth / 2, dy: ring.lineWidth / 2), transform: nil)
+        ring.position = center
+        ring.path = CGPath(ellipseIn: ring.bounds.insetBy(dx: Self.strokeWidth / 2, dy: Self.strokeWidth / 2), transform: nil)
         CATransaction.commit()
     }
 
@@ -89,7 +134,7 @@ public final class UpdateIndicatorView: NSView {
         performWithTheme {
             disc.fillColor = Palette.highlight.cgColor
             ring.strokeColor = Palette.highlightText.cgColor
-            glyph.contents = Self.downloadGlyph(side: glyph.bounds.width, color: Palette.highlightText)
+            glyph.strokeColor = Palette.highlightText.cgColor
         }
         disc.opacity = hover.state.pressed ? 0.8 : 1
         disc.isHidden = !phase.showsCircle
@@ -100,7 +145,7 @@ public final class UpdateIndicatorView: NSView {
             ring.strokeEnd = max(0.05, progress)
         case .checking, .downloading, .installing:
             showsRing = true
-            ring.strokeEnd = 0.75
+            ring.strokeEnd = 0.8
         case .hidden, .ready, .note:
             showsRing = false
         }
@@ -115,11 +160,21 @@ public final class UpdateIndicatorView: NSView {
         hover.refresh(animated: true)
     }
 
-    private static func downloadGlyph(side: CGFloat, color: NSColor) -> NSImage? {
-        guard side > 0 else { return nil }
-        let config = NSImage.SymbolConfiguration(pointSize: side, weight: .bold)
-            .applying(.init(paletteColors: [color]))
-        return NSImage(systemSymbolName: "arrow.down", accessibilityDescription: nil)?.withSymbolConfiguration(config)
+    /// A down arrow into an open tray, stroked thin (top-down coordinates:
+    /// the view is flipped).
+    private static func downloadGlyphPath(side: CGFloat) -> CGPath {
+        let path = CGMutablePath()
+        let point = { (x: CGFloat, y: CGFloat) in CGPoint(x: x * side, y: y * side) }
+        path.move(to: point(0.5, 0.08))
+        path.addLine(to: point(0.5, 0.62))
+        path.move(to: point(0.28, 0.42))
+        path.addLine(to: point(0.5, 0.64))
+        path.addLine(to: point(0.72, 0.42))
+        path.move(to: point(0.1, 0.62))
+        path.addLine(to: point(0.1, 0.9))
+        path.addLine(to: point(0.9, 0.9))
+        path.addLine(to: point(0.9, 0.62))
+        return path
     }
 
     // MARK: Mouse

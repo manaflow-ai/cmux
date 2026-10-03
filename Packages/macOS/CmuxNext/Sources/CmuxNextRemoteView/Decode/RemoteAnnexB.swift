@@ -4,7 +4,8 @@ public import Foundation
 /// pulls out the parameter sets (VPS/SPS/PPS) for the format description,
 /// and rewrites the remaining NAL units with 4-byte big-endian lengths
 /// (the form VideoToolbox decodes).
-public nonisolated enum RemoteAnnexB {
+public struct RemoteAnnexB {
+    public nonisolated init() {}
     public struct Parsed: Sendable, Equatable {
         /// H.264: [SPS, PPS]. HEVC: [VPS, SPS, PPS]. Empty when the access
         /// unit carries none (every non-key frame).
@@ -21,7 +22,7 @@ public nonisolated enum RemoteAnnexB {
     /// Ranges of the NAL units in `bytes`, start codes removed. Accepts 3- and
     /// 4-byte start codes; trailing zero bytes before a start code belong to
     /// the start code.
-    public static func nalRanges(_ bytes: [UInt8]) -> [Range<Int>] {
+    public nonisolated func nalRanges(_ bytes: [UInt8]) -> [Range<Int>] {
         var starts: [(code: Int, nal: Int)] = []
         var i = 0
         let n = bytes.count
@@ -50,11 +51,11 @@ public nonisolated enum RemoteAnnexB {
         return ranges
     }
 
-    public static func parse(_ data: Data, codec: RemoteVideoCodec) -> Parsed {
+    public nonisolated func parse(_ data: Data, codec: RemoteVideoCodec) -> Parsed {
         parse([UInt8](data), codec: codec)
     }
 
-    public static func parse(_ bytes: [UInt8], codec: RemoteVideoCodec) -> Parsed {
+    public nonisolated func parse(_ bytes: [UInt8], codec: RemoteVideoCodec) -> Parsed {
         var parsed = Parsed()
         parsed.lengthPrefixed.reserveCapacity(bytes.count + 16)
         var vps: [UInt8]?
@@ -82,7 +83,7 @@ public nonisolated enum RemoteAnnexB {
         return parsed
     }
 
-    private static func appendLengthPrefixed(_ nal: ArraySlice<UInt8>, to out: inout [UInt8]) {
+    private nonisolated func appendLengthPrefixed(_ nal: ArraySlice<UInt8>, to out: inout [UInt8]) {
         let length = UInt32(nal.count)
         out.append(UInt8(length >> 24))
         out.append(UInt8((length >> 16) & 0xFF))
@@ -91,11 +92,11 @@ public nonisolated enum RemoteAnnexB {
         out.append(contentsOf: nal)
     }
 
-    enum NALType: Equatable {
+    nonisolated enum NALType: Equatable {
         case vps, sps, pps, delimiter
         case other(isSlice: Bool, isRandomAccess: Bool)
 
-        init(header: UInt8, codec: RemoteVideoCodec) {
+        nonisolated init(header: UInt8, codec: RemoteVideoCodec) {
             switch codec {
             case .h264:
                 let type = header & 0x1F

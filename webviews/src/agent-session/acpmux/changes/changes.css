@@ -46,12 +46,12 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
    filled controls hover at 14% over the page and press at 18% over it; transcript rows hover at
    4% and press at 9%. */
 :root{--acpmux-motion-hover:80ms;--acpmux-motion-ease:ease-out;--acpmux-step-pressed:color-mix(in srgb,var(--agent-text) 16%,transparent);--acpmux-step-on-hover:color-mix(in srgb,var(--agent-text) 12%,transparent);--acpmux-step-pressed-on-page:color-mix(in srgb,var(--agent-text) 18%,var(--agent-page-bg))}
-.acpmux-diff-back,.acpmux-diff-tool,button.acpmux-diff-scope,.acpmux-fh-btn,.acpmux-fh-name,.acpmux-file-menu-item,.acpmux-changes-retry,.acpmux-changes-banner-action,.acpmux-changes-banner-refresh,.acpmux-review-changes,button.acpmux-edited-file,.acpmux-edited-more,.acpmux-diff-filter{transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease),color var(--acpmux-motion-hover) var(--acpmux-motion-ease),border-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+.acpmux-diff-back,.acpmux-diff-tool,button.acpmux-diff-scope,.acpmux-fh-btn,.acpmux-fh-name,.acpmux-file-menu-item,.acpmux-changes-retry,.acpmux-changes-banner-action,.acpmux-changes-banner-refresh,.acpmux-review-changes,.acpmux-edited-undo,button.acpmux-edited-file,.acpmux-edited-more,.acpmux-diff-filter{transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease),color var(--acpmux-motion-hover) var(--acpmux-motion-ease),border-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
 .acpmux-diff-tool[aria-pressed=true]:hover{background:var(--acpmux-step-on-hover)}
 .acpmux-diff-back:active,.acpmux-diff-tool:active,.acpmux-fh-btn:active,.acpmux-changes-banner-refresh:active{background:var(--acpmux-step-pressed);color:var(--agent-text)}
 /* The on toggle's hover rule outranks :active, so its press is its own rule. */
 .acpmux-diff-tool[aria-pressed=true]:active{background:var(--acpmux-step-pressed)}
-button.acpmux-diff-scope:active,.acpmux-changes-retry:active,.acpmux-changes-banner-action:active,.acpmux-review-changes:active,.acpmux-edited-more:active{background:var(--acpmux-step-pressed-on-page);color:var(--agent-text)}
+button.acpmux-diff-scope:active,.acpmux-changes-retry:active,.acpmux-changes-banner-action:active,.acpmux-review-changes:active,.acpmux-edited-undo:active:not(:disabled),.acpmux-edited-more:active{background:var(--acpmux-step-pressed-on-page);color:var(--agent-text)}
 .acpmux-file-menu-item:active{background:var(--acpmux-step-pressed)}
 button.acpmux-edited-file:active{background:color-mix(in srgb,var(--agent-text) 9%,transparent)}
 .acpmux-file-menu-item[aria-disabled="true"]:active{background:none}
