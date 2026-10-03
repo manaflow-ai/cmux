@@ -104,7 +104,7 @@ nonisolated extension ActionSurfaceCatalog {
         "focusRing.singlePane.toggle", "appearance.paneBorderWidth.toggle", "appearance.paneBorderColor.reset",
         "appearance.titlebar.minimal", "appearance.titlebar.standard", "browser.hibernation.off",
         "browser.hibernation.moderate", "browser.hibernation.aggressive", "hibernateTab", "wakeTab",
-        "tab.moveToNewSplit", "tab.moveToNewColumn", "tab.moveToWorkspace", "tab.moveToNewWindow", "tabGroup.moveLeft",
+        "tab.moveToNewSplit", "tab.moveToNewColumn", "tab.moveToNewStickyColumn", "tab.moveToWorkspace", "tab.moveToNewWindow", "tabGroup.moveLeft",
         "tabGroup.moveRight", "splitLeft", "splitUp", "swapPaneLeft", "swapPaneRight", "swapPaneUp", "swapPaneDown",
         "renamePane", "column.moveLeft", "column.moveRight", "column.center", "column.widthOneThird",
         "column.widthHalf", "column.widthTwoThirds", "column.widthFull", "column.makeSticky", "column.makeStickyLeft",

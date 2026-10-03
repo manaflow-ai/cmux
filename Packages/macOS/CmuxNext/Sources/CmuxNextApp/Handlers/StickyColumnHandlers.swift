@@ -38,6 +38,14 @@ enum StickyColumnHandlers {
             let next = target.sticky.map { StickyColumn(edge: $0.edge, mode: $0.mode.toggled) } ?? StickyColumn(edge: defaultEdge, mode: .overlay)
             try apply(next, to: target, in: content)
         })
+        registry.bind("tab.moveToNewStickyColumn", requires: DaemonCapabilities.shared.edgeDocks, daemon: ctx.services.activeDaemon,
+                      run: { invocation in
+            guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
+            let edge = invocation["edge"]?.stringValue.flatMap(StickyEdge.init(rawValue:)) ?? defaultEdge
+            let mode = invocation["mode"]?.stringValue.flatMap(StickyMode.init(rawValue:))
+            let reveal = TabHandlers.revealer(ctx, tab: tab, outcome: .newColumn(screenID: "", afterColumnID: ""), workspaceID: nil)
+            TabMoves.toNewStickyColumn(tab, anchor: pane, edge: edge, mode: mode, services: ctx.services, completion: reveal)
+        })
         registry.bind("layout.toggleStripScrollbar", run: { _ in
             let next = ctx.design.stripScrollbar.toggled
             ctx.design.stripScrollbar = next

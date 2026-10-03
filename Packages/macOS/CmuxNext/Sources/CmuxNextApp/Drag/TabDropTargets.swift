@@ -104,6 +104,8 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
                                    highlightFrame: screenFrame(of: pane, in: layout).map { Self.half($0, edge: edge) } ?? point)
         case .newColumn(let screen, let after):
             return TabDropProposal(kind: .newColumn(screenID: screen.rawValue, afterColumnID: after?.rawValue), highlightFrame: point)
+        case .newDock(let screen, let edge):
+            return TabDropProposal(kind: .newDock(screenID: screen.rawValue, edge: edge.rawValue), highlightFrame: point)
         }
     }
 

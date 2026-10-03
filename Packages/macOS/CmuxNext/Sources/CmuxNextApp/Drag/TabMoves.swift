@@ -1,5 +1,8 @@
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDesign
+import enum CmuxNextLayout.StickyEdge
+import enum CmuxNextLayout.StickyMode
 import Foundation
 
 /// Daemon commands for tab moves. With `tab-drag-v1` every outcome is one
@@ -113,6 +116,34 @@ enum TabMoves {
                 }
             } != nil
             if ok { spawn.commit() }
+            completion(ok)
+            return ok ? nil : "move-tab-to-column failed (see the app log)"
+        })
+    }
+
+    /// Moves the tab into a new column pinned to `edge` on `anchor`'s screen,
+    /// in one daemon commit (move-tab-to-column with `sticky`,
+    /// edge-docks-v1). The column that held the edge scrolls again. Top and
+    /// bottom are edge docks; `mode` nil uses `layout.stickyColumnMode`.
+    static func toNewStickyColumn(_ tab: TabModel, anchor pane: PaneModel, edge: CmuxNextLayout.StickyEdge,
+                                  mode: CmuxNextLayout.StickyMode? = nil, services: AppServices,
+                                  transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
+        let daemon = services.machines.daemon(forTab: tab)
+        guard services.daemon(for: pane) === daemon, daemon.supports(DaemonCapabilities.shared.edgeDocks),
+              !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
+        let surface = tab.surface, paneHandle = pane.handle
+        let overlay = mode.map { $0 == .overlay } ?? (DesignSettings.shared.stickyColumnMode == .overlay)
+        let pin = StickySnapshot(edge: StickySnapshot.Edge(rawValue: edge.rawValue) ?? .right, mode: overlay ? .overlay : .docked)
+        // A band's size is a share of the screen height; a side column takes
+        // the width a new column next to the anchor would take.
+        let spawn = edge.isBand ? nil : services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(tab.id)?.1)
+        let width = spawn?.width ?? 0.3
+        services.registry.track(Task {
+            let ok = await daemon.request("move-tab-to-column") { connection -> Void in
+                _ = try await connection.moveTabToColumn(surface, target: .pane(paneHandle), width: width, sticky: pin,
+                                                         transaction: transaction)
+            } != nil
+            if ok { spawn?.commit() }
             completion(ok)
             return ok ? nil : "move-tab-to-column failed (see the app log)"
         })

@@ -313,6 +313,11 @@ final class ScreenContentView: NSView {
     /// Drop target, its highlight rect and the region it belongs to (the
     /// whole pane content rect, or the column gap), in local coordinates.
     func dropTarget(at localPoint: NSPoint) -> (target: DropTarget, highlight: CGRect, region: CGRect)? {
+        if context.model.acceptsEdgeDockDrops,
+           let dock = DropZoneGeometry.dockTarget(atView: localPoint, screen: screenID, geometry: geometry, style: context.style),
+           let rect = DropZoneGeometry.highlightRectInView(for: dock, offset: scroll.value, geometry: geometry, style: context.style) {
+            return (dock, rect, rect)
+        }
         guard let hit = DropZoneGeometry.target(atView: localPoint, offset: scroll.value, screen: screenID, geometry: geometry,
                                                 style: context.style) else { return nil }
         let target = roomAdjusted(hit)

@@ -57,6 +57,25 @@ public nonisolated enum DropZoneGeometry {
         return nil
     }
 
+    /// DD1: a top or bottom edge band that opens a dock, while that edge has
+    /// none (view coordinates). Nil elsewhere.
+    public static func dockTarget(atView point: CGPoint, screen: ScreenID, geometry: ScreenGeometry, style: LayoutStyle) -> DropTarget? {
+        let band = min(style.dockDropBand, geometry.viewport.height / 4)
+        let free = { (edge: StickyEdge) in !geometry.sticky.contains { $0.sticky.edge == edge } }
+        if point.y <= band, free(.top) { return .newDock(screen: screen, edge: .top) }
+        if point.y >= geometry.viewport.height - band, free(.bottom) { return .newDock(screen: screen, edge: .bottom) }
+        return nil
+    }
+
+    /// Where a new top or bottom dock would sit (view coordinates): a third
+    /// of the height, at most half, across the screen less its gaps.
+    static func dockPreview(_ edge: StickyEdge, geometry: ScreenGeometry, style: LayoutStyle) -> CGRect {
+        let size = geometry.viewport
+        let height = min(size.height * 0.3, size.height * StickyStripGeometry.maxBandShare)
+        let gap = style.stripGap
+        return CGRect(x: gap, y: edge == .top ? 0 : size.height - height, width: max(1, size.width - gap * 2), height: height)
+    }
+
     /// The whole region a drop on `target` divides (content space): the
     /// pane's rounded content rect, or the column gap zone.
     public static func regionRect(for target: DropTarget, geometry: ScreenGeometry, style: LayoutStyle) -> CGRect? {
@@ -65,12 +84,15 @@ public nonisolated enum DropZoneGeometry {
             return geometry.panes[pane].map { PaneChromeGeometry.contentRect(forCell: $0, style: style) }
         case let .newColumn(_, after):
             return geometry.gapZones.first(where: { $0.after == after })?.frame
+        case let .newDock(_, edge):
+            return dockPreview(edge, geometry: geometry, style: style)
         }
     }
 
     /// `regionRect(for:)` in view coordinates with the strip at `offset`.
     public static func regionRectInView(for target: DropTarget, offset: CGFloat, geometry: ScreenGeometry, style: LayoutStyle) -> CGRect? {
         guard let rect = regionRect(for: target, geometry: geometry, style: style) else { return nil }
+        if case .newDock = target { return rect }
         if case let .pane(pane, _) = target, !geometry.scrolls(pane: pane) { return rect }
         return rect.offsetBy(dx: geometry.viewShift(offset: offset), dy: 0)
     }
@@ -78,6 +100,7 @@ public nonisolated enum DropZoneGeometry {
     /// `highlightRect(for:)` in view coordinates with the strip at `offset`.
     public static func highlightRectInView(for target: DropTarget, offset: CGFloat, geometry: ScreenGeometry, style: LayoutStyle) -> CGRect? {
         guard let rect = highlightRect(for: target, geometry: geometry, style: style) else { return nil }
+        if case .newDock = target { return rect }
         if case let .pane(pane, _) = target, !geometry.scrolls(pane: pane) { return rect }
         return rect.offsetBy(dx: geometry.viewShift(offset: offset), dy: 0)
     }
@@ -98,6 +121,8 @@ public nonisolated enum DropZoneGeometry {
         case let .newColumn(_, after):
             guard let zone = geometry.gapZones.first(where: { $0.after == after }) else { return nil }
             return zone.frame
+        case let .newDock(_, edge):
+            return dockPreview(edge, geometry: geometry, style: style)
         }
     }
 }

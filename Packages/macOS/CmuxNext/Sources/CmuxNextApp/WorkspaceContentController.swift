@@ -113,6 +113,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
 
     private func apply(_ result: LayoutMapping.Result) {
         handles = result.handles
+        layoutModel.acceptsEdgeDockDrops = daemon.supports(DaemonCapabilities.shared.edgeDocks)
         layoutModel.apply(screens: result.screens)
         repairIfEmpty()
         sendTopology()

@@ -65,7 +65,7 @@ public nonisolated enum DropRevealPolicy {
         case .cancel, .moveWindow, .moveWorkspaceToNewWindow, .moveWorkspace:
             // No tab moved (the window or workspace itself did).
             return nil
-        case .strip, .newSplit, .newColumn:
+        case .strip, .newSplit, .newColumn, .newDock:
             showsWorkspace = false
             newWindow = false
         case .newWorkspace, .workspace:
