@@ -74,7 +74,7 @@ cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
 # ships the browser as unavailable.
 echo "Building app..."
 rm -rf build/
-./scripts/cmux-next/pin-cmux-tui.sh fetch
+./scripts/cmux-next/pin-cmux-tui.sh fetch --pin
 xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
 echo "Build succeeded"
 if [ ! -d "$APP_PATH/Contents/Frameworks/Chromium Embedded Framework.framework" ]; then
