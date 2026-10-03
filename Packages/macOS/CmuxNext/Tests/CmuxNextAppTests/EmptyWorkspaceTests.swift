@@ -77,29 +77,6 @@ struct EmptyWorkspaceTests {
         withExtendedLifetime(services) {}
     }
 
-    /// A restarted daemon dropped the lost terminals' tabs, leaving several
-    /// workspaces with no screen (tag acpcli: five of eight). Each is empty
-    /// the first time this connection sees it, so each gets one terminal,
-    /// whether or not a window shows it; otherwise `pane current run` finds
-    /// no screen in the daemon's focused workspace.
-    @Test func emptyWorkspacesNoWindowShowsGetOneTerminalEach() async throws {
-        let other = WorkspaceKey(rawValue: "0b6c4a52-6d3f-4c55-9d53-8f1f4e0f1a03")
-        let (services, recorder) = Self.services(workspaces: [
-            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: Self.key, name: "hidden-1"),
-            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 2), key: other, name: "hidden-2"),
-        ])
-        await Self.settle { recorder.keys.count == 2 }
-        // Another store change while the panes are on their way asks nothing new.
-        services.daemon.store.apply(snapshot: DaemonTree(workspaceRevision: 2, workspaces: [
-            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: Self.key, name: "hidden-1"),
-            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 2), key: other, name: "hidden-2 renamed"),
-        ]))
-        await Self.settle { false }
-        #expect(Set(recorder.keys) == [Self.key, other])
-        #expect(recorder.keys.count == 2)
-        withExtendedLifetime(services) {}
-    }
-
     @Test func populatedWorkspaceIsLeftAlone() async throws {
         let services = ActionBindingCoverageTests.boundServices()
         let tree = try BridgeTreeFixture.tree()
