@@ -5,6 +5,7 @@
 # line goes. Fix one when you touch its file (an extension on the receiver
 # type, or a value the caller builds), then rerun the command above.
 Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionCatalog.swift:ActionCatalog
+Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionRunScope.swift:ViewChangePolicy
 Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionSurfaceExport.swift:ActionSurfaceExport
 Packages/macOS/CmuxNext/Sources/CmuxNextActions/DevTools.swift:DevTools
 Packages/macOS/CmuxNext/Sources/CmuxNextActions/FuzzyMatch.swift:FuzzyMatch
@@ -129,5 +130,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Sections/SidebarSectionTunables.
 Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabTunables.swift:TabTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksPaletteCatalog.swift:TasksPaletteCatalog
 Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksTunables.swift:TasksTunables
+Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalFontScale.swift:TerminalFontScale
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/AppcastParser.swift:AppcastParser
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/AppcastSelector.swift:AppcastSelector
