@@ -133,6 +133,7 @@ pub(crate) fn model_result(
 /// Every reason to reject the change from `before` (the model of the live
 /// state before it) to the live state `after`: introduced invariant
 /// violations, and, when the reducer ran, a placement it does not produce.
+#[cfg(test)]
 pub(crate) fn transition_problems(
     before: &LayoutState,
     model: Option<&LayoutState>,
@@ -141,7 +142,7 @@ pub(crate) fn transition_problems(
     transition_problems_for(before, model, None, after)
 }
 
-/// [`transition_problems`] for the op `kind` when the plan declares one:
+/// `transition_problems` for the op `kind` when the plan declares one:
 /// its explicit closes, creations and restarts are allowed tab changes.
 pub(crate) fn transition_problems_for(
     before: &LayoutState,
