@@ -1,7 +1,7 @@
-> RESUME NOTE (parked 2026-10-02, Rust lane of the app platform)
-> State: branch feat-cmux-next-apps-routing (pushed, no PR, no base push) on top of #17008 e7a28e4e95f. Daemon-side provider channel done: apps/provider.rs, routing in calls.rs, apps-provider-register/-result, APP-R1 errors; testbox: 43/43 supervisor tests twice, workspace clippy and fmt clean, god files ok.
-> Next: one focused security review of the provider channel; COORDINATION.md line; send the exact provider messages (provider.rs header) to the app platform lead for the Swift lane; open the PR only after #16872 and #17008 land.
-> Open runs: hosted --filter apps:: on #17008 e7a28e4e95f, run 37081571961 (result not read yet). #16872 head 72246ecb390 and #17008 head e7a28e4e95f wait for the landing window (order 16872, then 17008).
+> RESUME NOTE (updated 2026-10-03, Rust lane of the app platform)
+> State: branch feat-cmux-next-apps-routing (pushed, no PR, no base push) on top of #17008 e7a28e4e95f. Provider channel done and the security review's findings fixed (params cap, no takeover, cancel on revoke/exit, idle waits for calls, explicit integration method, fs.pick gesture, unknown families unsupported, event sent after the lock, failed sends fail at once, ABI error bodies); testbox: 49/49 supervisor tests three times, workspace clippy and fmt clean, god files ok.
+> Next: in the cmux-tui landing window, after #16872 and #17008 land (direct pushes, no PRs): rebase onto origin/feat-cmux-next, exact-head local gates, push. Open decision for the lead: a client-kind gate for provider registration.
+> Open runs: none. #17008 hosted --filter apps:: (run 37081571961) is green.
 > Later queue: build-time scopes (fold fs.* and the routed ops into scopes.json), then power assertions.
 
 # App op routing from the supervisor (app platform step 3c)
@@ -26,7 +26,7 @@ Provider channel, modeled on `url_open` (daemon asks a connected frontend) and `
 - `apps-provider-register {families: ["fs", "action", ...]}` on a local connection; the capability set is per connection and ends with it. One provider per family; a second registration replaces the first.
 - The supervisor forwards an admitted call as event `apps-provider-request {request_id, app, actor: "app:<id>", origin, gesture?, op, params, deadline_ms}` to that connection only.
 - The provider answers `apps-provider-result {request_id, ok, body}` (ABI body shapes). Unanswered after the deadline (default 30 s; `fs.pick` waits for the user, 10 min) -> `operation.failed` with `reason: timeout`. A disconnect fails its pending requests at once.
-- No provider registered -> `operation.unsupported` with `reason: no_provider` (headless daemons, Cloud VMs).
+- No provider registered, or the provider disconnects mid-call -> `provider.unavailable` at once (retryable, details `{family, op}`; APP-R1). An op of no provider family -> `operation.unsupported`.
 - The supervisor's checks stay first: scope, grant, sandbox, gesture (a gesture spent for `fs.pick` because it opens a panel). The provider trusts the supervisor's actor and origin and enforces its own owner rules.
 
 ## D1: who calls the API Worker (decided, app platform lead, 2026-10-02)
