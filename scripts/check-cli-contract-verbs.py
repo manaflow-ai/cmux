@@ -659,6 +659,81 @@ def parse_documented_verbs(path):
     return documented, rows
 
 
+def parse_command_table_cells(path):
+    """Returns command cells from the contract's command tables."""
+    with open(path, "r", encoding="utf-8") as handle:
+        body = handle.read()
+    collecting = False
+    cells = []
+    for line in body.splitlines():
+        match = ROW_FIRST_CELL.match(line)
+        if match is None:
+            collecting = False
+            continue
+        cell = match.group(1).strip()
+        if cell == COMMAND_HEADING:
+            collecting = True
+            continue
+        if collecting and set(cell) <= set("-: "):
+            continue
+        if collecting:
+            cells.append(cell)
+    return cells
+
+
+def canonical_vm_command(command):
+    """Normalize the user-facing `cloud` alias to the `vm` command family."""
+    if command == "cloud" or command.startswith("cloud "):
+        return "vm" + command[len("cloud"):]
+    return command
+
+
+def parse_detailed_usage_options(path):
+    """Returns options from the detailed VM help examples in the contract."""
+    usage = re.compile(r"^- `cmux (vm|cloud) ([^` ]+) --help` -> `Usage: ([^`]+)`")
+    options = {}
+    with open(path, "r", encoding="utf-8") as handle:
+        for line in handle:
+            match = usage.match(line)
+            if match is None:
+                continue
+            command = canonical_vm_command("{0} {1}".format(match.group(1), match.group(2)))
+            options.setdefault(command, set()).update(
+                re.findall(r"--[A-Za-z0-9-]+", match.group(3))
+            )
+    return options
+
+
+def check_documented_options(path):
+    """Returns option omissions between detailed VM help and command rows."""
+    cells = parse_command_table_cells(path)
+    omissions = []
+    for command, expected in parse_detailed_usage_options(path).items():
+        candidates = [
+            cell for cell in cells
+            if re.search(
+                r"`{0}(?:\s|`)".format(re.escape(command)),
+                cell.replace("`cloud ", "`vm "),
+            )
+        ]
+        if not candidates:
+            omissions.extend(
+                "{0} help advertises {1}, but the contract has no command row"
+                .format(command, option)
+                for option in sorted(expected)
+            )
+            continue
+        documented = set()
+        for cell in candidates:
+            documented.update(re.findall(r"--[A-Za-z0-9-]+", cell))
+        for option in sorted(expected - documented):
+            omissions.append(
+                "{0} help advertises {1}, but no `{0}` command row lists it"
+                .format(command, option)
+            )
+    return omissions
+
+
 def check(dispatched, documented):
     """Returns a list of human-readable violations."""
     return [
@@ -692,7 +767,14 @@ def main(argv=None):
               file=sys.stderr)
         return 1
 
-    violations = check(dispatched, documented)
+    try:
+        option_violations = check_documented_options(os.path.join(root, DOC_PATH))
+    except (OSError, ValueError) as error:
+        print("check-cli-contract-verbs: {0}: {1}".format(DOC_PATH, error),
+              file=sys.stderr)
+        return 1
+
+    violations = check(dispatched, documented) + option_violations
     if violations:
         print("check-cli-contract-verbs: FAILED", file=sys.stderr)
         for violation in violations:
