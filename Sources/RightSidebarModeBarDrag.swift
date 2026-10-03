@@ -70,7 +70,7 @@ final class RightSidebarModeBarDragController {
         guard var current = session, !current.isCarriedOut else { return }
         let tabFrame = current.layout.frames[current.layout.source]
         if mode.canOpenAsPane,
-           RightSidebarModeBarDragLayout.leavesBar(pointerY: location.y, tabFrame: tabFrame, barHeight: barHeight),
+           RightSidebarModeBarDragLayout.leavesBar(pointer: location, tabFrame: tabFrame, barHeight: barHeight),
            carryOut(current, tabFrame: tabFrame, travel: travel, animation: animation, dragImage: dragImage) {
             return
         }
