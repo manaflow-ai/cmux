@@ -294,3 +294,6 @@ fn kitty_budget_rebalance_never_holds_a_terminal_for_the_control_timeout() {
     );
     wait_for_no_host_records(&harness.host_root());
 }
+
+#[path = "kitty_create.rs"]
+mod kitty_create;

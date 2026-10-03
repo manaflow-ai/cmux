@@ -12875,8 +12875,8 @@
       "title_table" : "SidebarSectionActions"
     },
     {
-      "cli" : "guiOnly",
-      "cli_name" : "action app-store-show",
+      "cli" : "offered",
+      "cli_name" : "app store",
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarBackground"
@@ -12884,7 +12884,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "appStore.show",
-      "mcp" : "guiOnly",
+      "mcp" : "offered",
       "palette" : "offered",
       "title" : "App Store",
       "title_key" : "action.appStore.show",
@@ -12936,6 +12936,22 @@
       "palette" : "offered",
       "title" : "Show Hidden App",
       "title_key" : "action.app.unhide",
+      "title_table" : "AppStoreActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "app run-command",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "app.command.run",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "title" : "Run App Command…",
+      "title_key" : "action.app.command.run",
       "title_table" : "AppStoreActions"
     },
     {

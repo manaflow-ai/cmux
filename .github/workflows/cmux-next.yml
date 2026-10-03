@@ -479,19 +479,27 @@ jobs:
           CEF_DIR: ${{ steps.cef.outputs.dir }}
         run: scripts/cmux-next/build-cef-shim.sh "$CEF_DIR" "$(scripts/cmux-next/cef-cache-root.sh)/shim"
 
-  # A green Release compile on a feat-cmux-next push may move the protected
-  # `nightly-next` branch, which publishes the cmux-next NIGHTLY track
-  # (debounced; see nightly-next-promote.yml).
-  promote-nightly-next:
+  # A green Release compile on a feat-cmux-next push asks main's nightly.yml to
+  # promote this commit to the protected `nightly-next` branch (debounced to
+  # one build per 2 h there). Only main's job, in the `release` environment,
+  # holds the release App key and checks this push run's Release compile; this
+  # job only needs actions: write to request it.
+  request-nightly-next:
     needs: release-compile
     if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile.result == 'success'
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
     permissions:
-      contents: read
-      checks: read
-      actions: read
-    uses: ./.github/workflows/nightly-next-promote.yml
-    with:
-      sha: ${{ github.sha }}
+      actions: write
+    steps:
+      - name: Request nightly-next promotion on main
+        # Main gets the promote-nightly-next job with PR 17116; until then the
+        # dispatch is refused (unknown input) and must not fail this run.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref main -f promote_nightly_next_sha="$SHA" -f promote_nightly_next_debounce=true
 
   cmux-scheme-compile:
     needs: macos-placement
