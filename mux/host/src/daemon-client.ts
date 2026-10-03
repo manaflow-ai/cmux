@@ -53,10 +53,18 @@ export class DaemonClient {
    */
   static async connect(
     path: string,
-    options: { onEvent?: (event: Record<string, unknown>) => void; subscribe?: boolean } = {},
+    options: {
+      onEvent?: (event: Record<string, unknown>) => void;
+      subscribe?: boolean;
+      /** Aborting closes the socket, so a stuck handshake leaves nothing open. */
+      signal?: AbortSignal;
+    } = {},
   ): Promise<DaemonClient> {
     const client = new DaemonClient(options.onEvent ?? (() => {}));
     client.socket = await LineSocket.open(path, (message) => client.dispatch(message));
+    const abort = () => client.close();
+    if (options.signal?.aborted) abort();
+    options.signal?.addEventListener("abort", abort, { once: true });
     client.socket.onClose(() => {
       for (const pending of client.pending.values())
         pending.reject(new Error(`daemon connection closed during ${pending.cmd}`));
@@ -72,6 +80,8 @@ export class DaemonClient {
     } catch (error) {
       client.close();
       throw error;
+    } finally {
+      options.signal?.removeEventListener("abort", abort);
     }
     return client;
   }

@@ -315,14 +315,21 @@ export class MuxHost {
     return this.options.requestTimeoutMs ?? 30_000;
   }
 
-  /** A connect (socket plus handshake) bounded by the request timeout; a client that arrives late is closed. */
-  private connectWithin<T extends { close(): void }>(what: string, connect: Promise<T>): Promise<T> {
+  /**
+   * A connect (socket plus handshake) bounded by the request timeout. The
+   * deadline aborts the connect, which closes its socket, so a stuck handshake
+   * leaves no socket open; a client that still arrives late is closed.
+   */
+  private connectWithin<T extends { close(): void }>(what: string, start: (signal: AbortSignal) => Promise<T>): Promise<T> {
     const ms = this.requestTimeoutMs;
+    const controller = new AbortController();
     let late = false;
+    const connect = start(controller.signal);
     return new Promise<T>((resolve, reject) => {
       const timer = this.clock.setTimeout(() => {
         late = true;
         this.log(`${what} connect got no answer in ${ms} ms; retrying`);
+        controller.abort();
         reject(new RequestTimeoutError(`${what} connect timed out`));
       }, ms);
       connect.then(
@@ -384,10 +391,10 @@ export class MuxHost {
   private async runDaemon(): Promise<void> {
     // Events that arrive before the core knows the connection are held, then fed after it.
     let held: Record<string, unknown>[] | undefined = [];
-    const daemon = await this.connectWithin(
-      "daemon",
+    const daemon = await this.connectWithin("daemon", (signal) =>
       DaemonClient.connect(this.options.daemonSocket, {
         subscribe: true,
+        signal,
         onEvent: (event) => {
           if (held) held.push(event);
           else this.onDaemonEvent(daemon, event);
@@ -448,7 +455,9 @@ export class MuxHost {
 
   private async runAcpmux(): Promise<void> {
     await this.options.startAcpmux?.();
-    const acpmux = await this.connectWithin("acpmux", AcpmuxClient.connect(this.options.acpmuxSocket, "mux-host"));
+    const acpmux = await this.connectWithin("acpmux", (signal) =>
+      AcpmuxClient.connect(this.options.acpmuxSocket, "mux-host", signal),
+    );
     const closed = new Promise<void>((resolve) => acpmux.onClose(() => resolve()));
     // The connect sequence (sessions, watch, first event, attach) has one deadline:
     // a stuck step closes the client and the loop connects again.

@@ -48,7 +48,8 @@ export class AcpmuxClient {
   private socket!: LineSocket;
 
   /** Connects and runs `initialize`. */
-  static async connect(path = acpmuxSocketPath(), clientName = "mux-host"): Promise<AcpmuxClient> {
+  /** Connects and runs `initialize`. Aborting `signal` closes the socket, so a stuck handshake leaves nothing open. */
+  static async connect(path = acpmuxSocketPath(), clientName = "mux-host", signal?: AbortSignal): Promise<AcpmuxClient> {
     const client = new AcpmuxClient();
     client.socket = await LineSocket.open(path, (message) => client.dispatch(message));
     client.socket.onClose(() => {
@@ -56,11 +57,21 @@ export class AcpmuxClient {
         p.reject(new AcpmuxError(p.method, "acpmux connection closed"));
       client.pending.clear();
     });
-    await client.request("initialize", {
-      protocolVersion: 1,
-      clientCapabilities: {},
-      clientInfo: { name: clientName, version: "0.1.0" },
-    });
+    const abort = () => client.close();
+    if (signal?.aborted) abort();
+    signal?.addEventListener("abort", abort, { once: true });
+    try {
+      await client.request("initialize", {
+        protocolVersion: 1,
+        clientCapabilities: {},
+        clientInfo: { name: clientName, version: "0.1.0" },
+      });
+    } catch (error) {
+      client.close();
+      throw error;
+    } finally {
+      signal?.removeEventListener("abort", abort);
+    }
     return client;
   }
 
