@@ -3,7 +3,7 @@ import CmuxCloud
 import CmuxSurfaceCatalogModel
 
 extension CloudTreeOutlineView.Coordinator {
-    /// Mouse, keyboard and status-button activation share the machine's current plan gate.
+    /// The Ports status button's action. It shares the machine's current plan gate.
     func performPortAction(_ action: CloudPortsStatusAction, machineID: SurfaceMachineID) {
         switch action {
         case .none: break

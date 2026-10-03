@@ -7101,55 +7101,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stop discovering other Macs"
+            "value": "Stop discovering other devices"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إيقاف اكتشاف أجهزة Mac الأخرى"
+            "value": "إيقاف اكتشاف الأجهزة الأخرى"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Andere Macs nicht mehr finden"
+            "value": "Andere Geräte nicht mehr finden"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dejar de descubrir otros Mac"
+            "value": "Dejar de descubrir otros dispositivos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arrêter de rechercher d’autres Mac"
+            "value": "Arrêter de rechercher d’autres appareils"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ほかのMacの検出を停止"
+            "value": "ほかのデバイスの検出を停止"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다른 Mac 검색 중지"
+            "value": "다른 기기 검색 중지"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "停止发现其他 Mac"
+            "value": "停止发现其他设备"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "停止尋找其他 Mac"
+            "value": "停止尋找其他裝置"
           }
         }
       }

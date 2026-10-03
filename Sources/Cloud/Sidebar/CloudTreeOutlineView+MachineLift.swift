@@ -2,6 +2,26 @@ import AppKit
 
 /// Coordinator side of the continuous machine drag (`CloudTreeMachineReorderLift`).
 extension CloudTreeOutlineView.Coordinator {
+    /// Removes the fallback monitor used when AppKit omits a drag-end callback.
+    func removeMachineLiftMouseUpMonitor() {
+        if let monitor = machineLiftMouseUpMonitor { NSEvent.removeMonitor(monitor) }
+        machineLiftMouseUpMonitor = nil
+    }
+
+    /// Finishes the native drag through the same coordinator path as `endedAt`.
+    func installMachineLiftMouseUpMonitor(for session: NSDraggingSession, in outline: CloudTreeNSOutlineView) {
+        removeMachineLiftMouseUpMonitor()
+        machineLiftMouseUpMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp]) { [weak self] event in
+            MainActor.assumeIsolated {
+                guard let self,
+                      self.activeDragSession === session,
+                      self.activeDragSequenceNumber == session.draggingSequenceNumber else { return }
+                self.outlineView(outline, draggingSession: session, endedAt: event.locationInWindow, operation: [])
+            }
+            return event
+        }
+    }
+
     /// Starts the lift when the drag that just began carries a machine row.
     func liftMachineDrag(_ session: NSDraggingSession, draggedItems: [Any], in outlineView: NSOutlineView) {
         guard machineLiftEnabled, let node = draggedItems.first as? CloudTreeNode, node.canReorderMachine,

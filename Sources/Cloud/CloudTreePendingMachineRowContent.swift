@@ -16,10 +16,15 @@ struct CloudTreePendingMachineRowContent: View {
         switch style.machineRowLayout {
         case .singleLine:
             CloudTreeMachineBand(style: style) {
-                HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.dotGap) {
-                    name
+                // Centered, not baseline-aligned: the glyph has no text
+                // baseline, so on a baseline it drops below the name.
+                HStack(alignment: .center, spacing: style.rowGrid.dotGap) {
+                    // A failed create is only its notice; the name and the
+                    // reason are in the tooltip and on the create's page.
+                    if !isFailed { name }
                     statusGlyph
                     status
+                        .layoutPriority(1)
                     Spacer(minLength: style.rowGrid.trailingGap)
                 }
             }
@@ -28,13 +33,21 @@ struct CloudTreePendingMachineRowContent: View {
         case .twoLine:
             HStack(alignment: .top, spacing: 0) {
                 VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
-                    HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.dotGap) {
-                        name
-                        statusGlyph
+                    if isFailed {
+                        HStack(alignment: .center, spacing: style.rowGrid.dotGap) {
+                            statusGlyph
+                            status
+                        }
+                        .frame(height: scaled(style.machineNameLineHeight))
+                    } else {
+                        HStack(alignment: .center, spacing: style.rowGrid.dotGap) {
+                            name
+                            statusGlyph
+                        }
+                        .frame(height: scaled(style.machineNameLineHeight))
+                        status
+                            .frame(height: scaled(style.machineSubtitleLineHeight))
                     }
-                    .frame(height: scaled(style.machineNameLineHeight))
-                    status
-                        .frame(height: scaled(style.machineSubtitleLineHeight))
                 }
                 Spacer(minLength: style.rowGrid.trailingGap)
             }
@@ -62,6 +75,8 @@ struct CloudTreePendingMachineRowContent: View {
             )
         }
     }
+
+    private var isFailed: Bool { operation.failureOutput != nil }
 
     private func scaled(_ value: CGFloat) -> CGFloat {
         GlobalFontMagnification.scaledSize(value, percent: magnification)

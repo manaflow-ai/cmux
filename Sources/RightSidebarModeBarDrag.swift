@@ -12,8 +12,9 @@ import SwiftUI
 @Observable
 final class RightSidebarModeBarDragController {
     static let coordinateSpace = "RightSidebarModeBarTabs"
-    /// Gentle and nearly critically damped: the tabs part without bouncing.
-    static let spring = Animation.spring(response: 0.28, dampingFraction: 0.86)
+    /// A longer, nearly critically damped spring keeps lateral tab movement
+    /// gradual while staying responsive when the order changes.
+    static let spring = Animation.spring(response: 0.34, dampingFraction: 0.9)
 
     struct Session {
         let mode: RightSidebarMode
@@ -69,7 +70,7 @@ final class RightSidebarModeBarDragController {
         guard var current = session, !current.isCarriedOut else { return }
         let tabFrame = current.layout.frames[current.layout.source]
         if mode.canOpenAsPane,
-           RightSidebarModeBarDragLayout.leavesBar(pointerY: location.y, tabFrame: tabFrame, barHeight: barHeight),
+           RightSidebarModeBarDragLayout.leavesBar(pointer: location, tabFrame: tabFrame, barHeight: barHeight),
            carryOut(current, tabFrame: tabFrame, travel: travel, animation: animation, dragImage: dragImage) {
             return
         }
@@ -125,18 +126,11 @@ final class RightSidebarModeBarDragController {
         removeMouseUpMonitor()
         endedStartLocation = current.startLocation
         guard !current.isCarriedOut else { return }
-        let authoritative = RightSidebarTabPreferences.orderedModes().filter { $0.isAvailable() && ($0 == current.mode || !RightSidebarTabPreferences.isHidden($0)) }
-        let source = authoritative.firstIndex(of: current.mode)
-        var order = authoritative
-        if let source, !order.isEmpty {
-            let item = order.remove(at: source)
-            let target = min(max(current.slot, 0), order.count)
-            order.insert(item, at: target)
-        }
+        let order = current.layout.reordered(current.modes, slot: current.slot)
         withAnimation(animation) {
             // The bar reads the saved order in the same update that clears
             // the offsets, so position and offset animate together.
-            if let source, source != min(max(current.slot, 0), max(0, authoritative.count - 1)) {
+            if order != current.modes {
                 RightSidebarTabPreferences.setDisplayedOrder(order)
             }
             session = nil
@@ -275,16 +269,23 @@ struct RightSidebarModeBarTabDrag: ViewModifier {
 /// The tab as it looks selected, for the image a carried-out drag shows.
 private struct RightSidebarModeBarDragPreview: View {
     let mode: RightSidebarMode
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     var body: some View {
         HStack(spacing: 4) {
-            CmuxSystemSymbolImage(
+            // ImageRenderer cannot capture the NSViewRepresentable used by
+            // CmuxSystemSymbolImage. Supply its materialized bitmap instead.
+            if let image = RenderableSystemSymbol.configuredAppKitImage(
                 systemName: mode.symbolName,
-                pointSize: RightSidebarChromeControlStyle.modeIconSize,
-                weight: RightSidebarChromeControlStyle.iconWeight,
-                tint: RightSidebarChromeControlStyle.pillForegroundColor(isSelected: true, isHovered: true),
-                appliesGlobalFontMagnification: true
-            )
+                pointSize: GlobalFontMagnification.scaledSize(
+                    RightSidebarChromeControlStyle.modeIconSize, percent: globalFontPercent
+                ),
+                weight: RightSidebarChromeControlStyle.iconWeight
+            ) {
+                Image(nsImage: image)
+                    .renderingMode(.template)
+                    .foregroundStyle(RightSidebarChromeControlStyle.pillForegroundColor(isSelected: true, isHovered: true))
+            }
             Text(mode.label)
                 .cmuxFont(size: RightSidebarChromeControlStyle.labelSize, weight: RightSidebarChromeControlStyle.labelWeight)
                 .lineLimit(1)
