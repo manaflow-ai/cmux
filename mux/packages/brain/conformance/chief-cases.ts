@@ -644,13 +644,13 @@ function turnCases(): CorpusCase[] {
       (e) => {
         const state = c.persisted(e) as HostStateData & { acpmuxEpoch?: number };
         c.check(state.acpmuxSeq === 3 && state.outbox.length === 0, "the cursor moves, nothing is posted");
-        c.check(state.acpmuxEpoch === epoch, "epoch saved");
+        c.check(state.acpmuxEpoch === epoch + 1, `the first reset's epoch is identity + 1 (downgrade-safe), got ${state.acpmuxEpoch}`);
       },
     );
     c.step(mux(ev(4, "turn_started")), ["typing"]);
     c.step(mux(chunk(5, "later")), []);
     c.step(mux(ev(6, "turn_end")), ["persist", "conversation_op", "typing"], (e) =>
-      c.check(opKey(c, e) === `turn:${MUX_SESSION}:${epoch}:4`, "a live turn after the reset gets the epoch key"),
+      c.check(opKey(c, e) === `turn:${MUX_SESSION}:${epoch + 1}:4`, "a live turn after the reset gets the epoch key"),
     );
     cases.push(c.end());
   }
@@ -814,7 +814,7 @@ function turnCases(): CorpusCase[] {
       ["persist"],
       (e) => {
         const state = c.persisted(e) as HostStateData & { acpmuxEpoch?: number; acpmuxLog?: number };
-        c.check(state.acpmuxEpoch === T0 + 900 && state.acpmuxLog === T0 + 900 && state.outbox.length === 0, "reset by identity");
+        c.check(state.acpmuxEpoch === T0 + 901 && state.acpmuxLog === T0 + 900 && state.outbox.length === 0, "reset by identity, epoch identity + 1");
       },
     );
     cases.push(c.end());
