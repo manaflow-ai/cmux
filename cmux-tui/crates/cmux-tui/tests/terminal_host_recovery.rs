@@ -4742,7 +4742,8 @@ fn session_shutdown_signal_exits_keep_tabs_dead() {
 /// detaches it. The daemon's shutdown within that lead makes those exits
 /// host losses: after the restart, and after a second restart whose
 /// shutdown replaced the recorded window, every tab is still there, dead.
-/// The lead is raised so a loaded runner cannot outlast it.
+/// The lead is raised for the first daemon so a loaded runner cannot outlast
+/// it, and is the default again for the last one.
 #[test]
 fn session_shutdown_logout_race_keeps_tabs_dead() {
     let _exclusive = exclusive_process_test();
@@ -4766,6 +4767,8 @@ fn session_shutdown_logout_race_keeps_tabs_dead() {
     for (terminal_id, _) in &shells {
         wait_for_exited_lifecycle(&harness.socket, terminal_id, Duration::from_secs(10));
     }
+    // Every exit timestamp is before this instant.
+    let exits_seen = Instant::now();
     let tree = request(&harness.socket, serde_json::json!({"id":10,"cmd":"list-workspaces"}));
     assert_dead_tabs(&tree, &names, "before the daemon's signal");
     harness.signal_daemon(libc::SIGTERM);
@@ -4784,7 +4787,15 @@ fn session_shutdown_logout_race_keeps_tabs_dead() {
     let tree = request(&harness.socket, serde_json::json!({"id":11,"cmd":"list-workspaces"}));
     assert_dead_tabs(&tree, &names, "after the restart");
 
-    // This owner's shutdown replaces the recorded window.
+    // This owner's shutdown replaces the recorded window. It starts more
+    // than the default lead after the exits, and the next owner runs with
+    // the default lead, so that window cannot cover them: only the receipt
+    // can keep the tabs dead.
+    let past_lead = Duration::from_secs(3);
+    if let Some(remaining) = past_lead.checked_sub(exits_seen.elapsed()) {
+        std::thread::sleep(remaining);
+    }
+    harness.session_shutdown_lead_ms = None;
     harness.signal_daemon(libc::SIGTERM);
     let mut daemon = harness.child.take().unwrap();
     let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
