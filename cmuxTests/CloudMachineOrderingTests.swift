@@ -89,7 +89,7 @@ struct CloudMachineOrderingTests {
         let press = outline.rect(ofRow: outline.row(forItem: source)).midY
         coordinator.beginMachineLift(drag.session, node: source, in: outline, pressY: press)
         #expect(outline.machineLift.isActive(sequence: drag.session.draggingSequenceNumber))
-        #expect(!outline.isItemExpanded(try fixture.root("b")), "open machines close for the drag")
+        try #expect(!outline.isItemExpanded(try fixture.root("b")), "open machines close for the drag")
         #expect(outline.machineLift.sourceNodeID == source.id)
 
         // Carry the row to just above c's bottom edge: past b and c, short of d.
@@ -98,15 +98,15 @@ struct CloudMachineOrderingTests {
         drag.info.draggingLocation = outline.convert(NSPoint(x: start.midX, y: c.maxY - 2), to: nil)
         // AppKit's own proposal (on b, which alone would drop a after b) is
         // ignored while the lift owns the drag.
-        #expect(coordinator.outlineView(outline, validateDrop: drag.info,
+        try #expect(coordinator.outlineView(outline, validateDrop: drag.info,
             proposedItem: try fixture.root("b"), proposedChildIndex: NSOutlineViewDropOnItemIndex) == .move)
         expectNoReorderIndicator(outline)
         #expect(outline.machineLift.slot == 2)
-        #expect(coordinator.outlineView(outline, acceptDrop: drag.info, item: try fixture.root("b"),
+        try #expect(coordinator.outlineView(outline, acceptDrop: drag.info, item: try fixture.root("b"),
             childIndex: NSOutlineViewDropOnItemIndex))
         #expect(fixture.order == ["b", "c", "a", "d"])
         #expect(!outline.machineLift.isActive(sequence: drag.session.draggingSequenceNumber))
-        #expect(outline.isItemExpanded(try fixture.root("b")), "open machines come back open")
+        try #expect(outline.isItemExpanded(try fixture.root("b")), "open machines come back open")
         try fixture.end(drag)
     }
 
@@ -123,7 +123,7 @@ struct CloudMachineOrderingTests {
         let drag = try fixture.begin("c")
         let press = outline.rect(ofRow: outline.row(forItem: source)).midY
         coordinator.beginMachineLift(drag.session, node: source, in: outline, pressY: press)
-        #expect(!outline.isItemExpanded(try fixture.root("a")) && !outline.isItemExpanded(try fixture.root("b")))
+        try #expect(!outline.isItemExpanded(try fixture.root("a")) && !outline.isItemExpanded(try fixture.root("b")))
         // A small nudge from the press point: c's row moved up as a and b
         // closed, but only the pointer's travel counts.
         drag.info.draggingLocation = outline.convert(NSPoint(x: 10, y: press + 3), to: nil)
@@ -132,7 +132,7 @@ struct CloudMachineOrderingTests {
         #expect(outline.machineLift.slot == 2, "c keeps its place among a, b and d")
         try fixture.end(drag)
         #expect(fixture.order == ["a", "b", "c", "d"])
-        #expect(outline.isItemExpanded(try fixture.root("a")) && outline.isItemExpanded(try fixture.root("b")))
+        try #expect(outline.isItemExpanded(try fixture.root("a")) && outline.isItemExpanded(try fixture.root("b")))
     }
 
     @Test("A lifted drag released on its own slot moves nothing and reopens machines")
@@ -147,14 +147,14 @@ struct CloudMachineOrderingTests {
         let drag = try fixture.begin("b")
         let press = outline.rect(ofRow: outline.row(forItem: source)).midY
         coordinator.beginMachineLift(drag.session, node: source, in: outline, pressY: press)
-        #expect(!outline.isItemExpanded(try fixture.root("c")))
+        try #expect(!outline.isItemExpanded(try fixture.root("c")))
         drag.info.draggingLocation = outline.convert(NSPoint(x: 10, y: press + 3), to: nil)
         #expect(coordinator.outlineView(outline, validateDrop: drag.info,
             proposedItem: nil, proposedChildIndex: 0).isEmpty)
         try fixture.end(drag)
         #expect(fixture.order == ["a", "b", "c", "d"])
         #expect(outline.machineLift.sourceNodeID == nil)
-        #expect(outline.isItemExpanded(try fixture.root("c")))
+        try #expect(outline.isItemExpanded(try fixture.root("c")))
     }
 
     @Test("Crossing the pin boundary clamps the move without drawing a hint", arguments: [false, true])
@@ -194,7 +194,7 @@ struct CloudMachineOrderingTests {
             proposedItem: terminal, proposedChildIndex: NSOutlineViewDropOnItemIndex) == .move)
         #expect(coordinator.outlineView(outline, acceptDrop: drag.info, item: nil, childIndex: 3))
         #expect(fixture.order == ["b", "a", "c", "d"])
-        #expect(CloudTreeNodeBuilder.flattened([try fixture.root("b")]).map(\.id) == contents)
+        try #expect(CloudTreeNodeBuilder.flattened([try fixture.root("b")]).map(\.id) == contents)
         #expect((outline.item(atRow: outline.selectedRow) as? CloudTreeNode)?.id == terminal.id)
         #expect(fixture.base.catalog.sidebarOrganization.state.groups.isEmpty)
         try fixture.end(drag)
@@ -277,7 +277,7 @@ struct CloudMachineOrderingTests {
         )
         #expect(!coordinator.outlineView(outline, acceptDrop: stale, item: nil, childIndex: 1))
         #expect(coordinator.outlineView(outline, validateDrop: drag.info, proposedItem: nil, proposedChildIndex: 3).isEmpty)
-        #expect(coordinator.outlineView(outline, validateDrop: drag.info,
+        try #expect(coordinator.outlineView(outline, validateDrop: drag.info,
             proposedItem: try fixture.root("b"), proposedChildIndex: NSOutlineViewDropOnItemIndex).isEmpty)
         try fixture.end(drag)
         fixture.store.setPinned(true, machineID: "a")
@@ -315,7 +315,7 @@ struct CloudMachineOrderingTests {
         #expect(coordinator.outlineView(outline, acceptDrop: drag.info, item: nil, childIndex: 2))
         #expect(Array(coordinator.nodes.prefix(2)).map(\.id) == anchors.map(\.id))
         #expect(fixture.order == ["d", "a", "b", "c"])
-        #expect(try fixture.root("d").id == adopted)
+        try #expect(try fixture.root("d").id == adopted)
         try fixture.end(drag)
     }
 
