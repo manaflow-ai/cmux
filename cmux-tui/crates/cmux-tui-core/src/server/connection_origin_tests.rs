@@ -118,3 +118,47 @@ fn the_bridge_reads_each_reply_kind() {
     assert!(is_remote_bridge_mark(&String::from_utf8(remote_bridge_mark_line()).unwrap()));
     assert!(!is_remote_bridge_mark(r#"{"id":0,"cmd":"connection-origin","origin":"local"}"#));
 }
+
+/// A peer that reaches the session through a remote bridge must not decide
+/// who else may pair (identity.md section 3, the remote bridge rule).
+#[test]
+fn a_bridged_connection_cannot_see_or_decide_pairing_requests() {
+    let mux = Mux::new_for_test("connection-origin-pairing", crate::SurfaceOptions::default());
+    let (challenge, _decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
+    let pairing = format!("pairing_{:032x}", challenge.id);
+    let list = json!({
+        "protocol":"cmux.protocol/2","type":"request","id":"list","operation":"pairing_request.list",
+        "params":{"machine":"current","session":"current"},
+    })
+    .to_string();
+    let resolve = json!({
+        "protocol":"cmux.protocol/2","type":"request","id":"resolve",
+        "operation":"pairing_request.resolve",
+        "params":{"machine":"current","session":"current","pairing_request":pairing,"decision":"accept"},
+        "idempotency_key":"resolve-bridged",
+    })
+    .to_string();
+    let respond =
+        json!({"id":7,"cmd":"pairing-response","request":challenge.id,"approve":true}).to_string();
+
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let bridged = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let mark = String::from_utf8(remote_bridge_mark_line()).unwrap();
+    let _ = line(&mux, bridged, &writer, &outbound, &mark);
+    for request in [&list, &resolve, &respond] {
+        let reply = line(&mux, bridged, &writer, &outbound, request);
+        assert_eq!(reply["ok"], false, "{request} -> {reply}");
+    }
+    disconnect_client(&mux, bridged, false);
+
+    // The request is still pending, and a local connection still sees it.
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let local = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let reply = line(&mux, local, &writer, &outbound, &list);
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert!(reply.to_string().contains(&pairing), "{reply}");
+    disconnect_client(&mux, local, false);
+    mux.shutdown();
+}
