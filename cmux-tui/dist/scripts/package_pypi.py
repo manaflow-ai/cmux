@@ -155,7 +155,7 @@ Tag: py3-none-{tag}
 Name: {DIST_NAME}
 Version: {version}
 Summary: {PROJECT_SUMMARY}
-License: MIT
+License: GPL-3.0-or-later
 Project-URL: Source, https://github.com/manaflow-ai/cmux
 Description-Content-Type: text/markdown
 

@@ -270,7 +270,7 @@ jobs:
               # Keep distribution metadata next to the digest map. Consumers
               # can reject an artifact whose runtime contract they cannot
               # satisfy without guessing from the filename.
-              "license": "MIT",
+              "license": "GPL-3.0-or-later",
               # Runtime constraints are per binary. Some GNU target-named
               # files are compatibility-name copies of musl-linked binaries.
               # `libc` is explicit for every runtime. `none` marks platforms
@@ -528,7 +528,7 @@ jobs:
           manifest = {
               "commit": sys.argv[1],
               "builtAt": datetime.fromisoformat(sys.argv[3]).isoformat(),
-              "license": "MIT",
+              "license": "GPL-3.0-or-later",
               "runtimeByBinary": {path.name: runtime_for(path.name) for path in files},
               "binaries": {
                   path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in files
