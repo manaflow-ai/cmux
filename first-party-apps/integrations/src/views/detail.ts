@@ -1,19 +1,28 @@
-// One connection: health, account, sharing, team policy, actions, and its tools
-// with per-tool policy. Every value shown comes from the owner's record.
+// One connection: health, catalog changes, account, sharing, team policy, MCP
+// exposure, actions, and its tools with per-tool policy. Every value shown
+// comes from the owner's record.
 
+import { MCP_ENDPOINT_PATH } from "@cmux/integrations-core"
 import { t } from "../l10n.ts"
-import { cancelRevoke, confirmingRevoke, reconnect, revoke, share } from "../model/actions.ts"
-import { displayName, needsAttention, policySourceLabel, providerAllowed, providerOf, type Connection } from "../model/connections.ts"
+import { openFeedItem, reconnect, revoke, setMcpExposed, share } from "../model/actions.ts"
+import { displayName, needsAttention, permissionsFor, policySourceLabel, providerAllowed, providerOf, type Connection } from "../model/connections.ts"
 import { providerInfo } from "../model/providers.ts"
-import { findConnection, teamPolicy } from "../model/store.ts"
-import { loadTools } from "../model/tools.ts"
-import { aboutLine, header, noticeLine, sectionTitle, smallButton, statusBadge } from "./common.ts"
+import { connections, findConnection, list, teamPolicy } from "../model/store.ts"
+import { loadTools, mcpNames } from "../model/tools.ts"
+import { aboutLine, credentialKindText, dayText, header, noticeLine, onOffControl, sectionTitle, smallButton, statusBadge } from "./common.ts"
 import { toolList } from "./policy.ts"
 
 const line = (label: string, value: string | (() => string)) =>
   HStack({ spacing: 8 }, [Text(label).font("caption").color("secondary").frame({ width: 92 }), Text(value).font("caption").lineLimit(2), Spacer()]).padding({ top: 2, leading: 12, bottom: 2, trailing: 12 })
 
+const note = (text: string, tone = "tertiary") => Text(text).font("caption2").color(tone).lineLimit(3).fixedSize("vertical").padding({ top: 2, leading: 12, bottom: 2, trailing: 12 })
+
 const sharingText = (c: Connection) => (c.sharing === "team" ? t("sharing.team", "Shared with team") : t("sharing.private", "Only you"))
+
+const perms = (c: Connection) => permissionsFor(c, list()?.viewer)
+
+/** A box with one padding inside and the outer margin on a wrapper (modifiers are single props). */
+const box = (children: CmuxView[]) => HStack({ spacing: 0 }, [VStack({ spacing: 6 }, children).padding(10).background("hover").cornerRadius(6)]).padding({ top: 4, leading: 12, bottom: 6, trailing: 12 })
 
 function healthBlock(c: () => Connection) {
   return () => {
@@ -26,16 +35,32 @@ function healthBlock(c: () => Connection) {
         : conn.status === "expired"
           ? t("health.expired", "Nobody approved this connection in time.")
           : t("health.error", "The last call to the provider failed."))
-    // One padding per node (modifiers are props), so the outer margin is a wrapper.
-    return HStack({ spacing: 0 }, [
-      VStack({ spacing: 6 }, [
-        Text(why).font("caption").color(conn.status === "error" ? "danger" : "warning").lineLimit(4).fixedSize("vertical"),
-        conn.capabilities?.reauth === false ? null : smallButton(conn.status === "expired" ? t("action.tryAgain", "Try Again") : t("action.reconnect", "Sign In Again"), () => reconnect(c()))
-      ])
-        .padding(10)
-        .background("hover")
-        .cornerRadius(6)
-    ]).padding({ top: 4, leading: 12, bottom: 6, trailing: 12 })
+    const p = perms(conn)
+    return box([
+      Text(why).font("caption").color(conn.status === "error" ? "danger" : "warning").lineLimit(4).fixedSize("vertical"),
+      p.reauth ? smallButton(conn.status === "expired" ? t("action.tryAgain", "Try Again") : t("action.reconnect", "Sign In Again"), () => reconnect(c())) : null,
+      Text(p.reauth ? t("health.keeps", "Signing in again keeps this connection, its sharing and its tool rules.") : t("health.creatorOnly", "The person who connected it or a team admin can sign in again."))
+        .font("caption2")
+        .color("tertiary")
+        .lineLimit(2)
+        .fixedSize("vertical")
+    ])
+  }
+}
+
+/** The owner re-ingests catalogs daily and posts a feed notice when one changes; the record says so (no polling here). */
+function catalogChanged(c: () => Connection) {
+  return () => {
+    const changed = c().catalog?.changed
+    if (!changed) return null
+    return box([
+      Text(t("catalog.changed", "The API changed on {day}. New tools start at their defaults; your rules stay.", { day: dayText(changed.at) }))
+        .font("caption")
+        .color("warning")
+        .lineLimit(3)
+        .fixedSize("vertical"),
+      smallButton(t("action.openFeed", "Open in Feed"), () => openFeedItem(changed.feed_item))
+    ])
   }
 }
 
@@ -43,17 +68,16 @@ function actions(c: () => Connection) {
   return () => {
     const conn = c()
     if (conn.status === "revoked") return null
-    const arming = confirmingRevoke() === conn.id
-    return HStack({ spacing: 8 }, [
-      conn.capabilities?.share === false
-        ? null
-        : conn.sharing === "team"
-          ? smallButton(t("action.makePrivate", "Make Private"), () => share(c(), "private"))
-          : smallButton(t("action.shareTeam", "Share with Team"), () => share(c(), "team")),
-      Spacer(),
-      arming ? smallButton(t("action.cancel", "Cancel"), cancelRevoke) : null,
-      conn.capabilities?.revoke === false ? null : smallButton(arming ? t("action.disconnectConfirm", "Disconnect?") : t("action.disconnect", "Disconnect"), () => revoke(c())).destructive()
-    ]).padding({ top: 8, leading: 12, bottom: 4, trailing: 12 })
+    const p = perms(conn)
+    const why = p.revoke === "team_admin" ? t("revoke.asAdmin", "You disconnect it as a team admin. The audit log records it.") : p.revoke === null ? t("revoke.needsAdmin", "Only the person who connected it or a team admin can disconnect it.") : null
+    return VStack({ spacing: 0 }, [
+      HStack({ spacing: 8 }, [
+        !p.share ? null : conn.sharing === "team" ? smallButton(t("action.makePrivate", "Make Private"), () => share(c(), "private")) : smallButton(t("action.shareTeam", "Share with Team"), () => share(c(), "team")),
+        Spacer(),
+        p.revoke ? smallButton(t("action.disconnect", "Disconnect"), () => revoke(c())).destructive() : null
+      ]).padding({ top: 8, leading: 12, bottom: 2, trailing: 12 }),
+      why ? note(why) : null
+    ])
   }
 }
 
@@ -72,6 +96,20 @@ function policyNote(c: () => Connection) {
       .fixedSize("vertical")
       .padding({ top: 2, leading: 12, bottom: 2, trailing: 12 })
   }
+}
+
+/** Opt-in exposure on the principal's MCP endpoint. */
+function mcpBlock(c: () => Connection) {
+  const on = () => c().mcp_exposed === true
+  return VStack({ spacing: 0 }, [
+    HStack({ spacing: 8 }, [Text(t("mcp.title", "Agents over MCP")).font("caption").color("secondary"), Spacer(), onOffControl(on, (v) => setMcpExposed(c(), v))]).padding({ top: 6, leading: 12, bottom: 2, trailing: 12 }),
+    () => {
+      if (!on()) return note(t("mcp.off", "Off: agents do not see these tools at {path}.", { path: MCP_ENDPOINT_PATH }))
+      const id = c().id
+      const n = [...mcpNames(connections()).keys()].filter((k) => k.startsWith(`${id}|`)).length
+      return note(t("mcp.on", "{n} tools at {path}. Block tools are hidden; Ask waits for approval in the feed or the agent.", { n, path: MCP_ENDPOINT_PATH }))
+    }
+  ])
 }
 
 export function detailView(id: string) {
@@ -94,13 +132,16 @@ export function detailView(id: string) {
       noticeLine(),
       HStack({ spacing: 8 }, [Icon(() => providerInfo(providerOf(conn())).symbol).color("secondary"), Text(() => providerInfo(providerOf(conn())).name).font("caption").color("secondary"), Spacer(), () => statusBadge(conn())]).padding({ top: 0, leading: 12, bottom: 6, trailing: 12 }),
       healthBlock(conn),
+      catalogChanged(conn),
       () => (conn().account ? line(t("detail.account", "Account"), () => conn().account?.name ?? "") : null),
       () => (conn().catalog ? line(t("detail.api", "API"), () => `${conn().catalog!.title}${conn().catalog!.version ? ` ${conn().catalog!.version}` : ""}`) : null),
       () => (conn().catalog?.source_url ? line(t("detail.source", "Source"), () => conn().catalog?.source_url ?? "") : null),
+      () => (conn().auth ? line(t("detail.signIn", "Sign-in"), () => credentialKindText(conn().auth!.kind)) : null),
       line(t("detail.sharing", "Sharing"), () => sharingText(conn())),
       () => (conn().scopes_granted.length ? line(t("detail.scopes", "Permissions"), () => conn().scopes_granted.join(", ")) : null),
       () => (conn().resources?.repos ? line(t("detail.repos", "Repositories"), () => t("detail.repoCount", "{n} repositories", { n: conn().resources?.repos?.length ?? 0 })) : null),
       policyNote(conn),
+      mcpBlock(conn),
       actions(conn),
       Divider().padding({ top: 6, leading: 12, bottom: 0, trailing: 12 }),
       sectionTitle(t("detail.tools", "Tools and policy")),
