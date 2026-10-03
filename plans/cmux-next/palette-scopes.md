@@ -328,6 +328,53 @@ Platform v2 (V1 to V12) changes how apps declare things; palette scopes follow i
 | V8 Rust supervisor | scope sources run in the per-app QuickJS host; the supervisor caches the last snapshot per scope (offline first paint) and streams batches to the client with the generation; the Mac app keeps only the palette rendering |
 | V11 gesture tokens | palette Return or click mints the gesture for a row's own-command ActionRef; the host enforces mint, spend and revoke (PR 16844 ABI.md) |
 
+### 6.10 `palette.run` (shape, before the build)
+
+A row can be acted on without the UI only through typed actions, never through the closures some built-in rows still carry (a closure has no origin check and no schema).
+
+- **Row field.** `PaletteItem.actionRefs: [PaletteActionRef]`, `PaletteActionRef {action: ActionID, target: ActionTargetRef?, arguments: [String: ActionValue], title?, isDestructive}`; the first ref is the row's primary command. A ref names a catalog action, so its title, symbol, shortcut, CLI name and MCP decision come from the catalog.
+- **Built-in rows that get refs first.** Registry action rows: `{action: <id>}`. Search Tabs open rows: `tab.focus` (target the tab), then `closeTab`; closed rows: `history.reopen {id}`. Workspace rows: `goToWorkspace` with the workspace target. Settings rows: `palette.toggleSetting` with the key. Rows without refs stay UI-only and say so in `palette.query`.
+- **`palette.query` rows** gain `actions: [{action, title, target?, arguments, destructive}]` (empty for untyped rows) and `typed: bool`.
+- **`palette.run {scope, item, action?, arguments?, focus?}`** (control socket, `.async`): builds the scope's page headless (like `palette.query`), finds the row by id among all its items (not only the top N), picks the ref whose `action` matches (else the first), merges `arguments` over the ref's arguments, and runs `ActionRegistry.perform` with the caller's origin and `focus` flag. The registry's execution context decides focus and selection changes (OWNERSHIP-PRINCIPLES), so a CLI or MCP run never moves focus unless the caller passes `focus: true` or the action's purpose is focus. A destructive action asks for confirmation exactly as `action.run` does.
+- **Errors:** unknown scope `palette.scope_unknown` (exit 4); no such row `palette.item_unknown` (exit 4); untyped row `palette.row_untyped` (exit 3, with the row's title); unknown action on the row `palette.action_unknown` (exit 4); the action's own refusal is passed through (`unavailable: …`).
+- **Surfaces:** the CLI verb `cmux palette run <scope> <item> [--action <id>] [--arg k=v] [--focus]` and MCP tool `palette_run` follow `action.run`'s MCP decision per action (a ref to an MCP-exempt action is refused). Tests: a headless run of each built-in ref kind, origin and focus rules, the untyped refusal, and an argument merge.
+
+### 6.11 Proposal: `cmux.palette.scope/1` (for the app platform lead; not built until agreed)
+
+Platform v2 (app-platform.md section 12) makes places typed interfaces. This is the palette scope as one.
+
+```jsonc
+// cmux-tui/crates/cmux-app-host/interfaces/cmux.palette.scope/1.json (proposed)
+{
+  "interface": "cmux.palette.scope", "major": 1,
+  "static": {                         // the manifest entry; the host reads it without running app code
+    "id": "string", "title": "localizedText", "symbol": "symbol", "placeholder": "localizedText",
+    "keywords": ["string"], "layout": "list|listWithDetail|grid", "ranking": "fuzzy|recency|source",
+    "federates": "bool", "filters": [{"id": "string", "title": "localizedText"}], "children": ["scopeRef"],
+    "emptyState": {"title": "localizedText", "message": "localizedText?", "action": "actionRef?"},
+    "prefix": "char?"                 // first-party only (D-PS4); the host refuses it for other publishers
+  },
+  "methods": {
+    "snapshot": {"in": {"context": "rowRef?"}, "out": "stream<batch>"},                 // whole candidate set; host ranks
+    "query":    {"in": {"text": "string", "filter": "string?", "context": "rowRef?"}, "out": "stream<batch>"},
+    "detail":   {"in": {"item": "string"}, "out": "detail"}
+  },
+  "events": {"invalidated": {}},      // the supervisor reruns snapshot on next open
+  "types": {
+    "batch": {"items": ["item"], "replace": "bool", "isFinal": "bool"},
+    "item": {"id": "string", "title": "string", "subtitle": "string?", "symbol": "string?", "keywords": ["string"],
+             "accessory": "string?", "actions": ["actionRef"], "drill": "scopeRef?", "enters": "scopeRef?"},
+    "actionRef": {"action": "catalogOpId", "arguments": "object", "title": "string?"},
+    "detail": {"markdown": "string?", "metadata": [{"label": "string", "value": "string"}], "embed": "embedRef?"}
+  }
+}
+```
+
+- An app declares `implements: [{"interface": "cmux.palette.scope/1", "id": "notes", ...static}]` with `exports` for the methods; `kind: op` sources become `implements` with a fragment op as the `query` method (no app code). `cmux.search.provider/1` is the federation subset (`query` only, `federates: true`); a scope may implement both.
+- The Rust supervisor owns the snapshot cache (per scope, per machine), the generation stamps, the batch re-validation and the ActionRef grant check (ABI.md, PR 16844); the Mac palette consumes batches through the scene/stream channel, so the JSC prototype path goes away.
+- Versioning: additive fields stay `/1`; changing a method's input or batch shape is `/2`, and the host may load both during migration.
+- Questions for the app platform lead: (1) does the interface registry carry `static` blocks for host-only metadata, or must every field be in the manifest entry? (2) is `stream<batch>` the generic stream type of V11 typed streams? (3) where do drill scopes of other apps resolve, through `consumes`?
+
 ## 7. Prototypes (DEV and NIGHTLY, Debug Settings > Palette)
 
 | Tunable | Variants | What changes |
