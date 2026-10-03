@@ -49,7 +49,8 @@ import Testing
 }
 
 @Suite struct AccountRowStateTests {
-    let codexAccount = LinkedAccount(id: "a1", family: .native, provider: .codex, label: "dev@example.com", state: "active")
+    let codexAccount = LinkedAccount(id: "a1", family: .native, provider: .codex,
+                                     account: fixtureLabeler.server(namespace: "codex", label: "dev@example.com"), state: "active")
 
     func signedInCodex() -> AccountRowState {
         var row = AccountRowState(provider: .codex)
@@ -88,7 +89,8 @@ import Testing
         #expect(row.phase == .connecting)
         row.reduce(.removeStarted(accountID: "a1"))
         #expect(row.phase == .connecting, "one operation at a time")
-        row.reduce(.connectSucceeded([codexAccount, LinkedAccount(id: "c", family: .claude, provider: .claude, label: "", state: "active")]))
+        row.reduce(.connectSucceeded([codexAccount, LinkedAccount(id: "c", family: .claude, provider: .claude,
+                                                                          account: AccountLabel(handle: "acct_c", display: ""), state: "active")]))
         #expect(row.phase == .idle)
         #expect(row.linked == [codexAccount])
         #expect(row.outcome == .connected)
@@ -123,7 +125,8 @@ import Testing
         #expect(row.phase == .reauthenticating)
         row.reduce(.reauthEnded)
         #expect(row.phase == .detecting)
-        row.reduce(.detected(ProviderDetection(provider: .codex, status: .signedIn, identity: "new@example.com")))
+        row.reduce(.detected(ProviderDetection(provider: .codex, status: .signedIn,
+                                                     account: fixtureLabeler.local(.codex, identity: "new@example.com"))))
         #expect(row.phase == .idle)
         var ollama = AccountRowState(provider: .ollama)
         ollama.reduce(.detected(.missing(.ollama)))

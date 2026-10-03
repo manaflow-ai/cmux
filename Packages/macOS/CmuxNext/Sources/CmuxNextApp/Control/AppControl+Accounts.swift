@@ -4,12 +4,14 @@ import CmuxNextControl
 import CmuxNextSettings
 import Foundation
 
-// `accounts.list`: every provider row (status, non-secret identity, sources,
+// `accounts.list`: every provider row (status, account label, sources,
 // CodeRouter links). `coderouter.*`: the methods the shipped `cmux
 // coderouter status|machines|claude …` CLI sends (CLI/CMUXCLI+Coderouter.swift),
 // passed through to the CodeRouter control plane as the signed-in user. A
 // credential the CLI sends travels CLI -> local socket -> this handler ->
 // cmux backend and is never logged or stored (plans/cmux-next/coderouter.md).
+// No result carries an email: accounts are `{account: "acct_…", label:
+// "<redacted display>"}` (CodeRouterClient.request redacts the replies).
 extension AppControl {
     func registerAccountsMethods(_ services: AppServices) {
         let network: ControlMethod.Deadline = .fixed(.seconds(20))
@@ -23,13 +25,13 @@ extension AppControl {
                 ]))
             },
             Self.passthrough("coderouter.claude_upstream.get", services) { client, team, _ in
-                try await client.send("GET", "/api/coderouter/claude-upstream", team: team)
+                try await client.request("GET", "/api/coderouter/claude-upstream", team: team)
             }.withDeadline(network),
             Self.passthrough("coderouter.claude_upstream.add", services) { client, team, params in
-                try await client.send("POST", "/api/coderouter/claude-upstream", body: try Self.claudeBody(params), team: team)
+                try await client.request("POST", "/api/coderouter/claude-upstream", body: try Self.claudeBody(params), team: team)
             }.withDeadline(network),
             Self.passthrough("coderouter.claude_upstream.set", services) { client, team, params in
-                try await client.send("POST", "/api/coderouter/claude-upstream", body: try Self.claudeBody(params), team: team)
+                try await client.request("POST", "/api/coderouter/claude-upstream", body: try Self.claudeBody(params), team: team)
             }.withDeadline(network),
             Self.passthrough("coderouter.claude_upstream.update", services) { client, team, params in
                 var body: [String: any Sendable] = [:]
@@ -39,7 +41,7 @@ extension AppControl {
                     body["state"] = state
                 }
                 guard !body.isEmpty else { throw ControlError.invalidParams("coderouter.claude_upstream.update needs `label` or `state`.") }
-                return try await client.send("PATCH", "/api/coderouter/claude-upstream/" + (try Self.accountID(params)), body: body, team: team)
+                return try await client.request("PATCH", "/api/coderouter/claude-upstream/" + (try Self.accountID(params)), body: body, team: team)
             }.withDeadline(network),
             Self.passthrough("coderouter.claude_upstream.remove", services) { client, team, params in
                 try await Self.idempotentDelete(client, "/api/coderouter/claude-upstream/" + (try Self.accountID(params)), team: team)
@@ -48,10 +50,10 @@ extension AppControl {
                 try await Self.idempotentDelete(client, "/api/coderouter/claude-upstream", team: team)
             }.withDeadline(network),
             Self.passthrough("coderouter.machines", services) { client, team, _ in
-                try await client.send("GET", "/api/coderouter/vm-usage/team", team: team)
+                try await client.request("GET", "/api/coderouter/vm-usage/team", team: team)
             }.withDeadline(network),
             Self.passthrough("coderouter.accounts.list", services) { client, team, _ in
-                try await client.send("GET", "/api/coderouter/accounts", team: team)
+                try await client.request("GET", "/api/coderouter/accounts", team: team)
             }.withDeadline(network),
         ])
     }
@@ -89,7 +91,7 @@ extension AppControl {
     /// DELETE where a 404 means "already gone": `{removed: false, count: 0}`.
     nonisolated private static func idempotentDelete(_ client: CodeRouterClient, _ path: String, team: String?) async throws -> Data {
         do {
-            return try await client.send("DELETE", path, team: team)
+            return try await client.request("DELETE", path, team: team)
         } catch CodeRouterError.http(status: 404, _, _) {
             return Data(#"{"removed":false,"count":0}"#.utf8)
         }
@@ -139,7 +141,9 @@ extension AppControl {
             "provider": .string(row.provider.rawValue),
             "name": .string(row.provider.displayName),
             "status": row.status.map { .string($0.rawValue) } ?? .null,
-            "identity": row.detection?.identity.map(JSONValue.string) ?? .null,
+            "account": row.detection?.account.map { .string($0.handle) } ?? .null,
+            "label": row.detection?.account.map { .string($0.display) } ?? .null,
+            "detail": row.detection?.detail.map(JSONValue.string) ?? .null,
             "plan": row.detection?.plan.map(JSONValue.string) ?? .null,
             "sources": .array((row.detection?.sources ?? []).map { .string($0.label) }),
             "phase": .string(phase),
@@ -147,7 +151,8 @@ extension AppControl {
             "can_connect": .bool(row.canConnect),
             "linkable": .bool(row.isLinkable),
             "linked": .array(row.linked.map { account in
-                .object(["id": .string(account.id), "label": .string(account.label), "state": .string(account.state),
+                .object(["id": .string(account.id), "account": .string(account.account.handle), "label": .string(account.label),
+                         "state": .string(account.state),
                          "family": .string(account.family.rawValue), "visibility": account.visibility.map(JSONValue.string) ?? .null])
             }),
         ])

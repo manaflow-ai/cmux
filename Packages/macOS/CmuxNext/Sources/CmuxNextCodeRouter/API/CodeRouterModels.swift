@@ -11,24 +11,30 @@ public struct LinkedAccount: Identifiable, Sendable, Equatable, Hashable {
         case claude
     }
 
+    /// The server's account id (a UUID; not personal data).
     public var id: String
     public var family: Family
     public var provider: AIProvider
-    /// The server's label: an email, a label or a masked key. Never a secret.
-    public var label: String
+    /// The server's label (an email, a user label or a masked key) as a
+    /// handle and a display with every email shortened. The raw label is
+    /// dropped at the client boundary.
+    public var account: AccountLabel
     /// `active`, `refreshing`, `expired`, `broken`, `disabled`.
     public var state: String
     /// `private` or `team`; nil when the server does not say.
     public var visibility: String?
 
-    public init(id: String, family: Family, provider: AIProvider, label: String, state: String, visibility: String? = nil) {
+    public init(id: String, family: Family, provider: AIProvider, account: AccountLabel, state: String, visibility: String? = nil) {
         self.id = id
         self.family = family
         self.provider = provider
-        self.label = label
+        self.account = account
         self.state = state
         self.visibility = visibility
     }
+
+    /// What the UI shows: never an email.
+    public var label: String { account.display }
 
     public var isHealthy: Bool { state == "active" || state == "refreshing" }
 }
@@ -54,16 +60,17 @@ struct ClaudeAccountRow: Decodable {
 }
 
 extension LinkedAccount {
-    init?(native row: NativeAccountRow) {
+    init?(native row: NativeAccountRow, labeler: AccountLabeler) {
         guard let provider = AIProvider.fromCodeRouter(provider: row.provider) else { return nil }
         let label = [row.label, row.providerAccountId].compactMap { $0 }.first { !$0.isEmpty } ?? provider.displayName
-        self.init(id: row.id, family: .native, provider: provider, label: label, state: row.state ?? "active", visibility: row.visibility)
+        self.init(id: row.id, family: .native, provider: provider, account: labeler.server(namespace: provider.rawValue, label: label),
+                  state: row.state ?? "active", visibility: row.visibility)
     }
 
-    init?(claude row: ClaudeAccountRow) {
+    init?(claude row: ClaudeAccountRow, labeler: AccountLabeler) {
         guard let provider = AIProvider.fromClaudeUpstream(kind: row.kind) else { return nil }
-        let parts = [row.label, row.identifier].compactMap { $0 }.filter { !$0.isEmpty }
-        self.init(id: row.id, family: .claude, provider: provider, label: parts.first ?? provider.displayName,
+        let label = [row.label, row.identifier].compactMap { $0 }.first { !$0.isEmpty } ?? provider.displayName
+        self.init(id: row.id, family: .claude, provider: provider, account: labeler.server(namespace: provider.rawValue, label: label),
                   state: row.state ?? "active", visibility: row.visibility)
     }
 }
