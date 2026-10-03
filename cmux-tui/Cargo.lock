@@ -1000,6 +1000,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-team-host"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-terminal-client"
 version = "0.1.0"
 dependencies = [

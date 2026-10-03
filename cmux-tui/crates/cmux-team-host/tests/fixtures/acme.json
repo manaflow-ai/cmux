@@ -1,0 +1,15 @@
+{
+  "team": "acme",
+  "revision": 7,
+  "nodes": [
+    { "id": "acme", "kind": "team", "gid": 200000 },
+    { "id": "acme.web", "kind": "project", "gid": 200003 },
+    { "id": "acme.web.checkout", "kind": "project", "gid": 200006 },
+    { "id": "acme.person-austin", "kind": "person", "gid": 200009, "person": "austin" }
+  ],
+  "members": [
+    { "name": "lawrence", "uid": 20000, "roles": [{ "node": "acme", "role": "admin" }] },
+    { "name": "austin", "uid": 20004, "roles": [{ "node": "acme", "role": "read" }, { "node": "acme.web", "role": "write" }] },
+    { "name": "aziz", "uid": 20008, "roles": [{ "node": "acme", "role": "read" }] }
+  ]
+}
