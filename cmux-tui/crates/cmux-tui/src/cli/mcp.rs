@@ -15,6 +15,7 @@ mod browser_tools;
 mod config;
 mod messages;
 mod schema;
+mod task_tools;
 #[cfg(test)]
 mod tests;
 mod transport;
@@ -40,7 +41,7 @@ const MAX_MESSAGE_BYTES: usize = 8 << 20;
 pub(super) const MAX_RESULT_BYTES: usize = 256 << 10;
 
 const INSTRUCTIONS: &str = "These tools drive the cmux terminal app and its session daemon. \
-    Objects have stable public ids (ws_…, screen_…, pane_…, tab_…, term_…, win_…) that the \
+    Objects have stable public ids (ws_…, screen_…, pane_…, tab_…, term_…, win_…, task_…) that the \
     *_list tools report; a unique prefix works, and <session>:<id> reaches another session. \
     A change takes idempotency_key: when a call fails with state in_progress, retry it with the \
     key from the error so it cannot apply twice. Tools never move the user's focus unless the \
@@ -81,6 +82,10 @@ pub(super) trait Backend {
         request: browser_tools::Request,
         mutation: bool,
     ) -> Result<Value, CallFailure>;
+    /// One Tasks op on the local Tasks owner (`cmux task`'s own client).
+    fn task(&self, op: &str, params: Value, key: Option<String>) -> Result<Value, CallFailure> {
+        task_tools::call_local(op, params, key)
+    }
 }
 
 /// The CLI's transport, with the CLI's global options.
@@ -334,6 +339,7 @@ impl<B: Backend> Server<B> {
         tools
             .extend(browser_tools::tools().iter().map(browser_tools::BrowserTool::descriptor_json));
         tools.push(action_tools::window_list_tool());
+        tools.extend(task_tools::tools().iter().map(task_tools::TaskTool::descriptor_json));
         tools.extend(self.actions.iter().map(ActionTool::descriptor_json));
         tools
     }
@@ -381,6 +387,16 @@ impl<B: Backend> Server<B> {
                     Err(failure) => failure_result(failure),
                 },
                 Err(error) => tool_error(envelope(error, "not_run", None)),
+            });
+        }
+        if let Some(tool) = task_tools::find(name) {
+            let (params, key) = match tool.split(&arguments) {
+                Ok(split) => split,
+                Err(error) => return Ok(tool_error(envelope(error, "not_run", None))),
+            };
+            return Ok(match self.backend.task(tool.entry.name, params, key) {
+                Ok(value) => success(value, tool.mutation()),
+                Err(failure) => failure_result(failure),
             });
         }
         if name == action_tools::WINDOW_LIST {

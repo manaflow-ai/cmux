@@ -60,6 +60,9 @@ plist = "1.10"
 cmux-remote.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-wg.workspace = true
+# `cmux task …` (plans/cmux-next/tasks.md section 14 item 3).
+cmux-tasks.workspace = true
+cmux-tasks-core.workspace = true
 tokio.workspace = true
 # Machine spend readout: one small JSON GET every few minutes from inside a
 # Cloud VM. chatmux-relay already uses reqwest for pairing bootstrap.

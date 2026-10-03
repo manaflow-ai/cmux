@@ -97,6 +97,14 @@ impl Backend for Fake {
         }));
         Ok(json!({"session": "default", "output": "ok\n", "truncated": false, "error": null}))
     }
+
+    /// Never the real Tasks owner (it would use the real home directory).
+    fn task(&self, op: &str, params: Value, key: Option<String>) -> Result<Value, CallFailure> {
+        self.sent
+            .borrow_mut()
+            .push(json!({"kind": "task", "op": op, "params": params, "key": key}));
+        Ok(json!({"result": {"id": "task_fake"}, "seq": 1, "replay": false}))
+    }
 }
 
 /// The fixture names the app's surface plan key `PLAN`; this puts the real
