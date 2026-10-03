@@ -1138,14 +1138,14 @@ the expected text without connecting to a cmux socket.
 - `cmux simulate-app-active --help` -> `Usage: cmux simulate-app-active`
 - `cmux claude-hook --help` -> `Usage: cmux claude-hook`
 - `cmux browser --help` -> `Usage: cmux browser`
-- `cmux browser --help` -> `browser react-grab toggle [--surface <id>] [--return-to <terminal-surface>]`
-- `cmux browser --help` -> `browser devtools toggle|console [--surface <id>]`
-- `cmux browser --help` -> `browser focus-mode enter|exit|toggle [--surface <id>]`
-- `cmux browser --help` -> `browser design-mode enable|disable|toggle|status [--surface <id>]`
-- `cmux browser --help` -> `browser zoom in|out|reset|<factor> [--surface <id>]`
-- `cmux browser --help` -> `browser history clear --force`
-- `cmux browser --help` -> `browser console <list|clear>`
-- `cmux browser --help` -> `browser errors <list|clear>`
+- `cmux help browser` -> `browser react-grab toggle [--surface <id>] [--return-to <terminal-surface>]`
+- `cmux help browser` -> `browser devtools toggle|console [--surface <id>]`
+- `cmux help browser` -> `browser focus-mode enter|exit|toggle [--surface <id>]`
+- `cmux help browser` -> `browser design-mode enable|disable|toggle|status [--surface <id>]`
+- `cmux help browser` -> `browser zoom in|out|reset|<factor> [--surface <id>]`
+- `cmux help browser` -> `browser history clear --force`
+- `cmux help browser` -> `browser console <list|clear>`
+- `cmux help browser` -> `browser errors <list|clear>`
 - `cmux browser --help` -> `screenshot [--out <path>] [--json]`
 - `cmux browser --help` -> `download list [--limit <1...25>] [--json]`
 - `cmux open-browser --help` -> `Legacy alias for 'cmux browser open'`
