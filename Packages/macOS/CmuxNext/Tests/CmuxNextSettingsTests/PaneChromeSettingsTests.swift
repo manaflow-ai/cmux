@@ -79,8 +79,49 @@ extension SettingsControllerTests {
 @Suite struct ConfigFileLocationTests {
     @Test func overrideReplacesTheHomeFile() {
         let home = URL(fileURLWithPath: "/Users/someone")
-        #expect(CmuxConfigFile.defaultURL(home: home, environment: [:]).path == "/Users/someone/.config/cmux/cmux.json")
-        #expect(CmuxConfigFile.defaultURL(home: home, environment: [CmuxConfigFile.overrideKey: ""]).path == "/Users/someone/.config/cmux/cmux.json")
+        #expect(CmuxConfigFile.defaultURL(home: home, environment: [:]).path == "/Users/someone/.config/cmux/cmux-next.json")
+        #expect(CmuxConfigFile.defaultURL(home: home, environment: [CmuxConfigFile.overrideKey: ""]).path == "/Users/someone/.config/cmux/cmux-next.json")
         #expect(CmuxConfigFile.defaultURL(home: home, environment: [CmuxConfigFile.overrideKey: "/tmp/t/cmux.json"]).path == "/tmp/t/cmux.json")
+    }
+
+    @Test func firstLaunchCopiesClassicConfigOnce() throws {
+        let home = FileManager.default.temporaryDirectory.appending(path: "cmux-next-bootstrap-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let classic = home.appending(path: ".config/cmux/cmux.json")
+        try FileManager.default.createDirectory(at: classic.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("{\"shortcuts\": {\"newTab\": \"cmd+t\"}}\n".utf8).write(to: classic)
+
+        let next = try CmuxConfigFile.prepareDefaultURL(home: home, environment: [:])
+        #expect(next.lastPathComponent == "cmux-next.json")
+        #expect(try String(contentsOf: next, encoding: .utf8) == "{\"shortcuts\": {\"newTab\": \"cmd+t\"}}\n")
+
+        try Data("{\"shortcuts\": {\"newTab\": \"cmd+w\"}}\n".utf8).write(to: classic)
+        _ = try CmuxConfigFile.prepareDefaultURL(home: home, environment: [:])
+        #expect(try String(contentsOf: next, encoding: .utf8) == "{\"shortcuts\": {\"newTab\": \"cmd+t\"}}\n")
+    }
+
+    @Test func firstLaunchWithoutClassicCreatesOwnConfig() throws {
+        let home = FileManager.default.temporaryDirectory.appending(path: "cmux-next-bootstrap-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let next = try CmuxConfigFile.prepareDefaultURL(home: home, environment: [:])
+        #expect(try String(contentsOf: next, encoding: .utf8) == "{}\n")
+        #expect(!FileManager.default.fileExists(atPath: home.appending(path: ".config/cmux/cmux.json").path))
+    }
+
+    @Test func explicitOverrideDoesNotReadClassicConfig() throws {
+        let home = FileManager.default.temporaryDirectory.appending(path: "cmux-next-bootstrap-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let classic = home.appending(path: ".config/cmux/cmux.json")
+        try FileManager.default.createDirectory(at: classic.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("{\"classic\": true}\n".utf8).write(to: classic)
+        let override = home.appending(path: "scratch.json")
+
+        let result = try CmuxConfigFile.prepareDefaultURL(
+            home: home,
+            environment: [CmuxConfigFile.overrideKey: override.path]
+        )
+        #expect(result == override)
+        #expect(!FileManager.default.fileExists(atPath: override.path))
     }
 }

@@ -5,7 +5,7 @@ import CmuxNextTerminal
 import os
 
 /// Settings and help actions (category `settings`, except appearance, see
-/// `AppearanceHandlers`). Settings live in cmux.json (architecture.md 1), so
+/// `AppearanceHandlers`). Settings live in cmux-next.json (architecture.md 1), so
 /// "open settings" opens that file and toggles write it; the watcher applies
 /// the change. Update actions go to `UpdaterService` (UpdateHandlers), CLI
 /// install to `CLIInstallHandlers`, Base Keymap to `KeymapHandlers`. Account
@@ -47,7 +47,7 @@ enum SettingsHandlers {
         return settings
     }
 
-    /// Opens cmux.json in the default editor, creating an empty one first.
+    /// Opens cmux-next.json in the default editor, creating an empty one first.
     static func openCmuxConfig(_ context: AppActionContext) throws {
         let url = context.services.settings?.file.url ?? CmuxConfigFile.defaultURL()
         try openCreatingIfMissing(url, contents: "{\n}\n", context)
@@ -71,7 +71,7 @@ enum SettingsHandlers {
         try context.open(url)
     }
 
-    /// Writes a boolean setting at a dotted cmux.json path. Without `on`,
+    /// Writes a boolean setting at a dotted cmux-next.json path. Without `on`,
     /// flips the value that applies now (a schema setting absent from the
     /// file flips its default). A schema setting that is not on/off is refused.
     private static func toggleSetting(_ invocation: ActionInvocation, _ context: AppActionContext) throws {
@@ -101,7 +101,7 @@ enum SettingsHandlers {
     }
 
     /// `browser.defaultEngine`: applies at once (the next new tab uses it),
-    /// then writes cmux.json; the watcher reapplies the same value.
+    /// then writes cmux-next.json; the watcher reapplies the same value.
     private static func setDefaultEngine(_ engine: BrowserDefaultEngine, _ context: AppActionContext) throws {
         try AppearanceHandlers.requireUnmanaged(BrowserDefaultEngine.configPath, context)
         context.services.cache.browserTabs?.preference.defaultEngine = engine

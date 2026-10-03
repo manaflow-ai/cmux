@@ -6,15 +6,15 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "reloadConfiguration",
                 title: String(localized: "action.reloadConfiguration", defaultValue: "Reload Configuration", bundle: .module),
-                keywords: ["config", "cmux.json", "ghostty"],
+                keywords: ["config", "cmux-next.json", "ghostty"],
                 defaultShortcut: Shortcut(",", modifiers: [.command, .shift]), category: .settings,
                 symbol: "arrow.clockwise", surfaces: [.keyboard, .menu], cliName: "settings reload-configuration",
                 mainMenu: .app
             ),
             ActionDescriptor(
                 id: "palette.openCmuxSettingsFile",
-                title: String(localized: "action.palette.openCmuxSettingsFile", defaultValue: "Open cmux.json", bundle: .module),
-                keywords: ["config", "settings", "file"], category: .settings, symbol: "curlybraces",
+                title: String(localized: "action.palette.openCmuxSettingsFile", defaultValue: "Open cmux-next.json", bundle: .module),
+                keywords: ["config", "settings", "cmux-next.json", "file"], category: .settings, symbol: "curlybraces",
                 surfaces: [.palette, .menu], cliName: "settings open-json", mainMenu: .app
             ),
             ActionDescriptor(

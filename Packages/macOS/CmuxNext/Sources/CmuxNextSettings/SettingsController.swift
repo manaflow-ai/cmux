@@ -3,7 +3,7 @@ public import CmuxNextDesign
 public import Foundation
 public import Observation
 
-/// Loads `~/.config/cmux/cmux.json`, applies it to `DesignSettings` and the
+/// Loads `~/.config/cmux/cmux-next.json`, applies it to `DesignSettings` and the
 /// action registry, and re-applies on every change to the file (kernel file
 /// events, no polling). Writes go through `file` and come back through the
 /// watcher, so the file stays the single source of truth.
@@ -29,7 +29,7 @@ public final class SettingsController {
     public private(set) var managedKeys: [String: ManagedSource] = [:]
     /// Managed policy keys that are not settings (`EnrollmentToken`, `DisabledFeatures`, ...).
     public private(set) var managedPolicy: [String: JSONValue] = [:]
-    /// The user's own cmux.json document; `snapshot.root` is the effective one.
+    /// The user's own cmux-next.json document; `snapshot.root` is the effective one.
     public private(set) var fileRoot: JSONValue = .object([:])
     /// Device-scoped values of the managing team's policy; set with `setTeamPolicy`.
     public internal(set) var teamPolicy: TeamPolicyLayer = .none
