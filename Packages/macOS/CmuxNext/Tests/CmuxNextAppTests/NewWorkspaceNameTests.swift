@@ -68,7 +68,7 @@ import Testing
         #expect(created.name == title)
         // A daemon with `tab-workspace-name-v1` names it in the move's own
         // commit; an older one gets a rename after the move.
-        #expect(daemon.commands.withLock { $0.contains("rename-workspace") } == !inCommit)
+        #expect(daemon.commands.names.withLock { $0.contains("rename-workspace") } == !inCommit)
     }
 }
 

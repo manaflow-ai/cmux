@@ -100,8 +100,12 @@ nonisolated final class TopologyDaemon: Sendable {
 
     let state = State()
     let socket: ScriptedDaemonSocket
+    final class CommandLog: Sendable {
+        let names = Mutex<[String]>([])
+    }
+
     /// Every command name the app sent, in order.
-    let commands = Mutex<[String]>([])
+    let commands = CommandLog()
 
     /// `extraCapabilities` are advertised besides the required ones.
     init(extraCapabilities: [String] = []) throws {
@@ -110,7 +114,7 @@ nonisolated final class TopologyDaemon: Sendable {
             let id = request["id"]?.doubleValue.map { Int($0) } ?? 0
             func ok(_ data: String) -> [String] { [#"{"id":\#(id),"ok":true,"data":\#(data)}"#] }
             func int(_ name: String) -> Int { request[name]?.doubleValue.map { Int($0) } ?? 0 }
-            commands.withLock { $0.append(request["cmd"]?.stringValue ?? "") }
+            commands.names.withLock { $0.append(request["cmd"]?.stringValue ?? "") }
             switch request["cmd"]?.stringValue {
             case "identify":
                 let caps = (DaemonCapabilities.shared.required + extraCapabilities).map { "\"\($0)\"" }.joined(separator: ",")
