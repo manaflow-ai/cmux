@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextTabs
-import CmuxNextTerminal
+@testable import CmuxNextTerminal
 import Testing
 @testable import CmuxNextApp
 
