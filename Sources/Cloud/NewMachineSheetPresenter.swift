@@ -103,7 +103,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
 
     /// Presents the sheet. A second request while one is up just re-raises the
     /// host window so the open sheet is where the person looks.
-    func present(model: NewMachineModel, preferredWindow: NSWindow?) {
+    func present(model: NewMachineModel, preferredWindow: NSWindow?, loadPlanFromCache: Bool = true) {
         if isPresenting {
             (hostWindow ?? sheetWindow)?.makeKeyAndOrderFront(nil)
             return
@@ -113,7 +113,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
 #if DEBUG
         let presentStartedAt = ProcessInfo.processInfo.systemUptime
 #endif
-        attachCachedData(to: model)
+        attachCachedData(to: model, includingPlan: loadPlanFromCache)
         var allowlistExpanded = false
 #if DEBUG
         // Dogfood screenshots of the Allowlist editor without GUI clicks.
@@ -126,6 +126,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         let controller = NSHostingController(rootView: NewMachineSheet(model: model, allowlistInitiallyExpanded: allowlistExpanded))
         controller.sizingOptions = [.preferredContentSize]
         let window = NSWindow(contentViewController: controller)
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.newMachine")
         window.styleMask = [.titled]
         window.title = model.isBaseSetup
             ? String(localized: "machines.new.title.base", defaultValue: "Set Up Base")
@@ -262,7 +263,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             guard let self, let model, self.pendingSelectionID == selectionID else { return }
             self.beginPlanLoad(model: model, selectionID: selectionID)
         }
-        present(model: model, preferredWindow: preferredWindow)
+        present(model: model, preferredWindow: preferredWindow, loadPlanFromCache: false)
         beginPlanLoad(model: model, selectionID: selectionID)
 
         let request = await withTaskCancellationHandler(operation: {
@@ -296,6 +297,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         })
     }
 
+    /// Loads the authoritative fleet page for one open sheet and ignores stale results.
     private func beginPlanLoad(model: NewMachineModel, selectionID: UUID) {
         planLoadTask?.cancel()
         if model.plan == nil { model.setPlanLoading() }
@@ -336,18 +338,19 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
     /// final size, then revalidates in the background. Updates apply in
     /// place: the plan and machine count to a New Machine sheet, the catalog
     /// to its Network row.
-    private func attachCachedData(to model: NewMachineModel) {
+    /// Attaches network catalog updates and, for regular presentations, cached plan updates.
+    private func attachCachedData(to model: NewMachineModel, includingPlan: Bool) {
         guard let dataCache else {
             if model.supportsNetworkPolicy { model.applyNetworkCatalog(nil) }
             return
         }
         if let data = dataCache.currentData {
-            Self.applyInitialData(data, to: model)
+            Self.apply(data, to: model, includingPlan: includingPlan)
         }
         if let cacheListenerID { dataCache.removeListener(cacheListenerID) }
         cacheListenerID = dataCache.addListener { [weak self, weak model] data in
             guard let self, let model, self.model === model else { return }
-            Self.apply(data, to: model, includingPlan: true)
+            Self.apply(data, to: model, includingPlan: includingPlan)
         }
         // Signed out: no answer will come, so the Network row must not spin.
         if !dataCache.refresh(), model.supportsNetworkPolicy, model.networkAvailability == .loading {
@@ -360,10 +363,12 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         cachedPlan ?? callerPlan
     }
 
+    /// Applies an already cached snapshot before the sheet's first layout.
     static func applyInitialData(_ data: NewMachineSheetData, to model: NewMachineModel) {
         apply(data, to: model, includingPlan: true)
     }
 
+    /// Applies cache changes while optionally keeping plan ownership with CloudMenuModel.
     static func apply(_ data: NewMachineSheetData, to model: NewMachineModel, includingPlan: Bool) {
         if includingPlan, data.hasPlan, model.mode == .newMachine {
             model.applyPlan(activeCount: data.activeCount, limits: data.limits)
