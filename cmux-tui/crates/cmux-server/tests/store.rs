@@ -186,36 +186,61 @@ fn rollback_and_gc_keep_three_profiles_and_current() {
     assert_eq!((r.from, r.to, r.changed, r.reapply), (Some(5), 7, true, true));
 }
 
+/// Review 8 / decision A: 20,000 flips with readers doing readlink, stat
+/// and open through `current` the whole time, and zero reader errors (on
+/// macOS 26.5, an unpinned rename(2) over a symlink gave about 2,600).
 #[test]
 fn flip_is_atomic_for_readers() {
+    const FLIPS: u64 = 20_000;
     let f = fixture();
     f.apply(&f.release(1, "v1")).unwrap();
     f.apply(&f.release(2, "v2")).unwrap();
     let current = f.store.current.clone();
     let stop = Arc::new(AtomicBool::new(false));
-    let reader = {
-        let stop = stop.clone();
-        std::thread::spawn(move || {
-            let mut reads = 0u64;
-            while !stop.load(Ordering::Relaxed) {
-                let target = fs::read_link(&current).expect("current never disappears");
-                assert!(target == Path::new("profiles/1") || target == Path::new("profiles/2"));
-                reads += 1;
-            }
-            reads
+    let readers: Vec<_> = (0..3)
+        .map(|kind| {
+            let stop = stop.clone();
+            let current = current.clone();
+            std::thread::spawn(move || {
+                let (mut reads, mut errors) = (0u64, Vec::new());
+                while !stop.load(Ordering::Relaxed) {
+                    let result = match kind {
+                        0 => fs::read_link(&current).and_then(|t| {
+                            (t == Path::new("profiles/1") || t == Path::new("profiles/2"))
+                                .then_some(())
+                                .ok_or_else(|| std::io::Error::other(format!("target {t:?}")))
+                        }),
+                        1 => fs::metadata(&current).map(|_| ()),
+                        _ => fs::File::open(current.join("packages.json")).map(|_| ()),
+                    };
+                    reads += 1;
+                    if let Err(e) = result
+                        && errors.len() < 5
+                    {
+                        errors.push(e.to_string());
+                    }
+                }
+                (reads, errors)
+            })
         })
-    };
-    for i in 0..300 {
+        .collect();
+    for i in 0..FLIPS {
         f.store.switch_to(1 + i % 2).unwrap();
     }
     stop.store(true, Ordering::Relaxed);
-    assert!(reader.join().unwrap() > 0);
-    let leftovers: Vec<_> = fs::read_dir(&f.store.root)
+    for (kind, reader) in readers.into_iter().enumerate() {
+        let (reads, errors) = reader.join().unwrap();
+        assert!(reads > 0, "reader {kind} never ran");
+        assert!(errors.is_empty(), "reader {kind}: {reads} reads, errors {errors:?}");
+    }
+    let names: Vec<String> = fs::read_dir(&f.store.root)
         .unwrap()
         .flatten()
-        .filter(|e| e.file_name().to_string_lossy().contains(".swap."))
+        .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
-    assert!(leftovers.is_empty(), "no temporary links remain");
+    assert!(!names.iter().any(|n| n.contains(".swap.")), "no temporary links remain");
+    let pins = names.iter().filter(|n| n.starts_with(".current.pin.")).count();
+    assert!(pins <= cmux_server::fsx::PIN_MAX_COUNT, "{pins} pins kept");
 }
 
 #[test]
@@ -244,7 +269,7 @@ fn flips_pin_the_old_link_and_old_pins_are_removed() {
         assert!(target == Path::new("profiles/1") || target == Path::new("profiles/2"));
     }
     // Pins at least max_age old are removed (zero: all of them).
-    cmux_server::fsx::prune_pins(&f.store.current, Duration::ZERO).unwrap();
+    cmux_server::fsx::prune_pins(&f.store.current, Duration::ZERO, 0).unwrap();
     assert!(pins().is_empty(), "{:?}", pins());
     assert!(fs::read_link(&f.store.current).is_ok(), "current itself stays");
     // Uninstall leaves no pin behind, so the root goes away.

@@ -141,17 +141,22 @@ pub fn swap_symlink(link: &Path, target: &Path) -> Result<()> {
 
 /// Pins older than this are removed on the next flip or GC.
 pub const PIN_MAX_AGE: Duration = Duration::from_secs(10);
+/// At most this many (the newest) pins are kept, so a burst of flips
+/// inside [`PIN_MAX_AGE`] cannot grow the directory without bound. A reader
+/// needs the pin only for the few flips during its own lookup.
+pub const PIN_MAX_COUNT: usize = 64;
 
 /// [`swap_symlink`] for a link that readers resolve while it flips (the
 /// store's `current`). On macOS 26.5, `rename(2)` over a symlink makes a
 /// concurrent `readlink`, `stat` or `open` of that path fail with EINVAL
 /// while the replaced symlink's inode is freed. So the old symlink is first
 /// hard-linked to `.<name>.pin.<pid>.<nonce>` (the link itself, not its
-/// target), which keeps that inode alive through the rename. Pins whose
-/// ctime is older than [`PIN_MAX_AGE`] are removed on each flip and by GC.
+/// target), which keeps that inode alive through the rename. Each flip and
+/// GC remove pins whose ctime is older than [`PIN_MAX_AGE`] and all but the
+/// newest [`PIN_MAX_COUNT`].
 pub fn swap_symlink_pinned(link: &Path, target: &Path) -> Result<()> {
     swap(link, target, true)?;
-    prune_pins(link, PIN_MAX_AGE)
+    prune_pins(link, PIN_MAX_AGE, PIN_MAX_COUNT)
 }
 
 fn swap(link: &Path, target: &Path, pin: bool) -> Result<()> {
@@ -197,21 +202,24 @@ fn hard_link_no_follow(existing: &Path, new: &Path) -> io::Result<()> {
     if rc == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
 }
 
-/// Removes the pins of `link` whose ctime is at least `max_age` old
-/// (`Duration::ZERO`: all of them).
-pub fn prune_pins(link: &Path, max_age: Duration) -> Result<()> {
+/// Removes the pins of `link` whose ctime is at least `max_age` old, and
+/// all but the newest `max_count` (`Duration::ZERO` or 0: all of them).
+pub fn prune_pins(link: &Path, max_age: Duration, max_count: usize) -> Result<()> {
     let (Some(dir), Some(name)) = (link.parent(), link.file_name()) else { return Ok(()) };
     let prefix = format!(".{}.pin.", name.to_string_lossy());
     let Ok(entries) = fs::read_dir(dir) else { return Ok(()) };
     let now = SystemTime::now();
-    for entry in entries.flatten() {
-        if !entry.file_name().to_string_lossy().starts_with(&prefix) {
-            continue;
-        }
-        let path = entry.path();
-        let Ok(meta) = fs::symlink_metadata(&path) else { continue };
-        if now.duration_since(ctime(&meta)).unwrap_or(Duration::ZERO) >= max_age {
-            match fs::remove_file(&path) {
+    let mut pins: Vec<(SystemTime, PathBuf)> = entries
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+        .filter_map(|e| fs::symlink_metadata(e.path()).ok().map(|m| (ctime(&m), e.path())))
+        .collect();
+    // Newest first.
+    pins.sort_by_key(|pin| std::cmp::Reverse(pin.0));
+    for (i, (at, path)) in pins.iter().enumerate() {
+        let old = now.duration_since(*at).unwrap_or(Duration::ZERO) >= max_age;
+        if old || i >= max_count {
+            match fs::remove_file(path) {
                 Ok(()) => {}
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {}
                 Err(e) => return Err(crate::error::Error::io(path.display(), e)),

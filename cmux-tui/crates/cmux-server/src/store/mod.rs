@@ -443,7 +443,7 @@ impl Store {
                 fsx::remove_tree(&entry.path())?;
             }
         }
-        fsx::prune_pins(&self.current, fsx::PIN_MAX_AGE)?;
+        fsx::prune_pins(&self.current, fsx::PIN_MAX_AGE, fsx::PIN_MAX_COUNT)?;
         Ok((removed_profiles, removed_packages))
     }
 
@@ -456,7 +456,7 @@ impl Store {
         {
             let _lock = StoreLock::acquire(&self.root)?;
             fsx::remove_tree(&self.current)?;
-            fsx::prune_pins(&self.current, std::time::Duration::ZERO)?;
+            fsx::prune_pins(&self.current, std::time::Duration::ZERO, 0)?;
             fsx::remove_tree(&self.profiles)?;
             fsx::remove_tree(&self.store)?;
             fsx::remove_tree(&self.root.join(".downloads"))?;
