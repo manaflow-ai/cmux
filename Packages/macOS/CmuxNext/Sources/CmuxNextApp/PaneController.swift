@@ -73,8 +73,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // Agent tabs of panes the live tree no longer lists close now
         // rather than at the store's next observation; a workspace switch or
         // a layout move keeps the pane listed, so its tabs stay.
-        services.agentTabs.closeGonePanes(in: daemon.store)
-        services.pages.closeGonePanes(in: daemon.store)
+        services.closeGoneLocalTabs(in: daemon.store)
         currentTabKey = nil
         view.detachContent()
         services.surfaceInvariant.noteChange()
@@ -148,12 +147,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             browserIcon(key: local.id, recordFavicon: nil).apply(to: &item)
             items.append(item)
         }
-        for key in services.agentTabs.tabIDs(in: paneKey) where !pendingClosed.contains(key) {
-            items.append(services.agentTabs.stripItem(key))
-        }
-        for key in services.pages.tabIDs(in: paneKey) where !pendingClosed.contains(key) {
-            items.append(services.pages.stripItem(key))
-        }
+        items += services.localTabItems(in: paneKey, hiding: pendingClosed)
         let saved = Set(store.savedTabGroups.compactMap(\.openGroup))
         let groups = pane.tabGroups.map { group in
             TabGroupItem(id: TabGroupID(group.id.rawValue), name: group.name,
