@@ -15,7 +15,7 @@
 //! how many rows were evicted above it (`rows_before - 1 - y_after`).
 
 use super::*;
-use crate::snapshot::{SnapshotHistoryPage, SnapshotPhase, primary_history_pages};
+use crate::snapshot::{SnapshotPhase, primary_history_pages};
 
 static NEXT_MARKER_EPOCH: AtomicU64 = AtomicU64::new(1);
 
@@ -70,6 +70,49 @@ pub struct HistoryPages {
     /// Pass as `before` for the next older pages; `None` when done.
     pub next_before: Option<u64>,
     pub done: bool,
+}
+
+/// A COMPLETE snapshot taken for `terminal.history`, split after the
+/// terminal lock is released.
+#[derive(Debug)]
+pub struct HistorySnapshot {
+    complete: Vec<u8>,
+    marker_epoch: u64,
+    evicted_rows: u64,
+    before_row: u64,
+}
+
+impl HistorySnapshot {
+    /// GHOSTSNP HISTORY pages of the primary screen that start above
+    /// `before` (absent: the top of the active area), newest first, until
+    /// `max_bytes` of page records (always at least one page). A page that
+    /// straddles `before` is included (overlap, never a gap); `next_before`
+    /// values are page starts, so paging with them never overlaps.
+    pub fn pages(self, max_bytes: usize) -> std::result::Result<HistoryPages, MarkerError> {
+        let all = primary_history_pages(&self.complete).map_err(MarkerError::Vt)?;
+        let mut pages = Vec::new();
+        let mut bytes = 0usize;
+        let mut oldest_first_row = None;
+        for page in all.into_iter().filter(|page| page.first_row < self.before_row) {
+            if !pages.is_empty() && bytes + page.record.len() > max_bytes {
+                break;
+            }
+            bytes += page.record.len();
+            oldest_first_row = Some(page.first_row);
+            pages.push(HistoryPage {
+                marker: self.evicted_rows + page.first_row,
+                rows: page.rows,
+                record: page.record,
+            });
+        }
+        let done = oldest_first_row.is_none_or(|row| row == 0);
+        Ok(HistoryPages {
+            marker_epoch: self.marker_epoch,
+            next_before: (!done).then(|| pages.last().map(|page| page.marker)).flatten(),
+            pages,
+            done,
+        })
+    }
 }
 
 /// Why a marker read failed.
@@ -185,48 +228,38 @@ impl Terminal {
         self.history_marker(self.scrollback_rows() as u64)
     }
 
-    /// GHOSTSNP HISTORY pages of the primary screen that start above
-    /// `before` (absent: the top of the active area), newest first, until
-    /// `max_bytes` of page records (always at least one page). A page that
-    /// straddles `before` is included (overlap, never a gap); `next_before`
-    /// values are page starts, so paging with them never overlaps.
+    /// Encode what `terminal.history` needs: one COMPLETE snapshot plus the
+    /// marker base, so the caller can release the terminal lock before it
+    /// splits pages ([`HistorySnapshot::pages`]).
     ///
-    /// Cost: one COMPLETE encode of the scrollback under the caller's
-    /// terminal lock per call.
+    /// Cost: one COMPLETE encode of the scrollback per call (open item: an
+    /// encoder that starts at a history row).
+    pub fn history_snapshot(
+        &self,
+        epoch: Option<u64>,
+        before: Option<u64>,
+    ) -> std::result::Result<HistorySnapshot, MarkerError> {
+        let before_row = match before {
+            Some(marker) => self.history_marker_row(epoch, marker)?,
+            None => u64::MAX,
+        };
+        let complete = self.encode_snapshot(SnapshotPhase::Complete).map_err(MarkerError::Vt)?;
+        Ok(HistorySnapshot {
+            complete,
+            marker_epoch: self.history_markers.epoch,
+            evicted_rows: self.history_markers.evicted_rows,
+            before_row,
+        })
+    }
+
+    /// [`Self::history_snapshot`] followed by [`HistorySnapshot::pages`].
     pub fn history_pages(
         &self,
         epoch: Option<u64>,
         before: Option<u64>,
         max_bytes: usize,
     ) -> std::result::Result<HistoryPages, MarkerError> {
-        let before_row = match before {
-            Some(marker) => self.history_marker_row(epoch, marker)?,
-            None => u64::MAX,
-        };
-        let complete = self.encode_snapshot(SnapshotPhase::Complete).map_err(MarkerError::Vt)?;
-        let all = primary_history_pages(&complete).map_err(MarkerError::Vt)?;
-        let mut pages = Vec::new();
-        let mut bytes = 0usize;
-        let mut oldest: Option<SnapshotHistoryPage> = None;
-        for page in all.into_iter().filter(|page| page.first_row < before_row) {
-            if !pages.is_empty() && bytes + page.record.len() > max_bytes {
-                break;
-            }
-            bytes += page.record.len();
-            pages.push(HistoryPage {
-                marker: self.history_marker(page.first_row),
-                rows: page.rows,
-                record: page.record.clone(),
-            });
-            oldest = Some(page);
-        }
-        let done = oldest.as_ref().is_none_or(|page| page.first_row == 0);
-        Ok(HistoryPages {
-            marker_epoch: self.history_markers.epoch,
-            next_before: (!done).then(|| pages.last().map(|page| page.marker)).flatten(),
-            pages,
-            done,
-        })
+        self.history_snapshot(epoch, before)?.pages(max_bytes)
     }
 
     /// Text (`vt = false`, unwrapped lines joined with `\n`) or VT of the
