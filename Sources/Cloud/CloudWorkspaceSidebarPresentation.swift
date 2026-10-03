@@ -93,27 +93,33 @@ struct CloudWorkspaceSidebarPresentation {
 
         var entries: [(identity: String, directory: String?)] = []
         var seen = Set<String>()
+        var sawTerminal = false
         for panelID in orderedPanelIDs {
             let projectedMachine = state.projectedResources[panelID]?.machine
             guard let machineID = projectedMachine.flatMap({ $0.isDevice ? $0.rawValue : $0.cloudMachineID })
                 ?? workspace.cloudVMID else { continue }
             let resource = state.projectedResources[panelID]
             guard resource?.kind == .terminal || workspace.terminalPanel(for: panelID) != nil else { continue }
+            sawTerminal = true
+            if let resource,
+               SurfaceCatalog.shared.resources[resource]?.lifecycle == .launching {
+                continue
+            }
             let directory = workspace.reportedPanelDirectory(panelId: panelID)
             guard seen.insert(machineID + "\n" + (directory ?? "")).inserted else { continue }
             entries.append((machineID, directory))
         }
 
-        // A terminal can be running and rendering its prompt before its first
-        // cwd report arrives. When another terminal in this workspace already
-        // has a confirmed cwd, omit that partial entry instead of presenting a
-        // transient "Directory unavailable" alongside valid paths. If every
-        // terminal is missing its cwd, retain the explicit placeholder.
-        if entries.contains(where: { $0.directory != nil }) {
-            entries.removeAll { $0.directory == nil }
-        }
-        if entries.isEmpty {
+        // The projection owner is authoritative for terminal lifecycle. A
+        // launching terminal has no stable directory presentation yet, while a
+        // running terminal without an accepted remote cwd keeps the explicit
+        // placeholder for that terminal.
+        if entries.isEmpty, !sawTerminal {
             entries = machineIDs.sorted().map { ($0, nil) }
+        }
+        guard !entries.isEmpty else {
+            directoryCandidates = []
+            return
         }
         // Never expand or abbreviate a remote path using this Mac's home directory.
         let paths = entries.map { entry -> [String] in
