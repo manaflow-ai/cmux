@@ -167,8 +167,8 @@ native (`BrowserReplBoundary` in the session, and the driver):
   [{ value, domains }]` (plain values, and the codes of a TOTP secret a
   server still accepts: the current window and one on each side); the
   driver masks only in frames on those domains.
-  Results, events, fetch responses, output, errors and written text are
-  redacted by the session.
+  Results, events, fetch responses, output, errors, written files and
+  files read back are redacted by the session.
 - Domain policy: the session refuses `tab.navigate`/`tabs.open` to a blocked
   URL (`blocked`) and `session.configure` content rules, and calls the
   driver's `setDomainPolicy(policy)` (Swift only). The driver applies the
@@ -258,7 +258,7 @@ structured values cross the boundary as JSON strings.
 
 `fs` ops, paths relative to `cwd` (absolute paths must stay inside `cwd` or
 the user's temporary directory, except files the driver reported through
-`download.finished`, which are readable): `readFile {path}` → base64, `writeFile {path, base64, append?}`,
+`download.finished`, which are readable): `readFile {path}` → base64 (secrets redacted, text or bytes), `writeFile {path, base64, append?}`,
 `mkdir {path, recursive?}`, `readdir {path}` → `[{ name, type }]`,
 `stat {path}` → `{ size, type: "file"|"directory"|"symlink"|"other", mtimeMs, birthtimeMs }`,
 `lstat {path}` (as `stat`, for the link itself), `rm {path, recursive?, force?}`,

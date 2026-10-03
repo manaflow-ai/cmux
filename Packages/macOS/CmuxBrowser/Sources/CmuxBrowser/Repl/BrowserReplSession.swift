@@ -557,7 +557,12 @@ public final class BrowserReplSession: @unchecked Sendable {
             }
             let result = self.fileSystem.perform(op, arguments: args)
             switch result {
-            case .success(let value):
+            case .success(var value):
+                // So is a file read back (a secrets file, a page's download),
+                // text or binary.
+                if op == "readFile", let base64 = value as? String {
+                    value = self.boundary.redactFileContents(base64)
+                }
                 return JSONSerialization.browserReplString(["ok": value]) ?? #"{"ok":null}"#
             case .failure(let error):
                 return JSONSerialization.browserReplString(["error": ["code": error.code, "message": error.message]])

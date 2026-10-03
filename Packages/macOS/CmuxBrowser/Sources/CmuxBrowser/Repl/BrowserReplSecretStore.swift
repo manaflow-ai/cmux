@@ -8,7 +8,7 @@ public import Foundation
 /// into `input.insertText` for the driver, which types it only into a frame
 /// whose origin matches the secret's domains, and every string the session
 /// hands back to JavaScript or prints (driver results, events, fetch
-/// responses, output, errors, written text files) is masked as
+/// responses, output, errors, files written and read back) is masked as
 /// `<secret:name>`, including the value's percent-encoded, JSON-escaped,
 /// HTML-escaped and Base64-wrapped forms (a Basic `Authorization` header).
 ///
