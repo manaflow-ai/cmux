@@ -17,6 +17,8 @@ export function useDiffKeys(
   body: RefObject<HTMLElement | null>,
   /// Shows a file, as picking it in the tree does: selects it and scrolls its header to the top.
   revealFile: (path: string) => void,
+  /// The file last picked, in the tree or with j/k.
+  selectedFile: () => string | undefined,
 ) {
   useEffect(() => {
     const node = panel.current;
@@ -25,16 +27,20 @@ export function useDiffKeys(
     const onKey = (event: KeyboardEvent) => {
       const scroller = body.current;
       if (!scroller || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
-      if (typing(event.target) || !["j", "k", "n", "p"].includes(event.key)) return;
+      // A field in a shadow root (Pierre's) targets its host here; the composed path has the field.
+      if (event.isComposing || typing(event.composedPath()[0] ?? event.target)) return;
+      if (!["j", "k", "n", "p"].includes(event.key)) return;
       const step = event.key === "j" || event.key === "n" ? 1 : -1;
       const box = scroller.getBoundingClientRect();
       if (event.key === "j" || event.key === "k") {
         const sections = fileSections(scroller);
-        const index = stepTarget(
-          sections.map((section) => section.getBoundingClientRect().top),
-          box.top,
-          step,
-        );
+        const tops = sections.map((section) => section.getBoundingClientRect().top);
+        // Steps go from the picked file while it shows: a file near the end can't scroll to the
+        // top, so measuring from the top would pick it again. Otherwise from the top of the view.
+        const picked = sections.findIndex((section) => section.dataset.path === selectedFile());
+        const shows =
+          picked !== -1 && tops[picked]! < box.top + scroller.clientHeight && (tops[picked + 1] ?? Infinity) > box.top;
+        const index = shows ? sections[picked + step] && picked + step : stepTarget(tops, box.top, step);
         event.preventDefault();
         if (index !== undefined) revealFile(sections[index]!.dataset.path ?? "");
         return;
@@ -68,5 +74,5 @@ export function useDiffKeys(
       node.removeEventListener("keydown", onKey);
       current?.removeAttribute(CURRENT_CHANGE);
     };
-  }, [panel, body, revealFile]);
+  }, [panel, body, revealFile, selectedFile]);
 }

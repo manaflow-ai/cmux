@@ -117,11 +117,13 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
     scrollTops.set(this, value);
   },
 });
-/// The files revealed, in order; revealing a file scrolls its header to the top.
+/// The files revealed, in order. Revealing a file scrolls its header to the top, as far as the
+/// content allows: it ends 300px into the last section, so the last header stops at 300px.
 const revealed: string[] = [];
 dom.window.HTMLElement.prototype.scrollIntoView = function (this: HTMLElement) {
   revealed.push(this.dataset.path ?? "");
-  scrollTops.set(body(), position(this));
+  const last = dom.window.document.querySelectorAll(".acpmux-diff-file").length - 1;
+  scrollTops.set(body(), Math.min(position(this), Math.max(0, last * 1000 + 300 - VIEWPORT)));
 };
 
 /// Two files: a.ts changes twice with unchanged lines between, b.ts once.

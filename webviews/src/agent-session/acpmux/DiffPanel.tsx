@@ -149,7 +149,8 @@ export function DiffPanel({
   // or the file filter.
   const panel = useRef<HTMLElement>(null);
   // j/k move between files as picking them in the tree does; n/p between changes.
-  useDiffKeys(panel, body, revealFromTree);
+  const selectedFile = useStableCallback(() => selected);
+  useDiffKeys(panel, body, revealFromTree, selectedFile);
   useEffect(() => {
     const close = (event: KeyboardEvent) => {
       const focus = document.activeElement;
