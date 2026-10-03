@@ -9,7 +9,9 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use cmux_remote::wireguard_hub_control::{decode_header, encode_header, serve_hub_control};
+use cmux_remote::wireguard_hub_control::{
+    datagram_socket_path, decode_header, encode_header, serve_hub_control,
+};
 use cmux_wg::testing::{LoopbackPair, loopback_pair};
 use cmux_wg::{PathKind, Priority, ProbeConfig, SocketPath, WgNet};
 use serde_json::{Value, json};
@@ -66,7 +68,7 @@ async fn control_socket_serves_datagram_ports_and_path_events() {
     let peer = WgNet::start(server, server_socket).await.unwrap();
     // The hub's shape: one probed path (the config names the peer's address).
     let path = SocketPath::new(client_socket, Some(server_addr));
-    let (net, paths) = WgNet::start_on_one_path(
+    let (net, paths) = WgNet::start_single_path_on(
         client,
         PathKind::ViaCloudRegion,
         Some(ProbeConfig::default()),
@@ -88,7 +90,8 @@ async fn control_socket_serves_datagram_ports_and_path_events() {
     assert_eq!(result["max_datagram"], 1152, "{bound}");
     assert_eq!(result["class"], "media");
     let dgram_path = Path::new(result["socket"].as_str().unwrap()).to_path_buf();
-    assert_eq!(dgram_path, dir.path().join("hub").join("control.sock.dgram-4103"));
+    assert_eq!(dgram_path, dir.path().join("hub").join("control.sock.d").join("4103.sock"));
+    assert_eq!(mode(dgram_path.parent().unwrap()), 0o700);
     assert!(std::fs::metadata(&dgram_path).unwrap().file_type().is_socket());
     assert_eq!(mode(&dgram_path), 0o600);
 
@@ -122,6 +125,7 @@ async fn control_socket_serves_datagram_ports_and_path_events() {
     // Path events: the snapshot, then a switch once the probes answer.
     let subscribed = session.call(6, "path.subscribe", Value::Null).await;
     assert_eq!(subscribed["result"]["max_datagram"], 1152, "{subscribed}");
+    assert!(session.events.is_empty(), "no event may precede the subscribe reply");
     let event = timeout(TIMEOUT, async {
         loop {
             // Traffic keeps the session active, which is when probes run.
@@ -161,9 +165,13 @@ async fn control_socket_serves_datagram_ports_and_path_events() {
     let rebound = again.call(1, "datagram.bind", json!({"port": 4103, "class": "bulk"})).await;
     assert_eq!(rebound["result"]["class"], "bulk", "{rebound}");
 
-    drop(again);
+    // Shutdown ends live control connections (EOF) and removes the sockets.
     control.shutdown().await.unwrap();
+    let eof = timeout(TIMEOUT, again.lines.next_line()).await.unwrap().unwrap();
+    assert_eq!(eof, None, "a live control connection must see EOF on shutdown");
     assert!(!control_path.exists(), "the control socket is removed on shutdown");
+    let rebound_path = datagram_socket_path(&control_path, 4103);
+    assert!(!rebound_path.exists(), "datagram sockets are removed on shutdown");
     drop(net);
     peer.shutdown().await;
 }
@@ -185,6 +193,12 @@ async fn a_hub_without_path_control_says_so() {
     assert_eq!(session.next().await["error"]["code"], "invalid_request");
     let reply = session.call(3, "path.get", Value::Null).await;
     assert_eq!(reply["error"]["code"], "unavailable", "{reply}");
+    // A line over 4 KiB is refused and ends the connection.
+    let long = format!("{{\"id\":4,\"method\":\"{}\"}}\n", "x".repeat(5000));
+    session.write.write_all(long.as_bytes()).await.unwrap();
+    assert_eq!(session.next().await["error"]["code"], "too_large");
+    let end = timeout(TIMEOUT, session.lines.next_line()).await.unwrap().unwrap();
+    assert_eq!(end, None);
     drop(session);
     control.shutdown().await.unwrap();
 }

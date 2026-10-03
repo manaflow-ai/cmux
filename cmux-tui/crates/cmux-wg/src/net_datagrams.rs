@@ -25,6 +25,7 @@ pub type Datagram = (Vec<u8>, SocketAddr);
 /// Datagrams the service dropped since the tunnel started, by reason.
 /// Datagrams are unreliable by design; these counts say where they went.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct DatagramDrops {
     /// Media datagrams older than 50 ms in the send queue.
     pub media_stale: u64,

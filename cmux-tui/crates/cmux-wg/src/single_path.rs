@@ -42,12 +42,12 @@ impl WgNet {
         probes: Option<ProbeConfig>,
     ) -> Result<(Self, MultipathControl), WgError> {
         let path = new_socket_path(&config).await?;
-        Self::start_on_one_path(config, kind, probes, path)
+        Self::start_single_path_on(config, kind, probes, path)
     }
 
     /// [`WgNet::start_single_path`] on a caller-built path (tests, or a
     /// socket the caller bound).
-    pub fn start_on_one_path(
+    pub fn start_single_path_on(
         config: WgConfig,
         kind: PathKind,
         probes: Option<ProbeConfig>,

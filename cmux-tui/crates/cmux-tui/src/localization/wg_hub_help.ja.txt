@@ -1,4 +1,4 @@
-使用方法: cmux wg hub --config パス --socket パス [--control パス]
+使用方法: cmux wg hub --config パス --socket パス [--control パス] [--probes]
 
 プロセス内 WireGuard トンネルを 1 つ所有し、所有者のみ読める Unix ソケットで
 他の cmux プロセスに SOCKS5 CONNECT を提供します。WireGuard 鍵は 1 つの
@@ -9,10 +9,11 @@
   --socket パス   提供する Unix ソケット。親ディレクトリは 0700、ソケットは 0600 で作成します
   --control パス  制御ソケット（改行区切り JSON）も提供します: `path.get`、
                   `path.subscribe`（`path.changed` イベント）、`datagram.bind`（オーバーレイ UDP
-                  ポートを優先度クラス interactive、media、bulk 付きで Unix データグラムソケット
-                  パス.dgram-ポート に提供）、`datagram.stats`
+                  ポートを優先度クラス interactive、media、bulk 付きで パス.d/ 内の Unix
+                  データグラムソケットに提供）、`datagram.stats`
+  --probes        プローブで経路を測定します。プローブに応答するピアにのみ使います
 
 待ち受け開始時に JSON 1 行 `{"event":"hub-ready","socket":...,"routes":[...]}` を出力します
-（--control 指定時は `"control":...` を含みます）。
+（--control 指定時は `"control"` も含みます）。
 AllowedIPs 内のリテラル IP のみ接続します。それ以外は SOCKS 応答 0x02、名前は 0x08 です。
 SIGTERM または SIGINT で終了し、ソケットを削除します。

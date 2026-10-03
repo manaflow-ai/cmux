@@ -8,6 +8,7 @@ struct WgHubFlags {
     config: PathBuf,
     socket: PathBuf,
     control: Option<PathBuf>,
+    probes: bool,
     exit_with_parent: bool,
 }
 
@@ -15,6 +16,7 @@ fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
     let mut config = None;
     let mut socket = None;
     let mut control = None;
+    let mut probes = false;
     let mut exit_with_parent = false;
     let mut index = 0;
     while index < args.len() {
@@ -44,6 +46,7 @@ fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
                     return Err(anyhow!(catalog().remote_client.option_once("--control")));
                 }
             }
+            "--probes" => probes = true,
             "--exit-with-parent" => exit_with_parent = true,
             "-h" | "--help" => return Err(anyhow!(catalog().remote_client.help_invalid_options)),
             other => return Err(anyhow!(catalog().remote_client.unknown_option(other))),
@@ -55,6 +58,7 @@ fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
         socket: socket
             .ok_or_else(|| anyhow!(catalog().remote_client.wg_hub_option_required("--socket")))?,
         control,
+        probes,
         exit_with_parent,
     })
 }
@@ -77,7 +81,12 @@ pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
     let owner = flags.exit_with_parent.then(current_parent_process_id);
     let async_runtime = tokio_runtime()?;
     let (net, paths) =
-        start_wireguard_hub_tunnel(&async_runtime, &flags.config, WIREGUARD_HUB_START_TIMEOUT)?;
+        start_wireguard_hub_tunnel(
+        &async_runtime,
+        &flags.config,
+        flags.probes,
+        WIREGUARD_HUB_START_TIMEOUT,
+    )?;
     async_runtime.block_on(net.wait_for_handshake(WIREGUARD_HUB_HANDSHAKE_TIMEOUT)).map_err(
         |error| anyhow!(catalog().remote_client.wireguard_start_failed(&error.to_string())),
     )?;
@@ -124,14 +133,14 @@ pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
         .map_err(|error| {
             anyhow!(catalog().remote_client.wireguard_hub_signal_failed(&error.to_string()))
         })?;
-    if let Some(control) = control {
-        async_runtime.block_on(control.shutdown()).map_err(|error| {
+    // Stop both even when the first fails; report the first failure.
+    let control = control.map(|control| async_runtime.block_on(control.shutdown()));
+    let hub = async_runtime.block_on(hub.shutdown());
+    for result in [control.unwrap_or(Ok(())), hub] {
+        result.map_err(|error| {
             anyhow!(catalog().remote_client.wireguard_hub_serve_failed(&error.to_string()))
         })?;
     }
-    async_runtime.block_on(hub.shutdown()).map_err(|error| {
-        anyhow!(catalog().remote_client.wireguard_hub_serve_failed(&error.to_string()))
-    })?;
     Ok(())
 }
 
@@ -142,17 +151,18 @@ pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
 ///
 /// The hub's tunnel: one UDP path under a one-path multipath, so path events
 /// come from the selector (transport.md 12a). The hub's peer today is the
-/// device's cloud-region tunnel. Probes run only when the config names a
-/// probe responder (`PeerAddress =`, a cmux endpoint); a plain WireGuard
-/// gateway does not answer them, and unanswered probes would report a
-/// working path as lossy.
+/// device's cloud-region tunnel. Probes run only with `--probes`: they need
+/// a peer that answers them (a cmux endpoint at the config's `PeerAddress`,
+/// or the base of its first allowed network); a plain WireGuard gateway does
+/// not, and unanswered probes would report a working path as lossy.
 fn start_wireguard_hub_tunnel(
     runtime: &tokio::runtime::Runtime,
     path: &Path,
+    probes: bool,
     timeout: Duration,
 ) -> anyhow::Result<(Arc<cmux_wg::WgNet>, cmux_wg::MultipathControl)> {
     let config = read_wireguard_config(path)?;
-    let probes = (!config.peer_addresses.is_empty()).then(cmux_wg::ProbeConfig::default);
+    let probes = probes.then(cmux_wg::ProbeConfig::default);
     let kind = cmux_wg::PathKind::ViaCloudRegion;
     // The timeout future must be built inside the runtime: `tokio::time::timeout`
     // registers its sleep with the current reactor at construction, and there is
@@ -184,6 +194,12 @@ mod tests {
         let owned = ["--config", "/tmp/wg.conf", "--socket", "/tmp/wg.sock", "--exit-with-parent"]
             .map(str::to_string);
         assert!(parse_wg_hub_flags(&owned).unwrap().exit_with_parent);
+        assert!(!flags.probes && flags.control.is_none());
+        let measured = ["--config", "c", "--socket", "s", "--control", "k", "--probes"]
+            .map(str::to_string);
+        let measured = parse_wg_hub_flags(&measured).unwrap();
+        assert!(measured.probes);
+        assert_eq!(measured.control, Some(PathBuf::from("k")));
         let missing = ["--config", "/tmp/wg.conf"].map(str::to_string);
         assert!(parse_wg_hub_flags(&missing).is_err());
         let unknown =
@@ -212,7 +228,7 @@ mod tests {
         .unwrap();
         fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
         let runtime = tokio_runtime().unwrap();
-        let started = start_wireguard_hub_tunnel(&runtime, &config, Duration::from_secs(5));
+        let started = start_wireguard_hub_tunnel(&runtime, &config, false, Duration::from_secs(5));
         drop(started);
     }
 }
