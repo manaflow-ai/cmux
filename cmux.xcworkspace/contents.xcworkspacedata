@@ -35,6 +35,9 @@
          location = "group:CmuxHomeCore">
       </FileRef>
       <FileRef
+         location = "group:CmuxHomeRender">
+      </FileRef>
+      <FileRef
          location = "group:CmuxInstallAuthCore">
       </FileRef>
       <FileRef
