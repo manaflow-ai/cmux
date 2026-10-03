@@ -88,6 +88,8 @@ final class SidebarItemRowView: NSView {
 
     /// The unread badge draws (tests).
     var isBadgeShown: Bool { !badge.isHidden }
+    /// The badge's frame while it draws (tests).
+    var badgeFrame: CGRect? { badge.isHidden ? nil : badge.frame }
 
     func configure(_ info: SidebarItemInfo, style: Style) {
         guard info != self.info || style != self.style else { return }

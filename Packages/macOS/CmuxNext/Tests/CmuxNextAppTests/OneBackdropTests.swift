@@ -14,7 +14,10 @@ extension AppThemeGlobalStateTests {
 /// has exactly one translucent backdrop, the root's material and tint,
 /// and every surface above it (sidebar, panes, strips, titlebar, docks)
 /// is clear, so everything reads as the same color. At opacity 1 the
-/// surfaces draw the token or stay clear.
+/// surfaces draw the token or stay clear. One designed exception: beside
+/// the leading rail the sidebar is an inset panel (Leo, 2026-10-03) whose
+/// fill is the theme's translucent `sidebarStep` over this same backdrop
+/// (`WindowSidebarPanelView`; WindowRailTests checks its fill).
 @MainActor
 @Suite(.serialized)
 struct OneBackdropTests {
@@ -42,7 +45,7 @@ struct OneBackdropTests {
 
     /// Every surface view under `view` that paints a fill, skipping the backdrop.
     private static func filledSurfaces(_ view: NSView, in window: NSWindow, skipping backdrop: NSView) -> [String] {
-        if view === backdrop || view.isHidden { return [] }
+        if view === backdrop || view.isHidden || view is WindowSidebarPanelView { return [] }
         var found: [String] = []
         if isSurface(view, in: window), let fill = fill(of: view) {
             var chain: [String] = []
@@ -89,7 +92,7 @@ struct OneBackdropTests {
         let token = root.themeTokens.surfaceBackground.withAlpha(1)
         var offenders: [String] = []
         func walk(_ view: NSView) {
-            guard !view.isHidden else { return }
+            guard !view.isHidden, !(view is WindowSidebarPanelView) else { return }
             if Self.isSurface(view, in: window), let color = view.layer?.backgroundColor, color.alpha > 0.002,
                let rgb = NSColor(cgColor: color)?.usingColorSpace(.sRGB),
                abs(rgb.redComponent - token.red) > 0.004 || abs(rgb.greenComponent - token.green) > 0.004

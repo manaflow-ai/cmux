@@ -114,6 +114,25 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
         ]),
     ])
 
+    /// The default layout before the destinations moved into the rail
+    /// (until 2026-10-03): Home, the App Store and CodeRouter on top, the
+    /// workspaces, then one bottom line with Settings (icon and label) at
+    /// the leading edge and the account avatar (icon only) at the trailing
+    /// edge. A stored layout still equal to it migrates
+    /// (`railMigrationOps`).
+    public static let preRailDefaults = SidebarLayoutDocument(sections: [
+        LayoutSection(id: topSectionID, region: .top, look: .builtIn,
+                      items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .builtIn(.home)),
+                              LayoutItem(id: LayoutItemID("itm_app_store"), ref: .builtIn(.appStore)),
+                              LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter"))]),
+        LayoutSection(id: workspacesSectionID, region: .middle, look: .list, content: .workspaces),
+        LayoutSection(id: bottomSectionID, region: .bottom, look: .builtIn,
+                      arrangement: SectionArrangement(layout: .inline, align: .fill), items: [
+                          LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings)),
+                          LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false),
+                      ]),
+    ])
+
     /// Sections of `region` that show in `room`, in order.
     public func sections(in region: SidebarRegion, room: String?) -> [LayoutSection] {
         sections.filter { $0.region == region && $0.isVisible(inRoom: room) }

@@ -112,6 +112,40 @@ import Testing
         #expect(service.mirror.revision == 1)
     }
 
+    /// A stored layout that still equals the pre-rail default is moved to
+    /// the rail default through the owner (ordinary intents, applied by
+    /// its reducer), once; a customized layout is never touched.
+    @Test func aStoredPreRailLayoutMigratesThroughTheOwner() async throws {
+        let owner = FakeOwner()
+        owner.stored = SidebarLayoutDocument(revision: 3, sections: SidebarLayoutDocument.preRailDefaults.sections)
+        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false })
+        service.start()
+        let expected = owner.stored.railMigrationOps
+        #expect(!expected.isEmpty)
+        await settled { owner.calls.count == expected.count }
+        #expect(owner.calls.map(\.op) == expected)
+        #expect(service.document.sections == SidebarLayoutDocument.defaults.sections)
+        for call in owner.calls { owner.accept(call.key) }
+        await settled { service.pending.isEmpty }
+        #expect(owner.stored.sections == SidebarLayoutDocument.defaults.sections)
+        #expect(service.mirror.sections == SidebarLayoutDocument.defaults.sections)
+        // A later fetch of the migrated layout sends nothing more.
+        owner.changeToken += 1
+        await settled { false }
+        #expect(owner.calls.count == expected.count)
+    }
+
+    @Test func aCustomizedStoredLayoutIsNotMigrated() async throws {
+        let owner = FakeOwner()
+        owner.stored = try SidebarLayoutReducer.reduce(SidebarLayoutDocument.preRailDefaults, .itemRemove(LayoutItemID("itm_home"))).get()
+        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false })
+        service.start()
+        await settled { service.mirror.revision == 1 }
+        await settled { false }
+        #expect(owner.calls.isEmpty)
+        #expect(service.document == owner.stored)
+    }
+
     @Test func snapshotsDecodeTheDecimalRevision() throws {
         let doc = try SidebarLayoutReducer.reduce(.defaults, .itemRemove(LayoutItemID("itm_home"))).get()
         var json = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(doc))

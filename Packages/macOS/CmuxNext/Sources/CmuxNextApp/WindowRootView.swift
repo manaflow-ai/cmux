@@ -31,6 +31,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     let contentHost = NSView()
     private let sidebar: SidebarContainerView
     let rail: WindowRailView
+    /// The sidebar's inset panel while the rail is at the leading edge.
+    let sidebarPanel = WindowSidebarPanelView()
     private var titleHeight: NSLayoutConstraint?
     /// The horizontal chain (rail, sidebar, content column) for the current `window.rail`.
     private var placementConstraints: [NSLayoutConstraint] = []
