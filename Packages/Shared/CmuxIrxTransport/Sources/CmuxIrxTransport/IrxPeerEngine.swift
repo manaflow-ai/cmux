@@ -153,10 +153,13 @@ public actor IrxPeerEngine {
     /// Returns the live session, joining an in-flight dial or starting one.
     /// This is the ONLY dial path; `explicit` overrides a parked denial and
     /// replaces any in-flight attempt.
+    /// Cancelling a waiter does not cancel the shared dial or grant that
+    /// waiter ownership of a session that finishes after cancellation.
     public func ensureSession(explicit: Bool = false, trigger: String) async throws -> IrxClientSession {
         try Task.checkCancellation()
         hasConnectionIntent = true
         if let session, await !session.connection.isConnectionClosed(), !explicit {
+            try Task.checkCancellation()
             return session
         }
         if let parkedCode, !explicit {
@@ -200,6 +203,7 @@ public actor IrxPeerEngine {
                 await joined.connection.close(code: .explicitRedial, origin: .local)
                 throw CancellationError()
             }
+            try Task.checkCancellation()
             return joined
         }
         if !explicit, let cooldownUntil, clockNow() < cooldownUntil {
@@ -226,6 +230,10 @@ public actor IrxPeerEngine {
             }
             dialTask = nil
             adopt(established)
+            // The pool retains the admitted session even when the original
+            // RPC client was superseded while dialing. That cancelled client
+            // must not acquire the control lane and close the pooled session.
+            try Task.checkCancellation()
             return established
         } catch let denial as IrxAdmissionDenied {
             guard dialGeneration == generation else { throw denial }
