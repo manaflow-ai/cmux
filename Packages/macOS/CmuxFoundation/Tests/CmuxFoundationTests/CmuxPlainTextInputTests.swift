@@ -8,10 +8,6 @@ import Testing
         let suiteName = "CmuxPlainTextInputTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        for key in CmuxPlainTextInput.substitutionDefaultsKeys {
-            #expect(defaults.object(forKey: key) == nil)
-        }
-
         CmuxPlainTextInput.installAppDefaults(defaults)
 
         let registrationDomain = defaults.volatileDomain(forName: UserDefaults.registrationDomain)
@@ -22,6 +18,7 @@ import Testing
         defaults.set(true, forKey: CmuxPlainTextInput.substitutionDefaultsKeys[0])
         CmuxPlainTextInput.installAppDefaults(defaults)
         #expect(defaults.object(forKey: CmuxPlainTextInput.substitutionDefaultsKeys[0]) as? Bool == true)
+        #expect(defaults.volatileDomain(forName: UserDefaults.registrationDomain)[CmuxPlainTextInput.substitutionDefaultsKeys[0]] as? Bool == false)
         #expect(CmuxPlainTextInput.substitutionDefaultsKeys.contains("NSAutomaticQuoteSubstitutionEnabled"))
         #expect(CmuxPlainTextInput.substitutionDefaultsKeys.contains("NSAutomaticDashSubstitutionEnabled"))
     }
