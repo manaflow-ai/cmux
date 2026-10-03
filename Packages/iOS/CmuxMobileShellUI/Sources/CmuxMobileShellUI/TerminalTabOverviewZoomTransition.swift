@@ -68,6 +68,7 @@ final class TerminalTabOverviewZoomTransition: NSObject, UIViewControllerAnimate
                 let path = UIBezierPath(rect: chrome.bounds)
                 path.append(UIBezierPath(rect: contentFrame.offsetBy(dx: -terminal.view.bounds.minX, dy: -terminal.view.bounds.minY)))
                 let mask = CAShapeLayer()
+                mask.frame = chrome.bounds
                 mask.path = path.cgPath
                 mask.fillRule = .evenOdd
                 chrome.layer.mask = mask
