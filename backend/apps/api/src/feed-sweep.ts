@@ -68,10 +68,11 @@ export const sweepFeedText = async (deps: SweepDeps): Promise<SweepReport> => {
   return { skipped: false, users, bound, failed, done: false }
 }
 
-/** Production wiring: user ids from the read-only projection, FeedDO stubs by user id. */
+/** Production wiring: user ids from the projection, FeedDO stubs by user id. */
 export const sweepDeps = (env: Env): SweepDeps => ({
   listUsers: async (after, limit) => {
-    const hyperdrive = env.HYPERDRIVE_RO ?? env.HYPERDRIVE
+    // The writer role: the read-only role may not read users (staging, 2026-10-03: "permission denied for table users").
+    const hyperdrive = env.HYPERDRIVE ?? env.HYPERDRIVE_RO
     if (!hyperdrive) throw new Error("HYPERDRIVE binding missing")
     const { default: pg } = await import("pg")
     const client = new pg.Client({ connectionString: hyperdrive.connectionString, statement_timeout: 10_000, query_timeout: 15_000, connectionTimeoutMillis: 10_000 })
