@@ -1033,8 +1033,9 @@
             blockedTabs.delete(params.targetId);
             throw new Error(`${TITLES[method] || method}: ${blockedMessage(reported)}; the tab stayed on its page`);
           }
-          // The driver refused a navigation the policy blocks.
-          if (e && e.code === "blocked") {
+          // The driver refused a navigation the policy blocks. Other
+          // refusals (a frame or input the policy blocks) pass unchanged.
+          if (e && e.code === "blocked" && (NAVIGATIONS.has(method) || method === "tabs.open")) {
             policyLog.push({ url: String(params.url || ""), reason: String(e.message).replace(/^.* is blocked: /, ""), at: new Date(session.now()).toISOString(), blocked: "before" });
             throw new Error(`${TITLES[method] || method}: ${e.message}`);
           }
