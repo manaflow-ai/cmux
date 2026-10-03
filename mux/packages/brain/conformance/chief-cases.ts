@@ -762,6 +762,30 @@ function turnCases(): CorpusCase[] {
   }
 
   {
+    const answered = msgId("conv_a", 1);
+    const c = new CaseBuilder("turns: a cursor_reset replay of a turn whose prompt is answered posts nothing, even with the prompt recorded again", {
+      defaultConversation: "conv_a",
+      muxSessionId: MUX_SESSION,
+      acpmuxSeq: 9,
+      answered: [answered],
+      prompts: { [answered]: { conversation: "conv_a", text: "[conversation conv_a from Me] hi", seq: 1 } },
+    });
+    c.step({ kind: "daemon_connected", conversation: summary("conv_a") }, []);
+    c.step(
+      {
+        kind: "acpmux_connected",
+        session_id: MUX_SESSION,
+        sessions: [],
+        events: [{ ...ev(1, "user_message", { promptId: answered }), at: T0 + 800 }, ev(2, "turn_started"), chunk(3, "again"), ev(4, "turn_end")],
+        cursor_reset: true,
+      },
+      ["persist", "list_conversations"],
+      (e) => c.check(c.persisted(e).outbox.length === 0 && c.persisted(e).prompts[answered] === undefined, "no second reply; the entry is settled"),
+    );
+    cases.push(c.end());
+  }
+
+  {
     const c = new CaseBuilder("turns: a replayed turn of an answered prompt (conv_b) posts nothing, not even to the default conversation", {
       defaultConversation: "conv_a",
       muxSessionId: MUX_SESSION,
