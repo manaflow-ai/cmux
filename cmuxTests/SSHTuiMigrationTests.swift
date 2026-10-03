@@ -218,6 +218,13 @@ struct SSHTuiMigrationTests {
         #expect(prepared.preserveAfterTerminalExit)
     }
 
+    @Test("SSH restores do not require Cloud creation receipts")
+    func sshRestoreSkipsCloudOnlyReceiptResolution() {
+        #expect(!SSHTuiWorkspaceCoordinator.usesDurableCreationReceipt(machineID: "ssh:fixture", restoring: true))
+        #expect(SSHTuiWorkspaceCoordinator.usesDurableCreationReceipt(machineID: "vm_fixture", restoring: true))
+        #expect(!SSHTuiWorkspaceCoordinator.usesDurableCreationReceipt(machineID: "ssh:fixture", restoring: false))
+    }
+
     @Test("A legacy persistent SSH snapshot running a named tmux session reattaches it through cmux-tui")
     func legacyTmuxSnapshotReattachesItsTmuxSession() throws {
         // The remote block 0.64.25 wrote for `cmux ssh` workspaces with a tmux
