@@ -62,6 +62,9 @@ struct CloudTreeNodeActions {
     let copyToPasteboard: @MainActor (_ text: String) -> Void
     /// Copy the machine port's private URL without changing network state.
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
+    /// Copy a link to the port that teammates can open after signing in,
+    /// creating it first when the port has none.
+    var sharePort: @MainActor (_ resource: SurfaceResourceID) -> Void = { _ in }
     let refresh: @MainActor () -> Void
     var discoverPorts: @MainActor (SurfaceMachineID) -> Void = { _ in }
     var setDeviceDiscovery: @MainActor (Bool) -> Void = { _ in }
@@ -595,6 +598,44 @@ struct CloudTreeNodeActions {
             operationController: operationController ?? AppDelegate.shared?.cloudWorkspaceOperationController
         )
         actions.openRemoteTerminal = { navigation.open(machine: $0, group: $1, resource: $2, view: $3, openIn: $4) }
+        actions.sharePort = { resource in
+            guard let port = resource.forwardedPort else { return }
+            let store = CloudPortShareStore.shared
+            let key = CloudPortShareStore.Key(machineID: resource.machine.rawValue, port: port)
+            guard !store.isCreating(key) else { return }
+            store.set(.creating, for: key)
+            run(
+                String(localized: "cloudTree.port.share.creating", defaultValue: "Creating link\u{2026}"),
+                { catalog in
+                    do {
+                        guard let provider = catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider,
+                              let client = VMClient.shared else {
+                            throw SurfaceCatalogError.unsupported(SurfaceCatalog.portPreviewUnavailableMessage(machineID: resource.machine.rawValue))
+                        }
+                        let publication = try await CloudPortShareService(api: client)
+                            .share(vmID: provider.machineID, port: port, teamID: provider.ownerTeamID)
+                        Self.copyToPasteboard(publication.url)
+                        store.set(.copied(publication.accessMode), for: key, holdFor: .seconds(2))
+                    } catch is CancellationError {
+                        store.clear(key)
+                        throw CancellationError()
+                    } catch {
+                        store.set(.failed, for: key, holdFor: .seconds(4))
+                        throw error
+                    }
+                },
+                failureDescription: { error in
+                    switch error as? CloudPortShareError {
+                    case .stillProvisioning:
+                        return String(localized: "cloudTree.port.share.error.timeout", defaultValue: "The link is still being set up. Try sharing again in a minute.")
+                    case .unavailable:
+                        return String(localized: "cloudTree.port.share.error.unavailable", defaultValue: "The Cloud service couldn't create a link for this port. Try again.")
+                    case nil:
+                        return (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                    }
+                }
+            )
+        }
         return actions
     }
     @MainActor

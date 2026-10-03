@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxSurfaceCatalogModel
 import SwiftUI
 
 struct CloudTreeRowHoverButtons: View {
@@ -112,6 +113,15 @@ struct CloudTreeRowHoverButtons: View {
                     nodeActions.closeTerminal(row.resource.id)
                 }
             }
+        case .port(let resource, _, _):
+            if let port = Self.shareablePort(resource) {
+                CloudPortShareButton(
+                    key: CloudPortShareStore.Key(machineID: resource.machine.rawValue, port: port),
+                    store: CloudPortShareStore.shared
+                ) {
+                    nodeActions.sharePort(resource.id)
+                }
+            }
         default:
             EmptyView()
         }
@@ -130,9 +140,17 @@ struct CloudTreeRowHoverButtons: View {
             return row.canCreateWorkspacesAndTerminals
         case .terminal(let row):
             return !row.resource.machine.isLocal
+        case .port(let resource, _, _):
+            return shareablePort(resource) != nil
         default:
             return false
         }
+    }
+
+    /// A Cloud machine's forwarded port can be shared; This Mac and SSH hosts can't.
+    static func shareablePort(_ resource: SurfaceResource) -> Int? {
+        guard resource.machine.cloudMachineID != nil else { return nil }
+        return resource.id.forwardedPort
     }
 
     /// True when the row's buttons stay visible without hover. Machine rows
@@ -157,6 +175,51 @@ struct CloudTreeRowHoverButtons: View {
 
     private func xmark(_ label: String, action: @escaping () -> Void) -> some View {
         MachinesChromeIconButton(symbolName: "xmark", accessibilityLabel: label, isBusy: false, action: action)
+    }
+}
+
+/// Share on a Cloud port row: a spinner while the link is made, a checkmark
+/// once it is on the clipboard.
+private struct CloudPortShareButton: View {
+    let key: CloudPortShareStore.Key
+    @ObservedObject var store: CloudPortShareStore
+    let action: () -> Void
+
+    var body: some View {
+        let phase = store.phase(for: key)
+        MachinesChromeIconButton(
+            symbolName: symbolName(phase),
+            accessibilityLabel: label(phase),
+            isBusy: phase == .creating,
+            action: action
+        )
+        .help(label(phase))
+        .accessibilityIdentifier("CloudPortShareButton")
+    }
+
+    private func symbolName(_ phase: CloudPortShareStore.Phase?) -> String {
+        switch phase {
+        case .copied: return "checkmark"
+        case .failed: return "exclamationmark.triangle"
+        case .creating, nil: return "square.and.arrow.up"
+        }
+    }
+
+    private func label(_ phase: CloudPortShareStore.Phase?) -> String {
+        switch phase {
+        case .creating:
+            return String(localized: "cloudTree.port.share.creating", defaultValue: "Creating link\u{2026}")
+        case .copied(.team):
+            return String(localized: "cloudTree.port.share.copiedTeam", defaultValue: "Link copied. Your team can open it after signing in.")
+        case .copied(.personal):
+            return String(localized: "cloudTree.port.share.copiedPersonal", defaultValue: "Link copied. Only you can open it.")
+        case .copied(.public):
+            return String(localized: "cloudTree.port.share.copiedPublic", defaultValue: "Link copied. Anyone with the link can open it.")
+        case .failed:
+            return String(localized: "cloudTree.port.share.failed", defaultValue: "Couldn't create link")
+        case nil:
+            return String(localized: "cloudTree.port.share", defaultValue: "Share with Team")
+        }
     }
 }
 
