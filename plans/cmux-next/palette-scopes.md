@@ -2,6 +2,8 @@
 
 Status: proposal 1, lane 11 lead (scoped palette and palette extensions), 2026-10-02. Spec proposal: palette-scopes (decisions PA2, PA3). Binding inputs: OWNERSHIP-PRINCIPLES.md, architecture.md section 5a, actions.md, app-platform.md, skills/cmux-next-feature, cmux-next-spec `spec/app-platform.md`, `spec/operation-catalog.md`, `spec/identity-and-permissions.md`, decisions PA1 to PA3, D40 to D52, N13, and the coordinator's app `server` block (first-party-apps.md section 10). Only the coordinator writes the spec; this file is the lane 11 proposal.
 
+State (2026-10-02, parked): PR 16849 is rebased on feat-cmux-next 6200ee73090 but not verified at this head (the build host dropped the run); next step: regenerate the actions.md surface block (`CMUX_UPDATE_ACTION_SURFACES=1 swift test --filter ActionSurfaceParityTests` via nx-remote), run CmuxNextPaletteTests, wait for CI on the exact head, then squash-merge.
+
 ## 1. Summary for agents
 
 - One abstraction, the **scope**: a typed, searchable list in the palette (tabs, workspaces, browser history, commands, files, apps, feed items, settings, an item's actions, an app's notes). Every palette page becomes a scope. Search Tabs (PA1) is the first ported scope.
