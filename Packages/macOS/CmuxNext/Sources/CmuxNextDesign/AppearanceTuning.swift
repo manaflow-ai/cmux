@@ -13,13 +13,13 @@ public struct AppearanceTuning: Equatable, Sendable {
     public nonisolated static let identity = AppearanceTuning(glassTransparency: 0, hue: 0.5, saturation: 1)
 
     /// Creates a clamped live tuning.
-    public init(glassTransparency: Double, hue: Double, saturation: Double) {
+    public nonisolated init(glassTransparency: Double, hue: Double, saturation: Double) {
         self.glassTransparency = Self.clamp(glassTransparency, to: 0...1, fallback: 0)
         self.hue = Self.clamp(hue, to: 0...1, fallback: 0.5)
         self.saturation = Self.clamp(saturation, to: 0...2, fallback: 1)
     }
 
-    private static func clamp(_ value: Double, to range: ClosedRange<Double>, fallback: Double) -> Double {
+    private nonisolated static func clamp(_ value: Double, to range: ClosedRange<Double>, fallback: Double) -> Double {
         guard value.isFinite else { return fallback }
         return min(max(value, range.lowerBound), range.upperBound)
     }
