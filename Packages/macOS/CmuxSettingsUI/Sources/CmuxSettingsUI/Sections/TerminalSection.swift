@@ -23,6 +23,7 @@ public struct TerminalSection: View {
     @State private var sessionContentAlignment: DefaultsValueModel<SessionContentAlignment>
     @State private var scrollBar: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
+    @State private var showCopyConfirmation: DefaultsValueModel<Bool>
     @State private var reflowHardWrapOnCopy: DefaultsValueModel<Bool>
     @State private var confirmUnsafePaste: DefaultsValueModel<Bool>
     @State private var textEditingGestures: DefaultsValueModel<Bool>
@@ -59,6 +60,9 @@ public struct TerminalSection: View {
         _sessionContentAlignment = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.sessionContentAlignment))
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
+        _showCopyConfirmation = State(
+            initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showCopyConfirmation)
+        )
         _reflowHardWrapOnCopy = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.reflowHardWrapOnCopy))
         _confirmUnsafePaste = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.confirmUnsafePaste))
         _textEditingGestures = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textEditingGestures))
@@ -108,6 +112,7 @@ public struct TerminalSection: View {
             sessionContentAlignment,
             scrollBar,
             copyOnSelect,
+            showCopyConfirmation,
             reflowHardWrapOnCopy,
             confirmUnsafePaste,
             textEditingGestures,
@@ -414,6 +419,17 @@ public struct TerminalSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsTerminalCopyOnSelectToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.showCopyConfirmation"),
+                String(localized: "settings.terminal.showCopyConfirmation", defaultValue: "Show Copy Confirmation"),
+                subtitle: String(localized: "settings.terminal.showCopyConfirmation.subtitle", defaultValue: "Briefly shows “Copied to clipboard” at the bottom of a terminal when selecting text copies it.")
+            ) {
+                Toggle("", isOn: Binding(get: { showCopyConfirmation.current }, set: { showCopyConfirmation.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalCopyConfirmationToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(

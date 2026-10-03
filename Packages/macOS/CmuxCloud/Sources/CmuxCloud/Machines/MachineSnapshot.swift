@@ -88,6 +88,13 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
     public var privateAddress: String?
     /// True when the user explicitly pinned this machine in the Cloud tree.
     public var isPinned: Bool = false
+    /// Coding-agent update setting; nil when the server predates it.
+    public var agentUpdates: CloudAgentUpdates?
+
+    /// Whether a new Cloud workspace can be created here. A machine past its
+    /// free-access window is locked (the backend refuses access verbs), so it
+    /// is never a workspace destination until the plan is upgraded.
+    public var acceptsNewWorkspaces: Bool { freeAccess != .expired }
 
     /// The label when set, else the generated name, else the machine id.
     public var displayName: String {

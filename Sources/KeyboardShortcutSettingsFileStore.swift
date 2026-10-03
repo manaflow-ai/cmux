@@ -407,12 +407,11 @@ final class CmuxSettingsFileStore {
         if let markdownSection = root["markdown"] as? [String: Any] {
             parseMarkdownSection(markdownSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
-        if let fileEditorSection = root["fileEditor"] as? [String: Any] {
-            parseFileEditorSection(fileEditorSection, sourcePath: sourcePath, snapshot: &snapshot)
-        }
+        if let fileEditorSection = root["fileEditor"] as? [String: Any] { parseFileEditorSection(fileEditorSection, sourcePath: sourcePath, snapshot: &snapshot) }
         if let fileExplorerSection = root["fileExplorer"] as? [String: Any] {
             parseFileExplorerSection(fileExplorerSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let section = root["agentMessages"] as? [String: Any] { parseAgentMessagesSection(section, sourcePath: sourcePath, snapshot: &snapshot) }
         if let workspaceGroupsSection = root["workspaceGroups"] as? [String: Any] {
             parseWorkspaceGroupsSection(workspaceGroupsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }

@@ -2587,9 +2587,11 @@ final class BrowserPanel: Panel, ObservableObject {
         )
         return changed
     }
-    var pendingReactGrabReturnTargetPanelId: UUID?
-    var pendingReactGrabRoundTripToken: String?
-    let reactGrabBridgeSessionUpdaterName = "__cmuxReactGrabBridgeSync_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+    /// Arming state and round-trip token for React Grab terminal paste-back.
+    /// The token is handed only to the relay in the React Grab isolated
+    /// content world (`BrowserPanel.reactGrabContentWorld`), never to page
+    /// scripts.
+    var reactGrabPasteback = ReactGrabPastebackGate()
     var preferredDeveloperToolsPresentation: DeveloperToolsPresentation = .detached
     var forceDeveloperToolsRefreshOnNextAttach: Bool = false
     private let developerToolsRestoreRetryScheduler = MainActorDeferredActionScheduler()

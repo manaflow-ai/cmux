@@ -983,6 +983,83 @@ import Testing
         #expect(rendered.isEmpty)
     }
 
+    /// tmux stops a queued line at its first failing command and answers nothing after it.
+    /// Measured on tmux 3.7b: the five-command seed for a pane that has exited gets three
+    /// replies, and the two commands after the failed capture get none. The next reply on the
+    /// wire belongs to the next command sent, here the window list the failure asks for.
+    @Test func seedCutShortByAnExitedPaneLeavesNoReplySlotsBehind() {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        fixture.connection.capturePane(paneId: 7)
+        fixture.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 40, lines: [], isError: false)
+        )
+        fixture.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 41, lines: ["0"], isError: false)
+        )
+        fixture.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 42, lines: ["can't find pane: %7"], isError: true)
+        )
+
+        let waiting = fixture.connection.pendingCommandKindsForTesting
+        #expect(waiting.count == 1, "slots still waiting on replies tmux will not send: \(waiting)")
+        guard case .listWindows = waiting.first else {
+            Issue.record("the next reply would go to \(String(describing: waiting.first)), not the window list")
+            return
+        }
+
+        fixture.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 43, lines: ["@1 not-a-layout not-a-layout [] shell"], isError: false)
+        )
+        #expect(!fixture.connection.windowListRequestInFlight, "the window list never got its reply")
+        #expect(fixture.connection.connectionState == .connected)
+    }
+
+    /// A line tmux cannot parse is answered once, however many commands it holds.
+    @Test func queuedLineRejectedOnItsFirstCommandLeavesNoReplySlotsBehind() {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        let seed = UUID()
+        #expect(fixture.connection.sendCommandQueueInternal(
+            ["display-message -p a", "display-message -p b", "display-message -p c"],
+            kinds: [.paneAltScreen(7, seed), .paneAltScreen(7, seed), .paneAltScreen(7, seed)]
+        ))
+        fixture.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 40, lines: ["parse error"], isError: true)
+        )
+
+        #expect(fixture.connection.pendingCommandKindsForTesting.isEmpty)
+    }
+
+    /// The last command of a queued line has nothing after it to skip, so its failure must
+    /// not take a slot from whatever was sent next.
+    @Test func queuedLineFailingOnItsLastCommandKeepsTheNextCommandsSlot() {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        let seed = UUID()
+        #expect(fixture.connection.sendCommandQueueInternal(
+            ["display-message -p a", "display-message -p b"],
+            kinds: [.paneAltScreen(7, seed), .paneAltScreen(7, seed)]
+        ))
+        fixture.connection.requestWindows()
+        fixture.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 40, lines: ["a"], isError: false)
+        )
+        fixture.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 41, lines: ["failed"], isError: true)
+        )
+
+        let waiting = fixture.connection.pendingCommandKindsForTesting
+        #expect(waiting.count == 1)
+        guard case .listWindows = waiting.first else {
+            Issue.record("the window list lost its slot: \(waiting)")
+            return
+        }
+    }
+
     @Test func rechunkedLiveEchoCutsOverAtomicallyAtCaptureReply() throws {
         let fixture = attachedConnection()
         defer { fixture.close() }

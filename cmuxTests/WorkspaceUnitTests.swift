@@ -4978,7 +4978,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         return window
     }
 
-    func testNewTerminalSplitFallsBackToRequestedWorkingDirectoryWhenReportedDirectoryIsStale() {
+    func testNewTerminalSplitFallsBackToRequestedWorkingDirectoryWhenReportedDirectoryIsStale() throws {
         let workspace = Workspace()
         guard let sourcePaneId = workspace.bonsplitController.focusedPaneId else {
             XCTFail("Expected focused pane in new workspace")
@@ -4987,6 +4987,10 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
 
         let staleCurrentDirectory = workspace.currentDirectory
         let requestedDirectory = "/tmp/cmux-requested-split-cwd-\(UUID().uuidString)"
+        // A missing local cwd resolves to its nearest existing parent (#16248),
+        // so the requested directory must exist for the split to inherit it.
+        try FileManager.default.createDirectory(atPath: requestedDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: requestedDirectory) }
         guard let sourcePanel = workspace.newTerminalSurface(
             inPane: sourcePaneId,
             focus: false,
