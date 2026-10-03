@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { AcpmuxSnapshot } from "./model";
+import { dragHasFiles, filesFrom, readAttachments, type AttachmentError, type ComposerAttachment } from "./attachments";
 import { ComposerContext } from "./ComposerContext";
 import {
   ArrowUpIcon,
@@ -34,15 +35,26 @@ export const COMPOSER_LABELS = {
   commands: "Commands",
   noCommands: "No commands",
   noMatchingCommands: "No matching commands",
+  attachments: "Attachments",
+  removeAttachment: "Remove {name}",
+  dropFiles: "Drop images or text files to attach",
+  tooLarge: "{name} is too large to attach",
+  unsupported: "{name} is not an image or a text file",
+  imagesUnsupported: "This agent does not take images",
+  tooMany: "Up to 10 attachments per message",
   queue: "Queued prompts",
   queued: "Queued",
 };
+
+function attachmentErrorText(error: AttachmentError): string {
+  return COMPOSER_LABELS[error.reason].replace("{name}", error.name);
+}
 
 type Props = {
   snapshot: AcpmuxSnapshot;
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
   /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it.
-  onSend(text: string): boolean | void;
+  onSend(text: string, attachments?: ComposerAttachment[]): boolean | void;
   onStop(): void;
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
@@ -95,6 +107,9 @@ export function Composer({
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState<string | undefined>();
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [attachError, setAttachError] = useState<string | undefined>();
+  const [dropping, setDropping] = useState(false);
   const field = useRef<MarkdownFieldHandle>(null);
   const fieldRef = useCallback(
     (handle: MarkdownFieldHandle | null) => {
@@ -113,6 +128,49 @@ export function Composer({
   // Send and Stop are separate buttons, so focus on Send moves to whichever replaces it.
   const refocusSend = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
+  const held = useRef(0);
+  held.current = attachments.length;
+  const allowImages = snapshot.summary?.promptCapabilities?.image !== false;
+  const attach = useRef<(files: File[]) => Promise<void>>(async () => {});
+  attach.current = async (files: File[]) => {
+    if (files.length === 0) return;
+    const read = await readAttachments(files, held.current, allowImages);
+    setAttachments((current) => [...current, ...read.attachments]);
+    setAttachError(read.errors[0] ? attachmentErrorText(read.errors[0]) : undefined);
+  };
+  useEffect(() => {
+    const over = (event: DragEvent) => {
+      if (!dragHasFiles(event.dataTransfer)) return;
+      event.preventDefault();
+      setDropping(true);
+    };
+    const leave = (event: DragEvent) => {
+      if (!event.relatedTarget) setDropping(false);
+    };
+    const drop = (event: DragEvent) => {
+      if (!dragHasFiles(event.dataTransfer)) return;
+      event.preventDefault();
+      setDropping(false);
+      void attach.current(filesFrom(event.dataTransfer));
+    };
+    const paste = (event: ClipboardEvent) => {
+      if (!field.current?.element()?.contains(event.target as Node)) return;
+      const files = filesFrom(event.clipboardData);
+      if (files.length === 0) return;
+      event.preventDefault();
+      void attach.current(files);
+    };
+    document.addEventListener("dragover", over);
+    document.addEventListener("dragleave", leave);
+    document.addEventListener("drop", drop);
+    document.addEventListener("paste", paste);
+    return () => {
+      document.removeEventListener("dragover", over);
+      document.removeEventListener("dragleave", leave);
+      document.removeEventListener("drop", drop);
+      document.removeEventListener("paste", paste);
+    };
+  }, []);
   useLayoutEffect(() => {
     if (!refocusSend.current) return;
     const focused = document.activeElement;
@@ -165,12 +223,14 @@ export function Composer({
   const submit = (event: { preventDefault(): void }): boolean => {
     event.preventDefault();
     const prompt = unwrapped().trim();
-    if (!prompt) {
+    if (!prompt && attachments.length === 0) {
       plusDraft.current = undefined;
       return false;
     }
     const fromSend = document.activeElement?.classList.contains("acpmux-send") ?? false;
-    if (onSend(prompt) === false) return false;
+    if (onSend(prompt, attachments) === false) return false;
+    setAttachments([]);
+    setAttachError(undefined);
     plusDraft.current = undefined;
     edit("", 0);
     sentAt.current = Date.now();
@@ -329,6 +389,25 @@ export function Composer({
             onPick={pick}
           />
         )}
+        {(attachments.length > 0 || attachError || dropping) && (
+          <fieldset className="acpmux-attachments" aria-label={COMPOSER_LABELS.attachments}>
+            {attachments.map((attachment) => (
+              <AttachmentChip
+                key={attachment.id}
+                attachment={attachment}
+                onRemove={(id) => {
+                  setAttachments((current) => current.filter((item) => item.id !== id));
+                  field.current?.focus();
+                }}
+              />
+            ))}
+            {dropping ? (
+              <span className="acpmux-attachment-note">{COMPOSER_LABELS.dropFiles}</span>
+            ) : (
+              attachError && <output className="acpmux-attachment-note">{attachError}</output>
+            )}
+          </fieldset>
+        )}
         {/* An editable prompt that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
         <MarkdownField
           ref={fieldRef}
@@ -404,7 +483,7 @@ export function Composer({
                 key="send"
                 ref={sendButton}
                 type="submit"
-                className={`acpmux-send${text.trim() ? " acpmux-send-ready" : ""}`}
+                className={`acpmux-send${text.trim() || attachments.length ? " acpmux-send-ready" : ""}`}
                 aria-label={COMPOSER_LABELS.send}
                 title={t("composer.sendTooltip")}
               >
@@ -415,6 +494,32 @@ export function Composer({
         </div>
       </div>
     </form>
+  );
+}
+
+function AttachmentChip({ attachment, onRemove }: { attachment: ComposerAttachment; onRemove(id: string): void }) {
+  const remove = (
+    <button
+      type="button"
+      className="acpmux-attachment-remove"
+      aria-label={COMPOSER_LABELS.removeAttachment.replace("{name}", attachment.name)}
+      onClick={() => onRemove(attachment.id)}
+    >
+      ×
+    </button>
+  );
+  if (attachment.kind === "image")
+    return (
+      <div className="acpmux-attachment acpmux-attachment-image" title={attachment.name}>
+        <img alt={attachment.name} src={`data:${attachment.mimeType};base64,${attachment.data}`} />
+        {remove}
+      </div>
+    );
+  return (
+    <div className="acpmux-attachment acpmux-attachment-file" title={attachment.name}>
+      <span>{attachment.name}</span>
+      {remove}
+    </div>
   );
 }
 

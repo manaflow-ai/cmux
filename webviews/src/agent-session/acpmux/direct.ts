@@ -1,6 +1,7 @@
 import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxPermission, AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
+import { promptBlocks, promptText, type ComposerAttachment } from "./attachments";
 import { hostKind, sessionEntry, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
@@ -1087,6 +1088,7 @@ export class AcpmuxDirectClient {
             harness: summary.harness,
             model: summary.model,
             effort: effort?.currentValue,
+            promptCapabilities: summary.agentCapabilities?.promptCapabilities,
             status: summary.status,
             enforcement: sessionEnforcement(summary.enforcement),
             modes: summary.modes,
@@ -1141,7 +1143,7 @@ export class AcpmuxDirectClient {
     if (!ids.length) return;
     await this.request("_acpmux/warm", { sessionIds: ids, limit }).catch(() => undefined);
   }
-  async send(text: string): Promise<string | undefined> {
+  async send(input: string, attachments: ComposerAttachment[] = []): Promise<string | undefined> {
     const record = this.handoff.state.record;
     if (
       this.handoffSupported &&
@@ -1155,6 +1157,7 @@ export class AcpmuxDirectClient {
       throw new Error("Review the continuation before sending a prompt.");
     const sessionId = await this.ensureSession();
     if (!sessionId) return undefined;
+    const text = promptText(input, attachments);
     const promptId = crypto.randomUUID();
     const rowId = `local-${promptId}`;
     const at = Date.now();
@@ -1165,7 +1168,7 @@ export class AcpmuxDirectClient {
     try {
       await this.request("session/prompt", {
         sessionId,
-        prompt: [{ type: "text", text }],
+        prompt: promptBlocks(input, attachments),
         _meta: { acpmux: { promptId } },
       });
     } catch (error) {
