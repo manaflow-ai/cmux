@@ -86,6 +86,40 @@ struct SSHTuiMigrationTests {
         #expect(workspace.agentLifecycleStatesByPanelId[panelID]?["cmux.remote.agent:codex"] == .running)
     }
 
+    @MainActor
+    @Test("SSH agent sidebar status retries after workspace topology becomes available")
+    func agentSidebarStatusRetriesAfterWorkspaceRegistration() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let machine = SurfaceMachineID.ssh("ssh-late-workspace-status")
+        let catalog = SurfaceCatalog()
+        let provider = CloudPlacementTestProvider(machine: machine)
+        catalog.register(provider)
+        let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: "terminal-late")
+        catalog.upsert(SurfaceResource(
+            id: resourceID,
+            title: "terminal",
+            lifecycle: .running,
+            agent: SurfaceAgentBadge(state: "working", source: "hook", agent: "codex")
+        ))
+        catalog.record(SurfaceProjection(resource: resourceID, workspaceID: workspace.id, panelID: panelID))
+
+        var workspaceAvailable = false
+        let projector = SSHTuiAgentStatusProjector(catalog: catalog, workspaceLookup: { id in
+            workspaceAvailable && id == workspace.id ? workspace : nil
+        })
+        withExtendedLifetime(projector) {
+            #expect(workspace.statusEntries["cmux.remote.agent:codex"] == nil)
+
+            workspaceAvailable = true
+            NotificationCenter.default.post(name: .mainWindowContextsDidChange, object: nil)
+        }
+
+        #expect(workspace.statusEntries["cmux.remote.agent:codex"]?.value == "Running")
+        #expect(workspace.agentLifecycleStatesByPanelId[panelID]?["cmux.remote.agent:codex"] == .running)
+    }
+
     @Test("OpenSSH resolves the cmux-tui carrier as a non-PTY exec channel")
     func carrierOverridesInteractiveHostDefaults() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

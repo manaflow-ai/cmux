@@ -16,7 +16,7 @@ import Foundation
 final class SSHTuiAgentStatusProjector {
     private let catalog: SurfaceCatalog
     private let workspaceLookup: @MainActor (UUID) -> Workspace?
-    private var observer: NSObjectProtocol?
+    private var observers: [NSObjectProtocol] = []
     /// Lifecycle slots this projector set, per workspace and panel.
     private var appliedLifecycles: [UUID: [UUID: String]] = [:]
     /// Workspaces holding a status entry this projector wrote.
@@ -25,16 +25,36 @@ final class SSHTuiAgentStatusProjector {
     init(catalog: SurfaceCatalog, workspaceLookup: @escaping @MainActor (UUID) -> Workspace? = SSHTuiAgentStatusProjector.workspace(id:)) {
         self.catalog = catalog
         self.workspaceLookup = workspaceLookup
-        observer = NotificationCenter.default.addObserver(
+        let notificationCenter = NotificationCenter.default
+        observers.append(notificationCenter.addObserver(
             forName: SurfaceCatalog.didChangeNotification, object: catalog, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.reconcile() }
+        })
+        // Catalog restore can race window/workspace registration. In that gap
+        // the catalog notification is delivered, but `workspaceLookup` quite
+        // correctly returns nil and the projection is retained for a later
+        // cleanup pass. Reconcile when the local window topology catches up so
+        // the sidebar does not wait for an unrelated remote graph mutation.
+        for name in [Notification.Name.mainWindowContextsDidChange, .workspaceOrderDidChange] {
+            observers.append(notificationCenter.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.reconcile() }
+            })
         }
         // The catalog may already contain SSH projections before this projector
         // is constructed (restore/startup ordering). NotificationCenter only
         // delivers future changes, so reconcile the current graph once to
         // avoid a permanently stale sidebar until the next catalog mutation.
         reconcile()
+    }
+
+    deinit {
+        let notificationCenter = NotificationCenter.default
+        for observer in observers {
+            notificationCenter.removeObserver(observer)
+        }
     }
 
     func reconcile() {
