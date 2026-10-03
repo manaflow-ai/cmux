@@ -30,6 +30,10 @@
 //! - **Runtime death (invariant 3 of OWNERSHIP-PRINCIPLES).** A terminal
 //!   host's death ([`LayoutOpKind::RuntimeExited`]) never closes a workspace
 //!   or removes a tab; it only marks the tab dead.
+//! - **Restart (`tab.restart`).** [`LayoutOpKind::RestartTab`] gives a dead
+//!   tab new live content in place: the tab id and its placement stay, and
+//!   only that tab's content changes. It is the only op that changes a tab's
+//!   content, and only of a dead tab (or a tab whose content is gone).
 //! - **I5, idempotency.** [`apply_once`] with a [`Ledger`]: replaying an op
 //!   with the same key has no further effect; reusing a key for another op is
 //!   [`Reject::IdempotencyConflict`].
@@ -213,6 +217,10 @@ pub enum LayoutOpKind {
     /// process end without keep is a [`Self::CloseTab`] of each of its tabs
     /// (cmux-tui-core `terminal_end.rs`).
     RuntimeExited { runtime: u64 },
+    /// Restart a dead tab: `tab` keeps its id and placement and shows the
+    /// new live `content` (a new terminal from the session host). The tab
+    /// must be dead, or have no content (a kept tab whose runtime is gone).
+    RestartTab { tab: TabId, content: TabContent },
 }
 
 /// A tab an op creates explicitly (a respawn), with caller-chosen id and
@@ -244,6 +252,14 @@ impl LayoutOpKind {
             _ => BTreeSet::new(),
         }
     }
+
+    /// The tabs whose content this op replaces in place (a restart).
+    pub fn restarted_tabs(&self) -> BTreeSet<TabId> {
+        match self {
+            Self::RestartTab { tab, .. } => BTreeSet::from([*tab]),
+            _ => BTreeSet::new(),
+        }
+    }
 }
 
 /// What an applied op changed, in order.
@@ -253,6 +269,7 @@ pub enum LayoutEvent {
     TabCreated { tab: TabId, pane: PaneId },
     TabClosed { tab: TabId, pane: PaneId },
     TabDied { tab: TabId },
+    TabRestarted { tab: TabId },
     PaneCreated { pane: PaneId, screen: ScreenId },
     PaneRemoved { pane: PaneId },
     ColumnCreated { column: ColumnId, screen: ScreenId },
@@ -285,6 +302,10 @@ pub enum Reject {
     /// A respawn applies only to a split of the tab's own pane that holds
     /// only that tab.
     RespawnNotNeeded,
+    /// Only a dead tab can be restarted.
+    TabNotDead(TabId),
+    /// A restart must give the tab live content.
+    RestartContentDead(TabId),
     /// A caller-chosen id for a new entity is already in use.
     IdInUse(u64),
     /// A row height outside [`ROW_HEIGHT_PERMILLE`].
@@ -317,6 +338,10 @@ impl fmt::Display for Reject {
             }
             Self::RespawnNotNeeded => {
                 write!(f, "a respawn applies only to a split of the pane's only tab")
+            }
+            Self::TabNotDead(tab) => write!(f, "tab {tab} is not dead"),
+            Self::RestartContentDead(tab) => {
+                write!(f, "a restart of tab {tab} must give it live content")
             }
             Self::IdInUse(id) => write!(f, "id {id} is already in use"),
             Self::InvalidHeight(height) => write!(f, "row height {height}\u{2030} is out of range"),
@@ -476,6 +501,19 @@ pub fn check_conservation_creating(
     closed: &BTreeSet<TabId>,
     created: &BTreeSet<TabId>,
 ) -> BTreeSet<Violation> {
+    check_conservation_restarting(before, after, closed, created, &BTreeSet::new())
+}
+
+/// [`check_conservation_creating`] where exactly the tabs in `restarted`
+/// may show new content in place (a restart). A restarted tab must stay;
+/// it may gain content it did not have (a kept tab without a runtime).
+pub fn check_conservation_restarting(
+    before: &LayoutState,
+    after: &LayoutState,
+    closed: &BTreeSet<TabId>,
+    created: &BTreeSet<TabId>,
+    restarted: &BTreeSet<TabId>,
+) -> BTreeSet<Violation> {
     let mut violations = BTreeSet::new();
     for (tab, content) in &before.tabs {
         match (closed.contains(tab), after.tabs.get(tab)) {
@@ -485,18 +523,18 @@ pub fn check_conservation_creating(
             (false, None) => {
                 violations.insert(Violation::TabLost { tab: *tab });
             }
-            (false, Some(after)) if !after.same_identity(content) => {
+            (false, Some(after)) if !after.same_identity(content) && !restarted.contains(tab) => {
                 violations.insert(Violation::TabContentChanged { tab: *tab });
             }
             _ => {}
         }
     }
     for tab in after.tabs.keys() {
-        if !before.tabs.contains_key(tab) && !created.contains(tab) {
+        if !before.tabs.contains_key(tab) && !created.contains(tab) && !restarted.contains(tab) {
             violations.insert(Violation::TabAdded { tab: *tab });
         }
     }
-    for tab in created {
+    for tab in created.iter().chain(restarted) {
         if !after.tabs.contains_key(tab) {
             violations.insert(Violation::TabLost { tab: *tab });
         }
@@ -523,6 +561,25 @@ pub fn introduced_violations_creating(
     created: &BTreeSet<TabId>,
 ) -> BTreeSet<Violation> {
     let mut violations = check_conservation_creating(before, after, closed, created);
+    let existing = check_state(before);
+    violations.extend(check_state(after).into_iter().filter(|v| !existing.contains(v)));
+    violations
+}
+
+/// [`introduced_violations`] for `kind`: its closes, creations and
+/// restarts are the only tab changes allowed.
+pub fn introduced_violations_for(
+    before: &LayoutState,
+    after: &LayoutState,
+    kind: &LayoutOpKind,
+) -> BTreeSet<Violation> {
+    let mut violations = check_conservation_restarting(
+        before,
+        after,
+        &kind.closed_tabs(),
+        &kind.created_tabs(),
+        &kind.restarted_tabs(),
+    );
     let existing = check_state(before);
     violations.extend(check_state(after).into_iter().filter(|v| !existing.contains(v)));
     violations
@@ -619,12 +676,7 @@ pub fn apply(
     let mut next = state.clone();
     let mut events = Vec::new();
     apply_kind(&mut next, &op.kind, &mut events)?;
-    let violations = introduced_violations_creating(
-        state,
-        &next,
-        &op.kind.closed_tabs(),
-        &op.kind.created_tabs(),
-    );
+    let violations = introduced_violations_for(state, &next, &op.kind);
     if !violations.is_empty() {
         return Err(Reject::Invariant(violations.into_iter().collect()));
     }
@@ -976,6 +1028,17 @@ fn apply_kind(
                     events.push(LayoutEvent::TabDied { tab: *tab });
                 }
             }
+        }
+        LayoutOpKind::RestartTab { tab, content } => {
+            state.pane_of(*tab).ok_or(Reject::UnknownTab(*tab))?;
+            if state.tabs.get(tab).is_some_and(|current| !current.dead) {
+                return Err(Reject::TabNotDead(*tab));
+            }
+            if content.dead {
+                return Err(Reject::RestartContentDead(*tab));
+            }
+            state.tabs.insert(*tab, content.clone());
+            events.push(LayoutEvent::TabRestarted { tab: *tab });
         }
     }
     Ok(())

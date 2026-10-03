@@ -289,6 +289,7 @@ MODEL_BY_PATH = {
     'commands/resize-attached-view/request': models.ResizeAttachedViewRequest,
     'commands/resize-surface/request': models.ResizeSurfaceRequest,
     'commands/resolve-terminal/request': models.ResolveTerminalRequest,
+    'commands/restart-tab/request': models.RestartTabRequest,
     'commands/run/request': models.RunRequest,
     'commands/save-screen-group/request': models.SaveScreenGroupRequest,
     'commands/save-tab-group/request': models.SaveTabGroupRequest,
