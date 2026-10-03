@@ -119,6 +119,8 @@ def _check_state(name: str, runs: Sequence[Any], statuses: Sequence[Any], head_s
         if isinstance(state, str):
             when = item.get("updated_at") or ""
             state = state.lower()
+            if state != "success" and not when:
+                return state
             candidates.append((str(when), 0 if state == "success" else 1, state))
     return max(candidates, key=lambda pair: (pair[0], pair[1]))[2] if candidates else None
 
