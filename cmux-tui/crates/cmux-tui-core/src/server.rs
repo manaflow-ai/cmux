@@ -7460,7 +7460,14 @@ fn trusted_local_resource_client(
     client: u64,
     operation: ResourceOperation,
 ) -> Result<(), ResourceError> {
-    if mux.control_clients.is_unix(client) {
+    // A remote bridge peer never decides who else may pair.
+    let pairing = matches!(
+        operation,
+        ResourceOperation::PairingRequestList | ResourceOperation::PairingRequestResolve
+    );
+    if (!pairing && mux.control_clients.is_unix(client))
+        || mux.control_clients.is_local_principal(client)
+    {
         Ok(())
     } else {
         let operation = operation.wire_name().to_owned();
@@ -13141,7 +13148,7 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::PairingResponse { request, approve } => {
-            if !mux.control_clients.is_unix(client) {
+            if !mux.control_clients.is_local_principal(client) {
                 anyhow::bail!("pairing decisions require a trusted local connection");
             }
             if !mux.respond_pairing(request, approve) {
@@ -15341,7 +15348,7 @@ fn handle_command_with_cancellation(
                 None => mux.subscribe(),
             };
             let event_mux = mux.clone();
-            let trusted_pairing_client = mux.control_clients.is_unix(client);
+            let trusted_pairing_client = mux.control_clients.is_local_principal(client);
             let pending_pairings =
                 if trusted_pairing_client { mux.pending_pairings() } else { Vec::new() };
             let writer = writer.clone();
