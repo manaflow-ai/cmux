@@ -87,8 +87,6 @@ struct RightSidebarPanelView: View {
     @State private var hasMountedRightSidebarContent = false
     @State private var modeBarDrag = RightSidebarModeBarDragController()
     @State private var modeBarWidthReport = RightSidebarModeBarWidthReport()
-    /// One selection highlight that slides between the mode tabs.
-    @Namespace private var modeSelectionNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
@@ -241,7 +239,6 @@ struct RightSidebarPanelView: View {
                                 mode: fileExplorerState.mode
                             ),
                             badgeCount: item.mode == .feed ? feedPendingCount : 0,
-                            selectionNamespace: modeSelectionNamespace,
                             shortcutHint: shortcut,
                             showsShortcutHint: ShortcutHintTitlebarPolicy.shouldShow(
                                 shortcut: shortcut,
@@ -266,10 +263,10 @@ struct RightSidebarPanelView: View {
                         .layoutValue(key: RightSidebarModeBarTabSelectedKey.self, value: item.isSelected(mode: fileExplorerState.mode))
                     }
                 }
-                // Switching tabs slides the highlight and re-shares the widths
-                // on one spring: the new tab opens to its label as the old
-                // one narrows.
-                .animation(reduceMotion ? nil : RightSidebarModeBarDragController.spring, value: fileExplorerState.mode)
+                // Switching tabs eases the widths: the old tab's fill fades as
+                // it narrows, the new one's fades in as it opens. No highlight
+                // travels across the bar.
+                .animation(reduceMotion ? nil : ModeBarButton.switchAnimation, value: fileExplorerState.mode)
                 .background(RightSidebarModeBarDragAnchorView(anchor: modeBarDrag.anchor))
                 .coordinateSpace(.named(RightSidebarModeBarDragController.coordinateSpace))
                 .layoutPriority(1)

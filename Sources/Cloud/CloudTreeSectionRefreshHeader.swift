@@ -46,10 +46,16 @@ struct CloudTreeSectionRefreshHeader: View {
                         .foregroundStyle(isHovered ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
                 }
             }
-            .frame(width: scaled(14), height: scaled(14))
+            // The same hit area and hover fill as the headers' + and ⋯
+            // (`MachinesChromeIconButton`); the glyph keeps its own size.
+            .frame(width: 22, height: 20)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
+                .fill(isHovered && !refresh.isRefreshing ? Color.primary.opacity(0.06) : Color.clear)
+        )
         .disabled(refresh.isRefreshing)
         .onHover { isHovered = $0 }
         .onGeometryChange(for: CGRect.self) { proxy in

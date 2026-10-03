@@ -527793,55 +527793,55 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اكتشاف أجهزة Mac الأخرى"
+            "value": "اكتشاف الأجهزة الأخرى"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Andere Macs finden"
+            "value": "Andere Geräte finden"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Discover other Macs"
+            "value": "Discover other devices"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Descubrir otros Mac"
+            "value": "Descubrir otros dispositivos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rechercher d’autres Mac"
+            "value": "Rechercher d’autres appareils"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ほかのMacを検出"
+            "value": "ほかのデバイスを検出"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다른 Mac 검색"
+            "value": "다른 기기 검색"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "发现其他 Mac"
+            "value": "发现其他设备"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "尋找其他 Mac"
+            "value": "尋找其他裝置"
           }
         }
       }
@@ -569834,55 +569834,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Turn on Discover other Macs to see your devices."
+            "value": "Turn on Discover other devices to see your devices."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "فعّل «اكتشاف أجهزة Mac الأخرى» لعرض أجهزتك."
+            "value": "فعّل «اكتشاف الأجهزة الأخرى» لعرض أجهزتك."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Schalte „Andere Macs finden“ ein, um deine Geräte zu sehen."
+            "value": "Schalte „Andere Geräte finden“ ein, um deine Geräte zu sehen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activa «Descubrir otros Mac» para ver tus dispositivos."
+            "value": "Activa «Descubrir otros dispositivos» para ver tus dispositivos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activez « Rechercher d’autres Mac » pour voir vos appareils."
+            "value": "Activez « Rechercher d’autres appareils » pour voir vos appareils."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "デバイスを表示するには、「ほかのMacを検出」をオンにしてください。"
+            "value": "デバイスを表示するには、「ほかのデバイスを検出」をオンにしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "기기를 보려면 '다른 Mac 검색'을 켜세요."
+            "value": "기기를 보려면 '다른 기기 검색'을 켜세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "打开“发现其他 Mac”以查看你的设备。"
+            "value": "打开“发现其他设备”以查看你的设备。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "開啟「尋找其他 Mac」以查看您的裝置。"
+            "value": "開啟「尋找其他裝置」以查看您的裝置。"
           }
         }
       }

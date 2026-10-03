@@ -64,7 +64,7 @@ public struct ComputersSection: View {
                 } else if discoveryManaged {
                     SettingsCardNote(String(localized: "devices.managed", defaultValue: "Disabled by your administrator."))
                 } else if !discoveryEnabled {
-                    SettingsCardNote(String(localized: "devices.discovery.settingsDisabled", defaultValue: "Turn on Discover other Macs to see your devices."))
+                    SettingsCardNote(String(localized: "devices.discovery.settingsDisabled", defaultValue: "Turn on Discover other devices to see your devices."))
                 } else if snapshot.computers.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
                         Label(String(localized: "devices.empty.title", defaultValue: "No other devices yet"), systemImage: "desktopcomputer")
