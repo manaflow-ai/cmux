@@ -1,3 +1,4 @@
+public import CmuxSettings
 public import Foundation
 
 /// Host names as the domain policy and secret scopes compare them: lower
@@ -404,5 +405,15 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
             }
             return out
         }
+    }
+}
+
+// MARK: - Page-opened windows
+
+extension BrowserReplDomainPolicy {
+    /// Why a window a page opens from a tab a REPL session drives may not
+    /// open, or nil. Inert in this commit: every window opens.
+    public func popupBlockReason(_ url: URL?, allowlist: BrowserURLAllowlistPolicy) -> String? {
+        nil
     }
 }
