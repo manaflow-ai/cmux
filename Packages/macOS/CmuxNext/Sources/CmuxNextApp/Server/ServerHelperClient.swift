@@ -29,7 +29,8 @@ enum ServerHelperClient {
             && fileManager.isExecutableFile(atPath: bundle.appending(path: ServerHelperConstants.bundleProgram).path)
     }
 
-    /// Registers the helper. Idempotent: an enabled helper stays enabled.
+    /// Registers the helper. Idempotent: an enabled helper stays enabled. Call it
+    /// from an explicit user action only: it may open System Settings.
     static func register() throws(Failure) {
         guard isBundled else { throw .notInBuild }
         switch service.status {
@@ -53,11 +54,13 @@ enum ServerHelperClient {
 
     /// Applies (or reverts) one allowlisted fix through the helper, after registering it.
     static func run(_ fix: ServerFix, revert: Bool = false) async throws(Failure) {
-        try register()
+        // Check our own signature first: an ad hoc app must not register a root
+        // daemon that can never serve it.
         guard let bundleID = Bundle.main.bundleIdentifier,
               let label = ServerHelperConstants.machServiceName(appBundleID: bundleID),
               let requirement = ServerHelperConstants.helperRequirement(teamID: ServerHelperListener.ownTeamIdentifier())
         else { throw .unsigned }
+        try register()
         let reason: String?
         do {
             reason = try await call(label: label, requirement: requirement, fixID: fix.rawValue, revert: revert)

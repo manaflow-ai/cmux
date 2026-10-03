@@ -3,29 +3,76 @@ import Foundation
 import Testing
 
 struct ServerFixTests {
+    static let custom = """
+    Battery Power:
+     sleep                1
+     womp                 0
+    AC Power:
+     sleep                7
+     disksleep            10
+     womp                 0
+     autorestart          0
+    """
+
     @Test func everyFixRunsOnlyPmsetWithFixedArguments() {
         for fix in ServerFix.allCases {
             #expect(ServerFix.pmset.path == "/usr/bin/pmset")
             #expect(fix.applyArguments.count == 3)
-            #expect(fix.revertArguments.count == 3)
             #expect(["-a", "-c"].contains(fix.applyArguments[0]))
-            #expect(fix.applyArguments[1] == fix.revertArguments[1])
+            #expect(fix.applyArguments[1] == fix.setting)
             #expect(fix.applyArguments.allSatisfy { !$0.contains(" ") && !$0.contains(";") })
         }
+        #expect(ServerFix.wakeOnNetworkOn.applyArguments == ["-c", "womp", "1"])
     }
 
-    @Test func helperRunsTheAllowlistedArgvAndRefusesUnknownIDs() async {
-        let runner = DryRunFixRunner()
-        let service = ServerHelperService(runner: runner)
-        let applied: String? = await withCheckedContinuation { c in service.apply(fixID: "pmset.autorestart.1") { c.resume(returning: $0) } }
-        #expect(applied == nil)
-        #expect(runner.recorded.map(\.1) == [["-a", "autorestart", "1"]])
-        let refused: String? = await withCheckedContinuation { c in service.apply(fixID: "pmset.ac.sleep.0; rm -rf /") { c.resume(returning: $0) } }
-        #expect(refused == "unknown fix")
-        let reverted: String? = await withCheckedContinuation { c in service.revert(fixID: "pmset.womp.1") { c.resume(returning: $0) } }
-        #expect(reverted == nil)
-        #expect(runner.recorded.count == 2)
-        #expect(runner.recorded.last?.1 == ["-a", "womp", "0"])
+    @Test func readsTheACValueOnly() {
+        #expect(ServerFix.systemSleepOffOnAC.currentValue(inCustomOutput: Self.custom) == 7)
+        #expect(ServerFix.wakeOnNetworkOn.currentValue(inCustomOutput: Self.custom) == 0)
+        #expect(ServerFix.diskSleepOffOnAC.currentValue(inCustomOutput: "AC Power:\n disksleep x\n") == nil)
+        #expect(ServerFix.autoRestartOn.currentValue(inCustomOutput: "Battery Power:\n autorestart 1\n") == nil)
+    }
+
+    private func call(_ body: (@escaping @Sendable (String?) -> Void) -> Void) async -> String? {
+        await withCheckedContinuation { c in body { c.resume(returning: $0) } }
+    }
+
+    @Test func revertRestoresTheUsersOwnValue() async {
+        let runner = DryRunFixRunner(customOutput: Self.custom)
+        let service = ServerHelperService(runner: runner, priors: MemoryFixPriorStore())
+        #expect(await call { service.apply(fixID: "pmset.ac.sleep.0", reply: $0) } == nil)
+        #expect(runner.recorded.map(\.1) == [["-g", "custom"], ["-c", "sleep", "0"]])
+        #expect(await call { service.apply(fixID: "pmset.ac.sleep.0", reply: $0) } == nil)
+        #expect(await call { service.revert(fixID: "pmset.ac.sleep.0", reply: $0) } == nil)
+        #expect(runner.recorded.last?.1 == ["-c", "sleep", "7"])
+        #expect(await call { service.revert(fixID: "pmset.ac.sleep.0", reply: $0) } == "nothing to revert")
+        #expect(await call { service.apply(fixID: "pmset.ac.sleep.0; rm -rf /", reply: $0) } == "unknown fix")
+        #expect(runner.recorded.allSatisfy { $0.0.path == "/usr/bin/pmset" })
+    }
+
+    @Test func applyThatChangesNothingRecordsNothing() async {
+        let runner = DryRunFixRunner(customOutput: "AC Power:\n autorestart 1\n")
+        let service = ServerHelperService(runner: runner, priors: MemoryFixPriorStore())
+        #expect(await call { service.apply(fixID: "pmset.autorestart.1", reply: $0) } == nil)
+        #expect(runner.recorded.map(\.1) == [["-g", "custom"]])
+        #expect(await call { service.revert(fixID: "pmset.autorestart.1", reply: $0) } == "nothing to revert")
+    }
+
+    @Test func unreadableSettingRefusesTheFix() async {
+        let runner = DryRunFixRunner(customOutput: "")
+        let service = ServerHelperService(runner: runner, priors: MemoryFixPriorStore())
+        #expect(await call { service.apply(fixID: "pmset.ac.womp.1", reply: $0) } == "could not read the current womp setting")
+        #expect(runner.recorded.count == 1)
+    }
+
+    @Test func fileStoreKeepsTheFirstValue() throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "cmux-helper-\(UUID().uuidString)/x.json")
+        let store = FileFixPriorStore(url: url)
+        try store.record(.systemSleepOffOnAC, prior: 7)
+        try store.record(.systemSleepOffOnAC, prior: 0)
+        #expect(FileFixPriorStore(url: url).prior(.systemSleepOffOnAC) == 7)
+        try store.clear(.systemSleepOffOnAC)
+        #expect(store.prior(.systemSleepOffOnAC) == nil)
+        try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
     }
 
     @Test func clientRequirementNamesTheTeamAndTheExactApp() {
