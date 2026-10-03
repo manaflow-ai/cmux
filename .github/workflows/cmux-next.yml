@@ -163,7 +163,7 @@ jobs:
                   ;;
                 web/*|workers/*|config/vite-plus/*|docs/*|design/*|plans/*|*.md|*.mdx|*.txt|README|README.*|package.json|bun.lock|biome.json|bunfig.toml|.npmrc|.vercelignore|vercel.json)
                   ;;
-                *.swift|Package.swift|*/Package.swift)
+                *.swift)
                   native=true
                   swift=true
                   ;;

@@ -195,8 +195,6 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertIn("webviews/*", route_script)
         self.assertIn("web/*", route_script)
         self.assertIn("*.swift", route_script)
-        self.assertIn("Package.swift", route_script)
-        self.assertIn("*/Package.swift", route_script)
         self.assertIn("Packages/macOS/CmuxNext/*", route_script)
         self.assertIn("Packages/*", route_script)
 
