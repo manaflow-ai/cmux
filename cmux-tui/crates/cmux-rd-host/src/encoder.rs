@@ -100,7 +100,8 @@ impl OpenH264 {
         let bitrate = (this.kbps * 1000) as c_int;
         // Camera usage honors "no scene-change IDR"; screen usage forces one on large changes
         // but is the only mode that codes a text scroll cheaply (prototype: 73x less).
-        p.iUsageType = if cfg.screen_content { SCREEN_CONTENT_REAL_TIME } else { CAMERA_VIDEO_REAL_TIME };
+        p.iUsageType =
+            if cfg.screen_content { SCREEN_CONTENT_REAL_TIME } else { CAMERA_VIDEO_REAL_TIME };
         p.iPicWidth = cfg.width as c_int;
         p.iPicHeight = cfg.height as c_int;
         p.fMaxFrameRate = cfg.fps as f32;

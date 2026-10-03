@@ -348,9 +348,8 @@ impl MediaSession {
         let shard_len = self.packetizer.shard_len();
         let data_shards = (body.access_unit.len() + 16).div_ceil(shard_len);
         let parity = parity_for(data_shards, self.loss, idr);
-        let packets = self
-            .packetizer
-            .packetize(frame, if idr { flags::KEYFRAME } else { 0 }, &body, parity);
+        let packets =
+            self.packetizer.packetize(frame, if idr { flags::KEYFRAME } else { 0 }, &body, parity);
         let packets = match packets {
             Ok(p) => p,
             Err(PacketizeError::FrameTooLarge) => {
