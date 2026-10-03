@@ -107,12 +107,14 @@ mod responses;
 mod screen_json;
 mod session_stream;
 mod split_respawn;
+mod tab_restart;
 pub use launch_snapshot::{
     LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
     start_launch_snapshot_writer_with,
 };
 use responses::{
-    send_bad_request, send_request_error, send_request_error_with_delivery, send_response,
+    response_error_code, send_bad_request, send_request_error, send_request_error_with_delivery,
+    send_response,
 };
 use screen_json::screen_json;
 use split_respawn::{SplitRespawnRequest, placement_spawn_options, shell_argv, split_tab};
@@ -230,6 +232,7 @@ pub use frontend_browser_history::FRONTEND_BROWSER_HISTORY_CAPABILITY;
 /// same-screen drags, and a client `transaction` id echoed in `tab-changed`.
 pub const TAB_DRAG_CAPABILITY: &str = "tab-drag-v1";
 pub use split_respawn::TAB_SPLIT_RESPAWN_CAPABILITY;
+pub use tab_restart::TAB_RESTART_CAPABILITY;
 /// Durable notification acknowledgement decoupled from focus:
 /// `ack-tab-notifications`, `list-notifications`, and the workspace `unread_count` rollup.
 pub const NOTIFICATION_ACK_CAPABILITY: &str = "notification-ack-v1";
@@ -417,6 +420,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         FRONTEND_BROWSER_HISTORY_CAPABILITY,
         TAB_DRAG_CAPABILITY,
         TAB_SPLIT_RESPAWN_CAPABILITY,
+        TAB_RESTART_CAPABILITY,
         NOTIFICATION_ACK_CAPABILITY,
         TAB_GROUPS_CAPABILITY,
         SAVED_TAB_GROUPS_CAPABILITY,
@@ -1423,6 +1427,7 @@ enum Command {
     /// New browser tab whose page the frontend renders (WebKit or CEF).
     NewFrontendBrowserTab(frontend_browser_history::NewTabParams),
     UpdateFrontendBrowserTab(frontend_browser_history::UpdateTabParams),
+    RestartTab(tab_restart::RestartTabParams),
     SetFrontendBrowserHistory(frontend_browser_history::SetParams),
     GetFrontendBrowserHistory(frontend_browser_history::GetParams),
     NewBrowserTab {
@@ -11107,24 +11112,6 @@ fn write_vt_state_command_json(
     Ok(())
 }
 
-fn response_error_code(error: &anyhow::Error) -> Option<String> {
-    error
-        .downcast_ref::<crate::LayoutUndoError>()
-        .map(|error| error.code().to_string())
-        .or_else(|| error.downcast_ref::<LayoutRatioError>().map(|error| error.code().to_string()))
-        .or_else(|| {
-            error.downcast_ref::<ViewportWidthError>().map(|error| error.code().to_string())
-        })
-        .or_else(|| {
-            error
-                .downcast_ref::<crate::ColumnStickyError>()
-                .and_then(|error| error.code().map(str::to_string))
-        })
-        .or_else(|| bookmarks::error_code(error))
-        .or_else(|| conversations::error_code(error))
-        .or_else(|| crate::state::home_error_code(error))
-}
-
 fn auth_token(message: &str) -> Option<String> {
     let value: Value = serde_json::from_str(message).ok()?;
     let object = value.as_object()?;
@@ -13989,6 +13976,7 @@ fn handle_command_with_cancellation(
         }
         Command::NewFrontendBrowserTab(params) => frontend_browser_history::create(mux, params),
         Command::UpdateFrontendBrowserTab(params) => frontend_browser_history::update(mux, params),
+        Command::RestartTab(params) => tab_restart::restart(mux, params),
         Command::SetFrontendBrowserHistory(params) => frontend_browser_history::set(mux, params),
         Command::GetFrontendBrowserHistory(params) => frontend_browser_history::get(mux, params),
         Command::NewBrowserTab { url, pane, cols, rows } => {

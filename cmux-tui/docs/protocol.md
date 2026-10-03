@@ -179,6 +179,18 @@ kind, never the state (no URL, scrollback, or session):
 {"id":17,"cmd":"move-tab-to-split","surface":4,"pane":2,"edge":"right","respawn":{"kind":"terminal","cwd":"/src"}}
 ```
 
+`tab-restart-v1` adds `restart-tab`. A dead terminal tab (its host was lost,
+its process ended under `keep_on_exit`, or keep-layout kept it) restarts in
+place: the daemon starts a new shell in the dead terminal's last directory and
+points the same tab at it in one commit, tombstoning the dead terminal. The
+tab keeps its id, placement, name, pin and group. A replayed
+`idempotency_key` returns the first result, so clients that restart lost tabs
+automatically derive the key from the dead terminal's id:
+
+```json
+{"id":18,"cmd":"restart-tab","surface":4,"idempotency_key":"restart-term_01h"}
+```
+
 `notification-ack-v1` decouples notification acknowledgement from focus.
 `ack-tab-notifications {surface}` clears a tab's unread marker and records the
 acknowledgement durably, so it survives a daemon restart; frontends call it

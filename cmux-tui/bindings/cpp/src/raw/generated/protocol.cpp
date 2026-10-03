@@ -18038,6 +18038,91 @@ Result<ResolveTerminalRequest> Codec<ResolveTerminalRequest>::decode(const Json&
     return result;
 }
 
+Result<Json> Codec<RestartTabRequest>::encode(const RestartTabRequest& value) {
+    (void)value;
+    Json::Object object;
+    if (!value.cwd.is_absent()) {
+        auto encoded = encode_value(value.cwd);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cwd", std::move(encoded).value());
+    }
+    if (!value.env.is_absent()) {
+        auto encoded = encode_value(value.env);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("env", std::move(encoded).value());
+    }
+    if (!value.idempotency_key.is_absent()) {
+        auto encoded = encode_value(value.idempotency_key);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("idempotency_key", std::move(encoded).value());
+    }
+    auto encoded_surface = encode_value(value.surface);
+    if (!encoded_surface) return std::move(encoded_surface).error();
+    object.emplace("surface", std::move(encoded_surface).value());
+    if (!value.transaction.is_absent()) {
+        auto encoded = encode_value(value.transaction);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("transaction", std::move(encoded).value());
+    }
+    return Json(std::move(object));
+}
+
+Result<RestartTabRequest> Codec<RestartTabRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    RestartTabRequest result{};
+    const Json* field_cwd = value.find("cwd");
+    if (field_cwd) {
+        if (field_cwd->is_null()) {
+            result.cwd = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_cwd);
+            if (!decoded) return std::move(decoded).error();
+            result.cwd = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_env = value.find("env");
+    if (field_env) {
+        if (field_env->is_null()) {
+            result.env = Field<std::map<std::string, std::string, std::less<>>>::null();
+        } else {
+            auto decoded = decode_value<std::map<std::string, std::string, std::less<>>>(*field_env);
+            if (!decoded) return std::move(decoded).error();
+            result.env = Field<std::map<std::string, std::string, std::less<>>>(std::move(decoded).value());
+        }
+    }
+    const Json* field_idempotency_key = value.find("idempotency_key");
+    if (field_idempotency_key) {
+        if (field_idempotency_key->is_null()) {
+            result.idempotency_key = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_idempotency_key);
+            if (!decoded) return std::move(decoded).error();
+            result.idempotency_key = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_surface = value.find("surface");
+    if (!field_surface) {
+        return make_error(ErrorCode::decode, "missing required field 'surface'");
+    }
+    if (field_surface) {
+        auto decoded = decode_value<TabRef>(*field_surface);
+        if (!decoded) return std::move(decoded).error();
+        result.surface = std::move(decoded).value();
+    }
+    const Json* field_transaction = value.find("transaction");
+    if (field_transaction) {
+        if (field_transaction->is_null()) {
+            result.transaction = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_transaction);
+            if (!decoded) return std::move(decoded).error();
+            result.transaction = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<RunRequest>::encode(const RunRequest& value) {
     (void)value;
     Json::Object object;
@@ -27382,20 +27467,20 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand144FieldRequirements{{
     {"identity", 12U, "shared-sizing-v1"},
     {"view", 12U, "shared-sizing-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand147FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand148FieldRequirements{{
     {"key", 9U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand154FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand155FieldRequirements{{
     {"paste", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand158FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 5> kCommand159FieldRequirements{{
     {"device_id", 12U, "shared-sizing-v1"},
     {"device_kind", 12U, "shared-sizing-v1"},
     {"device_name", 12U, "shared-sizing-v1"},
     {"display_name", 12U, "shared-sizing-v1"},
     {"user_id", 12U, "shared-sizing-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 7> kCommand161FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 7> kCommand162FieldRequirements{{
     {"complete", 9U, ""},
     {"cursor", 9U, ""},
     {"cursor_blink", 9U, ""},
@@ -27404,33 +27489,33 @@ constexpr std::array<CommandFieldRequirement, 7> kCommand161FieldRequirements{{
     {"selection_bg", 9U, ""},
     {"selection_fg", 9U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand171FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand172FieldRequirements{{
     {"transaction", 9U, "layout-undo-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand176FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand177FieldRequirements{{
     {"transaction", 9U, "layout-undo-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand178FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand179FieldRequirements{{
     {"marked_unread", 12U, "notification-mark-unread-v1"},
     {"pinned", 12U, "workspace-pin-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 3> kCommand179FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 3> kCommand180FieldRequirements{{
     {"end_terminals", 12U, "terminal-reap-v1"},
     {"force", 10U, "daemon-handoff-force-v1"},
     {"keep_layout", 12U, "end-terminals-keep-layout-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand181FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 5> kCommand182FieldRequirements{{
     {"cwd", 12U, "terminal-env-v1"},
     {"env", 12U, "terminal-env-v1"},
     {"keep", 12U, "terminal-reap-v1"},
     {"shell_args", 12U, "terminal-shell-args-v1"},
     {"terminal_id", 12U, "terminal-placement-env-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand182FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand183FieldRequirements{{
     {"surface", 9U, "surface-subscribe-filter"},
     {"tree_events", 7U, ""},
 }};
-constexpr std::array<CommandMetadata, 208> kCommands{{
+constexpr std::array<CommandMetadata, 209> kCommands{{
     {"ack-tab-notifications", "control", 12U, "notification-ack-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-screens-to-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-tabs-to-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -27578,21 +27663,22 @@ constexpr std::array<CommandMetadata, 208> kCommands{{
     {"resize-attached-view", "frontend", 10U, "view-attachment-lease-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand144FieldRequirements)},
     {"resize-surface", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"resolve-terminal", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"run", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand147FieldRequirements)},
+    {"restart-tab", "control", 12U, "tab-restart-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"run", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand148FieldRequirements)},
     {"save-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"save-tab-group", "control", 12U, "saved-tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"scroll-surface", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"select-screen", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"select-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"select-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"send", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand154FieldRequirements)},
+    {"send", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand155FieldRequirements)},
     {"send-key", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"server-stats", "local-admin", 12U, "server-stats-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-cell-pixels", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-client-info", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand158FieldRequirements)},
+    {"set-client-info", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand159FieldRequirements)},
     {"set-client-sizing", "control", 10U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-column-sticky", "control", 12U, "sticky-columns-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-default-colors", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand161FieldRequirements)},
+    {"set-default-colors", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand162FieldRequirements)},
     {"set-frontend-browser-history", "control", 12U, "frontend-browser-history-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-personal-terminal", "control", 12U, "personal-terminals-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-personal-workspace", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -27602,18 +27688,18 @@ constexpr std::array<CommandMetadata, 208> kCommands{{
     {"set-screen-pinned", "control", 12U, "screen-metadata-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-size-counts", "control", 12U, "shared-sizing-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-size-policy", "control", 12U, "shared-sizing-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-split-ratio", "control", 8U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand171FieldRequirements)},
+    {"set-split-ratio", "control", 8U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand172FieldRequirements)},
     {"set-tab-pinned", "control", 12U, "tab-metadata-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-terminal-command-history", "local-admin", 12U, "terminal-command-journal-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-terminal-idle-policy", "control", 12U, "terminal-idle-close-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-terminal-keep", "control", 12U, "terminal-reap-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-viewport-pane-width", "control", 9U, "viewport-column-resize-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand176FieldRequirements)},
+    {"set-viewport-pane-width", "control", 9U, "viewport-column-resize-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand177FieldRequirements)},
     {"set-window-title", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-workspace-metadata", "control", 12U, "workspace-metadata-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand178FieldRequirements)},
-    {"shutdown-daemon", "local-admin", 9U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand179FieldRequirements)},
+    {"set-workspace-metadata", "control", 12U, "workspace-metadata-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand179FieldRequirements)},
+    {"shutdown-daemon", "local-admin", 9U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand180FieldRequirements)},
     {"sidebar-plugin", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"split", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand181FieldRequirements)},
-    {"subscribe", "frontend", 5U, "", true, "subscribe", "", std::span<const CommandFieldRequirement>(kCommand182FieldRequirements)},
+    {"split", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand182FieldRequirements)},
+    {"subscribe", "frontend", 5U, "", true, "subscribe", "", std::span<const CommandFieldRequirement>(kCommand183FieldRequirements)},
     {"swap-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-events", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-resources", "control", 12U, "terminal-resources-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -29334,6 +29420,17 @@ Result<ResolveTerminalResult> Client::resolve_terminal(
     auto response = core_.request("resolve-terminal", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
     return decode_value<ResolveTerminalResult>(response.value());
+}
+
+Result<JsonValue> Client::restart_tab(
+    const RestartTabRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("restart-tab", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<JsonValue>(response.value());
 }
 
 Result<RunResult> Client::run(

@@ -2736,6 +2736,16 @@ class ResolveTerminalRequest:
 
 
 @dataclass(frozen=True)
+class RestartTabRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/restart-tab/request'
+    surface: TabRef
+    cwd: Union[str, None, MissingType] = field(default=MISSING)
+    env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
+    idempotency_key: Union[str, None, MissingType] = field(default=MISSING)
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class RunRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/run/request'
     pane: Union[Id, None, MissingType] = field(default=MISSING)
@@ -4206,6 +4216,7 @@ __all__ = [
     'ResizeAttachedViewRequest',
     'ResizeSurfaceRequest',
     'ResolveTerminalRequest',
+    'RestartTabRequest',
     'RunRequest',
     'SaveScreenGroupRequest',
     'SaveTabGroupRequest',

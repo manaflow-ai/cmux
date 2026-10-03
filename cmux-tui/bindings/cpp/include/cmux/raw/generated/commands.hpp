@@ -188,6 +188,7 @@ public:
     [[nodiscard]] Result<AttachedViewResizeResult> resize_attached_view(const ResizeAttachedViewRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ResizeSurfaceResult> resize_surface(const ResizeSurfaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ResolveTerminalResult> resolve_terminal(const ResolveTerminalRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> restart_tab(const RestartTabRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<RunResult> run(const RunRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> save_screen_group(const SaveScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> save_tab_group(const SaveTabGroupRequest& request, RequestOptions options = {});
