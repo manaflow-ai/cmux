@@ -9,8 +9,6 @@ public final class AgentPaneModel {
     /// The session the page last reported, nil for a new chat that has not
     /// sent its first prompt.
     public private(set) var sessionId: String?
-    /// The last handshake failure shown to the page, for diagnostics.
-    public private(set) var lastError: String?
     /// Page projection of its single session-host Git capability read, never an authorization grant.
     public private(set) var checkpointAvailable = false
     @ObservationIgnored public var onCheckpointAvailability: ((Bool) -> Void)?
@@ -114,11 +112,9 @@ public final class AgentPaneModel {
                 handshake.revealTurn = pendingRevealTurn
                 pendingRevealTurn = nil
                 hasHandshake = true
-                lastError = nil
                 return AgentPaneReply.handshake(handshake)
             } catch {
                 let message = AgentPaneHostError.userMessage(for: error)
-                lastError = message
                 return AgentPaneReply.failure(code: "host_unavailable", message: message)
             }
         case .persistSession(let id):

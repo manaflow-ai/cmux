@@ -21,6 +21,9 @@ export const EMPTY_OMNIBAR: OmnibarContext = {
   history: [],
 };
 
+/// Maximum entries accepted from the host for each NewTab source.
+export const MAX_NEW_TAB_ENTRIES = 40;
+
 const string = (value: unknown) => (typeof value === "string" && value ? value : undefined);
 const records = (value: unknown) =>
   (Array.isArray(value) ? value : []).filter(
@@ -42,21 +45,25 @@ export function omnibarContext(value: unknown): OmnibarContext | undefined {
       return [
         { id, kind: tab.kind as TabKind, title, ...(detail ? { detail } : {}), ...(workspace ? { workspace } : {}) },
       ];
-    }),
+    }).slice(0, MAX_NEW_TAB_ENTRIES),
     workspaces: records(object.workspaces).flatMap((workspace) => {
       const id = string(workspace.id);
       const name = string(workspace.name);
       const detail = string(workspace.detail);
       return id && name ? [{ id, name, ...(detail ? { detail } : {}) }] : [];
-    }),
+    }).slice(0, MAX_NEW_TAB_ENTRIES),
     sessions: [],
-    folders: (Array.isArray(object.folders) ? object.folders : []).flatMap((path) => string(path) ?? []),
-    commands: (Array.isArray(object.commands) ? object.commands : []).flatMap((command) => string(command) ?? []),
+    folders: (Array.isArray(object.folders) ? object.folders : [])
+      .flatMap((path) => string(path) ?? [])
+      .slice(0, MAX_NEW_TAB_ENTRIES),
+    commands: (Array.isArray(object.commands) ? object.commands : [])
+      .flatMap((command) => string(command) ?? [])
+      .slice(0, MAX_NEW_TAB_ENTRIES),
     history: records(object.history).flatMap((entry) => {
       const url = string(entry.url);
       const title = string(entry.title);
       return url ? [{ url, ...(title ? { title } : {}) }] : [];
-    }),
+    }).slice(0, MAX_NEW_TAB_ENTRIES),
   };
 }
 
