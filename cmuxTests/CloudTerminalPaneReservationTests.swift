@@ -75,6 +75,41 @@ struct CloudTerminalPaneReservationTests {
     }
 
     @Test
+    func relayCoalescesAdjacentByteInputIntoOneRemoteWrite() async throws {
+        let relay = CloudOptimisticInputRelay()
+        let sender = RecordingUntrackedSender()
+        relay.send(.bytes(Data("python".utf8)))
+        relay.send(.bytes(Data(" -m".utf8)))
+        relay.send(.bytes(Data(" http.s".utf8)))
+        let bindingToken = try #require(relay.beginRemoteBinding())
+        relay.bindRemoteTerminal(terminalID: "term_created", sender: sender, token: bindingToken)
+
+        try await Self.waitUntilAsync { await sender.count == 1 }
+        let requests = await sender.requests
+        #expect(requests.count == 1)
+        #expect(requests[0].operation == "terminal.input.write")
+        #expect(requests[0].params["bytes_base64"] as? String == Data("python -m http.s".utf8).base64EncodedString())
+    }
+
+    @Test
+    func relayCapsCoalescedRemoteWritesBelowTheEnvelopeLimit() async throws {
+        let relay = CloudOptimisticInputRelay()
+        let sender = RecordingUntrackedSender()
+        let chunk = Data(repeating: 0x61, count: 64 * 1024)
+        relay.send(.bytes(chunk))
+        relay.send(.bytes(chunk))
+        relay.send(.bytes(chunk))
+        let bindingToken = try #require(relay.beginRemoteBinding())
+        relay.bindRemoteTerminal(terminalID: "term_created", sender: sender, token: bindingToken)
+
+        try await Self.waitUntilAsync { await sender.count == 2 }
+        let requests = await sender.requests
+        #expect(requests.count == 2)
+        #expect((requests[0].params["bytes_base64"] as? String).map { Data(base64Encoded: $0)?.count } == 128 * 1024)
+        #expect((requests[1].params["bytes_base64"] as? String).map { Data(base64Encoded: $0)?.count } == 64 * 1024)
+    }
+
+    @Test
     func relayDiscardDropsQueuedInputAndALaterAttachResumesForwarding() {
         let relay = CloudOptimisticInputRelay()
         relay.send(.bytes(Data("typed too early".utf8)))
@@ -92,7 +127,7 @@ struct CloudTerminalPaneReservationTests {
         let sender = RecordingUntrackedSender()
         let bindingToken = try #require(relay.beginRemoteBinding())
         relay.bindRemoteTerminal(terminalID: "term_created", sender: sender, token: bindingToken)
-        try await Self.waitUntilAsync { await sender.count == 4_096 }
+        try await Self.waitUntilAsync { await sender.totalByteCount == 4_096 }
     }
 
     @Test
@@ -381,6 +416,15 @@ private actor RecordingUntrackedSender: CloudTuiUntrackedCommandSending {
     private(set) var requests: [CloudTuiRequest] = []
 
     var count: Int { requests.count }
+
+    var totalByteCount: Int {
+        requests.reduce(0) { total, request in
+            guard request.operation == "terminal.input.write",
+                  let encoded = request.params["bytes_base64"] as? String,
+                  let data = Data(base64Encoded: encoded) else { return total }
+            return total + data.count
+        }
+    }
 
     func sendUntrackedTuiCommand(arguments: CloudTuiRequest) async throws {
         requests.append(arguments)

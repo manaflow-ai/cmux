@@ -12,6 +12,7 @@ import Foundation
 /// native mirror receives only the suffix after that handoff, so the remote
 /// shell remains the source of truth for startup output and echo.
 final class CloudOptimisticInputRelay: @unchecked Sendable {
+    private static let maximumRemoteBatchBytes = 128 * 1024
     private struct RemoteSink: Sendable {
         let terminalID: String
         let sender: any CloudTuiUntrackedCommandSending
@@ -201,10 +202,10 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
         let token = UUID()
         state.remoteWorkerToken = token
         state.remoteWorker = Task { [weak self] in
-            while let self, let item = self.takeRemoteInput(epoch: epoch) {
+            while let self, let batch = self.takeRemoteInputBatch(epoch: epoch) {
                 guard let sink = self.remoteSinkForDelivery(epoch: epoch) else { break }
                 do {
-                    guard let request = Self.request(for: item, sink: sink) else {
+                    guard let request = Self.request(for: batch, sink: sink) else {
                         self.remoteInputFinished(epoch: epoch)
                         continue
                     }
@@ -218,7 +219,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
                     if case .notSent = error { requeueInput = true } else { requeueInput = false }
                     self.remoteInputFailed(
                         epoch: epoch,
-                        input: item,
+                        inputs: batch,
                         requeueInput: requeueInput
                     )
                     break
@@ -229,19 +230,19 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
                         requeueInput = false
                     }
                     if case .clientMissing = error {
-                        self.remoteInputTerminalFailure(epoch: epoch, input: item)
+                        self.remoteInputTerminalFailure(epoch: epoch, inputs: batch)
                     } else if case .spawnFailed = error {
-                        self.remoteInputTerminalFailure(epoch: epoch, input: item)
+                        self.remoteInputTerminalFailure(epoch: epoch, inputs: batch)
                     } else if case .inputTooLarge = error {
-                        self.remoteInputTerminalFailure(epoch: epoch, input: item)
+                        self.remoteInputTerminalFailure(epoch: epoch, inputs: batch)
                     } else {
-                        self.remoteInputFailed(epoch: epoch, input: item, requeueInput: requeueInput)
+                        self.remoteInputFailed(epoch: epoch, inputs: batch, requeueInput: requeueInput)
                     }
                     break
                 } catch {
                     // Setup and cancellation failures happen before socket
                     // admission. Retain the item for the next binding attempt.
-                    self.remoteInputFailed(epoch: epoch, input: item, requeueInput: true)
+                    self.remoteInputFailed(epoch: epoch, inputs: batch, requeueInput: true)
                     break
                 }
             }
@@ -280,14 +281,28 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
         }
     }
 
-    private func takeRemoteInput(epoch: UInt64) -> TerminalManualInput? {
+    private func takeRemoteInputBatch(epoch: UInt64) -> [TerminalManualInput]? {
         state.withLock { state in
             guard !state.discarded,
                   epoch == state.remoteEpoch,
                   state.remoteSink != nil,
                   !remoteQueueIsEmptyLocked(state) else { return nil }
-            let item = state.remoteQueue[state.remoteQueueHead]
+            let first = state.remoteQueue[state.remoteQueueHead]
+            var batch = [first]
             state.remoteQueueHead += 1
+            // Adjacent printable input is common when a user pastes or types
+            // quickly. Keep one remote write for that run, but stop at named
+            // keys so protocol key semantics and ordering remain exact.
+            if case .bytes = first {
+                var batchBytes = Self.inputByteCount(first)
+                while state.remoteQueueHead < state.remoteQueue.count {
+                    guard case .bytes(let bytes) = state.remoteQueue[state.remoteQueueHead] else { break }
+                    guard batchBytes + bytes.count <= Self.maximumRemoteBatchBytes else { break }
+                    batch.append(.bytes(bytes))
+                    batchBytes += bytes.count
+                    state.remoteQueueHead += 1
+                }
+            }
             if state.remoteQueueHead == state.remoteQueue.count {
                 clearRemoteQueueLocked(&state)
             } else if state.remoteQueueHead >= 256,
@@ -296,7 +311,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
                 state.remoteQueueHead = 0
             }
             state.remoteInFlight = true
-            return item
+            return batch
         }
     }
 
@@ -316,7 +331,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
 
     private func remoteInputFailed(
         epoch: UInt64,
-        input: TerminalManualInput,
+        inputs: [TerminalManualInput],
         requeueInput: Bool
     ) {
         state.withLock { state in
@@ -325,7 +340,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             // acknowledgement was lost. Never replay that item. Retain only
             // the untouched suffix for a fresh authenticated binding.
             if requeueInput {
-                state.pending.append(input)
+                state.pending.append(contentsOf: inputs)
             }
             if !remoteQueueIsEmptyLocked(state) {
                 let suffix = Array(state.remoteQueue[state.remoteQueueHead...])
@@ -340,10 +355,10 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
         }
     }
 
-    private func remoteInputTerminalFailure(epoch: UInt64, input: TerminalManualInput) {
+    private func remoteInputTerminalFailure(epoch: UInt64, inputs: [TerminalManualInput]) {
         state.withLock { state in
             guard !state.discarded, epoch == state.remoteEpoch else { return }
-            state.pending.append(input)
+            state.pending.append(contentsOf: inputs)
             if !remoteQueueIsEmptyLocked(state) {
                 state.pending.append(contentsOf: state.remoteQueue[state.remoteQueueHead...])
             }
@@ -430,14 +445,21 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
     }
 
     private static func request(
-        for input: TerminalManualInput,
+        for inputs: [TerminalManualInput],
         sink: RemoteSink
     ) -> CloudTuiRequest? {
-        switch input {
+        guard let first = inputs.first else { return nil }
+        switch first {
         case .bytes(let bytes):
-            guard !bytes.isEmpty else { return nil }
-            return CloudTuiRequests.writeBytes(terminalID: sink.terminalID, data: bytes)
+            var data = Data()
+            for input in inputs {
+                guard case .bytes(let bytes) = input else { return nil }
+                data.append(bytes)
+            }
+            guard !data.isEmpty else { return nil }
+            return CloudTuiRequests.writeBytes(terminalID: sink.terminalID, data: data)
         case .namedKey(let name):
+            guard inputs.count == 1 else { return nil }
             guard let key = CloudTuiManualIOInputRouter.protocolKeyName(for: name) else { return nil }
             return CloudTuiRequests.keysArguments(socketPath: "", terminalID: sink.terminalID, keys: [key])
         }
