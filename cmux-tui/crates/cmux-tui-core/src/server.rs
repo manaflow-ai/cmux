@@ -277,6 +277,12 @@ pub const NOTIFICATION_SOURCE_CAPABILITY: &str = "notification-source-v1";
 /// workspaces, and workspace status, progress and log, with `extra.state` on session
 /// snapshots and `state_upsert`/`state_delete` changes on `session.events`.
 pub const STATE_RESOURCES_CAPABILITY: &str = "state-resources-v1";
+/// Terminal tabs report `terminal_state` (`running`, `adopting`, `reconnecting`,
+/// `failed`, `unadoptable`, `exited`), `host_record_version` for an unadoptable
+/// host, and `end`, the typed end of a dead terminal (`exited`, `signaled`,
+/// `host_lost` with a stable `reason`, `launch_failed`). A tab is `dead` only
+/// when its terminal ended (plans/cmux-next/durable-sessions.md section 7).
+pub const TERMINAL_STATE_CAPABILITY: &str = "terminal-state-v1";
 /// `window_record.list|put|delete`: one personal record per app window with
 /// a per-record revision (OWNERSHIP-PRINCIPLES single writer).
 pub const WINDOW_RECORDS_CAPABILITY: &str = "window-records-v1";
@@ -436,6 +442,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         LAUNCH_SNAPSHOT_CAPABILITY,
         STATE_RESOURCES_CAPABILITY,
         WINDOW_RECORDS_CAPABILITY,
+        TERMINAL_STATE_CAPABILITY,
         FRONTEND_BROWSER_OWNER_CAPABILITY,
         crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
@@ -11606,25 +11613,45 @@ fn pane_json(
             // R41: a terminal tab with no runtime surface is dead only when
             // its terminal really ended; a host still being adopted, or one
             // this build cannot adopt, keeps running its shell.
-            let pending_terminal = surface.is_none().then(|| {
-                state.resource_indexes.content_ids.get(sid).and_then(|content| match content {
-                    ContentPublicId::Terminal(id) => notifications.pending_terminals.get(id.as_str()),
+            let content_terminal = state.resource_indexes.content_ids.get(sid).and_then(|content| {
+                match content {
+                    ContentPublicId::Terminal(id) => Some(id.as_str()),
                     ContentPublicId::Browser(_) => None,
-                })
-            }).flatten();
-            let is_terminal_tab = surface.map_or_else(
-                || matches!(state.resource_indexes.content_ids.get(sid), Some(ContentPublicId::Terminal(_))),
-                |surface| surface.kind() == SurfaceKind::Pty,
-            );
+                }
+            });
+            let pending_terminal = surface
+                .is_none()
+                .then(|| content_terminal.and_then(|id| notifications.pending_terminals.get(id)))
+                .flatten();
+            let is_terminal_tab = surface.map_or(content_terminal.is_some(), |surface| {
+                surface.kind() == SurfaceKind::Pty
+            });
             let dead = surface.map(|s| s.is_dead()).unwrap_or(pending_terminal.is_none());
             let terminal_state = match (pending_terminal, is_terminal_tab) {
                 (Some(pending), _) => Some(pending.state()),
-                (None, true) => Some(if dead { "exited" } else { "running" }),
                 (None, false) => None,
+                (None, true) if dead => Some("exited"),
+                (None, true) => Some(
+                    match surface.and_then(|surface| surface.terminal_host_connection_state()) {
+                        Some(crate::surface::TerminalHostConnectionState::Reconnecting) => "reconnecting",
+                        Some(crate::surface::TerminalHostConnectionState::Failed) => "failed",
+                        _ => "running",
+                    },
+                ),
             };
             let host_record_version = match pending_terminal {
                 Some(crate::mux::PendingTerminal::Unadoptable { record_version }) => *record_version,
                 _ => None,
+            };
+            // Why a dead terminal ended: its runtime's end, else the durable
+            // receipt of a terminal that has no runtime here.
+            let end = if !dead || !is_terminal_tab {
+                None
+            } else {
+                surface
+                    .and_then(|surface| surface.terminal_end())
+                    .map(|end| end.wire_json())
+                    .or_else(|| content_terminal.and_then(|id| notifications.terminal_ends.get(id).cloned()))
             };
             let mut tab = json!({
                 "surface": sid,
@@ -11661,11 +11688,8 @@ fn pane_json(
                     json!({"cols": c, "rows": r})
                 }),
                 "dead": dead,
-                // Why a dead terminal ended (R41). Absent while it runs.
-                "end": surface
-                    .filter(|surface| surface.is_dead())
-                    .and_then(|surface| surface.terminal_end())
-                    .map(|end| end.wire_json()),
+                // Why a dead terminal ended (R41, terminal-state-v1).
+                "end": end,
             });
             raw_tab::merge_browser_fields(&mut tab, surface, frontend_browser, conversation);
             tab
@@ -27554,6 +27578,7 @@ mod tests {
             PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
             STATE_RESOURCES_CAPABILITY,
             WINDOW_RECORDS_CAPABILITY,
+            TERMINAL_STATE_CAPABILITY,
             FRONTEND_BROWSER_OWNER_CAPABILITY,
             crate::git_ops::CHECKPOINTS_CAPABILITY,
             crate::git_ops::FILES_SEARCH_CAPABILITY,

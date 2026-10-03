@@ -56,6 +56,7 @@ fn host_lost_reason(detail: &str) -> &'static str {
         "host-exited-during-adoption" => "died_during_adoption",
         "terminal host ended without a durable exit sidecar" => "died_without_exit_status",
         "terminal exit receipt is missing" => "missing_exit_receipt",
+        "unadoptable-host-ended" => "unadoptable_host_ended",
         // A signal exit during a session shutdown (logout): "session-shutdown: signal N".
         _ if detail.starts_with("session-shutdown") => "session_shutdown",
         _ => "other",

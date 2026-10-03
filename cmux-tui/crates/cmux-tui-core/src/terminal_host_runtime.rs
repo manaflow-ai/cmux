@@ -2321,6 +2321,10 @@ mod unix {
         pub record_version: Option<u64>,
         /// `host_pid` when the file is JSON with that field.
         pub host_pid: Option<u32>,
+        /// `incarnation` and `host_start_nonce` when both are canonical
+        /// lowercase hex: they name the host's live marker, the only proof
+        /// this build accepts that `host_pid` is that host.
+        pub marker: Option<PathBuf>,
         pub reason: String,
     }
 
@@ -2358,13 +2362,12 @@ mod unix {
                         record_path: path,
                         record_version: None,
                         host_pid: None,
+                        marker: None,
                         reason: format!("unreadable: {error}"),
                     });
                     continue;
                 }
             };
-            let loose = serde_json::from_slice::<serde_json::Value>(&bytes).ok();
-            let field = |name: &str| loose.as_ref().and_then(|value| value.get(name)?.as_u64());
             let reason = match serde_json::from_slice::<TerminalHostRecord>(&bytes) {
                 Ok(record) => match validate_terminal_host_record(&path, &record) {
                     Ok(_) => continue,
@@ -2372,11 +2375,28 @@ mod unix {
                 },
                 Err(error) => format!("undecodable: {error}"),
             };
+            let loose = serde_json::from_slice::<serde_json::Value>(&bytes).ok();
+            let number = |name: &str| loose.as_ref().and_then(|value| value.get(name)?.as_u64());
+            let hex = |name: &str| {
+                loose
+                    .as_ref()
+                    .and_then(|value| value.get(name)?.as_str())
+                    .filter(|text| {
+                        !text.is_empty()
+                            && text.len() <= 128
+                            && text.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                    })
+                    .map(str::to_owned)
+            };
+            let marker = hex("incarnation")
+                .zip(hex("host_start_nonce"))
+                .map(|(incarnation, nonce)| path.with_extension(format!("{incarnation}-{nonce}.live")));
             records.push(UnadoptableTerminalHostRecord {
                 terminal_id,
                 record_path: path,
-                record_version: field("record_version"),
-                host_pid: field("host_pid").and_then(|pid| u32::try_from(pid).ok()),
+                record_version: number("record_version"),
+                host_pid: number("host_pid").and_then(|pid| u32::try_from(pid).ok()),
+                marker,
                 reason,
             });
         }
@@ -2384,77 +2404,73 @@ mod unix {
         Ok(records)
     }
 
-    /// End the host of an unadoptable record without speaking its protocol.
-    /// The kill needs positive proof that the recorded PID is this
-    /// terminal's live host: a `<terminal id>.*.live` marker that another
-    /// process holds locked (hosts hold it for their whole life) and a
-    /// running `host_pid`. Without that proof nothing is signalled. Returns
-    /// whether the host is gone and its artifacts were removed.
-    pub fn terminate_unadoptable_terminal_host(
-        record: &UnadoptableTerminalHostRecord,
-    ) -> anyhow::Result<bool> {
-        let Some(parent) = record.record_path.parent() else { return Ok(false) };
-        let prefix = format!("{}.", record.terminal_id);
-        let markers = fs::read_dir(parent)?
-            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-            .filter(|path| {
-                path.extension().and_then(|value| value.to_str()) == Some("live")
-                    && path
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .is_some_and(|name| name.starts_with(&prefix))
-            })
-            .collect::<Vec<_>>();
-        let mut held = Vec::new();
-        for marker in &markers {
-            let file = match OpenOptions::new()
-                .read(true)
-                .write(true)
-                .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-                .open(marker)
-            {
-                Ok(file) => file,
-                Err(_) => continue,
-            };
-            // SAFETY: flock only probes the advisory lock of this owned fd.
-            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-                // SAFETY: same descriptor; release the probe lock at once.
-                let _ = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
-                continue;
-            }
-            held.push(file);
+    /// Open an unadoptable host's live marker when a live process holds it.
+    fn held_unadoptable_marker(record: &UnadoptableTerminalHostRecord) -> Option<File> {
+        let marker = record.marker.as_ref()?;
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+            .open(marker)
+            .ok()?;
+        // SAFETY: flock only probes the advisory lock of this owned fd.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+            // SAFETY: same descriptor; release the probe lock at once.
+            let _ = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+            return None;
         }
-        if let (Some(pid), Some(_)) = (record.host_pid, held.first()) {
-            let pid = libc::pid_t::try_from(pid)?;
-            // SAFETY: the host is a session leader (`setsid` at spawn), so its
-            // process group is its PID; a held live marker proves it runs.
-            if unsafe { libc::killpg(pid, libc::SIGKILL) } != 0
-                && std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
-            {
-                return Ok(false);
-            }
-            for file in &held {
-                // SAFETY: a blocking exclusive lock returns when the dying
-                // host's descriptor closes; it is the death proof, not a delay.
-                while unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
-                    if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
-                        return Ok(false);
-                    }
+        Some(file)
+    }
+
+    /// Block until an unadoptable host's live marker is free (the host
+    /// exited), then remove its record, marker and socket. Returns at once
+    /// when the marker is unknown or already free. Runs on a watcher
+    /// thread: the lock is the death proof, not a delay.
+    pub fn wait_for_unadoptable_terminal_host_exit(
+        record: &UnadoptableTerminalHostRecord,
+    ) -> anyhow::Result<()> {
+        if let Some(file) = held_unadoptable_marker(record) {
+            loop {
+                // SAFETY: a blocking exclusive lock on an owned descriptor.
+                if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
+                    break;
+                }
+                let error = std::io::Error::last_os_error();
+                if error.kind() != std::io::ErrorKind::Interrupted {
+                    return Err(error.into());
                 }
             }
-        } else if !held.is_empty() {
-            // A live marker without a usable PID: never guess a process.
-            return Ok(false);
         }
+        let Some(parent) = record.record_path.parent() else { return Ok(()) };
         let endpoint = PathBuf::from("/tmp")
             .join(format!("cmux-th-{}", fs::metadata(parent)?.uid()))
             .join(format!("{}.sock", record.terminal_id));
         let _ = fs::remove_file(&record.record_path);
-        for marker in markers {
+        if let Some(marker) = &record.marker {
             let _ = fs::remove_file(marker);
         }
         if fs::symlink_metadata(&endpoint).is_ok_and(|metadata| metadata.file_type().is_socket()) {
             let _ = fs::remove_file(endpoint);
+        }
+        Ok(())
+    }
+
+    /// Signal an unadoptable host to end without speaking its protocol.
+    /// Signals only with proof that `host_pid` is this terminal's live host:
+    /// the exact marker its record names (`<id>.<incarnation>-<nonce>.live`)
+    /// is held, and the PID exists. Returns whether a signal was sent; the
+    /// host's exit is observed by [`wait_for_unadoptable_terminal_host_exit`].
+    pub fn terminate_unadoptable_terminal_host(
+        record: &UnadoptableTerminalHostRecord,
+    ) -> anyhow::Result<bool> {
+        let (Some(_held), Some(pid)) = (held_unadoptable_marker(record), record.host_pid) else {
+            return Ok(false);
+        };
+        let pid = libc::pid_t::try_from(pid)?;
+        // SAFETY: the host is a session leader (`setsid` at spawn), so its
+        // process group is its PID, and its held marker proves it runs.
+        if unsafe { libc::killpg(pid, libc::SIGKILL) } != 0 {
+            return Ok(false);
         }
         Ok(true)
     }
@@ -10304,6 +10320,7 @@ pub use unix::{
     remove_stale_terminal_host_record, serve_terminal_host_stdio, terminal_host_exit_record,
     terminal_host_record_liveness, terminal_host_root, terminate_unadoptable_terminal_host,
     validate_terminal_host_exit_record, validate_terminal_host_record,
+    wait_for_unadoptable_terminal_host_exit,
 };
 #[cfg(all(unix, test))]
 pub(crate) use unix::{
