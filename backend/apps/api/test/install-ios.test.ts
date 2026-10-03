@@ -1,6 +1,7 @@
 import { env, exports } from "cloudflare:workers"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
+import { derToRawP256 } from "../src/auth.ts"
 
 /**
  * The iPhone install principal (identity spec D5): an `ios` install registers with a session,
@@ -76,5 +77,16 @@ describe("iPhone install principal (D5)", { timeout: 30_000 }, () => {
     const ch = await call("/v1/auth/challenge", undefined, { user, install })
     const bad = Uint8Array.of(0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x09, 0x01)
     expect((await call("/v1/auth/token", undefined, { user, install, nonce: ch.json.nonce, signature: b64u(bad) })).status).toBe(403)
+  })
+
+  it("the DER parser accepts only minimal non-negative integers and well-formed lengths", () => {
+    const sig = (r: Array<number>, s: Array<number>) => Uint8Array.of(0x30, r.length + s.length + 4, 0x02, r.length, ...r, 0x02, s.length, ...s)
+    expect(derToRawP256(sig([0x01], [0x02]))).not.toBeNull()
+    expect(derToRawP256(sig([0x00, 0x80], [0x02]))).not.toBeNull()
+    expect(derToRawP256(sig([0x00, 0x01], [0x02]))).toBeNull() // non-minimal leading zero
+    expect(derToRawP256(sig([0x80], [0x02]))).toBeNull() // negative
+    expect(derToRawP256(Uint8Array.of(0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x02, 0x00))).toBeNull() // trailing byte
+    expect(derToRawP256(Uint8Array.of(0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x02).subarray(0, 7))).toBeNull() // truncated
+    expect(derToRawP256(Uint8Array.of(0x30, 0x05, 0x02, 0x01, 0x01, 0x01, 0x02))).toBeNull() // wrong tag
   })
 })
