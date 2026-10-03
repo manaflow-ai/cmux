@@ -25,7 +25,7 @@ struct CloudWorkspaceSidebarPresentation {
 
         guard !machines.isEmpty else { return nil }
         let names = machines.sorted { $0.rawValue < $1.rawValue }.map { @MainActor id in
-            state.machineNames[$0.rawValue] ?? SurfaceCatalog.shared.machineInfo(for: $0)?.name ?? $0.rawValue
+            state.machineNames[id.rawValue] ?? SurfaceCatalog.shared.machineInfo(for: id)?.name ?? id.rawValue
         }
         return String.localizedStringWithFormat(
             String(localized: "sidebar.deviceWorkspace.label", defaultValue: "Workspace on %@"), names.joined(separator: " · ")
