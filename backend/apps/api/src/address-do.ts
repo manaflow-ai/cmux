@@ -78,7 +78,7 @@ export class AddressDO extends OwnerDO<address.AddressHead> {
   /** One step of an invite; a throw comes before any provider call, so it counts as failed (nothing sent). */
   private async step(head: address.AddressHead, d: address.DeliveryRecord, step: "email" | "text" | "card", firstText = false) {
     try {
-      return await sendInvite(this.env, { invite: d.invite, conversation: d.conversation, channel: head.channel!, value: head.value!, secret: this.stashedSecret(d.invite) }, this.fetcher, step, firstText)
+      return await sendInvite(this.env, { invite: d.invite, conversation: d.conversation, channel: head.channel!, value: head.value!, secret: this.stashedSecret(d.invite), suppression: head.suppression?.reason ?? null }, this.fetcher, step, firstText)
     } catch {
       console.log(JSON.stringify({ msg: "home invite send", at: new Date().toISOString(), invite: d.invite, channel: head.channel, step, state: "failed", reason: "adapter error" }))
       return { state: "failed" as const, provider_id: null }
@@ -110,9 +110,16 @@ export class AddressDO extends OwnerDO<address.AddressHead> {
           this.record(d.invite, o.state, o.provider_id)
           continue
         }
+        // One card per number: a card already on its way makes later invites wait for the same status.
+        const pending = this.sqlStore.exec<{ card_handle: string }>(`SELECT card_handle FROM address_card_steps LIMIT 1`)[0]
+        if (pending) {
+          this.sqlStore.exec(`INSERT INTO address_card_steps (invite, card_handle, at) VALUES (?, ?, ?) ON CONFLICT (invite) DO NOTHING`, d.invite, pending.card_handle, now)
+          continue
+        }
         const card = await this.step(head, d, "card")
         if (card.state === "sent" && card.provider_id) this.sqlStore.exec(`INSERT INTO address_card_steps (invite, card_handle, at) VALUES (?, ?, ?) ON CONFLICT (invite) DO NOTHING`, d.invite, card.provider_id, now)
-        else this.record(d.invite, card.state, card.provider_id)
+        // A card accepted without a handle can never release its text: that invite failed.
+        else this.record(d.invite, card.state === "sent" ? "failed" : card.state, card.provider_id)
       }
     }
     // An attempt that never recorded its outcome (the object stopped between the attempt row and the
@@ -137,20 +144,30 @@ export class AddressDO extends OwnerDO<address.AddressHead> {
     const head = engine.currentState
     if (!head.value || head.channel !== "sms") return
     if (!m.is_outbound) {
-      if (m.opted_out || /^\s*(stop|stopall|unsubscribe|cancel|end|quit)\s*$/i.test(m.content)) this.submitSystem("address.suppress", { reason: "opted_out" }, `suppress:${m.message_handle}`)
+      if (m.opted_out || address.keywordOf(m.content) === "stop") this.submitSystem("address.suppress", { reason: "opted_out" }, `suppress:${m.message_handle}`)
       return
     }
     if (m.opted_out) this.submitSystem("address.suppress", { reason: "opted_out" }, `suppress:${m.message_handle}`)
-    const step = this.sqlStore.exec<{ invite: string }>(`SELECT invite FROM address_card_steps WHERE card_handle = ?`, m.message_handle)[0]
-    if (step) {
-      const d = head.deliveries.find((x) => x.invite === step.invite && x.state === "sending")
-      if (!d) return
-      if (m.status === "ERROR" || m.status === "DECLINED") return this.record(d.invite, "failed", m.message_handle)
+    const steps = this.sqlStore.exec<{ invite: string }>(`SELECT invite FROM address_card_steps WHERE card_handle = ?`, m.message_handle)
+    if (steps.length > 0) {
+      const waiting = steps.map((st) => head.deliveries.find((x) => x.invite === st.invite && x.state === "sending")).filter((x): x is address.DeliveryRecord => x !== undefined)
+      if (m.status === "ERROR" || m.status === "DECLINED") return waiting.forEach((d) => this.record(d.invite, "failed", m.message_handle))
       if (m.status !== "SENT" && m.status !== "DELIVERED") return
       this.sqlStore.exec(`INSERT INTO address_card_sent (at) VALUES (?)`, Date.now())
-      this.sqlStore.exec(`DELETE FROM address_card_steps WHERE invite = ?`, d.invite)
-      const o = await this.step(this.boundEngine!.currentState, d, "text", true)
-      this.record(d.invite, o.state, o.provider_id)
+      // Rows go before the awaits, so a duplicate status (SENT then DELIVERED) releases nothing twice.
+      this.sqlStore.exec(`DELETE FROM address_card_steps WHERE card_handle = ?`, m.message_handle)
+      let first = true
+      for (const d of waiting) {
+        const now = this.boundEngine!.currentState
+        // A number that opted out after the card (STOP) gets no text.
+        if (now.suppression) {
+          this.record(d.invite, "suppressed", null)
+          continue
+        }
+        const o = await this.step(now, d, "text", first)
+        first = false
+        this.record(d.invite, o.state, o.provider_id)
+      }
       return
     }
     const d = head.deliveries.find((x) => x.provider_id === m.message_handle)

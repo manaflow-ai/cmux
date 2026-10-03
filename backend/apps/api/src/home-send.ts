@@ -23,6 +23,8 @@ export interface SendTarget {
   readonly channel: "email" | "sms"
   readonly value: string
   readonly secret: string | undefined
+  /** The address's suppression; a suppressed address is never sent to (deliverInvite checks it). */
+  readonly suppression?: invites.Suppression | null
 }
 
 export interface SendOutcome {
@@ -82,7 +84,7 @@ export const sendInvite = async (
     ...(sendblue ? { sendblue } : {})
   }
   const deliver = async (message: invites.RenderedEmail | invites.RenderedSms, inviteId: string) => {
-    const result = await invites.deliverInvite(deps, { inviteId, address: { channel: target.channel, value: target.value }, suppression: null, message })
+    const result = await invites.deliverInvite(deps, { inviteId, address: { channel: target.channel, value: target.value }, suppression: target.suppression ?? null, message })
     log(result.state, { allowlist_index: result.allowlist_index ?? 0, provider_id: result.provider_id ?? null, http_status: result.http_status ?? null, reason: result.reason ?? null })
     return { state: result.state, provider_id: result.provider_id ?? null }
   }

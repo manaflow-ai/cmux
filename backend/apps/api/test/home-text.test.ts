@@ -72,6 +72,82 @@ describe("invite texts (stage C part 2)", { timeout: 60_000 }, () => {
     expect(await runInDurableObject(addr, async (i) => i.boundEngine.currentState.suppression?.reason)).toBe("opted_out")
   })
 
+  it("a STOP after the card sends no text; a second invite waits for the same card instead of a second card", async () => {
+    const token = await sessionToken("text-owner-2")
+    await op(token, "user.ensure", {})
+    const user = userIdFor(testEnv.STACK_PROJECT_ID, "text-owner-2")
+    const phone = "+14155550124"
+    const address = invites.addressId(testEnv.HOME_ADDRESS_KEY, invites.normalizePhone(phone) as invites.Address)
+    const addr = testEnv.ADDRESS_DO.get(testEnv.ADDRESS_DO.idFromName(address))
+    const sends: Array<{ media_url?: string; content: string }> = []
+    let handle = true
+    await runInDurableObject(addr, async (instance) => {
+      instance.env = { ...instance.env, ...ON, HOME_INVITE_ALLOWLIST_PHONES: phone }
+      instance.fetcher = async (_url: string, init: { body: string }) => {
+        sends.push(JSON.parse(init.body))
+        return { status: 200, json: async () => (handle ? { message_handle: `k-${sends.length}`, status: "QUEUED" } : { status: "QUEUED" }) }
+      }
+    })
+    const pump = async (conv: unknown, want: number) => {
+      for (let i = 0; i < 10 && sends.length < want; i++) {
+        await runDurableObjectAlarm(conv as never)
+        await runDurableObjectAlarm(addr)
+      }
+    }
+    const states = () => runInDurableObject(addr, async (i) => (i.boundEngine.currentState.deliveries as Array<{ state: string }>).map((d) => d.state))
+    // Invite 1 sends the card; invite 2 to the same number waits for that card instead of sending another.
+    expect((await op(token, "dm.open", { peer: { phone } })).ok).toBe(true)
+    await pump(testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(homeConversation.dmConversationId(user, address))), 1)
+    expect(sends).toHaveLength(1)
+    // A second inviter (the same inviter would count as a repeat).
+    const token2 = await sessionToken("text-owner-2b")
+    await op(token2, "user.ensure", {})
+    const user2 = userIdFor(testEnv.STACK_PROJECT_ID, "text-owner-2b")
+    expect((await op(token2, "dm.open", { peer: { phone } })).ok).toBe(true)
+    const conv2 = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(homeConversation.dmConversationId(user2, address)))
+    for (let i = 0; i < 10 && (await states()).length < 2; i++) {
+      await runDurableObjectAlarm(conv2)
+      await runDurableObjectAlarm(addr)
+    }
+    await runDurableObjectAlarm(addr)
+    expect(await states()).toEqual(["sending", "sending"])
+    expect(sends).toHaveLength(1)
+    // The recipient answers STOP before the card status comes: SENT releases no text.
+    await (addr as any).textEvent(address, { message_handle: "in-9", status: "RECEIVED", number: phone, is_outbound: false, content: " stop ", opted_out: false })
+    await (addr as any).textEvent(address, { message_handle: "k-1", status: "SENT", number: phone, is_outbound: true, content: "", opted_out: false })
+    expect(sends).toHaveLength(1)
+    expect(await states()).toEqual(["suppressed", "suppressed"])
+  })
+
+  it("a card accepted without a handle closes the invite with no text", async () => {
+    const token = await sessionToken("text-owner-3")
+    await op(token, "user.ensure", {})
+    const user = userIdFor(testEnv.STACK_PROJECT_ID, "text-owner-3")
+    const phone = "+14155550125"
+    const address = invites.addressId(testEnv.HOME_ADDRESS_KEY, invites.normalizePhone(phone) as invites.Address)
+    const addr = testEnv.ADDRESS_DO.get(testEnv.ADDRESS_DO.idFromName(address))
+    let sent = 0
+    await runInDurableObject(addr, async (instance) => {
+      instance.env = { ...instance.env, ...ON, HOME_INVITE_ALLOWLIST_PHONES: phone }
+      instance.fetcher = async () => {
+        sent++
+        return { status: 200, json: async () => ({ status: "QUEUED" }) }
+      }
+    })
+    expect((await op(token, "dm.open", { peer: { phone } })).ok).toBe(true)
+    const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(homeConversation.dmConversationId(user, address)))
+    for (let i = 0; i < 10 && sent === 0; i++) {
+      await runDurableObjectAlarm(conv)
+      await runDurableObjectAlarm(addr)
+    }
+    expect(sent).toBe(1)
+    // The adapter reports a handle-less accept as indeterminate; nothing waits on it and no text follows.
+    expect(await runInDurableObject(addr, async (i) => String(i.boundEngine.currentState.deliveries[0].state))).toBe("indeterminate")
+    expect(await runInDurableObject(addr, async (_i, state) => state.storage.sql.exec("SELECT COUNT(*) AS n FROM address_card_steps").one().n)).toBe(0)
+    await runDurableObjectAlarm(addr)
+    expect(sent).toBe(1)
+  })
+
   it("the webhook needs the secret and acts on SendBlue's own record of the handle", async () => {
     const hook = (secret: string | null, fetcher: typeof fetch) =>
       handleSendblueHook(
