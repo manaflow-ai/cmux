@@ -1,4 +1,4 @@
-import { type AcpmuxEvent, lastReply, type SessionStatus, type SessionSummary, TurnFolder } from "./acp.ts";
+import { type AcpmuxEvent, lastReply, type SessionStatus, type SessionSummary, TurnFolder, validEvent } from "./acp.ts";
 import { AGENT_MUX, type Change, type Message, type Op, type Summary, type WorkStatus } from "./conversation.ts";
 import {
   AGENT_GAP_RETRY_MS,
@@ -495,7 +495,7 @@ export class Core {
   ): void {
     if (this.acpmuxUp) this.disconnected("acpmux");
     const first = events[0];
-    const identity = logId ?? (first?.seq === 1 && typeof first.at === "number" ? first.at : undefined);
+    const identity = logId ?? (first && validEvent(first) && first.seq === 1 && typeof first.at === "number" ? first.at : undefined);
     let reset = false;
     if (this.state.muxSessionId !== sessionId) {
       this.state.muxSessionId = sessionId;
@@ -536,6 +536,10 @@ export class Core {
   }
 
   private applyMuxEvent(event: AcpmuxEvent): void {
+    if (!validEvent(event)) {
+      this.log(`dropping acpmux event ${String(event.kind)}: seq and at must be non-negative integers`);
+      return;
+    }
     // A new log's first event names it (acpmuxLog), so a later connect can compare.
     if (event.seq === 1 && typeof event.at === "number" && this.state.acpmuxLog === undefined) {
       this.state.acpmuxLog = event.at;

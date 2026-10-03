@@ -66,6 +66,18 @@ export function utf16Prefix(text: string, limit: number): string {
   return text.slice(0, end);
 }
 
+const countOk = (value: unknown) => value === undefined || value === null || (Number.isSafeInteger(value) && (value as number) >= 0);
+
+/**
+ * An event's seq and at are absent (null counts as absent) or non-negative
+ * integers. Any other value (a float, a negative number, a string) makes the
+ * event invalid: both cores drop it (the Rust core reads it as invalid
+ * instead of failing to parse).
+ */
+export function validEvent(event: AcpmuxEvent): boolean {
+  return countOk((event as { seq?: unknown }).seq) && countOk((event as { at?: unknown }).at);
+}
+
 /** A prompt id from an event: a non-empty string, else none. */
 function promptIdOf(msg: Record<string, unknown>): string | undefined {
   return typeof msg.promptId === "string" && msg.promptId !== "" ? msg.promptId : undefined;
@@ -89,6 +101,7 @@ export class TurnFolder {
   }
 
   apply(event: AcpmuxEvent): TurnOutput[] {
+    if (!validEvent(event)) return [];
     // A missing seq, msg, dir or kind reads as 0, {}, "" or "" (the Rust core's serde defaults).
     const seq = typeof event.seq === "number" ? event.seq : 0;
     const msg = event.msg ?? {};
