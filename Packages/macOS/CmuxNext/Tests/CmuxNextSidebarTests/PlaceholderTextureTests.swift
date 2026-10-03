@@ -68,11 +68,24 @@ import Testing
         #expect(live.isAccessibilityElement())
     }
 
-    /// macOS ships a braille face, so the texture draws glyphs, in a font
-    /// that really has the cell (never the LastResort box).
+    /// The tonal bar is the default; braille is a Debug Settings toggle.
+    @Test func aPlaceholderRowDrawsTheTonalBarByDefault() throws {
+        #expect(SidebarTunables.placeholderBraille.defaultValue == false)
+        let view = makeSidebar()
+        let placeholder = try #require(view.list.rowViews[.workspace(WorkspaceID("placeholder:cloud-1:2"))] as? WorkspaceRowView)
+        placeholder.layoutSubtreeIfNeeded()
+        #expect(!placeholder.placeholderTexture.drawsBraille)
+    }
+
+    /// macOS ships a braille face, so the texture can draw glyphs, in a
+    /// font that really has the cell (never the LastResort box).
     @Test func theTextureDrawsBrailleWhenAFontHasIt() throws {
         let font = try #require(PlaceholderTextureView.brailleFont(inkHeight: 6))
         #expect(font.fontName != "LastResort")
         #expect(PlaceholderTextureView.brailleFont(inkHeight: 0) == nil)
+        let texture = PlaceholderTextureView()
+        texture.inkHeight = 6
+        texture.usesBraille = true
+        #expect(texture.drawsBraille)
     }
 }

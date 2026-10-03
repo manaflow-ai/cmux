@@ -1,11 +1,11 @@
 import AppKit
 import CoreText
 
-/// What a placeholder row draws where its title goes: the tonal bar's
-/// shape as a quieter texture, a static run of braille cells (`⣿`) in the
-/// bar's color, as tall as the bar and as wide as the bar would be. When no
-/// installed font draws braille (Core Text would show the LastResort box),
-/// the plain tonal bar. Never animates, takes no clicks and is no
+/// What a placeholder row draws where its title goes: the tonal bar, or
+/// with `usesBraille` (Debug Settings, off by default) the bar's shape as a
+/// quieter texture, a static run of braille cells (`⣿`) in the bar's color,
+/// as tall as the bar and as wide as the bar would be. When no installed
+/// font draws braille (Core Text would show the LastResort box), the bar. Never animates, takes no clicks and is no
 /// accessibility element: the section header says the machine connects.
 final class PlaceholderTextureView: NSView {
     /// The cell repeated across the width: all eight dots.
@@ -18,13 +18,29 @@ final class PlaceholderTextureView: NSView {
     var inkHeight: CGFloat = 0 {
         didSet {
             guard inkHeight != oldValue else { return }
-            glyphFont = Self.brailleFont(inkHeight: inkHeight)
+            resolveGlyphFont()
             needsDisplay = true
         }
     }
 
-    /// The font that draws the cells; nil draws the tonal bar.
+    /// Draws braille cells instead of the bar (when a font has them).
+    var usesBraille = false {
+        didSet {
+            guard usesBraille != oldValue else { return }
+            resolveGlyphFont()
+            needsDisplay = true
+        }
+    }
+    /// The font that draws the cells; nil when braille is off or no font
+    /// has the cell. Resolved only while braille is on, so the default
+    /// bar never asks Core Text for a fallback face.
     private(set) var glyphFont: NSFont?
+    /// What `draw` uses: braille cells, else the tonal bar.
+    var drawsBraille: Bool { glyphFont != nil }
+
+    private func resolveGlyphFont() {
+        glyphFont = usesBraille ? Self.brailleFont(inkHeight: inkHeight) : nil
+    }
 
     override var isFlipped: Bool { true }
     override func isAccessibilityElement() -> Bool { false }

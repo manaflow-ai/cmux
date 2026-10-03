@@ -27,8 +27,8 @@ final class WorkspaceRowView: SidebarRowView {
     var onClose: (() -> Void)?
     /// The row draws a placeholder texture instead of a title.
     private(set) var isShowingPlaceholder = false
-    /// The tonal bar as static braille where the title goes (no shimmer),
-    /// or the bar itself when no font draws braille.
+    /// The static tonal bar where the title goes (no shimmer), or the bar
+    /// as braille cells with the Debug Settings toggle.
     let placeholderTexture = PlaceholderTextureView()
     /// The texture's share of the text width, varied per row so a column of
     /// placeholders does not read as one block.
@@ -145,7 +145,7 @@ final class WorkspaceRowView: SidebarRowView {
             paintFill(isDropTarget ? Palette.selectionFill
                 : isSecondarySelected ? Palette.secondarySelectionFill
                 : isHovered && !isShowingPlaceholder ? Palette.hoverFill : nil)
-            // The sidebar's own tonal step, once more: dots a step apart.
+            // The sidebar's own tonal step, once more: a bar (or dots) a step apart.
             placeholderTexture.color = Palette.sidebarStep
         }
     }
@@ -195,6 +195,7 @@ final class WorkspaceRowView: SidebarRowView {
         let textW = max(0, trailing - textX)
         title.isHidden = renaming || isShowingPlaceholder
         placeholderTexture.isHidden = !isShowingPlaceholder
+        placeholderTexture.usesBraille = SidebarTunables.placeholderBraille.value
         placeholderTexture.frame = NSRect(x: textX + Self.labelInset, y: 0,
                                           width: max(0, textW - 2 * Self.labelInset) * placeholderFraction, height: b.height)
         // The marquee fades glyphs out across the padding left of them.
