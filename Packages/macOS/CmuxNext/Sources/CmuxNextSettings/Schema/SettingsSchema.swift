@@ -163,6 +163,17 @@ public nonisolated enum SettingsSchema {
                 keywords: ["theme", "color", "colors", "color scheme", "dark", "light", "ghostty", "palette"]
             ),
             SettingDescriptor(
+                BackdropArtSetting().configPath, section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.backdropArt", "Backdrop Art"),
+                help: SettingsText.keyed("settings.appearance.backdropArt.help",
+                                        "A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above."),
+                kind: .choice([
+                    SettingChoice("none", SettingsText.keyed("settings.choice.none", "None")),
+                    SettingChoice(BackdropArt.wheatField.rawValue, SettingsText.keyed("settings.choice.wheatField", "Wheat Field with Cypresses")),
+                ]),
+                default: "none", keywords: ["painting", "art", "wallpaper", "backdrop", "van Gogh", "attribution"]
+            ),
+            SettingDescriptor(
                 WindowBackgroundSetting.opacityPath, section: .appearance, group: window,
                 title: SettingsText.keyed("settings.appearance.backgroundOpacity", "Opacity"),
                 help: SettingsText.keyed("settings.appearance.backgroundOpacity.help",

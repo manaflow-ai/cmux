@@ -316,3 +316,18 @@ export const FileDoc = (p: CvIconProps) => (
     <path d="M9.25 2.25v3h3" />
   </Svg>
 );
+
+/** Envelope of agent-to-agent message cards ("Coordinator · cmux-ci to leo"). */
+export const Envelope = (p: CvIconProps) => (
+  <Svg strokeWidth={1.1} {...p}>
+    <rect x="2.25" y="3.75" width="11.5" height="8.5" rx="1.75" />
+    <path d="m2.75 4.75 5.25 4 5.25-4" />
+  </Svg>
+);
+
+/** Arrow between a message's sender and recipient. */
+export const ArrowRight = (p: CvIconProps) => (
+  <Svg {...p}>
+    <path d="M3.5 8h9M9.25 4.75 12.5 8l-3.25 3.25" />
+  </Svg>
+);

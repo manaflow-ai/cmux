@@ -33012,6 +33012,399 @@
             "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
           }
         }}
+    },
+    "settings.appearance.backdropArt": {
+      "comment": "Optional public-domain backdrop art and its museum attribution.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backdrop Art"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hintergrundkunst"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Œuvre en arrière-plan"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لوحة الخلفية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arte de fondo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景藝術"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景艺术"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배경 그림"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景アート"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umjetnost u pozadini"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baggrundskunst"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arte di sfondo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សិល្បៈផ្ទៃខាងក្រោយ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bakgrunnskunst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sztuka tła"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arte de fundo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Искусство на фоне"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "งานศิลป์พื้นหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arka plan sanatı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мистецтво на тлі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nghệ thuật nền"
+          }
+        }
+      }
+    },
+    "settings.appearance.backdropArt.help": {
+      "comment": "Optional public-domain backdrop art and its museum attribution.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein gemeinfreies Gemälde hinter dem Fenstermaterial. Verringere die Deckkraft, um es sichtbar zu machen. Der Bildnachweis ist oben verlinkt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un tableau du domaine public derrière le matériau de la fenêtre. Réduisez l’opacité pour le voir. Le crédit est accessible ci-dessus."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لوحة في الملكية العامة خلف مادة النافذة. قلّل التعتيم لإظهارها. رابط نسب العمل موجود أعلاه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una pintura de dominio público detrás del material de la ventana. Reduce la opacidad para verla. La atribución está enlazada arriba."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在視窗材質後方顯示公有領域畫作。降低不透明度即可看見。上方提供作品出處連結。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在窗口材质后方显示公有领域画作。降低不透明度即可看见。上方提供作品出处链接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창 재질 뒤에 퍼블릭 도메인 그림을 표시합니다. 불투명도를 낮추면 보입니다. 위에 작품 출처 링크가 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウのマテリアルの背後にパブリックドメインの絵画を表示します。不透明度を下げると見えます。上に作品の出典リンクがあります。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slika u javnom vlasništvu iza materijala prozora. Smanjite neprozirnost da biste je otkrili. Atribucija je povezana iznad."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et maleri fra det offentlige domæne bag vinduets materiale. Sænk opaciteten for at se det. Attributionen er linket ovenfor."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un dipinto di pubblico dominio dietro il materiale della finestra. Riduci l’opacità per vederlo. L’attribuzione è collegata sopra."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គំនូរដែលជាកម្មសិទ្ធិសាធារណៈនៅពីក្រោយសម្ភារៈបង្អួច។ បន្ថយភាពស្រអាប់ដើម្បីបង្ហាញវា។ តំណភ្ជាប់ការបញ្ជាក់ប្រភពស្ថិតនៅខាងលើ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et maleri i det offentlige domene bak vindusmaterialet. Senk dekkevnen for å se det. Krediteringen er lenket ovenfor."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obraz z domeny publicznej za materiałem okna. Zmniejsz krycie, aby go zobaczyć. Powyżej znajduje się link do informacji o autorstwie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma pintura de domínio público atrás do material da janela. Reduza a opacidade para vê-la. A atribuição está vinculada acima."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Картина из общественного достояния за материалом окна. Уменьшите непрозрачность, чтобы её увидеть. Ссылка на атрибуцию находится выше."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภาพวาดสาธารณสมบัติที่อยู่ด้านหลังวัสดุหน้าต่าง ลดความทึบเพื่อดูภาพวาด ลิงก์แสดงที่มาอยู่ด้านบน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pencere malzemesinin arkasında kamu malı bir tablo gösterilir. Görmek için opaklığı azaltın. Eser bilgisi yukarıda bağlantılıdır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Картина з суспільного надбання за матеріалом вікна. Зменште непрозорість, щоб її побачити. Посилання на атрибуцію наведено вище."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một bức tranh thuộc phạm vi công cộng phía sau lớp vật liệu cửa sổ. Giảm độ mờ để nhìn thấy tranh. Liên kết ghi công ở phía trên."
+          }
+        }
+      }
+    },
+    "settings.choice.wheatField": {
+      "comment": "Optional public-domain backdrop art and its museum attribution.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wheat Field with Cypresses"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weizenfeld mit Zypressen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Champ de blé avec cyprès"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حقل قمح مع أشجار السرو"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Campo de trigo con cipreses"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有絲柏的麥田"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有柏树的麦田"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이프러스가 있는 밀밭"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "糸杉のある麦畑"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pšenično polje s čempresima"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvedemark med cypresser"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Campo di grano con cipressi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វាលស្រូវសាលីជាមួយដើមស៊ីព្រេស"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hveteåker med sypresser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pole pszenicy z cyprysami"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Campo de trigo com ciprestes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пшеничное поле с кипарисами"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทุ่งข้าวสาลีกับต้นไซเปรส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servilerle buğday tarlası"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пшеничне поле з кипарисами"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cánh đồng lúa mì với những cây bách"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
