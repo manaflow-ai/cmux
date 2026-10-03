@@ -57,6 +57,7 @@ public final class PaletteController {
         model.performer = { [registry] handler in registry.reportingRefusal(handler) }
         model.onRefusal = { [weak self] _ in self?.presentAgain() }
         model.onEditShortcut = { [weak self] id in self?.shortcutRecorder.begin(id) ?? false }
+        model.onDropShortcutRecorder = { [weak self] in self?.shortcutRecorder.abandon() }
     }
 
     // MARK: Registry wiring
@@ -251,7 +252,8 @@ public final class PaletteController {
         registry.context.remove(.paletteOpen)
         onVisibilityChange?(false)
         model.closeActionsMenu()
-        shortcutRecorder.cancel()
+        shortcutRecorder.abandon()
+        model.shortcutRecorder = nil
         model.hover(nil)
         model.didHide()
         presentationGeneration += 1
