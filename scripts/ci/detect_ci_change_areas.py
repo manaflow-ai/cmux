@@ -1334,8 +1334,11 @@ def is_macos_neutral(
             "plans/",
             "ios/",
             "web/",
-            "webviews/",
-            # Lint and format settings for webviews/ and cmux-tui web only.
+            # Webview sources feed generated resources consumed by the native app.
+            # Keep web CI routing and add one compile admission for webview-only
+            # pull requests, so a resource integration break is caught without
+            # escalating to the full macOS suite.
+            # Lint and format settings for cmux-tui web only.
             "config/vite-plus/",
             "cmux-tui/",
             "cmux-browser/",

@@ -476,12 +476,18 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == pull_request && "$BASE_REF" == feat-cmux-next ]]; then
-            # The cmux-next workflow owns its Swift, Rust and web checks.
-            # Keep the generic changes job for shared web routing, but do not
-            # send a next-line PR through the deleted app-host product lanes.
-            echo "macos=false" >> "$GITHUB_OUTPUT"
+            # The cmux-next workflow owns its Swift, Rust and web checks. Keep
+            # the generic changes job for shared web routing, but do not send a
+            # next-line PR through the legacy app-host suite. Webview sources
+            # are the one exception: they become native resources, so retain
+            # one compile-admission job alongside web validation.
+            webview_native=false
+            if [ -f /tmp/cmux-ci-changed-files.txt ] && grep -Eq '^(webviews/|Resources/markdown-viewer/webviews-app/)' /tmp/cmux-ci-changed-files.txt; then
+              webview_native=true
+            fi
+            echo "macos=$webview_native" >> "$GITHUB_OUTPUT"
             echo "swift_packages=false" >> "$GITHUB_OUTPUT"
-            echo "release_build=false" >> "$GITHUB_OUTPUT"
+            echo "release_build=$webview_native" >> "$GITHUB_OUTPUT"
             echo "full_suite=false" >> "$GITHUB_OUTPUT"
           fi
 

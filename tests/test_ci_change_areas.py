@@ -552,8 +552,11 @@ def test_changelog_runs_web_validation() -> None:
     assert_areas(["CHANGELOG.md"], macos=True, web=True)
 
 
-def test_web_only_runs_web_without_macos() -> None:
-    assert_areas(["web/app/page.tsx", "webviews/src/diff/App.tsx"], macos=False, web=True)
+def test_web_only_runs_web_and_one_native_compile_for_webviews() -> None:
+    # Web app changes stay web-only, while webview sources also feed native
+    # bundles and therefore get one compile admission.
+    assert_areas(["web/app/page.tsx"], macos=False, web=True)
+    assert_areas(["webviews/src/diff/App.tsx"], macos=True, web=True)
     assert_areas(
         [
             "workers/presence/src/index.ts",
@@ -2793,6 +2796,15 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
 
 # ci.yml's legacy lanes skip PRs into feat-cmux-next, which cmux-next.yml covers.
 FEAT_CMUX_NEXT_PR_SKIP = "(github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next')"
+
+
+def test_feat_next_route_keeps_one_compile_for_webview_resources() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    start = workflow.index("      - name: Route cmux-next pull requests away from legacy product lanes")
+    block = workflow[start:workflow.index("      - name: Route standalone project workflows", start)]
+    assert "grep -Eq '^(webviews/|Resources/markdown-viewer/webviews-app/)" in block
+    assert 'echo "macos=$webview_native"' in block
+    assert 'echo "full_suite=false"' in block
 
 
 def test_required_tests_status_waits_for_platform_workflows() -> None:
