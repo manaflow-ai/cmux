@@ -180,10 +180,12 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             // Live resize reflows bubbles; keep the bottom pinned or the reader's anchor fixed.
             let anchor = captureAnchor()
             lastWidth = width
-            withoutAnimation {
-                tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<rows.count))
+            programmatic {
+                withoutAnimation {
+                    tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<rows.count))
+                }
+                reconfigureVisibleRows()
             }
-            reconfigureVisibleRows()
             if isPinnedToBottom { scrollToBottom() } else { restore(anchor) }
         }
         composer.maximumFieldHeight = max(28, view.bounds.height * 0.40)
@@ -228,8 +230,10 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         let insets = NSEdgeInsets(top: top + spacer, left: 0, bottom: bottom, right: 0)
         let old = scrollView.contentInsets
         guard old.top != insets.top || old.bottom != insets.bottom else { return }
-        scrollView.contentInsets = insets
-        scrollView.scrollerInsets = NSEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
+        programmatic {
+            scrollView.contentInsets = insets
+            scrollView.scrollerInsets = NSEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
+        }
         if followingBottom, isPinnedToBottom, hasPositioned { scrollToBottom() }
     }
 
@@ -246,18 +250,39 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         scrollView.contentView.bounds.origin.y >= maxOffset - tolerance
     }
 
+    /// Scrolls the transcript makes itself; any other bounds change is the
+    /// reader's (wheel, keyboard, scroller, gesture) and updates the pin.
+    private var programmaticScrollDepth = 0
+    private var programmaticScrollAnimations = 0
+
+    private func programmatic(_ body: () -> Void) {
+        programmaticScrollDepth += 1
+        body()
+        programmaticScrollDepth -= 1
+    }
+
+    private func animateScroll(to target: NSPoint, duration: TimeInterval, timing: CAMediaTimingFunction? = nil) {
+        programmaticScrollAnimations += 1
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = duration
+            if let timing { context.timingFunction = timing }
+            context.allowsImplicitAnimation = true
+            scrollView.contentView.animator().setBoundsOrigin(target)
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated { self?.programmaticScrollAnimations -= 1 }
+        })
+    }
+
     func scrollToBottom(animated: Bool = false) {
         let target = NSPoint(x: 0, y: maxOffset)
-        if animated {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.3
-                context.allowsImplicitAnimation = true
-                scrollView.contentView.animator().setBoundsOrigin(target)
+        programmatic {
+            if animated {
+                animateScroll(to: target, duration: 0.3)
+            } else {
+                scrollView.contentView.scroll(to: target)
             }
-        } else {
-            scrollView.contentView.scroll(to: target)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
         }
-        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
     @objc private func liveScrollStarted() { isLiveScrolling = true }
@@ -273,7 +298,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
 
     @objc private func boundsDidChange() {
         let origin = scrollView.contentView.bounds.origin.y
-        if NSEvent.pressedMouseButtons != 0 || isLiveScrolling {
+        let readerScrolled = programmaticScrollDepth == 0 && programmaticScrollAnimations == 0
+        if NSEvent.pressedMouseButtons != 0 || isLiveScrolling || readerScrolled {
             isPinnedToBottom = isNearBottom()
         }
         if origin + scrollView.contentInsets.top < scrollView.contentSize.height * 1.5 {
@@ -308,8 +334,10 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
 
     private func restore(_ anchor: Anchor?) {
         guard let anchor, let index = rowIndex[anchor.rowID], let y = bubbleTop(index) else { return }
-        scrollView.contentView.scroll(to: NSPoint(x: 0, y: min(max(-scrollView.contentInsets.top, y - anchor.offset), maxOffset)))
-        scrollView.reflectScrolledClipView(scrollView.contentView)
+        programmatic {
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: min(max(-scrollView.contentInsets.top, y - anchor.offset), maxOffset)))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
     }
 
     // MARK: Store changes
@@ -356,8 +384,10 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         }
 
         trace("change.before \(change)")
-        apply(newRows, from: oldRows)
-        updateInsets()
+        programmatic {
+            apply(newRows, from: oldRows)
+            updateInsets()
+        }
         defer { trace("change.after \(change)") }
 
         if !hasPositioned {
@@ -467,7 +497,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         let eased = 1 - pow(1 - t, 3)
         typingProgress = typingAnimationFrom + (typingTarget - typingAnimationFrom) * eased
         if let index = rows.lastIndex(where: { if case .typing = $0 { return true } else { return false } }) {
-            withoutAnimation { tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: index)) }
+            programmatic { withoutAnimation { tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: index)) } }
             if let typingView = tableView.view(atColumn: 0, row: index, makeIfNecessary: false) as? MacTypingRowView {
                 typingView.progress = typingProgress
             }
@@ -510,11 +540,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         let end = maxOffset
         trace(String(format: "flight scroll %.1f -> %.1f", start, end))
         if abs(end - start) > 0.5 {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.32
-                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.25, 1)
-                context.allowsImplicitAnimation = true
-                scrollView.contentView.animator().setBoundsOrigin(NSPoint(x: 0, y: end))
+            programmatic {
+                animateScroll(to: NSPoint(x: 0, y: end), duration: 0.32, timing: CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.25, 1))
             }
         } else {
             scrollToBottom()
