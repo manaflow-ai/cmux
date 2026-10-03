@@ -88,19 +88,28 @@ struct RawAcpmuxEvent {
 const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
 
 /// A count on the acpmux wire (seq, at, log id): a non-negative safe
-/// integer, else `None` (a float, a negative number, a string).
+/// integer, else `None` (a fraction, a negative number, a string).
 pub(crate) fn lenient_count_value(value: &Value) -> Option<u64> {
     count(Some(value.clone())).ok().flatten()
 }
 
 /// An absent or null count is `Ok(None)`; a non-negative safe integer is
-/// `Ok(Some)`; anything else is `Err`.
+/// `Ok(Some)`; anything else is `Err`. JSON has one number type, so an
+/// integer-valued float (`1.0`, `3e0`, `-0`) is that integer, as JavaScript's
+/// `Number.isSafeInteger` reads it after `JSON.parse`.
 fn count(value: Option<Value>) -> Result<Option<u64>, ()> {
     match value {
         None | Some(Value::Null) => Ok(None),
-        Some(Value::Number(number)) => {
-            number.as_u64().filter(|n| *n <= MAX_SAFE_INTEGER).map(Some).ok_or(())
-        }
+        Some(Value::Number(number)) => match (number.as_u64(), number.as_f64()) {
+            (Some(n), _) => Some(n).filter(|n| *n <= MAX_SAFE_INTEGER).map(Some).ok_or(()),
+            // In range and integral (`-0.0` included), so the cast is exact.
+            (None, Some(float))
+                if float.fract() == 0.0 && (0.0..=MAX_SAFE_INTEGER as f64).contains(&float) =>
+            {
+                Ok(Some(float as u64))
+            }
+            _ => Err(()),
+        },
         Some(_) => Err(()),
     }
 }
