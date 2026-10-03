@@ -101,6 +101,8 @@ public final nonisolated class ServerHelperService: NSObject, ServerHelperProtoc
             }
             let result = try await runner.run(ServerFix.pmset, fix.applyArguments)
             return result.status == 0 ? nil : "pmset exited \(result.status)"
+        } catch is ServerHelperTimedOut {
+            return "pmset timed out"
         } catch {
             return "pmset did not start"
         }
@@ -113,6 +115,8 @@ public final nonisolated class ServerHelperService: NSObject, ServerHelperProtoc
             guard result.status == 0 else { return "pmset exited \(result.status)" }
             try priors.clear(fix)
             return nil
+        } catch is ServerHelperTimedOut {
+            return "pmset timed out"
         } catch {
             return "pmset did not start"
         }

@@ -5,31 +5,20 @@ public protocol ServerFixRunner: Sendable {
     func run(_ executable: URL, _ arguments: [String]) async throws -> FixRunResult
 }
 
-/// Runs the allowlisted executable with no shell and an empty environment.
+/// Runs the allowlisted executable with no shell and an empty environment,
+/// killed after `limit` on the injected clock.
 public nonisolated struct ProcessFixRunner: ServerFixRunner {
-    public init() {}
+    private let limit: Duration
+    private let clock: any Clock<Duration>
+
+    public init(limit: Duration = .seconds(10), clock: any Clock<Duration> = ContinuousClock()) {
+        self.limit = limit
+        self.clock = clock
+    }
 
     public func run(_ executable: URL, _ arguments: [String]) async throws -> FixRunResult {
-        let pipe = Pipe()
-        return try await withCheckedThrowingContinuation { continuation in
-            let process = Process()
-            process.executableURL = executable
-            process.arguments = arguments
-            process.environment = [:]
-            process.standardInput = FileHandle.nullDevice
-            process.standardOutput = pipe
-            process.standardError = FileHandle.nullDevice
-            process.terminationHandler = { finished in
-                // concurrency-allow: Process.terminationHandler runs on a background queue, never the main thread; pmset -g custom prints about 1 KiB, far below the pipe buffer, so it never blocks the child before exit
-                let data = (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
-                continuation.resume(returning: FixRunResult(status: finished.terminationStatus, output: String(decoding: data.prefix(65_536), as: UTF8.self)))
-            }
-            do {
-                try process.run()
-            } catch {
-                continuation.resume(throwing: error)
-            }
-        }
+        let child = FixChild(executable, arguments)
+        return try await ServerHelperDeadline.run(limit: limit, clock: clock, operation: { try await child.start() }, onTimeout: { child.kill() })
     }
 }
 
