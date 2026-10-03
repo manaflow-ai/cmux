@@ -18,6 +18,22 @@ xcrun simctl install "$udid" "$app"
 shot() { xcrun simctl io "$udid" screenshot --type=png "$out/$1.png" >/dev/null; }
 settle() { sleep "${1:-4}"; }  # capture script only: wait for launch animations
 
+# SIM_GALLERY_ONLY=conversation: the Chief and group conversations on the
+# shared render core (mock owner), light and dark, as real simulator frames.
+if [[ "${SIM_GALLERY_ONLY:-}" == conversation ]]; then
+  for kind in chief group; do
+    for appearance in light dark; do
+      xcrun simctl ui "$udid" appearance "$appearance"
+      SIMCTL_CHILD_CMUX_IOS_HOME_PREVIEW=1 SIMCTL_CHILD_CMUX_IOS_OPEN_CONVERSATION="$kind" \
+        xcrun simctl launch --terminate-running-process "$udid" "$bundle" >/dev/null
+      settle 7; shot "conversation-$kind-$appearance"
+    done
+  done
+  xcrun simctl ui "$udid" appearance light
+  xcrun simctl terminate "$udid" "$bundle" >/dev/null 2>&1 || true
+  ls -1 "$out"; exit 0
+fi
+
 if [[ "${SIM_GALLERY_ONLY:-}" != terminal ]]; then
 xcrun simctl ui "$udid" appearance light
 xcrun simctl launch --terminate-running-process "$udid" "$bundle" >/dev/null
