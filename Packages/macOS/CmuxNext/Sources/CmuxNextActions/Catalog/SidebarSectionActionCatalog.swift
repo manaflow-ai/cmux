@@ -45,9 +45,10 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "sidebar.item.hideApp", title: t("action.sidebar.item.hideApp", "Hide"),
                 keywords: ["sidebar", "app", "hide", "extension"], category: .sidebar, symbol: "eye.slash",
-                surfaces: [.palette, .keyboard, .contextMenu], targets: [.sidebarItem], cliName: "sidebar hide-app",
-                // Offered on app items only (SidebarBridge filters the menu).
-                surfacePlan: plan(menus: [p(.sidebarItem, .close, 120)])
+                surfaces: [.palette, .keyboard, .contextMenu], targets: [.sidebarItem, .sidebarSection], cliName: "sidebar hide-app",
+                // Offered on app items and app sections only (SidebarBridge
+                // filters the menus); the app comes from the target.
+                surfacePlan: plan(menus: [p(.sidebarItem, .close, 120), p(.sidebarSection, .close, 120)])
             ),
             ActionDescriptor(
                 id: "sidebar.item.toggleLabel", title: t("action.sidebar.item.toggleLabel", "Show or Hide Label"),

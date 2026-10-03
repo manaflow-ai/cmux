@@ -2,6 +2,13 @@
 
 Design note, 2026-10-01. Owner: the cmux-next browser-use lead. Binding inputs: cmux-next-spec `spec/browser-use.md` (draft 2), `decisions.md` D12 and D20, `references/browser-use.md`, `references/browser-repl-inventory.md`; OWNERSHIP-PRINCIPLES.md; browser.md (CEF fork, shim, R2). Base implementation: PR https://github.com/manaflow-ai/cmux/pull/15570 (`cmux browser repl`, owner session feat-browser-repl-parity-8c, called "the REPL session" below). Its driver protocol ([browser-repl/driver-protocol.md](browser-repl/driver-protocol.md), moved from `docs/browser-repl`) is the contract this note builds on; its `tests/browser-parity` is the conformance suite. This note does not change either; changes to them go to the REPL session through the coordinator.
 
+> **Resume note (parked 2026-10-03, browser-use lead):**
+> 1. Branch `feat-cmux-next-browser-host-b` (head 1471aaaea0c, rebased on feat-cmux-next): REPL VM, policy gate, request interception, MCP port; review round 3 CLEAN; hosted full run 37074766904 FAILED on lint (linux), test (linux), web-frontend, cause not read yet (GitHub API rate limit). Next: read those job logs, fix, rerun `./scripts/verify-cmux-tui-hosted.sh --full`, then push to feat-cmux-next with a COORDINATION line.
+> 2. Branch `feat-cmux-next-wake-post` (head pushed, not landed): POST pages never hibernate (WebKit tracker + CEF shim export). Swift tests green via nx-remote; shim compile UNVERIFIED (nx-remote ssh dropped). Next: `scripts/cmux-next/ensure-cef.sh` + `build-cef-shim.sh` on the build host, gates, then land.
+> 3. Landed today: quit-order fix a73630ec329, SIGPIPE no-op handler 3114269a0cd. Open after landing b: seal tabs (decision 8), owner policy path (fail-closed setup, real-Chromium worker/WebSocket tests), WebRTC, native fetch, conformance 11/33.
+> 4. Waiting on the CEF fork lane: cmux.14 pin (adopt `cmux_tab_duplicate` behind `browser.duplicateRight`), watchdog/signal-handler change.
+> 5. Lawrence decision pending: with any domain policy active, all WebSockets are blocked (Slack, Linear included).
+
 ## Decisions (Lawrence, 2026-10-01, via the coordinator)
 
 1. **Daemon-supervised host, app as engine provider (decided).** It must just work: the host starts on demand with no setup, restarts after a crash, the app's provider reconnects by itself, sessions survive an app restart, and the UI shows a clear state when an engine is unavailable (section 1, "Lifecycle and user-visible state").

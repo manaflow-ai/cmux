@@ -2,6 +2,8 @@
 
 Status: proposal 2, lane 3 lead, 2026-10-02. Inputs (binding): cmux-next-spec `spec/app-platform.md` (draft 1), decisions D50 (first-party apps), D51 (three tiers), D52 (security and complete sandboxing), P5 (no studied-product names in public repos), `spec/identity-and-permissions.md` (grants, approval modes), plans/cmux-next/app-platform.md (implementation plan), OWNERSHIP-PRINCIPLES.md, skills/cmux-next-feature. Only the coordinator writes the spec; this file is the lane 3 proposal ("spec proposal: first-party apps").
 
+PARKED 2026-10-02 (capacity): privacy fix draft PR 17063 (feat-cmux-next-acct-labels 94ec8d85c9d; focused tests green on nx-remote, 53 tests) needs a review subagent, check-action-surfaces and the merge; integrations to the backend's final contract is draft PR 17055 (feat-cmux-next-integrations-v2 f9c68ebf0ad; core done, app side half done); next after those: switch notes and inbox (and any other first-party app) from cmux.gesture() to ctx.gesture / ctx.cmux for PR 17008.
+
 ## 1. Summary for agents
 
 - Five first-party apps run on the app platform and use only the public app API (the generated `cmux` global, the view builders, the manifest): **search**, **inbox**, **notes**, **coderouter** (UI and onboarding for CodeRouter) and **usage** (plan usage and limits in the macOS menu bar). They are the platform's proof: anything they cannot do with the public API is a platform gap (section 3), never a private hook.

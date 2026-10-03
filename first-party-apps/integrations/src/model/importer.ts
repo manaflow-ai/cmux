@@ -4,8 +4,7 @@
 // `integration.catalog.preview`, which runs the same core server-side and can
 // fetch private specs with a credential the app never sees.
 
-import { importText, ImportError } from "../core/catalog.ts"
-import type { AuthMethod, Catalog } from "../core/types.ts"
+import { importText, ImportError, type AuthMethod, type Catalog } from "@cmux/integrations-core"
 import { t } from "../l10n.ts"
 import type { Connection, Sharing } from "./connections.ts"
 import { providerInfo } from "./providers.ts"

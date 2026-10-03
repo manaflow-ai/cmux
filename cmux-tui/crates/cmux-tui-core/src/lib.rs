@@ -47,6 +47,7 @@ mod resource_router;
 mod resource_screen;
 mod resource_selector;
 mod resource_tab;
+mod session_shutdown;
 mod shell_history;
 mod shell_integration;
 mod short_id;
@@ -54,6 +55,7 @@ mod sidebar_resource;
 pub mod sizing_policy;
 mod stream_interrupt;
 mod surface;
+mod terminal_end;
 mod terminal_metadata;
 mod workspace_registry;
 
