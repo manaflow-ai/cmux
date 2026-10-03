@@ -65,6 +65,7 @@ extension AppControl {
                                     _ call: @escaping @Sendable (CodeRouterClient, String?, [String: JSONValue]) async throws -> Data)
         -> ControlMethod {
         .mainActor(name) { request in
+            if let refusal = Self.policyRefusal(name, disabled: services.registry.disabledFeatures) { throw refusal }
             guard let client = services.accounts.client else { throw ControlError(code: "unavailable", message: "Cloud is not available in this build") }
             let params = request.params
             let team = (params["teamId"] ?? params["team_id"])?.stringValue

@@ -34,7 +34,7 @@ public final class SettingsController {
     /// Device-scoped values of the managing team's policy; set with `setTeamPolicy`.
     public internal(set) var teamPolicy: TeamPolicyLayer = .none
 
-    @ObservationIgnored private let applier: SettingsApplier
+    @ObservationIgnored let applier: SettingsApplier
     @ObservationIgnored private var watcher: ConfigFileWatcher?
     @ObservationIgnored private var reloadTask: Task<Void, Never>?
     @ObservationIgnored private var reloadRequested = false
@@ -260,7 +260,9 @@ public final class SettingsController {
             fileRoot = effective.fileRoot
             managedKeys = effective.managedKeys
             managedPolicy = effective.policy
-            applier.registry.disabledFeatures = ManagedPreferences.disabledFeatures(in: effective.policy)
+            let policy = ManagedPreferences.disabledFeatures(in: effective.policy)
+            applier.registry.disabledFeatures = policy.features
+            if let problem = policy.problem { diagnostics.append(problem) }
             file.managedGuard.update(effective.managedKeys)
             reportManagedStatus(managed: loaded.inputs.managed, team: loaded.inputs.team, effective: effective)
         }

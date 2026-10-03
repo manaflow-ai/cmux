@@ -39,6 +39,12 @@ final class AppsService {
         registry.onChange = { [weak self] app in self?.host.refreshGrants(app.manifest) }
     }
 
+    /// Turning apps off stops every running app and refuses new starts
+    /// (DisabledFeatures); open app pages show "Turned off by your organization".
+    func applyPolicy(disabled: Bool) {
+        host.disabledReason = disabled ? RefusalStrings.turnedOffByOrganization : nil
+    }
+
     func start() {
         // task-owner: one-shot registry scan at launch; an open store lists the result.
         Task { [weak self] in

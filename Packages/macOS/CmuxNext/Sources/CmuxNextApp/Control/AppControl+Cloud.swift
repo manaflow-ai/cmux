@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextControl
 import CmuxNextSettings
 
@@ -23,6 +24,7 @@ extension AppControl {
                 ]))
             },
             .mainActor("cloud.machines") { _ in
+                if let refusal = Self.policyRefusal("cloud.machines", disabled: services.registry.disabledFeatures) { throw refusal }
                 let rows: [JSONValue] = services.machines.cloud.map { session in
                     let store = session.daemon.store
                     let state: String = switch store.connectionState {

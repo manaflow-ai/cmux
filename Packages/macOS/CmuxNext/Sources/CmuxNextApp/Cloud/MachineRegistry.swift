@@ -42,6 +42,12 @@ final class MachineRegistry {
         ssh.first { $0.machineID == machineID }
     }
 
+    /// The machine's daemon even while its feature is turned off (its
+    /// endpoint refuses); for routing that must not fall back to this Mac.
+    func anyDaemon(machine machineID: String) -> DaemonService? {
+        machineID == Self.localID ? local : session(machineID)?.daemon ?? sshSession(machineID)?.daemon
+    }
+
     func daemon(machine machineID: String) -> DaemonService? {
         if machineID == Self.localID { return local }
         if let cloud = session(machineID) { return isFeatureDisabled(.cloud) ? nil : cloud.daemon }

@@ -20,7 +20,7 @@ public nonisolated enum ActionFeature: String, CaseIterable, Sendable, Hashable 
         let id = descriptor.id.rawValue
         let lowered = id.lowercased()
         if lowered.hasPrefix("computeruse") || id.hasPrefix("palette.computerUse.") { return .computerUse }
-        if descriptor.category == .remote || id == "disconnectRemoteTab" { return .remoteHosts }
+        if descriptor.category == .remote || id == "disconnectRemoteTab" || ["server.makeThisMacAServer", "server.addServer"].contains(id) { return .remoteHosts }
         if id.hasPrefix("app.") || id.hasPrefix("appStore.") { return .apps }
         if lowered.contains("cloud") || id == "switchRightSidebarToMachines" { return .cloud }
         return nil

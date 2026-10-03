@@ -10,6 +10,9 @@ nonisolated enum RefusalStrings {
         String(localized: key, defaultValue: value, table: "Refusals", bundle: .module)
     }
 
+    /// A feature an administrator turned off (DisabledFeatures).
+    static var turnedOffByOrganization: String { text("refusal.policy.turnedOff", "Turned off by your organization") }
+
     static func format(_ key: StaticString, _ value: String.LocalizationValue, _ arguments: any CVarArg...) -> String {
         String(format: text(key, value), arguments: arguments)
     }

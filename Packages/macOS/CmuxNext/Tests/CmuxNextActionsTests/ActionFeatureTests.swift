@@ -56,4 +56,24 @@ import Testing
         registry.disabledFeatures = [.cloud]
         #expect(registry.resolve(shortcut)?.id != "newCloudMachine")
     }
+
+    @Test func serverActionsAreRemoteHosts() {
+        let remote = Self.ids(.remoteHosts)
+        // Opening remote access is turned off; stopping a running server stays possible.
+        #expect(remote.isSuperset(of: ["server.makeThisMacAServer", "server.addServer"]))
+        #expect(!remote.contains("server.stopServing"))
+    }
+
+    /// A turned-off feature binds no key or chord, so the leader overlay
+    /// and shortcut resolution never reach it; other chords stay.
+    @Test func aDisabledFeatureLeavesTheShortcutIndex() throws {
+        let registry = ActionRegistry.standard()
+        registry.disabledFeatures = Set(ActionFeature.allCases)
+        let index = registry.currentShortcutIndex()
+        let chorded = index.chords.values.flatMap { $0.values.flatMap { $0 } }
+        let keyed = index.byShortcut.values.flatMap { $0 }
+        #expect(!chorded.isEmpty && !keyed.isEmpty)
+        for id in chorded + keyed { #expect(registry.disabledFeature(for: id) == nil, "\(id)") }
+        #expect(!keyed.contains("newCloudMachine"))
+    }
 }
