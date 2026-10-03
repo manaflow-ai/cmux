@@ -2,7 +2,7 @@
 // OpenAPI 3 description, a GraphQL introspection result or an MCP `tools/list`
 // result, and turns it into a `Catalog` with tools, per-tool defaults and the
 // auth methods the document declares. The format extractors it calls are
-// adapted from executor (MIT, see LICENSE-executor); this file is cmux code.
+// adapted from executor (MIT, see NOTICE); this file is cmux code.
 
 import { authMethodsFromOpenApi } from "./openapi-auth.ts"
 import { DocResolver, extract as extractOpenApi, toolsFromOpenApi } from "./openapi.ts"

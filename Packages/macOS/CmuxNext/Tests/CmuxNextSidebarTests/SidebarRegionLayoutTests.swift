@@ -203,4 +203,19 @@ import Testing
         #expect(view.aboveRegion.itemView(LayoutItemID("itm_app")) != nil)
     }
 
+
+    /// A suppressed app's sections and items draw nothing (no placeholder)
+    /// and come back in their places when it is presented again.
+    @Test func suppressedAppsDrawNothingAndReturnInPlace() {
+        var doc = SidebarLayoutDocument.defaults
+        doc.sections.insert(LayoutSection(id: LayoutSectionID("sec_app"), region: .top, content: .app, contribution: "a/prs#prs"), at: 1)
+        doc.sections[0].items.insert(LayoutItem(id: LayoutItemID("itm_app"), ref: .app("a/prs")), at: 1)
+        let hidden = doc.sections.presenting(hidingItems: [], apps: ["a/prs"])
+        #expect(!hidden.contains { $0.id == LayoutSectionID("sec_app") })
+        #expect(!hidden[0].items.contains { $0.id == LayoutItemID("itm_app") })
+        let shown = doc.sections.presenting(hidingItems: [], apps: [])
+        #expect(shown == doc.sections)
+        #expect(shown[1].id == LayoutSectionID("sec_app") && shown[0].items[1].id == LayoutItemID("itm_app"))
+    }
+
 }

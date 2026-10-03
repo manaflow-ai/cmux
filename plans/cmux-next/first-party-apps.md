@@ -2,6 +2,8 @@
 
 Status: proposal 2, lane 3 lead, 2026-10-02. Inputs (binding): cmux-next-spec `spec/app-platform.md` (draft 1), decisions D50 (first-party apps), D51 (three tiers), D52 (security and complete sandboxing), P5 (no studied-product names in public repos), `spec/identity-and-permissions.md` (grants, approval modes), plans/cmux-next/app-platform.md (implementation plan), OWNERSHIP-PRINCIPLES.md, skills/cmux-next-feature. Only the coordinator writes the spec; this file is the lane 3 proposal ("spec proposal: first-party apps").
 
+PARKED 2026-10-02 (capacity): privacy fix draft PR 17063 (feat-cmux-next-acct-labels 94ec8d85c9d; focused tests green on nx-remote, 53 tests) needs a review subagent, check-action-surfaces and the merge; integrations to the backend's final contract is draft PR 17055 (feat-cmux-next-integrations-v2 f9c68ebf0ad; core done, app side half done); next after those: switch notes and inbox (and any other first-party app) from cmux.gesture() to ctx.gesture / ctx.cmux for PR 17008.
+
 ## 1. Summary for agents
 
 - Five first-party apps run on the app platform and use only the public app API (the generated `cmux` global, the view builders, the manifest): **search**, **inbox**, **notes**, **coderouter** (UI and onboarding for CodeRouter) and **usage** (plan usage and limits in the macOS menu bar). They are the platform's proof: anything they cannot do with the public API is a platform gap (section 3), never a private hook.
@@ -181,6 +183,23 @@ A root is a grant resource selector `{kind: "workspaceFolder", workspace}` or `{
 - In the tagged app: the prototype registry loads bundled samples only; first-party apps reach a tagged build when `scripts/cmux-next/sync-app-runtime.sh` also copies `first-party-apps/*` (request to the app platform lead) and pane kinds mount (S1). Until then the in-app path is UNVERIFIED.
 
 ## 7. Decisions for Lawrence (through the coordinator)
+
+Accepted by the coordinator on 2026-10-02:
+
+| # | Decision | In code |
+| --- | --- | --- |
+| A1 | Connection handles an app holds are `conn_…`; `host_…` stays the public registry id of an enrolled host | Finder app |
+| A2 | Built web bundles are committed for now (Monaco adds 3.98 MB) | CodeMirror, Monaco apps |
+| A3 | Web panes allow `style-src 'unsafe-inline'`; scripts stay `'self'` | editor apps' CSP |
+| A4 | CodeMirror is the default editor; Monaco is opt-in | Diffs embed default |
+| A5 | The integrations ingestion code (adapted from executor, MIT) lives in an MIT package outside `backend/`, which the backend depends on | integrations-core package PR |
+| A6 | Destructive integration tools default to Block (the backend lead confirms against the spec's "require approval") | integrations policy defaults |
+| A7 | The session host on each machine owns `agent_cli.*`, `skill.*`, `mcp_server.*` and `memory.*` | proposal (daemon not built) |
+| A8 | MCP servers of agents without an `enabled` flag are disabled by moving them to the sibling key `_cmuxDisabledMcpServers` | skills app reference merge |
+| A9 | Usage sends one notice per provider with no usable account, not per-account warnings | usage app |
+| A10 | The install-state owner keeps the "defaults offered" set forever | install-state reducer |
+
+Privacy rule (coordinator, 2026-10-02): account identities reach callers (socket, CLI, MCP, apps, op results) only as `acct_…` label handles (stable, opaque, per user: HMAC of provider and identity with a per-user salt) plus a redacted display label; never an email.
 
 See the lane 3 report; each has a recommendation.
 

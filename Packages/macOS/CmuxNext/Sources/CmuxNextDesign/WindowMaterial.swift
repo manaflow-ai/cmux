@@ -20,9 +20,12 @@ public nonisolated enum WindowMaterial: Hashable, Sendable {
     /// `background-blur = macos-glass-regular` (-1) or
     /// `macos-glass-clear` (-2).
     case glass(GlassStyle)
-    /// A behind-window blur (`NSVisualEffectView`, `.behindWindow`,
-    /// `.active`): a translucent window with a `background-blur` radius, or
-    /// `appearance.backgroundBlur = "frosted"`.
+    /// The theme tint over the desktop, blurred by the window's own
+    /// `background-blur` radius (`ghostty_set_window_background_blur`, as
+    /// Ghostty.app does): a translucent window with a radius, or
+    /// `appearance.backgroundBlur = "frosted"`. No view: a window-sized
+    /// behind-window `NSVisualEffectView` composites the desktop and its own
+    /// material into an opaque sheet, so the window read as opaque.
     case frosted
     /// Plain see-through: no material view, only the theme tint at the
     /// resolved opacity. A translucent window with no blur
@@ -32,8 +35,8 @@ public nonisolated enum WindowMaterial: Hashable, Sendable {
     /// Whether the window root hosts a material view for this material.
     public var hasMaterialView: Bool {
         switch self {
-        case .frosted, .glass: true
-        case .opaque, .translucent: false
+        case .glass: true
+        case .opaque, .translucent, .frosted: false
         }
     }
 }

@@ -251,6 +251,18 @@ public nonisolated enum SettingsSchema {
                 default: .string(PaneFocusSettings.tabBarBackgroundFallback.rawValue), keywords: ["tab", "strip", "background", "bar"]
             ),
             SettingDescriptor(
+                PaneFocusSettings.inactiveTabStylePath, section: .appearance, group: look,
+                title: SettingsText.text("settings.focus.inactiveTabStyle", "Unfocused Pane Tabs"),
+                help: SettingsText.text("settings.focus.inactiveTabStyle.help",
+                                        "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill."),
+                kind: .choice([
+                    SettingChoice(InactiveTabStyle.fade.rawValue, SettingsText.text("settings.choice.fade", "Fade")),
+                    SettingChoice(InactiveTabStyle.tonal.rawValue, SettingsText.text("settings.choice.tonal", "Tonal")),
+                    SettingChoice(InactiveTabStyle.quiet.rawValue, SettingsText.text("settings.choice.quiet", "Quiet")),
+                ]),
+                default: .string(PaneFocusSettings.inactiveTabStyleFallback.rawValue), keywords: ["focus", "inactive", "unfocused", "pane", "tab", "fade", "dim"]
+            ),
+            SettingDescriptor(
                 AnimationSpeedSetting.configPath, section: .appearance, group: look,
                 title: SettingsText.text("settings.ui.animationSpeed", "Animations"),
                 kind: .choice([
