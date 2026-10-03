@@ -46,6 +46,7 @@ final class NotificationCenterService {
 
     func start(services: AppServices) {
         self.services = services
+        desktopPostingEnabled = !services.environment.showcase
         feedBridge = Self.makeFeedBridge(services.feed)
         desktop.onOpen = { [weak self] _, surface in self?.open(surface: surface.map(SurfaceID.init(rawValue:))) }
         let store = services.daemon.store

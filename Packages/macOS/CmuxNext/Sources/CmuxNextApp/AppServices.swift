@@ -280,7 +280,6 @@ final class AppServices {
         startInputVerification()
         startNoActivateGuard()
         chromiumWarmup = ChromiumWarmup(engine: cache.cef)
-        notifications.desktopPostingEnabled = !environment.showcase
         notifications.start(services: self)
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
         (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] window in
