@@ -2066,8 +2066,11 @@ jobs:
         timeout-minutes: 2
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          # The release App (Contents + Workflows write only); its id and key
+          # live only in the release environment. manaflow-glaeda-route has
+          # no contents permission, so it could never move this tag.
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-contents: write
