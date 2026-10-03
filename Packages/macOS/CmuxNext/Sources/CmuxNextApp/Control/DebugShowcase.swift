@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextControl
+import CmuxNextDesign
 import CmuxNextSettings
 
 /// Seeds the deterministic DEBUG showcase in the current app window.
