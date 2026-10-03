@@ -10,6 +10,7 @@ public import Foundation
 ///                        └──────── reattaching ◀── overflow ────────┘
 /// stream ended / attach failed ─▶ disconnected ─event─▶ reattaching
 /// any ─processExited─▶ exited        any ─close─▶ closed
+/// exited ─processRevived─▶ reattaching
 /// ```
 ///
 /// A view is never closed because its stream ended or an attach failed: it
@@ -18,7 +19,9 @@ public import Foundation
 /// focus, the terminal or the connection back). One re-attach at a time. A
 /// re-attach after a failed re-attach waits the capped backoff first
 /// (`openAfterBackoff`); nothing retries on a timer. A terminal whose
-/// process ended is `exited` and never re-attaches.
+/// process ended is `exited` and never re-attaches on a view event; only the
+/// daemon reporting the terminal running again (`processRevived`) re-attaches
+/// it, because a dead report can be transient (R41).
 ///
 /// Rules the reducer enforces, whatever order events arrive in:
 /// - Input typed before the replay (first attach or reattach) is queued and
@@ -91,7 +94,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         case .ended(let link, let reason): ended(link, reason: reason)
         case .reconnect: reconnect()
         case .processExited: processExited()
-        case .processRevived: []
+        case .processRevived: processRevived()
         case .close: close()
         }
     }
@@ -289,6 +292,26 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         claimed = false
         reportedSize = nil
         return (link.map { [Effect.detach($0)] } ?? []) + announce(.exited)
+    }
+
+    /// The daemon reports the terminal running after it reported it dead.
+    /// A pending exit is withdrawn; an exited view attaches again for a fresh
+    /// replay. A live or disconnected view is unaffected (the App's
+    /// `reconnect` covers a disconnected one).
+    private mutating func processRevived() -> [Effect] {
+        switch phase {
+        case .attaching, .reattaching:
+            exitAfterReplay = false
+            return []
+        case .exited:
+            exitAfterReplay = false
+            phase = .disconnected(Disconnected(reason: .streamEnded, failedReconnects: 0))
+            return reconnect()
+        case .disconnected:
+            return reconnect()
+        case .detached, .live, .closed:
+            return []
+        }
     }
 
     private mutating func announce(_ status: LinkStatus) -> [Effect] {
