@@ -23,11 +23,11 @@ final class SSHTuiWorkspaceCoordinator {
         agentStatus = SSHTuiAgentStatusProjector(catalog: catalog)
     }
 
-    static func usesDurableCreationReceipt(machineID: String, restoring: Bool) -> Bool {
+    nonisolated static func usesDurableCreationReceipt(machineID: String, restoring: Bool) -> Bool {
         restoring && !machineID.hasPrefix("ssh:")
     }
 
-    static func configurationForAttach(_ input: WorkspaceRemoteConfiguration) -> WorkspaceRemoteConfiguration {
+    nonisolated static func configurationForAttach(_ input: WorkspaceRemoteConfiguration) -> WorkspaceRemoteConfiguration {
         var configuration = input
         if let saved = configuration.restoredSSHSession,
            saved.sshSessionOwner != "cmux-tui",
@@ -72,17 +72,19 @@ final class SSHTuiWorkspaceCoordinator {
         return provider
     }
 
-    func open(workspace: Workspace, configuration: WorkspaceRemoteConfiguration, initialCommand: [String]? = nil) async throws {
+    func open(workspace: Workspace, configuration: WorkspaceRemoteConfiguration, initialCommand: [String]? = nil, focus: Bool = true) async throws {
         attempts.removeValue(forKey: workspace.id)?.cancel()
         let attemptID = UUID()
         workspace.sshTuiConnectionAttemptID = attemptID
         let restoring = workspace.remoteConfiguration != nil
         workspace.remoteConfiguration = configuration
         workspace.applyRemoteConnectionStateUpdate(.connecting, detail: nil, target: configuration.displayTarget)
-        try await attach(workspace: workspace, configuration: configuration, attemptID: attemptID, initialCommand: initialCommand, restoring: restoring)
+        try await attach(workspace: workspace, configuration: configuration, attemptID: attemptID, initialCommand: initialCommand, restoring: restoring, focus: focus)
     }
 
-    private func attach(workspace: Workspace, configuration: WorkspaceRemoteConfiguration, attemptID: UUID, initialCommand: [String]? = nil, restoring: Bool = false) async throws {
+    private func attach(workspace: Workspace, configuration: WorkspaceRemoteConfiguration, attemptID: UUID, initialCommand: [String]? = nil, restoring: Bool = false, focus: Bool = false) async throws {
+        let discardedLegacyDescriptor = configuration.restoredSSHSession != nil
+            && Self.configurationForAttach(configuration).restoredSSHSession == nil
         let preparedConfiguration = Self.configurationForAttach(configuration)
         if preparedConfiguration.restoredSSHSession == nil, configuration.restoredSSHSession != nil {
             // A workspace saved by the retired cmuxd-remote path can still be
@@ -94,9 +96,12 @@ final class SSHTuiWorkspaceCoordinator {
         }
         let configuration = preparedConfiguration
         let connection = SSHTuiConnection(configuration: configuration)
+        if discardedLegacyDescriptor, workspace.cloudVMBinding?.vmID == connection.id {
+            workspace.cloudVMBinding = nil
+        }
         let provider = try provider(connection: connection)
         let machine = provider.machine
-        var reservation = reserveInitialTerminal(workspace: workspace, machine: machine, configuration: configuration)
+        var reservation = reserveInitialTerminal(workspace: workspace, machine: machine, configuration: configuration, focus: focus)
         var completed = false
         defer {
             if !completed, workspace.sshTuiConnectionAttemptID == attemptID, let reservation {
@@ -211,7 +216,7 @@ final class SSHTuiWorkspaceCoordinator {
 
     /// Replace the local scaffold before yielding so an SSH workspace can never start a local shell.
     private func reserveInitialTerminal(workspace: Workspace, machine: SurfaceMachineID,
-                                        configuration: WorkspaceRemoteConfiguration) -> CloudTerminalPaneReservation? {
+                                        configuration: WorkspaceRemoteConfiguration, focus: Bool = false) -> CloudTerminalPaneReservation? {
         guard configuration.preserveAfterTerminalExit else { return nil }
         if let pending = workspace.cloudPendingCreations.values.first(where: { $0.machine == machine }) {
             workspace.restartReservedCloudTerminalPane(pending)
@@ -221,7 +226,7 @@ final class SSHTuiWorkspaceCoordinator {
               !catalog.projections.contains(where: { $0.workspaceID == workspace.id && $0.resource.machine == machine }) else { return nil }
         let scaffold = Set(workspace.panels.keys)
         guard let reservation = workspace.reserveCloudTerminalPane(
-            machine: machine, at: .workspace(id: workspace.id, placement: .tab), focus: false
+            machine: machine, at: .workspace(id: workspace.id, placement: .tab), focus: focus
         ) else { return nil }
         reservation.retry = { [weak self, weak workspace] in
             guard let self, let workspace else { return }

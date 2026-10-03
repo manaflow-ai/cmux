@@ -43,12 +43,7 @@ public struct CloudPaneCreationFailure: Identifiable, Equatable {
     /// contain terminal content or credentials, so never copy arbitrary error text.
     private static func errorMessage(_ error: Error, isSSH: Bool) -> String {
         guard isSSH else { return CloudDiagnosticFailure.classify(error).label }
-        if let localized = error as? LocalizedError,
-           let text = localized.errorDescription,
-           !text.isEmpty {
-            return text
-        }
-        let text = String(describing: error)
-        return text.isEmpty ? "The SSH connection failed. Retry the connection." : text
+        return String(localized: "sshPane.newTerminalFailed.detail",
+                      defaultValue: "The SSH connection could not be established.")
     }
 }

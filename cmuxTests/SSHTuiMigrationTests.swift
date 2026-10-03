@@ -19,9 +19,21 @@ struct SSHTuiMigrationTests {
         let failure = CloudPaneCreationFailure(machine: .ssh("austins-macbook-pro"), error: CloudMachineLink.LinkError.timedOut)
 
         #expect(failure.displayTitle == "Couldn’t open SSH terminal")
-        #expect(failure.errorText.contains("cmux-tui link did not report a socket"))
+        #expect(failure.errorText == "The SSH connection could not be established.")
         #expect(failure.recoveryText.contains("SSH connection"))
         #expect(!failure.copyableText.contains("Cloud"))
+    }
+
+    @Test("SSH terminal failures do not expose provider responses")
+    func sshTerminalFailureSanitizesProviderDetails() {
+        struct LeakyError: LocalizedError {
+            var errorDescription: String? { "provider-name: response payload and secret" }
+        }
+        let failure = CloudPaneCreationFailure(machine: .ssh("host"), error: LeakyError())
+
+        #expect(!failure.errorText.contains("provider-name"))
+        #expect(!failure.copyableText.contains("response payload"))
+        #expect(!failure.copyableText.contains("secret"))
     }
 
     private func configuration(options: [String] = [], command: String? = nil, identityFile: String = "/tmp/key with spaces", profile: WorkspaceRemoteTerminalProfile = .shell) -> WorkspaceRemoteConfiguration {

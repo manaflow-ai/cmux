@@ -111,7 +111,7 @@ final class CloudTuiManualMirrorSession {
     /// remote cmux-tui predates replay framing. Cloud machines remain strict,
     /// because their managed transport cannot safely recover incomplete VT
     /// sequences without the modern capability.
-    static func shouldRejectStaleReplay(machineID: String, capabilities: [String]) -> Bool {
+    nonisolated static func shouldRejectStaleReplay(machineID: String, capabilities: [String]) -> Bool {
         guard !machineID.hasPrefix("ssh:") else { return false }
         return CloudTuiManualIOCommand().isStaleReplayDaemon(capabilities: capabilities)
     }

@@ -47,7 +47,8 @@ extension TerminalController {
         var creation = params
         creation.removeValue(forKey: "initial_command")
         creation["eager_load_terminal"] = false
-        creation["focus"] = false
+        let shouldFocus = params["focus"] as? Bool != false
+        creation["focus"] = shouldFocus
         let created = v2WorkspaceCreate(params: creation)
         guard case .ok(let raw) = created,
               let payload = raw as? [String: Any],
@@ -58,8 +59,8 @@ extension TerminalController {
         }
         do {
             let initialCommand = (params["initial_command"] as? String).map(connection.commandArguments)
-            try await coordinator.open(workspace: workspace, configuration: configuration, initialCommand: initialCommand)
-            if params["focus"] as? Bool != false, let panelID = workspace.focusedPanelId {
+            try await coordinator.open(workspace: workspace, configuration: configuration, initialCommand: initialCommand, focus: shouldFocus)
+            if shouldFocus, let panelID = workspace.focusedPanelId {
                 if let manager = AppDelegate.shared?.tabManagerFor(tabId: id) {
                     manager.selectWorkspace(workspace)
                 }
