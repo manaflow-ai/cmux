@@ -241,6 +241,79 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(contentSize.height, expectedContentSize.height, accuracy: 1)
     }
 
+    /// Closing a main window saves its size, and a later window with no source
+    /// window opens at it. A test that left a 560 pt window behind gave every
+    /// later test's window a 320 pt terminal area, too narrow for a split
+    /// (#15488). XCTest runs these two in name order; the second must still
+    /// split, because a test's saved geometry does not outlive it.
+    func testWindowGeometryIsolation1ClosesNarrowWindow() throws {
+        let previousShared = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousShared }
+
+        let windowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
+        XCTAssertEqual(appDelegate.resizeMainWindow(windowId: windowId, width: 560, height: 420)?.width, 560)
+        closeWindow(withId: windowId)
+
+        XCTAssertNotNil(
+            UserDefaults.standard.data(forKey: AppDelegate.debugPersistedWindowGeometryDefaultsKey),
+            "closing the window saves its geometry for the next window"
+        )
+    }
+
+    func testWindowGeometryIsolation2NextTestWindowStillSplits() throws {
+        let previousShared = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousShared }
+
+        let windowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
+        defer { closeWindow(withId: windowId) }
+        let workspace = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId)?.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        XCTAssertNotNil(
+            workspace.newTerminalSplit(from: panelId, orientation: .horizontal, focus: false),
+            "a window opened at an earlier test's 560 pt size has no room for a split"
+        )
+    }
+
+    /// A test that never touches the isolated keys writes none of them, so it
+    /// posts no defaults notification. A test that changed them gets back the
+    /// values it started with when its outermost scope ends.
+    func testDefaultsKeyIsolationRestoresOnlyChangedKeys() throws {
+        let suiteName = "cmuxTests.DefaultsKeyIsolation.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(WriteRecordingDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let kept = "cmuxTests.isolation.kept"
+        let changed = "cmuxTests.isolation.changed"
+        let added = "cmuxTests.isolation.added"
+        let isolation = DefaultsKeyIsolation(keys: [kept, changed, added], defaults: defaults)
+
+        isolation.begin()
+        isolation.end()
+        XCTAssertEqual(defaults.writtenKeys, [], "a scope over absent keys writes nothing")
+
+        defaults.set(true, forKey: kept)
+        defaults.set(Data([1]), forKey: changed)
+        isolation.begin()
+        XCTAssertNil(defaults.object(forKey: kept))
+        XCTAssertNil(defaults.object(forKey: changed))
+        isolation.begin()
+        defaults.set(true, forKey: kept)
+        defaults.set(Data([2]), forKey: changed)
+        defaults.set(1.0, forKey: added)
+        isolation.end()
+        XCTAssertEqual(defaults.data(forKey: changed), Data([2]), "only the outermost scope restores")
+
+        defaults.writtenKeys = []
+        isolation.end()
+        XCTAssertEqual(defaults.object(forKey: kept) as? Bool, true)
+        XCTAssertEqual(defaults.data(forKey: changed), Data([1]))
+        XCTAssertNil(defaults.object(forKey: added))
+        // Foundation removes a key by setting nil, so a removal records twice.
+        XCTAssertEqual(Set(defaults.writtenKeys), [added, changed], "a key at its saved value is not rewritten")
+    }
+
     private func makeKeyDownEvent(
         key: String,
         keyCode: UInt16,
@@ -295,5 +368,19 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         } else {
             defaults.removeObject(forKey: key)
         }
+    }
+}
+
+private final class WriteRecordingDefaults: UserDefaults, @unchecked Sendable {
+    var writtenKeys: [String] = []
+
+    override func set(_ value: Any?, forKey defaultName: String) {
+        writtenKeys.append(defaultName)
+        super.set(value, forKey: defaultName)
+    }
+
+    override func removeObject(forKey defaultName: String) {
+        writtenKeys.append(defaultName)
+        super.removeObject(forKey: defaultName)
     }
 }

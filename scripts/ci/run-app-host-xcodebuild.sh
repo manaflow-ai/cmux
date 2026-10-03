@@ -162,6 +162,10 @@ if [ -n "$app_host_home_input" ]; then
     "TEST_RUNNER_CMUX_APP_HOST_RECEIPT_DIR=$app_host_receipt_dir"
     "TEST_RUNNER_CMUX_APP_HOST_KEY=$app_host_key"
   )
+  # The per-run home does not isolate the app's defaults; see the script.
+  if [ -n "${CMUX_DERIVED_DATA_PATH:-}" ]; then
+    "$ci_script_dir/reset-app-defaults.sh" "$CMUX_DERIVED_DATA_PATH"
+  fi
 fi
 
 app_host_xcodebuild_arguments=("$@")
