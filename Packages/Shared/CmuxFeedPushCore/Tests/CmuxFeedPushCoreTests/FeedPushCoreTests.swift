@@ -62,6 +62,7 @@ import Testing
 
 @Suite struct FeedPushResponseTests {
     let info: [AnyHashable: Any] = ["aps": ["category": "FEED_APPROVE"], "cmux": ["feed_item": "fi_9"]]
+    let question: [AnyHashable: Any] = ["aps": ["category": "FEED_QUESTION"], "cmux": ["feed_item": "fi_q"]]
 
     @Test func bannerAnswersSendWithAStableKey() {
         let first = FeedPushResponse(actionIdentifier: "FEED_ALLOW", userText: nil, userInfo: info)
@@ -77,5 +78,45 @@ import Testing
         #expect(FeedPushResponse(actionIdentifier: "FEED_OPEN_ON_MAC", userText: nil, userInfo: info) == .open(item: "fi_9"))
         #expect(FeedPushResponse(actionIdentifier: "FEED_REPLY", userText: " ", userInfo: info) == .open(item: "fi_9"))
         #expect(FeedPushResponse(actionIdentifier: "FEED_ALLOW", userText: nil, userInfo: ["aps": [:]]) == .ignore)
+    }
+}
+
+@Suite struct FeedPushReviewRegressionTests {
+    @Test func aDomainRefusalIsNotSuccess() {
+        let refused = Data(#"{"ok":false,"error":{"code":"feed.closed","retryable":false}}"#.utf8)
+        #expect(CloudOpReply(body: refused) == .rejected(code: "feed.closed", retryable: false))
+        #expect(CloudOpReply(body: Data(#"{"ok":true,"replayed":true}"#.utf8)) == .committed(replayed: true))
+        #expect(CloudOpReply(body: Data("<html>".utf8)) == .rejected(code: "invalid_reply", retryable: true))
+    }
+
+    @Test func anActionOutsideTheItemsCategoryOnlyOpensIt() {
+        // A crafted push with a confirm category cannot be answered with Allow.
+        let info: [AnyHashable: Any] = ["aps": ["category": "FEED_CONFIRM"], "cmux": ["feed_item": "fi_1"]]
+        #expect(FeedPushResponse(actionIdentifier: "FEED_ALLOW", userText: nil, userInfo: info) == .open(item: "fi_1"))
+        #expect(FeedPushResponse(actionIdentifier: "FEED_ALLOW", userText: nil, userInfo: ["cmux": ["feed_item": "fi_1"]]) == .open(item: "fi_1"))
+    }
+
+    @Test func malformedItemIdsAreNotFeedPushes() {
+        for bad in ["", "fi_", "FI_x", "fi_a/b", "fi_" + String(repeating: "a", count: 90)] {
+            #expect(FeedPushPayload(userInfo: ["cmux": ["feed_item": bad]]) == nil, "\(bad)")
+        }
+    }
+
+    @Test func differentRepliesGetDifferentKeys() {
+        let info: [AnyHashable: Any] = ["aps": ["category": "FEED_QUESTION"], "cmux": ["feed_item": "fi_q"]]
+        guard case .send(let a) = FeedPushResponse(actionIdentifier: "FEED_REPLY", userText: "yes", userInfo: info),
+              case .send(let b) = FeedPushResponse(actionIdentifier: "FEED_REPLY", userText: "no", userInfo: info) else {
+            Issue.record("expected sends"); return
+        }
+        #expect(a.idempotencyKey != b.idempotencyKey)
+    }
+
+    @Test func approvalBannerDoesNotOfferTheSessionScope() {
+        #expect(FeedPushCategory.approve.actions == [.allow, .deny])
+    }
+
+    @Test func deviceNamesAreCutTo80UTF16Units() {
+        let long = String(repeating: "📱", count: 60) // 120 UTF-16 units
+        #expect(CloudOp.limited(long, utf16: 80).utf16.count == 80)
     }
 }

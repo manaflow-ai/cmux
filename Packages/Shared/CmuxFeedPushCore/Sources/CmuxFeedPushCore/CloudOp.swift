@@ -23,7 +23,8 @@ public struct CloudOp: Sendable {
                                           deviceName: String, idempotencyKey: String) -> CloudOp {
         CloudOp(op: "push.target.register",
                 params: ["token": .string(token.hexString), "topic": .string(topic),
-                         "environment": .string(environment.rawValue), "device_name": .string(deviceName)],
+                         "environment": .string(environment.rawValue),
+                         "device_name": .string(Self.limited(deviceName, utf16: 80))],
                 idempotencyKey: idempotencyKey, origin: "cli")
     }
 
@@ -37,6 +38,16 @@ public struct CloudOp: Sendable {
     public static func answer(item: String, answer: FeedAnswer, idempotencyKey: String) -> CloudOp {
         CloudOp(op: "feed.answer", params: ["item": .string(item), "answer": answer.value],
                 idempotencyKey: idempotencyKey, origin: "user")
+    }
+
+    /// Cuts a string to at most `utf16` UTF-16 code units on a character boundary.
+    static func limited(_ value: String, utf16 limit: Int) -> String {
+        var result = ""
+        for character in value {
+            if result.utf16.count + String(character).utf16.count > limit { break }
+            result.append(character)
+        }
+        return result
     }
 
     /// The JSON request body.

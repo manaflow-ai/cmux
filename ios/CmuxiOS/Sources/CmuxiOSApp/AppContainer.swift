@@ -29,7 +29,8 @@ final class AppContainer {
         // Feed pushes (plans/cmux-next/feed.md 7.3) go through the API Worker as
         // this install. The install principal does not exist on iPhone yet, so
         // ops are refused locally until identity lands (PushRegistration.State.pending).
-        let ops = CloudOpsClient(baseURL: Self.cloudAPIBaseURL(), tokens: UnavailableInstallToken())
+        let ops: any CloudOpsSending = Self.cloudAPIBaseURL()
+            .map { CloudOpsClient(baseURL: $0, tokens: UnavailableInstallToken()) } ?? DisabledCloudOps()
         #if DEBUG
         let environment: CloudOp.APNsEnvironment = .development
         #else
@@ -45,11 +46,14 @@ final class AppContainer {
         }
     }
 
-    /// `CMUXCloudAPIBaseURL` from Info.plist (set per configuration in the xcconfigs).
-    private static func cloudAPIBaseURL() -> URL {
+    /// `CMUXCloudAPIBaseURL` from Info.plist (set per configuration in the
+    /// xcconfigs). Missing or not https: no ops at all (fail closed), never a
+    /// fallback origin that could receive a production credential.
+    private static func cloudAPIBaseURL() -> URL? {
         let raw = Bundle.main.object(forInfoDictionaryKey: "CMUXCloudAPIBaseURL") as? String ?? ""
-        return URL(string: raw.trimmingCharacters(in: .whitespaces)).flatMap { $0.scheme == "https" ? $0 : nil }
-            ?? URL(string: "https://cloud-api-staging.cmux.dev")!
+        guard let url = URL(string: raw.trimmingCharacters(in: .whitespaces)), url.scheme == "https",
+              url.host?.isEmpty == false else { return nil }
+        return url
     }
 
     /// The Home store for the signed-in account. Home talks only to a

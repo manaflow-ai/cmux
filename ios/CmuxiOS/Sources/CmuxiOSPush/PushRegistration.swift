@@ -22,11 +22,19 @@ public final class PushRegistration {
     private let topic: String
     private let environment: CloudOp.APNsEnvironment
     private var token: Data?
+    private let defaults: UserDefaults
+    /// A token whose removal did not reach the owner yet (sign-out while
+    /// offline): retried at launch and before the next register, so a signed-out
+    /// account never keeps pushing to this phone.
+    private static let pendingRemovalKey = "cmux.push.pendingRemoval"
 
-    public init(ops: any CloudOpsSending, topic: String, environment: CloudOp.APNsEnvironment) {
+    public init(ops: any CloudOpsSending, topic: String, environment: CloudOp.APNsEnvironment,
+                defaults: UserDefaults = .standard) {
         self.ops = ops
         self.topic = topic
         self.environment = environment
+        self.defaults = defaults
+        Task { await self.retryPendingRemoval() }
     }
 
     /// After sign-in: register the categories, ask once, then ask APNs for a token.
@@ -40,19 +48,37 @@ public final class PushRegistration {
 
     /// APNs answered with this install's token.
     public func didRegister(token: Data) async {
+        await retryPendingRemoval()
         self.token = token
         let op = CloudOp.registerPushTarget(token: token, topic: topic, environment: environment,
                                             deviceName: UIDevice.current.name,
                                             idempotencyKey: "push-register-" + UUID().uuidString.lowercased())
-        state = await send(op) ? .registered : state
+        if await send(op) { state = .registered }
     }
 
     /// Sign-out: the account stops pushing to this device.
     public func signOut() async {
+        // Take the token before any await: a sign-in during the removal must
+        // not have its new token cleared by this sign-out.
         guard let token else { return }
-        _ = await send(.removePushTarget(token: token, idempotencyKey: "push-remove-" + UUID().uuidString.lowercased()))
         self.token = nil
         state = .idle
+        UIApplication.shared.unregisterForRemoteNotifications()
+        defaults.set(token, forKey: Self.pendingRemovalKey)
+        await retryPendingRemoval()
+    }
+
+    private func retryPendingRemoval() async {
+        guard let pending = defaults.data(forKey: Self.pendingRemovalKey) else { return }
+        do {
+            try await ops.send(.removePushTarget(token: pending, idempotencyKey: "push-remove-" + pending.hexString))
+            defaults.removeObject(forKey: Self.pendingRemovalKey)
+        } catch CloudOpsError.rejected(_, retryable: false) {
+            // The owner no longer has this target: nothing left to remove.
+            defaults.removeObject(forKey: Self.pendingRemovalKey)
+        } catch {
+            // Kept; retried at the next launch or registration.
+        }
     }
 
     private func send(_ op: CloudOp) async -> Bool {
