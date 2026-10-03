@@ -65,6 +65,9 @@ pub type Response = oneshot::Receiver<Result<Value, RpcError>>;
 struct Hosted {
     link: Arc<crate::agent_host::link::Link>,
     exited: std::sync::atomic::AtomicBool,
+    /// Set before a detach: the connection's end is a hand-off, not the
+    /// agent's death, so pending requests stay open for the next daemon.
+    detached: Arc<std::sync::atomic::AtomicBool>,
     exit: tokio::sync::Notify,
 }
 
@@ -594,6 +597,7 @@ impl ChildAgent {
     pub async fn detach(&self, grace: std::time::Duration) {
         match &self.hosted {
             Some(h) => {
+                h.detached.store(true, Ordering::SeqCst);
                 let _ = tokio::time::timeout(grace, h.link.detach()).await;
             }
             None => self.terminate(grace).await,
@@ -644,6 +648,7 @@ impl ChildAgent {
             responses.push(rx);
         }
         let pending = Arc::new(Mutex::new(Pending { map }));
+        let detached = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let agent = Arc::new(Self {
             name: name.to_owned(),
             child: Mutex::new(None),
@@ -655,6 +660,7 @@ impl ChildAgent {
             translator: None,
             hosted: Some(Hosted {
                 link: link.clone(),
+                detached: detached.clone(),
                 exited: std::sync::atomic::AtomicBool::new(false),
                 exit: tokio::sync::Notify::new(),
             }),
@@ -668,7 +674,11 @@ impl ChildAgent {
                     break;
                 }
             }
-            // The connection ended: superseded, detached, or the host died.
+            // The connection ended: superseded, or the host died. A detach
+            // hands the agent and its open requests to the next daemon.
+            if detached.load(Ordering::SeqCst) {
+                return;
+            }
             let mut p = pending.lock().await;
             for (_, tx) in p.map.drain() {
                 let _ = tx.send(Err(RpcError::internal("agent process closed")));
