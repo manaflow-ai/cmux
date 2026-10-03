@@ -8251,6 +8251,61 @@
       "id" : "link.open",
       "mcp" : "offered",
       "palette" : "offered"
+    },
+    {
+      "cli" : "devOnly",
+      "cli_name" : "action server-make-this-mac-a-server",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "server.makeThisMacAServer",
+      "mcp" : "devOnly",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "devOnly",
+      "cli_name" : "action server-stop-serving",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "server.stopServing",
+      "mcp" : "devOnly",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "devOnly",
+      "cli_name" : "action server-show-panel",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "server.showPanel",
+      "mcp" : "devOnly",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "devOnly",
+      "cli_name" : "action server-show-health",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "server.showHealth",
+      "mcp" : "devOnly",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "devOnly",
+      "cli_name" : "action server-add-server",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "server.addServer",
+      "mcp" : "devOnly",
+      "palette" : "offered"
     }
   ],
   "version" : 1
