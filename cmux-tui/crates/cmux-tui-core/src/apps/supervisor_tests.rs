@@ -150,7 +150,16 @@ fn write_app(root: &Path, dir: &str, id: &str, scopes: Value) {
     let app = root.join(dir);
     std::fs::create_dir_all(app.join("dist")).unwrap();
     std::fs::write(app.join("dist/main.js"), "var __cmuxAppExports = {};").unwrap();
-    std::fs::write(app.join("catalog.json"), json!({ "operations": { "demo.go": { "export": "go" }, "demo.crash": { "export": "crash" } } }).to_string()).unwrap();
+    let op = |name: &str, export: &str| {
+        json!({
+            "name": name, "owner": format!("app:{id}"), "class": "mutation", "risk": "mutate-own",
+            "idempotency": "required", "input": { "type": "object" }, "docs": "d", "since": "demo/1",
+            "export": export
+        })
+    };
+    let catalog =
+        json!({ "family": "demo", "operations": [op("demo.go", "go"), op("demo.crash", "crash")] });
+    std::fs::write(app.join("catalog.json"), catalog.to_string()).unwrap();
     let mut manifest = json!({
         "manifestVersion": 2, "id": id, "name": "Demo", "version": "1.0.0", "description": "d",
         "engines": { "cmux": "^2.0" }, "runtime": { "main": "dist/main.js" }, "catalog": "catalog.json",

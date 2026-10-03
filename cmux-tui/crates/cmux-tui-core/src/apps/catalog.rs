@@ -58,12 +58,19 @@ impl Package {
             .map(str::to_string)
     }
 
-    /// The export behind a catalog op of the app (`catalog` file,
-    /// `operations.<op>.export`).
+    /// The export behind a catalog op of the app: the `export` of the entry
+    /// named `op` in the `operations` list of its catalog fragment.
     pub fn export_for_op(&self, op: &str) -> Option<String> {
         let file = self.manifest.get("catalog")?.as_str()?;
         let catalog: Value = serde_json::from_slice(&self.read(file)?).ok()?;
-        catalog.get("operations")?.get(op)?.get("export")?.as_str().map(str::to_string)
+        catalog
+            .get("operations")?
+            .as_array()?
+            .iter()
+            .find(|entry| entry.get("name").and_then(Value::as_str) == Some(op))?
+            .get("export")?
+            .as_str()
+            .map(str::to_string)
     }
 
     /// The app's main script, read when its host starts.

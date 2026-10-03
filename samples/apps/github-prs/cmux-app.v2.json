@@ -35,6 +35,6 @@
       "showDrafts": { "type": "boolean", "title": "Show drafts", "default": true }
     }
   },
-  "activation": ["onInterface:cmux.section/1", "onOp:github-prs.refresh"],
+  "activation": ["onInterface:cmux.section/1", "onOp:github_prs.refresh"],
   "files": ["dist/", "assets/", "catalog.json"]
 }
