@@ -28,6 +28,8 @@ export type AcpmuxRow = {
   settled?: boolean;
   /// A "Worked for" disclosure of a turn without timing reads "N previous messages" (conversation/turns.ts).
   previous?: number;
+  /// The last turn's footer carries its prompt, for Retry (conversation/turns.ts).
+  prompt?: string;
 };
 
 export type AcpmuxActivity = {
@@ -218,7 +220,7 @@ export function plainEditLabels(items: readonly AcpmuxActivity[]): string[] {
 function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   const textLines = Math.max(1, Math.ceil((row.text?.length ?? 0) / Math.max(24, Math.floor(width / 8))));
   if (row.kind === "activity") {
-    // The edited-files card (App.tsx EditedFilesRow): a 58px head, and 34px for each of the first
+    // The edited-files card (conversation/EditedFilesCard.tsx): a 58px head, and 34px for each of the first
     // three files and for "Show N more"; one file is named in the head. Otherwise tool rows
     // (`.cv-tools`: 2px above 26px rows), which is also how a copy inside an open "Worked for" draws.
     const edits = row.items?.filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ?? [];

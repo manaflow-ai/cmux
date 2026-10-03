@@ -7,7 +7,6 @@ import {
   layoutConversation,
   paneHeader,
   placeRows,
-  plainEditLabels,
   transcriptRowWidth,
   visibleLayoutRange,
   type AcpmuxPermission,
@@ -31,7 +30,7 @@ import { ComposerPickers } from "./ComposerPickers";
 import { EmptyState, isNewChat, projectName } from "./EmptyState";
 import { HomeLists } from "./HomeLists";
 import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
-import { turnFiles, turnRows, type TurnFile } from "./diff";
+import { turnFiles, turnRows } from "./diff";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk } from "./TrustAsk";
 import { PermissionCard } from "./PermissionCard";
@@ -47,9 +46,8 @@ import { DictationButton } from "./DictationButton";
 import { DictationNotice } from "./DictationNotice";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import type { ChangesSource } from "./changes/model";
-import { Counts } from "./changes/Counts";
-import { ChevronDown, DiffFile } from "./changeIcons";
 import { Markdown } from "./conversation/Markdown";
+import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
 import { DATE, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
@@ -263,97 +261,9 @@ const PermissionRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
-const EDITED_FILES_SHOWN = 3;
-
-/// "Edited N files", ported from EditedFilesCard in the reference prototype's
-/// src/conversation/cards.tsx): totals, View changes, and the first files with their counts;
-/// each file opens the changes at that file. One edited file is named in the title instead.
 const EditedFilesRow = memo(
   function EditedFilesRow({ row, onOpenDiff }: RowProps) {
-    const [showAll, setShowAll] = useState(false);
-    const edits = (row.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
-    const files = useMemo(() => turnFiles([row]), [row]);
-    // An edit whose tool call carried no diff still lists, without counts.
-    const plain = plainEditLabels(edits);
-    const entries: { key: string; file?: TurnFile; text?: string }[] = [
-      ...files.map((file) => ({ key: file.path, file })),
-      ...plain.map((text, index) => ({ key: `plain-${index}`, text })),
-    ];
-    const total = entries.length;
-    const additions = files.reduce((sum, file) => sum + file.additions, 0);
-    const deletions = files.reduce((sum, file) => sum + file.deletions, 0);
-    const single = total === 1 && files.length === 1 ? files[0] : undefined;
-    const shown = single ? [] : showAll ? entries : entries.slice(0, EDITED_FILES_SHOWN);
-    const more = single ? 0 : total - shown.length;
-    const reviewable = onOpenDiff && files.length > 0;
-    return (
-      <div className="acpmux-edited">
-        <div className="acpmux-edited-head">
-          <span className="acpmux-edited-icon">
-            <DiffFile />
-          </span>
-          <div className="acpmux-edited-title">
-            <div>
-              {single ? `Edited ${single.path.split("/").pop()}` : `Edited ${total} ${total === 1 ? "file" : "files"}`}
-            </div>
-            {files.length > 0 && <Counts additions={additions} deletions={deletions} />}
-          </div>
-          {reviewable && (
-            <button
-              type="button"
-              className="acpmux-review-changes"
-              onClick={(event) => onOpenDiff(row.id, single?.path, event.currentTarget)}
-            >
-              View changes
-            </button>
-          )}
-        </div>
-        {shown.map((entry) => {
-          if (!entry.file)
-            return (
-              <div className="acpmux-edited-file" key={entry.key}>
-                <span className="acpmux-edited-path">{entry.text}</span>
-              </div>
-            );
-          const file = entry.file;
-          const slash = file.displayPath.lastIndexOf("/");
-          const label = (
-            <>
-              <span className="acpmux-edited-path" title={file.path}>
-                <span className="acpmux-edited-dir">{file.displayPath.slice(0, slash + 1)}</span>
-                <span className="acpmux-edited-base">{file.displayPath.slice(slash + 1)}</span>
-              </span>
-              <Counts additions={file.additions} deletions={file.deletions} />
-            </>
-          );
-          return onOpenDiff ? (
-            <button
-              type="button"
-              className="acpmux-edited-file"
-              key={entry.key}
-              onClick={(event) => onOpenDiff(row.id, file.path, event.currentTarget)}
-            >
-              {label}
-            </button>
-          ) : (
-            <div className="acpmux-edited-file" key={entry.key}>
-              {label}
-            </div>
-          );
-        })}
-        {(more > 0 || showAll) && !single && total > EDITED_FILES_SHOWN && (
-          <button
-            type="button"
-            className="acpmux-edited-more"
-            aria-expanded={showAll}
-            onClick={() => setShowAll(!showAll)}
-          >
-            {showAll ? "Show fewer files" : `Show ${more} more ${more === 1 ? "file" : "files"}`}
-            <ChevronDown width={14} height={14} style={showAll ? { transform: "rotate(180deg)" } : undefined} />
-          </button>
-        )}
-      </div>
-    );
+    return <EditedFilesCard row={row} onOpenDiff={onOpenDiff} />;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.onOpenDiff === b.onOpenDiff,
 );
@@ -747,15 +657,8 @@ function AcpmuxPane() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // The footer's fork shows only when acpmux serves forks and is reachable. The client reports a
   // failed fork in the transcript; a bridge that cannot route it has nothing to add.
-  const forkable =
-    Boolean(snapshot.canFork) &&
-    snapshot.connection !== "disconnected" &&
-    !snapshot.connection.startsWith("connecting");
-  const turnActions = useMemo<TurnActions>(
-    () =>
-      forkable ? { fork: (throughSeq) => void callNative("chat.fork", { throughSeq }).catch(() => undefined) } : {},
-    [forkable],
-  );
+  const connected = snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
+  const forkable = Boolean(snapshot.canFork) && connected;
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
   const reviewing =
@@ -869,6 +772,19 @@ function AcpmuxPane() {
   }, [hunkDecisions]);
   // Tool call ids belong to one session.
   useEffect(() => setHunkDecisions((current) => (current.size ? new Map() : current)), [snapshot.sessionId]);
+  // Retry sends the turn's prompt as the composer would; a failed send shows in the transcript.
+  const turnActions = useMemo<TurnActions>(
+    () => ({
+      ...(forkable && {
+        fork: (throughSeq: number) => void callNative("chat.fork", { throughSeq }).catch(() => undefined),
+      }),
+      ...(connected && {
+        retry: (prompt: string) => void callNative("chat.send", { text: prompt }).catch(() => undefined),
+      }),
+      review: hunkReview,
+    }),
+    [forkable, connected, hunkReview],
+  );
   // Streaming text changes rows on every chunk; only the turn's tool calls change its files.
   const diffActivity = useRef<{ key: string; files: ReturnType<typeof turnFiles> }>(undefined);
   const diffFiles = useMemo(() => {

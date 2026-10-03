@@ -1,5 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { diffHunks, diffLines, editPatch, hunkKey, hunkPatch, rejectionPrompt, turnFiles, turnRows } from "./diff";
+import {
+  diffHunks,
+  diffLines,
+  editPatch,
+  hunkKey,
+  hunkPatch,
+  rejectionPrompt,
+  turnFiles,
+  turnRows,
+  undoPrompt,
+} from "./diff";
 import { mergeToolItem, toolDiffs } from "./direct";
 import type { AcpmuxRow } from "./model";
 
@@ -275,5 +285,16 @@ describe("hunk review", () => {
     );
     expect(rejectionPrompt(["+```js"]).split("\n")[2]).toBe("````diff");
     expect(rejectionPrompt(["P"]).startsWith("I reviewed your changes and rejected this one.")).toBe(true);
+  });
+
+  test("a turn's Undo asks for every patch in one fence, longer than any backtick run", () => {
+    expect(undoPrompt(["P1", "+```js"]).split("\n")).toEqual([
+      "Please undo the changes you made in that turn, so these files read as they did before it:",
+      "",
+      "````diff",
+      "P1",
+      "+```js",
+      "````",
+    ]);
   });
 });

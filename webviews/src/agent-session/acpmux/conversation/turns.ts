@@ -140,8 +140,15 @@ function shapeTurn(
   }
   if (answer) shaped.push(answer);
   shaped.push(...rest, ...editsCard(edits));
-  // The footer copies the answer, so it carries the answer's text.
-  shaped.push({ ...summary, folded: work.length > 0, text: answer?.text ?? summary.text, version });
+  // The footer copies the answer, so it carries the answer's text; the last turn's also retries
+  // its prompt, and stops offering to once a later prompt goes.
+  shaped.push({
+    ...summary,
+    folded: work.length > 0,
+    text: answer?.text ?? summary.text,
+    ...(last && user.text && { prompt: user.text }),
+    version: version * 2 + (last ? 1 : 0),
+  });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
   // draws as it came.
   shaped.push(...turn.slice(end + 1));

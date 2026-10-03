@@ -158,6 +158,14 @@ describe("turn view", () => {
     expect(opened[1]!.version).not.toBe(before[1]!.version);
   });
 
+  test("only the last turn's footer carries its prompt, and it drops it when a later prompt goes", () => {
+    const footer = (rows: AcpmuxRow[], id: string) => turnView(rows, new Set()).find((entry) => entry.id === id)!;
+    expect(footer(turn, "s").prompt).toBe("fix it");
+    const next = [...turn, row("u2", "user", 90_000, { text: "and the docs" })];
+    expect(footer(next, "s").prompt).toBeUndefined();
+    expect(footer(next, "s").version).not.toBe(footer(turn, "s").version);
+  });
+
   test("durations read as short units", () => {
     expect([0, 999, 15_000, 76_000, 3_780_000].map(formatDuration)).toEqual(["0s", "0s", "15s", "1m 16s", "1h 3m"]);
   });
