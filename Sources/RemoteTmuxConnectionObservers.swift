@@ -42,7 +42,7 @@ final class RemoteTmuxConnectionObservers {
     ///     suppress reflow on resize, for alt-screen / inline-TUI panes like
     ///     claude; `false` = a plain shell whose primary-screen scrollback may
     ///     reflow), both the initial value and live changes.
-    ///   - onPaneTitleChanged: fires when one pane's deliberate tmux title changes.
+    ///   - onPaneTitleChanged: fires when one pane's tmux title changes.
     ///   - onActivePaneChanged: fires when a window's active pane changes
     ///     (`%window-pane-changed`), so consumers can re-project per-pane state
     ///     (e.g. the active pane's directory) onto the window's tab.

@@ -319,6 +319,15 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         windowIdByPane[paneId]
     }
 
+    func requestRenamePane(_ tmuxPaneID: Int, title: String) -> Bool {
+        guard let windowId = windowIdByPane[tmuxPaneID],
+              let name = RemoteTmuxHost.controlModeCommandName(title),
+              connection.connectionState == .connected else { return false }
+        return connection.send(
+            "select-pane -t @\(windowId).%\(tmuxPaneID) -T \(RemoteTmuxHost.shellSingleQuoted(name))"
+        )
+    }
+
     func rebuild() {
         guard let workspace else { return }
         workspace.performRemoteTmuxMirrorMutation {
@@ -498,6 +507,13 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         guard let windowId = windowIdContaining(pane: paneId),
               let mirror = windowMirrorByWindowId[windowId] else { return }
         mirror.updatePaneTitleMetadata(paneId)
+        if let panel = mirror.panel(forPane: paneId),
+           let workspace {
+            workspace.updateRemoteTmuxTabTitle(
+                panelId: panel.id,
+                title: mirror.title(forPane: paneId)
+            )
+        }
     }
 
     /// Whether `surfaceId` is one of this session mirror's pane surfaces. Used to route

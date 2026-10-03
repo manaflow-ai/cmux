@@ -39,6 +39,7 @@ protocol RemoteTmuxControlPaneMutationOwner: AnyObject {
         workingDirectory: String?
     ) -> Bool
     func requestKillPane(_ tmuxPaneID: Int) -> Bool
+    func requestRenamePane(_ tmuxPaneID: Int, title: String) -> Bool
 }
 
 @MainActor
