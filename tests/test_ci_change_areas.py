@@ -5718,6 +5718,7 @@ def test_compile_admission_retry_executes_safely() -> None:
     for scenario, expected_status, expected_calls in (
         ("stale-log", 65, ["canonical-build"]),
         ("busy-worker", 65, ["canonical-build"]),
+        ("pgrep-error", 65, ["canonical-build"]),
         ("recover", 0, ["canonical-build", "clear", "canonical-resolve", "canonical-build"]),
     ):
         with tempfile.TemporaryDirectory() as temporary:
@@ -5738,7 +5739,7 @@ fi
 exit 65
 ''',
                 "scripts/ci/clear-dirs.sh": '#!/bin/bash\necho clear >> "$CALLS"\n',
-                "bin/pgrep": '#!/bin/bash\nif [ "$SCENARIO" = busy-worker ]; then echo 123; exit 0; fi\nexit 1\n',
+                "bin/pgrep": '#!/bin/bash\nif [ "$SCENARIO" = busy-worker ]; then echo 123; exit 0; fi\nif [ "$SCENARIO" = pgrep-error ]; then exit 2; fi\nexit 1\n',
                 "bin/ps": '#!/bin/bash\nif [ "$SCENARIO" = busy-worker ]; then echo swift-frontend; else echo ci-supervisor; fi\n',
                 "bin/sleep": '#!/bin/bash\nexit 0\n',
             }
