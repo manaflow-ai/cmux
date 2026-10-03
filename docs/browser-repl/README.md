@@ -299,6 +299,10 @@ rest. Measurements: [performance.md](performance.md).
   lines and `# output truncated: X of Y characters shown; full output:
   <path>`. The file is written as output arrives, so a call that times out
   still has it.
+- **Control characters** in printed text (page titles and text can hold
+  terminal escape sequences) print visibly: newline and tab stay, other C0
+  controls print as their control pictures (ESC as `␛`), DEL as `␡` and C1
+  controls as `\u{9B}`. `--json` keeps the exact text.
 
 ## Sessions and tabs
 
