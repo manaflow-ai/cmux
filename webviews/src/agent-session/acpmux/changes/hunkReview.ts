@@ -29,14 +29,47 @@ export function hunkAnchor(hunk: DiffHunk, key: string, file: TurnFile, numbered
     : { side: "deletions" as const, lineNumber: last.oldLine!, metadata: { key, label } };
 }
 
-/// The rejected hunks not yet sent, each with its key and patch, in file order.
-export function rejectedHunks(files: TurnFile[], decisions: ReadonlyMap<string, HunkDecision>) {
+/// Every hunk of a turn's files, each with its key and patch, in file order.
+export function turnHunks(files: TurnFile[]) {
   return files.flatMap((file) =>
     file.edits.flatMap((edit, editIndex) =>
-      edit.hunks.flatMap((hunk, hunkIndex) => {
-        const key = hunkKey(file, editIndex, hunkIndex);
-        return decisions.get(key) === "rejected" ? [{ key, patch: hunkPatch(file, edit, hunk) }] : [];
-      }),
+      edit.hunks.map((hunk, hunkIndex) => ({
+        key: hunkKey(file, editIndex, hunkIndex),
+        patch: hunkPatch(file, edit, hunk),
+      })),
     ),
   );
+}
+
+/// The rejected hunks not yet sent, each with its key and patch, in file order.
+export function rejectedHunks(files: TurnFile[], decisions: ReadonlyMap<string, HunkDecision>) {
+  return turnHunks(files).filter((hunk) => decisions.get(hunk.key) === "rejected");
+}
+
+/// The hunks a turn's Undo asks the agent to revert: all of them but those already asked.
+export function undoableHunks(files: TurnFile[], decisions: ReadonlyMap<string, HunkDecision>) {
+  return turnHunks(files).filter((hunk) => decisions.get(hunk.key) !== "requested");
+}
+
+/// The keys alone, for drawing: a card builds patches only when it sends them.
+export function turnHunkKeys(files: TurnFile[]): string[] {
+  return files.flatMap((file) =>
+    file.edits.flatMap((edit, editIndex) => edit.hunks.map((_, hunkIndex) => hunkKey(file, editIndex, hunkIndex))),
+  );
+}
+
+/// After a revert send failed: each hunk still marked requested goes back to what the reader had
+/// decided before the send (a rejected hunk stays rejected, so it can be sent again; an Undo's
+/// undecided hunk goes back to undecided).
+export function restoredDecisions(
+  current: ReadonlyMap<string, HunkDecision>,
+  previous: readonly (readonly [string, HunkDecision | undefined])[],
+): Map<string, HunkDecision> {
+  const next = new Map(current);
+  for (const [key, decision] of previous) {
+    if (next.get(key) !== "requested") continue;
+    if (decision) next.set(key, decision);
+    else next.delete(key);
+  }
+  return next;
 }

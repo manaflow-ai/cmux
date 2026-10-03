@@ -28,6 +28,10 @@ export type AcpmuxRow = {
   settled?: boolean;
   /// A "Worked for" disclosure of a turn without timing reads "N previous messages" (conversation/turns.ts).
   previous?: number;
+  /// The last turn's footer carries its prompt, for Retry (conversation/turns.ts).
+  prompt?: string;
+  /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
+  ended?: boolean;
 };
 
 export type AcpmuxActivity = {
@@ -218,7 +222,7 @@ export function plainEditLabels(items: readonly AcpmuxActivity[]): string[] {
 function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   const textLines = Math.max(1, Math.ceil((row.text?.length ?? 0) / Math.max(24, Math.floor(width / 8))));
   if (row.kind === "activity") {
-    // The edited-files card (App.tsx EditedFilesRow): a 58px head, and 34px for each of the first
+    // The edited-files card (conversation/EditedFilesCard.tsx): a 58px head, and 34px for each of the first
     // three files and for "Show N more"; one file is named in the head. Otherwise tool rows
     // (`.cv-tools`: 2px above 26px rows), which is also how a copy inside an open "Worked for" draws.
     const edits = row.items?.filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ?? [];
@@ -234,6 +238,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return 35;
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return 36;
+  // The preview card: its 58px head over the thumbnail, and 6px below (PreviewCard.tsx).
+  if (row.kind === PREVIEW) return 58 + PREVIEW_FRAME_HEIGHT + 6 + 8;
   // Card padding and border, title, button row.
   if (row.kind === "permission") return 87;
   if (row.kind === "turnSummary" || row.kind === "notice" || row.kind === "plan" || row.kind === "typing") return 37;
@@ -423,7 +429,8 @@ export function visibleLayoutRange(
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
 import { isFoldedRun } from "./conversation/toolRunSummary";
-import { DATE, isFoldedCopy, THINKING, WORKED, WORKING } from "./conversation/turns";
+import { PREVIEW_FRAME_HEIGHT } from "./conversation/previewUrl";
+import { DATE, isFoldedCopy, PREVIEW, THINKING, WORKED, WORKING } from "./conversation/turns";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 

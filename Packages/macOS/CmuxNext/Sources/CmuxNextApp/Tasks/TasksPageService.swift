@@ -50,7 +50,7 @@ final class TasksPageService: InternalPageProvider {
     /// The layout the user setting asks for. Read in the pane's tracked
     /// scope, so a cmux.json change switches the layout live.
     static func layout(_ settings: SettingsController?) -> TasksLayout {
-        let preference = settings?.snapshot.tasksLayout ?? TasksLayoutSetting.fallback
+        let preference = settings?.snapshot.tasksLayout ?? TasksLayoutSetting().fallback
         return TasksLayout(rawValue: preference.rawValue) ?? TasksLayout.fallback
     }
 

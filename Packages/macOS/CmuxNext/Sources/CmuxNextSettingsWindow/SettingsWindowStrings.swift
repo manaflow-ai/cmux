@@ -65,6 +65,17 @@ nonisolated enum SettingsWindowStrings {
     static var studioTitle: String { text("settingsWindow.studio.title", "Customize Appearance") }
     static var studioSubtitle: String { text("settingsWindow.studio.subtitle", "Changes show in this window as you make them.") }
     static var studioClose: String { text("settingsWindow.studio.close", "Close") }
+    static var backdropPickerTitle: String { text("settingsWindow.backdropPicker.title", "Wallpaper") }
+    static var backdropPickerHint: String { text("settingsWindow.backdropPicker.hint", "Pick a painting or a macOS system wallpaper. Changes apply to every window.") }
+    static var backdropNone: String { text("settingsWindow.backdropPicker.none", "No wallpaper") }
+    static var backdropSystem: String { text("settingsWindow.backdropPicker.system", "macOS system wallpaper") }
+    static var tunerTitle: String { text("settingsWindow.appearanceTuner.title", "Live Appearance Tuner") }
+    static var tunerHint: String { text("settingsWindow.appearanceTuner.hint", "Tune the glass while you watch the real windows update.") }
+    static var tunerTransparency: String { text("settingsWindow.appearanceTuner.transparency", "Glass transparency") }
+    static var tunerHue: String { text("settingsWindow.appearanceTuner.hue", "Hue") }
+    static var tunerSaturation: String { text("settingsWindow.appearanceTuner.saturation", "Saturation") }
+    static var tunerPeek: String { text("settingsWindow.appearanceTuner.peek", "Peek") }
+    static var tunerDone: String { text("settingsWindow.appearanceTuner.done", "Done") }
     static var problems: String { text("settingsWindow.problems", "Problems in cmux.json") }
     static var noProblems: String { text("settingsWindow.noProblems", "No problems.") }
     static func minutes(_ value: String) -> String { format("settingsWindow.minutes", "%@ min", value) }

@@ -16,6 +16,15 @@ struct BackdropArtSettingsTests {
         #expect(snapshot.diagnostics.contains { $0.path == "appearance.backdropArt" && $0.kind == .invalidValue })
     }
 
+    @Test func backgroundPickerAcceptsSystemPathAndGateDefaultsOff() throws {
+        let snapshot = try parse(#"{"appearance":{"background":"system:/System/Library/Desktop Pictures/Andromeda.heic"}}"#)
+        #expect(snapshot.backdropSelection == .system(path: "/System/Library/Desktop Pictures/Andromeda.heic"))
+        #expect(!snapshot.experimentalAppearance)
+        let descriptor = try #require(SettingsSchema.descriptor(for: BackdropSelectionSetting().configPath))
+        #expect(descriptor.accepts("system:/System/Library/Desktop Pictures/Andromeda.heic"))
+        #expect(!descriptor.accepts("relative-wallpaper.jpg"))
+    }
+
     private func parse(_ text: String) throws -> CmuxConfigSnapshot {
         CmuxConfigSnapshot.parse(try JSONC.parse(text), validDensities: [], validMetrics: [])
     }

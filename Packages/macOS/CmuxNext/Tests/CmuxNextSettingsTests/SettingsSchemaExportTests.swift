@@ -13,13 +13,13 @@ import Testing
 
     static func catalog() throws -> Set<String> {
         let url = repoRoot.appending(path: "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings")
-        return try SettingsSchemaExport.catalogKeys(xcstrings: Data(contentsOf: url))
+        return try SettingsSchemaExport().catalogKeys(xcstrings: Data(contentsOf: url))
     }
 
     /// `CMUX_UPDATE_ACTION_SURFACES=1 swift test --filter SettingsSchemaExportTests` rewrites it.
     @Test func exportIsFresh() throws {
         let url = Self.repoRoot.appending(path: "schemas/settings/settings-schema.json")
-        let current = try SettingsSchemaExport.json(catalog: Self.catalog())
+        let current = try SettingsSchemaExport().json(catalog: Self.catalog())
         if ProcessInfo.processInfo.environment["CMUX_UPDATE_ACTION_SURFACES"] == "1" {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try current.write(to: url, atomically: true, encoding: .utf8)
@@ -67,6 +67,6 @@ import Testing
 
     /// A key missing from the catalog fails the export.
     @Test func missingKeyFailsTheExport() {
-        #expect(throws: SettingsSchemaExport.MissingKeys.self) { try SettingsSchemaExport.json(catalog: []) }
+        #expect(throws: SettingsSchemaExport.MissingKeys.self) { try SettingsSchemaExport().json(catalog: []) }
     }
 }

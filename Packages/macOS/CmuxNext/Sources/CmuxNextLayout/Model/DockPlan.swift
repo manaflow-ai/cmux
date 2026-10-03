@@ -13,18 +13,19 @@ public nonisolated enum DockPlan: Hashable, Sendable {
 }
 
 /// The defaults a dock request uses when it names no edge or width.
-public nonisolated enum DockDefaults {
+public struct DockDefaults {
+    public nonisolated init() {}
     /// A dock's share of the window: the column's width, clamped here.
-    public static let widthRange: ClosedRange<Double> = 0.25...0.40
+    public nonisolated let widthRange: ClosedRange<Double> = 0.25...0.40
 
-    public static func width(for current: Double) -> Double {
+    public nonisolated func width(for current: Double) -> Double {
         min(max(current, widthRange.lowerBound), widthRange.upperBound)
     }
 
     /// The edge a column docks to by default: left for the leftmost of
     /// several scrolling columns, else right. A side another column holds
     /// yields to the free side, so docking never silently undocks another.
-    public static func edge(for column: ColumnID, in layout: ScreenLayout) -> StickyEdge {
+    public nonisolated func edge(for column: ColumnID, in layout: ScreenLayout) -> StickyEdge {
         let scrolling = layout.columns.filter { $0.sticky == nil }
         let near: StickyEdge = scrolling.count > 1 && scrolling.first?.id == column ? .left : .right
         let held = { (edge: StickyEdge) in layout.columns.contains { $0.id != column && $0.sticky?.edge == edge } }
@@ -39,7 +40,7 @@ public nonisolated enum DockDefaults {
     /// the action again is the undo. `pane` is the pane whose tab moves when
     /// the column must keep scrolling (default: the column's first pane).
     /// Nil only when the screen has no such column.
-    public static func plan(screen: LayoutScreen, column id: ColumnID, pane: PaneID?, edge: StickyEdge?,
+    public nonisolated func plan(screen: LayoutScreen, column id: ColumnID, pane: PaneID?, edge: StickyEdge?,
                             defaultEdge: StickyEdge? = nil, mode: StickyMode) -> DockPlan? {
         guard let column = screen.column(id: id) else { return nil }
         if let current = column.sticky, current.mode == mode, edge == nil || edge == current.edge {

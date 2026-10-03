@@ -60,7 +60,8 @@ describe("turn rules", () => {
     expect(ids(view)).toEqual(["u", "worked-u", "a", "e1", "s"]);
     const card = view[3]!;
     expect(card.items?.map((item) => item.tool?.id)).toEqual(["w1", "w2"]);
-    expect(card.version).toBe(4);
+    // The edits' versions summed, odd so it differs from the live rows it replaces.
+    expect(card.version).toBe((1 + 3) * 2 + 1);
   });
 
   test("the fold reads as a duration, without a tool-call count", () => {

@@ -49,7 +49,7 @@ import Testing
             #expect(SettingsSchema.descriptor(for: path) == nil, "\(key)")
             #expect(!SettingsSchema.all.contains { $0.path == path }, "\(key)")
         }
-        let export = try SettingsSchemaExport.json(catalog: SettingsSchemaExportTests.catalog())
+        let export = try SettingsSchemaExport().json(catalog: SettingsSchemaExportTests.catalog())
         for key in SettingsSchema.retiredKeys.keys {
             #expect(!export.contains(key.split(separator: ".").last.map(String.init) ?? key), "\(key) in settings-schema.json")
         }

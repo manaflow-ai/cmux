@@ -9,7 +9,7 @@ import Testing
 @Suite struct TasksPageLayoutTests {
     @Test func everySettingValueHasItsLayout() {
         #expect(TasksLayoutPreference.allCases.map(\.rawValue) == TasksLayout.allCases.map(\.rawValue))
-        #expect(TasksLayoutSetting.fallback.rawValue == TasksLayout.fallback.rawValue)
+        #expect(TasksLayoutSetting().fallback.rawValue == TasksLayout.fallback.rawValue)
     }
 
     @Test func withoutSettingsThePageShowsTheDefault() {
