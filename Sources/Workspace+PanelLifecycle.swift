@@ -216,6 +216,9 @@ extension Workspace {
             if refreshPorts { refreshTrackedAgentPorts() }
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id)
         }
+        if let store = AppDelegate.shared?.notificationStore {
+            pruneOrphanedRestoredAgentNotifications(store: store)
+        }
         return didChange
     }
 
