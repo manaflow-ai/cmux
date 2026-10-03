@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -37,9 +38,22 @@ struct CloudWorkspaceRenameEnvironment {
 /// owners, applies titles, and submits intents through that catalog.
 final class CloudWorkspaceRenameService {
     let environment: CloudWorkspaceRenameEnvironment
+    struct RejectedAutomaticTabClear: Equatable {
+        let name: String
+        let cursor: CloudVMCursor?
+    }
+    /// A rejected automatic clear is retried only after the accepted graph or
+    /// agent state changes. This prevents a persistent daemon precondition
+    /// failure from generating one RPC per refresh.
+    var rejectedAutomaticTabClears: [CloudRenameCoordinator.Key: RejectedAutomaticTabClear] = [:]
 
     init(environment: CloudWorkspaceRenameEnvironment = CloudWorkspaceRenameEnvironment()) {
         self.environment = environment
+    }
+
+    @MainActor
+    func clearRejectedAutomaticTabClears(on machine: SurfaceMachineID) {
+        rejectedAutomaticTabClears = rejectedAutomaticTabClears.filter { $0.key.machine != machine }
     }
     /// A local workspace can be automatically associated with a remote workspace only
     /// when all identity-bearing panes prove the same cloud identity and no local pane
