@@ -53,6 +53,7 @@ public final class IrxJournal: @unchecked Sendable {
     private var fileHandle: FileHandle?
     private var ring: [IrxJournalEvent] = []
     private var counters: [String: Int] = [:]
+    private var taps: [UUID: @Sendable (IrxJournalEvent) -> Void] = [:]
     private var terminalTraceWindowInitialized = false
     private var terminalTraceWindowStartMs: UInt64 = 0
     private var terminalTraceEventsInWindow = 0
@@ -129,6 +130,27 @@ public final class IrxJournal: @unchecked Sendable {
         if let fileHandle {
             try? fileHandle.write(contentsOf: Data((rendered + "\n").utf8))
         }
+        let observers = Array(taps.values)
+        lock.unlock()
+        // Delivered outside the lock so a tap can never deadlock the journal.
+        // Taps receive the redacted entry and must not block.
+        for observer in observers { observer(entry) }
+    }
+
+    /// Registers an observer for every subsequent redacted event. The tap runs
+    /// synchronously on the recording thread, so implementations only enqueue.
+    /// - Returns: A token for ``removeTap(_:)``.
+    public func addTap(_ tap: @escaping @Sendable (IrxJournalEvent) -> Void) -> UUID {
+        let id = UUID()
+        lock.lock()
+        taps[id] = tap
+        lock.unlock()
+        return id
+    }
+
+    public func removeTap(_ id: UUID) {
+        lock.lock()
+        taps.removeValue(forKey: id)
         lock.unlock()
     }
 
