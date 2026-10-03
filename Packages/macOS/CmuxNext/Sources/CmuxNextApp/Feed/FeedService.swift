@@ -15,6 +15,7 @@ final class FeedService {
     let model: FeedModel
     let apiBaseURL: URL
     private let source: CloudFeedSource
+    private let showcase: Bool
     private let auth: CloudAuth
     private var started = false
     /// The account the mirror belongs to; a sign-out or another account resets it.
@@ -34,15 +35,17 @@ final class FeedService {
         return URL(string: auth.configuration.isProductionAuth ? "https://cloud-api.cmux.dev" : "https://cloud-api-staging.cmux.dev")!
     }
 
-    init(auth: CloudAuth) {
+    init(auth: CloudAuth, showcase: Bool = false) {
         self.auth = auth
+        self.showcase = showcase
         apiBaseURL = Self.apiBaseURL(auth: auth)
         // The answer's device label is the owner's record (the install); this name is only the overlay's.
         source = CloudFeedSource(apiBaseURL: apiBaseURL, device: "Mac") { [auth] in
             try await auth.tokens().access
         }
         var observe: (@MainActor (FeedSourceEvent) -> Void)?
-        model = FeedModel(source: FeedTeeSource(source) { observe?($0) })
+        let modelSource: any FeedSource = showcase ? MockFeedSource() : source
+        model = FeedModel(source: FeedTeeSource(modelSource) { observe?($0) })
         observe = { [weak self] in self?.observe($0) }
         observePresence()
         // task-owner: FeedService.accountWatch: follows sign-in, sign-out and account switches; lives with the service.
@@ -93,10 +96,11 @@ final class FeedService {
 
     /// Starts the mirror when signed in; the panel and requests call it again (after a sign-in).
     func startIfSignedIn() {
-        guard !started, auth.isSignedIn else { return }
+        guard !started else { return }
+        guard showcase || auth.isSignedIn else { return }
         account = auth.user?.id ?? ""
         started = true
-        source.setPresence(active: NSApp.isActive)
+        if !showcase { source.setPresence(active: NSApp.isActive) }
         model.start()
     }
 
