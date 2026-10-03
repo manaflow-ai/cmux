@@ -11,6 +11,7 @@ import SwiftUI
 /// tile gets an accent border and tinted background.
 @MainActor
 struct ThemePickerRow: View {
+    @Environment(\.settingsSelectionStyle) private var selectionStyle
     let selectedMode: AppearanceMode
     let onSelect: (AppearanceMode) -> Void
 
@@ -73,12 +74,12 @@ struct ThemePickerRow: View {
                         .background(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
                                 .fill(isSelected
-                                    ? Color.accentColor.opacity(0.12)
+                                    ? selectionStyle.selectedFill
                                     : Color.clear)
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                                .stroke(isSelected ? selectionStyle.selectedStroke : Color.clear, lineWidth: 2)
                         )
                     }
                     .buttonStyle(.plain)

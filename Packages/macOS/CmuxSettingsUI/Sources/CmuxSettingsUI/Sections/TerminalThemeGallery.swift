@@ -188,6 +188,7 @@ private struct TerminalThemeGalleryView: View {
 /// once in ``TerminalThemeGalleryModel/PreviewColors``, and `Equatable` lets
 /// SwiftUI skip cards whose theme and selection did not change.
 struct TerminalThemeCard: View, Equatable {
+    @Environment(\.settingsSelectionStyle) private var selectionStyle
     let theme: TerminalThemeGalleryModel.Theme
     let isSelected: Bool
     let onSelect: () -> Void
@@ -218,11 +219,11 @@ struct TerminalThemeCard: View, Equatable {
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
+                    .fill(isSelected ? selectionStyle.selectedFill : Color.clear)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                    .stroke(isSelected ? selectionStyle.selectedStroke : Color.clear, lineWidth: 2)
             )
         }
         .buttonStyle(.plain)
