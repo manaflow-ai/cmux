@@ -39,6 +39,26 @@ import Testing
         #expect(view.contentHost.alphaValue == 1)
     }
 
+    @Test func restoredSessionGetsItsLaunchPaneFrame() {
+        let reveal = LaunchReveal()
+        let view = pane(reveal)
+        let restoredSession = TerminalHostView()
+
+        // Restore attaches the session before the first layout pass, while
+        // the content host still has its provisional zero frame.
+        view.show(restoredSession)
+        #expect(restoredSession.frame == .zero)
+
+        view.frame = NSRect(x: 0, y: 0, width: 960, height: 640)
+        view.layoutSubtreeIfNeeded()
+
+        #expect(view.contentHost.frame.width > 0)
+        #expect(view.contentHost.frame.height > 0)
+        #expect(restoredSession.frame == view.contentHost.bounds)
+        #expect(restoredSession.frame.width > 0)
+        #expect(restoredSession.frame.height > 0)
+    }
+
     @Test func anUnavailableDaemonShowsEveryRegion() async {
         let reveal = LaunchReveal()
         let daemon = DaemonService()
