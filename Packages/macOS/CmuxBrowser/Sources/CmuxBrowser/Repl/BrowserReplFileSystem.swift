@@ -12,6 +12,16 @@ import Foundation
 /// the other operations act on what it points to. `rename` and `copyFile`
 /// replace an existing destination atomically: it stays intact until the new
 /// file is complete.
+///
+/// Every operation of every session runs under one process-wide lock, from
+/// the path check to the last system call. Agent code cannot create a
+/// symbolic link, but it can move one already inside a root, and two
+/// sessions on the same root call `fs` from two threads; without the lock
+/// one session could swap such a link in for a directory between the other
+/// session's check and its write. The REPL's `fs` is the only way agent
+/// code changes files, so serializing it closes that window. Another
+/// process of the same user already has the user's file access and is not
+/// what the sandbox guards against.
 public struct BrowserReplFileSystem: Sendable {
     /// The sandbox that authorizes every path.
     public var sandbox: BrowserReplFileSandbox
@@ -32,6 +42,8 @@ public struct BrowserReplFileSystem: Sendable {
 
     /// Runs one operation. See `docs/browser-repl/driver-protocol.md` for ops.
     public func perform(_ operation: String, arguments: [String: Any]) -> Result<Any, BrowserReplFileSystemError> {
+        Self.operationLock.lock()
+        defer { Self.operationLock.unlock() }
         do {
             return .success(try run(operation, arguments))
         } catch let error as BrowserReplFileSystemError {
@@ -40,6 +52,9 @@ public struct BrowserReplFileSystem: Sendable {
             return .failure(Self.translate(error, operation: operation, path: arguments["path"] as? String ?? ""))
         }
     }
+
+    /// Held for each operation's check and use; see the type's documentation.
+    private static let operationLock = NSLock()
 
     private func run(_ operation: String, _ arguments: [String: Any]) throws -> Any {
         let fileManager = FileManager.default

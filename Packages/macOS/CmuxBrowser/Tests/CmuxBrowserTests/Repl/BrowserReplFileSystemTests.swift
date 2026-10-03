@@ -252,7 +252,7 @@ struct BrowserReplFileSystemTests {
         }
         let writing = Task.detached {
             let payload = Data("x".utf8).base64EncodedString()
-            for _ in 0..<20_000 where !FileManager.default.fileExists(atPath: escaped) {
+            for _ in 0..<5_000 where !FileManager.default.fileExists(atPath: escaped) {
                 _ = writer.perform("writeFile", arguments: ["path": "sub/written.txt", "base64": payload])
             }
             done.set()

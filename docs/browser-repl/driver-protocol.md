@@ -274,6 +274,10 @@ roots, and a dangling link is refused for writing. `readdir` reports a link as
 `symlink`. `rename` uses `rename(2)` and `copyFile` copies to a temporary
 file beside the destination before renaming it into place, so an existing
 destination stays intact until the new file is complete.
+Every `fs` operation of every session runs under one process-wide lock from
+its path check to its last system call, so a session moving a link (agent
+code cannot create one) never changes what another session's checked path
+reaches.
 
 Entry points the runtime defines, called by the app:
 
