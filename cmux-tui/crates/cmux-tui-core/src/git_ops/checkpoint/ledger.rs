@@ -121,15 +121,17 @@ pub(super) fn created(
 /// Commits `value` as the mutation's result at a new resource revision and
 /// returns the mutation reply; `replayed` marks a reply for a retry that
 /// finished an earlier attempt.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn commit(
     mux: &Arc<Mux>,
+    actor: &cmux_local_auth::Actor,
     key: &str,
     operation: &'static str,
     fingerprint: &Value,
     value: &Value,
     replayed: bool,
 ) -> Result<Value, ResourceError> {
-    let mutation = mutation(key, operation)?;
+    let mutation = mutation(key, operation)?.with_actor(actor.clone());
     let mut registry = mux.workspace_registry.lock().unwrap_or_else(|poison| poison.into_inner());
     let commit = registry
         .commit_resource_patch(

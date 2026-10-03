@@ -100,6 +100,9 @@ pub(super) fn resource(
         let message = crate::localization::catalog().startup.invalid_session_name;
         fail(NotRun, "usage.invalid", message.to_string())
     })?;
+    if let Some(credential) = wire::launch_credential_for(&socket) {
+        request["credential"] = Value::String(credential);
+    }
     let stream =
         cmux_tui_core::server::connect_session_socket(&socket, derived).map_err(|error| {
             let message = format!("cannot connect to session socket {}: {error}", socket.display());

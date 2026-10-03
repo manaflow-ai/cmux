@@ -55,6 +55,13 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
             return 2;
         }
     };
+    if let Some(credential) = launch_credential_for(&socket) {
+        request["credential"] = Value::String(credential);
+        encoded = match encode_request(&request) {
+            Ok(encoded) => encoded,
+            Err(code) => return code,
+        };
+    }
     let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
         Err(error) => {
@@ -355,6 +362,33 @@ pub(super) fn request_value(plan: &RequestPlan) -> Result<Value, UsageError> {
         _ => {}
     }
     Ok(request)
+}
+
+/// The caller's launch credential, for requests to the session its
+/// terminal belongs to only (`CMUX_TUI_SOCKET` names that socket). The
+/// credential is bound to that session, so another session would refuse it
+/// (plans/cmux-next/identity.md section 3).
+pub(super) fn launch_credential_for(socket: &std::path::Path) -> Option<String> {
+    launch_credential_from(
+        std::env::var("CMUX_LAUNCH_CREDENTIAL").ok(),
+        std::env::var_os("CMUX_TUI_SOCKET").map(PathBuf::from),
+        socket,
+    )
+}
+
+fn launch_credential_from(
+    credential: Option<String>,
+    own_socket: Option<PathBuf>,
+    socket: &std::path::Path,
+) -> Option<String> {
+    let credential = credential.filter(|credential| !credential.is_empty())?;
+    let own_socket = own_socket.filter(|path| !path.as_os_str().is_empty())?;
+    let same = own_socket == socket
+        || matches!(
+            (std::fs::canonicalize(&own_socket), std::fs::canonicalize(socket)),
+            (Ok(own), Ok(target)) if own == target
+        );
+    same.then_some(credential)
 }
 
 pub(super) fn random_request_id() -> Result<String, UsageError> {

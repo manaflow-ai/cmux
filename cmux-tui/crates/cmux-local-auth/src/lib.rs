@@ -13,6 +13,11 @@
 
 use subtle::ConstantTimeEq;
 
+pub mod actor;
+pub mod launch_credential;
+
+pub use actor::{Actor, ActorKind};
+
 /// Why a handshake was refused. Every refusal is an HTTP 403 (a 401 for a
 /// missing or wrong token) sent before any protocol byte.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

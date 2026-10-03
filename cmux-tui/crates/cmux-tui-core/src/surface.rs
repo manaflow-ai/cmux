@@ -2518,6 +2518,20 @@ impl Surface {
                 "CMUX_TUI_SESSION_ID",
                 mux.session_public_id().as_str(),
             );
+            // The child's identity for the actor stamp
+            // (plans/cmux-next/identity.md section 2). Only the session host
+            // mints it: a caller-supplied value is replaced, and with no
+            // credential the variable is set empty so a value the daemon
+            // inherited never reaches the child.
+            let credential = terminal_public_id
+                .as_ref()
+                .and_then(|terminal| mux.mint_terminal_credential(terminal))
+                .unwrap_or_default();
+            set_surface_environment(
+                &mut opts,
+                crate::mux::launch_identity::LAUNCH_CREDENTIAL_ENV,
+                &credential,
+            );
         }
         let kitty_reservation = mux
             .upgrade()

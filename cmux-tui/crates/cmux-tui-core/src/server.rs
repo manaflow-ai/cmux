@@ -7521,8 +7521,16 @@ fn handle_resource_connection_message(
             return writer.send_control(&response).is_ok();
         }
     };
+    let mut request = request;
     let id = request.envelope.id.clone();
     let operation = request.envelope.operation;
+    // The actor stamp (plans/cmux-next/identity.md section 3), resolved
+    // before any owner takes its locks.
+    let credential = request.envelope.credential.take();
+    match mux.request_actor(mux.control_clients.is_unix(client), credential.as_deref()) {
+        Ok(actor) => request.actor = actor,
+        Err(error) => return send_resource_response(writer, id, operation, Err(error)),
+    }
     if matches!(
         operation,
         ResourceOperation::SessionShutdown | ResourceOperation::SessionReloadConfig
@@ -16151,6 +16159,10 @@ mod image_paste_tests;
 #[cfg(test)]
 #[path = "server/session_identity_tests.rs"]
 mod session_identity_tests;
+
+#[cfg(all(test, unix))]
+#[path = "server/launch_credential_tests.rs"]
+mod launch_credential_tests;
 
 #[cfg(test)]
 #[path = "server/personal_tests.rs"]
