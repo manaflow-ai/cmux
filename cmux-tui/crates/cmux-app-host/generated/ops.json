@@ -87,6 +87,8 @@
     "screen.layout.undo",
     "screen.list",
     "screen.rename",
+    "server.pair.approve",
+    "server.pair.preview",
     "session.get",
     "session.journal.append",
     "session.journal.checkpoint.create",

@@ -345,6 +345,14 @@
       "scope": "workspace:write",
       "class": "mutation"
     },
+    "server.pair.approve": {
+      "scope": "server:write",
+      "class": "mutation"
+    },
+    "server.pair.preview": {
+      "scope": "server:read",
+      "class": "read"
+    },
     "session.get": {
       "scope": "session:read",
       "class": "read"
@@ -679,6 +687,7 @@
     "pane.close",
     "request.cancel",
     "screen.close",
+    "server.revoke",
     "session.creation.resolve",
     "session.events",
     "session.journal.subscribe",

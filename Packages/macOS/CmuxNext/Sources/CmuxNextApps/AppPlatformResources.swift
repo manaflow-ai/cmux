@@ -18,4 +18,6 @@ public nonisolated enum AppPlatformResources {
     public static var fixtures: URL { root.appending(path: "schema/fixtures", directoryHint: .isDirectory) }
     /// The built first-party sample apps, one directory per app.
     public static var samples: URL { root.appending(path: "samples", directoryHint: .isDirectory) }
+    /// First-party apps shipped inside cmux (`first-party-apps/<name>` with a BUNDLED marker).
+    public static var firstParty: URL { root.appending(path: "first-party", directoryHint: .isDirectory) }
 }
