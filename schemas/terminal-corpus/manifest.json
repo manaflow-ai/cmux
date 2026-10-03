@@ -81,7 +81,8 @@
       "rows": 24,
       "bytes": 101,
       "features": [
-        "kitty-images-excluded-from-ghostsnp-v1"
+        "kitty-placements",
+        "kitty-image-data-not-in-ghostsnp-v1"
       ]
     }
   ]
