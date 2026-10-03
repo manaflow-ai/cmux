@@ -11,8 +11,8 @@ mod owner;
 mod session;
 mod topology;
 
-use owner::{OperationOwner, operation_owner};
 pub(crate) use owner::requires_connection_context;
+use owner::{OperationOwner, operation_owner};
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
