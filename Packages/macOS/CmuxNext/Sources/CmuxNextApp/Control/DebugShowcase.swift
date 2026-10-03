@@ -16,6 +16,7 @@ enum DebugShowcase {
               let pane = window.focusedPane ?? window.content?.panes.values.first else {
             return .object(["seeded": .bool(false), "error": .string("no window or pane is ready")])
         }
+        seedWorkspaceSet(services: services, windowID: window.state.id)
         let key: String
         if let existing = services.showcaseAgentTabs[pane.paneKey] {
             key = existing
@@ -42,6 +43,29 @@ enum DebugShowcase {
             "feed_items": .number(Double(services.feed.model.confirmed.count)),
             "focused": .bool(params["focus"]?.boolValue == true),
         ])
+    }
+
+    /// Adds a small, repeatable local rail for captures. These are ordinary
+    /// workspaces, so the sidebar and workspace selection exercise their real
+    /// models instead of a showcase-only view.
+    private static func seedWorkspaceSet(services: AppServices, windowID: String) {
+        let workspaces: [(String, String)] = [
+            ("cmux-next", "~/code/cmux"),
+            ("docs-site", "~/code/docs-site"),
+            ("infra", "~/code/infra"),
+        ]
+        for (name, cwd) in workspaces where services.showcaseWorkspaces[name] == nil {
+            var spawn = WorkspaceSpawn(cwd: cwd, name: name)
+            spawn.onListed = { [weak services] id, _ in services?.showcaseWorkspaces[name] = id }
+            Task { @MainActor in
+                do {
+                    let id = try await services.windows.createWorkspace(spawn, into: windowID)
+                    services.showcaseWorkspaces[name] = id
+                } catch {
+                    services.daemon.logger.error("showcase workspace \(name, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                }
+            }
+        }
     }
 }
 #endif
