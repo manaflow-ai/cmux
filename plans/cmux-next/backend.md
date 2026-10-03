@@ -72,3 +72,11 @@ applied); schema changes follow `backend/db/drizzle/README.md` and still land as
 `home_message_search` (raw SQL in 0006 and home-search.ts). Next steps: move the projection
 writes (apps/api/src/projection.ts) and the other queries to Drizzle query builders, one table group
 per commit, each with the existing tests.
+
+## Production high availability (2026-10-03)
+
+Approved by Lawrence through the coordinator (+$10/month). Confirmed cmux-next/main is the
+production branch, then `pscale branch resize cmux-next main --replicas 2 --org cmux --wait`.
+Change request wo8mbi6eghr0 completed: PS_5_AWS_ARM, replicas 0 -> 2 ("highly available",
+$15/month instead of $5). Size kept at PS-5 (no headroom resize). The production API answered 200
+after the change.
