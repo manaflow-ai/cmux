@@ -11,8 +11,9 @@ LIVE_SCHEMA = BINDINGS.parent / "spec" / "sdk-schema.json"
 
 # Each SDK's own tests pin the generated command and event counts. A schema
 # change that adds one must bump every pin in the same change; this names
-# them all. Python compares against its embedded schema instead.
+# them all.
 COMMAND_PINS = {
+    "python/tests/test_protocol.py": r"len\(COMMANDS\), (\d+)\)",
     "go/raw/client_test.go": r"len\(commands\) != (\d+) \{",
     "typescript/test/generated.test.ts": r"Object\.keys\(COMMAND_METADATA\)\.length, (\d+)\)",
     "java/tests/com/cmux/raw/GeneratedCoverageTest.java": r"Commands\.ALL\.size\(\) == (\d+),",
@@ -27,6 +28,9 @@ EVENT_PINS = {
     "cpp/tests/test_generated.cpp": r"CHECK_EQ\(events\.size\(\), (\d+)U\);",
     "zig/src/raw.zig": r"@as\(usize, (\d+)\), protocol\.event_count",
     "zig/examples/watch.zig": r"@as\(usize, (\d+)\),\s*cmux\.raw\.protocol\.event_count",
+}
+EMITTED_EVENT_PINS = {
+    "typescript/test/generated.test.ts": r"assert\.equal\(emitted\.length, (\d+)\);",
 }
 
 
@@ -51,6 +55,12 @@ class SdkInventoryPinTests(unittest.TestCase):
     def test_every_sdk_pins_the_schema_event_count(self) -> None:
         expected = len(self.schema["events"])
         self.assertEqual(stale_pins(EVENT_PINS, expected), [], f"set these event count pins to {expected}")
+
+    def test_every_sdk_pins_the_schema_emitted_event_count(self) -> None:
+        expected = sum(1 for event in self.schema["events"].values() if event["emission"] == "emitted")
+        self.assertEqual(
+            stale_pins(EMITTED_EVENT_PINS, expected), [], f"set these emitted event count pins to {expected}"
+        )
 
 
 if __name__ == "__main__":
