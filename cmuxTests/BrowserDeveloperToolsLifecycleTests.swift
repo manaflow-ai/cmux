@@ -464,6 +464,59 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
         )
     }
 
+    func testClosedPanelSnapshotReconcilesPendingAttachedInspectorClose() {
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        let windowId = appDelegate.createMainWindow()
+        guard let mainWindow = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(
+                  inWorkspace: workspace.id,
+                  url: URL(string: "https://example.com/manual-inspector-close")
+              ),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected main window with browser panel")
+            AppDelegate.shared = originalAppDelegate
+            return
+        }
+        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
+        defer {
+            tearDownMainWindow(mainWindow, manager: manager)
+            AppDelegate.shared = originalAppDelegate
+        }
+
+        let inspector = FakeInspector(hideBehavior: .hides)
+        browserPanel.webView.cmuxSetUnitTestInspector(inspector)
+        if let contentView = mainWindow.contentView {
+            attachPanelPresentationIfNeeded(browserPanel, to: contentView)
+        }
+        XCTAssertTrue(browserPanel.showDeveloperTools())
+        XCTAssertTrue(browserPanel.isDeveloperToolsVisible())
+        XCTAssertTrue(browserPanel.debugDeveloperToolsStateSummary().contains("presentation=attached"))
+        browserPanel.noteDeveloperToolsHostAttached()
+
+        let recordClosedBrowserPanel = workspace.onClosedBrowserPanel
+        var savedDeveloperToolsVisibility: Bool?
+        workspace.onClosedBrowserPanel = { snapshot in
+            savedDeveloperToolsVisibility = snapshot.historyEntry?.snapshot.browser?.developerToolsVisible
+            recordClosedBrowserPanel?(snapshot)
+        }
+
+        // Keep the delayed detector pending while its stability interval elapses.
+        // Closing the browser must reconcile this eligible manual close synchronously.
+        inspector.hide()
+        browserPanel.cancelPendingDeveloperToolsVisibilityLossCheck()
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertTrue(browserPanel.preferredDeveloperToolsVisible)
+
+        browserPanel.webView.uiDelegate?.webViewDidClose?(browserPanel.webView)
+        drainMainQueue()
+
+        XCTAssertEqual(savedDeveloperToolsVisibility, false)
+    }
+
     func testLegacyBrowserStackHistoryEntryRestoresInteractionState() throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
