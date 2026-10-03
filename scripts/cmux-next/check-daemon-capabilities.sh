@@ -51,7 +51,11 @@ run_binary() {
     "$binary" --session "$session" --json "$@"
 }
 cleanup() {
-  run_binary server stop --end-terminals >/dev/null 2>&1 || run_binary server stop --force >/dev/null 2>&1 || true
+  if ! run_binary server stop --end-terminals >/dev/null 2>&1 && ! run_binary server stop --force >/dev/null 2>&1; then
+    # Never leave the probe daemon running: stop it by the pid ensure printed.
+    pid="$(cat "$root/pid" 2>/dev/null || true)"
+    [[ "$pid" =~ ^[0-9]+$ ]] && kill "$pid" 2>/dev/null || true
+  fi
   rm -rf "$root"
 }
 trap cleanup EXIT
@@ -61,6 +65,9 @@ if ! ensured="$(run_binary server ensure 2>"$root/ensure.err")"; then
   cat "$root/ensure.err" >&2
   exit 1
 fi
+printf '%s\n' "$ensured" | python3 -c 'import json,sys
+lines=[l for l in sys.stdin if l.strip().startswith("{")]
+print(json.loads(lines[-1]).get("pid") or "" if lines else "")' > "$root/pid" 2>/dev/null || true
 
 python3 -u - "$capabilities" "$binary" "$ensured" <<'PY'
 import json, socket, sys

@@ -734,14 +734,15 @@ jobs:
           name=cmux-tui-aarch64-apple-darwin
           binary="assets/tree/$name"
           [[ -f "$binary" ]] || { echo "missing $binary" >&2; exit 1; }
+          fetch() { curl -fsSL --proto '=https' "$1?verify=$GITHUB_RUN_ID" -o "$2"; }
           # The binary the commit-addressed manifest published for this commit.
-          manifest_sha="$(curl -fsSL --proto '=https' "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json?verify=$GITHUB_RUN_ID" \
-            | python3 -c 'import json,sys; print(json.load(sys.stdin)["binaries"][sys.argv[1]])' "$name")"
+          fetch "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json" manifest.json
+          manifest_sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["binaries"][sys.argv[2]])' manifest.json "$name")"
           sha="$(sha256sum "$binary" | awk '{print $1}')"
           [[ "$sha" == "$manifest_sha" ]] || { echo "$binary does not match the commit manifest" >&2; exit 1; }
           base="https://files.cmux.com/cmux-tui/tree/$KEY"
-          if existing="$(curl -fsSL --proto '=https' "$base/$name.sha256?verify=$GITHUB_RUN_ID" 2>/dev/null)"; then
-            echo "tree $KEY is already published ($existing); an earlier commit with this tree built it"
+          if fetch "$base/$name.sha256" existing.sha256 2>/dev/null; then
+            echo "tree $KEY is already published ($(cat existing.sha256)); an earlier commit with this tree built it"
             exit 0
           fi
           upload() {
@@ -753,21 +754,7 @@ jobs:
               --cache-control "public, max-age=31536000, immutable"
           }
           mkdir -p tree
-          cp "$binary" "tree/$name"
-          chmod 0755 "tree/$name"
-          if ! upload "tree/$name" "$name"; then
-            # An earlier run of this key stopped after its binary upload. That
-            # binary also passed the daemon tests on a commit with this tree:
-            # complete its publication instead of failing forever.
-            curl -fsSL --proto '=https' -o tree/existing "$base/$name?verify=$GITHUB_RUN_ID" || {
-              echo "binary upload failed and $base/$name does not exist" >&2; exit 1; }
-            sha="$(sha256sum tree/existing | awk '{print $1}')"
-            echo "completing the publication of the existing $base/$name ($sha)"
-            published_commit=""
-          else
-            published_commit="$GITHUB_SHA"
-          fi
-          python3 - "$KEY" "$published_commit" "$sha" > tree/source.json <<'PY'
+          python3 - "$KEY" "$GITHUB_SHA" "$sha" > tree/source.json <<'PY'
           import json, os, subprocess, sys
           key, commit, sha = sys.argv[1:4]
           def rev(spec):
@@ -776,17 +763,34 @@ jobs:
               "key": key,
               "cmuxTuiTree": rev("HEAD:cmux-tui"),
               "ghosttyCommit": rev("HEAD:ghostty"),
-              "commit": commit or None,
-              "run": os.environ["GITHUB_RUN_ID"] if commit else None,
-              "runUrl": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}" if commit else None,
+              "commit": commit,
+              "run": os.environ["GITHUB_RUN_ID"],
+              "runUrl": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
               "binaries": {"cmux-tui-aarch64-apple-darwin": sha},
           }, indent=2))
           PY
+          # source.json goes first and decides the key's binary. When an earlier
+          # run of this key stopped part way, its source.json stands: that
+          # commit also passed the daemon tests with this tree, and its binary
+          # is at its commit-addressed URL. Finish that publication.
+          if ! upload tree/source.json source.json; then
+            fetch "$base/source.json" tree/source.json || { echo "source.json upload failed and none is published" >&2; exit 1; }
+            echo "completing the earlier publication: $(tr -d '\n' < tree/source.json)"
+          fi
+          read -r owner sha < <(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["commit"], d["binaries"][sys.argv[2]])' tree/source.json "$name")
+          [[ "$owner" =~ ^[0-9a-f]{40}$ && "$sha" =~ ^[0-9a-f]{64}$ ]] || { echo "published source.json is malformed" >&2; exit 1; }
+          if [[ "$owner" == "$GITHUB_SHA" ]]; then
+            cp "$binary" "tree/$name"
+          else
+            fetch "https://files.cmux.com/cmux-tui/$owner/$name" "tree/$name"
+          fi
+          [[ "$(sha256sum "tree/$name" | awk '{print $1}')" == "$sha" ]] || { echo "binary for $owner does not match source.json" >&2; exit 1; }
+          chmod 0755 "tree/$name"
+          upload "tree/$name" "$name"
           printf '%s  %s\n' "$sha" "$name" > "tree/$name.sha256"
-          upload tree/source.json source.json || [[ -z "$published_commit" ]]
           # The sha256 file goes last: its presence means the key is complete.
           upload "tree/$name.sha256" "$name.sha256"
-          echo "Published: $base/$name ($sha)"
+          echo "Published: $base/$name ($sha, built by $owner)"
 
       - name: Verify the tree publication
         env:

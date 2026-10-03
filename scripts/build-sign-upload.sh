@@ -88,6 +88,8 @@ CMUX_TUI_COMMIT="$(awk -F= '$1=="commit"{print $2}' scripts/cmux-next/cmux-tui.p
   --expected-commit "$CMUX_TUI_COMMIT" \
   --require-capability wireguard-hub
 ./scripts/cmux-next/write-cmux-tui-version.sh "$APP_PATH" "$CMUX_TUI_COMMIT"
+# The pinned daemon must serve every capability the app relies on.
+./scripts/cmux-next/check-daemon-capabilities.sh --binary "$APP_PATH/Contents/Resources/bin/cmux-tui"
 
 # The cmux-next target does not build the Ghostty CLI helper (theme picker);
 # release.yml and nightly.yml inject a prebuilt one, this script builds it.

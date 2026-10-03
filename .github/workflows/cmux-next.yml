@@ -352,7 +352,10 @@ jobs:
       - name: Fetch the same-tree cmux-tui
         timeout-minutes: 50
         env:
-          CMUX_TUI_TREE_WAIT_SECONDS: "2700"
+          # A pull request checks its merge commit, whose cmux-tui tree only
+          # exists once the base and branch match: fail at once with the
+          # steps instead of holding the runner for an unpublished tree.
+          CMUX_TUI_TREE_WAIT_SECONDS: ${{ github.event_name == 'pull_request' && '0' || '2700' }}
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
       - name: Check the same-tree cmux-tui serves the app's daemon capabilities
@@ -512,7 +515,10 @@ jobs:
       - name: Fetch the same-tree cmux-tui
         timeout-minutes: 50
         env:
-          CMUX_TUI_TREE_WAIT_SECONDS: "2700"
+          # A pull request checks its merge commit, whose cmux-tui tree only
+          # exists once the base and branch match: fail at once with the
+          # steps instead of holding the runner for an unpublished tree.
+          CMUX_TUI_TREE_WAIT_SECONDS: ${{ github.event_name == 'pull_request' && '0' || '2700' }}
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
       - name: Install Rust (diff sidecar)
