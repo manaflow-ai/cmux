@@ -175,6 +175,14 @@ final class MacMessageRowView: MacFlippedView {
     let repliesLabel = makeMacLabel()
     let footerLabel = makeMacLabel()
     let failedBadge = NSImageView()
+    /// Messages' hover control beside an image: a 29 pt glass circle 12 pt
+    /// outside the image's outer edge, vertically centered, that saves it.
+    let saveButton: NSControl = MacGlassCircleButton(
+        symbol: "square.and.arrow.down",
+        label: String(localized: "conversation.image.save", defaultValue: "Save Image", bundle: .module),
+        identifier: "conversation.image.save"
+    )
+    private var hoverArea: NSTrackingArea?
     private var imageViews: [NSImageView] = []
     private var imageTasks: [Task<Void, Never>] = []
     private(set) var model: MacMessageRowModel?
@@ -207,6 +215,9 @@ final class MacMessageRowView: MacFlippedView {
         emojiLabel.font = .systemFont(ofSize: MacConversationTheme.emojiOnlyFontSize)
         addSubview(avatar)
         addSubview(quoteAvatar)
+        saveButton.target = self
+        saveButton.action = #selector(saveImage)
+        addSubview(saveButton)
         quoteThumb.imageScaling = .scaleProportionallyUpOrDown
         quoteThumb.wantsLayer = true
         quoteThumb.layer?.cornerRadius = 5
@@ -407,7 +418,51 @@ final class MacMessageRowView: MacFlippedView {
         }
     }
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverArea { removeTrackingArea(hoverArea) }
+        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        hoverArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        saveButton.isHidden = rowLayout?.imageFrames.isEmpty ?? true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        saveButton.isHidden = true
+    }
+
+    @objc private func saveImage() {
+        guard let attachment = model?.message.attachments.first(where: { $0.kind == .image }) else { return }
+        Task { @MainActor in
+            guard let image = await MacImageLoader.shared.image(for: attachment),
+                  let tiff = image.tiffRepresentation,
+                  let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]),
+                  let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first else { return }
+            var url = downloads.appendingPathComponent("Image \(attachment.id.suffix(6)).png")
+            var copy = 1
+            while FileManager.default.fileExists(atPath: url.path) {
+                copy += 1
+                url = downloads.appendingPathComponent("Image \(attachment.id.suffix(6)) \(copy).png")
+            }
+            try? png.write(to: url)
+        }
+    }
+
+    private func placeSaveButton(_ model: MacMessageRowModel, layout: MacMessageLayout) {
+        guard let image = layout.imageFrames.last else {
+            saveButton.isHidden = true
+            return
+        }
+        let d: CGFloat = 29
+        let x = model.isOutgoing ? image.minX - 12 - d : image.maxX + 12
+        saveButton.frame = CGRect(x: x, y: image.midY - d / 2, width: d, height: d)
+    }
+
     private func configureImages(_ model: MacMessageRowModel, layout: MacMessageLayout) {
+        placeSaveButton(model, layout: layout)
         imageTasks.forEach { $0.cancel() }
         imageTasks = []
         while imageViews.count < layout.imageFrames.count {
@@ -722,6 +777,50 @@ final class MacTypingRowView: MacFlippedView {
             pulse.beginTime = CACurrentMediaTime() + Double(index) * 0.18
             dot.add(pulse, forKey: "pulse")
         }
+    }
+}
+/// A Liquid Glass circle wrapping a borderless button (the glass bezel style
+/// throws from a table row's layout pass).
+final class MacGlassCircleButton: NSControl {
+    private let button: NSButton
+
+    init(symbol: String, label: String, identifier: String) {
+        button = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: label)?
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .medium)) ?? NSImage(), target: nil, action: nil)
+        button.isBordered = false
+        button.contentTintColor = .labelColor
+        super.init(frame: .zero)
+        // Effect views (glass or material) throw from a table row's layout
+        // pass; Messages' save control reads as a flat translucent circle.
+        wantsLayer = true
+        addSubview(button)
+        isHidden = true
+        setAccessibilityLabel(label)
+        setAccessibilityIdentifier(identifier)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var target: AnyObject? {
+        get { button.target }
+        set { button.target = newValue }
+    }
+
+    override var action: Selector? {
+        get { button.action }
+        set { button.action = newValue }
+    }
+
+    override func performClick(_ sender: Any?) {
+        button.performClick(sender)
+    }
+
+    override func layout() {
+        super.layout()
+        layer?.cornerRadius = bounds.height / 2
+        layer?.backgroundColor = resolved(NSColor(white: effectiveAppearance.isDarkMac ? 1 : 0, alpha: effectiveAppearance.isDarkMac ? 0.14 : 0.08), in: self)
+        button.frame = bounds
     }
 }
 #endif

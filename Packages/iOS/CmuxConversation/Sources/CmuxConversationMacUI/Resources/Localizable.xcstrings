@@ -848,6 +848,22 @@
           }
         }
       }
+    },
+    "conversation.image.save": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save Image"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像を保存"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

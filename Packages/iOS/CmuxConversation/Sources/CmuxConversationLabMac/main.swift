@@ -7,6 +7,9 @@ import CmuxConversationMacUI
 
 let arguments = CommandLine.arguments
 let endpoint = URL(string: arguments.count > 1 ? arguments[1] : "ws://127.0.0.1:4870/ws?conversation=group")!
+NSSetUncaughtExceptionHandler { exception in
+    FileHandle.standardError.write("UNCAUGHT \(exception.name.rawValue): \(exception.reason ?? "?")\n\(exception.callStackSymbols.joined(separator: "\n"))\n".data(using: .utf8)!)
+}
 let app = NSApplication.shared
 // Driven runs (a control FIFO) never activate: they must not take focus
 // from whatever the person at the Mac is doing.

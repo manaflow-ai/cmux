@@ -1088,13 +1088,15 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             let visible = tableView.rows(in: scrollView.contentView.bounds)
             let ids = (visible.location..<min(rows.count, visible.location + visible.length)).compactMap { messageModel(at: $0)?.message.id }
             return "visible \(ids.joined(separator: ","))"
-        case "tapback", "menu", "reply", "edit", "hold":
+        case "tapback", "menu", "reply", "edit", "hold", "hover", "save":
             guard let index = lastMessageRow(matching: argument), let model = messageModel(at: index) else { return "error no row" }
             tableView.scrollRowToVisible(index)
             guard let rowView = rowView(at: index) else { return "error not visible" }
             switch verb {
             case "tapback": showTapbackBar(model, in: rowView)
             case "hold": showReactionFocus(model, in: rowView)
+            case "hover": rowView.saveButton.isHidden = rowView.rowLayout?.imageFrames.isEmpty ?? true
+            case "save": rowView.saveButton.performClick(nil)
             case "reply": enterReply(model.message)
             case "edit": enterEdit(model.message)
             default:

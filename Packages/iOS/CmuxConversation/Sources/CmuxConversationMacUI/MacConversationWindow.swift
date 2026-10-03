@@ -520,7 +520,6 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         view.identifier = .init("r")
         view.configure(store: visible[row].store)
         view.isUnread = isUnread(visible[row])
-        view.isEmphasized = (tableView.rowView(atRow: row, makeIfNecessary: false) as? MacConversationListRowView)?.isActiveSelection ?? false
         view.hidesSeparator = tableView.selectedRow == row || tableView.selectedRow == row + 1 || row == visible.count - 1
         return view
     }
@@ -663,6 +662,11 @@ final class MacConversationListRowView: NSTableRowView {
     }
 
     override var isSelected: Bool { didSet { selectionStyleChanged() } }
+
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        (subview as? MacConversationListRow)?.isEmphasized = isActiveSelection
+    }
 
     private func selectionStyleChanged() {
         needsDisplay = true
