@@ -37,6 +37,7 @@ import { t } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
+import type { HunkDecision, HunkReview } from "./changes/hunkReview";
 import type { ChangesSource } from "./changes/model";
 import { Counts } from "./changes/Counts";
 import { ChevronDown, DiffFile } from "./changeIcons";
@@ -67,12 +68,14 @@ import { QuickSurface } from "./QuickSurface";
 type Reply<T> = { ok: true; value: T } | { ok: false; error?: NativeErrorReply };
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
 type NativeRegistry = Record<string, MeasurableRenderer>;
-/// `onOpenDiff` opens the changes of the turn holding `rowId`, at `path` when given.
+/// `onOpenDiff` opens the changes of the turn holding `rowId`, at `path` when given; focus
+/// returns to `opener` when the view closes.
+type OpenDiff = (rowId: string, path?: string, opener?: HTMLElement) => void;
 type RowProps = {
   row: AcpmuxRow;
   onToggleActivity: (id: string) => void;
   expanded: boolean;
-  onOpenDiff?: (rowId: string, path?: string) => void;
+  onOpenDiff?: OpenDiff;
 };
 
 declare global {
@@ -267,7 +270,11 @@ const EditedFilesRow = memo(
             {files.length > 0 && <Counts additions={additions} deletions={deletions} />}
           </div>
           {reviewable && (
-            <button type="button" className="acpmux-review-changes" onClick={() => onOpenDiff(row.id, single?.path)}>
+            <button
+              type="button"
+              className="acpmux-review-changes"
+              onClick={(event) => onOpenDiff(row.id, single?.path, event.currentTarget)}
+            >
               View changes
             </button>
           )}
@@ -295,7 +302,7 @@ const EditedFilesRow = memo(
               type="button"
               className="acpmux-edited-file"
               key={entry.key}
-              onClick={() => onOpenDiff(row.id, file.path)}
+              onClick={(event) => onOpenDiff(row.id, file.path, event.currentTarget)}
             >
               {label}
             </button>
@@ -429,7 +436,7 @@ export function VirtualTranscript({
 }: {
   rows: AcpmuxRow[];
   onToggleActivity: (id: string) => void;
-  onOpenDiff?: (rowId: string, path?: string) => void;
+  onOpenDiff?: OpenDiff;
   expanded: Set<string>;
   registry?: NativeRegistry;
   canLoadOlder?: boolean;
@@ -780,13 +787,14 @@ function AcpmuxPane() {
   }>();
   const sessionIdRef = useRef(snapshot.sessionId);
   sessionIdRef.current = snapshot.sessionId;
-  const openDiff = useCallback(
-    (rowId: string, path?: string) =>
+  // A click does not focus a button in WebKit, so the clicked control is the opener, not the focus.
+  const openDiff = useCallback<OpenDiff>(
+    (rowId, path, opener) =>
       setDiffView({
         sessionId: sessionIdRef.current,
         rowId,
         path,
-        opener: document.activeElement instanceof HTMLElement ? document.activeElement : undefined,
+        opener: opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined),
       }),
     [],
   );
@@ -815,6 +823,33 @@ function AcpmuxPane() {
   useEffect(() => {
     if (diffView && !diffOpen) setDiffView(undefined);
   }, [diffView, diffOpen]);
+  // Hunk decisions outlive the view, so reopening a turn shows what was already decided.
+  const [hunkDecisions, setHunkDecisions] = useState<ReadonlyMap<string, HunkDecision>>(() => new Map());
+  const hunkReview = useMemo<HunkReview>(() => {
+    const mark = (keys: string[], decision: HunkDecision, only?: HunkDecision) =>
+      setHunkDecisions((current) => {
+        const next = new Map(current);
+        for (const key of keys) if (!only || next.get(key) === only) next.set(key, decision);
+        return next;
+      });
+    return {
+      decisions: hunkDecisions,
+      decide: (key, decision) =>
+        setHunkDecisions((current) => {
+          const next = new Map(current);
+          if (decision) next.set(key, decision);
+          else next.delete(key);
+          return next;
+        }),
+      requestRevert: (keys, prompt) => {
+        mark(keys, "requested");
+        // A failed send leaves the hunks rejected, so the reader can send them again.
+        callNative("chat.send", { text: prompt }).catch(() => mark(keys, "rejected", "requested"));
+      },
+    };
+  }, [hunkDecisions]);
+  // Tool call ids belong to one session.
+  useEffect(() => setHunkDecisions((current) => (current.size ? new Map() : current)), [snapshot.sessionId]);
   // Streaming text changes rows on every chunk; only the turn's tool calls change its files.
   const diffActivity = useRef<{ key: string; files: ReturnType<typeof turnFiles> }>(undefined);
   const diffFiles = useMemo(() => {
@@ -1478,6 +1513,7 @@ function AcpmuxPane() {
                       ) : undefined
                     }
                     checkpointReview={checkpoints.review}
+                    review={hunkReview}
                   />
                 )}
               </div>
