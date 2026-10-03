@@ -9,6 +9,7 @@ import { appIdHashFor, confirmView } from "./domains/user-confirm.ts"
 import { chiefList } from "./domains/user-chief.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
+import { handleRtcFrame, rtcSocketClosed } from "./rtc-signal.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
 
 /** Inbox entries a list scans at most (p99 2,000 conversations per user, design section 6). */
@@ -65,6 +66,16 @@ export class UserDO extends OwnerDO<UserState> {
     this.inbox.onFrame(ws, a, engine.stream.slice("user:".length), frame)
     this.scheduleAlarm()
     return true
+  }
+
+  /** WebRTC signaling between this user's devices (rtc-signal.ts); never touches the ledger. */
+  protected override onFrame(ws: WebSocket, frame: { readonly t?: string } & Record<string, unknown>): boolean {
+    return handleRtcFrame(() => this.ctx.getWebSockets(), ws, frame)
+  }
+
+  override async webSocketClose(ws: WebSocket, code: number) {
+    rtcSocketClosed(() => this.ctx.getWebSockets(), ws)
+    await super.webSocketClose(ws, code)
   }
 
   protected override systemEngine(op: string, entity: string) {

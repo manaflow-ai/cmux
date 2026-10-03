@@ -102,6 +102,9 @@ export interface Env {
   readonly APNS_KEY_P8?: string
   readonly APNS_KEY_ID?: string
   readonly APNS_TEAM_ID?: string
+  /** Cloudflare Realtime TURN key id (var) and its API token (secret); without both, ICE is STUN only. */
+  readonly CF_TURN_KEY_ID?: string
+  readonly CF_TURN_API_TOKEN?: string
   /** code.storage organization for team code repositories (decisions A12, C1); staging and development share one (A2). */
   readonly CODE_STORAGE_ORG?: string
   /** Secret: PKCS#8 PEM of that organization's ES256 key. Code automations refuse to pin without it. */
