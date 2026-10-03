@@ -71,7 +71,7 @@ struct CloudTreeNodeActions {
     /// Presents an inline Cloud action explanation without starting a remote operation.
     var showHint: @MainActor (_ message: String) -> Void = { _ in }
     /// Explains why a display cannot open in the currently selected workspace.
-    var showDisplayOpenHint: @MainActor (_ resource: SurfaceResourceID) -> Void = { _ in }
+    var showDisplayOpenHint: @MainActor (_ resource: SurfaceResourceID) -> Bool = { _ in false }
     /// Opens the New Machine flow through the same action as Cmd-Y.
     var newMachine: @MainActor () -> Void = {}
     /// Creates a workspace on the remembered or selected Cloud machine.
@@ -530,8 +530,9 @@ struct CloudTreeNodeActions {
                   let rejection = workspace.surfaceOwnershipPolicy.rejection(
                       for: resource.machine,
                       kind: resource.kind
-                  ) else { return }
+                  ) else { return false }
             onFailure(rejection.message)
+            return true
         }
         actions.openWorkspace = { machine, workspace, group in
             let host = workspaceCreationHost() ?? selectedWorkspaceID()
@@ -586,6 +587,12 @@ struct CloudTreeNodeActions {
         actions.discoverPorts = refreshMachine
         actions.newDisplay = { machine in
             let target = try? destination(.split)
+            if let target,
+               let workspace = Workspace.liveWorkspace(id: target.workspaceID),
+               let rejection = workspace.surfaceOwnershipPolicy.rejection(for: machine, kind: .display) {
+                onFailure(rejection.message)
+                return
+            }
             run(String(format: String(localized: "cloud.display.creating", defaultValue: "Creating a display on %@…"), machineName(machine))) { catalog in
                 do {
                     try await catalog.createDisplay(on: machine, into: target)

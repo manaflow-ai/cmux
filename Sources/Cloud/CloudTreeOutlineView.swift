@@ -463,6 +463,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 #if DEBUG
             cmuxDebugLog("cloudTree.click row=\(row) kind=\(node.structureTag) clicks=\(NSApp.currentEvent?.clickCount ?? -1)")
 #endif
+            if case .display(let resource, _, _) = node.kind,
+               nodeActions.showDisplayOpenHint(resource.id) {
+                return
+            }
             open(node)
         }
 
@@ -487,7 +491,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 // workspace belongs to another Cloud machine, explain the
                 // ownership boundary instead of leaving the user with a
                 // generic failed pane operation.
-                nodeActions.showDisplayOpenHint(resource.id)
+                _ = nodeActions.showDisplayOpenHint(resource.id)
             default:
                 break
             }
