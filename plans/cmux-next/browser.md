@@ -60,6 +60,7 @@ The helper calls `enter_helper_sandbox()` (Chromium `Sandbox::initialize` via `l
 - CEF on macOS already offers keys that the page did not handle to the main menu. cmux2 sets `unhandled_key = nil` because a second offer ran every menu shortcut twice (cmux2:`apple/Sources/CmuxMac/Engine.swift:134-137`). The Rust `on_key_event` still forwards `RAWKEYDOWN` when a host hook exists (cmux2:`crates/engine/src/client.rs:374-390`).
 - Chrome accelerators that act on a tab strip (`IDC_NEW_TAB`, `IDC_CLOSE_TAB`, `IDC_SELECT_*`, `IDC_FOCUS_LOCATION`, new window) are captured in `CefCommandHandler::on_chrome_command` and re-emitted as `CMUX_EVENT_COMMAND` for the shell (`client.rs:394-440`).
 - Terminal views route key equivalents to the main menu first (cmux2:`apple/Sources/CmuxMac/TerminalView.swift:223-229`).
+- Link hints (`f` follows, `F` opens the link in a new browser split; `browserLinkHints`, `browserLinkHintsNewSplit`, rebindable like any action) are bare keys, so they never run from the window key path. The shim's `OnKeyEvent` reports a letter only after the page left it unhandled while no editable field had focus (`CMUX_SHIM_KEY_UNHANDLED`), and `KeyRouter.routePageKey` runs the action only while that page has the keyboard. While labels show, the router gives every key to `LinkHintController` before Chromium sees it. Escape, a chord, a scroll or another window ends the session. The page script runs in the isolated world, and a follow is a trusted CDP click. Chromium pages only for now.
 - With the fork, focus goes to the embedded child window. `CefBrowserHost::SetFocus` activates that widget (fork commit `a7bcbc0`). The child window "never becomes main", and it counts as active while the parent is key (fork commit `377a33a`, `chrome_child_window_mac.mm:118-140`).
 
 ### Browser process switches
@@ -88,7 +89,7 @@ fork:`include/cef_cmux.h` (`CMUX_CEF_API_VERSION 1`). Browsers are addressed by 
 
 cmux2's `fork::Api` does not bind `cmux_tab_window_id` or `cmux_ext_action_hide_popup` (cmux2:`crates/engine/src/fork.rs:24-33`).
 
-Missing for cmux next: detach or attach a tab across windows (moving a CEF tab between panes), close through the tab strip, and a tab snapshot. Chromium has `TabStripModel::DetachWebContentsAtForInsertion`, so a fork `cmux_tab_move_to_window` is a small patch.
+Missing for cmux next: close through the tab strip, and a tab snapshot. Moving a tab between panes or windows needs no fork call today: the app gives every Chromium tab its own Chromium window (below). `cmux_tab_move_to_window` exists for popups and for tabs Chromium opens itself (`CEFOrphanTabs`).
 
 ## 2. What the fork patches
 
@@ -150,7 +151,9 @@ Child-window rules for `.childWindow` tabs (Decision 2):
 - Sidebar Liquid Glass must not sit over a CEF pane. Keep panes inset from glass, or accept the plain background next to CEF.
 - Column scroll, tab open/close animations, tab drag, and hover previews: call `setOccluded(true)`, which shows a `Page.captureScreenshot` image in the placeholder view and hides the child window. Restore after the settle signal. Fork patch: observe clip-view bounds changes and clip or hide when the placeholder is only partly visible. Do not ship the no-clip behavior.
 
-Chromium `Browser` per pane (Decision 1): the first CEF tab in a pane creates the tabbed browser in that pane's placeholder view. Later CEF tabs in the pane use `cmux_tab_add`. The pane's selected tab maps to `cmux_tab_activate`. When a WebKit or terminal tab is selected, the placeholder is hidden and the tracker hides the child window. Cross-pane moves need the new fork call. Without it, a move recreates the tab and loses page state.
+Chromium `Browser` per pane (Decision 1, planned): the first CEF tab in a pane creates the tabbed browser in that pane's placeholder view. Later CEF tabs in the pane use `cmux_tab_add`. The pane's selected tab maps to `cmux_tab_activate`. When a WebKit or terminal tab is selected, the placeholder is hidden and the tracker hides the child window.
+
+As built (2026-10-02): the app leaves `BrowserTabConfiguration.pane` nil (`TabContentCache.chromiumConfiguration`), so `CEFEngine` gives each Chromium tab its own `Browser` (`tab-<id>`, `CEFPaneHost`). Its host view reparents into whichever pane or cmux window shows the tab, so a move between panes or windows keeps the page with no fork call (checked for a workspace move to another window on 2026-10-02: scroll, form values and the document survived, #16997). The cost: extensions see one single-tab Chromium window per tab. Adopting Decision 1 later needs `cmux_tab_move_to_window` (already in the fork, used for popups and Chromium-opened tabs) for cross-pane moves.
 
 ### Rust crate or Swift against the CEF C API
 

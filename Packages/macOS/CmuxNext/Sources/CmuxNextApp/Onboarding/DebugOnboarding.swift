@@ -12,9 +12,12 @@ import CmuxNextSettings
 /// `action`: `open` (`step`), `state`, `next`, `back`, `skip`, `close`,
 /// `role` (`role`), `describe` (`text`), `suggest_tasks` (`on`),
 /// `first_task` (`task`: note, chart),
+/// `toggle_project` (`path`), `add_project` (`path`),
 /// `theme` (`name`, empty for the Ghostty theme), `detect`,
 /// `toggle_profile` (`id`), `toggle_kind` (`kind`), `import`,
-/// `cancel_import`, `claim` (`claim`), `gallery` (opens the review tool),
+/// `cancel_import`, `claim` (`claim`), `allow` (`pane`: accessibility or
+/// screenRecording), `dismiss_helper`, `grant` (`pane`, `on`; the mock
+/// computer use source only), `gallery` (opens the review tool),
 /// `gallery_key` (`key`: left, right, up, down, 1-9, p, space, t, return,
 /// copy, escape), `gallery_state`.
 @MainActor
@@ -38,6 +41,11 @@ enum DebugOnboarding {
         case "describe": model.role.describe(params["text"]?.stringValue ?? "")
         case "first_task": if let task = params["task"]?.stringValue.flatMap(FirstTask.init(rawValue:)) { model.firstTask.pick(task) }
         case "suggest_tasks": model.role.suggestTasks = params["on"]?.boolValue ?? !model.role.suggestTasks
+        case "toggle_project":
+            if let path = params["path"]?.stringValue, let project = model.projects.projects.first(where: { $0.id == path }) {
+                model.projects.toggle(project)
+            }
+        case "add_project": if let path = params["path"]?.stringValue { model.projects.add(URL(fileURLWithPath: path, isDirectory: true)) }
         case "theme": model.theme.select(params["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 })
         case "detect": model.importer.redetect()
         case "toggle_profile":
@@ -53,6 +61,17 @@ enum DebugOnboarding {
             }
         case "skip_passwords": model.importer.skipPasswords()
         case "consent_back": model.importer.backFromConsent()
+        case "allow": if let pane = params["pane"]?.stringValue.flatMap(ComputerUsePermissionPane.init(rawValue:)) { model.computerUse.allow(pane) }
+        case "dismiss_helper": model.computerUse.dismissHelper()
+        case "grant":
+            if let pane = params["pane"]?.stringValue.flatMap(ComputerUsePermissionPane.init(rawValue:)),
+               let mock = model.services.computerUsePermissions as? MockComputerUsePermissionSource {
+                let on = params["on"]?.boolValue ?? true
+                switch pane {
+                case .accessibility: mock.current.accessibility = on
+                case .screenRecording: mock.current.screenRecording = on
+                }
+            }
         case "claim": if let claim = params["claim"]?.stringValue.flatMap(DefaultHandlerClaim.init(rawValue:)) { model.defaults.request(claim) }
         default: break
         }
@@ -80,6 +99,12 @@ enum DebugOnboarding {
         result["first_task"] = model.firstTask.task.map { .string($0.rawValue) } ?? .null
         result["first_task_folder"] = .string(model.firstTask.folder.url.path)
         result["first_task_outputs"] = .array(model.firstTask.outputs.map { .string($0.lastPathComponent) })
+        result["projects"] = .array(model.projects.projects.map { project in
+            .object(["path": .string(project.id), "sessions": .number(Double(project.sessions)),
+                     "apps": .array(project.apps.map { .string($0.rawValue) }), "selected": .bool(model.projects.isSelected(project))])
+        })
+        result["projects_scanning"] = .bool(model.projects.isScanning)
+        result["projects_privacy"] = .array(model.projects.privacyFolders.map { .string($0.rawValue) })
         result["theme"] = model.theme.selected.map(JSONValue.string) ?? .null
         result["themes"] = .array(model.theme.choices.map { .string($0.name ?? "") })
         result["import_phase"] = .string(phaseName(model.importer.phase))
@@ -102,6 +127,10 @@ enum DebugOnboarding {
             result["targets"] = .object(Dictionary(uniqueKeysWithValues: summary.batches.map { ($0.source.sourceKey, JSONValue.string($0.source.targetProfileID)) }))
             result["failures"] = .object(summary.failures.mapValues(JSONValue.string))
         }
+        let computerUse = model.computerUse
+        result["computer_use"] = .object(["accessibility": .bool(computerUse.permissions.accessibility),
+                                          "screen_recording": .bool(computerUse.permissions.screenRecording),
+                                          "helping": computerUse.helping.map { .string($0.rawValue) } ?? .null])
         result["claimed"] = .array(model.defaults.claimed.map(\.rawValue).sorted().map(JSONValue.string))
         return .object(result)
     }

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "cmux/skills",
+  "name": { "en": "Skills and MCP", "ja": "スキルとMCP" },
+  "version": "0.1.0",
+  "description": {
+    "en": "Skills and MCP servers of every agent, for one project or everywhere. Every change is a reviewed diff of the agent's own config before it is written.",
+    "ja": "すべてのエージェントのスキルとMCPサーバーを、プロジェクト単位または全体で管理します。変更は書き込む前にエージェント自身の設定の差分として確認します。"
+  },
+  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": "assets/icon.svg",
+  "categories": ["agents", "developer-tools"],
+  "keywords": ["skills", "mcp", "agents", "config"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "catalog": "catalog/skills-catalog.json",
+  "implements": {
+    "cmux.section/1": { "export": "renderSection", "title": { "en": "Skills", "ja": "スキル" }, "symbol": "book.closed", "options": { "defaultRegion": "bottom" } },
+    "cmux.pane/1": { "export": "renderPane", "title": { "en": "Skills and MCP", "ja": "スキルとMCP" }, "symbol": "book.closed" }
+  },
+  "consumes": ["cmux.diff.renderer/1"],
+  "scopes": {
+    "skill:read": "List the skills each agent loads, their source, what they ask for and their sandbox.",
+    "mcp_server:read": "List the MCP servers each agent starts. Secret values are never shown, only their names.",
+    "workspace:read": "Find the folder of the current workspace for project skills and servers."
+  },
+  "optionalScopes": {
+    "skill:write": "Install, turn on and off, and remove skills when you tap Apply on the change you reviewed.",
+    "mcp_server:write": "Add, turn on and off, and remove MCP servers when you tap Apply on the change you reviewed."
+  },
+  "handles": {
+    "root": "Project folders of your workspaces, for project skills and servers.",
+    "diff": "The planned change you review before it is written."
+  },
+  "strings": "strings/",
+  "variants": [
+    { "id": "variant", "title": { "en": "Skills design", "ja": "スキルのデザイン" }, "values": ["unified", "byAgent", "byScope"], "default": "unified" }
+  ],
+  "settings": {
+    "type": "object",
+    "properties": { "reviewIn": { "type": "string", "enum": ["inline", "diffs"], "default": "inline", "title": "Where to review changes before they are written" } }
+  },
+  "activation": ["onInterface:cmux.section/1", "onInterface:cmux.pane/1", "onOp:skills_app.open"],
+  "files": ["dist/", "assets/", "strings/", "catalog/"]
+}

@@ -1,0 +1,89 @@
+{
+  "family": "skills_app",
+  "operations": [
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "apps run cmux/skills open",
+        "visible": true
+      },
+      "docs": "Open the Skills and MCP pane.",
+      "focuses": true,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "skills_app.open",
+      "owner": "app:cmux/skills",
+      "palette": {
+        "title": "Open Skills and MCP"
+      },
+      "queue_offline": false,
+      "remote_relay": "allow",
+      "risk": "mutate-own",
+      "since": "skills/1",
+      "export": "openSkills"
+    },
+    {
+      "class": "read",
+      "cli": null,
+      "docs": "Read skills and MCP servers again.",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "skills_app.reload",
+      "owner": "app:cmux/skills",
+      "palette": {
+        "title": "Reload Skills and MCP Servers"
+      },
+      "queue_offline": false,
+      "remote_relay": "allow",
+      "risk": "read",
+      "since": "skills/1",
+      "export": "reload"
+    },
+    {
+      "class": "mutation",
+      "cli": null,
+      "docs": "DEV/NIGHTLY: show the next design of the pane.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "skills_app.cycle_variant",
+      "owner": "app:cmux/skills",
+      "palette": {
+        "title": "Next Skills Variant"
+      },
+      "queue_offline": false,
+      "remote_relay": "allow",
+      "risk": "mutate-own",
+      "since": "skills/1",
+      "export": "cycleVariant"
+    }
+  ],
+  "owner": "app:cmux/skills",
+  "schema_version": 1,
+  "trigger_events": []
+}

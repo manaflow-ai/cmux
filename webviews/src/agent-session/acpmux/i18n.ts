@@ -16,6 +16,9 @@ const en = {
   "turn.stopped": "You stopped after {time}",
   "approval.title": "How should the agent's actions be approved?",
   "effort.title": "Effort",
+  "host.retry": "Retry",
+  "host.retryQueued": "Retrying…",
+  "host.retrying": "cmux tries again on its own. Your prompt stays here until acpmux connects.",
   "composer.sendTooltip": "Send (Return)",
   "picker.recent": "Recent",
   "picker.more": "More…",
@@ -48,6 +51,7 @@ const en = {
   "project.choose": "Choose project",
   "project.search": "Search projects",
   "project.none": "No matching projects",
+  "permission.required": "Permission required",
 } as const;
 
 export type StringKey = keyof typeof en;
@@ -66,6 +70,9 @@ const ja: Record<StringKey, string> = {
   "turn.stopped": "{time} 後に停止しました",
   "approval.title": "エージェントの操作をどのように承認しますか？",
   "effort.title": "推論の強さ",
+  "host.retry": "再試行",
+  "host.retryQueued": "再試行中…",
+  "host.retrying": "cmux は自動で再試行します。acpmux に接続するまで、プロンプトはここに残ります。",
   "composer.sendTooltip": "送信 (Return)",
   "picker.recent": "最近使ったモデル",
   "picker.more": "その他…",
@@ -98,6 +105,7 @@ const ja: Record<StringKey, string> = {
   "project.choose": "プロジェクトを選択",
   "project.search": "プロジェクトを検索",
   "project.none": "一致するプロジェクトはありません",
+  "permission.required": "許可が必要です",
 };
 
 const tables: Record<string, Record<StringKey, string>> = { en, ja };

@@ -73,9 +73,9 @@ import Testing
         .workspace: 139, // 80 + 29 room actions (plans/cmux-next/data-model.md 7) + showResources + 25 workspace verbs + 4 room/workspace theme actions
         .pane: 71, // + Move Pane to New Workspace, Undo Layout Change; + 4 sticky column actions (sticky-column.md)
         .screen: 62,
-        .tab: 76, // + Search Tabs (tab-search.md)
+        .tab: 76, // + Search Tabs (tab-search.md), New Tab Page, - Go to Tab (an alias of Search Tabs now)
         .terminal: 35, // + Set / Reset Terminal Theme
-        .browser: 111, // 78 - 2 profile placeholders + 18 browser profile actions (data-model.md 5) + Show History (Cmd-Y in a page) + 15 bookmark actions + Import Passwords from CSV
+        .browser: 113, // 78 - 2 profile placeholders + 18 browser profile actions (data-model.md 5) + Show History (Cmd-Y in a page) + 15 bookmark actions + Import Passwords from CSV + 2 link hints (f, F)
         .sidebar: 56, // + 26 sidebar section actions (sidebar-sections.md 6)
         .notifications: 18,
         .agents: 22, // + Resume Agent Session, Toggle Dictation, Open Agent Activity, Search Agent Chats, Continue In, Create Checkpoint

@@ -15,6 +15,7 @@ import {
   type AcpmuxSnapshot,
 } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
+import { NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
 import { composerDraft } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
@@ -30,6 +31,7 @@ import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk } from "./TrustAsk";
+import { PermissionCard } from "./PermissionCard";
 import { agentName } from "./agents";
 import { t } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
@@ -47,6 +49,7 @@ import { SearchChats } from "./SearchChats";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
+import { HostError } from "./HostError";
 import { ContinueMenu } from "./handoff/ContinueMenu";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings, localizedHandoffStrings } from "./handoff/strings";
@@ -129,6 +132,8 @@ const trustSource: TrustSource = {
 /// The changes view reads git scopes from whoever runs the session: the acpmux client
 /// (or the mock daemon), else the native host.
 const changesSource: ChangesSource = { diff: (scope) => callNative("git.diff", { scope, include_patch: true }) };
+/// The host opens a changed file in a tab beside the agent or in the editor (`file.open`).
+const openChangedFile = (path: string, where: "tab" | "editor") => callNative("file.open", { path, where });
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
@@ -200,23 +205,13 @@ const NoticeRow = memo(
 const PermissionRow = memo(
   function PermissionRow({ row }: RowProps) {
     const permission = row.permission;
-    return (
-      <div className="acpmux-permission-card">
-        <strong>{permission?.title || "Permission required"}</strong>
-        <div className="acpmux-permission-buttons">
-          {permission?.options.map((option) => (
-            <button
-              key={option.id}
-              onClick={() =>
-                void callNative("chat.permission", { permissionId: permission.permissionId, optionId: option.id })
-              }
-            >
-              {option.name}
-            </button>
-          ))}
+    if (!permission)
+      return (
+        <div className="acpmux-permission-card">
+          <strong>{t("permission.required")}</strong>
         </div>
-      </div>
-    );
+      );
+    return <PermissionCard permission={permission} onAnswer={answerPermission(permission)} />;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
@@ -642,25 +637,9 @@ export function VirtualTranscript({
   );
 }
 
-function PermissionCard({ permission }: { permission: AcpmuxPermission }) {
-  return (
-    <div className="acpmux-permission-card">
-      <strong>{permission.title || "Permission required"}</strong>
-      <div className="acpmux-permission-buttons">
-        {permission.options.map((option) => (
-          <button
-            key={option.id}
-            onClick={() =>
-              void callNative("chat.permission", { permissionId: permission.permissionId, optionId: option.id })
-            }
-          >
-            {option.name}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
+/// Answers `permission` with the option a button or key picked.
+const answerPermission = (permission: AcpmuxPermission) => (optionId: string) =>
+  void callNative("chat.permission", { permissionId: permission.permissionId, optionId });
 
 function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
   return (
@@ -822,6 +801,7 @@ function AcpmuxPane() {
   const [account, setAccount] = useState<SidebarAccount>();
   /// The session list shows beside the transcript in a wide pane and on demand in a narrow one.
   const [sidebar, setSidebar] = useState<"auto" | "open" | "closed">("auto");
+  const [newTab, setNewTab] = useState<NewTabHost | undefined>();
   const sidebarToggle = useRef<HTMLButtonElement>(null);
   // Escape and the scrim close the narrow-pane overlay and give focus back to its toggle.
   const closeOverlay = useCallback(() => {
@@ -873,6 +853,13 @@ function AcpmuxPane() {
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(undefined);
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
+  /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
+  /// in the host's words; cleared once a handshake succeeds.
+  const [hostError, setHostError] = useState<string | undefined>();
+  /// A Retry the user asked for that waits on the attempt in flight.
+  const [retryQueued, setRetryQueued] = useState(false);
+  /// Asks the host again now, after the user fixed what `hostError` says.
+  const retryHost = useRef<(() => void) | undefined>(undefined);
   // The pane keeps the last client's catalog until the next client's arrives;
   // ids only grow, so a new client never reads an older client's cache entry.
   const catalogClientId = useRef(0);
@@ -958,10 +945,15 @@ function AcpmuxPane() {
     // Looking is cheap, so a daemon started again elsewhere is found within seconds.
     const RECONNECT_MAX_DELAY_MS = 2_000;
     let reconnect = false;
+    let connecting = false;
+    /// The user asked to retry while an attempt was in flight; run a full one when it ends.
+    let retryPending = false;
     // A seeded first prompt (onboarding's first task). Swift hands it out once, so it is kept
     // here until a connect succeeds: a first connect that fails retries without it.
     let pendingPrompt: string | undefined;
     const connectHost = async () => {
+      if (connecting) return;
+      connecting = true;
       try {
         const host = await callNative<{
           protocolVersion: number;
@@ -970,6 +962,7 @@ function AcpmuxPane() {
           token?: string;
           sessionId?: string;
           newSession?: boolean;
+          newTab?: unknown;
           cwd?: string;
           draft?: string;
           prompt?: string;
@@ -978,6 +971,8 @@ function AcpmuxPane() {
           checkpointStrings?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
+        // A tab opened as the new tab page shows it until it becomes something (#16620).
+        if (!reconnect) setNewTab(newTabHost(host));
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
         setHandoffLabels(localizedHandoffStrings(host.handoffStrings));
@@ -994,9 +989,17 @@ function AcpmuxPane() {
               : "compact",
           );
         setAccount(mock ? MOCK_ACCOUNT : hostAccount(host.account));
-        if (!mock && (host.transport !== "acpmux-websocket" || !host.endpoint || !host.token)) return;
+        if (!mock && (host.transport !== "acpmux-websocket" || !host.endpoint || !host.token)) {
+          // A host with no daemon to reach has nothing left to fail.
+          setHostError(undefined);
+          return;
+        }
+        // A new chat in mock mode starts without a session too, as against a real daemon.
+        const mockConfig: AcpmuxHostConfig = host.newSession
+          ? { ...mockHost, sessionId: undefined, newSession: true }
+          : mockHost;
         const client = await AcpmuxDirectClient.connect(
-          mock ? mockHost : (host as AcpmuxHostConfig),
+          mock ? mockConfig : (host as AcpmuxHostConfig),
           (next) => {
             rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
             snapshotRef.current = next;
@@ -1027,6 +1030,8 @@ function AcpmuxPane() {
           return;
         }
         directClient.current = client;
+        // Only a connected client clears the error, so a stale endpoint doesn't flicker it away.
+        setHostError(undefined);
         catalogClientId.current += 1;
         setCatalogSource({ id: catalogClientId.current, client });
         retryDelay = 250;
@@ -1079,15 +1084,41 @@ function AcpmuxPane() {
       } catch (error) {
         if (!cancelled) {
           setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));
+          setHostError(error instanceof Error ? error.message : String(error));
           // Back off so a host without a daemon is not asked four times a second.
           retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
           retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
         }
+      } finally {
+        connecting = false;
+        if (retryPending) {
+          retryPending = false;
+          setRetryQueued(false);
+          // The attempt in flight may have connected; then there is nothing left to retry.
+          if (!cancelled && !directClient.current) retryNow();
+        }
       }
+    };
+    // The user asked: try now, and let the host start a daemon even after one was lost.
+    const retryNow = () => {
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+      retryTimer = undefined;
+      reconnect = false;
+      retryDelay = 250;
+      void connectHost();
+    };
+    retryHost.current = () => {
+      if (cancelled) return;
+      if (!connecting) return retryNow();
+      // An attempt is in flight (perhaps a reconnect that may not start the daemon): run the
+      // user's full attempt once it ends.
+      retryPending = true;
+      setRetryQueued(true);
     };
     void connectHost();
     return () => {
       cancelled = true;
+      retryHost.current = undefined;
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
       directClient.current?.close();
       directClient.current = undefined;
@@ -1116,9 +1147,20 @@ function AcpmuxPane() {
     !reviewing &&
     handoffTargets.length > 0;
   const ignoreFailure = (result: Promise<unknown>) => void result.catch(() => undefined);
+  const showNewTab = newTab !== undefined && !snapshot.sessionId && snapshot.rows.length === 0;
+  // The page's recent sessions stand in for the session list, which opens on demand (All sessions).
+  const shellSidebar = showNewTab && sidebar === "auto" ? "closed" : sidebar;
+  const openFromNewTab = (kind: TabKind, text: string) => {
+    if (kind !== "agent") {
+      void callNative("tab.open", { kind, text });
+      return;
+    }
+    setNewTab(undefined);
+    if (text) void callNative("chat.send", { text });
+  };
   return (
     <ShortcutsContext.Provider value={shortcuts}>
-      <section className="acpmux-shell" data-sidebar={sidebar}>
+      <section className="acpmux-shell" data-sidebar={shellSidebar}>
         <SessionSidebar
           sessions={snapshot.sessions}
           selectedId={snapshot.sessionId}
@@ -1135,136 +1177,166 @@ function AcpmuxPane() {
             onClick={closeOverlay}
           />
         )}
-        <div className="acpmux-main" data-new-chat={freshChat ? "" : undefined}>
-          <div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}>
-            <header className="acpmux-header">
-              <div>
-                <button
-                  type="button"
-                  className="acpmux-sidebar-toggle"
-                  ref={sidebarToggle}
-                  aria-label="Sessions"
-                  title="Sessions"
-                  aria-controls="acpmux-sidebar"
-                  aria-expanded={sidebarShown}
-                  onClick={toggleSidebar}
-                />
-                <strong className="acpmux-title">{header.title}</strong>
-                {header.status && <span className="acpmux-status">{header.status}</span>}
-              </div>
-              <div className="acpmux-handoff-header-tools">
-                {checkpoints.supported && (
-                  <button type="button" className="acpmux-checkpoint-open" onClick={checkpoints.show}>
-                    {checkpointLabels.createCheckpoint}
-                  </button>
+        <div className="acpmux-main" data-new-chat={freshChat && !showNewTab ? "" : undefined}>
+          {showNewTab ? (
+            <NewTabPage
+              snapshot={composerSnapshot}
+              hotkeys={newTab.hotkeys}
+              initialKind={newTab.initialKind}
+              cwd={newTab.cwd}
+              host={newTab.host}
+              chips={ComposerChips}
+              onSubmit={openFromNewTab}
+              onOpenSession={(sessionId) => {
+                setNewTab(undefined);
+                selectSession(sessionId);
+              }}
+              onShowAll={() => setSidebar("open")}
+              onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
+            />
+          ) : (
+            <>
+              <div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}>
+                <header className="acpmux-header">
+                  <div>
+                    <button
+                      type="button"
+                      className="acpmux-sidebar-toggle"
+                      ref={sidebarToggle}
+                      aria-label="Sessions"
+                      title="Sessions"
+                      aria-controls="acpmux-sidebar"
+                      aria-expanded={sidebarShown}
+                      onClick={toggleSidebar}
+                    />
+                    <strong className="acpmux-title">{header.title}</strong>
+                    {header.status && <span className="acpmux-status">{header.status}</span>}
+                  </div>
+                  <div className="acpmux-handoff-header-tools">
+                    {checkpoints.supported && (
+                      <button type="button" className="acpmux-checkpoint-open" onClick={checkpoints.show}>
+                        {checkpointLabels.createCheckpoint}
+                      </button>
+                    )}
+                    <span
+                      className="acpmux-session-coverage"
+                      title={`${handoffLabels.unverified} · ${snapshot.summary?.enforcement?.detail ?? handoffLabels.unverifiedDetail}`}
+                    >
+                      {snapshot.summary?.enforcement ? handoffLabels.nativePolicy : handoffLabels.unverified}
+                    </span>
+                    {snapshot.canHandoff && handoffTargets.length > 0 && (
+                      <ContinueMenu
+                        label={handoffLabels.continueIn}
+                        targets={handoffTargets}
+                        disabled={!canContinue}
+                        open={continuing}
+                        setOpen={setContinuing}
+                        onChoose={(harness) => ignoreFailure(callNative("chat.handoff.prepare", { harness }))}
+                      />
+                    )}
+                  </div>
+                </header>
+                {!diffView && checkpoints.review}
+                {!reviewing && snapshot.handoff?.error && (
+                  <p className="acpmux-handoff-error" role="alert">
+                    {snapshot.handoff.error}
+                  </p>
                 )}
-                <span
-                  className="acpmux-session-coverage"
-                  title={`${handoffLabels.unverified} · ${snapshot.summary?.enforcement?.detail ?? handoffLabels.unverifiedDetail}`}
-                >
-                  {snapshot.summary?.enforcement ? handoffLabels.nativePolicy : handoffLabels.unverified}
-                </span>
-                {snapshot.canHandoff && handoffTargets.length > 0 && (
-                  <ContinueMenu
-                    label={handoffLabels.continueIn}
-                    targets={handoffTargets}
-                    disabled={!canContinue}
-                    open={continuing}
-                    setOpen={setContinuing}
-                    onChoose={(harness) => ignoreFailure(callNative("chat.handoff.prepare", { harness }))}
+                {reviewing && handoff && snapshot.handoff ? (
+                  <HandoffReviewMessage
+                    key={`${handoff.handoffId}:${reviewReload}`}
+                    record={handoff}
+                    state={snapshot.handoff}
+                    strings={handoffLabels}
+                    onSave={(review) => callNative("chat.handoff.draft", { review })}
+                    onStart={(review) => callNative("chat.handoff.start", { review })}
+                    onReturn={() => selectSession(handoff.source.sessionId)}
+                    onDiscard={() => ignoreFailure(callNative("chat.handoff.discard"))}
+                    onReload={() =>
+                      ignoreFailure(callNative("chat.handoff.get").then(() => setReviewReload((value) => value + 1)))
+                    }
+                  />
+                ) : freshChat ? (
+                  <EmptyState project={projectName(snapshot.summary?.cwd)} />
+                ) : (
+                  <TurnActionsContext.Provider value={turnActions}>
+                    <VirtualTranscript
+                      rows={transcriptRows}
+                      canLoadOlder={snapshot.canLoadOlder}
+                      expanded={expanded}
+                      registry={registry}
+                      onOpenDiff={openDiff}
+                      onToggleActivity={(id) =>
+                        setExpanded((current) => {
+                          const next = new Set(current);
+                          if (next.has(id)) next.delete(id);
+                          else next.add(id);
+                          return next;
+                        })
+                      }
+                    />
+                  </TurnActionsContext.Provider>
+                )}
+                {diffView && diffFiles && (
+                  <DiffPanel
+                    files={diffFiles}
+                    initialPath={diffView.path}
+                    onClose={closeDiff}
+                    source={changesSource}
+                    onOpenFile={openChangedFile}
+                    checkpointAction={
+                      checkpoints.supported ? (
+                        <button type="button" className="acpmux-checkpoint-open" onClick={checkpoints.show}>
+                          {checkpointLabels.createCheckpoint}
+                        </button>
+                      ) : undefined
+                    }
+                    checkpointReview={checkpoints.review}
                   />
                 )}
               </div>
-            </header>
-            {!diffView && checkpoints.review}
-            {!reviewing && snapshot.handoff?.error && (
-              <p className="acpmux-handoff-error" role="alert">
-                {snapshot.handoff.error}
-              </p>
-            )}
-            {reviewing && handoff && snapshot.handoff ? (
-              <HandoffReviewMessage
-                key={`${handoff.handoffId}:${reviewReload}`}
-                record={handoff}
-                state={snapshot.handoff}
-                strings={handoffLabels}
-                onSave={(review) => callNative("chat.handoff.draft", { review })}
-                onStart={(review) => callNative("chat.handoff.start", { review })}
-                onReturn={() => selectSession(handoff.source.sessionId)}
-                onDiscard={() => ignoreFailure(callNative("chat.handoff.discard"))}
-                onReload={() =>
-                  ignoreFailure(callNative("chat.handoff.get").then(() => setReviewReload((value) => value + 1)))
-                }
-              />
-            ) : freshChat ? (
-              <EmptyState project={projectName(snapshot.summary?.cwd)} />
-            ) : (
-              <TurnActionsContext.Provider value={turnActions}>
-                <VirtualTranscript
-                  rows={transcriptRows}
-                  canLoadOlder={snapshot.canLoadOlder}
-                  expanded={expanded}
-                  registry={registry}
-                  onOpenDiff={openDiff}
-                  onToggleActivity={(id) =>
-                    setExpanded((current) => {
-                      const next = new Set(current);
-                      if (next.has(id)) next.delete(id);
-                      else next.add(id);
-                      return next;
-                    })
-                  }
-                />
-              </TurnActionsContext.Provider>
-            )}
-            {diffView && diffFiles && (
-              <DiffPanel
-                files={diffFiles}
-                initialPath={diffView.path}
-                onClose={closeDiff}
-                source={changesSource}
-                checkpointAction={
-                  checkpoints.supported ? (
-                    <button type="button" className="acpmux-checkpoint-open" onClick={checkpoints.show}>
-                      {checkpointLabels.createCheckpoint}
-                    </button>
-                  ) : undefined
-                }
-                checkpointReview={checkpoints.review}
-              />
-            )}
-          </div>
-          {(snapshot.permission?.pending || trustAsk.ask) && (
-            <div className="acpmux-permission">
-              {trustAsk.ask && (
-                <TrustAsk
-                  ask={trustAsk.ask}
-                  agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
-                  onTrust={trustAsk.trust}
-                  onDistrust={trustAsk.distrust}
-                  onUndo={trustAsk.undo}
+              {(snapshot.permission?.pending || trustAsk.ask) && (
+                <div className="acpmux-permission">
+                  {trustAsk.ask && (
+                    <TrustAsk
+                      ask={trustAsk.ask}
+                      agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
+                      onTrust={trustAsk.trust}
+                      onDistrust={trustAsk.distrust}
+                      onUndo={trustAsk.undo}
+                    />
+                  )}
+                  {snapshot.permission?.pending && (
+                    <PermissionCard permission={snapshot.permission} onAnswer={answerPermission(snapshot.permission)} />
+                  )}
+                </div>
+              )}
+              {/* Between the hero and the docked composer. */}
+              {freshChat && (
+                <div className="acpmux-home-area">
+                  <HomeLists sessions={snapshot.sessions} currentId={snapshot.sessionId} onSelect={selectSession} />
+                </div>
+              )}
+              {hostError && (
+                <HostError message={hostError} retrying={retryQueued} onRetry={() => retryHost.current?.()} />
+              )}
+              {!reviewing && !handoffLoading && (
+                <Composer
+                  snapshot={composerSnapshot}
+                  chips={ComposerChips}
+                  draft={draft}
+                  onSend={(text) => {
+                    // Until acpmux connects nothing takes a prompt; the composer keeps it.
+                    if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
+                    void callNative("chat.send", { text });
+                  }}
+                  onStop={() => void callNative("chat.cancel")}
+                  onProject={(cwd) => void callNative("chat.new", { cwd }).catch(() => undefined)}
+                  // Without a folder there is nothing to search; the + menu leaves the item out.
+                  searchFiles={fileRoot ? searchFiles : undefined}
                 />
               )}
-              {snapshot.permission?.pending && <PermissionCard permission={snapshot.permission} />}
-            </div>
-          )}
-          {/* Between the hero and the docked composer. */}
-          {freshChat && (
-            <div className="acpmux-home-area">
-              <HomeLists sessions={snapshot.sessions} currentId={snapshot.sessionId} onSelect={selectSession} />
-            </div>
-          )}
-          {!reviewing && !handoffLoading && (
-            <Composer
-              snapshot={composerSnapshot}
-              chips={ComposerChips}
-              draft={draft}
-              onSend={(text) => void callNative("chat.send", { text })}
-              onStop={() => void callNative("chat.cancel")}
-              onProject={(cwd) => void callNative("chat.new", { cwd }).catch(() => undefined)}
-              // Without a folder there is nothing to search; the + menu leaves the item out.
-              searchFiles={fileRoot ? searchFiles : undefined}
-            />
+            </>
           )}
         </div>
         {searching && (

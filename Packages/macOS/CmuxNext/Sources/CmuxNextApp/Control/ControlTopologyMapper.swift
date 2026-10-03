@@ -84,6 +84,7 @@ enum ControlTopologyMapper {
             tabGroupID: model.tabGroup?.rawValue,
             agentState: model.agent?.state.rawValue
         )
+        info.agent = model.agent?.agent
         info.remoteSessionID = model.remote?.sessionID
         info.remoteTerminalID = model.remote?.terminalID.rawValue
         return info
