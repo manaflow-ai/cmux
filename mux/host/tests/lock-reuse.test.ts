@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { type ChildProcess, spawn } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { lockHolder, takeLock } from "../src/lock.ts";
@@ -69,6 +70,46 @@ describe("MUX_HOME lock held by another process", () => {
     expect(release).toBeDefined();
     const { line } = await holder(path);
     expect(line).toBe("refused");
+    release?.();
+  });
+
+});
+
+/** The OS start time of a process, epoch ms (ps truncates to seconds). */
+function startMs(pid: number): number {
+  const text = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], { env: { ...process.env, LC_ALL: "C", TZ: "UTC" } })
+    .stdout.toString()
+    .trim()
+    .replace(/\s+/g, " ");
+  return Date.parse(`${text} UTC`);
+}
+
+// Upgrade check (remove after one release): an older host holds the lock by
+// its file text only, with no kernel lock. A new host must not start beside it.
+describe("MUX_HOME lock written by an older host", () => {
+  test("an old lock (pid and start) of a live older host refuses the start", () => {
+    const path = lockPath();
+    const old = track(spawn("sleep", ["30"], { stdio: "ignore" }));
+    const pid = old.pid ?? 0;
+    writeFileSync(path, `${pid}\n${startMs(pid) + 500}\n`);
+    expect(takeLock(path)).toBeUndefined();
+  });
+
+  test("an old pid-only lock of a live older host refuses the start", () => {
+    const path = lockPath();
+    const old = track(spawn("sleep", ["30"], { stdio: "ignore" }));
+    writeFileSync(path, String(old.pid));
+    expect(takeLock(path)).toBeUndefined();
+  });
+
+  test("an old pid-only lock whose pid was reused after the file was written is free", () => {
+    const path = lockPath();
+    const reused = track(spawn("sleep", ["30"], { stdio: "ignore" }));
+    writeFileSync(path, String(reused.pid));
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(path, old, old);
+    const release = takeLock(path);
+    expect(release).toBeDefined();
     release?.();
   });
 });
