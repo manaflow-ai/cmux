@@ -25,6 +25,16 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     private(set) var isProUpgradeAvailable: Bool
     private(set) var isProActive = false
     private(set) var canManageBilling = false
+    /// The account whose plan `isProActive` describes, or nil before the
+    /// billing plan has answered for anyone. Kept here rather than in a view's
+    /// state so a rebuilt Cloud panel keeps showing Enable Cloud or Upgrade
+    /// instead of falling back to "Checking your cmux plan…".
+    private(set) var billingPlanIdentityID: String?
+    /// Whether `isProActive` is a real answer for the signed-in account.
+    var hasLoadedBillingPlan: Bool {
+        guard let billingPlanIdentityID else { return false }
+        return billingPlanIdentityID == currentIdentity?.id
+    }
     var teamObservationRevision: UInt64 = 0
     /// Pending selection is shared by Settings, the menu and socket actions.
     /// Cloud requests keep using the confirmed coordinator scope until success.
@@ -188,6 +198,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         await browserSignIn.signOut()
         isProActive = false
         canManageBilling = false
+        billingPlanIdentityID = nil
     }
 
     /// Set for the whole switch so sign-in gates show its progress instead of
@@ -233,6 +244,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         await browserSignIn.signOut(timeout: timeout)
         isProActive = false
         canManageBilling = false
+        billingPlanIdentityID = nil
     }
 
     func refreshCurrentUser() async {
@@ -242,14 +254,17 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     func refreshBillingPlan() async {
-        guard coordinator.currentUser != nil else {
+        guard coordinator.currentUser != nil, let identityID = currentIdentity?.id else {
             isProActive = false
             canManageBilling = false
+            billingPlanIdentityID = nil
             return
         }
         var request = URLRequest(url: AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan"))
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        // URLSession's default is 60 s; a plan check that slow is a failure.
+        request.timeoutInterval = 15
 
         if let tokens = try? await coordinator.currentTokens() {
             request.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
@@ -258,19 +273,33 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
+            // The account may have changed while the request was in flight.
+            guard currentIdentity?.id == identityID else { return }
             guard let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode) else {
-                isProActive = false
-                canManageBilling = false
+                forgetBillingPlanUnlessKnown(for: identityID)
                 return
             }
             let decoded = try JSONDecoder().decode(BillingPlanResponse.self, from: data)
             isProActive = decoded.isPro
             canManageBilling = decoded.billingManagement == .stripe
+            billingPlanIdentityID = identityID
         } catch {
-            isProActive = false
-            canManageBilling = false
+            // A cancelled request (the panel went away) says nothing about the plan.
+            if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
+            guard currentIdentity?.id == identityID else { return }
+            forgetBillingPlanUnlessKnown(for: identityID)
         }
+    }
+
+    /// A failed check keeps a real answer for the same account, read at the
+    /// time of the failure (another refresh may have answered meanwhile).
+    /// With no answer to keep, the plan is unknown rather than "not Pro".
+    private func forgetBillingPlanUnlessKnown(for identityID: String) {
+        guard billingPlanIdentityID != identityID else { return }
+        isProActive = false
+        canManageBilling = false
+        billingPlanIdentityID = nil
     }
 
     // `AccountFlow` (CmuxSettingsUI) cannot see `ProUpgradeSource`; its
