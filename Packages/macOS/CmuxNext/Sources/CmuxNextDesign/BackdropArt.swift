@@ -2,7 +2,7 @@ public import AppKit
 
 /// A bundled public-domain painting available behind the window material.
 /// Game art is never part of this catalog.
-public enum BackdropArt: String, CaseIterable, Sendable {
+public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
     /// Vincent van Gogh's 1889 painting from the Met Open Access collection.
     case wheatField = "wheat-field-with-cypresses"
     case saintCatherine = "met-saint-catherine-436908"

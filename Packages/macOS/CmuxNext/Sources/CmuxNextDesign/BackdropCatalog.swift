@@ -1,7 +1,7 @@
-import Foundation
+public import Foundation
 
 /// The wallpaper choices displayed by Appearance settings.
-public struct BackdropCatalog: Sendable {
+public nonisolated struct BackdropCatalog: Sendable {
     /// The bundled paintings followed by a bounded starter set of macOS wallpapers.
     public let choices: [BackdropSelection]
 

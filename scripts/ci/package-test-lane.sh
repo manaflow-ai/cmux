@@ -272,10 +272,11 @@ run_package_tests() {
       END { exit found ? 0 : 1 }
     ' "$log"
   }
-  # Every selected package runs even after another one fails, so one
-  # broken or hung package cannot hide the results of the packages
-  # after it. test_package returns the package's status instead of
-  # exiting; the summary at the end fails the lane.
+  # Stop after the first selected package fails. Package selection is already
+  # dependency-ordered, so testing later packages would spend fleet time after
+  # the PR has a decisive failure while hiding the first actionable result.
+  # test_package returns the package's status so the summary records it before
+  # the lane exits.
   prebuild_packages
   run_default_package_test() {
     # Blacksmith macOS runners intermittently abort a package's
@@ -354,6 +355,7 @@ run_package_tests() {
         result="failed (exit $package_status)"
         echo "::error title=Swift package tests failed::$pkg failed with exit status $package_status after ${seconds}s"
       fi
+      break
     fi
     summary+=("$(printf '%-34s %-18s %6ss' "$pkg" "$result" "$seconds")")
   done < "$selected"
