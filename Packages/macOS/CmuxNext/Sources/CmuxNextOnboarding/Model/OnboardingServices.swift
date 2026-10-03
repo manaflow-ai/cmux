@@ -52,6 +52,10 @@ public protocol OnboardingServices: AnyObject {
     /// Resumes each chat in an agent tab of its folder's workspace: the one
     /// `openProjects` opened, else a new one. A chat already open is shown.
     func resumeChats(_ chats: [AgentChat])
+    // Classic cmux session import
+    var canImportClassicSessions: Bool { get }
+    func scanClassicSessions() async -> [ClassicSessionWorkspace]
+    func importClassicSessions(_ workspaces: [ClassicSessionWorkspace])
     /// The user's home folder (where the privacy-guarded folders are).
     var homeDirectory: URL { get }
 
@@ -110,6 +114,9 @@ public extension OnboardingServices {
     func openProjects(_ folders: [URL]) {}
     func scanAgentChats() async -> [AgentChat] { [] }
     func resumeChats(_ chats: [AgentChat]) {}
+    var canImportClassicSessions: Bool { false }
+    func scanClassicSessions() async -> [ClassicSessionWorkspace] { (try? ClassicSessionImporter().read()) ?? [] }
+    func importClassicSessions(_ workspaces: [ClassicSessionWorkspace]) {}
     var homeDirectory: URL { FileManager.default.homeDirectoryForCurrentUser }
 }
 
