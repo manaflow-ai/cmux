@@ -279,7 +279,7 @@ COPY cmux-prompt.bash /etc/cmux/prompt.bash
 # first) so ble.sh ghost text on `python -m pkg.` lists one package's
 # submodules instead of importing every installed package per keystroke.
 COPY cmux-python-completion.bash /usr/local/share/bash-completion/completions/python
-RUN for f in /usr/share/bash-completion/completions/python?*; do \
+RUN for f in /usr/share/bash-completion/completions/python?* /usr/share/bash-completion/completions/pypy* /usr/share/bash-completion/completions/micropython; do \
        if [ -e "$f" ]; then ln -sf python "/usr/local/share/bash-completion/completions/${f##*/}"; fi; \
      done \
   && bash -n /usr/local/share/bash-completion/completions/python

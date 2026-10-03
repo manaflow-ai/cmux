@@ -323,7 +323,13 @@ describe("devbox image template", () => {
     mkdirSync(path.join(directory, "noisy"));
     writeFileSync(path.join(directory, "noisy", "__init__.py"), `open(${JSON.stringify(marker)}, "w").close()\n`);
     mkdirSync(path.join(directory, "target", "beta"), { recursive: true });
-    writeFileSync(path.join(directory, "target", "__init__.py"), "");
+    // Resolving `target.` must not execute the package itself either.
+    writeFileSync(path.join(directory, "target", "__init__.py"), `open(${JSON.stringify(marker)}, "w").close()\n`);
+    // A checkout in the shell's cwd must not shadow the helper's imports.
+    const checkout = path.join(directory, "checkout");
+    mkdirSync(path.join(checkout, "evil"), { recursive: true });
+    writeFileSync(path.join(checkout, "pkgutil.py"), `open(${JSON.stringify(marker)}, "w").close()\n`);
+    writeFileSync(path.join(checkout, "evil", "__init__.py"), `open(${JSON.stringify(marker)}, "w").close()\n`);
     writeFileSync(path.join(directory, "target", "alpha.py"), "");
     writeFileSync(path.join(directory, "target", "beta", "__init__.py"), "");
     const stock = path.join(directory, "stock-python-completion");
@@ -337,6 +343,7 @@ describe("devbox image template", () => {
     try {
       const complete = async (cur: string) => {
         const result = await runChild("bash", ["--noprofile", "--norc", "-c", `. '${completion}'; cur='${cur}'; COMPREPLY=(); _python_modules '${python}'; printf '%s\\n' "\${COMPREPLY[@]}" | sort`], {
+          cwd: checkout,
           env: { PATH: process.env.PATH!, HOME: directory, PYTHONPATH: directory },
         });
         expect(result.status).toBe(0);
@@ -345,6 +352,8 @@ describe("devbox image template", () => {
       expect(await complete("target.")).toEqual(["target.alpha", "target.beta"]);
       expect(await complete("target.al")).toEqual(["target.alpha"]);
       expect(await complete("targ")).toEqual(["target"]);
+      await complete("evil.x.");
+      await complete("ht");
       expect(existsSync(marker)).toBe(false);
     } finally {
       rmSync(directory, { recursive: true, force: true });
