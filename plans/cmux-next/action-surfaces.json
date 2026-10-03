@@ -18359,6 +18359,38 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "tasks open",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tasks.show",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "title" : "Open Tasks",
+      "title_key" : "action.tasks.show",
+      "title_table" : "TasksActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "tasks mine",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tasks.showMine",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "title" : "My Tasks",
+      "title_key" : "action.tasks.showMine",
+      "title_table" : "TasksActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "link open",
       "context_menu" : "noObject",
       "context_menus" : [

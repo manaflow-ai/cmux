@@ -831,6 +831,17 @@
       "title" : "New Tab Opens",
       "type" : "string"
     },
+    "tasks.layout" : {
+      "default" : "inbox",
+      "description" : "Inbox lists what needs you first, with the task beside it. Changes apply at once.",
+      "enum" : [
+        "list",
+        "board",
+        "inbox"
+      ],
+      "title" : "Tasks Layout",
+      "type" : "string"
+    },
     "terminal.fontFamily" : {
       "description" : "A monospaced font installed on this Mac.",
       "title" : "Font Family",
