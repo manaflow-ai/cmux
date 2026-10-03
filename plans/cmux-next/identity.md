@@ -161,12 +161,21 @@ Notes from the slice 2 review:
 - acpmux reads `websocket.allowed_origins` and `websocket.allowed_hosts` when the
   listener starts; a change needs a daemon restart.
 - The Debug agent pane dev server (`CMUX_NEXT_AGENT_PANE_DEV_URL`) sends its own
-  origin; add it to `websocket.allowed_origins` in `~/.acpmux/config.json`.
+  origin. A Debug app (only `#if DEBUG` resolves a dev server) starts acpmux with
+  `--allow-dev-origin <origin>`; acpmux accepts only a loopback `http` origin with
+  a port there and never saves it. Release builds never pass the flag. A daemon
+  that already runs keeps its origins, so restart it after changing the dev URL.
+  No manual config entry (coordinator decision 2026-10-03).
 - acpmux peers that connect with no token stop working once the remote side has
   this change; `acpmux peer add ... --token T` or an ssh peer (which reads the
   remote token) is required.
 - The acpmux dashboard reads a request head up to 32 KiB (large localhost
   cookies); a larger head is refused.
+
+Raw TCP listeners (no HTTP) follow the same intent: loopback bind by default, a
+per-launch token before any frame, and an immediate close when the first bytes
+look like an HTTP request (a cross-protocol POST from a web page). The remote
+desktop host (`cmux-rd-host`, lane 17) gets its token over `--token-fd`.
 
 Out of scope, recorded so nobody adds them by mistake: port forwards that carry the
 user's own service (cmux-remote `LocalPortForward`, `loopback_forward`, the app's
