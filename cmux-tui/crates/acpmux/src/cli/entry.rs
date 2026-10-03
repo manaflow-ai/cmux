@@ -89,7 +89,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             let client = connect(true).await?;
             crate::tui::run(client, None).await
         }
-        Some(Command::DaemonRun { listen, token, memory, log, ready_fd }) => {
+        Some(Command::DaemonRun { listen, token, memory, log, ready_fd, allow_dev_origin }) => {
             tracing_subscriber::fmt()
                 .with_env_filter(
                     tracing_subscriber::EnvFilter::try_new(&log).unwrap_or_else(|_| "info".into()),
@@ -101,6 +101,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 ws_token: token,
                 memory,
                 ready_fd,
+                dev_origins: allow_dev_origin,
             })
             .await?;
             // The daemon has stopped its agents and synced its store. Exit

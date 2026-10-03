@@ -17,6 +17,8 @@ pub struct DaemonOptions {
     /// Write one JSON readiness line to this file descriptor once the
     /// socket and the listen address are bound, then close it.
     pub ready_fd: Option<i32>,
+    /// `--allow-dev-origin`: loopback page dev server origins, never saved.
+    pub dev_origins: Vec<String>,
 }
 
 /// How long SIGTERM or `_acpmux/shutdown` may take before the daemon exits
@@ -38,7 +40,13 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         }
     }
     let login_env = crate::login_env::requested();
+    let dev_origins = opts
+        .dev_origins
+        .iter()
+        .map(|origin| crate::server::dev_origin(origin))
+        .collect::<Result<Vec<_>>>()?;
     let mut config = Config::load()?;
+    config.dev_origins = dev_origins;
     if opts.memory {
         config.store.mode = crate::config::StoreMode::Memory;
     }
