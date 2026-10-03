@@ -246,12 +246,6 @@ struct MachinesPanelView: View {
             teamScopeLoading
         } else {
             content
-            if includesCloud {
-                CloudRefreshMachinesButton(
-                    isRefreshing: viewModel.isLoading || devicesModel.isRefreshing,
-                    action: refreshMachines
-                )
-            }
         }
     }
 
@@ -486,6 +480,8 @@ struct MachinesPanelView: View {
         nodeActions.setDeviceIncomingAccess = { [weak devicesModel] enabled in
             Task { await devicesModel?.preferences?.setIncomingAccessEnabled(enabled) }
         }
+        nodeActions.refreshCloudMachines = { [weak viewModel] in viewModel?.refresh(tree: true) }
+        nodeActions.refreshDevices = { [weak devicesModel] in devicesModel?.refresh() }
         // The header "+" is Cmd-Y from this window: same gates, sheet, optimistic create, and no workspace until the sheet completes.
         nodeActions.newMachine = { [weak tabManager] in
             _ = AppDelegate.shared?.performNewCloudMachineAction(
@@ -511,11 +507,13 @@ struct MachinesPanelView: View {
                 discoveryEnabled: includesDevices,
                 incomingAccessEnabled: devicesModel.preferences?.incomingAccessEnabled ?? false,
                 discoveryManaged: discoveryManaged,
-                incomingAccessManaged: incomingAccessManaged, available: DevicesFeature.isAvailable()
+                incomingAccessManaged: incomingAccessManaged, available: DevicesFeature.isAvailable(),
+                isRefreshing: devicesModel.isRefreshing
             ),
             showsCloudVPNWarning: tunnelStatus.status?.state == .off,
             canCreateCloudMachine: canCreateCloudMachine,
             cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil,
+            cloudMachinesRefresh: includesCloud ? CloudTreeSectionRefresh(isRefreshing: viewModel.isLoading) : nil,
             reveal: devicesModel.revealRequest ?? selectionReveal,
             creationReveal: SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: tabManager)
         )

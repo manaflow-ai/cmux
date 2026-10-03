@@ -46,6 +46,8 @@ final class CloudMachineOrderingFixture {
         )
         model.localWorkspacesProvider = { [] }
         coordinator.onDragStateChange = { [model] in model.setTreeDragging($0) }
+        // These fixtures drive AppKit's row proposals; lift tests begin it themselves.
+        coordinator.machineLiftEnabled = false
         coordinator.nodeActions.organize = { _, _, _ in
             Issue.record("A machine move must not reach descendant organization")
             return false

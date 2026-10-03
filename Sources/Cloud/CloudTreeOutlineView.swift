@@ -37,6 +37,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     /// The Cloud Machines header's New Machine "+" and its plan count (nil until the plan loads).
     var canCreateCloudMachine: Bool = false
     var cloudMachinesUsage: CloudMachinesUsage? = nil
+    var cloudMachinesRefresh: CloudTreeSectionRefresh? = nil
     var reveal: CloudTreeRevealRequest? = nil
     var creationReveal: CloudWorkspaceCreationReveal? = nil
     var nodeBuilder: ((CloudTreeBuildInputs) -> [CloudTreeNode])? = nil
@@ -76,7 +77,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             devicesSection: devicesSection,
             showsCloudVPNWarning: showsCloudVPNWarning,
             canCreateCloudMachine: canCreateCloudMachine,
-            cloudMachinesUsage: cloudMachinesUsage
+            cloudMachinesUsage: cloudMachinesUsage, cloudMachinesRefresh: cloudMachinesRefresh
         ))
         context.coordinator.reveal(reveal)
         context.coordinator.reveal(creation: creationReveal)
@@ -124,6 +125,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             self?.pendingDragWriterDidDeallocate(tokenID: tokenID)
         }
         private(set) var isDragging = false
+        /// Machine drags lift the real row; proposal-level tests turn it off.
+        var machineLiftEnabled = true
         var deferredNodes: [CloudTreeNode]?
         private var deferredReload = false
         var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
@@ -230,6 +233,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 // authoritative pointer boundary for the retained old source.
                 return
             }
+            finishMachineLift()
             if let activeDragSession = activeDragSession ?? sourceView.activeNativeDragSession {
                 supersededDragSession = activeDragSession
             }
@@ -899,12 +903,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             return items
         }
 
-        func item(_ title: String, action: @escaping @MainActor () -> Void) -> NSMenuItem {
-            let item = CloudTreeMenuItem(title: title, action: action)
-            item.target = item
-            return item
-        }
-
         // MARK: Drag source
 
         /// Only the current native writer can reorder machines. Its captured
@@ -949,7 +947,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         func outlineView(_ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint, forItems draggedItems: [Any]) {
             _ = screenPoint
-            _ = draggedItems
             if activeDrag != nil || isDragging {
                 if let activeSession = activeDragSession,
                    activeSession === session {
@@ -1009,6 +1006,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             activeDragSequenceNumber = session.draggingSequenceNumber
             setDragging(true)
+            liftMachineDrag(session, draggedItems: draggedItems, in: outlineView)
         }
 
         func outlineView(_ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
@@ -1041,6 +1039,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 // the registration for a newer surface drag.
                 return
             }
+            finishMachineLift()
             defer {
                 if let outlineView = outlineView as? CloudTreeNSOutlineView,
                    outlineView.activeNativeDragSession === session {

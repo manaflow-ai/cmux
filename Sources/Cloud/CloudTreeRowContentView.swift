@@ -158,7 +158,7 @@ struct CloudTreeRowContentView: View {
     static func groupCount(for kind: CloudTreeNode.Kind) -> CloudTreeGroupCount? {
         switch kind {
         case .devicesSection(let section): CloudTreeGroupCount(section.count)
-        case .cloudMachinesSection(_, let usage?): CloudTreeGroupCount(usage: usage)
+        case .cloudMachinesSection(_, let usage?, _): CloudTreeGroupCount(usage: usage)
         case .terminalsPool(_, let count), .displaysPool(_, let count, _): CloudTreeGroupCount(count)
         default: nil
         }
