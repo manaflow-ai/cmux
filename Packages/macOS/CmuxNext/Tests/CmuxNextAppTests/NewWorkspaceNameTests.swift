@@ -1,3 +1,4 @@
+import CmuxNextActions
 import Testing
 @testable import CmuxNextApp
 
@@ -45,5 +46,23 @@ import Testing
         #expect(NewWorkspaceName.forGroup(name: "Review", firstTab: T(kind: .terminal, title: "git")) == "Review")
         #expect(NewWorkspaceName.forGroup(name: "", firstTab: T(kind: .terminal, title: "git log")) == "git log")
         #expect(NewWorkspaceName.forGroup(name: nil, firstTab: nil) == nil)
+    }
+}
+
+/// The shared path names the workspace: palette and CLI run
+/// `palette.moveTabToNewWorkspace`, drag and tear-off call the same
+/// `TabMoves.toNewWorkspace`.
+@MainActor @Suite(.serialized) struct MoveTabToNewWorkspaceNameTests {
+    @Test func aTabMovedToANewWorkspaceNamesIt() async throws {
+        let harness = try await ViewChangePermissionTests.harness()
+        defer { harness.stop() }
+        let moved = try #require(harness.services.daemon.store.workspaces.first?.screens.first?.panes.first?.tabs.last)
+        let title = moved.title
+        try await ViewChangePermissionTests.run(harness, "palette.moveTabToNewWorkspace", origin: "cli",
+                                                target: ActionTargetRef(kind: .tab, id: moved.id))
+        try await ViewChangePermissionTests.waitUntil { harness.services.daemon.store.workspaces.count == 2 }
+        let created = try #require(harness.services.daemon.store.workspaces.first { $0.key?.rawValue != TopologyDaemon.firstKey })
+        try await ViewChangePermissionTests.waitUntil { created.name == title }
+        #expect(created.name == title)
     }
 }

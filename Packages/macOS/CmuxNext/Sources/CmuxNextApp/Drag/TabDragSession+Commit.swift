@@ -37,7 +37,12 @@ extension TabDragSession {
         }
         switch drag.source.item {
         case .tab(let id):
-            guard let (tab, _) = services.locateTab(id) else { return settle(false) }
+            guard let (tab, _) = services.locateTab(id) else {
+                // A session-local tab (an agent pane) is not a daemon tab
+                // and cannot move; say so instead of snapping back silently.
+                if outcome != .cancel { services.registry.refuse(RefusalStrings.sessionLocalTab(id)) }
+                return settle(false)
+            }
             executeTab(outcome, tab: tab, dropWindow: dropWindow, drag: drag, transaction: transaction, settle: settle)
         case .group(let id, _):
             executeGroup(outcome, group: CmuxNextDaemon.TabGroupID(rawValue: id.rawValue), dropWindow: dropWindow, drag: drag,
