@@ -9,6 +9,18 @@
   if (!S) return;
   const { URL, URLSearchParams } = root.CmuxBrowserRepl.core;
   const ORIGIN = "https://www.youtube.com";
+  // The hosts a caption track URL may name. Track URLs come from page data,
+  // and transcript fetches send the session's cookies.
+  const CAPTION_HOSTS = ["www.youtube.com", "m.youtube.com", "youtube.com"];
+  // A track's URL resolved against YouTube, or null when it is not https on a caption host.
+  function captionURL(raw) {
+    try {
+      const u = new URL(raw, ORIGIN);
+      return u.protocol === "https:" && CAPTION_HOSTS.includes(u.hostname) ? u : null;
+    } catch {
+      return null;
+    }
+  }
 
   function videoId(input, name) {
     const s = String(input || "").trim();
@@ -65,7 +77,7 @@
     const matches = (name) => {
       try {
         const u = new URL(name, location.href);
-        return u.pathname === "/api/timedtext" && u.searchParams.get("v") === arg.videoId && (!arg.lang || u.searchParams.get("lang") === arg.lang || u.searchParams.get("tlang") === arg.lang);
+        return u.protocol === "https:" && arg.hosts.includes(u.hostname) && u.pathname === "/api/timedtext" && u.searchParams.get("v") === arg.videoId && (!arg.lang || u.searchParams.get("lang") === arg.lang || u.searchParams.get("tlang") === arg.lang);
       } catch (e) {
         return false;
       }
@@ -185,6 +197,10 @@
           continue;
         }
         const u = new URL(track.baseUrl, location.href);
+        if (u.protocol !== "https:" || !arg.hosts.includes(u.hostname)) {
+          reasons.push({ client: c.clientName, status: "caption URL is not on YouTube", tracks: tracks.map(({ lang, auto }) => ({ lang, auto })) });
+          continue;
+        }
         u.searchParams.set("fmt", "json3");
         const t = await fetch(u.href, { credentials: "include" });
         const body = t.ok ? await t.text() : "";
@@ -314,14 +330,16 @@
               seen.push(tracks);
               const track = pickTrack(tracks, options.lang);
               if (!track) continue;
-              const c = await t.fetch(new URL(track.baseUrl, ORIGIN).href.replace(/([?&])fmt=[^&]*/, "$1") + "&fmt=json3");
+              const cu = captionURL(track.baseUrl);
+              if (!cu) continue;
+              const c = await t.fetch(cu.href.replace(/([?&])fmt=[^&]*/, "$1") + "&fmt=json3");
               const segments = c.ok ? parseCaptions(await c.text()) : [];
               if (segments.length) return done(segments);
             } catch (e) {}
           }
           // 2. The same calls from a youtube.com page (same-origin, the page's cookies).
           if (!seen.length || seen.some((tr) => pickTrack(tr, options.lang))) {
-            const got = await t.inOrigin(ORIGIN, nativeInPage, { videoId: id, lang: options.lang || null, clients: NATIVE_CLIENTS }).catch(() => null);
+            const got = await t.inOrigin(ORIGIN, nativeInPage, { videoId: id, lang: options.lang || null, clients: NATIVE_CLIENTS, hosts: CAPTION_HOSTS }).catch(() => null);
             if (got && got.body) {
               const segments = parseCaptions(got.body);
               if (segments.length) return done(segments);
@@ -336,9 +354,10 @@
           const track = pickTrack(known, options.lang);
           if (!track) throw new S.SiteError("no_captions", `youtube.transcript: video ${id} has no ${options.lang} captions; available: ${known.map((c) => c.lang + (c.auto ? " (auto)" : "")).join(", ")}`);
           let segments = [];
-          if (track.baseUrl) {
+          const direct = track.baseUrl ? captionURL(track.baseUrl) : null;
+          if (direct) {
             try {
-              const r = await t.fetch(new URL(track.baseUrl, ORIGIN).href + "&fmt=json3");
+              const r = await t.fetch(direct.href + "&fmt=json3");
               const body = r.ok ? await r.text() : "";
               if (body.trim()) segments = parseCaptions(body);
             } catch (e) {}
@@ -347,7 +366,7 @@
             const timeout = options.timeout || 12000;
             segments = await t.withTab(`${ORIGIN}/watch?v=${id}`, async (p) => {
               await t.waitIn(p, () => { const pl = document.getElementById("movie_player"); return !!(pl && typeof pl.getVideoData === "function"); }, undefined, { timeout: 20000, what: "the YouTube player", name: "youtube.transcript" });
-              const started = await p.evaluate(captureStart, { videoId: id, lang: track.lang });
+              const started = await p.evaluate(captureStart, { videoId: id, lang: track.lang, hosts: CAPTION_HOSTS });
               if (started.error) throw new S.SiteError("no_captions", `youtube.transcript: ${started.error}`);
               let stopped = null;
               try {
@@ -365,7 +384,8 @@
                 if (parsed.length) return parsed;
               }
               // Last resort: the caption URL the player requested, as json3, then as sent.
-              const url = stopped.urls[stopped.urls.length - 1];
+              // The capture state lives in the page, so check the URL again here.
+              const url = stopped.urls.filter((u) => captionURL(u)).pop();
               if (!url) throw new S.SiteError("no_captions", `youtube.transcript: the player did not load captions for ${id}`);
               for (const u of [url.replace(/([?&])fmt=[^&]*/, "$1fmt=json3").replace(/^(?!.*[?&]fmt=)(.*)$/, "$1&fmt=json3"), url]) {
                 const parsed = parseCaptions(await p.evaluate(fetchInPage, { url: u }).catch(() => ""));
