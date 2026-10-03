@@ -131,9 +131,9 @@ final class BrowserPopupPanels {
             contextMenus.present(request, in: page.contentView)
         case .resizePopup(let request):
             resize(entry, to: request)
-        case .activate, .download, .notice, .rerouteStore, .takeFocus:
+        case .activate, .download, .notice, .rerouteStore, .takeFocus, .unhandledKey:
             // A panel has no tab to select, no chrome for notices or an
-            // omnibar to take focus, and one store.
+            // omnibar to take focus, one store, and no page shortcuts.
             break
         case .openURL, .adoptTab:
             return false

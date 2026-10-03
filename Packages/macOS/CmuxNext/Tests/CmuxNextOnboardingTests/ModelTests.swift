@@ -19,13 +19,13 @@ import Testing
         for _ in 0..<200 where !condition() { await Task.yield() }
     }
 
-    @Test func fiveStepsWithAccountsFourWithout() {
-        #expect(OnboardingModel(services: MockOnboardingServices()).steps == [.role, .defaultBrowser, .importData, .theme])
+    @Test func sixStepsWithAccountsFiveWithout() {
+        #expect(OnboardingModel(services: MockOnboardingServices()).steps == [.role, .projects, .defaultBrowser, .importData, .theme])
         let services = MockOnboardingServices()
         services.accountsView = NSView()
         let model = OnboardingModel(services: services)
-        #expect(model.steps == [.role, .defaultBrowser, .importData, .theme, .accounts])
-        for _ in 0..<4 { model.next() }
+        #expect(model.steps == [.role, .projects, .defaultBrowser, .importData, .theme, .accounts])
+        for _ in 0..<5 { model.next() }
         #expect(model.step == .accounts && model.isLast)
         model.back()
         #expect(model.step == .theme)

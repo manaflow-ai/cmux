@@ -182,6 +182,23 @@ A root is a grant resource selector `{kind: "workspaceFolder", workspace}` or `{
 
 ## 7. Decisions for Lawrence (through the coordinator)
 
+Accepted by the coordinator on 2026-10-02:
+
+| # | Decision | In code |
+| --- | --- | --- |
+| A1 | Connection handles an app holds are `conn_…`; `host_…` stays the public registry id of an enrolled host | Finder app |
+| A2 | Built web bundles are committed for now (Monaco adds 3.98 MB) | CodeMirror, Monaco apps |
+| A3 | Web panes allow `style-src 'unsafe-inline'`; scripts stay `'self'` | editor apps' CSP |
+| A4 | CodeMirror is the default editor; Monaco is opt-in | Diffs embed default |
+| A5 | The integrations ingestion code (adapted from executor, MIT) lives in an MIT package outside `backend/`, which the backend depends on | integrations-core package PR |
+| A6 | Destructive integration tools default to Block (the backend lead confirms against the spec's "require approval") | integrations policy defaults |
+| A7 | The session host on each machine owns `agent_cli.*`, `skill.*`, `mcp_server.*` and `memory.*` | proposal (daemon not built) |
+| A8 | MCP servers of agents without an `enabled` flag are disabled by moving them to the sibling key `_cmuxDisabledMcpServers` | skills app reference merge |
+| A9 | Usage sends one notice per provider with no usable account, not per-account warnings | usage app |
+| A10 | The install-state owner keeps the "defaults offered" set forever | install-state reducer |
+
+Privacy rule (coordinator, 2026-10-02): account identities reach callers (socket, CLI, MCP, apps, op results) only as `acct_…` label handles (stable, opaque, per user: HMAC of provider and identity with a per-user salt) plus a redacted display label; never an email.
+
 See the lane 3 report; each has a recommendation.
 
 ## 8. Per-app results
