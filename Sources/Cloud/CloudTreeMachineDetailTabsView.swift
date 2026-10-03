@@ -61,10 +61,12 @@ struct CloudTreeMachineDetailTabsView: View {
             CloudTreeMachineDetailTabButtonMetrics.horizontalPadding - density.horizontalPadding,
             percent: magnification
         ))
-        if density.truncates {
-            row
-        } else {
-            row.fixedSize(horizontal: true, vertical: false)
+        Group {
+            if density.truncates {
+                row
+            } else {
+                row.fixedSize(horizontal: true, vertical: false)
+            }
         }
         .animation(
             reduceMotion ? nil : .spring(response: 0.34, dampingFraction: 0.88),
