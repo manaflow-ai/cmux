@@ -508,3 +508,18 @@ fn sticky_column_flags_clear_when_a_layout_apply_leaves_only_sticky_columns() {
     assert_eq!(wire.columns().len(), 2);
     assert_eq!(wire.sticky(), vec![None, None], "one column must keep scrolling");
 }
+
+/// A screen without stored columns is one implicit column (every screen is a
+/// column strip): column ops answer with the column rules, never with
+/// "no viewport column", and the layout does not change.
+#[test]
+fn sticky_column_on_a_split_screen_uses_the_implicit_single_column() {
+    let (mut wire, panes) = Wire::with_columns(1);
+    let before = wire.screen();
+    let pin = wire.send(json!({"cmd": "set-column-sticky", "pane": panes[0], "sticky": true}));
+    assert_eq!(pin["ok"], false, "{pin}");
+    assert_eq!(pin["error_code"], "sticky-column-last-scrolling", "{pin}");
+    wire.ok(json!({"cmd": "set-column-sticky", "pane": panes[0], "sticky": false}));
+    assert_eq!(wire.screen()["layout"], before["layout"]);
+    assert!(wire.screen().get("columns").is_none());
+}
