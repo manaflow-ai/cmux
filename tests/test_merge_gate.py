@@ -283,6 +283,35 @@ class MergeGateDecisionTests(unittest.TestCase):
         )
         self.assertFalse(result.passed)
 
+    def test_main_failure_evidence_must_match_the_current_conclusion(self) -> None:
+        result = merge_gate.evaluate_gate(
+            base(
+                check_runs=[
+                    {
+                        "name": "ci-status",
+                        "head_sha": HEAD,
+                        "conclusion": "timed_out",
+                        "completed_at": "2026-10-03T15:05:00Z",
+                    }
+                ],
+                comments=[
+                    override(
+                        "merge-override: ci-status https://github.com/manaflow-ai/cmux/actions/runs/202 "
+                        "is safe because the change is isolated and tested."
+                    )
+                ],
+                main_runs=[
+                    {
+                        "id": 202,
+                        "head_branch": "main",
+                        "head_repository": {"full_name": "manaflow-ai/cmux"},
+                        "check_runs": [{"name": "ci-status", "conclusion": "failure"}],
+                    }
+                ],
+            )
+        )
+        self.assertFalse(result.passed)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
