@@ -3,7 +3,7 @@ import CmuxNextDaemon
 import Foundation
 
 /// The agent pane's changes view reads git through the session host:
-/// `git.diff`, `git.status` and `git.files.search` with the chat session's
+/// `git.diff`, `git.status`, `git.files.search` and `git.checkpoint.diff` with the chat session's
 /// folder as `path`.
 /// The reads use a daemon connection of their own. The daemon answers one
 /// connection's requests in order, and a read can take seconds in a large

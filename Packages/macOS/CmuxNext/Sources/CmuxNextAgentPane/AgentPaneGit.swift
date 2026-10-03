@@ -63,8 +63,14 @@ public nonisolated enum AgentPaneGitRequest: Equatable, Sendable {
         switch method {
         case "git.checkpoint.diff":
             guard let from = params?["from"] as? String, Self.isCheckpointId(from) else { return nil }
-            let to = params?["to"] as? String
-            if let to, !Self.isCheckpointId(to) { return nil }
+            // A `to` that is present but not an id is refused: dropping it would
+            // compare with the working tree, which is another read.
+            let to: String?
+            switch params?["to"] {
+            case nil, is NSNull: to = nil
+            case let id as String where Self.isCheckpointId(id): to = id
+            default: return nil
+            }
             self = .checkpointDiff(cwd: cwd, from: from, to: to, includePatch: params?["include_patch"] as? Bool ?? false)
         case "file.search":
             guard let query = params?["query"] as? String, query.count <= Self.maximumQueryLength,

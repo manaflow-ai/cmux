@@ -7261,6 +7261,14 @@
           },
           "description": "The later checkpoint; absent when the working tree was compared."
         },
+        "complete": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "False when either side left eligible files out (too large, over the file limit), so their changes are missing."
+        },
         "root": {
           "required": true,
           "type": {

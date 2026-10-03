@@ -60,6 +60,7 @@ fn a_turn_between_two_checkpoints_lists_only_what_the_turn_changed() {
         json!({"from": start, "to": end, "include_patch": true}),
     ));
     assert_eq!(result["from"], start.as_str());
+    assert_eq!(result["complete"], true);
     assert_eq!(result["to"], end.as_str());
     assert_eq!(
         summary(&result),

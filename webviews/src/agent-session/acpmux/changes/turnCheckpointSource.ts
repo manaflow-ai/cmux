@@ -27,8 +27,9 @@ export function readSummaryCheckpoint(message: unknown): SummaryCheckpoint | und
 export type CheckpointDiff = (from: string, to: string) => Promise<unknown>;
 
 /// One turn's checkpoint pair, for the turn that `rowId` starts. A turn that has not ended is
-/// refused, so it is asked again once it ends. An ended turn without both checkpoints has no
-/// pair (null): the working tree now also holds later turns and the user's edits.
+/// refused (the pane asks only once it ends). A summary without checkpoint fields comes from an
+/// agent that records none: unsupported. An ended turn without both checkpoints has no pair
+/// (null): the working tree now also holds later turns and the user's edits.
 export async function readTurnFromRows(
   rows: readonly AcpmuxRow[],
   rowId: string,
@@ -37,14 +38,15 @@ export async function readTurnFromRows(
   const summary = turnRows([...rows], rowId).find((row) => row.kind === "turnSummary");
   if (!summary) throw new Error("The turn has not ended");
   const checkpoint = summary.checkpoint;
-  if (!checkpoint?.from || !checkpoint.to) return null;
+  if (!checkpoint) return { unsupported: true };
+  if (!checkpoint.from || !checkpoint.to) return null;
   const value = await diff(checkpoint.from, checkpoint.to);
   const raw = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
   return {
     checkpoint_id: `${checkpoint.from}..${checkpoint.to}`,
-    // Files left out of the read (max_files, or untracked files over the bound) leave the pair
-    // incomplete, so the view keeps the tool calls' edits.
-    complete: count(raw.files_omitted) === 0 && count(raw.untracked_skipped) === 0,
+    // A checkpoint that left files out (too large, over its file limit), or a read that left
+    // files out (max_files), leaves the pair incomplete, so the view keeps the tool calls' edits.
+    complete: raw.complete === true && count(raw.files_omitted) === 0,
     diff: value,
   };
 }

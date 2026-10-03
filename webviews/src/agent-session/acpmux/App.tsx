@@ -973,9 +973,13 @@ function AcpmuxPane() {
   const { request: requestTurnCheckpoint, get: turnCheckpoint } = turnCheckpoints;
   const turnKey = useCallback((rowId: string) => turnRows(turnRowsRef.current, rowId)[0]?.id ?? rowId, []);
   const diffTurn = diffView && diffOpen ? turnKey(diffView.rowId) : undefined;
+  // A turn's pair exists once it has ended, so the view asks then (and again when it ends while
+  // the view is open); until then it shows the tool calls' edits.
+  const diffTurnEnded =
+    diffView && diffOpen ? turnRows(snapshot.rows, diffView.rowId).some((row) => row.kind === "turnSummary") : false;
   useEffect(() => {
-    if (diffTurn) requestTurnCheckpoint(diffTurn);
-  }, [diffTurn, requestTurnCheckpoint]);
+    if (diffTurn && diffTurnEnded) requestTurnCheckpoint(diffTurn);
+  }, [diffTurn, diffTurnEnded, requestTurnCheckpoint]);
   const diffDisplay = useMemo(() => {
     if (!diffFiles || !diffTurn) return undefined;
     // An Undo chosen but not yet sent holds the tool-call view; Keep has nothing to send.

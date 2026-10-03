@@ -48,28 +48,33 @@ pub(super) fn diff(
             .map_err(|error| io_failed(OPERATION, &error))?
             .filter(|stored| stored.record.worktree_id == target.worktree_id)
             .ok_or_else(|| not_found(id))?;
-        Ok::<_, ResourceError>(stored.record.object_id)
+        Ok::<_, ResourceError>((stored.record.object_id, stored.record.complete))
     };
-    let from_object = load(from_id)?;
+    let (from_object, from_complete) = load(from_id)?;
     let to_object = to_id.map(load).transpose()?;
     let hooks = store.hooks();
     let git = writer(&target, &hooks);
     let scratch = store.scratch().map_err(|error| io_failed(OPERATION, &error))?;
     let from_tree = files_tree(&git, &scratch, "from", &from_object)?;
     let repository = &target.repository;
-    let mut value = match &to_object {
-        Some(to_object) => {
+    let (mut value, to_complete) = match &to_object {
+        Some((to_object, to_complete)) => {
             let to_tree = files_tree(&git, &scratch, "to", to_object)?;
-            diff::between(repository, from_tree, to_tree, &request.fields, OPERATION)?
+            let value = diff::between(repository, from_tree, to_tree, &request.fields, OPERATION)?;
+            (value, *to_complete)
         }
         None => {
-            let live = live_files(&git, &target, &scratch)?;
+            let (live, live_complete) = live_files(&git, &target, &scratch)?;
             let to_tree = files_tree(&git, &scratch, "live", &live)?;
-            diff::between(repository, from_tree, to_tree, &request.fields, OPERATION)?
+            let value = diff::between(repository, from_tree, to_tree, &request.fields, OPERATION)?;
+            (value, live_complete)
         }
     };
     drop(scratch);
     value["from"] = json!(from_id);
+    // A side that left eligible files out (too large, over the file limit)
+    // cannot show their changes, so the comparison is incomplete.
+    value["complete"] = json!(from_complete && to_complete);
     if let Some(to_id) = to_id {
         value["to"] = json!(to_id);
     }
@@ -114,7 +119,7 @@ fn live_files(
     git: &WriteGit<'_>,
     target: &Target,
     scratch: &Scratch,
-) -> Result<String, ResourceError> {
+) -> Result<(String, bool), ResourceError> {
     let checkpoint_id = mint("live");
     let created_at = rfc3339(now_ms());
     let stamp = Stamp {
@@ -135,5 +140,5 @@ fn live_files(
         &stamp,
         OPERATION,
     )?;
-    Ok(captured.object_id)
+    Ok((captured.object_id, captured.complete))
 }

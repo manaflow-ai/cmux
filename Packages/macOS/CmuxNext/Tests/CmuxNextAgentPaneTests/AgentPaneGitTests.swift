@@ -73,6 +73,13 @@ private struct GitReadFailed: Error {}
         #expect(Self.request("git.checkpoint.diff", ["cwd": "/repo", "from": "ckpt_a", "to": ""])
             == .invalidGit("git.checkpoint.diff"))
         #expect(Self.request("git.checkpoint.diff", ["from": "ckpt_a"]) == .invalidGit("git.checkpoint.diff"))
+        // A `to` that is present but not an id is refused, never read as the working tree.
+        #expect(Self.request("git.checkpoint.diff", ["cwd": "/repo", "from": "ckpt_a", "to": 7])
+            == .invalidGit("git.checkpoint.diff"))
+        #expect(Self.request("git.checkpoint.diff", ["cwd": "/repo", "from": "ckpt_a", "to": ["id": "b"]])
+            == .invalidGit("git.checkpoint.diff"))
+        #expect(Self.request("git.checkpoint.diff", ["cwd": "/repo", "from": "ckpt_a", "to": NSNull()])
+            == .git(.checkpointDiff(cwd: "/repo", from: "ckpt_a", to: nil, includePatch: false)))
         #expect(AgentPaneGitRequest.checkpointDiff(cwd: "/repo", from: "a", to: nil, includePatch: false).operation
             == "git.checkpoint.diff")
     }
