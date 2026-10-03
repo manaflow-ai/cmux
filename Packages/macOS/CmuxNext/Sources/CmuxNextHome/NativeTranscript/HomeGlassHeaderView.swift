@@ -12,6 +12,9 @@ final class HomeGlassHeaderView: NSView {
     let avatar = NSTextField(labelWithString: "")
     private let avatarDisc = NSView()
     let namePill = NSGlassEffectView()
+    /// The pill's content: the title, centred vertically in `layout()`
+    /// (the glass sizes its content view to the pill).
+    private let nameHolder = NSView()
     let name = NSTextField(labelWithString: "")
 
     static let height: CGFloat = 80
@@ -31,7 +34,8 @@ final class HomeGlassHeaderView: NSView {
         name.font = .systemFont(ofSize: 13, weight: .semibold)
         name.alignment = .center
         namePill.cornerRadius = 13
-        namePill.contentView = name
+        nameHolder.addSubview(name)
+        namePill.contentView = nameHolder
         addSubview(namePill)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
@@ -67,5 +71,7 @@ final class HomeGlassHeaderView: NSView {
         avatar.frame = CGRect(x: disc.minX, y: disc.midY - textHeight / 2, width: s, height: textHeight)
         let w = min(bounds.width - 32, ceil(name.intrinsicContentSize.width) + 24)
         namePill.frame = CGRect(x: (bounds.width - w) / 2, y: disc.maxY + 4, width: w, height: 26)
+        let titleHeight = ceil(name.intrinsicContentSize.height)
+        name.frame = CGRect(x: 0, y: (26 - titleHeight) / 2, width: w, height: titleHeight)
     }
 }

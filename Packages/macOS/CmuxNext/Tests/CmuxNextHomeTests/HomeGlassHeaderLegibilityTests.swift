@@ -55,6 +55,15 @@ import Testing
         #expect(ratio >= 4.5, "the pill title is \(ratio):1 against the header")
     }
 
+    /// homenat9 snapshot: the title sat at the top of the pill.
+    @Test func theNamePillTitleIsCentredVertically() {
+        let (window, view) = Self.header()
+        defer { window.close() }
+        let pill = view.header.namePill
+        let title = view.header.name.convert(view.header.name.bounds, to: pill)
+        #expect(abs(title.midY - pill.bounds.midY) <= 1, "title \(title) in pill \(pill.bounds)")
+    }
+
     @Test func theGlassCarriesAPageColouredVeil() {
         let (window, view) = Self.header()
         defer { window.close() }
