@@ -329,6 +329,7 @@ private struct BrowserPanelReplacementHarness: View {
             terminalAgentContext: "",
             paneOwnershipOverride: true,
             onFocus: {},
+            onFocusTextBox: {},
             onRequestPanelFocus: {},
             onResumeAgentHibernation: {},
             onAutoResumeAgentHibernation: {},

@@ -148,6 +148,82 @@ import SwiftUI
         #expect(destination.focusedPanelId == localDestinationPanel)
     }
 
+    @Test("Cloud composer focus selects its pane through the host callback")
+    func cloudComposerFocusSelectsItsPane() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let sourcePane = try #require(workspace.bonsplitController.focusedPaneId)
+        let localPanelID = try #require(workspace.focusedPanelId)
+        let cloudPanel = try #require(workspace.makeRemoteTmuxPanePanel(onInput: { _ in }))
+        _ = try workspace.insertCloudManualMirrorPanel(
+            cloudPanel,
+            at: .split(workspaceID: workspace.id, paneID: sourcePane.id.uuidString, direction: .right),
+            focus: false,
+            isLoading: false
+        )
+        let window = try #require(harness.appDelegate.mainWindow(for: harness.windowId))
+        let contentView = try #require(window.contentView)
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        let scrollView = NSScrollView(frame: textView.frame)
+        scrollView.documentView = textView
+        contentView.addSubview(scrollView)
+        defer { scrollView.removeFromSuperview() }
+        let focusComposer = WorkspaceContentView.makeComposerFocusHandler(
+            workspace: workspace,
+            panel: cloudPanel,
+            isWorkspaceInputActive: true
+        )
+        textView.onFocusTextBox = {
+            cloudPanel.textBoxDidBecomeFocused()
+            focusComposer()
+        }
+        cloudPanel.registerTextBoxInputView(textView)
+        textView.string = "unsubmitted cloud draft"
+        #expect(workspace.focusedPanelId == localPanelID)
+
+        #expect(window.makeFirstResponder(textView))
+
+        let cloudPane = try #require(workspace.paneId(forPanelId: cloudPanel.id))
+        #expect(workspace.focusedPanelId == cloudPanel.id)
+        #expect(workspace.bonsplitController.focusedPaneId == cloudPane)
+        #expect(window.firstResponder === textView)
+        #expect(cloudPanel.preferredFocusIntentForActivation() == .terminal(.textBoxInput))
+        #expect(textView.string == "unsubmitted cloud draft")
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        #expect(workspace.focusedPanelId == cloudPanel.id)
+        #expect(window.firstResponder === textView)
+    }
+
+    @Test("Background Cloud composer callbacks do not change pane selection")
+    func backgroundCloudComposerDoesNotChangePaneSelection() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let sourcePane = try #require(workspace.bonsplitController.focusedPaneId)
+        let localPanelID = try #require(workspace.focusedPanelId)
+        let cloudPanel = try #require(workspace.makeRemoteTmuxPanePanel(onInput: { _ in }))
+        _ = try workspace.insertCloudManualMirrorPanel(
+            cloudPanel,
+            at: .split(workspaceID: workspace.id, paneID: sourcePane.id.uuidString, direction: .right),
+            focus: false,
+            isLoading: false
+        )
+        let manager = try #require(harness.appDelegate.tabManagerFor(windowId: harness.windowId))
+        let selectedWorkspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+
+        let focusComposer = WorkspaceContentView.makeComposerFocusHandler(
+            workspace: workspace,
+            panel: cloudPanel,
+            isWorkspaceInputActive: false
+        )
+        cloudPanel.textBoxDidBecomeFocused()
+        focusComposer()
+
+        #expect(manager.selectedTabId == selectedWorkspace.id)
+        #expect(workspace.focusedPanelId == localPanelID)
+    }
+
     @Test("Cloud shortcut inheritance uses the live remote foreground cwd")
     func cloudShortcutInheritanceUsesLiveRemoteForegroundCwd() async throws {
         let harness = try Harness()

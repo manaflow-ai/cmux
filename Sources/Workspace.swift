@@ -11677,13 +11677,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// guard at the workspace boundary makes the active pane border and the
     /// keyboard target follow the same selected workspace.
     @discardableResult
-    func focusPanelFromTerminalInput(_ panelId: UUID) -> Bool {
+    func focusPanelFromTerminalInput(
+        _ panelId: UUID,
+        trigger: FocusPanelTrigger = .terminalFirstResponder
+    ) -> Bool {
         guard panels[panelId] != nil,
               (owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id))?.selectedTabId == id,
               focusedPanelId != panelId else {
             return false
         }
-        focusPanel(panelId, trigger: .terminalFirstResponder)
+        focusPanel(panelId, trigger: trigger)
         return true
     }
 

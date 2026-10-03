@@ -36,6 +36,7 @@ struct PanelContentView: View {
     /// of trusting the SwiftUI snapshot captured before a cross-container move.
     var terminalPaneOwnershipResolver: (@MainActor () -> Bool)? = nil
     let onFocus: () -> Void
+    let onFocusTextBox: () -> Void
     let onRequestPanelFocus: () -> Void
     let onResumeAgentHibernation: () -> Void
     let onAutoResumeAgentHibernation: () -> Void
@@ -68,6 +69,7 @@ struct PanelContentView: View {
                     hasUnreadNotification: hasUnreadNotification,
                     terminalAgentContext: terminalAgentContext,
                     onFocus: onFocus,
+                    onFocusTextBox: onFocusTextBox,
                     onResumeAgentHibernation: onResumeAgentHibernation,
                     onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
                     onTriggerFlash: onTriggerFlash

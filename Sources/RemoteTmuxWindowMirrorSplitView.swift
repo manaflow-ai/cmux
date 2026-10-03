@@ -91,6 +91,10 @@ struct RemoteTmuxWindowMirrorSplitView: View {
                         onOuterFocus()
                         mirror.setActivePane(tmuxPaneId, fromTmux: false)
                     },
+                    onFocusTextBox: {
+                        onOuterFocus()
+                        mirror.setActivePane(tmuxPaneId, fromTmux: false)
+                    },
                     onResumeAgentHibernation: {},
                     onAutoResumeAgentHibernation: {},
                     onTriggerFlash: {}
