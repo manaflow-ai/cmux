@@ -118,6 +118,27 @@ struct CloudSidebarOrderingTests {
         #expect(drag.string(forType: .cloudSidebarRow) == folder.id)
     }
 
+    @Test("A remote workspace keeps organization dragging when pane projection is unavailable")
+    func remoteWorkspaceFallsBackToOrganizationWithoutProjectionRegistry() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let nodes = fixture.nodes()
+        let workspace = try #require(
+            CloudTreeNodeBuilder.flattened(nodes).first { $0.id == fixture.folderID("ws_2") }
+        )
+
+        // The real pane registry may be unavailable while a Cloud outline is
+        // being reconstructed. The row must still produce its sidebar move
+        // payload instead of disappearing from AppKit's drag source callback.
+        let registration = try #require(
+            CloudTreeDragRegistration(node: workspace, registry: nil)
+        )
+        guard case .organization = registration else {
+            Issue.record("Remote workspace should retain organization drag when projection registration is unavailable")
+            return
+        }
+    }
+
     @Test("Folder drags use the shared provisional owner without exposing pane projection")
     func folderDragRetainsAndReleasesSharedOwner() throws {
         let fixture = CloudSidebarOrderingFixture()

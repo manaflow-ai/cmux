@@ -3,6 +3,7 @@ import { localeMiddleware } from "./i18n/middleware";
 import { preferredLocaleFromAcceptLanguage } from "./i18n/accept-language";
 import { routing } from "./i18n/routing";
 import { isAgentPageVariantPath } from "./app/lib/agent-page-paths";
+import { isDocsPathname, isDocsZoneDeployment } from "./app/lib/docs-channel";
 import {
   fallbackContentRequestForPathname,
   featureWorkflowContentLocales,
@@ -170,12 +171,7 @@ function handleHostAndMachineRoutes(
   // The public site only routes docs traffic to the release/nightly origins.
   // Locale handling belongs to those origins; rewriting it here first causes
   // the origin to normalize the path back through the router in a loop.
-  const docsChannel = process.env.CMUX_DOCS_CHANNEL;
-  const isDocsOrigin = docsChannel === "release" || docsChannel === "nightly";
-  const isDocsPath = /^\/(?:[a-z]{2}(?:-[A-Z]{2})?\/)?docs(?:\/|$)/u.test(
-    pathname,
-  );
-  if (!isDocsOrigin && isDocsPath) {
+  if (!isDocsZoneDeployment() && isDocsPathname(pathname)) {
     return NextResponse.next();
   }
 
