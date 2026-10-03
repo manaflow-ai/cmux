@@ -17566,7 +17566,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "علامات التبويب"
           }
         },
@@ -17584,19 +17584,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Tabs"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Pestañas"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Onglets"
           }
         },
@@ -17620,7 +17620,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "탭"
           }
         },
@@ -17674,13 +17674,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "标签页"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "標籤頁"
           }
         }
@@ -17697,7 +17697,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "تفتح علامة التبويب الجديدة"
           }
         },
@@ -17715,19 +17715,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Neuer Tab öffnet"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "La nueva pestaña abre"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Le nouvel onglet ouvre"
           }
         },
@@ -17751,7 +17751,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "새 탭에서 열기"
           }
         },
@@ -17805,13 +17805,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "新标签页打开"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "新標籤頁開啟"
           }
         }
@@ -17828,7 +17828,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "ما يفتحه Cmd-T وزر +. يختار الوضع التلقائي النوع الذي فتحته آخر مرة في ذلك المجلد."
           }
         },
@@ -17846,19 +17846,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Was Cmd-T und die Schaltfläche + öffnen. Automatisch wählt die Art, die du zuletzt in diesem Ordner geöffnet hast."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Lo que abren Cmd-T y el botón +. Automático elige el tipo que abriste por última vez en esa carpeta."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ce qu’ouvrent Cmd-T et le bouton +. Automatique choisit le type que vous avez ouvert en dernier dans ce dossier."
           }
         },
@@ -17882,7 +17882,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Cmd-T와 + 버튼으로 여는 항목입니다. 자동은 해당 폴더에서 마지막으로 연 종류를 고릅니다."
           }
         },
@@ -17936,13 +17936,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Cmd-T 和 + 按钮打开的内容。自动会选择你在该文件夹中最近打开的类型。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Cmd-T 和 + 按鈕開啟的內容。自動會選擇你在該資料夾中最近開啟的類型。"
           }
         }
@@ -17959,7 +17959,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "نفس نوع علامة التبويب الحالية"
           }
         },
@@ -17977,19 +17977,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Gleiche Art wie aktueller Tab"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Mismo tipo que la pestaña actual"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Même type que l’onglet actuel"
           }
         },
@@ -18013,7 +18013,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "현재 탭과 같은 종류"
           }
         },
@@ -18067,13 +18067,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "与当前标签页同类"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "與目前標籤頁同類"
           }
         }
@@ -18090,7 +18090,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "طرفية"
           }
         },
@@ -18108,19 +18108,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Terminal"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Terminal"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Terminal"
           }
         },
@@ -18144,7 +18144,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "터미널"
           }
         },
@@ -18198,13 +18198,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "终端"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "終端機"
           }
         }
@@ -18221,7 +18221,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "متصفح"
           }
         },
@@ -18239,19 +18239,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Browser"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Navegador"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Navigateur"
           }
         },
@@ -18275,7 +18275,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "브라우저"
           }
         },
@@ -18329,13 +18329,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "浏览器"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "瀏覽器"
           }
         }
@@ -18352,7 +18352,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "وكيل"
           }
         },
@@ -18370,19 +18370,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Agent"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Agente"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Agent"
           }
         },
@@ -18406,7 +18406,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "에이전트"
           }
         },
@@ -18460,13 +18460,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "智能体"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "代理"
           }
         }
@@ -18483,7 +18483,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "صفحة علامة تبويب جديدة"
           }
         },
@@ -18501,19 +18501,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Neuer-Tab-Seite"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Página de nueva pestaña"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Page Nouvel onglet"
           }
         },
@@ -18537,7 +18537,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "새 탭 페이지"
           }
         },
@@ -18591,13 +18591,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "新标签页"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "新標籤頁"
           }
         }
@@ -18614,7 +18614,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "تلقائي"
           }
         },
@@ -18632,19 +18632,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Automatisch"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Automático"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Automatique"
           }
         },
@@ -18668,7 +18668,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "자동"
           }
         },
@@ -18722,13 +18722,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "自动"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "自動"
           }
         }

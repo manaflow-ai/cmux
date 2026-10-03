@@ -115,7 +115,7 @@ rust-file	cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs	5630	114
 rust-file	cmux-tui/crates/cmux-wg/src/net.rs	1021	37
 rust-file	cmux-tui/crates/ghostty-vt/src/kitty.rs	1368	64
 rust-file	cmux-tui/crates/ghostty-vt/src/terminal.rs	5941	287
-swift-type	CmuxNextApp/WindowManager	1162	0
+swift-type	CmuxNextApp/WindowManager	1143	0
 swift-type	CmuxNextDaemon/DaemonConnection	1481	0
 swift-type	CmuxNextTabs/TabStripView	2137	0
 swift-type	CmuxNextTerminal/TerminalSurfaceView	1118	0

@@ -73378,7 +73378,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "التركيز على شريط الموقع"
           }
         },
@@ -73396,19 +73396,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Adressleiste fokussieren"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Enfocar la barra de ubicación"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Activer la barre d’adresse"
           }
         },
@@ -73426,7 +73426,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "위치 표시줄에 포커스"
           }
         },
@@ -73480,13 +73480,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "聚焦位置栏"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "聚焦位置列"
           }
         }
@@ -73509,7 +73509,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "فتح ملف…"
           }
         },
@@ -73527,19 +73527,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Datei öffnen…"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Abrir archivo…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ouvrir le fichier…"
           }
         },
@@ -73557,7 +73557,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "파일 열기…"
           }
         },
@@ -73611,14 +73611,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "打开文件…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "打開檔案…"
+            "state": "translated",
+            "value": "開啟檔案…"
           }
         }
       }
@@ -73640,7 +73640,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "المحرر"
           }
         },
@@ -73658,19 +73658,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Editor"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Editor"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Éditeur"
           }
         },
@@ -73688,7 +73688,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "편집기"
           }
         },
@@ -73742,13 +73742,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "编辑器"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "編輯器"
           }
         }
@@ -73771,7 +73771,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "علامة تبويب"
           }
         },
@@ -73789,19 +73789,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Tab"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Pestaña"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Onglet"
           }
         },
@@ -73819,7 +73819,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "탭"
           }
         },
@@ -73873,13 +73873,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "标签页"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "分頁"
           }
         }
@@ -73902,7 +73902,7 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "الفتح في"
           }
         },
@@ -73920,19 +73920,19 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Öffnen in"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Abrir en"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ouvrir dans"
           }
         },
@@ -73950,7 +73950,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "열 위치"
           }
         },
@@ -74004,14 +74004,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "打开位置"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "打開位置"
+            "state": "translated",
+            "value": "開啟位置"
           }
         }
       }
