@@ -303,6 +303,19 @@ def run() -> int:
     pulls = source.get("pull_requests") if isinstance(source, Mapping) else None
     if not pr_number and isinstance(pulls, Sequence) and pulls:
         pr_number = pulls[0].get("number") if isinstance(pulls[0], Mapping) else None
+    # Some check_suite and workflow_run payloads omit pull_requests. Resolve
+    # the immutable head through GitHub instead of silently skipping CI events.
+    source_sha = source.get("head_sha") if isinstance(source, Mapping) else None
+    if not pr_number and isinstance(source_sha, str):
+        try:
+            source_pulls = GitHub(repo, token).request(
+                f"/repos/{repo}/commits/{urllib.parse.quote(source_sha, safe='')}/pulls"
+            )
+            if isinstance(source_pulls, Sequence) and source_pulls:
+                first = source_pulls[0]
+                pr_number = first.get("number") if isinstance(first, Mapping) else None
+        except RuntimeError:
+            pass
     if not pr_number:
         print("merge-gate: event has no pull request", file=sys.stderr)
         return 0
@@ -317,6 +330,22 @@ def run() -> int:
     commit_info = commit.get("commit") if isinstance(commit, Mapping) else {}
     author_info = commit_info.get("committer") if isinstance(commit_info, Mapping) else {}
     pushed = author_info.get("date") if isinstance(author_info, Mapping) else None
+    # A commit timestamp is only a fallback. The synchronize event is the
+    # server's record of when this exact head was pushed to the pull request.
+    try:
+        events = gh.paged(f"/repos/{repo}/issues/{int(pr_number)}/events")
+        sync_times = [
+            event.get("created_at")
+            for event in events
+            if isinstance(event, Mapping)
+            and event.get("event") == "synchronize"
+            and event.get("commit_id") == sha
+            and isinstance(event.get("created_at"), str)
+        ]
+        if sync_times:
+            pushed = max(sync_times)
+    except RuntimeError:
+        pass
     check_payload = gh.request(f"/repos/{repo}/commits/{sha}/check-runs?per_page=100")
     status_payload = gh.request(f"/repos/{repo}/commits/{sha}/status?per_page=100")
     rules = gh.request(f"/repos/{repo}/rules/branches/main")
