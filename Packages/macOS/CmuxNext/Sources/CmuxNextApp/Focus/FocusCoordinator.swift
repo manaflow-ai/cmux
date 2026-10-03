@@ -35,7 +35,7 @@ final class FocusCoordinator {
         /// A responder report dropped as the echo of the applier's own change.
         case suppressedResponder(FocusEvent.Responder)
         /// A focus or selection change dropped: the action run sending it
-        /// may not change this client's view (`ViewChangePolicy`).
+        /// may not change this client's view (`ActionRunScope.viewChangeAllowed()`).
         case refusedByRun(FocusEvent)
     }
 
@@ -49,7 +49,7 @@ final class FocusCoordinator {
         // script, agent or remote run without `focus: true`) never moves
         // focus or selection, nor bumps the intent generation, which would
         // void the user's own pending expectation (OWNERSHIP-PRINCIPLES.md).
-        if event.changesView, !ViewChangePolicy.allowed() {
+        if event.changesView, !ActionRunScope.viewChangeAllowed() {
             observer?(.refusedByRun(event))
             return
         }

@@ -29,7 +29,7 @@ extension WindowManager {
             if let position = pending.slot?.position(moving: [id], section: section, in: sections) {
                 bridge.place([SidebarWorkspaceID(id)], at: position, in: sections)
             }
-            ViewChangePolicy.carrying(pending.run) { pending.then?(id, bridge) }
+            ActionRunScope.carrying(pending.run) { pending.then?(id, bridge) }
         }
     }
 

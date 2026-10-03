@@ -358,7 +358,7 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --skip CmuxNextControlTests --skip CmuxNextBrowserAutomationTests --skip TerminalAttachDriverStressTests
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --skip CmuxNextControlTests --skip CmuxNextBrowserAutomationTests --skip TerminalAttachDriverStressTests --skip ActionRunWaitTests --skip DaemonClosedHistoryTests --skip EphemeralWorkspaceTests --skip StateMutationRoutingTests
 
       # Like the steps below, runs whenever the build succeeded, even after a
       # failed test step, so one red step does not hide the others.
@@ -368,7 +368,19 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter CmuxNextControlTests
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter CmuxNextControlTests --skip CLISurfaceParityTests
+
+      # These socket/readiness and CLI parity tests assert routing, not scheduler
+      # throughput. Concurrent app/catalog setup can occupy the main actor longer
+      # than their real request deadlines. Keep those deadlines and assertions,
+      # but run these suites alone and one test at a time, including action retries.
+      - name: Run daemon routing and CLI parity tests
+        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}
+        timeout-minutes: 10
+        working-directory: Packages/macOS/CmuxNext
+        env:
+          CMUX_NEXT_TEST_HANG_SECONDS: "480"
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter 'ActionRunWaitTests|DaemonClosedHistoryTests|EphemeralWorkspaceTests|StateMutationRoutingTests|CLISurfaceParityTests'
 
       # The WebKit driver tests drive real WKWebViews against wall-clock load
       # deadlines through main-actor navigation callbacks. They run in a
@@ -467,6 +479,21 @@ jobs:
         env:
           CEF_DIR: ${{ steps.cef.outputs.dir }}
         run: scripts/cmux-next/build-cef-shim.sh "$CEF_DIR" "$(scripts/cmux-next/cef-cache-root.sh)/shim"
+
+  # A green Release compile on a feat-cmux-next push may move the protected
+  # `nightly-next` branch, which publishes the cmux-next NIGHTLY track
+  # (debounced; see nightly-next-promote.yml).
+  promote-nightly-next:
+    needs: release-compile
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile.result == 'success'
+    permissions:
+      contents: read
+      checks: read
+      actions: read
+    uses: ./.github/workflows/nightly-next-promote.yml
+    with:
+      sha: ${{ github.sha }}
+    secrets: inherit
 
   cmux-scheme-compile:
     needs: macos-placement

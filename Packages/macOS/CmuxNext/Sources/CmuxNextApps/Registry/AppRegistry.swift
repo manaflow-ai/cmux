@@ -65,6 +65,9 @@ public final class AppRegistry {
     public private(set) var problems: [AppBundleScanner.Problem] = []
     @ObservationIgnored public let directory: URL
     @ObservationIgnored private let bundledRoot: URL
+    @ObservationIgnored private let firstPartyRoot: URL
+    /// Set once the first scan finished (the store waits on it instead of scanning itself).
+    public private(set) var isLoaded = false
     @ObservationIgnored private var file = AppRegistryFile()
     /// Called after an app's state changed (the host refreshes its grants).
     @ObservationIgnored public var onChange: ((InstalledApp) -> Void)?
@@ -72,7 +75,8 @@ public final class AppRegistry {
     /// - Parameters:
     ///   - directory: the tag's apps directory (`AppRegistryFile.appsDirectory(tag:)`).
     ///   - bundledRoot: where the first-party samples live (the module's resources).
-    public init(directory: URL, bundledRoot: URL = AppPlatformResources.samples) {
+    public init(directory: URL, bundledRoot: URL = AppPlatformResources.samples, firstPartyRoot: URL = AppPlatformResources.firstParty) {
+        self.firstPartyRoot = firstPartyRoot
         self.directory = directory
         self.bundledRoot = bundledRoot
     }
@@ -83,9 +87,11 @@ public final class AppRegistry {
 
     /// Scans bundles and reads the record off the main actor.
     public func load() async {
-        let (bundledRoot, localRoot, fileURL) = (self.bundledRoot, self.localRoot, self.fileURL)
+        let (bundledRoot, firstPartyRoot, localRoot, fileURL) = (self.bundledRoot, self.firstPartyRoot, self.localRoot, self.fileURL)
         let (bundles, problems, file) = await Task.detached(priority: .utility) {
-            let bundled = AppBundleScanner.scan(bundledRoot, source: .bundled)
+            let firstParty = AppBundleScanner.scan(firstPartyRoot, source: .firstParty)
+            let samples = AppBundleScanner.scan(bundledRoot, source: .bundled)
+            let bundled = (bundles: firstParty.bundles + samples.bundles, problems: firstParty.problems + samples.problems)
             let local = AppBundleScanner.scan(localRoot, source: .local)
             return (bundled.bundles + local.bundles, bundled.problems + local.problems, AppRegistryFile.load(from: fileURL))
         }.value
@@ -93,6 +99,7 @@ public final class AppRegistry {
         self.problems = problems
         var seen = Set<String>()
         apps = bundles.filter { seen.insert($0.id).inserted }.map { InstalledApp(bundle: $0, entry: file.entry($0.id, installedByDefault: Self.installedByDefault($0))) }
+        isLoaded = true
     }
 
     public func app(_ id: String) -> InstalledApp? { apps.first { $0.id == id } }
@@ -104,7 +111,7 @@ public final class AppRegistry {
     public func setHidden(_ id: String, _ hidden: Bool) async throws { try await update(id) { $0.hidden = hidden } }
 
     /// Development apps are installed as soon as they are in the local directory; bundled samples are opt-in.
-    nonisolated static func installedByDefault(_ bundle: AppBundle) -> Bool { bundle.source == .local }
+    nonisolated static func installedByDefault(_ bundle: AppBundle) -> Bool { bundle.source == .local || bundle.source == .firstParty }
 
     /// Grants or revokes one scope (takes effect on the app's next call).
     public func setGranted(_ id: String, scope: String, _ granted: Bool) async throws {
