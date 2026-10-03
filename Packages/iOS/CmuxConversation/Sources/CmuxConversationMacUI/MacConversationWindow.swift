@@ -319,6 +319,7 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
     private let table = NSTableView()
     private let search = NSSearchField()
     private let searchPill = MacFlippedView()
+    private let noResults = makeMacLabel()
     var onSelect: ((MacConversationEntry) -> Void)?
 
     init(entries: [MacConversationEntry]) {
@@ -375,6 +376,17 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
             scroll.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: root.bottomAnchor),
         ])
+        noResults.stringValue = String(localized: "conversation.sidebar.noResults", defaultValue: "No Results", bundle: .module)
+        noResults.font = .systemFont(ofSize: 13, weight: .semibold)
+        noResults.textColor = .secondaryLabelColor
+        noResults.alignment = .center
+        noResults.isHidden = true
+        noResults.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(noResults)
+        NSLayoutConstraint.activate([
+            noResults.centerXAnchor.constraint(equalTo: root.centerXAnchor),
+            noResults.topAnchor.constraint(equalTo: searchPill.bottomAnchor, constant: 40),
+        ])
         view = root
         updateColors()
         visible = ordered()
@@ -425,6 +437,7 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
             return
         }
         visible = next
+        noResults.isHidden = !(visible.isEmpty && !search.stringValue.trimmingCharacters(in: .whitespaces).isEmpty)
         table.reloadData()
         if let selectedID, let index = visible.firstIndex(where: { $0.id == selectedID }) {
             table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)

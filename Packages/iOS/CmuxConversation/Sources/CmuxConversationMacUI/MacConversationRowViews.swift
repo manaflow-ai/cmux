@@ -651,7 +651,8 @@ final class MacTypingRowView: MacFlippedView {
     var showsAvatar = false { didSet { needsLayout = true } }
     /// 0...1: the indicator grows from its tail corner as its row opens.
     var progress: CGFloat = 1 { didSet { applyProgress() } }
-    static let height: CGFloat = 36
+    /// The typing bubble matches a single-line message bubble (32 pt).
+    static let height: CGFloat = 39
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -673,11 +674,11 @@ final class MacTypingRowView: MacFlippedView {
         super.layout()
         let t = MacConversationTheme.self
         let leading = t.sideMargin + (showsAvatar ? t.avatarSize + t.avatarGap : 0)
-        let frame = CGRect(x: leading - t.tailWidth, y: 2, width: 46 + t.tailWidth, height: 29)
+        let frame = CGRect(x: leading - t.tailWidth, y: 2, width: 50 + t.tailWidth, height: 32)
         bubble.update(rect: frame, side: .leading, tail: true)
         bubble.fillColor = resolved(t.incomingBubble, in: self)
         for (index, dot) in dots.enumerated() {
-            dot.frame = CGRect(x: leading + 10 + CGFloat(index) * 11, y: frame.midY - 3.5, width: 7, height: 7)
+            dot.frame = CGRect(x: leading + 10.5 + CGFloat(index) * 11, y: frame.midY - 3.5, width: 7, height: 7)
             dot.backgroundColor = NSColor.secondaryLabelColor.cgColor
         }
         avatar.isHidden = !showsAvatar

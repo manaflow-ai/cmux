@@ -832,6 +832,22 @@
           }
         }
       }
+    },
+    "conversation.sidebar.noResults": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Results"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結果なし"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
