@@ -106,6 +106,15 @@ final class CloudTuiManualMirrorSession {
     private var interruption: CloudTerminalAttachmentInterruption?
     var automaticReconnectSuppressed = false
     var allowsAutomaticReconnect: Bool { !automaticReconnectSuppressed }
+
+    /// SSH hosts can continue over the byte-oriented attach protocol when the
+    /// remote cmux-tui predates replay framing. Cloud machines remain strict,
+    /// because their managed transport cannot safely recover incomplete VT
+    /// sequences without the modern capability.
+    static func shouldRejectStaleReplay(machineID: String, capabilities: [String]) -> Bool {
+        guard !machineID.hasPrefix("ssh:") else { return false }
+        return CloudTuiManualIOCommand().isStaleReplayDaemon(capabilities: capabilities)
+    }
     var attachmentCorrelationID: String { log.correlationID }
     /// Grace bounds for the connection card; tests inject short ones.
     let presentationPolicy: CloudTerminalConnectionPresentationPolicy
@@ -847,7 +856,7 @@ final class CloudTuiManualMirrorSession {
                 return
             }
             serverCapabilities = Set(capabilities)
-            if commandBuilder.isStaleReplayDaemon(capabilities: capabilities) {
+            if Self.shouldRejectStaleReplay(machineID: machineID, capabilities: capabilities) {
                 // This daemon can attach, but it cannot preserve incomplete VT
                 // sequences across replay boundaries. Retrying the same VM
                 // forever only recreates the garbled pane, so leave the pane
