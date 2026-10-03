@@ -17,6 +17,7 @@ public import Foundation
 /// The templates are kept free of Swift interpolation so the
 /// `tests/react_grab_bridge.test.mjs` harness can extract and execute the
 /// exact shipped sources between the begin/end markers.
+/// lint:allow namespace-type: static source namespace consumed by the browser bridge.
 public enum ReactGrabBridgeScripts {
     public static let handlerNamePlaceholder = "__CMUX_RG_HANDLER__"
     public static let maxContentLengthPlaceholder = "__CMUX_RG_MAX_CONTENT_LENGTH__"

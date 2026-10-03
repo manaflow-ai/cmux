@@ -9,6 +9,7 @@
 /// ``isSingleTokenArgument(_:)`` or ``agentHookPIDKeyArgument(statusKey:sessionId:)``
 /// before composing a command, and every writer frames the finished line
 /// through ``framedLine(for:)``, which refuses CR, LF, and NUL outright.
+/// lint:allow namespace-type: static wire-format namespace used by all socket writers.
 public enum SocketCommandLine {
     /// Maximum UTF-8 length accepted for a machine identifier embedded in a
     /// V1 command line as one unquoted token.
