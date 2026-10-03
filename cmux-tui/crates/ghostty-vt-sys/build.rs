@@ -2,25 +2,25 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[allow(dead_code)]
+#[path = "build_support.rs"]
+mod build_support;
+
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
-    // The ghostty submodule at the cmux repo root is the default source.
-    // CMUX_GHOSTTY_SRC overrides it for out-of-tree builds.
+    // libghostty-vt comes from the `ghostty-next` submodule at the cmux repo
+    // root (manaflow-ai/ghostty-next: upstream libghostty-vt with the snapshot
+    // encoder, plus the ported fork VT patches). The `ghostty` submodule is
+    // the Mac app's GhosttyKit source and is never used here: a missing
+    // ghostty-next checkout is a hard error, not a fallback.
+    // CMUX_GHOSTTY_SRC overrides the source for out-of-tree builds.
     let ghostty_dir = match env::var("CMUX_GHOSTTY_SRC") {
         Ok(p) => PathBuf::from(p),
-        Err(_) => manifest_dir.join("../../../ghostty"),
+        Err(_) => manifest_dir.join("../../../ghostty-next"),
     };
-    let ghostty_dir = ghostty_dir.canonicalize().unwrap_or_else(|e| {
-        panic!(
-            "ghostty source not found at {} ({}). Run `git submodule update --init` \
-             or set CMUX_GHOSTTY_SRC.",
-            ghostty_dir.display(),
-            e
-        )
-    });
-    let ghostty_dir = strip_windows_verbatim(ghostty_dir);
+    let ghostty_dir = require_vt_source(&ghostty_dir);
 
     println!("cargo:rerun-if-env-changed=CMUX_GHOSTTY_SRC");
     println!("cargo:rerun-if-env-changed=ZIG");
@@ -50,6 +50,13 @@ fn main() {
         .arg("-Demit-lib-vt=true")
         .arg("-Demit-xcframework=false")
         .arg("-Doptimize=ReleaseFast");
+    // ghostty-next publishes releases as git tags (xcframework-<sha>-<flavor>)
+    // on main commits. Ghostty's build reads `git describe` and panics on a
+    // tag that is not vX.Y.Z, so a checkout that fetched tags could not build.
+    // An explicit version string skips git detection.
+    if let Some(version) = build_support::zon_version(&ghostty_dir.join("build.zig.zon")) {
+        command.arg(format!("-Dversion-string={version}"));
+    }
     // Pass the target whenever we know it, not only when cross-compiling.
     // zig defaults to the msvc ABI on Windows, so a native *-windows-gnu
     // host (no Visual Studio, e.g. a rustup gnu toolchain with MSYS2) would
@@ -108,6 +115,13 @@ fn main() {
         .generate()
         .expect("bindgen failed for ghostty/vt.h");
     bindings.write_to_file(out_dir.join("bindings.rs")).expect("failed to write bindings.rs");
+}
+
+fn require_vt_source(dir: &Path) -> PathBuf {
+    match build_support::resolve_vt_source(dir) {
+        Ok(resolved) => strip_windows_verbatim(resolved),
+        Err(message) => panic!("{message}"),
+    }
 }
 
 fn emit_cargo_path_directive(directive: &str, path: &Path) {

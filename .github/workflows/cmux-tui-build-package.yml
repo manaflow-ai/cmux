@@ -178,6 +178,8 @@ jobs:
           PY
 
   build:
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
     name: build ${{ matrix.target }}
     needs: plan-build
     runs-on: ${{ github.run_attempt > 1 && inputs.macos_retry_runner != '' && endsWith(matrix.target, '-apple-darwin') && inputs.macos_retry_runner || matrix.runner }}
@@ -195,7 +197,7 @@ jobs:
           persist-credentials: false
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty
+        run: git submodule update --init --depth 1 ghostty ghostty-next
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
@@ -239,7 +241,7 @@ jobs:
           # independent of any self-hosted runner source override.
           unset CMUX_GHOSTTY_SRC
           CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
-          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
+          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty-next rev-parse HEAD)"
           export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT CMUX_TUI_DISTRIBUTION_VERSION
           if [[ "$PACKAGE_NPM" == "true" ]]; then
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
@@ -262,7 +264,7 @@ jobs:
           # independent of any self-hosted runner source override.
           unset CMUX_GHOSTTY_SRC
           CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
-          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
+          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty-next rev-parse HEAD)"
           export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT CMUX_TUI_DISTRIBUTION_VERSION
           if [[ "$PACKAGE_NPM" == "true" ]]; then
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
@@ -285,7 +287,7 @@ jobs:
           # cargo-zigbuild cannot resolve SDK frameworks when the host is arm64.
           unset CMUX_GHOSTTY_SRC
           CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
-          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
+          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty-next rev-parse HEAD)"
           export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT CMUX_TUI_DISTRIBUTION_VERSION
           if [[ "$PACKAGE_NPM" == "true" ]]; then
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
@@ -423,6 +425,7 @@ jobs:
     runs-on: ${{ inputs.windows_runner != '' && inputs.windows_runner || vars.WINDOWS_RUNNER || 'windows-latest' }}
     timeout-minutes: 60
     env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
       CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=lld
     permissions:
       contents: read
@@ -434,7 +437,7 @@ jobs:
           persist-credentials: false
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty
+        run: git submodule update --init --depth 1 ghostty ghostty-next
 
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
@@ -471,13 +474,13 @@ jobs:
           # checked-out Ghostty source whose revision is stamped below.
           unset CMUX_GHOSTTY_SRC
           CMUX_TUI_BUILD_COMMIT="$(git rev-parse HEAD)"
-          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ghostty rev-parse HEAD)"
+          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ghostty-next rev-parse HEAD)"
           export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT CMUX_TUI_DISTRIBUTION_VERSION
           if [[ "$PACKAGE_NPM" == "true" ]]; then
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
-          cd ghostty
+          cd ghostty-next
           zig build -Demit-lib-vt=true -Demit-xcframework=false -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu --prefix "$RUNNER_TEMP/ghostty-vt-win-gnu"
           cd ../cmux-tui
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target x86_64-pc-windows-gnu

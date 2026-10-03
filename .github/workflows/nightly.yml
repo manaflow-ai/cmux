@@ -1086,7 +1086,7 @@ jobs:
           set -euo pipefail
           unset CMUX_GHOSTTY_SRC
           CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
-          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
+          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty-next rev-parse HEAD)"
           export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT
           cargo build -p cmux-tui --bin cmux-tui --release --locked --target aarch64-apple-darwin
           cargo build -p acpmux --bin acpmux --release --locked --target aarch64-apple-darwin

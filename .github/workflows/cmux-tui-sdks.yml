@@ -553,6 +553,8 @@ jobs:
             -- -D warnings
 
   conformance:
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
     name: seven-language live conformance
     needs: contract
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-8vcpu-ubuntu-2404' }}
@@ -563,7 +565,7 @@ jobs:
           persist-credentials: false
 
       - name: Initialize Ghostty protocol submodule
-        run: git submodule update --init --depth 1 ghostty
+        run: git submodule update --init --depth 1 ghostty ghostty-next
 
       - name: Install Linux build dependencies
         run: |
@@ -616,7 +618,7 @@ jobs:
         id: headless-key
         run: |
           set -euo pipefail
-          echo "key=cmux-tui-headless-v1-${RUNNER_OS}-${RUNNER_ARCH}-zig0.16.0-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)" >> "$GITHUB_OUTPUT"
+          echo "key=cmux-tui-headless-v1-${RUNNER_OS}-${RUNNER_ARCH}-zig0.16.0-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)-$(git rev-parse HEAD:ghostty-next)" >> "$GITHUB_OUTPUT"
 
       - name: Restore the headless cmux-tui build
         id: headless-cache

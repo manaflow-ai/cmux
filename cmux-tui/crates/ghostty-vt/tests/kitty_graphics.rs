@@ -150,7 +150,9 @@ fn rgba_snapshot_preserves_alpha_crop_offsets_z_and_real_cell_geometry() {
     assert_eq!((placement.x_offset, placement.y_offset), (3, 4));
     assert_eq!((placement.columns, placement.rows), (2, 3));
     assert_eq!((placement.grid_cols, placement.grid_rows), (2, 3));
-    assert_eq!((placement.pixel_width, placement.pixel_height), (20, 60));
+    // Upstream libghostty-vt (ghostty-next) sizes a placement's pixel area
+    // net of its X/Y cell offsets: 2x3 cells of 10x20 px minus (3, 4).
+    assert_eq!((placement.pixel_width, placement.pixel_height), (17, 56));
     assert_eq!(placement.z, -2);
 }
 
