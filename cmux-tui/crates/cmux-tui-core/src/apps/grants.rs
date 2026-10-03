@@ -142,12 +142,25 @@ pub enum Decision {
     ScopeMissing(&'static str),
 }
 
-/// Ops that change focus or selection: they run only with a live gesture
-/// token, so automation never steals focus (OWNERSHIP-PRINCIPLES).
+/// Catalog ops that change view state (focus, selection, scroll, zoom,
+/// navigation; js/ABI.md "One rule for use"). From an app they run only with
+/// a live gesture token, which they spend, so automation never moves what the
+/// user sees (OWNERSHIP-PRINCIPLES). `action.run` is decided in `actions.rs`.
+const VIEW_STATE_OPS: &[&str] = &[
+    "browser.activate",
+    "browser.navigate",
+    "pane.focus",
+    "pane.focus_direction",
+    "pane.zoom",
+    "screen.focus",
+    "tab.focus",
+    "terminal.input.focus",
+    "terminal.viewport.scroll",
+    "workspace.focus",
+];
+
 pub fn needs_gesture(op: &str) -> bool {
-    op.split('.').any(|part| part == "focus" || part.starts_with("focus_"))
-        || op.ends_with(".activate")
-        || op.ends_with(".select")
+    VIEW_STATE_OPS.contains(&op)
 }
 
 struct Token {
@@ -333,5 +346,14 @@ mod tests {
         assert_eq!(gestures.present("cmux/a", Some(&revoked), false, now), GestureCheck::None);
         assert!(needs_gesture("tab.focus") && needs_gesture("pane.focus_direction"));
         assert!(needs_gesture("terminal.input.focus") && !needs_gesture("tab.close"));
+        assert!(needs_gesture("terminal.viewport.scroll") && needs_gesture("browser.navigate"));
+        // Every listed op is an op of this cmux version.
+        let table = ScopeTable::get();
+        for op in VIEW_STATE_OPS {
+            assert!(
+                table.known_ops().iter().any(|known| known == op),
+                "{op} is not in scopes.json"
+            );
+        }
     }
 }
