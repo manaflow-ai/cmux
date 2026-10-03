@@ -137,7 +137,12 @@ final class SSHTuiWorkspaceCoordinator {
                 }
             }
         } else {
-            let connected = try await provider.links.connected(machineID: connection.id)
+            let connected: CloudMachineLink.Connected
+            if let sshLinks = provider.links as? SSHTuiLinkManager {
+                connected = try await sshLinks.connected(machineID: connection.id, preflight: false, upgrade: restoring)
+            } else {
+                connected = try await provider.links.connected(machineID: connection.id)
+            }
             guard let link = await provider.links.link(machineID: connection.id) else { throw CancellationError() }
             let request = Self.remoteWorkspaceCreationRequest(for: workspace, socketPath: connected.socketPath)
             let response = try await link.run(arguments: request)

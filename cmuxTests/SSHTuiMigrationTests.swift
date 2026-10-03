@@ -128,6 +128,15 @@ struct SSHTuiMigrationTests {
         }
     }
 
+    @Test("Restore-only SSH carriers request sidecar recovery")
+    func restoreCarrierRequestsSidecarUpgrade() {
+        let connection = SSHTuiConnection(configuration: configuration())
+        let fresh = connection.arguments(stateDirectory: "/tmp/state", deviceName: "test")
+        let restored = connection.arguments(stateDirectory: "/tmp/state", deviceName: "test", upgrade: true)
+        #expect(!fresh.contains("--upgrade"))
+        #expect(restored.contains("--upgrade"))
+    }
+
     @Test("Changing a ControlMaster path does not change persistent SSH terminal identity")
     func sessionIdentitySurvivesCarrierReplacement() {
         let first = SSHTuiConnection(configuration: configuration(options: ["ControlPath=/tmp/first", "ProxyJump=bastion"]))
