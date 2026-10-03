@@ -930,6 +930,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_sparkle_key.sh
 
+      - name: Validate the nightly-next guard
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_guard.py
+
       - name: Validate nightly push throttle
         if: ${{ matrix.group == 'release-notary' }}
         run: |
