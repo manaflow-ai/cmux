@@ -877,6 +877,10 @@
       "scope": "team_vm:execute",
       "class": "mutation"
     },
+    "team_vm.ssh_cert.challenge": {
+      "scope": "team_vm:execute",
+      "class": "mutation"
+    },
     "team_vm.ssh_cert.revoke": {
       "scope": "team_vm:write",
       "class": "mutation"

@@ -11,6 +11,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { SSH_AGENT_FORCE_COMMAND, SSH_TEAMS_EXTENSION } from "@cmux/protocol"
+import { keyFingerprint } from "../src/team-ssh-presence.ts"
 import { authorizedKeyLine, buildKrl, certLine, certToSign, ed25519Blob, parseUserKey } from "../src/team-ssh-wire.ts"
 
 const dir = mkdtempSync(join(tmpdir(), "cmux-ssh-ca-check-"))
@@ -31,6 +32,9 @@ try {
     const file = join(dir, `user${serial}`)
     execFileSync("ssh-keygen", ["-q", "-t", type, ...(type === "ecdsa" ? ["-b", "256"] : []), "-N", "", "-C", "check", "-f", file])
     const key = (await parseUserKey(readFileSync(`${file}.pub`, "utf8"))) ?? fail(`could not parse the ${type} key ssh-keygen made`)
+    // The fingerprint a device shows before it approves a full-shell certificate must be the one ssh-keygen prints.
+    const printed = execFileSync("ssh-keygen", ["-l", "-E", "sha256", "-f", `${file}.pub`], { encoding: "utf8" }).split(" ")[1]
+    if ((await keyFingerprint(key)) !== printed) fail(`fingerprint ${await keyFingerprint(key)} is not ssh-keygen's ${printed}`)
     const toSign = certToSign(key, {
       nonce: crypto.getRandomValues(new Uint8Array(32)),
       serial,

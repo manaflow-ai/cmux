@@ -1,11 +1,12 @@
 import type { OwnerFrame, Principal, RejectFrame, ResultFrame } from "@cmux/ownership"
-import { SSH_AGENT_FORCE_COMMAND, SSH_TEAMS_EXTENSION, TeamVmSshCaRotate, TeamVmSshCert, TeamVmSshCertRevoke } from "@cmux/protocol"
+import { SSH_AGENT_FORCE_COMMAND, SSH_TEAMS_EXTENSION, TeamVmSshCaRotate, TeamVmSshCert, TeamVmSshCertChallenge, TeamVmSshCertRevoke } from "@cmux/protocol"
 import { decodeParams } from "./domains/common.ts"
 import { KRL_GRACE_MS, linuxUserFor, MAX_CERT_MS } from "./domains/team-ssh.ts"
 import type { TeamState } from "./domains/team.ts"
 import { open, seal, type SealedSecret } from "./integrations/crypto.ts"
 import type { DomainReply } from "./team-domain-external.ts"
-import { authorizedKeyLine, certLine, certToSign, ed25519Blob, parseUserKey, toBase64 } from "./team-ssh-wire.ts"
+import { sshPurpose, type PresenceProof, type SshPresence } from "./team-ssh-presence.ts"
+import { authorizedKeyLine, certLine, certToSign, ed25519Blob, parseUserKey, toBase64, type UserKey } from "./team-ssh-wire.ts"
 
 /**
  * The team SSH CA in TeamDO (plans/cmux-next/team-vm-plan.md S3). The Ed25519 CA key is made in
@@ -23,8 +24,9 @@ const USER_RATE_LIMIT = 60
 /** SSH CA requests of any kind per caller identity in RATE_WINDOW_MS (bounds the replay table). */
 const REQUEST_LIMIT = 60
 const RATE_WINDOW_MS = 10 * 60_000
-/** A request row still without a reply after this long belongs to a crashed request. */
-const ABANDONED_MS = 5 * 60_000
+/** A presence assertion is used at most this long after its challenge expired (a replayed assertion never revives an old approval). */
+const PRESENCE_GRACE_MS = 2 * 60_000
+const DEFAULT_MINUTES = 30
 /** Clock skew allowance for valid_after. */
 const SKEW_MS = 60_000
 /** Replay records and the issued log are kept this long after expiry, then dropped. */
@@ -39,6 +41,8 @@ export interface SshCaDeps {
   readonly sql: SqlStorage
   readonly now: () => number
   readonly submitSystem: (op: string, params: unknown, key: string) => { frames: ReadonlyArray<OwnerFrame> }
+  /** UserDO's presence proofs (full-shell certificates); absent means none can be issued. */
+  readonly presence?: SshPresence
 }
 
 export const ensureSshTables = (sql: SqlStorage) => {
@@ -53,7 +57,15 @@ export const ensureSshTables = (sql: SqlStorage) => {
   // Installs that UserDO revoked (S4): no new certificate, kept a day (tokens live 10 minutes).
   sql.exec(`CREATE TABLE IF NOT EXISTS ssh_revoked_installs (install TEXT PRIMARY KEY, user TEXT NOT NULL, at INTEGER NOT NULL)`)
   sql.exec(`CREATE TABLE IF NOT EXISTS ssh_requests (identity TEXT NOT NULL, idem TEXT NOT NULL, op TEXT NOT NULL, hash TEXT NOT NULL, reply TEXT, at INTEGER NOT NULL, PRIMARY KEY (identity, idem))`)
+  // Everything but the signature of a certificate a request is signing, written with its ssh_certs row before the
+  // signing await: a request that crashes signs the same bytes again (Ed25519 is deterministic), never a second certificate.
+  sql.exec(
+    `CREATE TABLE IF NOT EXISTS ssh_prepared (identity TEXT NOT NULL, idem TEXT NOT NULL, serial INTEGER NOT NULL, generation INTEGER NOT NULL, body TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (identity, idem))`
+  )
 }
+
+/** Requests running in this object now; a stored request without a reply that is not here crashed. */
+const running = new Set<string>()
 
 /** Imported signing keys per team and generation (the sealed row is opened once per isolate). */
 const signers = new Map<string, Promise<CryptoKey>>()
@@ -133,52 +145,162 @@ const signer = (deps: SshCaDeps, generation: number): Promise<CryptoKey> => {
   return k
 }
 
-type CertParams = { public_key: string; validity_minutes?: number; class?: "human" | "agent" }
+type CertParams = { public_key: string; validity_minutes?: number; class?: "human" | "agent"; presence?: PresenceProof }
+type ChallengeParams = { public_key: string; validity_minutes?: number; presence_install: string; request: string }
 
 /**
- * Which class this caller may have. A person's signed-in session: either. An install token: only
- * `agent` (force-command), with mutate-own, because a token does not show whether a person or an
- * agent holds it (D28, coordinator decision 2026-10-03). An agent principal: `agent` only. A team
- * server: nothing (server.md: servers never get SSH access).
+ * Which class this caller may have. A person's signed-in session: either, but `human` only with a
+ * fresh presence proof (decision SSH-1). An install token: only `agent` (force-command), with
+ * mutate-own, because a token does not show whether a person or an agent holds it (D28). An agent
+ * principal: `agent` only. A team server: nothing (server.md: servers never get SSH access).
  */
-const classFor = (s: TeamState, p: Principal, requested: "human" | "agent" | undefined): "human" | "agent" => {
+const classFor = (s: TeamState, p: Principal, params: CertParams): "human" | "agent" => {
   if (p.kind === "install" && p.install && (s.server_revocations?.[p.install] || Object.values(s.hosts).some((h) => h.kind === "server" && h.enrolled_by === p.install)))
     throw new Refusal("team_vm.ssh_class_refused", "a team server does not get SSH certificates")
   const classes = p.grant_classes ?? []
   const human = !p.agent && p.kind === "session"
   const agent = p.kind === "session" || (p.kind === "install" && classes.includes("mutate-own"))
-  const cls = requested ?? (p.kind === "session" && !p.agent ? "human" : "agent")
+  const cls = params.class ?? (params.presence ? "human" : "agent")
   if (cls === "human" ? !human : !agent) throw new Refusal("team_vm.ssh_class_refused", `this caller may not have a ${cls} certificate`)
+  if (cls === "human" && !params.presence)
+    throw new Refusal("team_vm.ssh_presence_required", "a full-shell certificate needs a fresh presence proof: call team_vm.ssh_cert.challenge, approve it on your device, then send presence")
+  if (cls === "agent" && params.presence) throw new Refusal("validation.invalid", "presence is only for class human")
   return cls
 }
 
-const issue = async (deps: SshCaDeps, p: Principal, params: CertParams) => {
+/** The prepared certificate of one request: everything the CA signs except the CA's own fields. */
+interface Prepared {
+  readonly serial: number
+  readonly generation: number
+  readonly nonce: string
+  readonly key_id: string
+  readonly principals: ReadonlyArray<string>
+  readonly class: "human" | "agent"
+  readonly valid_after: number
+  readonly valid_before: number
+}
+
+const forget = (sql: SqlStorage, identity: string, idem: string, serial?: number) => {
+  sql.exec(`DELETE FROM ssh_prepared WHERE identity = ? AND idem = ?`, identity, idem)
+  if (serial !== undefined) sql.exec(`DELETE FROM ssh_certs WHERE serial = ?`, serial)
+}
+
+/** Signs a prepared certificate with its generation's key; null when the CA rotated meanwhile (the caller prepares again). */
+const signPrepared = async (deps: SshCaDeps, team: string, key: UserKey, prep: Prepared) => {
+  const ca = deps.state().ssh_ca
+  if (!ca || ca.generation !== prep.generation) return null
+  const signingKey = await signer(deps, ca.generation)
+  const toSign = certToSign(key, {
+    nonce: Uint8Array.from(atob(prep.nonce), (c) => c.charCodeAt(0)),
+    serial: prep.serial,
+    keyId: prep.key_id,
+    principals: prep.principals,
+    validAfter: Math.floor(prep.valid_after / 1000),
+    validBefore: Math.floor(prep.valid_before / 1000),
+    criticalOptions: prep.class === "agent" ? { "force-command": SSH_AGENT_FORCE_COMMAND } : {},
+    extensions: { ...(prep.class === "human" ? { "permit-pty": null, "permit-port-forwarding": null } : {}), [SSH_TEAMS_EXTENSION]: team },
+    caBlob: Uint8Array.from(atob(ca.public_key.split(" ")[1]!), (c) => c.charCodeAt(0))
+  })
+  const signature = new Uint8Array(await crypto.subtle.sign("Ed25519", signingKey, toSign))
+  if (deps.state().ssh_ca?.generation !== ca.generation) return null
+  return {
+    certificate: certLine(key, toSign, signature, prep.key_id),
+    serial: prep.serial,
+    key_id: prep.key_id,
+    principals: prep.principals,
+    class: prep.class,
+    valid_after: prep.valid_after,
+    valid_before: prep.valid_before,
+    ca_generation: ca.generation,
+    ca_public_key: ca.public_key
+  }
+}
+
+/**
+ * A request that crashed after it prepared its certificate: the same bytes signed again, so the
+ * same serial and certificate. Null when that certificate can no longer be given (the CA rotated,
+ * it expired): it never left this object, so the request prepares again.
+ */
+const resume = async (deps: SshCaDeps, p: Principal, idem: string, key: UserKey, prep: Prepared) => {
+  if (!deps.state().members[p.user!]) throw new Refusal("auth.forbidden", "not a member of this team")
+  if (p.install && deps.sql.exec(`SELECT 1 FROM ssh_revoked_installs WHERE install = ?`, p.install).toArray().length > 0) throw new Refusal("auth.forbidden", "this install was revoked")
+  const live = prep.valid_before > deps.now() && !deps.state().ssh_revoked?.[String(prep.serial)]
+  const value = live ? await signPrepared(deps, deps.team, key, prep) : null
+  if (!value) forget(deps.sql, p.identity, idem, prep.serial)
+  return value
+}
+
+/** The person approved exactly this request on their device (UserDO checks the key, nonce and signature). */
+const assertPresence = async (deps: SshCaDeps, p: Principal, idem: string, key: UserKey, principal: string, minutes: number, proof: PresenceProof) => {
+  if (!deps.presence) throw new Refusal("team_vm.ssh_presence_refused", "user presence is not available on this deployment")
+  const r = await deps.presence.assert(p.user!, proof, await sshPurpose(deps.team, idem, key, principal, minutes))
+  if (!r.asserted) throw new Refusal("team_vm.ssh_presence_refused", `the presence proof was refused (${r.code ?? "unknown"})`)
+  // A replayed assertion (UserDO's ledger) answers the same; it never makes an old approval new.
+  if (typeof r.expires_at !== "number" || deps.now() > r.expires_at + PRESENCE_GRACE_MS) throw new Refusal("team_vm.ssh_presence_refused", "the presence proof expired; ask again")
+}
+
+/** team_vm.ssh_cert.challenge: a single-use presence challenge on the person's device for one full-shell request. */
+const challenge = async (deps: SshCaDeps, p: Principal, params: ChallengeParams) => {
+  if (p.kind !== "session" || p.agent) throw new Refusal("team_vm.ssh_class_refused", "a full-shell certificate needs a person's signed-in session")
+  const key = await parseUserKey(params.public_key)
+  if (!key) throw new Refusal("team_vm.ssh_key_invalid", "public_key must be one ssh-ed25519 or ecdsa-sha2-nistp256 authorized_keys line")
+  if (!deps.presence) throw new Refusal("team_vm.ssh_presence_refused", "user presence is not available on this deployment")
+  committed(deps.submitSystem("team_vm.ssh_account_allocated", { user: p.user }, `ssh-account:${p.user}`))
+  const account = deps.state().vm_accounts?.[p.user!]
+  if (!account) throw new Refusal("auth.forbidden", "not a member of this team")
+  const minutes = Math.min(params.validity_minutes ?? DEFAULT_MINUTES, MAX_CERT_MS / 60_000)
+  const r = await deps.presence.challenge(p.user!, params.presence_install, await sshPurpose(deps.team, params.request, key, linuxUserFor(account, "human"), minutes))
+  if (!r.ok) throw new Refusal("team_vm.ssh_presence_refused", `no presence challenge for that device (${r.code})`)
+  return r.value
+}
+
+const issue = async (deps: SshCaDeps, p: Principal, params: CertParams, idem: string) => {
   const user = p.user!
   const key = await parseUserKey(params.public_key)
   if (!key) throw new Refusal("team_vm.ssh_key_invalid", "public_key must be one ssh-ed25519 or ecdsa-sha2-nistp256 authorized_keys line")
-  const cls = classFor(deps.state(), p, params.class)
+  const row = deps.sql.exec<{ body: string }>(`SELECT body FROM ssh_prepared WHERE identity = ? AND idem = ?`, p.identity, idem).toArray()[0]
+  if (row) {
+    const again = await resume(deps, p, idem, key, JSON.parse(row.body) as Prepared)
+    if (again) return again
+  }
+  const cls = classFor(deps.state(), p, params)
   const since = deps.now() - RATE_WINDOW_MS
   const byIdentity = deps.sql.exec<{ n: number }>(`SELECT count(*) AS n FROM ssh_certs WHERE identity = ? AND issued_at > ?`, p.identity, since).toArray()[0]!.n
   const byUser = deps.sql.exec<{ n: number }>(`SELECT count(*) AS n FROM ssh_certs WHERE user = ? AND issued_at > ?`, user, since).toArray()[0]!.n
   if (byIdentity >= RATE_LIMIT || byUser >= USER_RATE_LIMIT)
     throw new Refusal("team_vm.ssh_rate_limited", `at most ${RATE_LIMIT} certificates per caller and ${USER_RATE_LIMIT} per person in ${RATE_WINDOW_MS / 60_000} minutes`, true)
   committed(deps.submitSystem("team_vm.ssh_account_allocated", { user }, `ssh-account:${user}`))
+  const minutes = Math.min(params.validity_minutes ?? DEFAULT_MINUTES, MAX_CERT_MS / 60_000)
+  const named = deps.state().vm_accounts?.[user]
+  if (!named) throw new Refusal("auth.forbidden", "not a member of this team")
+  if (cls === "human") await assertPresence(deps, p, idem, key, linuxUserFor(named, "human"), minutes, params.presence!)
   await ensureCa(deps, user, null)
   // A rotation during the signing await makes this certificate one of the old CA; sign again with the new one.
   for (let attempt = 0; attempt < 3; attempt++) {
     const ca = deps.state().ssh_ca!
     const account = deps.state().vm_accounts?.[user]
     if (!account || !deps.state().members[user]) throw new Refusal("auth.forbidden", "not a member of this team")
-    const signingKey = await signer(deps, ca.generation)
+    // Opened before the row is written, so the prepared row and the ssh_certs row commit together.
+    await signer(deps, ca.generation)
+    if (deps.state().ssh_ca?.generation !== ca.generation) continue
     const now = deps.now()
     const serial = deps.sql.exec<{ serial: number }>(`UPDATE ssh_serial SET next = next + 1 WHERE id = 1 RETURNING next - 1 AS serial`).toArray()[0]!.serial
     const nonce = crypto.getRandomValues(new Uint8Array(32))
     const keyId = `${p.agent ?? user}/${p.grant ?? "session"}/${p.install ?? "session"}/${hex(nonce.slice(0, 6).buffer)}`
-    const validAfter = now - SKEW_MS
-    const validBefore = now + Math.min(params.validity_minutes ?? 30, MAX_CERT_MS / 60_000) * 60_000
     // An install revoked during this request's awaits gets nothing (the notice came before this row).
     if (p.install && deps.sql.exec(`SELECT 1 FROM ssh_revoked_installs WHERE install = ?`, p.install).toArray().length > 0) throw new Refusal("auth.forbidden", "this install was revoked")
-    // Logged before the signing await, so the rate limit and a concurrent revoke by user or install see it.
+    const prep: Prepared = {
+      serial,
+      generation: ca.generation,
+      nonce: toBase64(nonce),
+      key_id: keyId,
+      principals: [linuxUserFor(account, cls)],
+      class: cls,
+      valid_after: now - SKEW_MS,
+      valid_before: now + minutes * 60_000
+    }
+    // Logged before the signing await, so the rate limit and a concurrent revoke by user or install see it, and with
+    // the prepared certificate in the same write, so a crash during signing resumes this certificate (resume).
     deps.sql.exec(
       `INSERT INTO ssh_certs (serial, identity, user, install, key_id, class, generation, issued_at, valid_before) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       serial,
@@ -189,42 +311,19 @@ const issue = async (deps: SshCaDeps, p: Principal, params: CertParams) => {
       cls,
       ca.generation,
       now,
-      validBefore
+      prep.valid_before
     )
-    const principals = [linuxUserFor(account, cls)]
-    const toSign = certToSign(key, {
-      nonce,
-      serial,
-      keyId,
-      principals,
-      validAfter: Math.floor(validAfter / 1000),
-      validBefore: Math.floor(validBefore / 1000),
-      criticalOptions: cls === "agent" ? { "force-command": SSH_AGENT_FORCE_COMMAND } : {},
-      extensions: { ...(cls === "human" ? { "permit-pty": null, "permit-port-forwarding": null } : {}), [SSH_TEAMS_EXTENSION]: deps.team },
-      caBlob: Uint8Array.from(atob(ca.public_key.split(" ")[1]!), (c) => c.charCodeAt(0))
-    })
-    let signature: Uint8Array
+    deps.sql.exec(`INSERT OR REPLACE INTO ssh_prepared (identity, idem, serial, generation, body, at) VALUES (?, ?, ?, ?, ?, ?)`, p.identity, idem, serial, ca.generation, JSON.stringify(prep), now)
+    let value: Awaited<ReturnType<typeof signPrepared>>
     try {
-      signature = new Uint8Array(await crypto.subtle.sign("Ed25519", signingKey, toSign))
+      value = await signPrepared(deps, deps.team, key, prep)
     } catch (e) {
-      deps.sql.exec(`DELETE FROM ssh_certs WHERE serial = ?`, serial)
+      forget(deps.sql, p.identity, idem, serial)
       throw e
     }
-    if (deps.state().ssh_ca?.generation !== ca.generation) {
-      deps.sql.exec(`DELETE FROM ssh_certs WHERE serial = ?`, serial)
-      continue
-    }
-    return {
-      certificate: certLine(key, toSign, signature, keyId),
-      serial,
-      key_id: keyId,
-      principals,
-      class: cls,
-      valid_after: validAfter,
-      valid_before: validBefore,
-      ca_generation: ca.generation,
-      ca_public_key: ca.public_key
-    }
+    if (value) return value
+    // The CA rotated during signing: this certificate would be one of the old CA; sign again with the new one.
+    forget(deps.sql, p.identity, idem, serial)
   }
   throw new Refusal("revision.conflict", "the SSH CA rotated during signing; try again", true)
 }
@@ -280,15 +379,18 @@ const rotate = async (deps: SshCaDeps, p: Principal, compromised: boolean) => {
 }
 
 /**
- * team_vm.ssh_cert, team_vm.ssh_cert.revoke and team_vm.ssh_ca.rotate. Each request is recorded
- * by (caller identity, idempotency key) before it runs, so a replay returns the first reply and a
- * concurrent duplicate is refused instead of signing twice.
+ * team_vm.ssh_cert.challenge, team_vm.ssh_cert, team_vm.ssh_cert.revoke and team_vm.ssh_ca.rotate.
+ * Each request is recorded by (caller identity, idempotency key) before it runs, so a replay
+ * returns the first reply, a concurrent duplicate is refused instead of signing twice, and a
+ * request that the object lost in a crash runs again under the same record (a certificate it had
+ * prepared is signed again, the same one).
  */
 export const sshExternal = async (deps: SshCaDeps, p: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> => {
   const base = { op: frame.op, transaction: "", idempotency_key: frame.idempotency_key, stream: deps.stream, sequence: 0, replayed: false }
   const fail = (code: string, message: string, retryable = false): DomainReply => ({ ...base, ok: false, error: { code, message, retryable } })
   if (!p.user || !deps.state().members[p.user] || p.team !== deps.team) return fail("auth.forbidden", "not a member of this team")
-  const def = frame.op === "team_vm.ssh_cert" ? TeamVmSshCert : frame.op === "team_vm.ssh_cert.revoke" ? TeamVmSshCertRevoke : frame.op === "team_vm.ssh_ca.rotate" ? TeamVmSshCaRotate : null
+  const defs = { "team_vm.ssh_cert": TeamVmSshCert, "team_vm.ssh_cert.challenge": TeamVmSshCertChallenge, "team_vm.ssh_cert.revoke": TeamVmSshCertRevoke, "team_vm.ssh_ca.rotate": TeamVmSshCaRotate } as const
+  const def = Object.hasOwn(defs, frame.op) ? defs[frame.op as keyof typeof defs] : null
   if (!def) return fail("validation.invalid", `unknown op ${frame.op}`)
   if (p.kind === "install" && !p.grant_classes?.includes(def.risk) && frame.op !== "team_vm.ssh_cert") return fail("auth.forbidden", `grant does not cover ${def.risk}`)
   const d = decodeParams<Record<string, unknown>>(def, frame.params)
@@ -297,33 +399,43 @@ export const sshExternal = async (deps: SshCaDeps, p: Principal, frame: { op: st
   const now = deps.now()
   const hash = hex(await crypto.subtle.digest("SHA-256", enc.encode(JSON.stringify([frame.op, d.value]))))
   deps.sql.exec(`DELETE FROM ssh_requests WHERE at < ?`, now - RETAIN_MS)
+  deps.sql.exec(`DELETE FROM ssh_prepared WHERE at < ?`, now - RETAIN_MS)
   deps.sql.exec(`DELETE FROM ssh_certs WHERE valid_before < ?`, now - RETAIN_MS)
   const prior = deps.sql.exec<{ op: string; hash: string; reply: string | null; at: number }>(`SELECT op, hash, reply, at FROM ssh_requests WHERE identity = ? AND idem = ?`, p.identity, frame.idempotency_key).toArray()[0]
+  const run = `${deps.team}|${p.identity}|${frame.idempotency_key}`
   if (prior) {
     if (prior.op !== frame.op || prior.hash !== hash) return fail("idempotency.conflict", "this idempotency key was used for another request")
     if (prior.reply !== null) return { ...base, ok: true, value: JSON.parse(prior.reply), replayed: true }
-    if (prior.at > now - ABANDONED_MS) return fail("revision.conflict", "the same request is still running", true)
-    // A crashed request left the row without a reply: run it again.
-    deps.sql.exec(`DELETE FROM ssh_requests WHERE identity = ? AND idem = ?`, p.identity, frame.idempotency_key)
+    if (running.has(run)) return fail("revision.conflict", "the same request is still running", true)
+    // Not running here: the object restarted during the request (a crash). Run it again under the same row.
+  } else {
+    const recent = deps.sql.exec<{ n: number }>(`SELECT count(*) AS n FROM ssh_requests WHERE identity = ? AND at > ?`, p.identity, now - RATE_WINDOW_MS).toArray()[0]!.n
+    if (recent >= REQUEST_LIMIT) return fail("team_vm.ssh_rate_limited", `at most ${REQUEST_LIMIT} SSH CA requests per caller in ${RATE_WINDOW_MS / 60_000} minutes`, true)
+    deps.sql.exec(`INSERT INTO ssh_requests (identity, idem, op, hash, reply, at) VALUES (?, ?, ?, ?, NULL, ?)`, p.identity, frame.idempotency_key, frame.op, hash, now)
   }
-  const recent = deps.sql.exec<{ n: number }>(`SELECT count(*) AS n FROM ssh_requests WHERE identity = ? AND at > ?`, p.identity, now - RATE_WINDOW_MS).toArray()[0]!.n
-  if (recent >= REQUEST_LIMIT) return fail("team_vm.ssh_rate_limited", `at most ${REQUEST_LIMIT} SSH CA requests per caller in ${RATE_WINDOW_MS / 60_000} minutes`, true)
-  deps.sql.exec(`INSERT INTO ssh_requests (identity, idem, op, hash, reply, at) VALUES (?, ?, ?, ?, NULL, ?)`, p.identity, frame.idempotency_key, frame.op, hash, now)
+  running.add(run)
   try {
     const value =
       frame.op === "team_vm.ssh_cert"
-        ? await issue(deps, p, d.value as CertParams)
-        : frame.op === "team_vm.ssh_cert.revoke"
-          ? revoke(deps, p, d.value as RevokeParams, hex(await crypto.subtle.digest("SHA-256", enc.encode(`${p.identity}|${frame.idempotency_key}|${now}`))))
-          : await rotate(deps, p, (d.value as { compromised?: boolean }).compromised === true)
+        ? await issue(deps, p, d.value as CertParams, frame.idempotency_key)
+        : frame.op === "team_vm.ssh_cert.challenge"
+          ? await challenge(deps, p, d.value as ChallengeParams)
+          : frame.op === "team_vm.ssh_cert.revoke"
+            ? revoke(deps, p, d.value as RevokeParams, hex(await crypto.subtle.digest("SHA-256", enc.encode(`${p.identity}|${frame.idempotency_key}|${now}`))))
+            : await rotate(deps, p, (d.value as { compromised?: boolean }).compromised === true)
+    // The reply and the end of the prepared certificate commit together: from now on a retry gets this reply.
     deps.sql.exec(`UPDATE ssh_requests SET reply = ? WHERE identity = ? AND idem = ?`, JSON.stringify(value), p.identity, frame.idempotency_key)
+    deps.sql.exec(`DELETE FROM ssh_prepared WHERE identity = ? AND idem = ?`, p.identity, frame.idempotency_key)
     return { ...base, ok: true, value }
   } catch (e) {
     // A refusal is not recorded: fixing its cause and retrying with the same key runs the request again.
     deps.sql.exec(`DELETE FROM ssh_requests WHERE identity = ? AND idem = ?`, p.identity, frame.idempotency_key)
+    deps.sql.exec(`DELETE FROM ssh_prepared WHERE identity = ? AND idem = ?`, p.identity, frame.idempotency_key)
     if (e instanceof Refusal) return fail(e.code, e.message, e.retryable)
     // Never echo the error: it could name key material. Log only the op and the error class.
     console.error(JSON.stringify({ msg: "ssh ca op failed", op: frame.op, error: e instanceof Error ? e.name : "unknown" }))
     return fail("owner.unreachable", "the SSH CA could not complete the request", true)
+  } finally {
+    running.delete(run)
   }
 }

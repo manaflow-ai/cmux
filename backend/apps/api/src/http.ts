@@ -216,7 +216,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).ssoOp(p.team!, p, frame)), catch: unreachable })
         }
         // The team SSH CA signs and seals in TeamDO outside its reducer (team-ssh-ca.ts); keys never enter an op's params.
-        if (payload.op === "team_vm.ssh_cert" || payload.op === "team_vm.ssh_cert.revoke" || payload.op === "team_vm.ssh_ca.rotate") {
+        if (payload.op === "team_vm.ssh_cert" || payload.op === "team_vm.ssh_cert.challenge" || payload.op === "team_vm.ssh_cert.revoke" || payload.op === "team_vm.ssh_ca.rotate") {
           const p = yield* principalFor("cloud:TeamDO", principal)
           return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).sshOp(p.team!, p, frame)), catch: unreachable })
         }

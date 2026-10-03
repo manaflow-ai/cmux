@@ -110,9 +110,11 @@ const internal = (name: string, docs: string): CloudOpDef =>
     mcp: { expose: "never", group: "internal" }
   }) as CloudOpDef
 
-/** System-only: the Worker (lock, presence-key registration) and chiefs' MuxDO (migrate). home-core checks the exact identity. */
+/** System-only: the Worker (lock, presence-key registration), chiefs' MuxDO (migrate) and TeamDO (presence proofs). home-core checks the exact identity. */
 export const userConfirmInternalOps: ReadonlyArray<CloudOpDef> = [
   internal("user.text_confirm.lock", "Internal: a team policy or MDM minimum level (one slot per source)."),
   internal("user.text_confirm.migrate", "Internal: a chief's former level, once, from system:mux:<agent>."),
-  internal("user.presence_key.register", "Internal: the Worker registers a presence key after its signature or App Attest check.")
+  internal("user.presence_key.register", "Internal: the Worker registers a presence key after its signature or App Attest check."),
+  internal("user.presence.challenge", "Internal: TeamDO (system:team:<team>) asks for a presence nonce bound to one full-shell SSH certificate request."),
+  internal("user.presence.assert", "Internal: TeamDO checks the signed presence proof for that request; spends the nonce on any attempt.")
 ]

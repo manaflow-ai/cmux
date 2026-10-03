@@ -3493,6 +3493,44 @@
       ],
       "description": "`human`: a full shell as the person's Linux user. `agent`: the person's `<name>-agents` Linux user, limited by the certificate's force-command to `cmux team …` commands (decision D28)."
     },
+    "SshPresenceProof": {
+      "kind": "object",
+      "fields": {
+        "install": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "InstallId"
+          }
+        },
+        "nonce": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "signature": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 512
+          }
+        },
+        "app_attest": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192
+          }
+        }
+      }
+    },
     "SsoConnection": {
       "kind": "object",
       "fields": {
@@ -37561,6 +37599,13 @@
               "name": "SshCertClass"
             }
           },
+          "presence": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "SshPresenceProof"
+            }
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -37658,6 +37703,8 @@
         "team_vm.ssh_ca_not_configured",
         "team_vm.ssh_class_refused",
         "team_vm.ssh_key_invalid",
+        "team_vm.ssh_presence_refused",
+        "team_vm.ssh_presence_required",
         "team_vm.ssh_rate_limited",
         "validation.invalid"
       ],
@@ -37684,7 +37731,7 @@
         "expose": "opt_in",
         "group": "team"
       },
-      "docs": "Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands. Replaying the same idempotency key returns the same certificate.",
+      "docs": "Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands; a `human` (full shell) certificate needs a person's session and a fresh presence proof. Replaying the same idempotency key returns the same certificate, also after a crash.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -37701,6 +37748,9 @@
           },
           "class": {
             "$ref": "#/$defs/SshCertClass"
+          },
+          "presence": {
+            "$ref": "#/$defs/SshPresenceProof"
           }
         },
         "required": [
@@ -37715,6 +37765,39 @@
               "agent"
             ],
             "description": "`human`: a full shell as the person's Linux user. `agent`: the person's `<name>-agents` Linux user, limited by the certificate's force-command to `cmux team …` commands (decision D28)."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "SshPresenceProof": {
+            "type": "object",
+            "properties": {
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              },
+              "nonce": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "signature": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "app_attest": {
+                "type": "string",
+                "maxLength": 8192
+              }
+            },
+            "required": [
+              "install",
+              "nonce",
+              "signature"
+            ],
+            "additionalProperties": true
           }
         }
       },
@@ -37774,6 +37857,184 @@
             "description": "`human`: a full shell as the person's Linux user. `agent`: the person's `<name>-agents` Linux user, limited by the certificate's force-command to `cmux team …` commands (decision D28)."
           }
         }
+      }
+    },
+    "team_vm.ssh_cert.challenge": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "public_key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 1000
+            }
+          },
+          "validity_minutes": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "presence_install": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "InstallId"
+            }
+          },
+          "request": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "sign": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "json"
+                }
+              },
+              "message": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "expires_at": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "team_vm.ssh_ca_not_configured",
+        "team_vm.ssh_class_refused",
+        "team_vm.ssh_key_invalid",
+        "team_vm.ssh_presence_refused",
+        "team_vm.ssh_rate_limited",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "execute",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team ssh challenge",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Start a full-shell SSH certificate request: returns a single-use presence challenge for one of your devices. Approve it there (Face ID, Touch ID or passcode), then call team_vm.ssh_cert with class human, the proof and the same request key.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "public_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "validity_minutes": {
+            "type": "integer",
+            "minimum": 15,
+            "maximum": 60
+          },
+          "presence_install": {
+            "$ref": "#/$defs/InstallId"
+          },
+          "request": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "public_key",
+          "presence_install",
+          "request"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "sign": {},
+          "message": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sign",
+          "message",
+          "expires_at"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
       }
     },
     "team_vm.ssh_cert.revoke": {

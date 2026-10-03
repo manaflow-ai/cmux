@@ -233,6 +233,7 @@
     "team_vm.lease.release",
     "team_vm.ssh_ca",
     "team_vm.ssh_cert",
+    "team_vm.ssh_cert.challenge",
     "team_vm.ssh_cert.revoke",
     "team_vm.status",
     "terminal.attach",

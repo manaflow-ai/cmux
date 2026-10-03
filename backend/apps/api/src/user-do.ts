@@ -198,6 +198,45 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   /**
+   * RPC from TeamDO only (team-vm-plan.md 3c, decision SSH-1): a presence challenge on one of
+   * this user's devices, bound to one full-shell SSH certificate request of `team`. The challenge
+   * lives in the text confirmation state (same keys, nonces and cooldown as a lowering).
+   */
+  async presenceChallenge(
+    entity: string,
+    team: string,
+    install: string,
+    purpose: unknown
+  ): Promise<{ ok: true; value: { sign: unknown; message: string; expires_at: number } } | { ok: false; code: string; message: string }> {
+    const engine = this.existing()
+    if (!engine || engine.currentState.user?.id !== entity) return { ok: false, code: "selector.not_found", message: "unknown user" }
+    const res = this.submitSystem("user.presence.challenge", { install, purpose }, `presence-challenge:${crypto.randomUUID()}`, `system:team:${team}`)
+    const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
+    if (!reply || reply.t !== "result") return { ok: false, code: reply && reply.t === "reject" ? reply.code : "owner.unreachable", message: reply && reply.t === "reject" ? reply.message : "no reply" }
+    return { ok: true, value: reply.value as { sign: unknown; message: string; expires_at: number } }
+  }
+
+  /**
+   * RPC from TeamDO only: checks the signed proof for that request and spends its nonce. The
+   * ledger key is the nonce, so a TeamDO retry after a crash gets the same answer, and the same
+   * nonce with another request is an idempotency conflict (never a second approval).
+   */
+  async presenceAssert(
+    entity: string,
+    team: string,
+    proof: { install: string; nonce: string; signature: string; app_attest?: string },
+    purpose: unknown
+  ): Promise<{ asserted: boolean; code?: string; expires_at?: number }> {
+    const engine = this.existing()
+    if (!engine || engine.currentState.user?.id !== entity) return { asserted: false, code: "selector.not_found" }
+    const params = { install: proof.install, nonce: proof.nonce, purpose, presence_sig: proof.signature, ...(proof.app_attest ? { app_attest: proof.app_attest } : {}) }
+    const res = this.submitSystem("user.presence.assert", params, `presence-assert:${proof.nonce}`, `system:team:${team}`)
+    const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
+    if (!reply || reply.t !== "result") return { asserted: false, code: reply && reply.t === "reject" ? reply.code : "owner.unreachable" }
+    return reply.value as { asserted: boolean; code?: string; expires_at?: number }
+  }
+
+  /**
    * Inbox calls come from this user only, through an active install whose grant covers the op
    * (the catalog check other owners apply), checked before the object binds the entity.
    */

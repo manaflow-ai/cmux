@@ -30,6 +30,7 @@ const HTTP_ONLY_OPS: ReadonlySet<string> = new Set([
   "domain.verify",
   "domain.release",
   // The SSH CA signs and seals outside the reducer (team-ssh-ca.ts).
+  "team_vm.ssh_cert.challenge",
   "team_vm.ssh_cert",
   "team_vm.ssh_cert.revoke",
   "team_vm.ssh_ca.rotate"

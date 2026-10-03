@@ -20,6 +20,44 @@ export const SSH_AGENT_FORCE_COMMAND = "cmux team restricted-shell"
 /** Certificate extension that lists the team VMs this certificate reaches (the SSH gate reads it, slice S12). */
 export const SSH_TEAMS_EXTENSION = "cmux-teams@cmux.dev"
 
+export const SshPresenceProof = Schema.Struct({
+  install: InstallId,
+  nonce: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
+  /** ES256 over the challenge's `message` bytes, raw r||s (64 bytes), base64url. */
+  signature: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512)),
+  /** iOS: an App Attest assertion over the same bytes, base64url. */
+  app_attest: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(8192)))
+}).annotate({ identifier: "SshPresenceProof" })
+
+export const TeamVmSshCertChallenge = def({
+  name: "team_vm.ssh_cert.challenge",
+  owner: "cloud:TeamDO",
+  class: "mutation",
+  risk: "execute",
+  target: "team",
+  principals: ["session"],
+  params: Schema.Struct({
+    public_key: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1000)),
+    validity_minutes: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 15, maximum: 60 }))),
+    /** The person's device (Mac or iPhone install with a presence key past its 24 h cooldown) that approves. */
+    presence_install: InstallId,
+    /** The idempotency key of the `team_vm.ssh_cert` call this approval authorizes (one certificate). */
+    request: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256))
+  }),
+  result: Schema.Struct({
+    /** The fields the device shows and signs: team, Linux user, key fingerprint, validity, nonce, expiry. */
+    sign: Schema.Unknown,
+    /** The exact bytes to sign (base64url); never re-encode `sign`. */
+    message: Schema.String,
+    /** Milliseconds since the epoch; 2 minutes after the challenge. */
+    expires_at: Schema.Int
+  }),
+  errors: [...mutationErrors, "team_vm.ssh_ca_not_configured", "team_vm.ssh_key_invalid", "team_vm.ssh_class_refused", "team_vm.ssh_presence_refused", "team_vm.ssh_rate_limited", "owner.unreachable"],
+  docs: "Start a full-shell SSH certificate request: returns a single-use presence challenge for one of your devices. Approve it there (Face ID, Touch ID or passcode), then call team_vm.ssh_cert with class human, the proof and the same request key.",
+  cli: { path: "team ssh challenge", visible: true },
+  mcp: { expose: "never", group: "team" }
+})
+
 export const TeamVmSshCert = def({
   name: "team_vm.ssh_cert",
   owner: "cloud:TeamDO",
@@ -32,8 +70,14 @@ export const TeamVmSshCert = def({
     public_key: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1000)),
     /** Default 30. */
     validity_minutes: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 15, maximum: 60 }))),
-    /** Default: `human` for a person's session, `agent` for an install token (D28: restricted unless asked). */
-    class: Schema.optionalKey(SshCertClass)
+    /** Default: `human` when `presence` is given, else `agent` (D28: restricted unless asked). */
+    class: Schema.optionalKey(SshCertClass),
+    /**
+     * Required for `human` (decision SSH-1): the presence proof from `team_vm.ssh_cert.challenge`, signed after
+     * Face ID, Touch ID or the device passcode by the presence key of `install` (one of the person's own devices).
+     * The challenge's `request` must equal this call's idempotency key.
+     */
+    presence: Schema.optionalKey(SshPresenceProof)
   }),
   result: Schema.Struct({
     /** The OpenSSH certificate (`*-cert.pub` line). */
@@ -51,8 +95,17 @@ export const TeamVmSshCert = def({
     /** The CA public key (authorized_keys line) that signed the certificate. */
     ca_public_key: Schema.String
   }),
-  errors: [...mutationErrors, "team_vm.ssh_ca_not_configured", "team_vm.ssh_key_invalid", "team_vm.ssh_class_refused", "team_vm.ssh_rate_limited", "owner.unreachable"],
-  docs: "Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands. Replaying the same idempotency key returns the same certificate.",
+  errors: [
+    ...mutationErrors,
+    "team_vm.ssh_ca_not_configured",
+    "team_vm.ssh_key_invalid",
+    "team_vm.ssh_class_refused",
+    "team_vm.ssh_presence_required",
+    "team_vm.ssh_presence_refused",
+    "team_vm.ssh_rate_limited",
+    "owner.unreachable"
+  ],
+  docs: "Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands; a `human` (full shell) certificate needs a person's session and a fresh presence proof. Replaying the same idempotency key returns the same certificate, also after a crash.",
   cli: { path: "team ssh cert", visible: true },
   mcp: { expose: "opt_in", group: "team" }
 })
@@ -120,7 +173,7 @@ export const TeamVmSshCaRead = def({
   mcp: { expose: "default", group: "team" }
 })
 
-export const teamSshOps = [TeamVmSshCert, TeamVmSshCertRevoke, TeamVmSshCaRotate, TeamVmSshCaRead] as const satisfies readonly CloudOpDef[]
+export const teamSshOps = [TeamVmSshCertChallenge, TeamVmSshCert, TeamVmSshCertRevoke, TeamVmSshCaRotate, TeamVmSshCaRead] as const satisfies readonly CloudOpDef[]
 
 const internal = (name: string, params: Schema.Top, docs: string): CloudOpDef =>
   ({

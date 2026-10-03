@@ -615,6 +615,13 @@ export type RunState = "queued" | "running" | "sleeping" | "waiting" | "succeede
 /** `human`: a full shell as the person's Linux user. `agent`: the person's `<name>-agents` Linux user, limited by the certificate's force-command to `cmux team …` commands (decision D28). */
 export type SshCertClass = "human" | "agent"
 
+export type SshPresenceProof = {
+  readonly install: InstallId
+  readonly nonce: string
+  readonly signature: string
+  readonly app_attest?: string
+}
+
 export type SsoConnection = {
   readonly id: SsoConnectionId
   readonly kind: "oidc"
@@ -2219,12 +2226,13 @@ export interface CloudOps {
       readonly previous_trusted_until: number | null
     }
   }
-  /** Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands. Replaying the same idempotency key returns the same certificate. */
+  /** Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands; a `human` (full shell) certificate needs a person's session and a fresh presence proof. Replaying the same idempotency key returns the same certificate, also after a crash. */
   readonly "team_vm.ssh_cert": {
     readonly params: {
       readonly public_key: string
       readonly validity_minutes?: number
       readonly class?: SshCertClass
+      readonly presence?: SshPresenceProof
     }
     readonly result: {
       readonly certificate: string
@@ -2236,6 +2244,20 @@ export interface CloudOps {
       readonly valid_before: number
       readonly ca_generation: number
       readonly ca_public_key: string
+    }
+  }
+  /** Start a full-shell SSH certificate request: returns a single-use presence challenge for one of your devices. Approve it there (Face ID, Touch ID or passcode), then call team_vm.ssh_cert with class human, the proof and the same request key. */
+  readonly "team_vm.ssh_cert.challenge": {
+    readonly params: {
+      readonly public_key: string
+      readonly validity_minutes?: number
+      readonly presence_install: InstallId
+      readonly request: string
+    }
+    readonly result: {
+      readonly sign: unknown
+      readonly message: string
+      readonly expires_at: number
     }
   }
   /** Revoke unexpired team VM SSH certificates by serial, user or install; the revocation list (KRL) lists them at once. Members revoke their own certificates; owners and admins revoke anyone's. */
@@ -2617,6 +2639,7 @@ export const cloudOpMeta = {
   "team_vm.ssh_ca": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team_vm.ssh_ca.rotate": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "team_vm.ssh_cert": { class: "mutation", owner: "cloud:TeamDO", risk: "execute" },
+  "team_vm.ssh_cert.challenge": { class: "mutation", owner: "cloud:TeamDO", risk: "execute" },
   "team_vm.ssh_cert.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team_vm.status": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
   "team.device.compliance": { class: "read", owner: "cloud:TeamDO", risk: "read" },
