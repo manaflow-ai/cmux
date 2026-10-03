@@ -175,6 +175,7 @@ impl DatagramOut {
     }
 }
 
+#[cfg(target_os = "linux")]
 /// TCP keepalive (2 s idle, 1 s interval, 3 probes) and a 10 s user timeout, so a viewer
 /// that vanishes without a FIN ends its session quickly.
 pub fn harden_tcp(s: &TcpStream) {
