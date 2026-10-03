@@ -286,7 +286,8 @@ rest. Measurements: [performance.md](performance.md).
 - **A diff too large for the budget** prints the condensed tree with a note
   that `.diff` has the changes.
 - **Per call**, the REPL prints at most 25,000 characters
-  (`cmux browser repl --max-output <chars>`, `0` for no limit), under both
+  (`cmux browser repl --max-output <chars>`, `0` for no limit up to
+  4,000,000 characters, past which the call spills as below), under both
   harness limits above so the REPL, not the harness, picks what is cut.
   Past the cap, the call's whole output goes to
   `<tmp>/cmux-browser-repl/<session>/output-N.txt` under the session's own

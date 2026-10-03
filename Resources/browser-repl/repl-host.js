@@ -267,7 +267,7 @@
   }
 
   // Output of one call. Past `maxOutput` characters (0 or Infinity: no
-  // limit) the rest of the call's output goes to a file instead of the
+  // limit below HARD_MAX_OUTPUT) the rest of the call's output goes to a file instead of the
   // agent's context: the head prints, then a line naming the file, and at
   // the end of the call the last lines and a summary. The file holds all of
   // the call's output, the printed part too. Agent harnesses cut tool output
@@ -275,12 +275,15 @@
   // preview and a file; Codex keeps 10,000 tokens, head and tail), so the
   // default stays under both and the REPL decides what is kept.
   const DEFAULT_MAX_OUTPUT = 25000;
+  // The most one call prints even when asked for no limit, so a call never
+  // holds unbounded output in memory on its way to the caller.
+  const HARD_MAX_OUTPUT = 4000000;
   const commas = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   const spillCounters = new WeakMap();
 
   function createOutputGate(host, { maxOutput } = {}) {
-    const cap = maxOutput === undefined || maxOutput === null ? DEFAULT_MAX_OUTPUT : maxOutput;
-    if (!(cap > 0) || cap === Infinity) return { print: (level, text) => host.print(level, text), finish() {}, spilled: () => null };
+    const asked = maxOutput === undefined || maxOutput === null ? DEFAULT_MAX_OUTPUT : maxOutput;
+    const cap = asked > 0 && asked < HARD_MAX_OUTPUT ? asked : HARD_MAX_OUTPUT;
     const headCap = Math.floor(cap * 0.8);
     // Room for the last lines; a cap too small for them shows none.
     const tailCap = Math.max(0, cap - headCap - 400);
@@ -544,6 +547,6 @@
     }
   }
 
-  ns.replHost = { timerDelay, rewriteTopLevel, createReplSession, createBrowserRepl, createOutputGate, DEFAULT_MAX_OUTPUT, formatError, installNativeHost };
+  ns.replHost = { timerDelay, rewriteTopLevel, createReplSession, createBrowserRepl, createOutputGate, DEFAULT_MAX_OUTPUT, HARD_MAX_OUTPUT, formatError, installNativeHost };
   installNativeHost();
 })(typeof globalThis !== "undefined" ? globalThis : this);

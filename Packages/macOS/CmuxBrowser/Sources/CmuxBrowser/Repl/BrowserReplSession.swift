@@ -87,6 +87,10 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// One evaluation's result. It is finished exactly once: by the JS
     /// thread when the cell settles, or from outside it by the timeout or
     /// `close()`, so a wedged JS thread can never strand the caller.
+    ///
+    /// Past `maxRetainedOutputBytes` of output, whatever reaches the native
+    /// print (the runtime's own gate stops well before that), the rest goes
+    /// to `<tmpdir>/output-<id>.txt` instead of memory.
     private final class EvalState: @unchecked Sendable {
         let id: Int
         let start = ContinuousClock.now
@@ -95,9 +99,15 @@ public final class BrowserReplSession: @unchecked Sendable {
         private var continuation: CheckedContinuation<BrowserReplEvalResult, Never>?
         private var timeoutTask: Task<Void, Never>?
         private var finished = false
+        private let spillPath: String
+        private var retainedBytes = 0
+        private var spilledBytes = 0
+        private var spill: FileHandle?
+        private var spilling = false
 
-        init(id: Int, continuation: CheckedContinuation<BrowserReplEvalResult, Never>) {
+        init(id: Int, spillDirectory: String, continuation: CheckedContinuation<BrowserReplEvalResult, Never>) {
             self.id = id
+            self.spillPath = spillDirectory + "/output-\(id).txt"
             self.continuation = continuation
         }
 
@@ -105,8 +115,39 @@ public final class BrowserReplSession: @unchecked Sendable {
 
         func append(_ line: BrowserReplOutputLine) {
             lock.withLock {
-                if !finished { lines.append(line) }
+                guard !finished else { return }
+                let size = line.text.utf8.count + 1
+                if !spilling, retainedBytes + size <= BrowserReplSession.maxRetainedOutputBytes {
+                    retainedBytes += size
+                    lines.append(line)
+                    return
+                }
+                if !spilling {
+                    spilling = true
+                    // O_EXCL: never write into a file that is already there.
+                    let descriptor = open(spillPath, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+                    if descriptor >= 0 { spill = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true) }
+                    lines.append(BrowserReplOutputLine(
+                        level: "info",
+                        text: spill == nil ? "# output past this point was dropped" : "# output continues in \(spillPath)"
+                    ))
+                }
+                spilledBytes += size
+                try? spill?.write(contentsOf: Data((line.text + "\n").utf8))
             }
+        }
+
+        /// The note that ends spilled output. Call with `lock` held.
+        private func spillSummaryLocked() -> BrowserReplOutputLine? {
+            guard spilling else { return nil }
+            try? spill?.close()
+            spill = nil
+            let total = retainedBytes + spilledBytes
+            let destination = FileManager.default.fileExists(atPath: spillPath) ? "full output: \(spillPath)" : "the rest was dropped"
+            return BrowserReplOutputLine(
+                level: "info",
+                text: "# output truncated: \(retainedBytes) of \(total) bytes shown; \(destination)"
+            )
         }
 
         func setTimeoutTask(_ task: Task<Void, Never>) {
@@ -129,6 +170,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             finished = true
             let continuation = self.continuation
             self.continuation = nil
+            if let summary = spillSummaryLocked() { self.lines.append(summary) }
             let lines = self.lines
             let timeoutTask = self.timeoutTask
             self.timeoutTask = nil
@@ -153,6 +195,10 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// The most timers a session has scheduled, or fired with their callback
     /// not yet run, at once; `setTimer` returns false past it.
     static let maxPendingTimers = 10_000
+
+    /// The most output, in UTF-8 bytes, one evaluation keeps in memory; the
+    /// rest goes to a file in the session's temporary directory.
+    static let maxRetainedOutputBytes = 16 << 20
 
     /// A tracked task, and the evaluation that was running when it started.
     private struct InFlightWork {
@@ -305,7 +351,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             }
             if let cwd { workingDirectory = cwd }
             nextEvalID += 1
-            let state = EvalState(id: nextEvalID, continuation: continuation)
+            let state = EvalState(id: nextEvalID, spillDirectory: privateTemporaryDirectory, continuation: continuation)
             currentEval = state
             let submitted = thread.perform { [self] in
                 self.beginEval(state, code: code, cwd: cwd, maxOutput: maxOutput)
