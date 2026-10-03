@@ -7,8 +7,10 @@ final class CloudTreeContainerView: NSView {
     private let outlineView = CloudTreeNSOutlineView()
     private let coordinator: CloudTreeOutlineView.Coordinator
     private let layoutMetrics = CloudTreeLayoutMetrics()
-    private static let insets = NSEdgeInsets(top: 6, left: 0, bottom: 6, right: 0)
     private var lastMeasuredDocumentWidth: CGFloat?
+    /// The scroll view's insets and inset mode from before a drag borrowed
+    /// scroll range, restored when the range comes back.
+    private var insetsBeforeLoan: (insets: NSEdgeInsets, automatic: Bool)?
 
     init(coordinator: CloudTreeOutlineView.Coordinator) {
         self.coordinator = coordinator
@@ -71,15 +73,11 @@ final class CloudTreeContainerView: NSView {
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
         scrollView.documentView = outlineView
-        scrollView.contentInsets = Self.insets
+        scrollView.contentInsets = NSEdgeInsets(top: 6, left: 0, bottom: 6, right: 0)
         addSubview(scrollView)
         outlineView.onDocumentContentChanged = { [weak self] in self?.needsLayout = true }
         outlineView.layoutHost = { [weak self] in self?.layoutSubtreeIfNeeded() }
-        outlineView.lendScrollRange = { [weak self] above, below in
-            self?.scrollView.contentInsets = NSEdgeInsets(
-                top: Self.insets.top + above, left: 0, bottom: Self.insets.bottom + below, right: 0
-            )
-        }
+        outlineView.lendScrollRange = { [weak self] above, below in self?.lendScrollRange(above: above, below: below) }
         outlineView.frame = scrollView.contentView.bounds
         outlineView.autoresizingMask = [.width]
         NSLayoutConstraint.activate([
@@ -95,12 +93,35 @@ final class CloudTreeContainerView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// Extends the scroll range past the rows for a drag, on top of the
+    /// insets in effect when it started; zero for both restores them. AppKit
+    /// recomputes automatic insets on its next layout, which would drop the
+    /// loan mid-drag, so the insets hold still while it lasts.
+    private func lendScrollRange(above: CGFloat, below: CGFloat) {
+        guard above != 0 || below != 0 else {
+            guard let loan = insetsBeforeLoan else { return }
+            insetsBeforeLoan = nil
+            scrollView.contentInsets = loan.insets
+            scrollView.automaticallyAdjustsContentInsets = loan.automatic
+            return
+        }
+        let loan = insetsBeforeLoan
+            ?? (insets: scrollView.contentInsets, automatic: scrollView.automaticallyAdjustsContentInsets)
+        insetsBeforeLoan = loan
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = NSEdgeInsets(
+            top: loan.insets.top + above, left: loan.insets.left,
+            bottom: loan.insets.bottom + below, right: loan.insets.right
+        )
+    }
+
     override func layout() {
         super.layout()
         let viewportWidth = scrollView.contentView.bounds.width
         let documentWidth = layoutMetrics.documentWidth(viewportWidth: viewportWidth)
         let contentHeight = outlineView.numberOfRows > 0
-            ? outlineView.rect(ofRow: outlineView.numberOfRows - 1).maxY + Self.insets.bottom
+            ? outlineView.rect(ofRow: outlineView.numberOfRows - 1).maxY
+                + (insetsBeforeLoan?.insets ?? scrollView.contentInsets).bottom
             : 0
         let documentHeight = layoutMetrics.documentHeight(
             viewportHeight: scrollView.contentView.bounds.height, contentHeight: contentHeight)
