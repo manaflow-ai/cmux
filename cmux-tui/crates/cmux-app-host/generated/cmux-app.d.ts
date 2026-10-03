@@ -28,8 +28,10 @@ declare namespace Cmux {
   type ClosedReopenResult = { closed_id: Cmux.StateId; kind: "tab" | "screen" | "workspace"; workspace_id: string /* workspace_… */; screen_ids: Array<string /* screen_… */>; tab_ids: Array<string /* tab_… */> }
   type ClosedScreenRecord = { name: string | null; tabs: Array<Cmux.ClosedTabRecord> }
   type ClosedTabRecord = { kind: "terminal" | "browser"; name: string | null; cwd: string | null; url: string | null; browser_profile_id: string | null; pinned: boolean }
+  type CodeRef = { commit: Cmux.CommitSha; path: string; export?: string }
   type ColorHex = string
   type CommandSpec = unknown
+  type CommitSha = string
   type Concurrency = { max: number; on_limit: "queue" | "skip" }
   type ConfirmationRequiredDetails = { confirmation_token: string; revision: string; closes_panes: Array<string /* pane_… */> }
   type ConfirmLevel = "strict" | "destructive-only" | "off"
@@ -47,6 +49,7 @@ declare namespace Cmux {
   type Cursor = { generation: string; revision: string }
   type DeviceId = string
   type DeviceStatus = { install: Cmux.InstallId; user: string; policy_version: number; app_version: string; mdm_keys: Array<string>; conflicts: Array<string>; reported_at: number }
+  type EmailAddress = string
   type EmailDomain = string
   type EmptyResult = Record<string, never>
   type EnrollmentToken = { id: Cmux.EnrollmentTokenId; label: string; allowed_domains: Array<string> | null; expires_at: number | null; created_by: string; created_at: number; revoked_at: number | null; uses: number }
@@ -82,6 +85,8 @@ declare namespace Cmux {
   type GitCheckpointSkipCode = "not_selected" | "over_limit" | "excluded" | "credential" | "ignored" | "nested_repository" | "submodule" | "unsupported_type" | "unreadable"
   type GitDiffResult = { scope: Cmux.GitDiffScope; root: string; head?: string; base?: string; files: Array<Cmux.GitChangedFile>; additions: number; deletions: number; total_files: number; files_omitted: number; untracked_skipped?: number }
   type GitDiffScope = "uncommitted" | "unstaged" | "staged" | "committed" | "branch"
+  type GitFileMatch = { path: string; matches: Array<number> }
+  type GitFilesSearchResult = { root: string; search_root: string; results: Array<Cmux.GitFileMatch>; truncated: boolean; total_matches: number }
   type GitStatusResult = { root: string; branch?: string; detached: boolean; head?: string; upstream?: string; base?: string; ahead: number; behind: number }
   type Grant = { id: Cmux.GrantId; grantee: string; op_classes: Array<Cmux.OpClass>; approval: "none" | "per_call" | "per_session"; expires_at: number | null; revoked_at: number | null; created_from: "install" | "ui" | "automation" | "standing_rule" }
   type GrantId = string
@@ -108,7 +113,7 @@ declare namespace Cmux {
   type Install = { id: Cmux.InstallId; device: Cmux.DeviceId; kind: Cmux.InstallKind; name: string; device_name: string; platform: Cmux.Platform; public_jwk: Cmux.PublicJwk; thumbprint: string; grant: Cmux.GrantId; created_at: number; revoked_at: number | null; bound_team?: Cmux.TeamId }
   type InstallId = string
   type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm"
-  type IntegrationProvider = "github" | "linear" | "slack"
+  type IntegrationProvider = "github" | "linear" | "slack" | "google_calendar" | "gmail"
   type InviteId = string
   type JournalAppendResult = { producer_id: string; sequence: string; event_id: string }
   type JournalAuthority = { principal_id: string; lease_id: string; generation: string; role: string }
@@ -312,6 +317,8 @@ interface CmuxGlobal {
   automation: {
     /** `automation.create` (mutation, scope `automation:write`): Create an automation (triggers, body, target policy) in the caller's team. */
     create: CmuxOp<{ name: string; description?: string; enabled?: boolean; triggers: Array<Cmux.TriggerInput>; body: Cmux.Body; target?: Cmux.TargetPolicy; concurrency?: Cmux.Concurrency; budget?: Cmux.Budget; expected_revision?: string }, Cmux.MutationResult<Cmux.Automation>>
+    /** `automation.deploy` (mutation, scope `automation:execute`): Pin a code automation to another commit of the team's code repository (the commit must contain <path>/dist/index.js). Later runs use it; started runs keep their commit. At most 50 code changes per team per UTC day. */
+    deploy: CmuxOp<{ automation: Cmux.AutomationId; commit: Cmux.CommitSha; expected_version?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.Automation>>
     /** `automation.get` (read, scope `automation:read`): Read one automation. */
     get: CmuxOp<{ automation: Cmux.AutomationId }, Cmux.Automation>
     /** `automation.list` (read, scope `automation:read`): List the automations of the caller's team. */
@@ -360,6 +367,22 @@ interface CmuxGlobal {
     navigate: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; browser: string; url: string; expected_revision?: string }, Cmux.MutationResult<Cmux.BrowserSnapshot>>
     /** `browser.reload` (mutation, scope `browser:write`) */
     reload: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; browser: string; expected_revision?: string }, Cmux.MutationResult<Cmux.BrowserSnapshot>>
+  }
+  calendar: {
+    calendars: {
+      /** `calendar.calendars.list` (read, scope `calendar:read`): List the calendars of a Google Calendar connection (ids for the other calendar ops). */
+      list: CmuxOp<{ connection: Cmux.ConnectionId }, string>
+    }
+    event: {
+      /** `calendar.event.create` (mutation, scope `calendar:external`): Create a Google Calendar event; attendees get Google's invitation email. */
+      create: CmuxOp<{ connection: Cmux.ConnectionId; calendar_id?: string; summary: string; description?: string; location?: string; start: { date_time?: string; date?: string; time_zone?: string }; end: { date_time?: string; date?: string; time_zone?: string }; attendees?: Array<Cmux.EmailAddress>; expected_revision?: string }, Cmux.MutationResult<string>>
+      /** `calendar.event.respond` (mutation, scope `calendar:external`): Answer a Google Calendar invitation as the connected account; the organizer is notified. */
+      respond: CmuxOp<{ connection: Cmux.ConnectionId; calendar_id?: string; event_id: string; response: "accepted" | "declined" | "tentative"; expected_revision?: string }, Cmux.MutationResult<string>>
+    }
+    events: {
+      /** `calendar.events.list` (read, scope `calendar:read`): List events of a Google calendar (single events, ordered by start). Read at call time; nothing is stored. */
+      list: CmuxOp<{ connection: Cmux.ConnectionId; calendar_id?: string; time_min?: string; time_max?: string; query?: string; max_results?: number; page_token?: string }, string>
+    }
   }
   chief: {
     /** `chief.create` (mutation, scope `chief:write`): Create a chief (or a subchief under parent): its agent principal and mux grant, its wake queue and its chief thread. */
@@ -456,6 +479,10 @@ interface CmuxGlobal {
     }
     /** `git.diff` (read, scope `git:read`) */
     diff: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; scope: Cmux.GitDiffScope; paths?: Array<string>; include_patch?: boolean; max_patch_bytes?: number; max_files?: number }, Cmux.GitDiffResult>
+    files: {
+      /** `git.files.search` (read, scope `git:read`) */
+      search: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; query: string; limit?: number }, Cmux.GitFilesSearchResult>
+    }
     /** `git.status` (read, scope `git:read`) */
     status: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string }, Cmux.GitStatusResult>
   }
@@ -467,7 +494,7 @@ interface CmuxGlobal {
   }
   home: {
     /** `home.search` (read, scope `home:read`): Search Home messages in conversations you are a current human participant of (newest first, with a short Top section). */
-    search: CmuxOp<{ q: string; conversation?: Cmux.ConversationId; author?: Cmux.ParticipantId; kind?: Cmux.ConversationKind; before?: Cmux.Timestamp; cursor?: string; limit?: number }, { hits: Array<{ conversation: Cmux.ConversationId; seq: number; message_id: string; author: Cmux.ParticipantId; created_at: Cmux.Timestamp; snippet: string; ranges: Array<{ start: number; length: number }> }>; cursor?: string }>
+    search: CmuxOp<{ q: string; conversation?: Cmux.ConversationId; author?: Cmux.ParticipantId; kind?: Cmux.ConversationKind; before?: Cmux.Timestamp; cursor?: string; limit?: number }, { hits: Array<{ conversation: Cmux.ConversationId; title: string | null; seq: number; message_id: string; author: Cmux.ParticipantId; created_at: Cmux.Timestamp; snippet: string; ranges: Array<{ start: number; length: number }> }>; cursor?: string }>
     settings: {
       /** `home.settings.set` (mutation, scope `home:write`): Choose who can find you by email or phone and who may start a DM with you. */
       set: CmuxOp<{ discoverable_by_email?: boolean; discoverable_by_phone?: boolean; allow_dm_from?: "anyone" | "teams" | "contacts"; expected_revision?: string }, Cmux.MutationResult<{ discoverable_by_email: boolean; discoverable_by_phone: boolean; allow_dm_from: "anyone" | "teams" | "contacts" }>>
@@ -526,6 +553,24 @@ interface CmuxGlobal {
     get: CmuxOp<{ machine?: string }, Cmux.MachineSnapshot>
     /** `machine.list` (read, scope `machine:read`) */
     list: CmuxOp<Record<string, never>, Array<Cmux.MachineSnapshot>>
+  }
+  mail: {
+    /** `mail.get` (read, scope `mail:read`): Read one Gmail message (headers, plain text, attachment list) at call time; nothing is stored. */
+    get: CmuxOp<{ connection: Cmux.ConnectionId; message_id: string }, string>
+    /** `mail.modify` (mutation, scope `mail:write`): Change labels of Gmail messages or a thread (archive, mark read with remove_labels UNREAD). */
+    modify: CmuxOp<{ connection: Cmux.ConnectionId; thread_id?: string; message_ids?: Array<string>; add_labels?: Array<string>; remove_labels?: Array<string>; archive?: boolean; expected_revision?: string }, Cmux.MutationResult<string>>
+    /** `mail.search` (read, scope `mail:read`): Search the connected Gmail mailbox with Gmail query syntax; returns message and thread ids only. */
+    search: CmuxOp<{ connection: Cmux.ConnectionId; query: string; max_results?: number; page_token?: string }, string>
+    /** `mail.send` (mutation, scope `mail:external`): Send a plain-text email from the connected Gmail account. */
+    send: CmuxOp<{ connection: Cmux.ConnectionId; to: Array<Cmux.EmailAddress>; cc?: Array<Cmux.EmailAddress>; bcc?: Array<Cmux.EmailAddress>; subject: string; body: string; thread_id?: string; in_reply_to?: string; expected_revision?: string }, Cmux.MutationResult<string>>
+    thread: {
+      /** `mail.thread.get` (read, scope `mail:read`): Read one Gmail thread (every message, as mail.get) at call time; nothing is stored. */
+      get: CmuxOp<{ connection: Cmux.ConnectionId; thread_id: string }, string>
+    }
+    threads: {
+      /** `mail.threads.peek` (read, scope `mail:read`): Row data for Gmail threads (subject, sender, date, snippet, unread) by id, for feed rows; held in client memory only. */
+      peek: CmuxOp<{ connection: Cmux.ConnectionId; thread_ids: Array<string> }, string>
+    }
   }
   message: {
     /** `message.edit` (mutation, scope `message:write`): Replace the parts of one of your messages (not after it was retracted). */

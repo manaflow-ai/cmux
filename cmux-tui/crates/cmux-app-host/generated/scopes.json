@@ -37,6 +37,10 @@
       "scope": "automation:write",
       "class": "mutation"
     },
+    "automation.deploy": {
+      "scope": "automation:execute",
+      "class": "mutation"
+    },
     "automation.get": {
       "scope": "automation:read",
       "class": "read"
@@ -112,6 +116,22 @@
     "browser.reload": {
       "scope": "browser:write",
       "class": "mutation"
+    },
+    "calendar.calendars.list": {
+      "scope": "calendar:read",
+      "class": "read"
+    },
+    "calendar.event.create": {
+      "scope": "calendar:external",
+      "class": "mutation"
+    },
+    "calendar.event.respond": {
+      "scope": "calendar:external",
+      "class": "mutation"
+    },
+    "calendar.events.list": {
+      "scope": "calendar:read",
+      "class": "read"
     },
     "chief.create": {
       "scope": "chief:write",
@@ -273,6 +293,10 @@
       "scope": "git:read",
       "class": "read"
     },
+    "git.files.search": {
+      "scope": "git:read",
+      "class": "read"
+    },
     "git.status": {
       "scope": "git:read",
       "class": "read"
@@ -367,6 +391,30 @@
     },
     "machine.list": {
       "scope": "machine:read",
+      "class": "read"
+    },
+    "mail.get": {
+      "scope": "mail:read",
+      "class": "read"
+    },
+    "mail.modify": {
+      "scope": "mail:write",
+      "class": "mutation"
+    },
+    "mail.search": {
+      "scope": "mail:read",
+      "class": "read"
+    },
+    "mail.send": {
+      "scope": "mail:external",
+      "class": "mutation"
+    },
+    "mail.thread.get": {
+      "scope": "mail:read",
+      "class": "read"
+    },
+    "mail.threads.peek": {
+      "scope": "mail:read",
       "class": "read"
     },
     "message.edit": {
