@@ -914,6 +914,21 @@ function childCases(): CorpusCase[] {
   }
 
   {
+    const c = new CaseBuilder("children: a child whose permission was denied (waiting -> ready) finishes, as on reconnect");
+    boot(c);
+    c.step({ kind: "session_changed", session: session("s_d", "deny", "running") }, ["persist", "conversation_op"]);
+    const card = msg("conv_a", 1, AGENT_MUX, "", { id: "m_d", client_msg_id: "work:s_d", parts: [{ type: "work", session: "deny", status: "running" }] });
+    c.step({ kind: "op_result", idempotency_key: "work:s_d", change: { kind: "message", message: card } }, ["persist"]);
+    c.step({ kind: "permission_pending", session_id: "s_d", permission_id: "p1", request: {} }, ["persist", "conversation_op", "prompt"]);
+    c.step({ kind: "session_changed", session: session("s_d", "deny", "waiting") }, []);
+    c.step({ kind: "session_changed", session: session("s_d", "deny", "ready", { turnCount: 1, lastSeq: 6 }) }, ["fetch_child_events"]);
+    c.step({ kind: "child_events", session_id: "s_d", events: [] }, ["persist", "prompt"], (e) =>
+      c.check(c.get(e, "prompt").prompt_id === "child:s_d:1", "finished"),
+    );
+    cases.push(c.end());
+  }
+
+  {
     const c = new CaseBuilder("children: a child first seen ready gets a done card");
     boot(c);
     c.step({ kind: "session_changed", session: session("s_n", "late", "ready", { turnCount: 1 }) }, ["persist", "conversation_op"], (e) => {
