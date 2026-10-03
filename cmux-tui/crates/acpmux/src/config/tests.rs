@@ -215,3 +215,14 @@ fn launcher_check_rejects_old_subrouter() {
     assert_eq!(cfg.resolve_harness("claude").unwrap(), "claude");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn the_launch_credential_never_reaches_the_daemon_or_an_agent() {
+    let mut cmd = std::process::Command::new("true");
+    cmd.env(LAUNCH_CREDENTIAL_ENV, "cmuxlc1.k.c.m").env("KEPT", "1");
+    scrub_launch_credential(&mut cmd);
+    let envs: std::collections::HashMap<_, _> =
+        cmd.get_envs().map(|(k, v)| (k.to_owned(), v.map(|v| v.to_owned()))).collect();
+    assert_eq!(envs.get(std::ffi::OsStr::new(LAUNCH_CREDENTIAL_ENV)), Some(&None));
+    assert_eq!(envs.get(std::ffi::OsStr::new("KEPT")), Some(&Some(std::ffi::OsString::from("1"))));
+}
