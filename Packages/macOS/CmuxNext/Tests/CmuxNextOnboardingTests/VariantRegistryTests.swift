@@ -6,7 +6,7 @@ import Testing
 /// Every screen variant: a unique id under its step, and it lays out in the
 /// fixed window with sample data (no layout loop, the window keeps its size).
 @MainActor
-@Suite struct VariantRegistryTests {
+@Suite(.serialized) struct VariantRegistryTests {
     func sample() -> MockOnboardingServices {
         MockOnboardingServices.gallerySample(themes: (0..<9).map { ThemeChoice(name: "Theme \($0)", input: .ghosttyDefault) },
                                              accountsView: NSView())
