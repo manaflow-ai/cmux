@@ -887,12 +887,28 @@ jobs:
         run: |
           set -uo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"
-          scripts/ci/compile-app-host-test-product.sh canonical-build \
-            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
-            "$PWD/.ci-source-packages" \
-            "$CMUX_COMPILE_ADMISSION_CAS" \
-            "$RUNNER_TEMP/cmux-compile-admission.txt"
+          compile_log="$RUNNER_TEMP/cmux-compile-admission.txt"
+          compile_once() {
+            scripts/ci/compile-app-host-test-product.sh canonical-build \
+              "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
+              "$PWD/.ci-source-packages" \
+              "$CMUX_COMPILE_ADMISSION_CAS" \
+              "$compile_log" 2>&1 | tee -a "$compile_log"
+            return "${PIPESTATUS[0]}"
+          }
+          compile_once
           status=$?
+          if [ "$status" -ne 0 ] && grep -Fq "unable to open dependencies file" "$compile_log"; then
+            # An adopted DerivedData tree can retain an incomplete Swift
+            # dependency graph after a cancelled or interrupted compile. Xcode
+            # then fails late with no source diagnostic. Drop only the derived
+            # tree and retry once from the already-resolved source packages;
+            # real compiler errors still fail without a retry.
+            echo "::warning::stale DerivedData dependency output detected; retrying compile from a clean tree"
+            scripts/ci/clear-dirs.sh "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+            compile_once
+            status=$?
+          fi
           finished="$(python3 -c 'import time; print(time.monotonic())')"
           seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
           echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
