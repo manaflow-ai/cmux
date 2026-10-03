@@ -201,7 +201,7 @@ public final class TerminalSession {
             model.hasExited = true
         case .status(let status):
             model.connection = status
-            if status == .exited { model.hasExited = true }
+            model.hasExited = status == .exited
             view.showStatus(status)
         }
     }
