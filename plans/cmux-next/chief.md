@@ -106,11 +106,14 @@ lane 16) is not part of the experiment.
 
 ## 7. Steps
 
-1. Pure memory + conformance vectors from the Python memo (no new dependencies).
-2. MemoryDO + workers-pool tests.
-3. ChiefDO with PiHarness, the turn loop, staging deploy. Blocked: the local npm policy
-   (`min-release-age=7`) refuses `agents` 0.25+/0.26 and `@earendil-works/pi-*` 1.0 until about
-   2026-10-09; installing earlier needs Lawrence's approval for an exclusion.
+1. Done (adfb0e9858f, 8ee88c0ed34): pure memory, conformance vectors from the Python memo,
+   ripgrep-style recall checked against the real `rg`.
+2. Done (bb4815e5222): MemoryDO on DO SQLite, the experiment Worker, verified in wrangler dev.
+3. Done in part: the turn engine `src/chief/turn.ts` (ingest, ordered naps, cover-only context,
+   reply and spawn entries, keyed retries) behind model and memory ports, tested with a fake model.
+   Remaining: ChiefDO with PiHarness as the model port, staging deploy. Blocked: the local npm
+   policy (`min-release-age=7`) refuses `agents` 0.25+/0.26 and `@earendil-works/pi-*` 1.0 until
+   about 2026-10-09; installing earlier needs Lawrence's approval for an exclusion.
 4. WorkerDO (pi sub-session) and spawn.
 5. UI page.
 6. Freestyle worker.
