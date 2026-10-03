@@ -187,3 +187,21 @@ fn parity_scales_with_loss() {
     assert_eq!(parity_for(10, 0.30, false), 5);
     assert_eq!(parity_for(1, 0.01, true), 1);
 }
+
+#[test]
+fn a_frame_larger_than_one_fec_block_goes_without_parity_and_reassembles() {
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    let mut r = Reassembler::new(1_000_000);
+    // About 400 KB: more than 255 shards of 1136 bytes.
+    let big = body(1, 400_000, true);
+    let out = p.packetize(1, flags::KEYFRAME, &big, 4).expect("packetize");
+    assert_eq!(out.parity_shards, 0);
+    assert!(out.data_shards > 255);
+    let mut released = Vec::new();
+    for d in out.datagrams.iter().rev() {
+        let (h, payload) = DatagramHeader::decode(d).expect("decode");
+        released.extend(r.push(&h, payload, 0));
+    }
+    assert_eq!(released.len(), 1);
+    assert_eq!(released[0].body, big);
+}

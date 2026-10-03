@@ -13,7 +13,9 @@ mod feedback;
 mod frame;
 mod input;
 
-pub use datagram::{DatagramHeader, DatagramKind, HEADER_LEN, VERSION, flags};
+pub use datagram::{
+    DatagramHeader, DatagramKind, HEADER_LEN, MAX_FEC_BLOCK, MAX_FRAME_SHARDS, VERSION, flags,
+};
 pub use error::DecodeError;
 pub use feedback::{Arrival, Feedback, MAX_ARRIVALS, MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack};
 pub use frame::{FRAME_PREFIX_LEN, FrameBody, REF_NONE};
