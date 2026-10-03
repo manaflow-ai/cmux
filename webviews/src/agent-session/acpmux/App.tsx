@@ -1114,6 +1114,7 @@ function AcpmuxPane() {
           cwd?: string;
           draft?: string;
           prompt?: string;
+          adopt?: unknown;
           account?: unknown;
           handoffStrings?: unknown;
           checkpointStrings?: unknown;
