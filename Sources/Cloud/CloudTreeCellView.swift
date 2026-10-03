@@ -36,6 +36,7 @@ final class CloudTreeCellView: NSTableCellView {
     private let displayHost = CloudTreePassthroughHostingView(rootView: AnyView(EmptyView()))
     private var portsStatus: CloudPortsStatusContent?
     private var portsStatusTrailingConstraint: NSLayoutConstraint?
+    private var portsStatusLeadingConstraint: NSLayoutConstraint?
     private var portAction: @MainActor (CloudPortsStatusAction, SurfaceMachineID) -> Void = { _, _ in }
     private var buttonsHost: CloudTreeRowControlsHostingView?
     private var buttonsTrailingConstraint: NSLayoutConstraint?
@@ -197,6 +198,13 @@ final class CloudTreeCellView: NSTableCellView {
                 portAction(status.action, node.machine)
             }
             portsStatusTrailingConstraint?.constant = -style.rowGrid.trailingPadding
+            // The cell starts on the tab panel's icon column; the guidance
+            // and its button start on the Ports tab's own edge instead.
+            portsStatusLeadingConstraint?.constant = configuredPanelLevel.map {
+                CloudTreeMachineDetailTabsView.panelHighlightLeading(tabRowLevel: $0, style: style)
+                    - CloudTreeMachineDetailTabsView.panelContentLeading(tabRowLevel: $0, style: style)
+                    - CloudPortsStatusContent.contentInset
+            } ?? 0
         } else {
             portsStatus?.isHidden = true
         }
@@ -354,13 +362,15 @@ final class CloudTreeCellView: NSTableCellView {
         view.translatesAutoresizingMaskIntoConstraints = false
         addSubview(view)
         let trailing = view.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -style.rowGrid.trailingPadding)
+        let leading = view.leadingAnchor.constraint(equalTo: leadingAnchor)
         NSLayoutConstraint.activate([
-            view.leadingAnchor.constraint(equalTo: leadingAnchor),
+            leading,
             trailing,
             view.topAnchor.constraint(equalTo: topAnchor),
             view.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
         portsStatusTrailingConstraint = trailing
+        portsStatusLeadingConstraint = leading
         portsStatus = view
         return view
     }

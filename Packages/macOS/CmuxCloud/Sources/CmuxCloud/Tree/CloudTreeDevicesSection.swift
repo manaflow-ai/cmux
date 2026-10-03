@@ -31,7 +31,7 @@ public struct CloudTreeDevicesSection: Equatable, Sendable {
     public var isRefreshing: Bool = false
 
     /// Both independent actions stay visible below the devices, preceded by
-    /// "No other Macs yet" when the list is empty.
+    /// "No other devices yet" when the list is empty.
     public var inlineRowCount: Int {
         (count == 0 ? 1 : 0) + 2
     }

@@ -67,7 +67,7 @@ public struct ComputersSection: View {
                     SettingsCardNote(String(localized: "devices.discovery.settingsDisabled", defaultValue: "Turn on Discover other Macs to see your devices."))
                 } else if snapshot.computers.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
-                        Label(String(localized: "devices.empty.title", defaultValue: "No other Macs yet"), systemImage: "desktopcomputer")
+                        Label(String(localized: "devices.empty.title", defaultValue: "No other devices yet"), systemImage: "desktopcomputer")
                             .font(.callout.weight(.medium))
                         Text(String(localized: "devices.empty.help", defaultValue: "Sign in to cmux on another Mac and make it discoverable in Settings › Devices."))
                             .font(.callout)

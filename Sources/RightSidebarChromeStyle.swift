@@ -157,8 +157,12 @@ struct RightSidebarChromePillModifier: ViewModifier {
                     ZStack {
                         shape.fill(isSelected ? Color.clear : backgroundColor)
                         if isSelected {
+                            // No fade: the old and new highlights crossfading
+                            // while they slide read as a flash of colour. One
+                            // fill moves, at one opacity, the whole way.
                             shape.fill(backgroundColor)
                                 .matchedGeometryEffect(id: "rightSidebarChromePillSelection", in: selectionNamespace)
+                                .transition(.identity)
                         }
                     }
                 } else {

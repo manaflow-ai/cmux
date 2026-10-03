@@ -86,6 +86,7 @@ struct RightSidebarPanelView: View {
     @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var hasMountedRightSidebarContent = false
     @State private var modeBarDrag = RightSidebarModeBarDragController()
+    @State private var modeBarWidthReport = RightSidebarModeBarWidthReport()
     /// One selection highlight that slides between the mode tabs.
     @Namespace private var modeSelectionNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -194,6 +195,8 @@ struct RightSidebarPanelView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("RightSidebar")
         .onAppear {
+            // The sidebar never gets narrower than every tab's full name.
+            modeBarWidthReport.onChange = { [fileExplorerState] in fileExplorerState.modeBarMinimumWidth = $0 }
             startShortcutHintMonitorsIfNeeded()
             if fileExplorerState.isVisible { hasMountedRightSidebarContent = true }
             fileExplorerState.refreshModeAvailability()
@@ -229,7 +232,7 @@ struct RightSidebarPanelView: View {
                 let displayedModes = availableModes
                 // The selected tab keeps its full label; the others share the
                 // rest and truncate, then drop to their icon.
-                RightSidebarModeBarTabsLayout(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
+                RightSidebarModeBarTabsLayout(spacing: RightSidebarChromeMetrics.headerControlSpacing, widthReport: modeBarWidthReport) {
                     ForEach(modeBarItems) { item in
                         let shortcut = item.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) } ?? .unbound
                         ModeBarButton(
@@ -271,9 +274,8 @@ struct RightSidebarPanelView: View {
                 .coordinateSpace(.named(RightSidebarModeBarDragController.coordinateSpace))
                 .layoutPriority(1)
                 Spacer(minLength: 0)
-                if fileExplorerState.mode.canOpenAsPane, fileExplorerState.mode.isAvailable() {
-                    openAsPaneButton(mode: fileExplorerState.mode)
-                }
+                // Always present, so the bar keeps its shape in every tab.
+                openAsPaneButton(mode: fileExplorerState.mode)
                 closeButton
             }
         }
@@ -317,8 +319,9 @@ struct RightSidebarPanelView: View {
     }
 
     private func openAsPaneButton(mode: RightSidebarMode) -> some View {
-        Button {
-            onOpenAsPane(mode)
+        let canOpen = mode.canOpenAsPane && mode.isAvailable()
+        return Button {
+            if canOpen { onOpenAsPane(mode) } else { NSSound.beep() }
         } label: {
             HeaderChromeIconStyle.symbol("rectangle.split.2x1")
         }
@@ -332,7 +335,12 @@ struct RightSidebarPanelView: View {
             isVisible: true
         )
         .rightSidebarHeaderControlAlignment()
-        .safeHelp(String(localized: "rightSidebar.openAsPane.tooltip", defaultValue: "Open as pane"))
+        .safeHelp(canOpen
+            ? String(localized: "rightSidebar.openAsPane.tooltip", defaultValue: "Open as pane")
+            : String.localizedStringWithFormat(
+                String(localized: "rightSidebar.openAsPane.unavailable", defaultValue: "%@ can't open as a pane yet"),
+                mode.label
+            ))
         .accessibilityLabel(
             String.localizedStringWithFormat(
                 String(localized: "rightSidebar.openAsPane.accessibilityLabel", defaultValue: "Open %@ as Pane"),

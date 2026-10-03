@@ -238,7 +238,7 @@ final class CloudTreeNode: NSObject {
         case .machineDetailTabs, .machineEndSpacer: return ""
         case .devicesEmpty(let section):
             return section.count == 0
-                ? String(localized: "devices.empty.title", defaultValue: "No other Macs yet")
+                ? String(localized: "devices.empty.title", defaultValue: "No other devices yet")
                 : String(localized: "devices.manage", defaultValue: "Manage My Devices")
         }
     }

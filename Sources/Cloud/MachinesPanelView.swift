@@ -513,7 +513,8 @@ struct MachinesPanelView: View {
             showsCloudVPNWarning: tunnelStatus.status?.state == .off,
             canCreateCloudMachine: canCreateCloudMachine,
             cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil,
-            cloudMachinesRefresh: includesCloud ? CloudTreeSectionRefresh(isRefreshing: viewModel.isLoading) : nil,
+            // Only a refresh asked for spins the header; the 45 s poll stays quiet.
+            cloudMachinesRefresh: includesCloud ? CloudTreeSectionRefresh(isRefreshing: viewModel.isRefreshingOnRequest) : nil,
             reveal: devicesModel.revealRequest ?? selectionReveal,
             creationReveal: SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: tabManager)
         )
@@ -528,7 +529,7 @@ struct MachinesPanelView: View {
                 Image(systemName: "desktopcomputer")
                     .font(.system(size: 30, weight: .light))
                     .foregroundStyle(.secondary)
-                Text(String(localized: "devices.empty.title", defaultValue: "No other Macs yet"))
+                Text(String(localized: "devices.empty.title", defaultValue: "No other devices yet"))
                     .font(.callout.weight(.medium))
                 Text(String(localized: "devices.empty.help", defaultValue: "Sign in to cmux on another Mac and make it discoverable in Settings › Devices."))
                     .font(.callout)

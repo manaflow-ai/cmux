@@ -10,8 +10,14 @@ struct RightSidebarModeBarTabSelectedKey: LayoutValueKey {
 /// narrows and never grow past their full label.
 struct RightSidebarModeBarTabsLayout: Layout {
     var spacing: CGFloat
+    /// Receives the width every tab needs to show its full label.
+    var widthReport: RightSidebarModeBarWidthReport?
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        if let widthReport {
+            let natural = subviews.map { $0.sizeThatFits(.unspecified).width }
+            MainActor.assumeIsolated { widthReport.note(tabsWidth: natural.reduce(0, +) + gaps(subviews)) }
+        }
         let widths = tabWidths(available: proposal.width, subviews: subviews)
         let height = subviews.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
         return CGSize(width: widths.reduce(0, +) + gaps(subviews), height: height)

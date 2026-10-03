@@ -80,12 +80,12 @@ enum CloudTreeMachineLiftStyle {
         )
     }
 
-    /// The window ground with the row's own highlight mixed in, so a selected
-    /// machine keeps reading as selected while it is lifted.
+    /// The window ground with the hover shade mixed in. A selected machine's
+    /// selection layer sits above the card, so it keeps reading as selected.
     private static func fill(for rowView: NSTableRowView) -> CGColor {
         var color = NSColor.windowBackgroundColor.cgColor
         rowView.effectiveAppearance.performAsCurrentDrawingAppearance {
-            let tint = rowView.isSelected ? CloudTreeHoverStyle.selectedOpacity : CloudTreeHoverStyle.hoverOpacity
+            let tint = CloudTreeHoverStyle.hoverOpacity
             let base = NSColor.windowBackgroundColor.usingColorSpace(.deviceRGB) ?? .windowBackgroundColor
             color = base.blended(withFraction: tint, of: .labelColor)?.cgColor ?? base.cgColor
         }
