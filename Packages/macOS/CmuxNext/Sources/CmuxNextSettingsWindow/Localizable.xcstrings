@@ -10480,6 +10480,268 @@
           }
         }
       }
+    },
+    "settingsWindow.backdropArt.credit": {
+      "comment": "Optional public-domain backdrop art and its museum attribution.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wheat Field with Cypresses · Vincent van Gogh · 1889 · The Metropolitan Museum of Art · CC0"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weizenfeld mit Zypressen · Vincent van Gogh · 1889 · Metropolitan Museum of Art · CC0"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Champ de blé avec cyprès · Vincent van Gogh · 1889 · Metropolitan Museum of Art · CC0"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حقل قمح مع أشجار السرو · فنسنت فان غوخ · 1889 · متحف المتروبوليتان للفنون · CC0"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Campo de trigo con cipreses · Vincent van Gogh · 1889 · Museo Metropolitano de Arte · CC0"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有絲柏的麥田 · 文森·梵谷 · 1889 · 大都會藝術博物館 · CC0"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有柏树的麦田 · 文森特·梵高 · 1889 · 大都会艺术博物馆 · CC0"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이프러스가 있는 밀밭 · 빈센트 반 고흐 · 1889 · 메트로폴리탄 미술관 · CC0"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "糸杉のある麦畑 · フィンセント・ファン・ゴッホ · 1889 · メトロポリタン美術館 · CC0"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pšenično polje s čempresima · Vincent van Gogh · 1889 · Metropolitan Museum of Art · CC0"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvedemark med cypresser · Vincent van Gogh · 1889 · Metropolitan Museum of Art · CC0"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Campo di grano con cipressi · Vincent van Gogh · 1889 · Metropolitan Museum of Art · CC0"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វាលស្រូវសាលីជាមួយដើមស៊ីព្រេស · Vincent van Gogh · 1889 · សារមន្ទីរសិល្បៈ Metropolitan · CC0"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hveteåker med sypresser · Vincent van Gogh · 1889 · Metropolitan Museum of Art · CC0"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pole pszenicy z cyprysami · Vincent van Gogh · 1889 · Metropolitan Museum of Art · CC0"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Campo de trigo com ciprestes · Vincent van Gogh · 1889 · Metropolitan Museum of Art · CC0"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пшеничное поле с кипарисами · Винсент Ван Гог · 1889 · Метрополитен-музей · CC0"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทุ่งข้าวสาลีกับต้นไซเปรส · Vincent van Gogh · 1889 · พิพิธภัณฑ์ศิลปะเมโทรโพลิแทน · CC0"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servilerle buğday tarlası · Vincent van Gogh · 1889 · Metropolitan Sanat Müzesi · CC0"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пшеничне поле з кипарисами · Вінсент ван Гог · 1889 · Музей мистецтва Метрополітен · CC0"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cánh đồng lúa mì với những cây bách · Vincent van Gogh · 1889 · Bảo tàng Nghệ thuật Metropolitan · CC0"
+          }
+        }
+      }
+    },
+    "settingsWindow.backdropArt.source": {
+      "comment": "Optional public-domain backdrop art and its museum attribution.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Painting attribution and source"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildnachweis und Quelle"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crédit et source du tableau"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسب اللوحة ومصدرها"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atribución y fuente de la pintura"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "畫作資訊與來源"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画作信息与来源"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그림 저작자와 출처"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "絵画の作者情報と出典"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atribucija i izvor slike"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maleriets attribution og kilde"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attribuzione e fonte del dipinto"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបញ្ជាក់ប្រភព និងប្រភពគំនូរ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kreditering og kilde for maleriet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Informacje o autorstwie i źródle obrazu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atribuição e fonte da pintura"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Атрибуция и источник картины"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแสดงที่มาและแหล่งที่มาของภาพวาด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tablo bilgileri ve kaynağı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Атрибуція та джерело картини"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghi công và nguồn của bức tranh"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

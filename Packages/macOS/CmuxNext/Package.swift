@@ -558,6 +558,7 @@ let package = Package(
                 "CmuxNextWakeups",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
             ],
+            resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
         ),
         // Theme derivation (Ghostty colors -> chrome tokens), contrast, live reload.

@@ -127,7 +127,7 @@ final class AppServices {
     private(set) lazy var accounts = AccountsService(services: self)
     /// Links, files and services macOS hands cmux (default browser, ssh:, scripts).
     private(set) lazy var externalOpen = ExternalOpenController(services: self)
-    let terminalTheme = TerminalThemeSetting()
+    let terminalTheme = TerminalThemeSetting(backdropScope: .app)
     /// Room, workspace and terminal themes.
     private(set) var themes: ThemeCoordinator!
     /// Browser tabs of remote machines reach that machine's localhost.
