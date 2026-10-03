@@ -73,7 +73,10 @@ final class CloudTreeMachineReorderLift: NSObject {
         discard()
         let before = visualTops()
         let closing = siblings.compactMap { outline.findItem(nodeID: $0.id) }
-            .filter { closes($0) && outline.isItemExpanded($0) }
+            // Keep the held node's own folder open. Collapsing it during the
+            // mouse-down path changes the block under the pointer and makes
+            // the row jump upward before the hand has moved.
+            .filter { $0.id != source.id && closes($0) && outline.isItemExpanded($0) }
         let ghosts = closing.isEmpty ? [] : makeGhosts(under: Set(closing.map(\.id)))
         if !closing.isEmpty { collapse(closing) }
 
