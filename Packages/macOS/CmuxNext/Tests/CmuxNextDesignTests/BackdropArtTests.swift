@@ -20,7 +20,7 @@ struct BackdropArtTests {
         try Data([0x01]).write(to: directory.appendingPathComponent("a-wallpaper.png"))
         let catalog = BackdropCatalog(systemDirectory: directory, fileManager: .default, systemLimit: 1)
         #expect(catalog.choices.count == BackdropArt.allCases.count + 1)
-        #expect(catalog.choices.dropFirst().first == .system(path: directory.appendingPathComponent("a-wallpaper.png").path))
+        #expect(catalog.choices.dropFirst(BackdropArt.allCases.count).first == .system(path: directory.appendingPathComponent("a-wallpaper.png").path))
     }
 
     @Test func tuningClampsAndPreservesUnchangedAxes() {
