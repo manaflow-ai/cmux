@@ -4,44 +4,29 @@ import SwiftUI
 #if os(iOS)
 import UIKit
 
-/// SwiftUI hosts the screen while UIKit owns the Safari-shaped layout and
-/// interaction states. The measured tab geometry stays stable across updates.
+/// Keeps the terminal mounted while UIKit presents its inverse zoom to the grid.
 @MainActor
 struct TerminalTabOverviewView: UIViewControllerRepresentable {
+    let isPresented: Bool
     let workspaceName: String
     let items: [TerminalTabOverviewItem]
     let canCloseTabs: Bool
     let onSelect: (MobileTerminalPreview.ID) -> Void
     let onClose: (MobileTerminalPreview.ID) -> Void
     let onNewTerminal: () -> Void
+    let onReorder: ([MobileTerminalPreview.ID]) -> Void
     let onDone: () -> Void
 
-    func makeUIViewController(context: Context) -> TerminalTabOverviewViewController {
-        TerminalTabOverviewViewController(
-            workspaceName: workspaceName,
-            items: items,
-            canCloseTabs: canCloseTabs,
-            onSelect: onSelect,
-            onClose: onClose,
-            onNewTerminal: onNewTerminal,
-            onDone: onDone
-        )
+    func makeUIViewController(context: Context) -> TerminalTabOverviewPresentationController {
+        TerminalTabOverviewPresentationController()
     }
 
-    func updateUIViewController(_ viewController: TerminalTabOverviewViewController, context: Context) {
-        viewController.update(
-            workspaceName: workspaceName,
-            items: items,
-            canCloseTabs: canCloseTabs,
-            onSelect: onSelect,
-            onClose: onClose,
-            onNewTerminal: onNewTerminal,
-            onDone: onDone
-        )
+    func updateUIViewController(_ controller: TerminalTabOverviewPresentationController, context: Context) {
+        controller.update(self)
     }
 
-    static func dismantleUIViewController(_ viewController: TerminalTabOverviewViewController, coordinator: ()) {
-        viewController.stopTransitions()
+    static func dismantleUIViewController(_ controller: TerminalTabOverviewPresentationController, coordinator: ()) {
+        controller.stop()
     }
 }
 #endif

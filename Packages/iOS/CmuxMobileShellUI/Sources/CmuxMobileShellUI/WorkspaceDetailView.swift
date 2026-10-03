@@ -75,6 +75,7 @@ struct WorkspaceDetailView: View {
     #if canImport(UIKit)
     /// Drives the Safari-style terminal tab overview.
     @State private var isTabOverviewPresented = UITestConfig.terminalOverviewPreviewEnabled
+    @State private var terminalOverviewOrder: [MobileTerminalPreview.ID] = []
     @State private var isFeedbackComposerPresented = false
     @State private var feedbackText = ""
     @State private var feedbackEmail = ""
@@ -249,8 +250,9 @@ struct WorkspaceDetailView: View {
             // terminal surface, which has no system scroll view.
             .mobilePinnedNavigationBar()
             .trackBarPresence(barPresence)
-            .fullScreenCover(isPresented: $isTabOverviewPresented) {
+            .background {
                 terminalOverviewCoverContent
+                    .allowsHitTesting(false)
             }
 
         detailNavigationChrome(navigationContent)
@@ -946,22 +948,29 @@ struct WorkspaceDetailView: View {
 
     private var terminalOverviewCoverContent: some View {
         TerminalTabOverviewView(
+            isPresented: isTabOverviewPresented,
             workspaceName: workspace.name,
             items: terminalOverviewItems,
             canCloseTabs: closeTerminal != nil,
             onSelect: selectTerminalFromOverview,
             onClose: closeTerminalFromOverview,
             onNewTerminal: createTerminalFromOverview,
+            onReorder: { terminalOverviewOrder = $0 },
             onDone: { isTabOverviewPresented = false }
         )
         .task(id: terminalOverviewRefreshKey) {
+            guard isTabOverviewPresented else { return }
             await store.refreshWorkspaces()
             await store.refreshTerminalOverviewPreviews(in: workspace.id)
         }
     }
 
     private var terminalOverviewItems: [TerminalTabOverviewItem] {
-        workspace.terminals.map { terminal in
+        let byID = Dictionary(uniqueKeysWithValues: workspace.terminals.map { ($0.id, $0) })
+        let retained = terminalOverviewOrder.compactMap { byID[$0] }
+        let retainedIDs = Set(retained.map(\.id))
+        let ordered = retained + workspace.terminals.filter { !retainedIDs.contains($0.id) }
+        return ordered.map { terminal in
             TerminalTabOverviewItem(
                 id: terminal.id,
                 title: terminal.name,
@@ -974,7 +983,7 @@ struct WorkspaceDetailView: View {
 
     private var terminalOverviewRefreshKey: String {
         let terminalIDs = workspace.terminals.map(\.id.rawValue).joined(separator: ",")
-        return "\(workspace.id.rawValue)#\(terminalIDs)#\(effectiveConnectionStatus == .connected ? 1 : 0)"
+        return "\(workspace.id.rawValue)#\(terminalIDs)#\(isTabOverviewPresented)#\(effectiveConnectionStatus == .connected ? 1 : 0)"
     }
 
     private func openTabOverviewFromToolbar() {

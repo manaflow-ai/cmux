@@ -65,7 +65,6 @@ final class TerminalTabOverviewViewController: UIViewController {
     // background as the reference UI.
     private let canvasColor = UIColor(red: 0.918, green: 0.855, blue: 0.808, alpha: 1)
     private let bottomCanvasColor = UIColor(red: 0.824, green: 0.831, blue: 0.863, alpha: 1)
-    private let privateLockColor = UIColor(red: 0.095, green: 0.095, blue: 0.095, alpha: 1)
     private let topBar = TerminalTabOverviewPassthroughView()
     private let searchButton = UIButton(type: .system)
     private let layoutButton = UIButton(type: .system)
@@ -85,17 +84,16 @@ final class TerminalTabOverviewViewController: UIViewController {
     private var onClose: (MobileTerminalPreview.ID) -> Void
     private var onNewTerminal: () -> Void
     private var onDone: () -> Void
-    private var cards: [MobileTerminalPreview.ID: TerminalTabOverviewCardView] = [:]
+    private let grid = TerminalTabOverviewGridView()
+    private var cards: [MobileTerminalPreview.ID: TerminalTabOverviewCardView] { grid.cardViews }
+    private var onReorder: ([MobileTerminalPreview.ID]) -> Void
+    private(set) var transitionTerminalID: MobileTerminalPreview.ID?
     private var removedIDs = Set<MobileTerminalPreview.ID>()
     private var hasLaidOut = false
     private var isTransitioning = false
     private var hintIsVisible = true
     private var isPrivateMode = false
-    private var manualOrderIDs: [MobileTerminalPreview.ID]?
     private var searchOverlay: TerminalTabOverviewSearchOverlay?
-    private var draggingID: MobileTerminalPreview.ID?
-    private var presentationBackgrounds: [(UIView, UIColor?)] = []
-    private var presentationBottomBackdrop: UIView?
 
     init(
         workspaceName: String,
@@ -104,6 +102,7 @@ final class TerminalTabOverviewViewController: UIViewController {
         onSelect: @escaping (MobileTerminalPreview.ID) -> Void,
         onClose: @escaping (MobileTerminalPreview.ID) -> Void,
         onNewTerminal: @escaping () -> Void,
+        onReorder: @escaping ([MobileTerminalPreview.ID]) -> Void,
         onDone: @escaping () -> Void
     ) {
         self.workspaceName = workspaceName
@@ -112,9 +111,11 @@ final class TerminalTabOverviewViewController: UIViewController {
         self.onSelect = onSelect
         self.onClose = onClose
         self.onNewTerminal = onNewTerminal
+        self.onReorder = onReorder
         self.onDone = onDone
         super.init(nibName: nil, bundle: nil)
         modalPresentationCapturesStatusBarAppearance = true
+        transitionTerminalID = items.first(where: \.isSelected)?.id
     }
 
     @available(*, unavailable)
@@ -124,11 +125,17 @@ final class TerminalTabOverviewViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        // Extend the warm Safari-like canvas behind the status bar too. UIKit
-        // lays the controller's view below the status bar, so leaving the root
-        // background at systemBackground produces a visible white strip.
         view.backgroundColor = canvasColor
         configureBackground()
+        view.addSubview(grid)
+        grid.onSelect = { [weak self] in self?.select(id: $0) }
+        grid.onClose = { [weak self] in self?.close(id: $0) }
+        grid.onReorder = { [weak self] order in
+            guard let self else { return }
+            let byID = Dictionary(uniqueKeysWithValues: self.items.map { ($0.id, $0) })
+            self.items = order.compactMap { byID[$0] }
+            self.onReorder(order)
+        }
         configureTopBar()
         configureHintCard()
         configurePrivateBrowsingView()
@@ -141,65 +148,15 @@ final class TerminalTabOverviewViewController: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         layoutChrome()
-        if !hasLaidOut {
-            hasLaidOut = true
-            layoutCards(animated: false)
-        }
-        layoutPresentationBottomBackdrop()
-    }
-
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-        // The full-screen cover's status-bar host is outside the controller's
-        // safe-area bounds. Tint the window underneath it so the canvas has no
-        // white seam at the top edge.
-        guard let window = view.window else { return }
-        window.backgroundColor = canvasColor
-        presentationBackgrounds.removeAll(keepingCapacity: true)
-        var ancestor = view.superview
-        while let current = ancestor {
-            presentationBackgrounds.append((current, current.backgroundColor))
-            current.backgroundColor = canvasColor
-            ancestor = current.superview
-        }
-        let bottomBackdrop = UIView()
-        bottomBackdrop.backgroundColor = bottomCanvasColor
-        bottomBackdrop.autoresizingMask = [.flexibleWidth, .flexibleTopMargin]
-        window.addSubview(bottomBackdrop)
-        presentationBottomBackdrop = bottomBackdrop
-        layoutPresentationBottomBackdrop()
-    }
-
-    override func viewWillDisappear(_ animated: Bool) {
-        super.viewWillDisappear(animated)
-        view.window?.backgroundColor = .systemBackground
-        presentationBottomBackdrop?.removeFromSuperview()
-        presentationBottomBackdrop = nil
-        for (view, color) in presentationBackgrounds {
-            view.backgroundColor = color
-        }
-        presentationBackgrounds.removeAll(keepingCapacity: true)
+        hasLaidOut = true
+        grid.frame = view.bounds
+        layoutCards(animated: false)
     }
 
     override var prefersStatusBarHidden: Bool { false }
 
     override var preferredStatusBarStyle: UIStatusBarStyle {
         traitCollection.userInterfaceStyle == .dark ? .lightContent : .darkContent
-    }
-
-    private func layoutPresentationBottomBackdrop() {
-        guard let window = view.window, let backdrop = presentationBottomBackdrop else { return }
-        let bottomInset = max(window.safeAreaInsets.bottom, view.safeAreaInsets.bottom)
-        guard bottomInset > 0 else {
-            backdrop.frame = .zero
-            return
-        }
-        backdrop.frame = CGRect(
-            x: 0,
-            y: window.bounds.height - bottomInset,
-            width: window.bounds.width,
-            height: bottomInset
-        )
     }
 
     func update(
@@ -209,20 +166,16 @@ final class TerminalTabOverviewViewController: UIViewController {
         onSelect: @escaping (MobileTerminalPreview.ID) -> Void,
         onClose: @escaping (MobileTerminalPreview.ID) -> Void,
         onNewTerminal: @escaping () -> Void,
+        onReorder: @escaping ([MobileTerminalPreview.ID]) -> Void,
         onDone: @escaping () -> Void
     ) {
         self.workspaceName = workspaceName
-        if let manualOrderIDs, Set(manualOrderIDs) == Set(items.map(\.id)) {
-            let incomingByID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
-            self.items = manualOrderIDs.compactMap { incomingByID[$0] }
-        } else {
-            self.manualOrderIDs = nil
-            self.items = items
-        }
+        self.items = items
         self.canCloseTabs = canCloseTabs
         self.onSelect = onSelect
         self.onClose = onClose
         self.onNewTerminal = onNewTerminal
+        self.onReorder = onReorder
         self.onDone = onDone
         guard isViewLoaded else { return }
 
@@ -396,16 +349,7 @@ final class TerminalTabOverviewViewController: UIViewController {
 
     private func layoutChrome() {
         let bounds = view.bounds
-        // Full-screen covers report a safe-area inset while their view starts
-        // below the status bar. Extend the canvas upward so the status-bar
-        // region uses the same gradient as the tab overview.
-        let extendedBounds = CGRect(
-            x: bounds.minX,
-            y: bounds.minY - view.safeAreaInsets.top,
-            width: bounds.width,
-            height: bounds.height + view.safeAreaInsets.top + view.safeAreaInsets.bottom
-        )
-        backgroundView.frame = extendedBounds
+        backgroundView.frame = bounds
         backgroundTint.frame = backgroundView.bounds
         backgroundGradient.frame = backgroundTint.bounds
 
@@ -473,90 +417,28 @@ final class TerminalTabOverviewViewController: UIViewController {
     }
 
     private func reconcileCards(animated: Bool) {
-        let newItems = visibleItems
-        let newIDs = Set(newItems.map(\.id))
-        for id in cards.keys where !newIDs.contains(id) {
-            cards[id]?.removeFromSuperview()
-            cards[id] = nil
-        }
-
-        for item in newItems {
-            if let card = cards[item.id] {
-                card.update(item: item, canClose: canCloseTabs && item.canClose && newItems.count > 1)
-            } else {
-                let card = TerminalTabOverviewCardView(
-                    item: item,
-                    canClose: canCloseTabs && item.canClose && newItems.count > 1
-                )
-                card.onSelect = { [weak self] id in self?.select(id: id) }
-                card.onClose = { [weak self] id in self?.close(id: id) }
-                card.onDrag = { [weak self] id, state, location in
-                    self?.dragChanged(id: id, state: state, location: location)
-                }
-                cards[item.id] = card
-                view.addSubview(card)
-            }
-        }
-        if hasLaidOut {
-            layoutCards(animated: animated)
-        }
-        cards.values.forEach { $0.isHidden = isPrivateMode }
+        grid.update(items: visibleItems, canClose: canCloseTabs)
+        grid.isHidden = isPrivateMode
+        if hasLaidOut { layoutCards(animated: animated) }
+        view.setNeedsLayout()
     }
 
     private func layoutCards(animated: Bool) {
-        let visible = visibleItems
-        guard !isPrivateMode else { return }
-        guard !visible.isEmpty else { return }
-        let compact = visible.count > 1
-        let width = compact ? floor((view.bounds.width - 48) / 2) : min(268, view.bounds.width - 32)
-        let height: CGFloat = compact ? 272 : 400
-        let rows = Int(ceil(Double(visible.count) / 2.0))
-        let safeTop = view.safeAreaInsets.top
-        let bottom = view.bounds.height - view.safeAreaInsets.bottom - 48 - 4
-        let top: CGFloat
-        if compact {
-            // With the teaching card visible, Safari places the first row
-            // directly below it. Once the card is dismissed the grid rises
-            // into the space below the top controls.
-            let desired: CGFloat
-            if hintIsVisible {
-                desired = visible.count > 2 ? safeTop + 153 : safeTop + 212
-            } else {
-                desired = safeTop + 60
-            }
-            let maxTop = bottom - CGFloat(rows) * height - CGFloat(max(0, rows - 1)) * 16 - 10
-            top = min(desired, maxTop)
-        } else {
-            // A single tab is centered in the open area. Keep the same anchor
-            // when the teaching card fades so the card does not jump during
-            // the close transition.
-            let desired = safeTop + 210
-            let maxTop = bottom - height - 10
-            top = min(desired, maxTop)
-        }
+        grid.layoutCards(safeArea: view.safeAreaInsets, hintIsVisible: hintIsVisible, animated: animated)
+    }
 
-        let changes = {
-            for (index, item) in visible.enumerated() {
-                guard let card = self.cards[item.id] else { continue }
-                let column = index % 2
-                let row = index / 2
-                let x = compact ? 16 + CGFloat(column) * (width + 16) : (self.view.bounds.width - width) / 2
-                let frame = CGRect(x: x, y: top + CGFloat(row) * (height + 16), width: width, height: height)
-                card.frame = frame.integral
-            }
-        }
-        if animated {
-            UIView.animate(
-                withDuration: 0.38,
-                delay: 0,
-                usingSpringWithDamping: 0.88,
-                initialSpringVelocity: 0.2,
-                options: [.beginFromCurrentState, .allowUserInteraction],
-                animations: changes
-            )
-        } else {
-            changes()
-        }
+    /// The transition always follows a stable terminal, even after reordering.
+    func transitionCard() -> TerminalTabOverviewCardView? {
+        guard !isPrivateMode, let id = transitionTerminalID else { return nil }
+        view.layoutIfNeeded()
+        return grid.card(for: id, reveal: true)
+    }
+
+    func setZoomChromeAlpha(_ alpha: CGFloat) {
+        grid.alpha = alpha
+        topBar.alpha = alpha
+        bottomBar.alpha = alpha
+        hintCard.alpha = hintIsVisible ? alpha : 0
     }
 
     private func setHintVisible(_ visible: Bool, animated: Bool) {
@@ -576,34 +458,14 @@ final class TerminalTabOverviewViewController: UIViewController {
     }
 
     private func select(id: MobileTerminalPreview.ID) {
-        guard !isTransitioning, !isPrivateMode, let card = cards[id] else { return }
-        isTransitioning = true
-        let target = view.bounds.insetBy(dx: -18, dy: -18)
-        UIView.animate(
-            withDuration: 0.36,
-            delay: 0,
-            options: [.curveEaseInOut, .beginFromCurrentState],
-            animations: {
-                self.cards.values.filter { $0 !== card }.forEach { $0.alpha = 0 }
-                self.topBar.alpha = 0
-                self.hintCard.alpha = 0
-                self.bottomBar.alpha = 0
-                self.backgroundTint.alpha = 0.92
-                card.layer.zPosition = 10
-                card.frame = target
-                card.layer.cornerRadius = 0
-            },
-            completion: { [weak self] _ in
-                guard let self else { return }
-                self.onSelect(id)
-                self.isTransitioning = false
-            }
-        )
+        guard !isTransitioning, !isPrivateMode else { return }
+        transitionTerminalID = id
+        onSelect(id)
     }
 
     private func close(id: MobileTerminalPreview.ID) {
         guard !isTransitioning, !isPrivateMode, let card = cards[id] else { return }
-        guard visibleItems.count > 1 else { return }
+        guard canCloseTabs, visibleItems.count > 1, visibleItems.first(where: { $0.id == id })?.canClose == true else { return }
         isTransitioning = true
         removedIDs.insert(id)
         UIView.animate(
@@ -616,8 +478,6 @@ final class TerminalTabOverviewViewController: UIViewController {
             },
             completion: { [weak self] _ in
                 guard let self else { return }
-                card.removeFromSuperview()
-                self.cards[id] = nil
                 self.reconcileCards(animated: true)
                 self.isTransitioning = false
                 // Let the local shrink and reflow finish before SwiftUI updates
@@ -668,24 +528,8 @@ final class TerminalTabOverviewViewController: UIViewController {
 
     @objc private func doneTapped() {
         guard !isTransitioning else { return }
-        isTransitioning = true
-        UIView.animate(
-            withDuration: 0.25,
-            delay: 0,
-            options: [.curveEaseInOut, .beginFromCurrentState],
-            animations: {
-                self.cards.values.forEach { $0.alpha = 0 }
-                self.topBar.alpha = 0
-                self.hintCard.alpha = 0
-                self.bottomBar.alpha = 0
-                self.backgroundTint.alpha = 0.15
-            },
-            completion: { [weak self] _ in
-                guard let self else { return }
-                self.onDone()
-                self.isTransitioning = false
-            }
-        )
+        transitionTerminalID = visibleItems.first(where: \.isSelected)?.id
+        onDone()
     }
 
     @objc private func groupChanged() {
@@ -729,7 +573,7 @@ final class TerminalTabOverviewViewController: UIViewController {
 
     private func setPrivateMode(_ privateMode: Bool, animated: Bool) {
         guard privateMode != isPrivateMode else { return }
-        let regularViews: [UIView] = [hintCard] + Array(cards.values)
+        let regularViews: [UIView] = [hintCard, grid]
         let horizontalOffset = view.bounds.width
         isPrivateMode = privateMode
         groupControl.selectedSegmentIndex = privateMode ? 0 : 1
@@ -757,7 +601,6 @@ final class TerminalTabOverviewViewController: UIViewController {
         let changes = { [weak self] in
             guard let self else { return }
             self.layoutButton.isHidden = privateMode
-            self.presentationBottomBackdrop?.backgroundColor = self.bottomCanvasColor
             self.view.setNeedsLayout()
             self.view.layoutIfNeeded()
             regularViews.forEach {
@@ -804,7 +647,6 @@ final class TerminalTabOverviewViewController: UIViewController {
             self.privateLockView.isHidden = true
             self.privateLockView.alpha = 1
             self.privateLockView.transform = .identity
-            self.presentationBottomBackdrop?.backgroundColor = self.bottomCanvasColor
             self.view.bringSubviewToFront(self.topBar)
             self.view.bringSubviewToFront(self.bottomBar)
             self.view.bringSubviewToFront(self.privateBrowsingView)
@@ -825,7 +667,6 @@ final class TerminalTabOverviewViewController: UIViewController {
         privateLockView.isHidden = false
         privateLockView.alpha = 0
         privateLockView.transform = CGAffineTransform(translationX: 0, y: privateLockView.bounds.height)
-        presentationBottomBackdrop?.backgroundColor = privateLockColor
         view.bringSubviewToFront(privateLockView)
         UIAccessibility.post(notification: .screenChanged, argument: privateLockView)
         let animations = {
@@ -844,56 +685,6 @@ final class TerminalTabOverviewViewController: UIViewController {
         }
     }
 
-    private func reorder(id: MobileTerminalPreview.ID, at location: CGPoint) {
-        let visible = visibleItems
-        guard let currentIndex = visible.firstIndex(where: { $0.id == id }) else { return }
-        let targetIndex = visible.enumerated()
-            .filter { $0.element.id != id }
-            .min { lhs, rhs in
-                let left = cards[lhs.element.id].map { hypot($0.center.x - location.x, $0.center.y - location.y) } ?? .greatestFiniteMagnitude
-                let right = cards[rhs.element.id].map { hypot($0.center.x - location.x, $0.center.y - location.y) } ?? .greatestFiniteMagnitude
-                return left < right
-            }
-            .map(\.offset) ?? currentIndex
-        guard targetIndex != currentIndex else { return }
-        var order = visible
-        let moved = order.remove(at: currentIndex)
-        order.insert(moved, at: min(targetIndex, order.count))
-        let visibleIDs = Set(visible.map(\.id))
-        var next = order
-        next.append(contentsOf: items.filter { !visibleIDs.contains($0.id) })
-        items = next
-        manualOrderIDs = next.map(\.id)
-        layoutCards(animated: true)
-    }
-
-    private func dragChanged(id: MobileTerminalPreview.ID, state: UIGestureRecognizer.State, location: CGPoint) {
-        guard !isPrivateMode, let card = cards[id] else { return }
-        switch state {
-        case .began:
-            draggingID = id
-            card.layer.zPosition = 20
-            UIView.animate(withDuration: 0.18) {
-                card.transform = CGAffineTransform(scaleX: 1.04, y: 1.04)
-                card.layer.shadowOpacity = 0.24
-                card.layer.shadowRadius = 18
-            }
-        case .changed:
-            card.center = location
-        case .ended, .cancelled, .failed:
-            reorder(id: id, at: location)
-            draggingID = nil
-            UIView.animate(withDuration: 0.28, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0.1) {
-                card.transform = .identity
-                card.layer.shadowOpacity = 0.13
-                card.layer.shadowRadius = 12
-            } completion: { _ in
-                card.layer.zPosition = 0
-            }
-        default:
-            break
-        }
-    }
 }
 
 @MainActor
@@ -1284,187 +1075,4 @@ private final class TerminalTabOverviewHintView: UIView {
     }
 }
 
-@MainActor
-private final class TerminalTabOverviewCardView: UIControl {
-    var onSelect: ((MobileTerminalPreview.ID) -> Void)?
-    var onClose: ((MobileTerminalPreview.ID) -> Void)?
-    var onDrag: ((MobileTerminalPreview.ID, UIGestureRecognizer.State, CGPoint) -> Void)?
-
-    private var item: TerminalTabOverviewItem
-    private let surface = UIView()
-    private let preview = UIView()
-    private let titleLabel = UILabel()
-    private let bottomTitleLabel = UILabel()
-    private let groupIcon = UIImageView(image: UIImage(systemName: "square.grid.3x3.fill"))
-    private let closeButton = UIButton(type: .system)
-    private let lineStack = UIStackView()
-    private let bodyStack = UIStackView()
-
-    init(item: TerminalTabOverviewItem, canClose: Bool) {
-        self.item = item
-        super.init(frame: .zero)
-        isAccessibilityElement = true
-        accessibilityTraits = .button
-        configure()
-        update(item: item, canClose: canClose)
-    }
-
-    var itemTitle: String { item.title }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func update(item: TerminalTabOverviewItem, canClose: Bool) {
-        self.item = item
-        accessibilityLabel = item.title
-        accessibilityIdentifier = "MobileTerminalOverviewCard-\(item.id.rawValue)"
-        closeButton.isHidden = !canClose
-        closeButton.accessibilityIdentifier = "MobileTerminalOverviewClose-\(item.id.rawValue)"
-        titleLabel.text = item.title
-        bottomTitleLabel.text = item.title
-        lineStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        let lines = item.previewLines.prefix(10)
-        if lines.isEmpty {
-            lineStack.addArrangedSubview(makeLine("No preview yet", muted: true))
-        } else {
-            for line in lines {
-                lineStack.addArrangedSubview(makeLine(line.isEmpty ? " " : line, muted: false))
-            }
-        }
-        bodyStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        let bodyLines = lines.suffix(3)
-        for line in bodyLines {
-            let bodyLine = makeLine(line.isEmpty ? " " : line, muted: true)
-            bodyLine.textColor = UIColor.secondaryLabel.withAlphaComponent(0.82)
-            bodyStack.addArrangedSubview(bodyLine)
-        }
-        setNeedsLayout()
-    }
-
-    private func configure() {
-        backgroundColor = UIColor.secondarySystemBackground
-        layer.cornerRadius = 19
-        layer.shadowColor = UIColor.black.cgColor
-        layer.shadowOpacity = 0.13
-        layer.shadowRadius = 12
-        layer.shadowOffset = CGSize(width: 0, height: 6)
-        layer.masksToBounds = false
-        addTarget(self, action: #selector(selected), for: .touchUpInside)
-        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(longPressed(_:)))
-        longPress.minimumPressDuration = 0.28
-        longPress.allowableMovement = 80
-        longPress.cancelsTouchesInView = true
-        addGestureRecognizer(longPress)
-
-        surface.backgroundColor = .systemBackground
-        surface.layer.cornerRadius = 15
-        surface.layer.masksToBounds = true
-        // Let the card control own taps everywhere except its explicit close
-        // button. Without this, UIKit hit-tests the preview container and a
-        // tap on the card body never reaches UIControl.touchUpInside.
-        surface.isUserInteractionEnabled = false
-        addSubview(surface)
-
-        preview.backgroundColor = UIColor(red: 0.075, green: 0.08, blue: 0.09, alpha: 1)
-        preview.layer.cornerRadius = 12
-        preview.layer.masksToBounds = true
-        surface.addSubview(preview)
-
-        lineStack.axis = .vertical
-        lineStack.alignment = .fill
-        lineStack.distribution = .fill
-        lineStack.spacing = 1
-        preview.addSubview(lineStack)
-
-        bodyStack.axis = .vertical
-        bodyStack.alignment = .fill
-        bodyStack.distribution = .fill
-        bodyStack.spacing = 2
-        bodyStack.isUserInteractionEnabled = false
-        addSubview(bodyStack)
-
-        titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
-        titleLabel.textColor = .label
-        titleLabel.lineBreakMode = .byTruncatingTail
-        surface.addSubview(titleLabel)
-
-        bottomTitleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
-        bottomTitleLabel.textColor = .label
-        bottomTitleLabel.lineBreakMode = .byTruncatingTail
-        addSubview(bottomTitleLabel)
-
-        groupIcon.tintColor = .secondaryLabel
-        groupIcon.contentMode = .scaleAspectFit
-        addSubview(groupIcon)
-
-        // Card close controls use Safari's filled SF Symbol. Keeping this as
-        // an image preserves the symbol's native gray circle and avoids a
-        // hand-painted background behind the card preview.
-        closeButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
-        closeButton.setPreferredSymbolConfiguration(
-            UIImage.SymbolConfiguration(pointSize: 22, weight: .regular),
-            forImageIn: .normal
-        )
-        closeButton.tintColor = .secondaryLabel
-        closeButton.accessibilityLabel = L10n.string("mobile.terminal.overview.close", defaultValue: "Close Terminal")
-        closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
-        addSubview(closeButton)
-    }
-
-    private func makeLine(_ text: String, muted: Bool) -> UILabel {
-        let label = UILabel()
-        label.text = text
-        label.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
-        label.textColor = muted ? UIColor.white.withAlphaComponent(0.48) : UIColor.white.withAlphaComponent(0.88)
-        label.lineBreakMode = .byTruncatingTail
-        return label
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        let inset: CGFloat = bounds.width > 220 ? 9 : 7
-        let surfaceHeight: CGFloat = bounds.height > 300 ? 178 : 146
-        surface.frame = CGRect(
-            x: inset,
-            y: inset,
-            width: max(0, bounds.width - inset * 2),
-            height: max(0, min(surfaceHeight, bounds.height - inset * 2))
-        )
-        let closeSize: CGFloat = 30
-        closeButton.frame = CGRect(x: bounds.width - closeSize - 4, y: 4, width: closeSize, height: closeSize)
-        let titleY: CGFloat = 14
-        titleLabel.frame = CGRect(x: 16, y: titleY, width: max(0, surface.bounds.width - 32), height: 22)
-        preview.frame = CGRect(
-            x: 8,
-            y: titleY + 30,
-            width: max(0, surface.bounds.width - 16),
-            height: max(0, surface.bounds.height - titleY - 38)
-        )
-        lineStack.frame = preview.bounds.insetBy(dx: 9, dy: 8)
-        bodyStack.frame = CGRect(
-            x: 16,
-            y: surface.frame.maxY + 12,
-            width: max(0, bounds.width - 32),
-            height: max(0, bounds.height - surface.frame.maxY - 48)
-        )
-        let bottomY = bounds.height - 30
-        groupIcon.frame = CGRect(x: 16, y: bottomY, width: 16, height: 16)
-        bottomTitleLabel.frame = CGRect(x: 38, y: bottomY - 2, width: max(0, bounds.width - 50), height: 22)
-    }
-
-    @objc private func selected() {
-        onSelect?(item.id)
-    }
-
-    @objc private func closeTapped() {
-        onClose?(item.id)
-    }
-
-    @objc private func longPressed(_ gesture: UILongPressGestureRecognizer) {
-        let location = gesture.location(in: superview)
-        onDrag?(item.id, gesture.state, location)
-    }
-}
 #endif
