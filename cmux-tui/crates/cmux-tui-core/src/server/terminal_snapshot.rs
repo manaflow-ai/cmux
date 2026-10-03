@@ -330,6 +330,7 @@ impl SnapshotWorker {
                 // continuation budget: retry at the next output; the viewer
                 // stays attached.
                 self.receiver.defer_snapshot();
+                self.gate.sent(Instant::now());
                 true
             }
         }
@@ -465,21 +466,27 @@ fn attach(
             return Err(error.into());
         }
     };
-    let first = surface.take_viewer_snapshot(&stream.receiver);
-    let first = match first {
-        Ok(first) => first,
-        Err(error) => {
-            lifecycle.cancel();
-            rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
-            return Err(anyhow::anyhow!("could not encode the terminal snapshot: {error}"));
+    // The first snapshot goes out before the reply. When it cannot be
+    // encoded yet (an unfinished escape sequence over the continuation
+    // budget), the attach still succeeds and the worker sends it at the next
+    // output.
+    let (generation, offset) = match surface.take_viewer_snapshot(&stream.receiver) {
+        Ok(first) => {
+            stream.requests.sent(Instant::now());
+            let initial = snapshot_json(surface_id, &first);
+            if let Err(error) = writer.send_initial(&initial, &outbound_stream) {
+                handle_attach_send_error(&lifecycle, &error);
+                rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
+                return Err(error.into());
+            }
+            (first.generation, first.offset)
+        }
+        Err(_) => {
+            stream.receiver.defer_snapshot();
+            stream.requests.sent(Instant::now());
+            surface.snapshot_stream_position().unwrap_or_default()
         }
     };
-    stream.requests.sent(Instant::now());
-    if let Err(error) = writer.send_initial(&snapshot_json(surface_id, &first), &outbound_stream) {
-        handle_attach_send_error(&lifecycle, &error);
-        rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
-        return Err(error.into());
-    }
     if let Err(error) = spawn_attach_notification_stream(
         mux.clone(),
         surface_id,
@@ -507,8 +514,8 @@ fn attach(
         receiver: stream.receiver,
         lifecycle: stream.lifecycle,
         gate: stream.requests,
-        generation: first.generation,
-        offset: first.offset,
+        generation,
+        offset,
     };
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
     let spawned =

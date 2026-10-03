@@ -154,7 +154,8 @@ impl SnapshotRequestGate {
         SnapshotAdmission::Accepted
     }
 
-    /// The worker sent a snapshot at `now`.
+    /// The worker sent a snapshot at `now`, or tried and deferred it (a
+    /// deferred snapshot is not pending: a later request asks again).
     pub(crate) fn sent(&self, now: Instant) {
         let mut state = self.state.lock().unwrap();
         // A request that arrived after the snapshot was taken still waits for
@@ -279,7 +280,6 @@ impl Surface {
     }
 
     /// `(generation, offset)` of the published stream.
-    #[cfg(test)]
     pub(crate) fn snapshot_stream_position(&self) -> Option<(u64, u64)> {
         self.as_pty().map(|pty| pty.snapshot_position.load())
     }

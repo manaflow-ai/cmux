@@ -317,12 +317,10 @@ pub(crate) struct SnapshotRequestHandle {
 }
 
 impl SnapshotRequestHandle {
-    /// Whether a snapshot is still owed to the viewer.
+    /// Whether a snapshot is queued for the viewer (a deferred one is not:
+    /// it waits for output, and a request may ask again).
     pub(crate) fn snapshot_pending(&self) -> bool {
-        self.state.upgrade().is_some_and(|state| {
-            let queue = state.queue.lock().unwrap();
-            queue.needs_snapshot || queue.snapshot_deferred
-        })
+        self.state.upgrade().is_some_and(|state| state.queue.lock().unwrap().needs_snapshot)
     }
 
     /// Returns false when the viewer is gone.
@@ -385,6 +383,7 @@ impl AttachFrameReceiver {
         queue.frames.clear();
         queue.retained_bytes = 0;
         queue.needs_snapshot = false;
+        queue.snapshot_deferred = false;
     }
 
     /// The snapshot could not be encoded now: drop queued frames and retry
