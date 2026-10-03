@@ -113,22 +113,8 @@ public final class TabStripView: NSView {
     /// End-of-tracking observer of the menu the strip returned last.
     var menuEndObserver: (any NSObjectProtocol)?
 
-    struct Press { var id: TabID; var start: CGPoint }
-
-    struct Drag {
-        var id: TabID
-        var grabOffset: CGFloat
-        var originalIndex: Int
-        var currentIndex: Int
-        var isPinned: Bool
-        var lastPoint: CGPoint
-        var originalGroup: TabGroupID?
-        var targetGroup: TabGroupID?
-        var grabY: CGFloat = 0 // press y in the clip; with grabOffset, the grabbed point the hand-off keeps
-    }
-
-    var press: Press?
-    var drag: Drag?
+    var press: TabStripPress?
+    var drag: TabStripDrag?
     /// Order shown after a local reorder until the model's order changes.
     var orderOverride: [TabID]?
     /// Tab torn out of this strip and handed to the App's drag session. Its

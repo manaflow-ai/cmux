@@ -135,7 +135,7 @@ extension TabStripView {
             }
             // Select on mouse down.
             if model.selectedID != id { model.send(.select(id)) }
-            press = Press(id: id, start: point)
+            press = TabStripPress(id: id, start: point)
             return
         }
         // Between tabs or trailing buttons: the strip's, never the window's.
