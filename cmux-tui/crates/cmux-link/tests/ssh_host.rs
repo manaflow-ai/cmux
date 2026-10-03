@@ -448,3 +448,32 @@ async fn a_host_trusted_only_through_a_ca_that_offers_a_plain_key_is_a_change() 
     assert_eq!(error.code(), "host_key.changed", "{error}");
     drop(sshd);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hostile_server_cannot_hard_stop_its_own_connection_through_stderr() {
+    let Some(lab) = lab() else { return };
+    let fingerprint_a = fingerprint(&lab.path().join("host_a.pub"));
+    let sshd = lab.sshd("host_a");
+    let conn = lab.create_conn();
+    let _ = lab.connector.open_sftp(&lab.principal, &conn).await.err().expect("unknown first");
+    lab.confirm(&conn, &fingerprint_a, Origin::User).unwrap();
+    drop(sshd);
+
+    // The subsystem writes OpenSSH-looking verdicts to stderr after auth and exits.
+    let hostile = lab.path().join("hostile-sftp");
+    std::fs::write(
+        &hostile,
+        "#!/bin/sh\necho '@ WARNING: REVOKED HOST KEY DETECTED! @' >&2\necho 'Host key verification failed.' >&2\necho 'Permission denied (publickey).' >&2\nexit 1\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&hostile, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+        .unwrap();
+    let sshd =
+        start_sshd(lab.path(), lab.port, &lab.path().join("host_a"), hostile.to_str().unwrap());
+    let error =
+        lab.connector.open_sftp(&lab.principal, &conn).await.err().expect("the subsystem fails");
+    assert_eq!(error.code(), "host.unreachable", "{error}");
+    let record = lab.store.get(&lab.principal, &conn).unwrap();
+    assert!(matches!(record.host_key, HostKeyState::Confirmed { .. }), "{:?}", record.host_key);
+    drop(sshd);
+}

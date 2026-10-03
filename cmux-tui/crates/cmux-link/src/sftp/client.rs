@@ -178,7 +178,10 @@ impl SftpClient {
             return Err(SftpError::ConnectionLost("client shut down".into()));
         };
         // A whole packet enters the queue or none of it does.
-        if queue.send(packet).await.is_err() {
+        let sent = queue.send(packet).await;
+        // Keep no sender while waiting, so shutdown never waits for replies.
+        drop(queue);
+        if sent.is_err() {
             return Err(SftpError::ConnectionLost("writer stopped".into()));
         }
         receiver.await.map_err(|_| {
@@ -437,5 +440,48 @@ fn unexpected(response: Response) -> SftpError {
     match response {
         Response::Status { code, message } => SftpError::Status { code, message },
         other => SftpError::Protocol(format!("unexpected reply {other:?}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+    use super::*;
+    use crate::sftp::proto::SSH_FXP_VERSION;
+
+    #[tokio::test]
+    async fn shutdown_does_not_wait_for_requests_in_flight() {
+        let (client_side, mut server_side) = tokio::io::duplex(64 * 1024);
+        let (reader, writer) = tokio::io::split(client_side);
+        let server = tokio::spawn(async move {
+            let length = server_side.read_u32().await.unwrap();
+            let mut init = vec![0_u8; length as usize];
+            server_side.read_exact(&mut init).await.unwrap();
+            let version = PacketBuilder::new(SSH_FXP_VERSION, None).u32(3).finish();
+            server_side.write_all(&version).await.unwrap();
+            // Never answer anything else; keep the stream open.
+            let mut sink = vec![0_u8; 4096];
+            while server_side.read(&mut sink).await.is_ok_and(|read| read > 0) {}
+        });
+        let client = SftpClient::connect(reader, writer).await.unwrap();
+        let waiting = {
+            let client = client.clone();
+            tokio::spawn(async move { client.realpath(".").await })
+        };
+        while client.pending_requests() == 0 {
+            tokio::task::yield_now().await;
+        }
+        let started = Instant::now();
+        client.shutdown().await;
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "shutdown took {:?}",
+            started.elapsed()
+        );
+        assert!(matches!(waiting.await.unwrap(), Err(SftpError::ConnectionLost(_))));
+        server.abort();
     }
 }

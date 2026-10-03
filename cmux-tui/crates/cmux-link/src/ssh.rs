@@ -20,7 +20,7 @@ use tokio::process::{Child, Command};
 use crate::conn::reducer::connect_gate;
 use crate::conn::{
     ConnKind, ConnOp, ConnPath, ConnRecord, ConnRequest, ConnStore, CredentialRef, HostKeyState,
-    Observation, Origin, PathKind, Principal, Reject, StoreError, Target,
+    Observation, Origin, PathKind, Principal, Reject, SshTarget, StoreError, Target,
 };
 use crate::host_key::{
     find_known_elsewhere, new_observation_file, observer_command, parse_observation,
@@ -30,7 +30,7 @@ use crate::ids::random_id;
 use crate::sftp::{SftpClient, SftpError};
 use crate::ssh_args::background_ssh_arguments;
 
-const STDERR_LIMIT: usize = 16 * 1024;
+const LOG_LIMIT: usize = 16 * 1024;
 const EXIT_GRACE: Duration = Duration::from_secs(5);
 
 /// How the link runs OpenSSH.
@@ -219,17 +219,28 @@ impl SshConnector {
             .map_err(ConnectError::Spawn)?;
         let observation_file =
             new_observation_file(&observer_directory).map_err(ConnectError::Spawn)?;
+        // OpenSSH's own messages go to this private file (`-E`), apart from
+        // the remote side's stderr, so a hostile server cannot write a line
+        // that the classifier reads as a host key or auth verdict.
+        let log_file = match new_observation_file(&observer_directory) {
+            Ok(path) => path,
+            Err(error) => {
+                let _ = std::fs::remove_file(&observation_file);
+                return Err(ConnectError::Spawn(error));
+            }
+        };
         let result = self
             .spawn_and_handshake(
                 principal,
                 &record,
-                target.port,
-                &target.destination,
+                target,
                 &observation_file,
+                &log_file,
                 credential_args,
             )
             .await;
         let _ = std::fs::remove_file(&observation_file);
+        let _ = std::fs::remove_file(&log_file);
         result
     }
 
@@ -237,13 +248,22 @@ impl SshConnector {
         &self,
         principal: &Principal,
         record: &ConnRecord,
-        port: Option<u16>,
-        destination: &str,
+        target: &SshTarget,
         observation_file: &Path,
+        log_file: &Path,
         credential_args: Vec<String>,
     ) -> Result<SftpSession, ConnectError> {
-        let options = self.link_options(&record.conn, observation_file, credential_args)?;
-        let mut arguments = background_ssh_arguments(port, &options, destination);
+        let mut options = self.link_options(&record.conn, observation_file, credential_args)?;
+        let subsystem_flag = options.pop();
+        options.push("-E".to_owned());
+        options.push(
+            log_file
+                .to_str()
+                .ok_or_else(|| ConnectError::Store("log path is not UTF-8".into()))?
+                .to_owned(),
+        );
+        options.extend(subsystem_flag);
+        let mut arguments = background_ssh_arguments(target.port, &options, &target.destination);
         arguments.push("sftp".to_owned());
         let mut child = Command::new(&self.settings.ssh)
             .args(&arguments)
@@ -256,18 +276,14 @@ impl SshConnector {
         let stdin = child.stdin.take().expect("stdin is piped");
         let stdout = child.stdout.take().expect("stdout is piped");
         let mut stderr = child.stderr.take().expect("stderr is piped");
+        // The remote side's stderr is drained and never classified.
         let stderr_task = tokio::spawn(async move {
-            let mut collected = Vec::new();
             let mut buffer = [0_u8; 4096];
             while let Ok(read) = stderr.read(&mut buffer).await {
                 if read == 0 {
                     break;
                 }
-                if collected.len() < STDERR_LIMIT {
-                    collected.extend_from_slice(&buffer[..read]);
-                }
             }
-            String::from_utf8_lossy(&collected).into_owned()
         });
         let handshake = tokio::time::timeout(
             self.settings.connect_timeout + Duration::from_secs(30),
@@ -324,8 +340,9 @@ impl SshConnector {
                 if tokio::time::timeout(EXIT_GRACE, child.wait()).await.is_err() {
                     let _ = child.kill().await;
                 }
-                let stderr = stderr_task.await.unwrap_or_default();
-                Err(self.classify_failure(principal, record, offered, &stderr, &error).await)
+                let _ = stderr_task.await;
+                let log = read_log(log_file);
+                Err(self.classify_failure(principal, record, offered, &log, &error).await)
             }
             Err(_) => {
                 let _ = child.kill().await;
@@ -401,13 +418,12 @@ impl SshConnector {
         principal: &Principal,
         record: &ConnRecord,
         offered: Option<crate::host_key::HostKey>,
-        stderr: &str,
+        log: &str,
         error: &SftpError,
     ) -> ConnectError {
         let conn = &record.conn;
         if let Some(offered) = offered
-            && (stderr.contains("Host key verification failed")
-                || stderr.contains("REVOKED HOST KEY"))
+            && (log.contains("Host key verification failed") || log.contains("REVOKED HOST KEY"))
         {
             let elsewhere = match find_known_elsewhere(
                 &self.settings.ssh_keygen,
@@ -423,7 +439,7 @@ impl SshConnector {
                     return ConnectError::KnownHostsUnreadable(error.to_string());
                 }
             };
-            let observation = if elsewhere.revoked || stderr.contains("REVOKED HOST KEY") {
+            let observation = if elsewhere.revoked || log.contains("REVOKED HOST KEY") {
                 Observation::HostKeyRevoked { offered: offered.clone() }
             } else {
                 Observation::HostKeyRejected {
@@ -448,18 +464,25 @@ impl SshConnector {
                 Err(error) => error,
             };
         }
-        if stderr.contains("Permission denied") {
+        if log.contains("Permission denied") {
             let _ = observe(&self.store, principal, conn, Observation::AuthFailed);
             return ConnectError::AuthFailed;
         }
         let _ = observe(&self.store, principal, conn, Observation::Unreachable);
-        let reason = stderr
+        let reason = log
             .lines()
             .rev()
             .find(|line| !line.trim().is_empty())
             .map_or_else(|| error.to_string(), |line| line.chars().take(200).collect());
         ConnectError::Unreachable(reason)
     }
+}
+
+/// OpenSSH's own log of one run, capped.
+fn read_log(path: &Path) -> String {
+    let mut bytes = std::fs::read(path).unwrap_or_default();
+    bytes.truncate(LOG_LIMIT);
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 fn observe(
