@@ -10,7 +10,12 @@ use crate::error::Error;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExecRequest {
+    /// The file executed: the canonical, verified path.
     pub program: PathBuf,
+    /// `argv[0]`: the name the program sees. The `cmux` binary picks its
+    /// command-line surface from it, so a `bin/cmux` that is a symlink to
+    /// another file name must still be called `…/bin/cmux`.
+    pub arg0: String,
     /// Arguments after the program name.
     pub args: Vec<String>,
     /// Added to the inherited environment.
@@ -63,7 +68,7 @@ fn execve(request: &ExecRequest) -> std::io::Error {
     let c = |bytes: &[u8]| CString::new(bytes).map_err(|e| std::io::Error::other(e.to_string()));
     let build = || -> std::io::Result<(CString, Vec<CString>, Vec<CString>)> {
         let program = c(request.program.as_os_str().as_bytes())?;
-        let mut argv = vec![program.clone()];
+        let mut argv = vec![c(request.arg0.as_bytes())?];
         for arg in &request.args {
             argv.push(c(arg.as_bytes())?);
         }

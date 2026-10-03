@@ -165,8 +165,15 @@ fn reexec_newer(ctx: &Context<'_>, args: &Args, layout: &Layout, staged: &Staged
         Ok(path) => path.clone(),
         Err(why) => return staged.refusal(&format!(" ({why}; expected {})", binary.as_str())),
     };
-    let request =
-        ExecRequest { program, args: exec_args, env: vec![(reexec::GUARD_ENV.to_owned(), marker)] };
+    // The canonical file runs, but argv[0] keeps the `…/bin/cmux` name: the
+    // `cmux` binary picks its surface from argv[0], and a symlink target
+    // named otherwise would flip `server` to the daemon lifecycle.
+    let request = ExecRequest {
+        program,
+        arg0: binary.as_str().to_owned(),
+        args: exec_args,
+        env: vec![(reexec::GUARD_ENV.to_owned(), marker)],
+    };
     ctx.exec.exec(&request)
 }
 

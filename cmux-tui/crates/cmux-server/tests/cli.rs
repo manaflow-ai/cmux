@@ -446,9 +446,49 @@ fn exec_of_a_binary_this_machine_cannot_run_is_exit_4_with_its_path() {
     // with ENOEXEC and the process is not replaced.
     std::fs::write(&program, [0u8, 1, 2, 3, 4, 5, 6, 7]).unwrap();
     std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let request =
-        cmux_server::exec::ExecRequest { program: program.clone(), args: vec![], env: vec![] };
+    let request = cmux_server::exec::ExecRequest {
+        program: program.clone(),
+        arg0: "foreign".to_owned(),
+        args: vec![],
+        env: vec![],
+    };
     let err = cmux_server::exec::Exec::exec(&cmux_server::exec::SystemExec, &request);
     assert_eq!(err.kind, ExitKind::Rejected, "{err}");
     assert!(err.message.contains(&program.display().to_string()), "{err}");
+}
+
+#[cfg(unix)]
+#[test]
+fn the_reexec_keeps_the_cmux_name_in_argv0_when_bin_cmux_is_a_symlink() {
+    // Review P2: a package whose bin/cmux links to cmux-tui (one binary,
+    // two names). The canonical file runs; argv[0] stays `…/bin/cmux`, so
+    // the `cmux` surface (and its `server` noun) is kept.
+    if cmux_server::sys::is_root() {
+        return;
+    }
+    let env = Env::new();
+    let mut builder = tar::Builder::new(Vec::new());
+    let body = b"cmux-tui binary";
+    let mut header = tar::Header::new_gnu();
+    header.set_size(body.len() as u64);
+    header.set_mode(0o755);
+    header.set_entry_type(tar::EntryType::Regular);
+    header.set_cksum();
+    builder.append_data(&mut header, "bin/cmux-tui", &body[..]).unwrap();
+    let mut link = tar::Header::new_gnu();
+    link.set_size(0);
+    link.set_mode(0o755);
+    link.set_entry_type(tar::EntryType::Symlink);
+    link.set_cksum();
+    builder.append_link(&mut link, "bin/cmux", "cmux-tui").unwrap();
+    let archive = gzip(&builder.into_inner().unwrap());
+    let pkg = env.publish_archive(1, "9.0.0", "9.0.0", archive);
+    let _ = env.run(&format!("install {CHAN}"));
+    let requests = env.exec.requests();
+    assert_eq!(requests.len(), 1);
+    let layout = layout_at(env.tmp.path(), host::platform());
+    let package = std::path::Path::new(layout.store.as_str()).join(sha_hex(&pkg.archive));
+    assert_eq!(requests[0].program, std::fs::canonicalize(package.join("bin/cmux-tui")).unwrap());
+    assert_eq!(requests[0].arg0, package.join("bin/cmux").to_str().unwrap());
+    assert_eq!(requests[0].args[0], "server");
 }
