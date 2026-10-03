@@ -1,5 +1,13 @@
 import { expect, test } from "bun:test";
-import { defaultRow, matchScore, MAX_NEW_TAB_ENTRIES, MAX_ROWS, omnibarContext, omnibarRows, type OmnibarContext } from "./omnibar";
+import {
+  defaultRow,
+  matchScore,
+  MAX_NEW_TAB_ENTRIES,
+  MAX_ROWS,
+  omnibarContext,
+  omnibarRows,
+  type OmnibarContext,
+} from "./omnibar";
 
 const context: OmnibarContext = {
   tabs: [
@@ -40,8 +48,15 @@ test("the empty bar lists open tabs and workspaces first, then recent things", (
 
 test("the web bridge validates and caps each NewTab source", () => {
   const value = omnibarContext({
-    tabs: Array.from({ length: MAX_NEW_TAB_ENTRIES + 2 }, (_, index) => ({ id: `tab-${index}`, kind: "terminal", title: `tab ${index}` })),
-    workspaces: Array.from({ length: MAX_NEW_TAB_ENTRIES + 2 }, (_, index) => ({ id: `workspace-${index}`, name: `workspace ${index}` })),
+    tabs: Array.from({ length: MAX_NEW_TAB_ENTRIES + 2 }, (_, index) => ({
+      id: `tab-${index}`,
+      kind: "terminal",
+      title: `tab ${index}`,
+    })),
+    workspaces: Array.from({ length: MAX_NEW_TAB_ENTRIES + 2 }, (_, index) => ({
+      id: `workspace-${index}`,
+      name: `workspace ${index}`,
+    })),
     folders: Array.from({ length: MAX_NEW_TAB_ENTRIES + 2 }, (_, index) => `/src/${index}`),
     commands: Array.from({ length: MAX_NEW_TAB_ENTRIES + 2 }, (_, index) => `cmd-${index}`),
     history: Array.from({ length: MAX_NEW_TAB_ENTRIES + 2 }, (_, index) => ({ url: `https://example.com/${index}` })),
