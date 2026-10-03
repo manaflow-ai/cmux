@@ -661,6 +661,20 @@
       "title" : "Notify Even When the Terminal Is Visible",
       "type" : "boolean"
     },
+    "tabs.newTabKind" : {
+      "default" : "same-kind",
+      "description" : "What Cmd-T and the + button open. Auto picks the kind you last opened in that folder.",
+      "enum" : [
+        "same-kind",
+        "terminal",
+        "browser",
+        "agent",
+        "page",
+        "auto"
+      ],
+      "title" : "New Tab Opens",
+      "type" : "string"
+    },
     "terminal.fontFamily" : {
       "description" : "A monospaced font installed on this Mac.",
       "title" : "Font Family",
