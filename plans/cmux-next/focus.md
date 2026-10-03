@@ -320,7 +320,8 @@ Selection (`terminal.scrollToSelection`, Ghostty's macOS Cmd-J, so cmux loads
 (which keeps Shift-Cmd-I), Cmd-J ? (Shift-/) Search Keyboard Shortcuts. Each is an
 ordinary chord in `cmux.json` (`"terminal.scrollToSelection": ["cmd+j", "k"]`); a single
 key or `null` for an action drops its leader chord, and a user's own single-key `cmd+j`
-binding for any action makes the default leader chords step aside, so that action runs.
+binding for any action makes the default leader chords step aside, so that action runs. A chord of the user's own under `cmd+j` keeps the leader armed, so a single-key `cmd+j`
+binding next to it never runs; pick one.
 The leader arms before a terminal sees the key, so cmux cannot tell that a Ghostty
 config binds `super+j` (a later `keybind` line only replaces cmux's unbind inside
 Ghostty's config); to give Cmd-J back to Ghostty, unbind the three leader chords in

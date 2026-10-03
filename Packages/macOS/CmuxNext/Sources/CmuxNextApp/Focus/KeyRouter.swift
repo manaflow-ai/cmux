@@ -194,7 +194,9 @@ final class KeyRouter: BrowserKeyRouting {
             cancelChord()
             return nil
         }
-        let step = chords.step(event, window: ObjectIdentifier(window), registry: registry, focus: controller.focus.state.resolved) {
+        // Keyed by the shell window, as focus settles report it: a Chromium
+        // page window is a child of the shell.
+        let step = chords.step(event, window: ObjectIdentifier(controller.window ?? window), registry: registry, focus: controller.focus.state.resolved) {
             Self.canArm(focus: controller.focus.state,
                         hasMarkedText: (window.firstResponder as? any NSTextInputClient)?.hasMarkedText() == true)
         }
