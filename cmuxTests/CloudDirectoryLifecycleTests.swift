@@ -69,7 +69,7 @@ struct CloudDirectoryLifecycleTests {
         #expect(sidebar.compactGitBranchSummaryText == nil)
         #expect(sidebar.pullRequestRows.isEmpty)
         let text = try fixture.sidebarText()
-        #expect(text.contains("Directory unavailable"))
+        #expect(!text.contains("Directory unavailable"))
         #expect(!text.contains("local-checkout"))
         #expect(!text.contains("first"))
         fixture.catalog.markCloudStateStale(on: fixture.machine, reason: "reconnecting")
@@ -101,7 +101,7 @@ struct CloudDirectoryLifecycleTests {
         let presentation = try #require(CloudWorkspaceSidebarPresentation(
             workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false
         ))
-        #expect(presentation.directoryCandidates == ["cwd-machine · Directory unavailable"])
+        #expect(presentation.directoryCandidates.isEmpty)
     }
 
     @Test("A stale Cloud terminal without an accepted cwd does not render a placeholder")
@@ -317,7 +317,7 @@ struct CloudDirectoryLifecycleTests {
             let presentation = try #require(CloudWorkspaceSidebarPresentation(
                 workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: true
             ))
-            #expect(presentation.directoryCandidates == ["\(expected) · \(CloudWorkspaceSidebarPresentation.unavailableDirectory)"])
+            #expect(presentation.directoryCandidates.isEmpty)
             #expect(fixture.workspace.cloudVMID == fixture.machine.rawValue)
         }
     }

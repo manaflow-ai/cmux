@@ -93,8 +93,6 @@ struct CloudWorkspaceSidebarPresentation {
 
         var entries: [(identity: String, directory: String?)] = []
         var seen = Set<String>()
-        var sawTerminal = false
-        let catalogSnapshot = SurfaceCatalog.shared.snapshot
         for panelID in orderedPanelIDs {
             let projectedMachine = state.projectedResources[panelID]?.machine
             guard let machineID = projectedMachine.flatMap({ $0.isDevice ? $0.rawValue : $0.cloudMachineID })
@@ -104,7 +102,6 @@ struct CloudWorkspaceSidebarPresentation {
                 // A restored workspace can retain a panel projection after the
                 // provider has published a current graph without that resource.
                 // Do not turn that stale identity into a directory placeholder.
-                sawTerminal = true
                 guard let resource = SurfaceCatalog.shared.resources[resourceID], resource.kind == .terminal else {
                     continue
                 }
@@ -113,33 +110,22 @@ struct CloudWorkspaceSidebarPresentation {
                 }
             } else {
                 guard workspace.terminalPanel(for: panelID) != nil else { continue }
-                sawTerminal = true
             }
             let directory = workspace.reportedPanelDirectory(panelId: panelID)
-            // A stale Cloud graph is retained for restoration, but it is not
-            // evidence that a terminal is ready to report its cwd. Do not
-            // render the transient unavailable placeholder during reconnect.
-            if directory == nil, catalogSnapshot.staleMachineIDs.contains(resourceID?.machine ?? .cloud(machineID)) {
-                continue
-            }
-            guard seen.insert(machineID + "\n" + (directory ?? "")).inserted else { continue }
+            // Missing provider data is a normal loading state. Never turn it
+            // into an error-looking directory label in the workspace row.
+            guard let directory else { continue }
+            guard seen.insert(machineID + "\n" + directory).inserted else { continue }
             entries.append((machineID, directory))
         }
 
-        // The projection owner is authoritative for terminal lifecycle. A
-        // launching terminal has no stable directory presentation yet, while a
-        // running terminal without an accepted remote cwd keeps the explicit
-        // placeholder for that terminal.
-        if entries.isEmpty, !sawTerminal {
-            entries = machineIDs.sorted().map { ($0, nil) }
-        }
         guard !entries.isEmpty else {
             directoryCandidates = []
             return
         }
         // Never expand or abbreviate a remote path using this Mac's home directory.
         let paths = entries.map { entry -> [String] in
-            guard let directory = entry.directory else { return [Self.unavailableDirectory] }
+            guard let directory = entry.directory else { return [] }
             return usesLastSegmentPath
                 ? SidebarPathFormatter.pathCandidates(directory, homeDirectoryPath: "")
                 : [directory]
