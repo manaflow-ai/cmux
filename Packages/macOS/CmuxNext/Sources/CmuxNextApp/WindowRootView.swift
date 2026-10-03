@@ -265,6 +265,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         paintBackground()
+        rail.paint()
         if sidebarPanel.superview != nil { sidebarPanel.paint() }
     }
 
@@ -280,6 +281,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// (`WindowBackdrop`). Re-run on theme and Reduce Transparency changes.
     func themeDidChange() {
         paintBackground()
+        rail.paint()
         if sidebarPanel.superview != nil { sidebarPanel.paint() }
         if let window { applyBackdrop(to: window) }
     }

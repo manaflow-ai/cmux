@@ -36,12 +36,13 @@ enum WindowRail {
     }
 }
 
-/// The rail's column. It paints nothing of its own: it sits on the window's
-/// shared backdrop beside the sidebar and main pane's rounded frame
-/// (`WindowSidebarPanelView`). Buttons start below the top row
+/// The rail's column. It uses the terminal theme's strip step beside the
+/// sidebar and main pane's rounded frame (`WindowSidebarPanelView`), with a
+/// theme-aware hairline at the frame edge. Buttons start below the top row
 /// (and the traffic lights), so the rail's top-row space moves the window.
 final class WindowRailView: NSView {
     let column: SidebarRailColumnView
+    let separator = HairlineView()
     private let registry: ActionRegistry
     private var shortcutObservation: Task<Void, Never>?
 
@@ -55,7 +56,11 @@ final class WindowRailView: NSView {
         column = SidebarRailColumnView(model: model)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+        layer?.actions = ["backgroundColor": NSNull(), "bounds": NSNull(), "position": NSNull()]
         addSubview(column)
+        addSubview(separator)
+        paint()
         refreshToolTips()
         // Shortcut rebinds change tooltips.
         // task-owner: this view (cancelled in deinit); event-driven (Observation)
@@ -94,5 +99,29 @@ final class WindowRailView: NSView {
         super.layout()
         column.frame = bounds
         column.topInset = buttonsTop
+        let width = Metrics.lineWidth(Metrics.dividerThickness)
+        separator.frame = CGRect(x: bounds.maxX - width, y: bounds.minY, width: width, height: bounds.height)
+    }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        paint()
+    }
+
+    /// Applies the terminal-theme tonal step to the rail surface.
+    func paint() {
+        performWithTheme { layer?.backgroundColor = Palette.stripStep.cgColor }
+        separator.needsDisplay = true
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        paint()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        paint()
     }
 }

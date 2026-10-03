@@ -16,7 +16,8 @@ extension AppThemeGlobalStateTests {
 /// is clear, so everything reads as the same color. At opacity 1 the
 /// surfaces draw the token or stay clear. Beside the leading rail the
 /// sidebar and main pane share the rounded frame in
-/// `WindowSidebarPanelView`; the frame uses the same surface token.
+/// `WindowSidebarPanelView`; the frame uses the same surface token. The rail
+/// itself is the designed tonal step, with a theme separator at its edge.
 @MainActor
 @Suite(.serialized)
 struct OneBackdropTests {
@@ -44,7 +45,7 @@ struct OneBackdropTests {
 
     /// Every surface view under `view` that paints a fill, skipping the backdrop.
     private static func filledSurfaces(_ view: NSView, in window: NSWindow, skipping backdrop: NSView) -> [String] {
-        if view === backdrop || view.isHidden || view is WindowSidebarPanelView { return [] }
+        if view === backdrop || view.isHidden || view is WindowSidebarPanelView || view is WindowRailView { return [] }
         var found: [String] = []
         if isSurface(view, in: window), let fill = fill(of: view) {
             var chain: [String] = []
@@ -91,7 +92,7 @@ struct OneBackdropTests {
         let token = root.themeTokens.surfaceBackground.withAlpha(1)
         var offenders: [String] = []
         func walk(_ view: NSView) {
-            guard !view.isHidden, !(view is WindowSidebarPanelView) else { return }
+            guard !view.isHidden, !(view is WindowSidebarPanelView), !(view is WindowRailView) else { return }
             if Self.isSurface(view, in: window), let color = view.layer?.backgroundColor, color.alpha > 0.002,
                let rgb = NSColor(cgColor: color)?.usingColorSpace(.sRGB),
                abs(rgb.redComponent - token.red) > 0.004 || abs(rgb.greenComponent - token.green) > 0.004

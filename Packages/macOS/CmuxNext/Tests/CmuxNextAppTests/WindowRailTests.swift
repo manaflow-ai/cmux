@@ -60,6 +60,34 @@ struct WindowRailTests {
         withExtendedLifetime(services) {}
     }
 
+    /// The rail is a theme-derived strip with a theme-aware hairline at the
+    /// shared rounded frame; it never falls back to a fixed gray or glass.
+    @Test func theRailUsesTheThemeStepAndHairline() throws {
+        let services = Coverage.boundServices()
+        let saved = DesignSettings.shared.rail
+        defer { DesignSettings.shared.rail = saved }
+        let controller = makeWindow(services, .leading)
+        let rail = controller.root.rail
+        rail.layoutSubtreeIfNeeded()
+        rail.paint()
+        let fill = try #require(rail.layer?.backgroundColor.flatMap { NSColor(cgColor: $0)?.usingColorSpace(.sRGB) })
+        let step = try #require(controller.root.performWithTheme { Palette.stripStep }.usingColorSpace(.sRGB))
+        #expect(abs(fill.redComponent - step.redComponent) < 0.004 && abs(fill.greenComponent - step.greenComponent) < 0.004
+            && abs(fill.blueComponent - step.blueComponent) < 0.004 && abs(fill.alphaComponent - step.alphaComponent) < 0.004,
+            "rail fill does not match the theme strip step")
+        let line = rail.separator
+        line.updateLayer()
+        let separator = try #require(line.layer?.backgroundColor.flatMap { NSColor(cgColor: $0)?.usingColorSpace(.sRGB) })
+        let expected = try #require(controller.root.performWithTheme { Palette.separator }.usingColorSpace(.sRGB))
+        #expect(abs(separator.redComponent - expected.redComponent) < 0.004 && abs(separator.greenComponent - expected.greenComponent) < 0.004
+            && abs(separator.blueComponent - expected.blueComponent) < 0.004 && abs(separator.alphaComponent - expected.alphaComponent) < 0.004,
+            "rail separator does not match the theme separator")
+        #expect(line.frame.width == Metrics.lineWidth(Metrics.dividerThickness))
+        #expect(line.frame.maxX == rail.bounds.maxX)
+        close(controller)
+        withExtendedLifetime(services) {}
+    }
+
     /// Right-clicking a rail item or the empty rail shows the sidebar's
     /// menus, so pinning, removing and reordering work from the rail while
     /// the sidebar hides its bands.
