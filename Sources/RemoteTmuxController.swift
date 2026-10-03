@@ -31,7 +31,34 @@ final class RemoteTmuxController {
     private var connectionsByHostSession: [String: RemoteTmuxControlConnection] = [:]
     private var connectionObserverTokensByHostSession: [String: RemoteTmuxControlConnection.ObserverToken] = [:]
 
-    init() {}
+    /// Ssh-tmux's local browser-preview proxy (one credentialed listener per host,
+    /// refcounted by mirror workspace). Acquired lazily on first browser
+    /// preview, never at mirror creation. Feeds both the sibling browser tab
+    /// (`Workspace.newBrowserSurface`) and the side-by-side browser split
+    /// (`Workspace.newBrowserSplit`) via `ensureRemoteTmuxBrowserProxyForward()`.
+    let browserProxyRegistry: RemoteTmuxBrowserProxyRegistry
+
+    init() {
+        browserProxyRegistry = RemoteTmuxBrowserProxyRegistry()
+        browserProxyRegistry.transportProvider = { [weak self] host in
+            self?.transport(for: host) ?? RemoteTmuxSSHTransport(host: host)
+        }
+        transportRegistry.onHostRemoved = { [weak self] connectionHash in
+            self?.browserProxyRegistry.releaseHost(connectionHash: connectionHash)
+        }
+        // A host's browser proxy is shared by every mirror workspace on it. The
+        // workspace that called `acquire` gets its result directly from the
+        // returned `Task`, but a teardown (SSH master exits, host removed)
+        // or a later change must also reach every OTHER mirror workspace
+        // still retaining that host, or their browser panels are left
+        // pointing at a dead listener with nothing to tell them otherwise.
+        browserProxyRegistry.onEndpointChange = { [weak self] connectionHash, endpoint in
+            guard let self else { return }
+            for mirror in self.sessionMirrors.values where mirror.host.connectionHash == connectionHash {
+                mirror.workspace?.applyRemoteProxyEndpointUpdate(endpoint)
+            }
+        }
+    }
 
     /// Synchronous read of the `remoteTmux` beta flag for AppKit/socket paths
     /// that run outside the SwiftUI update cycle. Resolves the same catalog key
@@ -630,6 +657,12 @@ final class RemoteTmuxController {
             mirror.detachObserver()
         }
         removeCachedConnection(forKey: key)?.stop()
+        // This workspace is never coming back as a mirror on this host (both
+        // `.sessionEnded` and `.explicitDetach` are authoritative here) — drop
+        // its retention on the host's browser-preview proxy, or a host with no
+        // other mirrors keeps its forward/listener alive until something else
+        // eventually tears the whole host down.
+        browserProxyRegistry.release(workspaceID: workspaceId)
         let hostHasOtherMirrors = sessionMirrors.values.contains(where: { $0.host.connectionHash == host.connectionHash })
         if !hostHasOtherMirrors {
             let hostHasOtherConnections = connectionsByHostSession.values
@@ -683,6 +716,7 @@ final class RemoteTmuxController {
             mirror.detachObserver()
             sessionMirrors.removeValue(forKey: key)
             removeCachedConnection(forKey: key)?.stop()
+            browserProxyRegistry.release(workspaceID: workspaceId)
         }
         // For any host left with no live mirror or connection, close its shared SSH
         // ControlMaster now — the last-session teardown paths already do this, and
@@ -742,6 +776,12 @@ final class RemoteTmuxController {
         guard let entry = sessionMirrors.first(where: { $0.value.mirroredWorkspaceId == workspaceId }) else { return }
         let host = entry.value.host
         sessionMirrors.removeValue(forKey: entry.key)
+        // Centralized here rather than at each caller — every path that
+        // detaches a mirror while keeping its workspace open locally must
+        // drop this workspace's retention, or a still-live sibling mirror
+        // on the same host keeps the browser proxy's listener/forward
+        // retained by a workspace id nothing will ever release again.
+        browserProxyRegistry.release(workspaceID: workspaceId)
         entry.value.detachObserver()
         removeCachedConnection(forKey: entry.key)?.stop()
         let hostHasOtherMirrors = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash }
@@ -765,6 +805,8 @@ final class RemoteTmuxController {
             sessionName: sessionName
         )
         sessionMirrors.removeValue(forKey: entry.key)
+        // Release retention as in `detachMirrorWorkspaceKeptOpenLocally`.
+        browserProxyRegistry.release(workspaceID: workspaceId)
         mirror.detachObserver()
         detach(host: host, sessionName: sessionName)
         let isLastSession = !sessionMirrors.values.contains(where: { $0.host.connectionHash == host.connectionHash })

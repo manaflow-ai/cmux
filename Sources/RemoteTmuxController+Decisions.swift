@@ -221,6 +221,10 @@ extension RemoteTmuxController {
     /// Pushes a local mirror-tab reorder to tmux as one detached swap batch.
     /// Rejected synchronous sends rebuild from the connection ledger; an async
     /// tmux `%error` triggers an authoritative `list-windows` reconciliation.
+    ///
+    /// `desired` keeps only the tmux windows of `orderedPanelIds`; panels
+    /// without one (a sibling browser tab, an unreconciled placeholder) drop
+    /// out instead of failing the reorder — they have no tmux window to move.
     func handleMirrorWindowsReordered(
         workspaceId: UUID,
         orderedPanelIds: [UUID],
@@ -232,7 +236,6 @@ extension RemoteTmuxController {
             return false
         }
         let desired = orderedPanelIds.compactMap { mirror.windowId(forPanel: $0) }
-        guard desired.count == orderedPanelIds.count else { mirror.rebuild(); return false }
         guard desired.count >= 2 else {
             verification?(true)
             return true
