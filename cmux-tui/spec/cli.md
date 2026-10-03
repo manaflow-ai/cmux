@@ -374,12 +374,13 @@ git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch] [--patc
   [--max-patch-bytes <n>] [--max-files <n>] [<path>...]
 git files [TARGET] [--limit <n>] <query>...
 git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...] [--exclude <path,...>]
-  [--reason manual|handoff] [--max-bytes <n>] [--max-files <n>]
+  [--reason manual|handoff|turn] [--max-bytes <n>] [--max-files <n>]
   [--expected-repository <id>] [--expected-worktree <id>]
 git checkpoint get [TARGET] <checkpoint> | --key <idempotency-key>
 git checkpoint list [TARGET] [--cursor <cursor>] [--limit <n>] [--candidates]
 git checkpoint pin [TARGET] <checkpoint> --pin <pin-id> --reason <text>
 git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
+git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch] [--max-patch-bytes <n>] [--max-files <n>]
 notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
 agent list|report
 agent plugin list|install|use|update|remove
