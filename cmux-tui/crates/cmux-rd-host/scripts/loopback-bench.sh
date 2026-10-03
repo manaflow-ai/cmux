@@ -6,6 +6,7 @@ set -u
 cd "$(dirname "$0")/.."
 B=$PWD/target/release/cmux-rd
 for f in /tmp/rd-*.pid; do [ -f "$f" ] && kill "$(cat $f)" 2>/dev/null; rm -f "$f"; done
+sleep 1 # let an earlier Xvfb release :97
 command -v Xvfb >/dev/null || sudo apt-get install -y -qq xvfb >/dev/null 2>&1
 TOKEN=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
 Xvfb :97 -screen 0 1920x1080x24 -nolisten tcp >/tmp/xvfb.log 2>&1 & echo $! > /tmp/rd-xvfb.pid
