@@ -578,6 +578,11 @@ public abstract class GeneratedCmuxClient {
         return SurfaceResult.fromWire(result);
     }
 
+    public final NewRowResult newRow(NewRowRequest request) throws CmuxException {
+        Object result = execute(Commands.NEW_ROW, request.toWire());
+        return NewRowResult.fromWire(result);
+    }
+
     public final SurfaceResult newScreen(NewScreenRequest request) throws CmuxException {
         Object result = execute(Commands.NEW_SCREEN, request.toWire());
         return SurfaceResult.fromWire(result);
@@ -846,6 +851,11 @@ public abstract class GeneratedCmuxClient {
     public final EmptyResult setRatio(SetRatioRequest request) throws CmuxException {
         Object result = execute(Commands.SET_RATIO, request.toWire());
         return EmptyResult.fromWire(result);
+    }
+
+    public final Object setRowHeights(SetRowHeightsRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_ROW_HEIGHTS, request.toWire());
+        return Wire.immutableJson(result);
     }
 
     public final Object setScreenMetadata(SetScreenMetadataRequest request) throws CmuxException {

@@ -6202,6 +6202,72 @@
     }
    },
    "additional_properties": false
+  },
+  "NewRowResult": {
+   "additional_properties": false,
+   "fields": {
+    "pane": {
+     "nullable": false,
+     "presence": "required",
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     }
+    },
+    "surface": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "terminal_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true
+    },
+    "terminal_incarnation": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true
+    }
+   },
+   "kind": "object"
+  },
+  "RowHeight": {
+   "additional_properties": false,
+   "fields": {
+    "height": {
+     "constraints": [
+      {
+       "maximum": 1000,
+       "minimum": 100
+      }
+     ],
+     "nullable": false,
+     "presence": "required",
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     }
+    },
+    "row": {
+     "nullable": false,
+     "presence": "required",
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     }
+    }
+   },
+   "kind": "object"
   }
  },
  "commands": {
@@ -9694,6 +9760,180 @@
     "edge is \"left\" or \"right\" (default \"right\"); mode is \"docked\" or \"overlay\" (default \"docked\").",
     "See spec/commands.md for the result object."
    ]
+  },
+  "new-row": {
+   "authority": "control",
+   "capability": "rows-v1",
+   "constraints": [
+    "Opens a new row of height_permille below the row of pane in that pane's column, holding one new pane with one new terminal. On a split screen the screen's tree first becomes the only row of one column.",
+    "See spec/commands.md for the result object and error codes."
+   ],
+   "request": {
+    "additional_properties": false,
+    "fields": {
+     "cols": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "cwd": {
+      "default": null,
+      "nullable": true,
+      "presence": "optional",
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "env": {
+      "default": null,
+      "nullable": true,
+      "presence": "optional",
+      "type": {
+       "kind": "map",
+       "values": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      }
+     },
+     "height_permille": {
+      "constraints": [
+       {
+        "maximum": 1000,
+        "minimum": 100
+       }
+      ],
+      "nullable": false,
+      "presence": "required",
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      }
+     },
+     "keep": {
+      "default": false,
+      "nullable": false,
+      "presence": "optional",
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      }
+     },
+     "pane": {
+      "nullable": false,
+      "presence": "required",
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      }
+     },
+     "rows": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "shell_args": {
+      "default": null,
+      "nullable": true,
+      "presence": "optional",
+      "type": {
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "kind": "array"
+      }
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       {
+        "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$",
+        "format": "terminal host id (UUIDv4 hex without dashes)"
+       }
+      ]
+     }
+    },
+    "kind": "object"
+   },
+   "result": {
+    "kind": "ref",
+    "name": "NewRowResult"
+   },
+   "since": 12,
+   "stream": null
+  },
+  "set-row-heights": {
+   "authority": "control",
+   "capability": "rows-v1",
+   "constraints": [
+    "heights names every row of column exactly once; a stale row set, a height outside 100..1000, or fit with a sum other than 1000 is refused and changes nothing.",
+    "See spec/commands.md for the result object and error codes."
+   ],
+   "request": {
+    "additional_properties": false,
+    "fields": {
+     "column": {
+      "nullable": false,
+      "presence": "required",
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      }
+     },
+     "fit": {
+      "default": false,
+      "nullable": false,
+      "presence": "optional",
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      }
+     },
+     "heights": {
+      "nullable": false,
+      "presence": "required",
+      "type": {
+       "items": {
+        "kind": "ref",
+        "name": "RowHeight"
+       },
+       "kind": "array"
+      }
+     },
+     "transaction": {
+      "default": null,
+      "nullable": true,
+      "presence": "optional",
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      }
+     }
+    },
+    "kind": "object"
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "since": 12,
+   "stream": null
   },
   "undo-layout": {
    "authority": "control",

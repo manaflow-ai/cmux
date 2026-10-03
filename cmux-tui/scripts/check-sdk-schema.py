@@ -29,6 +29,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "ClientIdentityWire": "SizingIdentity",
     "SplitRespawnRequest": "SplitRespawn",
     "crate::model::ColumnSticky": "ColumnPin",
+    "RowHeight": "RowHeight",
 }
 
 sys.path.insert(0, str(BINDINGS))

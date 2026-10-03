@@ -1,8 +1,11 @@
 //! Viewport columns of a scrollable screen and their `sticky-columns-v1`
-//! flags, plus the layout mutation keys that coalesce undo entries.
+//! flags, the compat projection of the columns, plus the layout mutation
+//! keys that coalesce undo entries.
 
-use super::Node;
-use crate::{PaneId, SplitId};
+use std::collections::BTreeMap;
+
+use super::{LayoutRow, Node, Screen};
+use crate::{PaneId, SplitDir, SplitId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewportColumn {
@@ -24,6 +27,78 @@ pub(crate) struct LayoutColumn {
     /// `sticky-columns-v1`: the viewport edge this column is pinned to.
     /// `None` for an ordinary scrolling column. See [`normalize_sticky_columns`].
     pub(crate) sticky: Option<ColumnSticky>,
+    /// `rows-v1`: empty, or two or more rows whose trees `root` chains
+    /// (plans/cmux-next/rows.md, super::layout_rows).
+    pub(crate) rows: Vec<LayoutRow>,
+}
+
+impl LayoutColumn {
+    /// A scrolling column without rows.
+    pub(crate) fn new(
+        id: SplitId,
+        width: f32,
+        root: Node,
+        zellij_auto_layout: Option<Vec<PaneId>>,
+    ) -> Self {
+        Self { id, width, root, zellij_auto_layout, sticky: None, rows: Vec::new() }
+    }
+
+    /// A new scrolling column holding one pane.
+    pub(crate) fn single(id: SplitId, width: f32, pane: PaneId) -> Self {
+        Self::new(id, width, Node::Leaf(pane), Some(vec![pane]))
+    }
+}
+
+/// The compatibility fields of a screen derived from its columns.
+pub(crate) enum ColumnProjection {
+    /// No columns: the screen keeps its own tree.
+    Unchanged,
+    /// The last column left: the screen becomes this split tree.
+    Tree { root: Node, zellij_auto_layout: Option<Vec<PaneId>> },
+    /// Columns mode: the chain of the columns.
+    Columns { root: Node, viewport_splits: BTreeMap<SplitId, f32>, base_width: f32 },
+}
+
+/// Restores the row ([`LayoutColumn::normalize_rows`]) and sticky
+/// invariants of `columns` and returns the compatibility projection. Owner
+/// of the "columns mode" rule: two or more columns, or one column with two or
+/// more rows (whose width is then the full viewport).
+pub(crate) fn project_layout_columns(columns: &mut Vec<LayoutColumn>) -> ColumnProjection {
+    for column in columns.iter_mut() {
+        column.normalize_rows();
+    }
+    if columns.len() == 1 && columns[0].rows.is_empty() {
+        let column = columns.pop().expect("one column");
+        return ColumnProjection::Tree {
+            root: column.root,
+            zellij_auto_layout: column.zellij_auto_layout,
+        };
+    }
+    if let [column] = columns.as_mut_slice() {
+        column.width = 1.0;
+    }
+    normalize_sticky_columns(columns);
+    let Some(first) = columns.first() else { return ColumnProjection::Unchanged };
+    let mut root = first.root.clone();
+    let mut width_before = first.width;
+    let mut viewport_splits = BTreeMap::new();
+    for column in columns.iter().skip(1) {
+        // This tree is a read-compatibility projection, not a user resize
+        // request. Preserve exact authoritative proportions even when a
+        // wide layout requires a derived ratio outside mutation bounds.
+        let ratio = width_before / (width_before + column.width);
+        root = Node::Split {
+            id: column.id,
+            dir: SplitDir::Right,
+            ratio,
+            a: Box::new(root),
+            b: Box::new(column.root.clone()),
+        };
+        viewport_splits.insert(column.id, column.width);
+        width_before += column.width;
+    }
+    debug_assert!(sticky_columns_are_consistent(columns));
+    ColumnProjection::Columns { root, viewport_splits, base_width: first.width }
 }
 
 /// Viewport edge a column is pinned to. Left and right are sticky columns
@@ -160,4 +235,108 @@ pub(crate) enum LayoutMutationKey {
         owner: LayoutResizeOwner,
         transaction: u64,
     },
+}
+
+impl Screen {
+    pub(crate) fn layout_columns_active(&self) -> bool {
+        !self.layout_columns.is_empty()
+    }
+
+    pub(crate) fn layout_column_for_pane_mut(&mut self, pane: PaneId) -> Option<&mut LayoutColumn> {
+        self.layout_columns.iter_mut().find(|column| column.root.contains(pane))
+    }
+
+    /// Inserts `column` after the column of `target`. A split screen first
+    /// becomes the column `base_id`. A lone column with rows has no durable
+    /// column identity (`viewport_json` stays empty for it, so its id may be
+    /// a tombstoned split identity); it becomes a strip column again under
+    /// the fresh `base_id`.
+    pub(crate) fn insert_layout_column_after(
+        &mut self,
+        target: PaneId,
+        base_id: SplitId,
+        column: LayoutColumn,
+    ) -> bool {
+        if self.layout_columns.is_empty() {
+            if !self.root.contains(target) {
+                return false;
+            }
+            let root = std::mem::replace(&mut self.root, Node::Leaf(0));
+            let width = self.viewport_base_width.unwrap_or(1.0);
+            let auto_layout = self.zellij_auto_layout.take();
+            self.layout_columns.push(LayoutColumn::new(base_id, width, root, auto_layout));
+        } else if self.has_lone_row_column() {
+            self.layout_columns[0].id = base_id;
+        }
+        let Some(index) =
+            self.layout_columns.iter().position(|candidate| candidate.root.contains(target))
+        else {
+            return false;
+        };
+        self.layout_columns.insert(index + 1, column);
+        self.sync_layout_column_projection();
+        true
+    }
+
+    /// Re-derives `root`, `viewport_splits`, `viewport_base_width` and the
+    /// auto layout from the columns ([`project_layout_columns`]). A screen
+    /// left with one column without rows collapses back to its split tree.
+    pub(crate) fn sync_layout_column_projection(&mut self) {
+        match project_layout_columns(&mut self.layout_columns) {
+            ColumnProjection::Unchanged => {
+                self.viewport_splits.clear();
+                self.viewport_base_width = None;
+            }
+            ColumnProjection::Tree { root, zellij_auto_layout } => {
+                self.root = root;
+                self.zellij_auto_layout = zellij_auto_layout;
+                self.viewport_splits.clear();
+                self.viewport_base_width = None;
+            }
+            ColumnProjection::Columns { root, viewport_splits, base_width } => {
+                self.root = root;
+                self.viewport_splits = viewport_splits;
+                self.viewport_base_width = Some(base_width);
+                self.zellij_auto_layout = None;
+                debug_assert!(self.layout_column_projection_is_consistent());
+            }
+        }
+    }
+
+    pub(crate) fn collapse_single_layout_column(&mut self) {
+        self.sync_layout_column_projection();
+    }
+
+    pub(crate) fn layout_column_projection_is_consistent(&self) -> bool {
+        if self.layout_columns.is_empty() {
+            return self.viewport_splits.is_empty() && self.viewport_base_width.is_none();
+        }
+        if (self.layout_columns.len() < 2 && !self.has_lone_row_column())
+            || self.zellij_auto_layout.is_some()
+            || self.viewport_base_width != self.layout_columns.first().map(|column| column.width)
+            || self.viewport_splits.len() + 1 != self.layout_columns.len()
+        {
+            return false;
+        }
+
+        let projected_panes = self.root.pane_ids_vec();
+        let column_panes = self
+            .layout_columns
+            .iter()
+            .flat_map(|column| column.root.pane_ids_vec())
+            .collect::<Vec<_>>();
+        if projected_panes != column_panes {
+            return false;
+        }
+
+        self.layout_columns.iter().enumerate().all(|(index, column)| {
+            let expected_owner =
+                if index == 0 { ViewportColumn::Base } else { ViewportColumn::Split(column.id) };
+            (index == 0 || self.viewport_splits.get(&column.id).copied() == Some(column.width))
+                && column.root.pane_ids_vec().into_iter().all(|pane| {
+                    self.root.viewport_column_owner(pane, &self.viewport_splits)
+                        == Some(expected_owner)
+                })
+        })
+    }
 }

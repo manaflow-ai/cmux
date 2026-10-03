@@ -16,6 +16,7 @@ mod public_projections;
 mod registry_viewport;
 mod resource_content;
 mod resource_topology;
+mod rows;
 mod screen_changed;
 pub(crate) mod screen_groups;
 mod session_paths;
@@ -45,6 +46,7 @@ pub use presentation::{
 };
 pub(crate) use resource_content::ResourceEffectProjection;
 pub(crate) use resource_topology::{BatchCloseOutcome, BatchCloseTarget};
+pub use rows::{RowHeightsOutcome, RowsError};
 pub(crate) use screen_groups::workspace_screen_groups;
 pub use screen_groups::{
     ScreenDestination, ScreenGroupOutcome, ScreenMoveOutcome, ScreenSpec, WorkspaceScreenGroup,
@@ -1807,6 +1809,7 @@ pub enum LayoutRatioError {
     UnknownPaneSplit { pane: PaneId },
     UnknownSplit { split: SplitId },
     UnrepresentableViewportWidth { split: SplitId, ratio: f32, width: f32 },
+    RowSplitCompatReadonly { split: SplitId },
 }
 
 impl LayoutRatioError {
@@ -1817,6 +1820,8 @@ impl LayoutRatioError {
         match self {
             Self::UnknownPaneSplit { .. } | Self::UnknownSplit { .. } => Self::UNKNOWN_TARGET_CODE,
             Self::UnrepresentableViewportWidth { .. } => Self::OUT_OF_RANGE_CODE,
+            // `rows-v1`: the split is a synthetic split of a column's row chain.
+            Self::RowSplitCompatReadonly { .. } => "row-split-compat-readonly",
         }
     }
 }
@@ -1830,6 +1835,9 @@ impl fmt::Display for LayoutRatioError {
                 formatter,
                 "split {split} ratio {ratio} implies viewport width {width}; width must be between {MIN_VIEWPORT_PANE_WIDTH} and {MAX_VIEWPORT_PANE_WIDTH}"
             ),
+            Self::RowSplitCompatReadonly { split } => {
+                write!(formatter, "split {split} joins two rows; resize rows with set-row-heights")
+            }
         }
     }
 }
@@ -16716,6 +16724,9 @@ impl Mux {
                 return Err(LayoutRatioError::UnknownSplit { split });
             }
             let screen = &state.workspaces[workspace_index].screens[screen_index];
+            if screen.layout_columns.iter().any(|column| column.is_row_split(split)) {
+                return Err(LayoutRatioError::RowSplitCompatReadonly { split });
+            }
             if let Some(index) = screen
                 .layout_columns
                 .iter()
@@ -20194,6 +20205,7 @@ mod tests {
 
     mod column_update;
     mod kitty_reservation;
+    mod rows;
     mod sticky_columns;
 
     use crate::layout::{DEFAULT_VIEWPORT_PANE_WIDTH, VirtualRect};
@@ -20643,6 +20655,7 @@ mod tests {
                             layout: first_column_layout,
                             auto_layout: None,
                             sticky: None,
+                            rows: Vec::new(),
                         },
                         RegistryViewportColumn {
                             id: boundary_split,
@@ -20650,6 +20663,7 @@ mod tests {
                             layout: RegistryLayoutNode::Leaf { pane: panes[3].clone() },
                             auto_layout: Some(vec![panes[3].clone()]),
                             sticky: None,
+                            rows: Vec::new(),
                         },
                     ],
                 },
@@ -29736,14 +29750,8 @@ mod tests {
                 panic!("test layout should have two stack branches");
             };
             screen.layout_columns = vec![
-                LayoutColumn {
-                    id: mux.next_id(),
-                    width: 1.0,
-                    root: *a,
-                    zellij_auto_layout: None,
-                    sticky: None,
-                },
-                LayoutColumn { id, width: 0.5, root: *b, zellij_auto_layout: None, sticky: None },
+                LayoutColumn::new(mux.next_id(), 1.0, *a, None),
+                LayoutColumn::new(id, 0.5, *b, None),
             ];
             screen.sync_layout_column_projection();
             Mux::rebuild_split_screen_index(&mut state);

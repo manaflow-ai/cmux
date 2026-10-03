@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9a93a666e8f059fe58fafce71e3c8f25d47a930c49c9058ed455f3ca46b21d7b. */
+/* cmux-tui mux protocol 12, IR ed267db94d6999692c3c78c9eb7a2fdebb873cec9b3f6b29f0ff07bed8fa4d7d. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -392,6 +392,13 @@ export type MoveTerminalResult = {
   "workspace_key": string;
 };
 
+export type NewRowResult = {
+  "pane": Id;
+  "surface": Id;
+  "terminal_id"?: (string) | null;
+  "terminal_incarnation"?: (string) | null;
+};
+
 export type NoteSizeActivityResult = {
   "changed": boolean;
   "participant": string;
@@ -579,6 +586,11 @@ export type ResourceSelectors = {
   "tab"?: (string) | null;
   "terminal"?: (string) | null;
   "workspace"?: (string) | null;
+};
+
+export type RowHeight = {
+  "height": bigint;
+  "row": Id;
 };
 
 export type RunResult = {

@@ -154,6 +154,7 @@ public:
     [[nodiscard]] Result<JsonValue> new_frontend_browser_tab(const NewFrontendBrowserTabRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_pane(const NewPaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_pane_right(const NewPaneRightRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<NewRowResult> new_row(const NewRowRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_screen(const NewScreenRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_tab(const NewTabRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_workspace(const NewWorkspaceRequest& request = {}, RequestOptions options = {});
@@ -208,6 +209,7 @@ public:
     [[nodiscard]] Result<JsonValue> set_personal_workspace(const SetPersonalWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_profile_follows(const SetProfileFollowsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_ratio(const SetRatioRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> set_row_heights(const SetRowHeightsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_screen_metadata(const SetScreenMetadataRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_screen_pinned(const SetScreenPinnedRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SetSizeCountsResult> set_size_counts(const SetSizeCountsRequest& request, RequestOptions options = {});

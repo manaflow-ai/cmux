@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9a93a666e8f059fe58fafce71e3c8f25d47a930c49c9058ed455f3ca46b21d7b. */
+/* cmux-tui mux protocol 12, IR ed267db94d6999692c3c78c9eb7a2fdebb873cec9b3f6b29f0ff07bed8fa4d7d. */
 
 
 import type * as T from "./types.js";
@@ -1073,6 +1073,20 @@ export interface NewPaneRightRequest extends CmuxRequestBase {
 }
 export type NewPaneRightResult = T.SurfaceResult;
 
+/** Protocol v12; authority: control. */
+export interface NewRowRequest extends CmuxRequestBase {
+  cmd: "new-row";
+  "cols"?: (number) | null;
+  "cwd"?: (string) | null;
+  "env"?: (Record<string, string>) | null;
+  "height_permille": bigint;
+  "keep"?: boolean;
+  "pane": T.Id;
+  "rows"?: (number) | null;
+  "shell_args"?: (Array<string>) | null;
+  "terminal_id"?: (string) | null;
+}
+
 /** Protocol v5; authority: control. */
 export interface NewScreenRequest extends CmuxRequestBase {
   cmd: "new-screen";
@@ -1579,6 +1593,16 @@ export interface SetRatioRequest extends CmuxRequestBase {
 export type SetRatioResult = T.EmptyResult;
 
 /** Protocol v12; authority: control. */
+export interface SetRowHeightsRequest extends CmuxRequestBase {
+  cmd: "set-row-heights";
+  "column": T.Id;
+  "fit"?: boolean;
+  "heights": Array<T.RowHeight>;
+  "transaction"?: (bigint) | null;
+}
+export type SetRowHeightsResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
 export interface SetScreenMetadataRequest extends CmuxRequestBase {
   cmd: "set-screen-metadata";
   "color"?: (string) | null;
@@ -2056,6 +2080,7 @@ export type CmuxRequest =
   | NewFrontendBrowserTabRequest
   | NewPaneRequest
   | NewPaneRightRequest
+  | NewRowRequest
   | NewScreenRequest
   | NewTabRequest
   | NewWorkspaceRequest
@@ -2110,6 +2135,7 @@ export type CmuxRequest =
   | SetPersonalWorkspaceRequest
   | SetProfileFollowsRequest
   | SetRatioRequest
+  | SetRowHeightsRequest
   | SetScreenMetadataRequest
   | SetScreenPinnedRequest
   | SetSizeCountsRequest
@@ -3058,6 +3084,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "viewport-splits-v1";
     stream: null;
   };
+  "new-row": {
+    request: NewRowRequest;
+    result: T.NewRowResult;
+    authority: "control";
+    since: 12;
+    capability: "rows-v1";
+    stream: null;
+  };
   "new-screen": {
     request: NewScreenRequest;
     result: NewScreenResult;
@@ -3488,6 +3522,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 5;
     capability: null;
+    stream: null;
+  };
+  "set-row-heights": {
+    request: SetRowHeightsRequest;
+    result: SetRowHeightsResult;
+    authority: "control";
+    since: 12;
+    capability: "rows-v1";
     stream: null;
   };
   "set-screen-metadata": {

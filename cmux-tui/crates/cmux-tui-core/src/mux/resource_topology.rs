@@ -27,7 +27,7 @@ mod layout_projection;
 mod published_screen;
 mod structural_move;
 pub(crate) use batch_close::{BatchCloseOutcome, BatchCloseTarget};
-use layout_projection::sync_layout_column_projection;
+use layout_projection::{remove_pane_from_layout, sync_layout_column_projection};
 use published_screen::screen_value;
 pub(super) use structural_move::structural_tab_move_plan;
 
@@ -52,6 +52,8 @@ struct PaneAddOptions<'a> {
     size: Option<(u16, u16)>,
     ratio: Option<f32>,
     viewport_width: Option<f32>,
+    /// `new-row` (`rows-v1`): the new row's height in permille.
+    row_height: Option<u16>,
 }
 
 struct TerminalEffectOptions {
@@ -4325,6 +4327,7 @@ impl Mux {
                             size: effect_cell_size(fields)?,
                             ratio: None,
                             viewport_width: None,
+                            row_height: None,
                         },
                     ),
                     None if slots.workspace.is_some() => self.effect_create_terminal_in_workspace(
@@ -4372,6 +4375,7 @@ impl Mux {
                             .get("viewport_width")
                             .and_then(Value::as_f64)
                             .map(|value| value as f32),
+                        row_height: crate::mux::rows::row_height_field(fields)?,
                     },
                 )
                 .map(|created| created.path)
@@ -4937,7 +4941,8 @@ impl Mux {
         target: PaneId,
         options: PaneAddOptions<'_>,
     ) -> anyhow::Result<CreatedTerminalEffect> {
-        let PaneAddOptions { direction, argv, cwd, size, ratio, viewport_width } = options;
+        let PaneAddOptions { direction, argv, cwd, size, ratio, viewport_width, row_height } =
+            options;
         let split_direction = direction
             .map(|direction| {
                 Ok(match direction {
@@ -4973,7 +4978,9 @@ impl Mux {
         }
         let pane_id = self.next_id();
         let split_id = split_direction.map(|_| self.next_id());
-        let base_column_id = viewport_width.map(|_| self.next_id());
+        let base_column_id =
+            (viewport_width.is_some() || row_height.is_some()).then(|| self.next_id());
+        let base_row_id = row_height.map(|_| self.next_id());
         let active_at = self.next_active_at();
         let notifications = self.tree_decorations();
         let attached = (|| -> anyhow::Result<(TreeDelta, ScreenId, CreatedTerminalEffect)> {
@@ -4985,19 +4992,22 @@ impl Mux {
             let screen_id = state.workspaces[workspace].screens[screen_index].id;
             let screen = &mut state.workspaces[workspace].screens[screen_index];
             let before = screen.layout_snapshot();
-            if let Some(width) = viewport_width {
+            if let Some(height) = row_height {
                 anyhow::ensure!(
-                    screen.insert_layout_column_after(
+                    screen.insert_layout_row_below(
                         target,
-                        base_column_id.expect("viewport column reserved a base id"),
-                        LayoutColumn {
-                            id: split_id.expect("viewport split reserved an id"),
-                            width,
-                            root: Node::Leaf(pane_id),
-                            zellij_auto_layout: Some(vec![pane_id]),
-                            sticky: None,
-                        },
+                        base_column_id.expect("new row reserved a base column id"),
+                        base_row_id.expect("new row reserved a base row id"),
+                        crate::model::LayoutRow::new(split_id.expect("row id"), height),
+                        pane_id,
                     ),
+                    "target pane disappeared from its layout"
+                );
+            } else if let Some(width) = viewport_width {
+                let column = LayoutColumn::single(split_id.expect("column id"), width, pane_id);
+                let base = base_column_id.expect("viewport column reserved a base id");
+                anyhow::ensure!(
+                    screen.insert_layout_column_after(target, base, column),
                     "target pane disappeared from its layout"
                 );
             } else if let Some((dir, before_target)) = split_direction {
@@ -5038,12 +5048,9 @@ impl Mux {
                 let column = screen
                     .layout_column_for_pane_mut(target)
                     .context("target pane has no viewport column")?;
-                append_to_auto_layout(
-                    &mut column.root,
-                    &mut column.zellij_auto_layout,
-                    pane_id,
-                    || self.next_id(),
-                );
+                column.edit_row_of(target, |root, auto_layout| {
+                    append_to_auto_layout(root, auto_layout, pane_id, || self.next_id())
+                });
                 screen.sync_layout_column_projection();
             } else {
                 append_to_auto_layout(
@@ -5342,6 +5349,7 @@ fn validate_effect_fields(
                     "invalid viewport pane width"
                 );
             }
+            crate::mux::rows::validate_row_height_field(fields, direction)?;
             let _ = effect_cell_size(fields)?;
             let _ = optional_effect_command(fields)?;
         }
@@ -5546,7 +5554,7 @@ fn parse_resource_layout_document(
                     .iter()
                     .find(|column| column.id == id)
                     .and_then(|column| column.sticky);
-                parsed.push(LayoutColumn { id, width, root, zellij_auto_layout: None, sticky });
+                parsed.push(LayoutColumn { sticky, ..LayoutColumn::new(id, width, root, None) });
             }
             anyhow::ensure!(
                 parsed.first().is_some_and(|column| column.width == base_width),
@@ -6267,45 +6275,6 @@ fn target_location_screen(state: &State, location: (usize, usize)) -> ScreenId {
     state.workspaces[location.0].screens[location.1].id
 }
 
-fn remove_pane_from_layout(layout: &mut ScreenLayoutSnapshot, pane: PaneId) -> bool {
-    layout.zellij_auto_layout = None;
-    if layout.layout_columns.is_empty() {
-        let root = std::mem::replace(&mut layout.root, Node::Leaf(0));
-        let Some(root) = root.remove_leaf(pane) else {
-            return false;
-        };
-        layout.root = root;
-        return true;
-    }
-    let Some(index) = layout.layout_columns.iter().position(|column| column.root.contains(pane))
-    else {
-        return true;
-    };
-    let column = &mut layout.layout_columns[index];
-    column.zellij_auto_layout = None;
-    let root = std::mem::replace(&mut column.root, Node::Leaf(0));
-    if let Some(root) = root.remove_leaf(pane) {
-        column.root = root;
-    } else {
-        layout.layout_columns.remove(index);
-    }
-    match layout.layout_columns.len() {
-        0 => false,
-        1 => {
-            let column = layout.layout_columns.remove(0);
-            layout.root = column.root;
-            layout.zellij_auto_layout = column.zellij_auto_layout;
-            layout.viewport_splits.clear();
-            layout.viewport_base_width = None;
-            true
-        }
-        _ => {
-            sync_layout_column_projection(layout);
-            true
-        }
-    }
-}
-
 fn delete_delta(sequence: usize, resource: &str, id: &str) -> Value {
     json!({
         "kind":"delete",
@@ -6365,6 +6334,7 @@ fn registry_screen_from_layout(
                     })
                     .transpose()?,
                 sticky: column.sticky,
+                rows: super::registry_viewport::registry_rows(state, column)?,
             })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;

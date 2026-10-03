@@ -753,6 +753,15 @@ class MoveTerminalResult:
 
 
 @dataclass(frozen=True)
+class NewRowResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/NewRowResult'
+    surface: Id
+    pane: Id
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class NoteSizeActivityResult:
     __cmux_schema_path__: ClassVar[str] = 'types/NoteSizeActivityResult'
     changed: bool
@@ -964,6 +973,13 @@ class ResourceSelectors:
     stream: Union[str, None, MissingType] = field(default=MISSING)
     tab: Union[str, None, MissingType] = field(default=MISSING)
     terminal: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class RowHeight:
+    __cmux_schema_path__: ClassVar[str] = 'types/RowHeight'
+    height: int
+    row: Id
 
 
 @dataclass(frozen=True)
@@ -2442,6 +2458,20 @@ class NewPaneRightRequest:
 
 
 @dataclass(frozen=True)
+class NewRowRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/new-row/request'
+    pane: Id
+    height_permille: int
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    cols: Union[int, None, MissingType] = field(default=MISSING)
+    cwd: Union[str, None, MissingType] = field(default=MISSING)
+    env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
+    keep: Union[bool, MissingType] = field(default=MISSING)
+    rows: Union[int, None, MissingType] = field(default=MISSING)
+    shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class NewScreenRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/new-screen/request'
     workspace: Union[Id, None, MissingType] = field(default=MISSING)
@@ -2913,6 +2943,15 @@ class SetRatioRequest:
     pane: Id
     dir: SplitDirection
     ratio: float
+
+
+@dataclass(frozen=True)
+class SetRowHeightsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-row-heights/request'
+    column: Id
+    heights: List[RowHeight]
+    fit: Union[bool, MissingType] = field(default=MISSING)
+    transaction: Union[int, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3995,6 +4034,7 @@ __all__ = [
     'MachineUsageResult',
     'MintTerminalRendererResult',
     'MoveTerminalResult',
+    'NewRowResult',
     'NoteSizeActivityResult',
     'NotificationMarker',
     'NotifyResult',
@@ -4016,6 +4056,7 @@ __all__ = [
     'ResizeSurfaceResult',
     'ResolveTerminalResult',
     'ResourceSelectors',
+    'RowHeight',
     'RunResult',
     'Screen',
     'ServerStatsConnections',
@@ -4180,6 +4221,7 @@ __all__ = [
     'NewFrontendBrowserTabRequest',
     'NewPaneRequest',
     'NewPaneRightRequest',
+    'NewRowRequest',
     'NewScreenRequest',
     'NewTabRequest',
     'NewWorkspaceRequest',
@@ -4236,6 +4278,7 @@ __all__ = [
     'SetPersonalWorkspaceRequest',
     'SetProfileFollowsRequest',
     'SetRatioRequest',
+    'SetRowHeightsRequest',
     'SetScreenMetadataRequest',
     'SetScreenPinnedRequest',
     'SetSizeCountsRequest',

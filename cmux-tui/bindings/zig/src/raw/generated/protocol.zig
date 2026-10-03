@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "9a93a666e8f059fe58fafce71e3c8f25d47a930c49c9058ed455f3ca46b21d7b";
+pub const ir_sha256 = "ed267db94d6999692c3c78c9eb7a2fdebb873cec9b3f6b29f0ff07bed8fa4d7d";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -752,6 +752,13 @@ pub const MoveTerminalResult = struct {
     workspace_key: []const u8,
 };
 
+pub const NewRowResult = struct {
+    pane: Id,
+    surface: Id,
+    terminal_id: wire.Field([]const u8) = .absent,
+    terminal_incarnation: wire.Field([]const u8) = .absent,
+};
+
 pub const NoteSizeActivityResult = struct {
     changed: bool,
     participant: []const u8,
@@ -1087,6 +1094,11 @@ pub const ResourceSelectors = struct {
     tab: wire.Field([]const u8) = .absent,
     terminal: wire.Field([]const u8) = .absent,
     workspace: wire.Field([]const u8) = .absent,
+};
+
+pub const RowHeight = struct {
+    height: u64,
+    row: Id,
 };
 
 pub const RunResult = struct {
@@ -4837,6 +4849,35 @@ pub fn newPaneRight(client: anytype, request: NewPaneRightRequest) !wire.Decoded
     );
 }
 
+pub const NewRowRequest = struct {
+    cols: wire.Field(u16) = .absent,
+    cwd: wire.Field([]const u8) = .absent,
+    env: wire.Field(wire.Map([]const u8)) = .absent,
+    height_permille: u64,
+    keep: ?bool = null,
+    pane: Id,
+    rows: wire.Field(u16) = .absent,
+    shell_args: wire.Field([]const []const u8) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "keep",
+    };
+};
+
+pub fn newRow(client: anytype, request: NewRowRequest) !wire.Decoded(NewRowResult) {
+    return client.callTyped(
+        NewRowResult,
+        .{
+            .name = "new-row",
+            .authority = "control",
+            .since = 12,
+            .capability = "rows-v1",
+        },
+        request,
+    );
+}
+
 pub const NewScreenRequest = struct {
     color: wire.Field([]const u8) = .absent,
     cols: wire.Field(u16) = .absent,
@@ -6033,6 +6074,32 @@ pub fn setRatio(client: anytype, request: SetRatioRequest) !wire.Decoded(SetRati
             .authority = "control",
             .since = 5,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const SetRowHeightsRequest = struct {
+    column: Id,
+    fit: ?bool = null,
+    heights: []const RowHeight,
+    transaction: wire.Field(u64) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "fit",
+    };
+};
+
+pub const SetRowHeightsResult = JsonValue;
+
+pub fn setRowHeights(client: anytype, request: SetRowHeightsRequest) !wire.Decoded(SetRowHeightsResult) {
+    return client.callTyped(
+        SetRowHeightsResult,
+        .{
+            .name = "set-row-heights",
+            .authority = "control",
+            .since = 12,
+            .capability = "rows-v1",
         },
         request,
     );
@@ -8002,7 +8069,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 208;
+pub const command_count: usize = 210;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -8117,6 +8184,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "new-frontend-browser-tab", .authority = "control", .since = 12, .capability = "frontend-browser-tabs-v1", .stream = null },
     .{ .name = "new-pane", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "new-pane-right", .authority = "control", .since = 9, .capability = "viewport-splits-v1", .stream = null },
+    .{ .name = "new-row", .authority = "control", .since = 12, .capability = "rows-v1", .stream = null },
     .{ .name = "new-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "new-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "new-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
@@ -8171,6 +8239,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-personal-workspace", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "set-profile-follows", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "set-ratio", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "set-row-heights", .authority = "control", .since = 12, .capability = "rows-v1", .stream = null },
     .{ .name = "set-screen-metadata", .authority = "control", .since = 12, .capability = "screen-metadata-v1", .stream = null },
     .{ .name = "set-screen-pinned", .authority = "control", .since = 12, .capability = "screen-metadata-v1", .stream = null },
     .{ .name = "set-size-counts", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },

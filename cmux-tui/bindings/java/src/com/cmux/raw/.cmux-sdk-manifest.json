@@ -357,8 +357,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "b0be79c9c6d2389a1c30329f4802df14ce4a9c262df012961c868db4d1a1ef5d",
-      "size": 54923
+      "sha256": "1a04750c81048d8df257a2ec5e4ba25ce2b7c4755a92720b89c49539c3953c71",
+      "size": 55341
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -682,8 +682,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "51e5059e244191a272757d0d5bb9247a596d06771997932ed813443505635be9",
-      "size": 48317
+      "sha256": "baa542f9fc65e4aa9a6814cb146026d2c52fcd2085120e7d38f8c2c9d698606f",
+      "size": 48740
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -1101,6 +1101,16 @@
       "size": 7191
     },
     {
+      "path": "NewRowRequest.java",
+      "sha256": "2c9d7f4f89eeb0f5b88258a3f0af573867c046a491aaddc35357ac1c97c46789",
+      "size": 7323
+    },
+    {
+      "path": "NewRowResult.java",
+      "sha256": "1c95d7a8414f17eb4486f93c53df9d7b1be265717e7e25cc6d1aee097256a8c5",
+      "size": 4126
+    },
+    {
       "path": "NewScreenRequest.java",
       "sha256": "4fd17bf510fdbf5066a99f2b89ba5deda2ff362dd7751dcdfaed0bf91b16faf7",
       "size": 7514
@@ -1252,7 +1262,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "d6d02d5cdcaf9e8d1ddf1b270f184f90fa1789ef26c498b33c08bef3b70c5bb3",
+      "sha256": "abf9b98ba537ab3ea68d6ee98c124fe862e03123c6e7f3a62432a2c5c5ad0a4e",
       "size": 4943
     },
     {
@@ -1491,6 +1501,11 @@
       "size": 11972
     },
     {
+      "path": "RowHeight.java",
+      "sha256": "e8081d3b7311ddad62847126aa84000748a8b269ea46b618522d5ba9428f2d27",
+      "size": 2456
+    },
+    {
       "path": "RunRequest.java",
       "sha256": "4f93b99bf9632c76fb89822db67fc41b7b4cab420bfcb9ea7d568c857f98720b",
       "size": 6763
@@ -1674,6 +1689,11 @@
       "path": "SetRatioRequest.java",
       "sha256": "c78668b18bc49afcc72abb7d91f07feafb32f2a4fab990490dd0639762a27a3e",
       "size": 3186
+    },
+    {
+      "path": "SetRowHeightsRequest.java",
+      "sha256": "3acb33ef84068bdb6f6448f5d199ff6616f7cf71aa311611fd5ca82ac3ba5120",
+      "size": 4090
     },
     {
       "path": "SetScreenMetadataRequest.java",
@@ -2267,7 +2287,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "9a93a666e8f059fe58fafce71e3c8f25d47a930c49c9058ed455f3ca46b21d7b",
+  "ir_sha256": "ed267db94d6999692c3c78c9eb7a2fdebb873cec9b3f6b29f0ff07bed8fa4d7d",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

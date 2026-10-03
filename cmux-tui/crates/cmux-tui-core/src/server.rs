@@ -104,6 +104,7 @@ mod launch_snapshot;
 mod personal;
 mod raw_tab;
 mod responses;
+mod rows;
 mod screen_json;
 mod session_stream;
 mod split_respawn;
@@ -133,6 +134,8 @@ pub const STICKY_COLUMNS_CAPABILITY: &str = "sticky-columns-v1";
 /// Top and bottom docks: `set-column-sticky` and `move-tab-to-column` accept
 /// edges `top` and `bottom`, sent back as `Screen.columns[].dock`.
 pub const EDGE_DOCKS_CAPABILITY: &str = "edge-docks-v1";
+/// `new-row`, `set-row-heights` and `Screen.columns[].rows` (rows.md).
+pub const ROWS_CAPABILITY: &str = "rows-v1";
 pub const TAB_WORKSPACE_MOVE_CAPABILITY: &str = "tab-workspace-move-v1";
 pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
@@ -386,6 +389,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
         STICKY_COLUMNS_CAPABILITY,
         EDGE_DOCKS_CAPABILITY,
+        ROWS_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
         TAB_WORKSPACE_MOVE_CAPABILITY,
         CLEAR_HISTORY_CAPABILITY,
@@ -1991,6 +1995,8 @@ enum Command {
     },
     /// Drop a tab between strip columns: a new column holding the tab.
     MoveTabToColumn(tab_column::MoveTabToColumnParams),
+    NewRow(rows::NewRowParams),
+    SetRowHeights(rows::SetRowHeightsParams),
     /// Drop a tab on the sidebar: a new workspace holding the tab.
     MoveTabToNewWorkspace {
         surface: SurfaceId,
@@ -11115,6 +11121,7 @@ fn response_error_code(error: &anyhow::Error) -> Option<String> {
                 .downcast_ref::<crate::ColumnStickyError>()
                 .and_then(|error| error.code().map(str::to_string))
         })
+        .or_else(|| rows::error_code(error))
         .or_else(|| bookmarks::error_code(error))
         .or_else(|| conversations::error_code(error))
         .or_else(|| crate::state::home_error_code(error))
@@ -14637,6 +14644,8 @@ fn handle_command_with_cancellation(
             Ok(tab_drag_outcome_json(&outcome))
         }
         Command::MoveTabToColumn(params) => tab_column::move_tab_to_column(mux, params),
+        Command::NewRow(params) => rows::new_row(mux, params),
+        Command::SetRowHeights(params) => rows::set_row_heights(mux, client, params),
         Command::MoveTabToNewWorkspace { surface, group, index, transaction } => {
             validate_client_transaction(transaction.as_deref())?;
             get_surface(mux, surface)?;

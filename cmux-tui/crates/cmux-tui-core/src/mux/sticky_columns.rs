@@ -408,13 +408,8 @@ mod tests {
 
     #[test]
     fn sticky_column_normalization_restores_invariants_after_any_removal() {
-        let column = |sticky| LayoutColumn {
-            id: 1,
-            width: 0.5,
-            root: Node::Leaf(1),
-            zellij_auto_layout: None,
-            sticky,
-        };
+        let column =
+            |sticky| LayoutColumn { sticky, ..LayoutColumn::new(1, 0.5, Node::Leaf(1), None) };
         for count in 0..=4 {
             for flags in assignments(count) {
                 let mut columns = flags.iter().copied().map(column).collect::<Vec<_>>();

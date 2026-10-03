@@ -98,7 +98,8 @@ fn column_layout_is_the_compat_chain_of_the_rows() {
     let column = &wire.columns()[0];
     let rows = column["rows"].as_array().unwrap();
     assert_eq!(column["layout"]["type"], "split", "{column}");
-    assert_eq!(column["layout"]["id"], rows[1]["id"], "the chain split carries row 2's id");
+    // Split nodes carry their id as `split` (node_json), rows as `id`.
+    assert_eq!(column["layout"]["split"], rows[1]["id"], "the chain split carries row 2's id");
 }
 
 #[test]
