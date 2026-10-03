@@ -177,6 +177,9 @@ extension DockSplitStore {
             downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: false,
             detectedResumeBindingIsAmbiguous:
                 surfaceResumeBindingsByPanelId[panelId]?.isProcessDetected == true,
+            developerToolsVisibleOverride: (panels[panelId] as? BrowserPanel).map {
+                $0.preferredDeveloperToolsVisible || $0.isDeveloperToolsVisible()
+            },
             terminalFontSizeSnapshotProjection:
                 terminalFontSizeSnapshotProjection,
             notificationStore: resolvedNotificationStore(),
@@ -219,6 +222,7 @@ extension DockSplitStore {
         downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: Bool,
         detectedResumeBindingIsAmbiguous: Bool = false,
         resumeBindingDetectionUnavailable: Bool = false,
+        developerToolsVisibleOverride: Bool? = nil,
         terminalFontSizeSnapshotProjection:
             WorkspaceTerminalFontSizeSnapshotProjection?,
         notificationStore: TerminalNotificationStore?,
@@ -378,7 +382,8 @@ extension DockSplitStore {
                     profileID: browser.profileID,
                     shouldRenderWebView: browser.shouldRenderWebViewForSessionSnapshot(),
                     pageZoom: Double(browser.currentPageZoomFactor()),
-                    developerToolsVisible: browser.isDeveloperToolsVisible(),
+                    developerToolsVisible: developerToolsVisibleOverride
+                        ?? browser.isDeveloperToolsVisible(),
                     isMuted: browser.isMuted,
                     chromeVisibility: browser.chromeVisibility,
                     omnibarVisible: browser.isOmnibarVisible,

@@ -460,7 +460,7 @@ class TabManager: ObservableObject {
     let notificationDismissal: any NotificationDismissing = NotificationDismissalModel()
     private var pendingProjectedNotificationFocusRequestID: UUID?
     /// Recently-closed browser panel history (CmuxBrowser).
-    let browserModel = BrowserModel<ClosedBrowserPanelRestoreSnapshot>()
+    let browserModel = BrowserModel<LegacyClosedBrowserPanelRestoreSnapshot>()
     /// Sidebar multi-selection state + sync events (CmuxSidebar).
     let sidebarMultiSelection = SidebarMultiSelectionModel()
     /// Typed synchronous settings access (CmuxSettings).
@@ -5004,7 +5004,17 @@ class TabManager: ObservableObject {
             guard let targetWorkspace = tabs.first(where: { $0.id == snapshot.workspaceId }) else {
                 continue
             }
+
+            // Prefer the same full session restore used by unified history.
+            // The legacy snapshot remains below as a compatibility fallback
+            // when a full session entry could not be captured or restored.
+            if let historyEntry = snapshot.historyEntry,
+               restoreClosedPanel(historyEntry) {
+                return true
+            }
+
             let preReopenFocusedPanelId = focusedPanelId(for: targetWorkspace.id)
+            targetWorkspace.beginFocusRestoreTransaction()
 
             if selectedTabId != targetWorkspace.id {
                 selectWorkspaceId(
@@ -5013,7 +5023,7 @@ class TabManager: ObservableObject {
                 )
             }
 
-            if let reopenedPanelId = reopenClosedBrowserPanel(snapshot, in: targetWorkspace) {
+            if let reopenedPanelId = reopenClosedBrowserPanel(snapshot.fallbackSnapshot, in: targetWorkspace) {
                 enforceReopenedBrowserFocus(
                     tabId: targetWorkspace.id,
                     reopenedPanelId: reopenedPanelId,
@@ -5092,6 +5102,7 @@ class TabManager: ObservableObject {
             return false
         }
 
+        workspace.beginFocusRestoreTransaction()
         let preRestoreFocus = currentFocusHistoryEntry
         let panelId = withFocusHistoryRecordingSuppressed {
             workspace.restoreClosedPanel(entry, excludingStableIdentities: liveStableIdentitySet())
