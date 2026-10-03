@@ -375,8 +375,10 @@ impl Pacer {
             let packet = self.bulk.pop_front().expect("non-empty");
             if let Some(srtt) = self.srtt() {
                 let rate = GAIN * f64::from(MIN_FLIGHT) / srtt.as_secs_f64().max(1e-6);
-                let start = bulk_free.map_or(now, |free| free.max(now.checked_sub(MAX_CREDIT).unwrap_or(now)));
-                self.bulk_next_free = Some(start + Duration::from_secs_f64(packet.len() as f64 / rate));
+                let start = bulk_free
+                    .map_or(now, |free| free.max(now.checked_sub(MAX_CREDIT).unwrap_or(now)));
+                self.bulk_next_free =
+                    Some(start + Duration::from_secs_f64(packet.len() as f64 / rate));
             }
             return Ok(Some(packet));
         }
