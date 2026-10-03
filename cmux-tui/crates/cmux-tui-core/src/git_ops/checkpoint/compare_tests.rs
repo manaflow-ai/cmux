@@ -84,9 +84,17 @@ fn without_to_it_compares_with_the_working_tree_and_changes_nothing() {
     let start = checkpoint(&mux, &repository, "live-start");
     write(&repository, "a.txt", b"one\ntwo\n");
     write(&repository, "fresh.txt", b"x\ny\n");
+    // A credential-like untracked file is never captured, so never shown.
+    write(&repository, ".env.local", b"TOKEN=secret\n");
     let before = observed(&repository);
 
-    let result = ok(read(&mux, "git.checkpoint.diff", &repository, json!({"from": start})));
+    let result = ok(read(
+        &mux,
+        "git.checkpoint.diff",
+        &repository,
+        json!({"from": start, "include_patch": true}),
+    ));
+    assert!(!result.to_string().contains("secret"), "{result}");
     assert!(result.get("to").is_none());
     // scratch.txt is untracked at both ends and unchanged: not listed.
     assert_eq!(

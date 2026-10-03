@@ -49,19 +49,6 @@ pub(super) fn run_git(
     arguments: &[&str],
     max_stdout: usize,
 ) -> Result<GitOutput, GitFailure> {
-    run_git_with_index(directory, overrides, None, arguments, max_stdout)
-}
-
-/// [`run_git`] reading `index` instead of the repository's own index: a
-/// private copy a read may extend (intent-to-add entries) without touching
-/// the user's.
-pub(super) fn run_git_with_index(
-    directory: &Path,
-    overrides: &[String],
-    index: Option<&Path>,
-    arguments: &[&str],
-    max_stdout: usize,
-) -> Result<GitOutput, GitFailure> {
     let mut command = Command::new("git");
     for (name, _) in std::env::vars_os() {
         if name.as_encoded_bytes().starts_with(b"GIT_") {
@@ -84,9 +71,6 @@ pub(super) fn run_git_with_index(
         // Client paths are file names, never pathspec magic such as `:(top)`.
         .env("GIT_LITERAL_PATHSPECS", "1")
         .env("LC_ALL", "C");
-    if let Some(index) = index {
-        command.env("GIT_INDEX_FILE", index);
-    }
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
