@@ -110,6 +110,13 @@ final class SSHTuiWorkspaceCoordinator {
                 throw CloudDiagnosticFailure.unsupported
             }
         }
+        // A restored workspace already has projections, so it does not reach
+        // the new-workspace creation branch below. Recover the replaceable SSH
+        // sidecar before refreshing that existing graph, otherwise every pane
+        // waits on the stale carrier left by the previous app process.
+        if restoring, let sshLinks = provider.links as? SSHTuiLinkManager {
+            _ = try await sshLinks.connected(machineID: connection.id, preflight: false, upgrade: true)
+        }
         guard await provider.refreshCurrentGraph(force: false) else {
             throw CloudMachineLink.LinkError.failureMessage(provider.info.linkFailureMessage)
         }
