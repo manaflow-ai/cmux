@@ -658,6 +658,11 @@ public enum MacConversationLab {
         window.minSize = NSSize(width: 640, height: 420)
         window.setContentSize(NSSize(width: 1100, height: 760))
         window.center()
+        // CMUX_LAB_DISPLAY names the display the lab opens on (e.g. "LG HDR 4K").
+        if let name = ProcessInfo.processInfo.environment["CMUX_LAB_DISPLAY"],
+           let screen = NSScreen.screens.first(where: { $0.localizedName.localizedCaseInsensitiveContains(name) }) {
+            window.setFrameOrigin(NSPoint(x: screen.visibleFrame.minX + 40, y: screen.visibleFrame.maxY - window.frame.height - 40))
+        }
         window.identifier = .init("cmux.conversationLab")
         let windowController = NSWindowController(window: window)
         windows.append(windowController)
