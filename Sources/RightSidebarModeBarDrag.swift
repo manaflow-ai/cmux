@@ -61,7 +61,7 @@ final class RightSidebarModeBarDragController {
         translation travel: CGSize,
         barHeight: CGFloat,
         animation: Animation?,
-        dragImage: @MainActor (CGSize) -> NSImage?
+        dragImage: @MainActor () -> NSImage?
     ) {
         if session?.mode != mode || session?.startLocation != startLocation {
             guard startLocation != endedStartLocation, begin(mode: mode, displayed: displayed, startLocation: startLocation) else { return }
@@ -149,12 +149,21 @@ final class RightSidebarModeBarDragController {
         tabFrame: CGRect,
         travel: CGSize,
         animation: Animation?,
-        dragImage: @MainActor (CGSize) -> NSImage?
+        dragImage: @MainActor () -> NSImage?
     ) -> Bool {
         guard let view = anchor.view,
               let event = NSApp.currentEvent, event.type == .leftMouseDragged,
-              let image = dragImage(tabFrame.size) else { return false }
-        let frame = tabFrame.offsetBy(dx: current.layout.draggedOffset(translation: translation), dy: travel.height)
+              let image = dragImage() else { return false }
+        // The preview shows the full label even when the bar has truncated
+        // this tab, so it keeps the tab's leading edge and vertical center
+        // and takes its own size.
+        let lifted = tabFrame.offsetBy(dx: current.layout.draggedOffset(translation: translation), dy: travel.height)
+        let frame = NSRect(
+            x: lifted.minX,
+            y: lifted.midY - image.size.height / 2,
+            width: image.size.width,
+            height: image.size.height
+        )
         guard let source = RightSidebarModeDragPayload.beginPaneDrag(
             mode: current.mode, from: view, event: event, frame: frame, image: image,
             onEnd: { [weak self] in self?.paneDragEnded() }
@@ -261,10 +270,10 @@ struct RightSidebarModeBarTabDrag: ViewModifier {
     }
 
     @MainActor
-    private func dragImage(size: CGSize) -> NSImage? {
+    private func dragImage() -> NSImage? {
         let renderer = ImageRenderer(
             content: RightSidebarModeBarDragPreview(mode: mode)
-                .frame(width: size.width, height: size.height)
+                .fixedSize()
                 .environment(\.colorScheme, colorScheme)
         )
         renderer.scale = controller.anchor.view?.window?.backingScaleFactor ?? 2
