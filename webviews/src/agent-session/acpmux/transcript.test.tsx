@@ -956,6 +956,74 @@ describe("acpmux host handshake", () => {
     }
   });
 
+  /// A resumed chat: the handshake's adopt is resumed on connect and becomes the tab's session at
+  /// once, before any Send, so restoring the tab reopens that chat rather than an empty one.
+  test("a resumed chat becomes the tab's session without a Send", async () => {
+    const sent: { method: string; params: Record<string, unknown> }[] = [];
+    const native: { method: string; params?: Record<string, unknown> }[] = [];
+    class AdoptSocket extends FakeSocket {
+      override send(raw: string) {
+        const { id, method, params } = JSON.parse(raw) as {
+          id: number;
+          method: string;
+          params: Record<string, unknown>;
+        };
+        sent.push({ method, params });
+        const result =
+          method === "_acpmux/watch"
+            ? { sessions: [] }
+            : method === "session/new"
+              ? { sessionId: "s-adopted", _meta: { acpmux: { agentSessionId: "0a1b2c3d" } } }
+              : method === "_acpmux/attach"
+                ? { session: { sessionId: "s-adopted", harness: "claude" }, events: [] }
+                : {};
+        queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ id, result }) }));
+      }
+    }
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Record<string, unknown>;
+    const realSocket = globals.WebSocket;
+    globals.WebSocket = AdoptSocket;
+    host.webkit = {
+      messageHandlers: {
+        agentSession: {
+          postMessage(message: { method: string; params?: Record<string, unknown> }) {
+            if (message.method !== "ready") {
+              native.push(message);
+              return Promise.resolve({ ok: true, value: null });
+            }
+            return Promise.resolve({
+              ok: true,
+              value: {
+                protocolVersion: 1,
+                transport: "acpmux-websocket",
+                endpoint: "ws://127.0.0.1:4100/acp",
+                token: "t",
+                newSession: true,
+                adopt: { harness: "claude", agentSessionId: "0a1b2c3d" },
+              },
+            });
+          },
+        },
+      },
+    };
+    const persisted = () => native.filter((message) => message.method === "chat.persistSession");
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      for (let tries = 0; tries < 100 && persisted().length === 0; tries += 1)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+      expect(persisted().map((message) => message.params?.sessionId)).toEqual(["s-adopted"]);
+      expect(sent.filter((message) => message.method === "session/new")).toHaveLength(1);
+      expect(sent.some((message) => message.method === "session/prompt")).toBe(false);
+    } finally {
+      await act(async () => root.unmount());
+      globals.WebSocket = realSocket;
+      delete host.webkit;
+      delete host.cmuxAcpmuxRegistry;
+      FakeSocket.made = [];
+    }
+  });
+
   /// After losing the daemon the page asks Swift again; that retry restarted a daemon the user had stopped.
   test("a page that lost its daemon asks for a handshake that does not start one", async () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
@@ -2253,6 +2321,82 @@ describe("acpmux turn counts", () => {
   });
 });
 
+describe("acpmux docked permission asks", () => {
+  test("folder trust coexists with a group without duplicating its individual controls", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window;
+    const priorActions = host.cmuxAcpmuxActions;
+    host.cmuxAcpmuxActions = { "acp.trust.get": async ({ cwd }) => ({ cwd, level: "unknown" }) };
+    const permission = {
+      permissionId: "p",
+      groupId: "g",
+      pending: true,
+      title: "Write app.ts",
+      options: [{ id: "yes", name: "Individual allow", allow: true }],
+    };
+    const snapshot = {
+      type: "snapshot",
+      protocolVersion: 1,
+      sessionId: "s",
+      summary: { sessionId: "s", cwd: "/repo/app", harness: "claude", turnCount: 1 },
+      rows: [
+        { id: "u", version: 1, at: 1, kind: "user", text: "fix it" },
+        { id: "p", version: 1, at: 2, kind: "permission", permission },
+      ],
+      sessions: [],
+      connection: "connected",
+      isWorking: true,
+      queue: [],
+      catalog: [],
+      canLoadOlder: false,
+      permission,
+      permissionGroups: {
+        supported: true,
+        ready: true,
+        chatAllowance: false,
+        busy: false,
+        loading: false,
+        groups: [
+          {
+            groupId: "g",
+            sessionId: "s",
+            turnId: "t",
+            revision: 1,
+            state: "pending",
+            decision: null,
+            decisions: ["allow_once", "allow_chat", "deny"],
+            items: [
+              { permissionId: "p", state: "pending", request: { toolCall: { title: "Write app.ts", kind: "edit" } } },
+            ],
+          },
+        ],
+      },
+    };
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot as never));
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+      expect(dom.window.document.querySelector(".acpmux-trust-ask")).not.toBeNull();
+      const buttons = () => [...dom.window.document.querySelectorAll("button")].map((button) => button.textContent);
+      expect(buttons()).toContain("Allow for this chat");
+      expect(buttons().some((label) => label?.endsWith("Individual allow"))).toBe(false);
+      // An interactive request remains individually answerable beside both asks.
+      await act(async () =>
+        host.cmuxAcpmuxBridge!.receive({
+          ...snapshot,
+          permission: { ...permission, permissionId: "interactive", groupId: undefined },
+        } as never),
+      );
+      expect(buttons().some((label) => label?.endsWith("Individual allow"))).toBe(true);
+      expect(buttons()).toContain("Allow for this chat");
+      expect(dom.window.document.querySelector(".acpmux-trust-ask")).not.toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      host.cmuxAcpmuxActions = priorActions;
+    }
+  });
+});
+
 describe("acpmux new chat", () => {
   /// A new chat drew an empty transcript; it now names the project.
   test("an attached session with no turns shows the hero with its folder; rows, turns, a queued prompt, a lost daemon or a missing summary hide it", async () => {
@@ -2524,6 +2668,32 @@ describe("acpmux shell calls", () => {
 });
 
 describe("acpmux timestamp lines", () => {
+  test("unknown turn times and replayed date rows leave the prompt visible without an epoch date", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      for (const at of [undefined, 0, NaN, Infinity]) {
+        const user: AcpmuxRow = { id: "u", version: 1, at: 0, kind: "user", text: "Update dependencies" };
+        if (at === undefined) delete (user as Partial<AcpmuxRow>).at;
+        else user.at = at;
+        await act(async () =>
+          root.render(
+            createElement(VirtualTranscript, {
+              rows: [...turnView([user], new Set()), { ...user, id: "date-replay", kind: "date" }],
+              onToggleActivity: () => {},
+              expanded: new Set<string>(),
+            }),
+          ),
+        );
+        expect(dom.window.document.querySelector("time.cv-date-line")).toBeNull();
+        expect(dom.window.document.body.textContent).toContain("Update dependencies");
+      }
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
   /// A turn that starts over an hour after the last answer gets a date; the pane showed no
   /// date at all.
   test("a turn over an hour after the previous answer draws its time above it", async () => {

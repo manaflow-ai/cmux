@@ -11,9 +11,24 @@
 # the same Apple Developer ID. Never rotate the Developer ID certificate in the
 # same build. https://sparkle-project.org/documentation/ ("Rotating signing keys")
 #
-# Inputs come from the environment: NIGHTLY_SPARKLE_KEY, CHANNEL,
-# SHARED_SPARKLE_PRIVATE_KEY, NIGHTLY_SPARKLE_PRIVATE_KEY.
+# TRACK=nightly-next (the cmux-next track, published from branch nightly-next)
+# always signs with its own key, NEXT_SPARKLE_PRIVATE_KEY, and never falls back
+# to a shared or nightly key: its installs and main's NIGHTLY installs use
+# different keys, so one channel's signer cannot sign the other's feed.
+#
+# Inputs come from the environment: NIGHTLY_SPARKLE_KEY, CHANNEL, TRACK,
+# SHARED_SPARKLE_PRIVATE_KEY, NIGHTLY_SPARKLE_PRIVATE_KEY,
+# NEXT_SPARKLE_PRIVATE_KEY.
 set -euo pipefail
+
+if [[ "${TRACK:-}" == nightly-next ]]; then
+  if [[ -z "${NEXT_SPARKLE_PRIVATE_KEY:-}" ]]; then
+    echo "TRACK=nightly-next needs the SPARKLE_NEXT_PRIVATE_KEY secret (release-next environment)" >&2
+    exit 1
+  fi
+  printf '%s' "$NEXT_SPARKLE_PRIVATE_KEY"
+  exit 0
+fi
 
 selector="${NIGHTLY_SPARKLE_KEY:-}"
 case "$selector" in "" | nightly) ;; *)

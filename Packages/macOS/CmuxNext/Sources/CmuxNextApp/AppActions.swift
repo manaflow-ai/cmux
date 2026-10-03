@@ -53,6 +53,7 @@ enum AppActions {
         AccountsHandlers.bind(into: registry, context: context)
         RemoteHandlers.bind(into: registry, context: context)
         ResourceHandlers.bind(into: registry, context: context)
+        LinkHandlers.bind(into: registry, context: context)
         context.observeRefusals()
         DestructiveConfirmation.install(services)
         ActionRouting.install(services)

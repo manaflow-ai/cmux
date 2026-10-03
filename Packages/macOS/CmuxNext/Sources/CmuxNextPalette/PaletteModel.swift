@@ -70,6 +70,8 @@ public final class PaletteModel {
     /// Cmd-K on a row that runs a registry action: opens the shortcut
     /// recorder. Returns false when it cannot (then the Actions menu opens).
     @ObservationIgnored public var onEditShortcut: (@MainActor (ActionID) -> Bool)?
+    /// A page change dropped an open shortcut recorder.
+    @ObservationIgnored var onDropShortcutRecorder: (() -> Void)?
     /// Injected clock for frecency.
     @ObservationIgnored public var now: @MainActor () -> Date = { Date() }
     @ObservationIgnored public internal(set) var frecency: FrecencyStore
@@ -183,6 +185,7 @@ public final class PaletteModel {
         }
         stack = []
         actionsMenu = nil
+        if shortcutRecorder != nil { onDropShortcutRecorder?() }
         shortcutRecorder = nil
         hoveredRowID = nil
         pendingSubmit = nil

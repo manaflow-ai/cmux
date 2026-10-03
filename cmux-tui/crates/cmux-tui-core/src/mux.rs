@@ -3,6 +3,7 @@
 
 mod agent_hook_errors;
 mod conversations;
+mod exit_settle;
 mod host_close;
 #[cfg(all(test, unix))]
 mod host_death_tests;
@@ -25,6 +26,7 @@ pub(crate) mod tab_strip;
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
 mod terminal_directory;
+mod terminal_exit;
 mod terminal_move_topology;
 mod terminal_progress;
 mod terminal_reap;
@@ -2720,6 +2722,9 @@ pub struct Mux {
     /// When this owner's session (and the previous owner's) was shutting
     /// down: signal exits then are host losses (`session-shutdown`).
     session_shutdown: crate::session_shutdown::SessionShutdownClock,
+    /// Detaches of live signal exits that wait out the session shutdown
+    /// lead (`session-shutdown`, logout race).
+    exit_settles: Arc<exit_settle::ExitSettleTimer>,
     /// Called after `request_daemon_shutdown`, so the owner loop that waits
     /// for it blocks instead of polling the flag.
     daemon_shutdown_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
@@ -3161,6 +3166,7 @@ impl Mux {
             server_lifecycle_ready: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
             session_shutdown,
+            exit_settles: Arc::default(),
             daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
@@ -3184,6 +3190,7 @@ impl Mux {
             test_surface_runtime,
             session,
         });
+        mux.exit_settles.bind(Arc::downgrade(&mux));
         let weak_mux = Arc::downgrade(&mux);
         mux.journal_plugin.set_exit_handler(Some(Arc::new(move |plugin_id, generation| {
             let Some(mux) = weak_mux.upgrade() else { return };
@@ -6033,28 +6040,6 @@ impl Mux {
     #[cfg(test)]
     pub(crate) fn terminal_exit_state_query_count_for_test(&self) -> u64 {
         self.terminal_exit_state_queries.load(Ordering::Acquire)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn persist_terminal_exit_for_test(
-        &self,
-        terminal_id: &TerminalPublicId,
-        exit: &TerminalExit,
-    ) -> anyhow::Result<bool> {
-        let (host_id, incarnation) = {
-            let registry = self.workspace_registry.lock().unwrap();
-            let host_id = registry
-                .live_terminal_host_id(terminal_id)?
-                .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
-            let incarnation =
-                registry.terminal_record(&host_id)?.and_then(|terminal| terminal.incarnation);
-            (host_id, incarnation)
-        };
-        self.persist_terminal_exit(
-            &host_id,
-            incarnation.as_deref(),
-            &TerminalEnd::ProcessEnded(exit.clone()),
-        )
     }
 
     pub(crate) fn publish_resource_event(&self) {
@@ -12294,14 +12279,6 @@ impl Mux {
         }
     }
 
-    /// Record, once and durably, when this owner's session began shutting
-    /// down, so the next owner classifies signal exits from then on as host
-    /// losses (`session-shutdown`). The owner's loop calls it as soon as a
-    /// termination signal wakes it, before any teardown.
-    pub fn begin_session_shutdown(&self) {
-        self.session_shutdown.begin(crate::session_shutdown::unix_now_ms());
-    }
-
     /// Install the callback that `request_daemon_shutdown` runs after it
     /// sets the flag (the headless owner loop's wake).
     pub fn set_daemon_shutdown_waker(&self, waker: impl Fn() + Send + Sync + 'static) {
@@ -16677,268 +16654,6 @@ impl Mux {
         if let Some(workspace_key) = workspace_key {
             let _ = surface.persist_host_workspace(&workspace_key);
         }
-    }
-
-    /// Called by a surface's reader thread when its child exits. Hosted
-    /// terminals preserve a durable exit receipt while all views detach;
-    /// local surfaces are removed immediately.
-    pub fn surface_exited(self: &Arc<Self>, id: SurfaceId) {
-        if self.sidebar_surface_exited(id) {
-            self.emit(MuxEvent::SurfaceExited(id));
-            return;
-        }
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
-        let _creation_fence = self.resource_creation_execution.lock().unwrap();
-        if let Some(surface) = self.surface(id)
-            && let Some(identity) = self.resource_terminal_host_identity(&surface)
-        {
-            if let Err(error) = self.mark_hosted_surface_exited(&surface, "host-exited") {
-                self.emit(MuxEvent::Status(format!(
-                    "could not persist terminal {id} exit: {error}"
-                )));
-                self.schedule_exited_terminal_detach(identity.terminal_id, &surface, "host-exited");
-                return;
-            }
-            return;
-        }
-        self.remove_surface_after_registry(id);
-        self.emit(MuxEvent::SurfaceExited(id));
-    }
-
-    /// Exit persistence is first-writer-wins. A transient SQLite failure
-    /// leaves the old topology intact and retries through a weak owner until
-    /// the atomic lifecycle-and-detach commit succeeds or shutdown begins.
-    fn schedule_exited_terminal_detach(
-        self: &Arc<Self>,
-        terminal_id: String,
-        surface: &Arc<Surface>,
-        reason: &'static str,
-    ) {
-        let Some(detach_lease) = self.terminal_exit_detaches.acquire(terminal_id.clone()) else {
-            return;
-        };
-        let cleanup_id = terminal_id.clone();
-        let mux = Arc::downgrade(self);
-        let surface = Arc::downgrade(surface);
-        let spawn_result = std::thread::Builder::new()
-            .name(format!("terminal-exit-detach-{terminal_id}"))
-            .spawn(move || {
-                let _detach_lease = detach_lease;
-                let mut delay = Duration::from_millis(25);
-                loop {
-                    std::thread::sleep(delay);
-                    let Some(mux) = mux.upgrade() else { break };
-                    if mux.shutting_down.load(Ordering::Acquire) {
-                        break;
-                    }
-                    let reconciled = surface
-                        .upgrade()
-                        .map(|surface| mux.mark_hosted_surface_exited(&surface, reason))
-                        .unwrap_or_else(|| {
-                            mux.detach_exited_terminal_topology(&terminal_id).map(drop)
-                        });
-                    match reconciled {
-                        Ok(()) => break,
-                        Err(error) => {
-                            eprintln!(
-                                "cmux-tui: could not detach exited terminal \
-                                 {terminal_id}: {error:#}"
-                            );
-                            delay = (delay * 2).min(Duration::from_secs(5));
-                        }
-                    }
-                }
-            });
-        if let Err(error) = spawn_result {
-            eprintln!(
-                "cmux-tui: could not schedule exited terminal {cleanup_id} detach: {error:#}"
-            );
-        }
-    }
-
-    fn mark_hosted_surface_exited(
-        &self,
-        surface: &Arc<Surface>,
-        reason: &str,
-    ) -> anyhow::Result<()> {
-        let Some(identity) = self.resource_terminal_host_identity(surface) else {
-            return Ok(());
-        };
-        // Output stays on the bounded asynchronous ingress path. Exit is the
-        // one terminal transition that fences it, preserving byte order and
-        // full topology subjects before the atomic detach transaction.
-        self.flush_terminal_journal()?;
-        let end = surface.terminal_end().unwrap_or_else(|| TerminalEnd::host_lost(reason));
-        self.persist_terminal_exit(&identity.terminal_id, Some(&identity.incarnation), &end)?;
-        self.detach_exited_terminal_topology(&identity.terminal_id)?;
-        #[cfg(unix)]
-        if let Some((path, expected)) = surface.terminal_host_exit_sidecar() {
-            crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(&path, &expected)?;
-        }
-        Ok(())
-    }
-
-    /// Commit terminal lifecycle, topology detach, and exactly one public
-    /// event in one registry transaction. Callers may observe the same exit
-    /// through the live frame, sidecar recovery, and dead-host reconciliation;
-    /// the first commit is the latch and all later observations are no-ops.
-    fn persist_terminal_exit(
-        &self,
-        terminal_id: &str,
-        incarnation: Option<&str>,
-        end: &TerminalEnd,
-    ) -> anyhow::Result<bool> {
-        // A signal exit during a session shutdown is a host loss.
-        let end = &self.session_shutdown.classify(end.clone());
-        let exit = end.exit();
-        // Best-effort exit snapshot: capture the terminal's final state as
-        // one bounded, compressed vt-replay blob while the runtime VT is
-        // still alive, so terminal.output_read stays answerable after its
-        // output records become prunable. Capture and store live AROUND the
-        // first-writer-wins latch below and never affect its outcome: any
-        // failure leaves the exit commit untouched and readers fall back to
-        // the retained terminal.output records.
-        let exit_replay = incarnation
-            .and_then(|generation| self.capture_terminal_exit_replay(terminal_id, generation));
-        let mut registry = self.workspace_registry.lock().unwrap();
-        let terminal = registry
-            .terminal_record(terminal_id)?
-            .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
-        let public_terminal_id = registry.terminal_resource_id(terminal_id)?;
-        if !matches!(terminal.lifecycle, TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned)
-            && public_terminal_id.is_none()
-        {
-            // One-release compatibility for pre-resource terminal rows. They
-            // have no public identity to emit, but still retain the exact
-            // outcome in the terminal timeline and remain first-writer wins.
-            let resource_revision = registry.resource_revision()?;
-            let (_, terminal_revision) = commit_terminal_lifecycle(
-                &mut registry,
-                "terminal-exited",
-                "terminal-host-exited",
-                terminal_id,
-                TerminalLifecycle::Exited,
-                incarnation,
-                Some(serde_json::json!({
-                    "outcome": &exit.outcome,
-                    "exited_at": exit.exited_at_ms.to_string(),
-                    "revision": resource_revision.to_string(),
-                })),
-            )?;
-            self.emit_terminal_registry_changed(&registry, terminal_revision);
-            return Ok(true);
-        }
-        let mut state = self.state.lock().unwrap();
-        let terminal_snapshot = if matches!(
-            terminal.lifecycle,
-            TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
-        ) {
-            Value::Null
-        } else {
-            terminal_exit_snapshot_in_state(&registry, &state, terminal_id)?
-        };
-        // The keep policy commits the identical exit latch but leaves the
-        // views and the live screen surface in place. This only holds while
-        // the runtime terminal emulator is alive: after a daemon restart the
-        // in-memory VT is gone, so reconciliation degrades a kept-exited
-        // terminal to the normal detach below.
-        // Tabs the workspace store keeps (`kept_tabs`, keep-layout) stay
-        // regardless of the runtime: a host's exit never removes them.
-        let kept_by_store = match public_terminal_id.as_ref() {
-            Some(public_id) => Self::terminal_tabs_kept_locked(&registry, &state, public_id)?,
-            None => false,
-        };
-        let keep_live_views = kept_by_store
-            || (terminal.on_exit == TerminalOnExit::Keep
-                && public_terminal_id
-                    .as_ref()
-                    .is_some_and(|public_id| state.terminal_catalog.contains_key(public_id)));
-        // Invariant 3: only a process end detaches views. A host loss or a
-        // failed launch commits the same exit latch and leaves every tab in
-        // place, dead (no respawn policy exists in the owner).
-        let detach_proof = end.detach_proof();
-        let detach_projection = match (detach_proof, public_terminal_id.as_ref()) {
-            _ if matches!(
-                terminal.lifecycle,
-                TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
-            ) || keep_live_views =>
-            {
-                None
-            }
-            (Some(proof), Some(public_terminal_id)) => self
-                .terminal_exit_detach_projection_locked(
-                    proof,
-                    &registry,
-                    &state,
-                    terminal_id,
-                    public_terminal_id,
-                )?,
-            _ => None,
-        };
-        let mut terminal_snapshot = terminal_snapshot;
-        if detach_projection.is_some() {
-            // The same revision deletes every view of this terminal, so the
-            // exited row must carry the detached tab edge. A full snapshot at
-            // this revision derives `tab_id: null, tab_ids: []` from topology;
-            // a delta that disagrees leaves clients with a graph that no
-            // snapshot at the same cursor can confirm.
-            terminal_snapshot["tab_id"] = Value::Null;
-            terminal_snapshot["tab_ids"] = serde_json::json!([]);
-        }
-        let topology =
-            detach_projection.as_ref().map(|projection| (&projection.patch, &projection.changes));
-        let (_, terminal_revision, resource_revision, replayed) = registry.commit_terminal_exit(
-            terminal_id,
-            incarnation,
-            exit,
-            terminal_snapshot,
-            topology,
-        )?;
-        let mut detach_effects = None;
-        if !replayed {
-            if let Some(projection) = detach_projection {
-                detach_effects = Some(projection.install(&mut state, resource_revision));
-            } else {
-                state.resource_revision = resource_revision;
-            }
-            self.emit_terminal_registry_changed(&registry, terminal_revision);
-        }
-        drop(state);
-        drop(registry);
-        #[cfg(unix)]
-        if let Some(terminal_id) = &public_terminal_id {
-            // Replay is a recovery path: the durable exit may have committed
-            // before the previous cleanup attempt completed.
-            self.image_pastes.close_terminal(terminal_id.as_str());
-        }
-        if !replayed {
-            if let Some((snapshot_terminal_id, generation, blob)) = exit_replay {
-                // Best-effort: a snapshot store failure must not disturb the
-                // exit latch that already committed above.
-                if let Err(error) = self
-                    .workspace_registry
-                    .lock()
-                    .unwrap()
-                    .put_terminal_exit_snapshot(snapshot_terminal_id.as_str(), &generation, &blob)
-                {
-                    eprintln!(
-                        "cmux-tui: could not store the exit snapshot for terminal \
-                         {snapshot_terminal_id}: {error:#}"
-                    );
-                }
-            }
-            if let Some(public_terminal_id) = public_terminal_id.as_ref() {
-                self.terminal_exit_waiters.notify(public_terminal_id);
-            }
-            self.publish_resource_event();
-            if let Some(effects) = detach_effects {
-                self.finish_terminal_exit_detach(effects);
-            } else if detach_proof.is_none() {
-                // The tabs stay and now show the terminal dead.
-                self.emit(MuxEvent::TreeChanged);
-            }
-        }
-        Ok(!replayed)
     }
 
     fn sidebar_surface_exited(&self, id: SurfaceId) -> bool {

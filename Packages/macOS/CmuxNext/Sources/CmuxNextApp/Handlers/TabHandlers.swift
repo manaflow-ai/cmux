@@ -23,6 +23,7 @@ enum TabHandlers {
         registry.bind("newSurface", invoke: { TabLifecycle.newTerminal(ctx, $0) })
         registry.bind("newTab.sameKind", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0) })
         registry.bind(NewTabPage.action, invoke: { ctx.paneController($0)?.newTabPage() })
+        registry.bind(NewTabPage.focusLocation, invoke: { ctx.paneController($0)?.focusLocation($0) })
         registry.bind("openBrowser", invoke: { TabLifecycle.newBrowser(ctx, $0) })
         registry.bind("openBrowser.webkit", invoke: { TabLifecycle.newBrowser(ctx, $0, engine: .webkit) })
         let chromiumReason: @MainActor () -> String? = { ctx.services.cache.browserTabs?.cefUnavailableReason() }
@@ -100,7 +101,7 @@ enum TabHandlers {
     static func reveal(tabID: String, ctx: AppActionContext) {
         // tab.focus and Go to Tab focus by purpose (`focuses`); any other
         // caller only with the run's view-change permission.
-        guard ViewChangePolicy.allowed() else { return }
+        guard ActionRunScope.viewChangeAllowed() else { return }
         guard let (tab, paneModel) = ctx.services.locateTab(tabID) ?? ctx.notFound(RefusalStrings.noTab(tabID)) else { return }
         let owner = ctx.services.machines.allWorkspaces.first { workspace, _ in
             workspace.screens.contains { $0.panes.contains { $0 === paneModel } }

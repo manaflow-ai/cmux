@@ -493,7 +493,7 @@ if ! awk '
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   job == "report" && /contains\(needs\.\*\.result, .failure.\)/ { saw_report_gate=1 }
   job == "report" && /issues: write/ { saw_report_perm=1 }
-  job == "report" && /\$\{channel\}-failure/ { saw_report_label=1 }
+  job == "report" && /\$\{process\.env\.CHANNEL_RELEASE_TAG\}-failure/ { saw_report_label=1 }
   job == "close" && /needs\.publish-nightly\.result == .success./ { saw_close_gate=1 }
   job == "close" && /state: .closed./ { saw_close=1 }
   END { exit !(saw_report_gate && saw_report_perm && saw_report_label && saw_close_gate && saw_close) }
@@ -502,9 +502,9 @@ if ! awk '
   exit 1
 fi
 
-if ! grep -Fq "const shouldPublish = !seedOnly && (isMainRef || isRcRef) && !buildOnly && !fastBuild;" "$WORKFLOW_FILE" \
+if ! grep -Fq "const shouldPublish = !seedOnly && (isTrackRef || isRcRef) && !buildOnly && !fastBuild;" "$WORKFLOW_FILE" \
   || ! grep -Fq "core.setOutput('should_publish', shouldPublish ? 'true' : 'false');" "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly decide step must expose should_publish only for main and rc/ refs that are not measurement or fast runs"
+  echo "FAIL: nightly decide step must expose should_publish only for main, nightly-next and rc/ refs that are not measurement or fast runs"
   exit 1
 fi
 
@@ -629,8 +629,8 @@ fi
 # Match the expression, not its declaration keyword, so that rebinding
 # shouldBuild later in `decide` does not read as a change to this contract.
 for expected in \
-  "const alreadyPublished = !buildOnly && !forceBuild && (isMainRef || isRcRef) && publishedSha === headSha;" \
-  "shouldBuild = !seedOnly && !alreadyPublished && (buildOnly || !isMainRef || forceBuild || nightlySha !== headSha);" \
+  "const alreadyPublished = !buildOnly && !forceBuild && (isTrackRef || isRcRef) && publishedSha === headSha;" \
+  "shouldBuild = !seedOnly && !alreadyPublished && (buildOnly || !isTrackRef || forceBuild || nightlySha !== headSha);" \
   "fastBuild = !buildOnly && process.env.FAST_BUILD === 'true';"; do
   if ! grep -Fq "$expected" "$WORKFLOW_FILE"; then
     echo "FAIL: build_only must always build the universal app: $expected"

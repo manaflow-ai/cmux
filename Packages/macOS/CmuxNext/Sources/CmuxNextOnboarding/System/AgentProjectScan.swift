@@ -83,8 +83,12 @@ public nonisolated struct AgentProjectScan: Sendable {
         }
     }
 
-    private func keeps(_ project: AgentProject) -> Bool {
-        let path = project.folder.path
+    private func keeps(_ project: AgentProject) -> Bool { keeps(folder: project.folder) }
+
+    /// False for the home folder, temporary folders, an agent's own folders
+    /// and folders that are gone; privacy-protected folders are kept unlooked-at.
+    func keeps(folder: URL) -> Bool {
+        let path = folder.standardizedFileURL.path
         let homePath = home.standardizedFileURL.path
         guard path != "/", path != homePath, path.hasPrefix("/") else { return false }
         let inHome = path.hasPrefix(homePath + "/")
@@ -95,7 +99,7 @@ public nonisolated struct AgentProjectScan: Sendable {
         for agentHome in [claude, codex, pi, opencode] where path.hasPrefix(agentHome.standardizedFileURL.path + "/") {
             return false
         }
-        if privacyFolder(of: project.folder) != nil { return true }
+        if privacyFolder(of: folder) != nil { return true }
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
     }

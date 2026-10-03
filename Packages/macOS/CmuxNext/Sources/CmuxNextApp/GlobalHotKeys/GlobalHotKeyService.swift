@@ -12,8 +12,7 @@ import os
 final class GlobalHotKeyService {
     /// Actions whose key is not registered: another app holds it, or
     /// another global action already holds or (listed earlier) takes the
-    /// same key. Retried on the next
-    /// change.
+    /// same key. Retried on the next change; Settings marks their rows.
     private(set) var conflicts: Set<ActionID> = []
     @ObservationIgnored private let registry: ActionRegistry
     @ObservationIgnored private let registrar: any GlobalHotKeyRegistrar
@@ -46,7 +45,12 @@ final class GlobalHotKeyService {
         apply()
         let registry = registry
         tasks.append(Task { [weak self] in
-            for await _ in Observations({ registry.globalHotKeys() }) {
+            // Suspension reads the whole focus context, so skip the changes
+            // that move neither the keys nor the suspension.
+            var last: (keys: [ActionID: Shortcut], suspended: Bool)?
+            for await next in Observations({ (keys: registry.globalHotKeys(), suspended: registry.globalHotKeysSuspended) }) {
+                if let last, last == next { continue }
+                last = next
                 self?.apply()
             }
         })
@@ -61,8 +65,15 @@ final class GlobalHotKeyService {
         registered.removeAll()
     }
 
-    /// Brings the registered hot keys in line with the catalog.
+    /// Brings the registered hot keys in line with the catalog. While a
+    /// shortcut recorder is open every key is released and `conflicts`
+    /// keeps its last value; closing it registers them again.
     func apply() {
+        if registry.globalHotKeysSuspended {
+            for registration in registered.values { registrar.unregister(number: registration.number) }
+            registered.removeAll()
+            return
+        }
         let layout = layout()
         var wanted: [ActionID: CarbonHotKey] = [:]
         for (id, shortcut) in registry.globalHotKeys() {

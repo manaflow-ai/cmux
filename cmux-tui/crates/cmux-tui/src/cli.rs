@@ -204,6 +204,8 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             }
             0
         }
+        Ok(ParsedCommand::Docs(plan)) => docs::run(plan),
+        Ok(ParsedCommand::CodeMode(plan)) => code_mode::run(plan),
         Ok(ParsedCommand::Command { global, plan }) => match plan {
             CommandPlan::Server(server) => lifecycle::run(global, server),
             CommandPlan::AgentHooks(plan) => command::run_agent_hooks(global, plan),
@@ -334,7 +336,7 @@ fn parse_command(
     if command_args[0] == "help" {
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
-            Some(scope) if matches!(scope.as_str(), "start" | "shorthands") => {
+            Some(scope) if matches!(scope.as_str(), "start" | "shorthands" | "docs" | "run") => {
                 Ok(ParsedCommand::Help(Some(scope.clone())))
             }
             Some(scope) if surface.accepts(shorthand::scope(scope)) => {
@@ -342,6 +344,12 @@ fn parse_command(
             }
             Some(scope) => Err(unknown_scope(scope, surface)),
         };
+    }
+    if let Some(command) = docs::command(&command_args, global.clone())? {
+        return Ok(command);
+    }
+    if let Some(command) = code_mode::command(&command_args, global.clone())? {
+        return Ok(command);
     }
     if has_help_option(&command_args) {
         let words = command_args
@@ -403,29 +411,12 @@ pub(super) fn suggestion<'a>(value: &str, candidates: &'a [&str]) -> Option<&'a 
     candidates
         .iter()
         .copied()
-        .map(|candidate| (edit_distance(value, candidate), candidate))
+        .map(|candidate| (scope_help::edit_distance(value, candidate), candidate))
         .min_by_key(|(distance, _)| *distance)
         .filter(|(distance, candidate)| {
             *distance <= 2 || (*distance == 3 && candidate.len().max(value.len()) >= 8)
         })
         .map(|(_, candidate)| candidate)
-}
-
-fn edit_distance(left: &str, right: &str) -> usize {
-    let right = right.chars().collect::<Vec<_>>();
-    let mut previous = (0..=right.len()).collect::<Vec<_>>();
-    for (row, left) in left.chars().enumerate() {
-        let mut current = vec![row + 1];
-        for (column, right) in right.iter().enumerate() {
-            current.push(
-                (current[column] + 1)
-                    .min(previous[column + 1] + 1)
-                    .min(previous[column] + usize::from(left != *right)),
-            );
-        }
-        previous = current;
-    }
-    previous[right.len()]
 }
 
 fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageError, OutputMode)> {
@@ -628,8 +619,9 @@ fn scope_help_for(
     scope: &str,
     catalog: &'static crate::localization::Catalog,
 ) -> Cow<'static, str> {
-    match scope {
+    let text = code_mode::scope_help(scope).unwrap_or_else(|| match scope {
         "shorthands" => Cow::Owned(shorthand::help(&catalog.local_server)),
+        "docs" => Cow::Borrowed(docs::help()),
         "server" => Cow::Borrowed(catalog.local_server.help),
         "server start" => Cow::Borrowed(catalog.local_server.start_help),
         "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),
@@ -657,7 +649,8 @@ fn scope_help_for(
         "provider" => Cow::Borrowed(PROVIDER_HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
         _ => Cow::Owned(root_help(&catalog.local_server)),
-    }
+    });
+    docs::append_scope_help(scope, text)
 }
 
 const ROOT_HELP_PROCESS_PREFIX: &str = "\

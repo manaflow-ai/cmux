@@ -51,7 +51,7 @@ nonisolated public struct UpdateBuildIdentity: Sendable, Equatable {
         if UpdateTrack.isDevelopmentBundle(bundleIdentifier) { return .development }
         switch UpdateFeedResolver().resolve(infoFeedURL: infoFeedURL).channel {
         case .stable: return .stable
-        case .nightly: return .nightly
+        case .nightly, .nightlyNext: return .nightly
         case .rc: return .rc
         }
     }
