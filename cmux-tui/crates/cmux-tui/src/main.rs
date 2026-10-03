@@ -126,7 +126,6 @@ const PROVIDER_WORKSPACE_AUTHORITY_ENV: &str = "CMUX_PROVIDER_WORKSPACE_AUTHORIT
 unsafe extern "C" {
     static mut environ: *mut *mut libc::c_char;
 }
-
 #[cfg(unix)]
 extern "C" fn handle_signal(_: libc::c_int) {
     SHUTDOWN_REQUESTED.store(true, Ordering::Release);
@@ -2390,9 +2389,7 @@ fn run_server(
                 start_local_owner_event_loop(&mux)
             }
         });
-    // The daemon owns cmux.json (settings-v1): open it and watch it before
-    // clients connect.
-    mux.start_default_settings_owner();
+    mux.start_default_settings_owner(); // cmux.json owner (settings-v1), before clients connect
     let pending_server = match cmux_tui_core::server::serve_paused(mux.clone(), args.socket.clone())
     {
         Ok(server) => server,

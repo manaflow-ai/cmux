@@ -17,7 +17,7 @@ use std::io::{BufReader, Write};
 use cmux_tui_core::resource::ResourceOperation as Op;
 use serde_json::{Map, Value, json};
 
-use super::command::{CommandPlan, Flags, RequestPlan, WireOperation, routed_request};
+use super::command::{CommandPlan, Flags, RequestPlan, Selectors, WireOperation, request};
 use super::{GlobalArgs, OutputMode, UsageError};
 
 const USAGE: &str = "settings list [--section S] | get KEY | set KEY VALUE | reset KEY | reset-all | snapshot | schema | open [KEY]";
@@ -61,7 +61,7 @@ pub(super) fn parse(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, Us
         }
         _ => return Err(UsageError::new(format!("usage: cmux {USAGE}"))),
     };
-    routed_request(operation, flags, params)
+    request(operation, &Selectors::default(), flags, params)
 }
 
 /// A JSON value when `text` parses as one, else the literal string.
