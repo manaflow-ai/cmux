@@ -394,3 +394,65 @@ fn host_death_keeps_tab_under_running_daemon() {
     );
     let _ = remove_stale_terminal_host_record(&record_path, &record);
 }
+
+/// `restart-tab` (`tab-restart-v1`, user decision 2026-10-02): a tab whose
+/// real terminal host was killed restarts in place with a new shell from a
+/// real host. The tab keeps its public id, is live, and the new terminal
+/// echoes input: the launch stream is released after the swap commits.
+#[test]
+fn restart_tab_relaunches_a_host_lost_tab_in_place() {
+    let _exclusive = exclusive_process_test();
+    let harness = RecoveryHarness::start("restart-tab-host-lost");
+    let (terminal_id, _) = run_cat_workspace(&harness.socket, 1, "restarted");
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    // SAFETY: the record PID is this harness's own terminal host.
+    assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
+    wait_for_exited_lifecycle(&harness.socket, &terminal_id, Duration::from_secs(10));
+    let _ = remove_stale_terminal_host_record(&record_path, &record);
+
+    let tree = request(&harness.socket, serde_json::json!({"id":2,"cmd":"list-workspaces"}));
+    let workspace = workspace_named(&tree, "restarted").expect("the workspace stays");
+    let dead = first_tab(&workspace).expect("the tab stays").clone();
+    assert_eq!(dead["dead"], true, "{dead}");
+    let restarted = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 3, "cmd": "restart-tab", "surface": dead["surface"],
+            "idempotency_key": "restart-host-lost", "cwd": "/tmp",
+        }),
+    );
+    assert_eq!(restarted["replayed"], false, "{restarted}");
+    assert_eq!(restarted["tab"], dead["tab_resource_id"], "{restarted}");
+
+    let tree = request(&harness.socket, serde_json::json!({"id":4,"cmd":"list-workspaces"}));
+    let workspace = workspace_named(&tree, "restarted").expect("the workspace stays");
+    let live = first_tab(&workspace).expect("the tab stays").clone();
+    assert_eq!(live["tab_resource_id"], dead["tab_resource_id"], "{live}");
+    assert_eq!(live["dead"], false, "{live}");
+    assert_ne!(live["terminal_resource_id"], dead["terminal_resource_id"], "{live}");
+
+    let surface = live["surface"].clone();
+    request(
+        &harness.socket,
+        serde_json::json!({"id":5,"cmd":"send","surface":surface,"text":"echo restart-ok-$((20+22))\n"}),
+    );
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let screen = request(
+            &harness.socket,
+            serde_json::json!({"id":6,"cmd":"read-screen","surface":surface}),
+        );
+        if screen["text"].as_str().is_some_and(|text| text.contains("restart-ok-42")) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the restarted shell never answered: {screen}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    // Replaying the key is a no-op.
+    let replay = request(
+        &harness.socket,
+        serde_json::json!({"id":7,"cmd":"restart-tab","surface":surface,"idempotency_key":"restart-host-lost"}),
+    );
+    assert_eq!(replay["replayed"], true, "{replay}");
+    assert_eq!(replay["terminal"], restarted["terminal"], "{replay}");
+}
