@@ -45,11 +45,12 @@ public struct HomeReactionTarget: Hashable, Sendable {
 /// The glyph and the localized name of each tapback. The picker buttons and
 /// the bubble badges draw the same glyphs; the names are the buttons'
 /// accessibility labels.
-public enum HomeReactionStyle {
+public struct HomeReactionStyle {
+    public init() {}
     /// The picker order.
-    public static let tapbacks: [Reaction.Tapback] = [.love, .like, .dislike, .laugh, .emphasize, .question]
+    public let tapbacks: [Reaction.Tapback] = [.love, .like, .dislike, .laugh, .emphasize, .question]
 
-    public static func glyph(_ tapback: Reaction.Tapback) -> String {
+    public func glyph(_ tapback: Reaction.Tapback) -> String {
         switch tapback {
         case .love: "\u{2764}\u{FE0F}"
         case .like: "\u{1F44D}"
@@ -60,14 +61,14 @@ public enum HomeReactionStyle {
         }
     }
 
-    public static func glyph(_ kind: Reaction.Kind) -> String {
+    public func glyph(_ kind: Reaction.Kind) -> String {
         switch kind {
         case .emoji(let emoji): emoji
         case .tapback(let tapback): glyph(tapback)
         }
     }
 
-    public static func accessibilityName(_ tapback: Reaction.Tapback) -> String {
+    public func accessibilityName(_ tapback: Reaction.Tapback) -> String {
         switch tapback {
         case .love: String(localized: "tapback.love", defaultValue: "Heart", bundle: .module)
         case .like: String(localized: "tapback.like", defaultValue: "Thumbs Up", bundle: .module)
@@ -79,7 +80,7 @@ public enum HomeReactionStyle {
     }
 
     /// The picker's own accessibility label.
-    public static var pickerLabel: String {
+    public var pickerLabel: String {
         String(localized: "tapback.picker", defaultValue: "Reactions", bundle: .module)
     }
 }

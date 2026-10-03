@@ -11,8 +11,9 @@ public nonisolated struct ServerHelperTimedOut: Error, Equatable {
 /// resumes the caller. On the deadline it runs `onTimeout` (kill the child,
 /// invalidate the connection) and throws `ServerHelperTimedOut`; the
 /// operation's late result is dropped.
-public nonisolated enum ServerHelperDeadline {
-    public static func run<T: Sendable>(
+public struct ServerHelperDeadline {
+    public init() {}
+    public func run<T: Sendable>(
         limit: Duration,
         clock: any Clock<Duration>,
         operation: @escaping @Sendable () async throws -> T,

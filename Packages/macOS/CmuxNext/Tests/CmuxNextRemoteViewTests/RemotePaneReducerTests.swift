@@ -3,7 +3,7 @@ import Testing
 
 struct RemotePaneReducerTests {
     private func reduce(_ state: RemotePaneState, _ events: RemotePaneEvent...) -> RemotePaneState {
-        events.reduce(state, RemotePaneReducer.reduce)
+        events.reduce(state, RemotePaneReducer().reduce)
     }
 
     private func streaming(rtt: Int, path: RemotePath = .direct) -> RemotePaneEvent {

@@ -15,8 +15,9 @@ public nonisolated enum RemotePaneEvent: Sendable, Hashable {
 
 /// The pane's single writer. Pure: `reduce` maps a state and an event to
 /// the next state, and the view renders whatever comes out.
-public nonisolated enum RemotePaneReducer {
-    public static func reduce(_ state: RemotePaneState, _ event: RemotePaneEvent) -> RemotePaneState {
+public struct RemotePaneReducer {
+    public init() {}
+    public func reduce(_ state: RemotePaneState, _ event: RemotePaneEvent) -> RemotePaneState {
         var next = state
         switch event {
         case let .status(status):

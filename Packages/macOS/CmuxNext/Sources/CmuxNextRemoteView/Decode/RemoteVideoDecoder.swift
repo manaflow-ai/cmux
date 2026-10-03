@@ -51,7 +51,7 @@ nonisolated final class RemoteVideoDecoder {
 
     /// Decodes one access unit and returns its picture.
     func decode(_ unit: RemoteAccessUnit) throws(Failure) -> CVPixelBuffer {
-        let parsed = RemoteAnnexB.parse(unit.data, codec: unit.codec)
+        let parsed = RemoteAnnexB().parse(unit.data, codec: unit.codec)
         if !parsed.parameterSets.isEmpty {
             guard let next = RemoteVideoFormat.formatDescription(codec: unit.codec, parameterSets: parsed.parameterSets) else {
                 throw .badParameterSets

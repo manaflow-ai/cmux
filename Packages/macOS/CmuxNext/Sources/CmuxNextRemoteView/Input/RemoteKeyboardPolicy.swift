@@ -13,7 +13,8 @@ public nonisolated enum RemoteKeyboardMode: String, Sendable, Hashable, CaseIter
 
 /// The routing and containment rules for one key event. Pure: the capture
 /// view asks it and acts on the answer.
-public nonisolated enum RemoteKeyboardPolicy {
+public struct RemoteKeyboardPolicy {
+    public init() {}
     public enum Route: Sendable, Equatable {
         /// Handle in the viewer (system and cmux shortcuts): never sent.
         case local
@@ -28,7 +29,7 @@ public nonisolated enum RemoteKeyboardPolicy {
     /// Routes a key down. `isLocalShortcut` is the App's matcher for cmux
     /// shortcuts (KeyboardShortcutSettings); it applies only while system
     /// shortcuts stay local.
-    public static func route(
+    public func route(
         keyCode: UInt16,
         modifiers: NSEvent.ModifierFlags,
         mode: RemoteKeyboardMode,
@@ -55,7 +56,7 @@ public nonisolated enum RemoteKeyboardPolicy {
     /// and input source switching, Mission Control and Spaces, and the
     /// app-level Cmd-Q / Cmd-H / Cmd-M. cmux's own shortcuts (Cmd-W, Cmd-T
     /// ...) come from the App's matcher, so a rebinding follows the user.
-    public static func isSystemShortcut(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> Bool {
+    public func isSystemShortcut(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> Bool {
         let flags = modifiers.intersection([.command, .control, .option, .shift])
         switch keyCode {
         case KeyCode.tab, KeyCode.grave:
@@ -75,9 +76,9 @@ public nonisolated enum RemoteKeyboardPolicy {
 
     /// Whether the key can produce text: no Command or Control, and not a
     /// navigation, editing or function key.
-    public static func typesText(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> Bool {
+    public func typesText(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) -> Bool {
         if !modifiers.intersection([.command, .control]).isEmpty { return false }
-        guard let usage = RemoteHIDKeyMap.usage(forKeyCode: keyCode) else { return false }
+        guard let usage = RemoteHIDKeyMap().usage(forKeyCode: keyCode) else { return false }
         let id = usage & 0xFFFF
         // Letters, digits, punctuation and space (0x04...0x38 minus the
         // editing keys), the non-US key, and the keypad's characters.

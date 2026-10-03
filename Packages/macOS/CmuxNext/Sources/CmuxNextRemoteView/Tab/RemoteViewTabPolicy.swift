@@ -13,14 +13,15 @@ import Foundation
 /// The names `mock`, `local` and `localhost` are reserved: the transport
 /// connects to a literal 127.0.0.1 for them and never resolves them through
 /// the machine directory or DNS.
-public nonisolated enum RemoteViewTabPolicy {
+public struct RemoteViewTabPolicy {
+    public init() {}
     /// The loopback host names a phase-1 tab may connect to.
-    public static let loopbackNames: Set<String> = ["mock", "local", "localhost"]
+    public let loopbackNames: Set<String> = ["mock", "local", "localhost"]
 
-    public static func decide(
+    public func decide(
         record: RemoteViewTabRecord?,
         source: RemoteViewTabSource,
-        paneAvailable: Bool = RemoteViewAvailability.isAvailable
+        paneAvailable: Bool = RemoteViewAvailability().isAvailable
     ) -> RemoteViewTabDecision {
         if source == .remoteTree { return .unavailable(.remoteRecord) }
         guard let record else { return .unavailable(.invalidAddress) }
@@ -37,7 +38,7 @@ public nonisolated enum RemoteViewTabPolicy {
 
     /// `mock`, `local`, `localhost` (any case) or a dotted IPv4 address in
     /// 127.0.0.0/8. Names that only resolve to loopback do not count.
-    public static func isLoopback(_ host: String) -> Bool {
+    public func isLoopback(_ host: String) -> Bool {
         if loopbackNames.contains(host.lowercased()) { return true }
         let parts = host.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 4 else { return false }

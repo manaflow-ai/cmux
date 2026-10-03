@@ -103,7 +103,7 @@ final class RowBuilder {
     }
 
     static func glyph(_ kind: Reaction.Kind) -> String {
-        HomeReactionStyle.glyph(kind)
+        HomeReactionStyle().glyph(kind)
     }
 
     /// "Read" under my latest send another participant has read; "Delivered"

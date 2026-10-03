@@ -22,13 +22,13 @@ enum ServerHelperClient {
         case failed(String)
     }
 
-    private static var service: SMAppService { SMAppService.daemon(plistName: ServerHelperConstants.plistName) }
+    private static var service: SMAppService { SMAppService.daemon(plistName: ServerHelperConstants().plistName) }
 
     static var isBundled: Bool {
         let bundle = Bundle.main.bundleURL
         let fileManager = FileManager.default
-        return fileManager.fileExists(atPath: bundle.appending(path: "Contents/Library/LaunchDaemons/\(ServerHelperConstants.plistName)").path)
-            && fileManager.isExecutableFile(atPath: bundle.appending(path: ServerHelperConstants.bundleProgram).path)
+        return fileManager.fileExists(atPath: bundle.appending(path: "Contents/Library/LaunchDaemons/\(ServerHelperConstants().plistName)").path)
+            && fileManager.isExecutableFile(atPath: bundle.appending(path: ServerHelperConstants().bundleProgram).path)
     }
 
     /// Registers the helper. Idempotent: an enabled helper stays enabled. Call it
@@ -59,8 +59,8 @@ enum ServerHelperClient {
         // Check our own signature first: an ad hoc app must not register a root
         // daemon that can never serve it.
         guard let bundleID = Bundle.main.bundleIdentifier,
-              let label = ServerHelperConstants.machServiceName(appBundleID: bundleID),
-              let requirement = ServerHelperConstants.helperRequirement(teamID: ServerHelperListener.ownTeamIdentifier())
+              let label = ServerHelperConstants().machServiceName(appBundleID: bundleID),
+              let requirement = ServerHelperConstants().helperRequirement(teamID: ServerHelperListener.ownTeamIdentifier())
         else { throw .unsigned }
         try register()
         let reason: String?
@@ -83,7 +83,7 @@ enum ServerHelperClient {
                              clock: any Clock<Duration> = ContinuousClock()) async throws -> String? {
         let connection = HelperConnection(label: label, requirement: requirement)
         defer { connection.invalidate() }
-        return try await ServerHelperDeadline.run(limit: replyLimit, clock: clock, operation: {
+        return try await ServerHelperDeadline().run(limit: replyLimit, clock: clock, operation: {
             try await connection.send(fixID: fixID, revert: revert)
         }, onTimeout: {
             // Invalidation fires the proxy's error handler, which ends the call.

@@ -154,8 +154,8 @@ final class HomeRowHostView: NSView {
         e.setAccessibilityValue(item.value)
         e.setAccessibilityIdentifier(item.id)
         if let target = controller?.reactionTarget(for: item, isOnline: reactionsEnabled) {
-            e.setAccessibilityCustomActions(HomeReactionStyle.tapbacks.map { tapback in
-                NSAccessibilityCustomAction(name: HomeReactionStyle.accessibilityName(tapback)) { [weak self] in
+            e.setAccessibilityCustomActions(HomeReactionStyle().tapbacks.map { tapback in
+                NSAccessibilityCustomAction(name: HomeReactionStyle().accessibilityName(tapback)) { [weak self] in
                     self?.react(tapback, to: target) != nil
                 }
             })

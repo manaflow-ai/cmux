@@ -39,9 +39,10 @@ public protocol RemoteFramePresenter: AnyObject, Sendable {
     nonisolated var discardedFrames: Int { get }
 }
 
-public enum RemoteFramePresenters {
+public struct RemoteFramePresenters {
+    public init() {}
     /// The presenter for `kind`. B falls back to A where Metal is missing.
-    public static func make(_ kind: RemotePresenterKind) -> any RemoteFramePresenter {
+    public func make(_ kind: RemotePresenterKind) -> any RemoteFramePresenter {
         switch kind {
         case .layerContents: return LayerContentsPresenter()
         case .metal: return MetalFramePresenter() ?? LayerContentsPresenter()

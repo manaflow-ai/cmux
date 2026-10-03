@@ -4,13 +4,14 @@ import Foundation
 /// usages on the keyboard page (0x07). Key codes name physical positions,
 /// so the table is layout independent: a key sends the usage of the US
 /// key at the same place, and the host applies its own layout (section 7).
-public nonisolated enum RemoteHIDKeyMap {
+public struct RemoteHIDKeyMap {
+    public init() {}
     /// HID keyboard/keypad usage page.
-    public static let keyboardPage: UInt32 = 0x07
+    public let keyboardPage: UInt32 = 0x07
 
     /// The full usage (`page << 16 | id`) of a key code, nil for keys with no
     /// HID usage (fn) or unknown codes.
-    public static func usage(forKeyCode keyCode: UInt16) -> UInt32? {
+    public func usage(forKeyCode keyCode: UInt16) -> UInt32? {
         guard Int(keyCode) < table.count else { return nil }
         let id = table[Int(keyCode)]
         return id == 0 ? nil : keyboardPage << 16 | UInt32(id)
@@ -18,19 +19,19 @@ public nonisolated enum RemoteHIDKeyMap {
 
     /// The key code of a HID usage id on the keyboard page (reverse lookup;
     /// tests and the mock host use it).
-    public static func keyCode(forUsage usage: UInt32) -> UInt16? {
+    public func keyCode(forUsage usage: UInt32) -> UInt16? {
         guard usage >> 16 == keyboardPage else { return nil }
         let id = UInt16(usage & 0xFFFF)
         return table.firstIndex(of: id).map(UInt16.init)
     }
 
     /// Modifier keys (HID 0xE0...0xE7) and Caps Lock.
-    public static func isModifier(keyCode: UInt16) -> Bool {
+    public func isModifier(keyCode: UInt16) -> Bool {
         modifierKeyCodes.contains(keyCode)
     }
 
     /// Left/right Control, Shift, Option, Command, and Caps Lock.
-    public static let modifierKeyCodes: Set<UInt16> = [0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E]
+    public let modifierKeyCodes: Set<UInt16> = [0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E]
 
     /// Index = key code, value = HID usage id (0 = none). 0x80 entries.
     static let table: [UInt16] = {
