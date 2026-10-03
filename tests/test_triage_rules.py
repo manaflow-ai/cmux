@@ -7,7 +7,6 @@ import tempfile
 import time
 import unittest
 
-
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / ".github/labels.json"
 WORKFLOW = ROOT / ".github/workflows/auto-triage.yml"
@@ -296,6 +295,44 @@ class ManifestTests(unittest.TestCase):
         sync = load("sync_labels", "scripts/ci/sync_labels.py")
         self.assertEqual(len(sync.load_manifest(MANIFEST)), len(self.manifest["labels"]))
 
+    def test_case_only_duplicate_names_are_refused(self):
+        sync = load("sync_labels", "scripts/ci/sync_labels.py")
+        manifest = {
+            "labels": [
+                {"name": "area: cloud", "color": "0e8a16", "description": "Cloud things"},
+                {"name": "Area: Cloud", "color": "0e8a16", "description": "Same label"},
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "labels.json"
+            path.write_text(json.dumps(manifest))
+            with self.assertRaisesRegex(SystemExit, r"duplicate label .*names are case-insensitive"):
+                sync.load_manifest(path)
+
+    def test_dry_run_refuses_case_only_duplicates_before_any_api_call(self):
+        # load_manifest runs before the token check in main(), so a case-only
+        # duplicate fails a --dry-run with no credentials and no network.
+        sync = load("sync_labels", "scripts/ci/sync_labels.py")
+        manifest = {
+            "labels": [
+                {"name": "bug", "color": "0e8a16"},
+                {"name": "BUG", "color": "0e8a16"},
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "labels.json"
+            path.write_text(json.dumps(manifest))
+            with self.assertRaisesRegex(SystemExit, r"duplicate label .*names are case-insensitive"):
+                sync.main(["--manifest", str(path), "--dry-run"])
+
+    def test_non_string_label_name_has_validation_error(self):
+        sync = load("sync_labels", "scripts/ci/sync_labels.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "labels.json"
+            path.write_text(json.dumps({"labels": [{"name": 5, "color": "0e8a16"}]}))
+            with self.assertRaisesRegex(SystemExit, "every label needs a non-empty string name"):
+                sync.load_manifest(path)
+
 
 class CommentTests(unittest.TestCase):
     def test_comment_carries_the_marker_and_the_reason(self):
@@ -455,9 +492,8 @@ class LimitTests(unittest.TestCase):
         # `--limit 0` used to mean "walk everything", so "00" typed into the
         # dispatch form started an unbounded pass over the whole backlog.
         for value in ("0", "00", "-1", " 0", "nope"):
-            with self.subTest(value=value):
-                with self.assertRaises(Exception):
-                    AUTO.positive(value)
+            with self.subTest(value=value), self.assertRaises(Exception):
+                AUTO.positive(value)
 
     def test_a_real_limit_parses(self):
         self.assertEqual(AUTO.positive("200"), 200)
