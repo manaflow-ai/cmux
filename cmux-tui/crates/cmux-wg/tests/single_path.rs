@@ -32,7 +32,7 @@ async fn one_probed_path_reports_its_kind_and_round_trip() {
     let configs = config_pair(addr(SERVER));
     let socket = sim.bind(addr(CLIENT)).unwrap();
     let path = SocketPath::new(socket, Some(addr(SERVER)));
-    let (client, control) = WgNet::start_on_one_path(
+    let (client, control) = WgNet::start_single_path_on(
         configs.client.clone(),
         PathKind::ViaCloudRegion,
         Some(ProbeConfig::default()),
@@ -102,7 +102,7 @@ async fn a_failed_only_path_ends_the_session() {
     let configs = config_pair(addr(SERVER));
     let path = SocketPath::new(Broken, Some(addr(SERVER)));
     let (client, _control) =
-        WgNet::start_on_one_path(configs.client, PathKind::DirectWan, None, path).unwrap();
+        WgNet::start_single_path_on(configs.client, PathKind::DirectWan, None, path).unwrap();
     let ended = timeout(Duration::from_secs(5), async {
         loop {
             match client.bind_datagram(4103).await {

@@ -1,4 +1,4 @@
-USAGE: cmux wg hub --config PATH --socket PATH [--control PATH]
+USAGE: cmux wg hub --config PATH --socket PATH [--control PATH] [--probes]
 
 Own one in-process WireGuard tunnel and serve SOCKS5 CONNECT for other cmux
 processes on an owner-only Unix socket. A WireGuard key supports one live
@@ -9,10 +9,11 @@ shares this hub instead of handshaking on its own.
   --socket PATH   Unix socket to serve; parent directory is created 0700, socket 0600
   --control PATH  also serve a control socket (newline-delimited JSON): `path.get`,
                   `path.subscribe` (`path.changed` events), `datagram.bind` (an overlay
-                  UDP port served on a Unix datagram socket PATH.dgram-PORT with a
-                  priority class: interactive, media or bulk) and `datagram.stats`
+                  UDP port on a Unix datagram socket in PATH.d/, with a priority
+                  class: interactive, media or bulk) and `datagram.stats`
+  --probes        measure the path with probes; only for a peer that answers them
 
 Prints one JSON line `{"event":"hub-ready","socket":...,"routes":[...]}` when
-listening (with `"control":...` when --control is given). Only literal IP targets inside AllowedIPs are dialed; other targets
-get SOCKS reply 0x02, names 0x08. Exits on SIGTERM or SIGINT and removes the
-socket.
+listening (it also names `"control"` with --control). Only literal IP targets
+inside AllowedIPs are dialed; other targets get SOCKS reply 0x02, names 0x08.
+Exits on SIGTERM or SIGINT and removes its sockets.

@@ -8,15 +8,15 @@
 //! Methods:
 //!
 //! - `path.get`: the current path as a `path.changed` body.
-//! - `path.subscribe`: the same, then one line per path event,
+//! - `path.subscribe`: the same as its reply, then one line per path event,
 //!   `{"event":"path.changed","path":P,"kind":K,"rtt_ms":..,"jitter_ms":..,
 //!   "loss_pct":..,"max_datagram":..}`, on every switch and every 5 s while
-//!   the tunnel carries traffic.
+//!   the tunnel carries traffic. No event precedes the reply.
 //! - `datagram.bind {"port":P,"class":"interactive"|"media"|"bulk"}`: bind
-//!   overlay UDP port `P` and serve it on a Unix datagram socket next to the
-//!   control socket (`<control>.dgram-<P>`, `0600`). The binding lives as
-//!   long as the control connection that made it.
-//! - `datagram.stats`: datagrams the tunnel dropped, by reason.
+//!   overlay UDP port `P` and serve it on a Unix datagram socket
+//!   `<control>.d/<P>.sock` (`0600`, in a `0700` directory the hub owns).
+//!   The binding lives as long as the control connection that made it.
+//! - `datagram.stats`: datagrams dropped, by reason, in the tunnel and here.
 //!
 //! Every datagram on a datagram socket carries the SOCKS5 UDP request header
 //! (RFC 1928 section 7: two zero bytes, fragment 0, address type 1 or 4, the
@@ -24,15 +24,18 @@
 //! address in the header; the hub delivers received datagrams with the
 //! sender's overlay address in the header, to the socket address that most
 //! recently sent on that port (the client must bind its own socket to a
-//! path to receive). The hub drops what does not fit: a payload above
-//! `max_datagram`, a malformed header, a reader that is not keeping up.
+//! path to receive). The hub drops, and counts, what does not fit: a payload
+//! above `max_datagram`, a malformed header, a reader that is not keeping up.
 
-use std::collections::HashSet;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::os::unix::fs::{FileTypeExt, PermissionsExt};
+use std::os::fd::AsRawFd;
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use cmux_wg::{MultipathControl, PathEvent, PathKind, Priority, WgDatagramSocket, WgError, WgNet};
 use serde::Deserialize;
@@ -40,7 +43,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixDatagram, UnixStream};
 use tokio::sync::{Semaphore, broadcast, mpsc, oneshot};
-use tokio::task::JoinSet;
+use tokio::task::{JoinHandle, JoinSet};
 
 use crate::admin::verify_unix_peer_owner;
 use crate::provider::socks::{ADDRESS_IPV4, ADDRESS_IPV6};
@@ -51,20 +54,31 @@ use crate::wireguard_hub::HubError;
 const MAX_CONTROL_CONNECTIONS: usize = 32;
 /// Datagram ports one control connection may bind.
 const MAX_BINDINGS_PER_CONNECTION: usize = 16;
-/// Longest request line; requests are tiny.
+/// Longest request, without its newline; requests are tiny.
 const MAX_REQUEST_BYTES: usize = 4096;
 /// Lines queued for a control client before events are skipped (a stalled
 /// subscriber must not hold the hub's memory).
 const OUTBOUND_LINES: usize = 128;
-/// Ports the overlay reserves for itself (transport.md 12a: link, outer
-/// WireGuard, probes).
-const RESERVED_PORTS: [u16; 3] = [4100, 4101, 4102];
+/// A client that does not read one line for this long is dropped, with its
+/// bindings, so it cannot pin a connection slot.
+const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
+/// Overlay ports the transport reserves (transport.md 12a).
+const LINK_PORT: u16 = 4100;
+const OUTER_WIREGUARD_PORT: u16 = 4101;
+const PROBE_PORT: u16 = 4102;
+const RESERVED_PORTS: [u16; 3] = [LINK_PORT, OUTER_WIREGUARD_PORT, PROBE_PORT];
 /// The SOCKS5 UDP header before the address: reserved (2), fragment (1),
 /// address type (1).
 const HEADER_PREFIX: usize = 4;
 /// Room for the largest header (IPv6) plus any payload a Unix datagram can
 /// carry here; oversized payloads are refused after the read.
 const DATAGRAM_BUFFER: usize = 65_536;
+/// Socket buffers of a datagram socket: room for a burst of media (the
+/// macOS default receive space holds about three datagrams).
+const DATAGRAM_SOCKET_BUFFER: libc::c_int = 256 * 1024;
+/// The longest Unix socket path both macOS (104 bytes) and Linux (108) bind,
+/// without its terminating NUL.
+const MAX_SOCKET_PATH: usize = 103;
 
 /// A running control socket. Dropping it unlinks the socket, ends every
 /// control connection and unbinds their datagram ports.
@@ -115,11 +129,44 @@ impl Drop for HubControl {
     }
 }
 
-/// The path of the datagram socket for overlay `port`, next to `control`.
+/// The directory that holds the datagram sockets of the control socket at
+/// `control`: `<control>.d`.
+pub fn datagram_directory(control: &Path) -> PathBuf {
+    let mut name = control.as_os_str().to_os_string();
+    name.push(".d");
+    PathBuf::from(name)
+}
+
+/// The path of the datagram socket for overlay `port`.
 pub fn datagram_socket_path(control: &Path, port: u16) -> PathBuf {
-    let mut name = control.file_name().unwrap_or_default().to_os_string();
-    name.push(format!(".dgram-{port}"));
-    control.with_file_name(name)
+    datagram_directory(control).join(format!("{port}.sock"))
+}
+
+/// Create (`0700`) or check the datagram directory: a real directory owned
+/// by this user that nobody else may enter, so a socket inside it is
+/// reachable by this user only, whatever the umask was at bind time.
+fn prepare_datagram_directory(control: &Path) -> io::Result<PathBuf> {
+    let directory = datagram_directory(control);
+    if datagram_socket_path(control, u16::MAX).as_os_str().as_bytes().len() > MAX_SOCKET_PATH {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("control socket path {} is too long for its datagram sockets", control.display()),
+        ));
+    }
+    match std::fs::DirBuilder::new().mode(0o700).create(&directory) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error),
+    }
+    let metadata = std::fs::symlink_metadata(&directory)?;
+    let owner = unsafe { libc::geteuid() };
+    if !metadata.file_type().is_dir() || metadata.uid() != owner || metadata.mode() & 0o077 != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("{} must be a directory of this user with mode 0700", directory.display()),
+        ));
+    }
+    Ok(directory)
 }
 
 /// Serve the control socket at `path` for `net`. `paths` is the tunnel's
@@ -127,7 +174,8 @@ pub fn datagram_socket_path(control: &Path, port: u16) -> PathBuf {
 /// without it, `path.get` and `path.subscribe` answer `unavailable`.
 ///
 /// The parent directory gets the same checks as the SOCKS socket's: created
-/// `0700` if missing, owned by this user, not writable by others.
+/// `0700` if missing, owned by this user, not writable by others. Datagram
+/// sockets live in `<path>.d`, which must be `0700`.
 pub async fn serve_hub_control(
     net: Arc<WgNet>,
     paths: Option<MultipathControl>,
@@ -136,9 +184,10 @@ pub async fn serve_hub_control(
     let path = path.into();
     let listener = OwnedUnixListener::bind(path.clone()).await?;
     let socket_cleanup = listener.cleanup();
+    prepare_datagram_directory(&path).map_err(HubError::Io)?;
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
     let permits = Arc::new(Semaphore::new(MAX_CONTROL_CONNECTIONS));
-    let hub = Arc::new(Hub { net, paths, control: path.clone() });
+    let hub = Arc::new(Hub { net, paths, control: path.clone(), drops: Arc::default() });
     let task = tokio::spawn(async move {
         let mut accept_backoff = UnixAcceptBackoff::new();
         let mut connections = JoinSet::new();
@@ -157,6 +206,7 @@ pub async fn serve_hub_control(
                         }
                         Err(error) => {
                             let Some(delay) = accept_backoff.retry_delay(&error) else {
+                                connections.shutdown().await;
                                 return Err(HubError::Io(io::Error::new(
                                     error.kind(),
                                     format!("hub control accept failed: {error}"),
@@ -188,10 +238,24 @@ pub async fn serve_hub_control(
     Ok(HubControl { path, socket_cleanup, shutdown: Some(shutdown_tx), task: Some(task) })
 }
 
+/// Datagrams the hub itself dropped, by reason (the tunnel counts its own).
+#[derive(Default)]
+struct LocalDrops {
+    malformed: AtomicU64,
+    too_large: AtomicU64,
+    no_reader: AtomicU64,
+    reader_full: AtomicU64,
+}
+
+fn count(counter: &AtomicU64) {
+    counter.fetch_add(1, Ordering::Relaxed);
+}
+
 struct Hub {
     net: Arc<WgNet>,
     paths: Option<MultipathControl>,
     control: PathBuf,
+    drops: Arc<LocalDrops>,
 }
 
 #[derive(Deserialize)]
@@ -238,17 +302,54 @@ impl Class {
 /// An error reply: a stable code and a message for people.
 struct Failure(&'static str, String);
 
-/// One bound port: its relay task ends (and the socket file goes) when the
-/// binding is dropped with its control connection.
+/// One bound port. Its relay task owns the overlay port; the socket file
+/// is removed only while it is still the one this binding made (device and
+/// inode), so a later binding of the same port is never touched.
 struct Binding {
     path: PathBuf,
-    task: tokio::task::JoinHandle<()>,
+    identity: (u64, u64),
+    task: JoinHandle<()>,
+}
+
+impl Binding {
+    /// End the relay, wait until it released the overlay port, then remove
+    /// the socket file: a client that sees the file gone can bind again.
+    async fn close(mut self) {
+        self.task.abort();
+        let _ = (&mut self.task).await;
+        // Drop removes the file.
+    }
+
+    fn remove_file(&self) {
+        if let Ok(metadata) = std::fs::symlink_metadata(&self.path)
+            && metadata.file_type().is_socket()
+            && (metadata.dev(), metadata.ino()) == self.identity
+        {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
 }
 
 impl Drop for Binding {
     fn drop(&mut self) {
         self.task.abort();
-        let _ = remove_socket_file(&self.path);
+        self.remove_file();
+    }
+}
+
+/// The tasks of one control connection, aborted if the connection's own
+/// task is (hub shutdown), so no writer or subscription outlives it.
+#[derive(Default)]
+struct ConnectionTasks {
+    writer: Option<JoinHandle<()>>,
+    subscription: Option<JoinHandle<()>>,
+}
+
+impl Drop for ConnectionTasks {
+    fn drop(&mut self) {
+        for task in [self.writer.take(), self.subscription.take()].into_iter().flatten() {
+            task.abort();
+        }
     }
 }
 
@@ -256,18 +357,18 @@ impl Hub {
     async fn serve(&self, stream: UnixStream) {
         let (read, mut write) = stream.into_split();
         let (lines_tx, mut lines_rx) = mpsc::channel::<String>(OUTBOUND_LINES);
-        let writer = tokio::spawn(async move {
+        let mut tasks = ConnectionTasks::default();
+        tasks.writer = Some(tokio::spawn(async move {
             while let Some(mut line) = lines_rx.recv().await {
                 line.push('\n');
-                if write.write_all(line.as_bytes()).await.is_err() {
-                    return;
+                match tokio::time::timeout(WRITE_TIMEOUT, write.write_all(line.as_bytes())).await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(_)) | Err(_) => return,
                 }
             }
-        });
+        }));
         let mut reader = BufReader::new(read).take(u64::MAX);
         let mut bindings: Vec<Binding> = Vec::new();
-        let mut bound_ports = HashSet::new();
-        let mut subscription: Option<tokio::task::JoinHandle<()>> = None;
         let mut line = Vec::new();
         loop {
             line.clear();
@@ -276,10 +377,12 @@ impl Hub {
                 Ok(0) | Err(_) => break,
                 Ok(_) => {}
             }
-            if line.len() > MAX_REQUEST_BYTES || line.last() != Some(&b'\n') {
-                let _ = lines_tx
-                    .send(error_line(&Value::Null, "too_large", "request line too long"))
-                    .await;
+            if line.last() != Some(&b'\n') {
+                if line.len() > MAX_REQUEST_BYTES {
+                    let reply = error_line(&Value::Null, "too_large", "request line too long");
+                    let _ = lines_tx.send(reply).await;
+                }
+                // Otherwise a partial line at end of input: nothing to answer.
                 break;
             }
             let request = match serde_json::from_slice::<Request>(&line) {
@@ -293,18 +396,18 @@ impl Hub {
                 }
             };
             let id = request.id.clone();
+            // Subscribe before the snapshot, so no switch falls between them,
+            // and start forwarding only after the reply is queued.
+            let mut events = None;
             let outcome = match request.method.as_str() {
                 "path.get" => self.path_now().map(|event| path_json(&event)),
-                "path.subscribe" => self.path_now().map(|event| {
-                    if subscription.is_none()
-                        && let Some(paths) = &self.paths
-                    {
-                        let events = paths.path_events();
-                        subscription = Some(tokio::spawn(forward_events(events, lines_tx.clone())));
+                "path.subscribe" => {
+                    if tasks.subscription.is_none() {
+                        events = self.paths.as_ref().map(MultipathControl::path_events);
                     }
-                    path_json(&event)
-                }),
-                "datagram.bind" => self.bind(request.params, &mut bindings, &mut bound_ports).await,
+                    self.path_now().map(|event| path_json(&event))
+                }
+                "datagram.bind" => self.bind(request.params, &mut bindings).await,
                 "datagram.stats" => Ok(self.stats()),
                 other => Err(Failure("unknown_method", format!("unknown method {other}"))),
             };
@@ -315,13 +418,20 @@ impl Hub {
             if lines_tx.send(reply).await.is_err() {
                 break;
             }
+            if let Some(events) = events {
+                tasks.subscription = Some(tokio::spawn(forward_events(events, lines_tx.clone())));
+            }
         }
-        if let Some(subscription) = subscription {
+        if let Some(subscription) = tasks.subscription.take() {
             subscription.abort();
         }
-        drop(bindings);
+        for binding in bindings {
+            binding.close().await;
+        }
         drop(lines_tx);
-        let _ = writer.await;
+        if let Some(writer) = tasks.writer.take() {
+            let _ = writer.await;
+        }
     }
 
     fn path_now(&self) -> Result<PathEvent, Failure> {
@@ -332,21 +442,21 @@ impl Hub {
 
     fn stats(&self) -> Value {
         let drops = self.net.datagram_drops();
+        let load = |counter: &AtomicU64| counter.load(Ordering::Relaxed);
         json!({
             "media_stale": drops.media_stale,
             "media_full": drops.media_full,
             "interactive_full": drops.interactive_full,
             "bulk_full": drops.bulk_full,
             "inbox_full": drops.inbox_full,
+            "malformed": load(&self.drops.malformed),
+            "too_large": load(&self.drops.too_large),
+            "no_reader": load(&self.drops.no_reader),
+            "reader_full": load(&self.drops.reader_full),
         })
     }
 
-    async fn bind(
-        &self,
-        params: Value,
-        bindings: &mut Vec<Binding>,
-        bound_ports: &mut HashSet<u16>,
-    ) -> Result<Value, Failure> {
+    async fn bind(&self, params: Value, bindings: &mut Vec<Binding>) -> Result<Value, Failure> {
         let params: BindParams = serde_json::from_value(params)
             .map_err(|error| Failure("invalid_params", error.to_string()))?;
         if params.port == 0 || RESERVED_PORTS.contains(&params.port) {
@@ -361,12 +471,12 @@ impl Hub {
             .await
             .map_err(|error| Failure("port_busy", error.to_string()))?;
         let path = datagram_socket_path(&self.control, params.port);
-        let local = bind_datagram_socket(&path)
+        let (local, identity) = bind_datagram_socket(&path)
             .map_err(|error| Failure("socket_failed", format!("{}: {error}", path.display())))?;
         let max_datagram = socket.max_datagram();
-        let task = tokio::spawn(relay(socket, local, params.class.priority()));
-        bound_ports.insert(params.port);
-        bindings.push(Binding { path: path.clone(), task });
+        let relay = Relay { drops: Arc::clone(&self.drops), priority: params.class.priority() };
+        let task = tokio::spawn(relay.run(socket, local));
+        bindings.push(Binding { path: path.clone(), identity, task });
         Ok(json!({
             "socket": path.display().to_string(),
             "port": params.port,
@@ -376,55 +486,75 @@ impl Hub {
     }
 }
 
-/// Bind a Unix datagram socket at `path` with mode `0600`. The directory is
-/// the control socket's, already checked; a leftover socket file from an
-/// earlier hub that held this control path is replaced, any other file is
-/// refused.
-fn bind_datagram_socket(path: &Path) -> io::Result<UnixDatagram> {
-    remove_socket_file(path)?;
-    let socket = UnixDatagram::bind(path)?;
-    if let Err(error) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)) {
-        let _ = std::fs::remove_file(path);
-        return Err(error);
-    }
-    Ok(socket)
-}
-
-/// Remove `path` if it is a socket; a missing path is fine, any other file
-/// is an error.
-fn remove_socket_file(path: &Path) -> io::Result<()> {
+/// Bind a Unix datagram socket at `path` inside the hub's `0700` datagram
+/// directory, with large buffers. A leftover socket file (an earlier hub
+/// that held this control path) is replaced; any other file is refused.
+fn bind_datagram_socket(path: &Path) -> io::Result<(UnixDatagram, (u64, u64))> {
     match std::fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_socket() => std::fs::remove_file(path),
-        Ok(_) => Err(io::Error::new(io::ErrorKind::AlreadyExists, "not a socket")),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error),
+        Ok(metadata) if metadata.file_type().is_socket() => std::fs::remove_file(path)?,
+        Ok(_) => return Err(io::Error::new(io::ErrorKind::AlreadyExists, "not a socket")),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
     }
+    let socket = UnixDatagram::bind(path)?;
+    for option in [libc::SO_RCVBUF, libc::SO_SNDBUF] {
+        let size = DATAGRAM_SOCKET_BUFFER;
+        // A smaller buffer than asked is fine; it only drops sooner.
+        unsafe {
+            libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                option,
+                (&raw const size).cast(),
+                std::mem::size_of_val(&size) as libc::socklen_t,
+            );
+        }
+    }
+    let metadata = std::fs::symlink_metadata(path)?;
+    Ok((socket, (metadata.dev(), metadata.ino())))
 }
 
-/// Move datagrams between one overlay port and its Unix datagram socket.
-async fn relay(mut overlay: WgDatagramSocket, local: UnixDatagram, priority: Priority) {
-    let mut client: Option<PathBuf> = None;
-    let mut buffer = vec![0u8; DATAGRAM_BUFFER];
-    loop {
-        tokio::select! {
-            received = local.recv_from(&mut buffer) => {
-                let Ok((len, from)) = received else { return };
-                if let Some(path) = from.as_pathname() {
-                    client = Some(path.to_path_buf());
+/// Moves datagrams between one overlay port and its Unix datagram socket.
+struct Relay {
+    drops: Arc<LocalDrops>,
+    priority: Priority,
+}
+
+impl Relay {
+    async fn run(self, mut overlay: WgDatagramSocket, local: UnixDatagram) {
+        let mut client: Option<PathBuf> = None;
+        let mut buffer = vec![0u8; DATAGRAM_BUFFER];
+        loop {
+            tokio::select! {
+                received = local.recv_from(&mut buffer) => {
+                    let Ok((len, from)) = received else { return };
+                    if let Some(path) = from.as_pathname() {
+                        client = Some(path.to_path_buf());
+                    }
+                    let Some((peer, payload)) = decode_header(&buffer[..len]) else {
+                        count(&self.drops.malformed);
+                        continue;
+                    };
+                    match overlay.send_to(payload, peer, self.priority).await {
+                        Ok(()) => {}
+                        Err(WgError::Shutdown) => return,
+                        Err(WgError::DatagramTooLarge { .. }) => count(&self.drops.too_large),
+                        Err(_) => count(&self.drops.malformed),
+                    }
                 }
-                let Some((peer, payload)) = decode_header(&buffer[..len]) else { continue };
-                // Too large, or a destination outside the tunnel: dropped.
-                if let Err(WgError::Shutdown) = overlay.send_to(payload, peer, priority).await {
-                    return;
+                received = overlay.recv_from() => {
+                    let Some((payload, peer)) = received else { return };
+                    let Some(client) = &client else {
+                        count(&self.drops.no_reader);
+                        continue;
+                    };
+                    let mut datagram = encode_header(peer);
+                    datagram.extend_from_slice(&payload);
+                    // A reader that is not keeping up loses datagrams.
+                    if local.try_send_to(&datagram, client).is_err() {
+                        count(&self.drops.reader_full);
+                    }
                 }
-            }
-            received = overlay.recv_from() => {
-                let Some((payload, peer)) = received else { return };
-                let Some(client) = &client else { continue };
-                let mut datagram = encode_header(peer);
-                datagram.extend_from_slice(&payload);
-                // A reader that is not keeping up loses datagrams.
-                let _ = local.try_send_to(&datagram, client);
             }
         }
     }
@@ -533,8 +663,27 @@ mod tests {
     }
 
     #[test]
-    fn datagram_sockets_sit_next_to_the_control_socket() {
+    fn datagram_sockets_sit_in_a_directory_next_to_the_control_socket() {
         let path = datagram_socket_path(Path::new("/run/u/hub/control.sock"), 4103);
-        assert_eq!(path, Path::new("/run/u/hub/control.sock.dgram-4103"));
+        assert_eq!(path, Path::new("/run/u/hub/control.sock.d/4103.sock"));
+    }
+
+    #[test]
+    fn a_control_path_too_long_for_its_datagram_sockets_is_refused() {
+        let long = Path::new("/tmp").join("c".repeat(90)).join("control.sock");
+        let error = prepare_datagram_directory(&long).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn a_datagram_directory_others_may_enter_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let control = dir.path().join("c.sock");
+        let directory = prepare_datagram_directory(&control).unwrap();
+        assert_eq!(std::fs::metadata(&directory).unwrap().mode() & 0o777, 0o700);
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let error = prepare_datagram_directory(&control).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
     }
 }
