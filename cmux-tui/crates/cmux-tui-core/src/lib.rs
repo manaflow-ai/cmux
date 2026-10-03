@@ -97,11 +97,11 @@ pub use mux::{
     LayoutUndoError, LayoutUndoResult, MachineUsage, Mux, MuxEvent, NotificationEvent,
     NotificationLevel, NotificationSource, ProviderWorkspaceAuthority,
     ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError, ResourceNotification,
-    RunPlacement, ScreenDestination, ScreenGroupOutcome, ScreenMoveOutcome, ScreenSpec,
-    SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification, SurfaceResizeReporter,
-    TabDirectory, TabDragOutcome, TabDropEdge, TabGroupDestination, TabGroupOutcome,
-    TabNotificationAck, TabPinChange, TerminalSpawnOptions, TreeDecorations, TreeDelta,
-    TreeDeltaKind, ViewportWidthError, WorkspaceGroupChange, WorkspaceMutationResult,
+    RowHeightsOutcome, RowsError, RunPlacement, ScreenDestination, ScreenGroupOutcome,
+    ScreenMoveOutcome, ScreenSpec, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,
+    SurfaceResizeReporter, TabDirectory, TabDragOutcome, TabDropEdge, TabGroupDestination,
+    TabGroupOutcome, TabNotificationAck, TabPinChange, TerminalSpawnOptions, TreeDecorations,
+    TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceGroupChange, WorkspaceMutationResult,
     WorkspacePlacement, ZoomMode, ZoomState,
 };
 pub use mux::{

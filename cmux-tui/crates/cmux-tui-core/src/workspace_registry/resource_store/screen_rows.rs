@@ -129,6 +129,9 @@ pub(super) fn side_tables_match(
     Ok(stored == desired_rows(screen) && column_docks_match(transaction, screen)?)
 }
 
+/// `((screen id, column id), [(row id, height)])` as read from the table.
+type StoredColumnRows = ((String, String), Vec<(String, i64)>);
+
 /// `screens` with docks ([`with_column_docks`]) and rows overlaid.
 pub(super) fn with_side_tables(
     connection: &Connection,
@@ -149,7 +152,7 @@ pub(super) fn with_side_tables(
             ))
         })?
         .collect::<Result<Vec<_>, _>>()?;
-    let mut columns: Vec<((String, String), Vec<(String, i64)>)> = Vec::new();
+    let mut columns: Vec<StoredColumnRows> = Vec::new();
     for (screen, column, row, height) in records {
         match columns.last_mut() {
             Some((key, rows)) if key.0 == screen && key.1 == column => rows.push((row, height)),
