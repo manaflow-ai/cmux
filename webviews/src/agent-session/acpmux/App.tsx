@@ -38,6 +38,11 @@ import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
 import type { HunkDecision, HunkReview } from "./changes/hunkReview";
+import { configureDictation, deliverDictation, useDictation } from "./dictation";
+import type { DictationUpdate } from "./dictationText";
+import { DictationButton } from "./DictationButton";
+import { DictationNotice } from "./DictationNotice";
+import type { MarkdownFieldHandle } from "./MarkdownField";
 import type { ChangesSource } from "./changes/model";
 import { Counts } from "./changes/Counts";
 import { ChevronDown, DiffFile } from "./changeIcons";
@@ -95,6 +100,8 @@ declare global {
       /// Scrolls to a turn a `cmux://session/<id>#turn-<turnId>` link names (links.ts), once its row
       /// renders; gives up quietly after a few seconds.
       revealTurn?(turnId: string): void;
+      /// A dictation change from the host (CmuxNextAgentPane AgentPaneDictation), spliced at the prompt's cursor.
+      dictation?(update: DictationUpdate): void;
     };
     cmuxAcpmuxRegistry?: {
       register(
@@ -949,6 +956,9 @@ function AcpmuxPane() {
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(undefined);
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
+  /// The composer's prompt, which dictation writes into.
+  const prompt = useRef<MarkdownFieldHandle>(null);
+  const dictation = useDictation(prompt, callNative);
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
   const [hostError, setHostError] = useState<string | undefined>();
@@ -1041,7 +1051,13 @@ function AcpmuxPane() {
             /* a user renderer must not take down the transcript */
           }
         }
-        if (customization.layout) window.cmuxAcpmuxRegistry?.configure(customization.layout);
+        if (customization.layout) {
+          configureDictation(customization.layout);
+          window.cmuxAcpmuxRegistry?.configure(customization.layout);
+        }
+      },
+      dictation(update) {
+        deliverDictation(update);
       },
     };
     window.cmuxAcpmuxDebug = createAcpmuxDebug({
@@ -1348,21 +1364,26 @@ function AcpmuxPane() {
     </>
   );
   const composer = !reviewing && !handoffLoading && (
-    <Composer
-      snapshot={composerSnapshot}
-      chips={ComposerChips}
-      draft={draft}
-      onSend={(text) => {
-        // Until acpmux connects nothing takes a prompt; the composer keeps it.
-        if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
-        callNative("chat.send", { text }).then(() => promptLanded.current(), cancelOpenInWindow);
-      }}
-      onStop={() => void callNative("chat.cancel")}
-      onProject={(cwd) => void callNative("chat.new", { cwd }).catch(() => undefined)}
-      // Without a folder there is nothing to search; the + menu leaves the item out.
-      searchFiles={fileRoot ? searchFiles : undefined}
-      onOpenInWindow={quick ? openInWindow : undefined}
-    />
+    <>
+      <DictationNotice dictation={dictation} />
+      <Composer
+        snapshot={composerSnapshot}
+        chips={ComposerChips}
+        draft={draft}
+        onSend={(text) => {
+          // Until acpmux connects nothing takes a prompt; the composer keeps it.
+          if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
+          callNative("chat.send", { text }).then(() => promptLanded.current(), cancelOpenInWindow);
+        }}
+        onStop={() => void callNative("chat.cancel")}
+        onProject={(cwd) => void callNative("chat.new", { cwd }).catch(() => undefined)}
+        // Without a folder there is nothing to search; the + menu leaves the item out.
+        searchFiles={fileRoot ? searchFiles : undefined}
+        onOpenInWindow={quick ? openInWindow : undefined}
+        prompt={prompt}
+        accessory={<DictationButton dictation={dictation} />}
+      />
+    </>
   );
   const hostErrorCard = hostError && (
     <HostError message={hostError} retrying={retryQueued} onRetry={() => retryHost.current?.()} />
