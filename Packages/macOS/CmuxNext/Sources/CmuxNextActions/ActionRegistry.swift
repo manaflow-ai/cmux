@@ -288,6 +288,10 @@ public final class ActionRegistry {
     @discardableResult
     public func perform(_ id: ActionID, invocation: ActionInvocation) -> Bool {
         guard let action = action(for: id), isAvailable(id, for: invocation), action.isEnabled() else { return false }
+        if let reason = action.targetUnavailableReason?(invocation) {
+            refuse(reason)
+            return false
+        }
         let missing = descriptor(for: id).map { descriptor in
             descriptor.arguments.contains { $0.isRequired && invocation.arguments[$0.name] == nil && !Self.target(of: invocation, supplies: $0, for: descriptor) }
         } ?? false
