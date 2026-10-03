@@ -415,10 +415,30 @@ final class FeedCoordinator: @unchecked Sendable {
 
     func invalidateSemanticRequest(requestId: String, source: String, sessionId: String) {
         guard let (reply, itemID) = waiterRegistry.invalidate(requestID: requestId, source: source, sessionID: sessionId) else { return }
-        cancelNotification(requestId: requestId)
+        invalidateSemanticRequest(reply: reply, itemID: itemID)
+    }
+
+    /// Clears every pending Feed decision for an agent session. This is used
+    /// by surface teardown, which can race or replace a missing SessionEnd
+    /// hook and therefore has no request id to pass to the keyed API.
+    func invalidateSemanticRequests(source: String, sessionId: String) {
+        for (reply, itemID) in waiterRegistry.invalidate(source: source, sessionID: sessionId) {
+            invalidateSemanticRequest(reply: reply, itemID: itemID)
+        }
+    }
+
+    private func invalidateSemanticRequest(reply: FeedWaiterRegistry.Reply, itemID: UUID?) {
+        cancelNotification(requestId: reply.requestID)
         concludeAttentionOnMain(reply.target)
+        clearSemanticFeedNotificationOnMain(requestId: reply.requestID)
         expireTimedOutItem(itemID)
-        waiterRegistry.cleanupStored(requestID: requestId, groupID: reply.groupID)
+        waiterRegistry.cleanupStored(requestID: reply.requestID, groupID: reply.groupID)
+    }
+
+    private func clearSemanticFeedNotificationOnMain(requestId: String) {
+        Task { @MainActor [requestId] in
+            FeedCoordinator.shared.clearSemanticFeedNotification(requestId: requestId)
+        }
     }
 
     private func enqueueZeroWaitAcceptance(
