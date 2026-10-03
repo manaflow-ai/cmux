@@ -79,7 +79,12 @@ pub(crate) fn parse(packet: &[u8]) -> Option<(SocketAddr, SocketAddr, &[u8])> {
     let (source, destination, udp): (IpAddr, IpAddr, &[u8]) = match packet.first()? >> 4 {
         4 => {
             let header_len = usize::from(packet[0] & 0x0F) * 4;
-            if packet.len() < header_len.max(IPV4_HEADER) || packet[9] != UDP {
+            if header_len < IPV4_HEADER || packet.len() < header_len || packet[9] != UDP {
+                return None;
+            }
+            // Fragments (more-fragments set, or a non-zero offset) are not
+            // whole datagrams: this stack never reassembles them.
+            if u16::from_be_bytes([packet[6], packet[7]]) & 0x3FFF != 0 {
                 return None;
             }
             let source: [u8; 4] = packet[12..16].try_into().ok()?;

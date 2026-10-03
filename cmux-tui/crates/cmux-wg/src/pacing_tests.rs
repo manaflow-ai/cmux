@@ -114,3 +114,46 @@ fn other_packets_leave_first_and_unpaced() {
     let first = pacer.pop(now).unwrap().unwrap();
     assert_eq!(first, vec![0x45; 28]);
 }
+
+#[test]
+fn classes_leave_in_strict_priority() {
+    let mut pacer = Pacer::default();
+    let now = Instant::now();
+    // A bulk connection (more than INTERACTIVE_QUEUE segments, unpaced
+    // before its first RTT sample).
+    for index in 0..6u32 {
+        pacer.push(out(50000, 1160 * index, 1160), now);
+    }
+    let datagram = |byte: u8| vec![0x45, byte];
+    pacer.push_datagram(datagram(3), Priority::Bulk, now);
+    pacer.push_datagram(datagram(2), Priority::Media, now);
+    pacer.push_datagram(datagram(1), Priority::Interactive, now);
+    let mut order = Vec::new();
+    while let Ok(Some(packet)) = pacer.pop(now) {
+        order.push(if segment(&packet).is_some() { 0 } else { packet[1] });
+    }
+    assert_eq!(order, vec![1, 2, 0, 0, 0, 0, 0, 0, 3], "interactive, media, connection, bulk");
+}
+
+#[test]
+fn stale_media_never_leaves() {
+    let mut pacer = Pacer::default();
+    let start = Instant::now();
+    pacer.push_datagram(vec![0x45, 1], Priority::Media, start);
+    let late = start + MEDIA_MAX_AGE + Duration::from_millis(1);
+    assert_eq!(pacer.pop(late), Ok(None));
+    assert!(!pacer.has_queued());
+}
+
+#[test]
+fn a_datagram_flood_never_blocks_the_tcp_stack() {
+    let mut pacer = Pacer::default();
+    let now = Instant::now();
+    for _ in 0..10_000 {
+        pacer.push_datagram(vec![0x45, 9], Priority::Bulk, now);
+        pacer.push_datagram(vec![0x45, 8], Priority::Media, now);
+    }
+    assert!(pacer.has_room(), "datagrams do not count toward the stack's limit");
+    assert_eq!(pacer.bulk.len(), MAX_DATAGRAMS);
+    assert_eq!(pacer.media.len(), MAX_DATAGRAMS);
+}
