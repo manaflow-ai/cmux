@@ -8,7 +8,7 @@ enum CloudTreeCreateActionBuilder {
         for node in nodes {
             node.children = add(to: node.children)
             switch node.kind {
-            case .cloudMachinesSection(let canCreateMachine, _, _):
+            case .cloudMachinesSection(let canCreateMachine, _):
                 // New Cloud Machine is the button above the section
                 // (`CloudNewMachineButton`), so the empty fleet's
                 // double-click-only "New Machine" placeholder goes.

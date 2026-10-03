@@ -83,7 +83,7 @@ enum CloudTreeRowToolTip {
                 toolTip: joined([placeholder.text], beyond: node.searchableTitle),
                 accessibilityLabel: node.searchableTitle
             )
-        case .cloudMachinesSection(_, let usage?, _):
+        case .cloudMachinesSection(_, let usage?):
             // The count's display host never hit-tests, so the plan's help rides
             // on the row, and the row's label keeps VoiceOver from reading the
             // visible "1/50" as "1 slash 50".

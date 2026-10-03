@@ -135,9 +135,6 @@ struct RightSidebarChromePillModifier: ViewModifier {
     var isHovered: Bool
     var horizontalPadding: CGFloat = RightSidebarChromeMetrics.controlHorizontalPadding
     var geometryKeyPrefix: String?
-    /// When set, the selected fill is one shared shape that moves between
-    /// the pills of this namespace instead of each pill painting its own.
-    var selectionNamespace: Namespace.ID?
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     func body(content: Content) -> some View {
@@ -151,20 +148,10 @@ struct RightSidebarChromePillModifier: ViewModifier {
                 keyPrefix: geometryKeyPrefix,
                 isVisible: true
             )
-            .background {
-                let shape = RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
-                if let selectionNamespace {
-                    ZStack {
-                        shape.fill(isSelected ? Color.clear : backgroundColor)
-                        if isSelected {
-                            shape.fill(backgroundColor)
-                                .matchedGeometryEffect(id: "rightSidebarChromePillSelection", in: selectionNamespace)
-                        }
-                    }
-                } else {
-                    shape.fill(backgroundColor)
-                }
-            }
+            .background(
+                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
+                    .fill(backgroundColor)
+            )
             .contentShape(
                 RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
             )
@@ -292,16 +279,14 @@ extension View {
         isSelected: Bool,
         isHovered: Bool,
         horizontalPadding: CGFloat = RightSidebarChromeMetrics.controlHorizontalPadding,
-        geometryKeyPrefix: String? = nil,
-        selectionNamespace: Namespace.ID? = nil
+        geometryKeyPrefix: String? = nil
     ) -> some View {
         modifier(
             RightSidebarChromePillModifier(
                 isSelected: isSelected,
                 isHovered: isHovered,
                 horizontalPadding: horizontalPadding,
-                geometryKeyPrefix: geometryKeyPrefix,
-                selectionNamespace: selectionNamespace
+                geometryKeyPrefix: geometryKeyPrefix
             )
         )
     }
@@ -377,7 +362,6 @@ struct ModeBarButton: View {
     let item: RightSidebarModeBarItem
     let isSelected: Bool
     var badgeCount: Int = 0
-    var selectionNamespace: Namespace.ID? = nil
     let shortcutHint: StoredShortcut
     let showsShortcutHint: Bool
     let action: () -> Void
@@ -387,18 +371,10 @@ struct ModeBarButton: View {
     /// ellipsis; the tab then shows only its icon. The label keeps its slot,
     /// so hiding it never changes the tab's width.
     @State private var labelFits = true
-    @State private var labelWidth: CGFloat = 0
-
-    /// With its label hidden, the icon (and badge) moves into the middle of
-    /// the label's empty slot, so it sits centered in the tab's highlight.
-    private var hiddenLabelShift: CGFloat {
-        labelFits ? 0 : (labelWidth + Self.contentSpacing) / 2
-    }
-    private static let contentSpacing: CGFloat = 4
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: Self.contentSpacing) {
+            HStack(spacing: 4) {
                 CmuxSystemSymbolImage(
                     systemName: item.symbolName,
                     pointSize: RightSidebarChromeControlStyle.modeIconSize,
@@ -410,7 +386,6 @@ struct ModeBarButton: View {
                         keyPrefix: "rightSidebarModeIcon_\(item.id)",
                         isVisible: true
                     )
-                    .offset(x: badgeCount > 0 ? 0 : hiddenLabelShift)
                 Text(item.label)
                     .cmuxFont(
                         size: RightSidebarChromeControlStyle.labelSize,
@@ -419,12 +394,9 @@ struct ModeBarButton: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .opacity(labelFits ? 1 : 0)
-                    .onGeometryChange(for: CGFloat.self) { proxy in
-                        proxy.size.width
-                    } action: { width in
-                        labelWidth = width
-                        labelFits = width >= GlobalFontMagnification.scaledSize(Self.minimumVisibleLabelWidth)
-                    }
+                    .onGeometryChange(for: Bool.self) { proxy in
+                        proxy.size.width >= GlobalFontMagnification.scaledSize(Self.minimumVisibleLabelWidth)
+                    } action: { labelFits = $0 }
                 if badgeCount > 0 {
                     pendingChip
                 }
@@ -432,8 +404,7 @@ struct ModeBarButton: View {
             .rightSidebarChromePill(
                 isSelected: isSelected,
                 isHovered: isHovered,
-                geometryKeyPrefix: "rightSidebarModeControl_\(item.id)",
-                selectionNamespace: selectionNamespace
+                geometryKeyPrefix: "rightSidebarModeControl_\(item.id)"
             )
             .overlay(alignment: .trailing) {
                 if showsShortcutHint {

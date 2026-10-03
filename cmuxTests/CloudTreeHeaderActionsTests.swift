@@ -103,19 +103,6 @@ struct CloudTreeHeaderActionsTests {
         #expect(title.frame == restingTitleFrame)
     }
 
-    @Test("Section refresh icons show with the fleet and stay on screen while refreshing")
-    func sectionRefresh() {
-        let idle = CloudTreeNode.Kind.cloudMachinesSection(canCreateMachine: false, refresh: CloudTreeSectionRefresh())
-        #expect(CloudTreeRowHoverButtons.hasButtons(for: idle), "a plan at its limit still refreshes")
-        #expect(!CloudTreeRowHoverButtons.showsAtRest(for: idle))
-        let running = CloudTreeNode.Kind.cloudMachinesSection(
-            canCreateMachine: true, refresh: CloudTreeSectionRefresh(isRefreshing: true)
-        )
-        #expect(CloudTreeRowHoverButtons.showsAtRest(for: running))
-        #expect(!CloudTreeRowHoverButtons.showsAtRest(for: .devicesSection(CloudTreeDevicesSection())))
-        #expect(CloudTreeRowHoverButtons.showsAtRest(for: .devicesSection(CloudTreeDevicesSection(isRefreshing: true))))
-    }
-
     /// The header renders while Cloud Machines is off too; there it has nothing
     /// to create, so it carries no "+".
     @Test("Cloud Machines' + is present only when a machine can be created")

@@ -17,7 +17,6 @@ struct CloudTreeBuildInputs: Equatable {
     var showsCloudVPNWarning = false
     var canCreateCloudMachine = false
     var cloudMachinesUsage: CloudMachinesUsage? = nil
-    var cloudMachinesRefresh: CloudTreeSectionRefresh? = nil
     var localeIdentifier: String = Locale.current.identifier
 
     func nodes(now: Date = .now, resourceNodeBuilder: CloudTreeMachineResourceNodeBuilder = .init()) -> [CloudTreeNode] {
@@ -32,7 +31,6 @@ struct CloudTreeBuildInputs: Equatable {
             showsCloudVPNWarning: showsCloudVPNWarning,
             canCreateCloudMachine: canCreateCloudMachine,
             cloudMachinesUsage: cloudMachinesUsage,
-            cloudMachinesRefresh: cloudMachinesRefresh,
             now: now, resourceNodeBuilder: resourceNodeBuilder
         )
     }

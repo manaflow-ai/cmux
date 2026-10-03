@@ -19,7 +19,6 @@ extension CloudTreeNodeBuilder {
         showsCloudVPNWarning: Bool = false,
         canCreateCloudMachine: Bool = false,
         cloudMachinesUsage: CloudMachinesUsage? = nil,
-        cloudMachinesRefresh: CloudTreeSectionRefresh? = nil,
         now: Date = .now,
         resourceNodeBuilder: CloudTreeMachineResourceNodeBuilder = .init()
     ) -> [CloudTreeNode] {
@@ -121,9 +120,7 @@ extension CloudTreeNodeBuilder {
                 : nodes
             nodes = [CloudTreeNode(
                 id: "cloud-machines-section",
-                kind: .cloudMachinesSection(
-                    canCreateMachine: canCreateCloudMachine, usage: cloudMachinesUsage, refresh: cloudMachinesRefresh
-                ),
+                kind: .cloudMachinesSection(canCreateMachine: canCreateCloudMachine, usage: cloudMachinesUsage),
                 children: cloudChildren
             )]
         }

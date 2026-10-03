@@ -8,8 +8,7 @@ public struct CloudTreeDevicesSection: Equatable, Sendable {
         incomingAccessEnabled: Bool = false,
         discoveryManaged: Bool = false,
         incomingAccessManaged: Bool = false,
-        available: Bool = true,
-        isRefreshing: Bool = false
+        available: Bool = true
     ) {
         self.count = count
         self.discoveryEnabled = discoveryEnabled
@@ -17,7 +16,6 @@ public struct CloudTreeDevicesSection: Equatable, Sendable {
         self.discoveryManaged = discoveryManaged
         self.incomingAccessManaged = incomingAccessManaged
         self.available = available
-        self.isRefreshing = isRefreshing
     }
 
     public var count: Int = 0
@@ -27,8 +25,6 @@ public struct CloudTreeDevicesSection: Equatable, Sendable {
     public var incomingAccessManaged: Bool = false
     /// Whether Cloud/Beta availability permits either device preference.
     public var available: Bool = true
-    /// A refresh of the devices list is running; the header's refresh icon spins.
-    public var isRefreshing: Bool = false
 
     /// Both independent actions stay visible below the devices, preceded by
     /// "No other Macs yet" when the list is empty.

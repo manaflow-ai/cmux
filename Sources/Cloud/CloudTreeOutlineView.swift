@@ -37,7 +37,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     /// The Cloud Machines header's New Machine "+" and its plan count (nil until the plan loads).
     var canCreateCloudMachine: Bool = false
     var cloudMachinesUsage: CloudMachinesUsage? = nil
-    var cloudMachinesRefresh: CloudTreeSectionRefresh? = nil
     var reveal: CloudTreeRevealRequest? = nil
     var creationReveal: CloudWorkspaceCreationReveal? = nil
     var nodeBuilder: ((CloudTreeBuildInputs) -> [CloudTreeNode])? = nil
@@ -77,7 +76,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             devicesSection: devicesSection,
             showsCloudVPNWarning: showsCloudVPNWarning,
             canCreateCloudMachine: canCreateCloudMachine,
-            cloudMachinesUsage: cloudMachinesUsage, cloudMachinesRefresh: cloudMachinesRefresh
+            cloudMachinesUsage: cloudMachinesUsage
         ))
         context.coordinator.reveal(reveal)
         context.coordinator.reveal(creation: creationReveal)
