@@ -226,6 +226,12 @@ extension TerminalSurfaceRuntimeFilesystem {
                     fileManager: fileManager
                 )
             },
+            writeLongStartupCommand: { command, workingDirectory in
+                OneShotTerminalLauncherStore().writeDirectStartupCommand(
+                    command: command,
+                    workingDirectory: workingDirectory
+                )
+            },
             isExecutableFile: { FileManager.default.isExecutableFile(atPath: $0) }
         )
     }

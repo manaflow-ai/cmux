@@ -174,6 +174,48 @@ struct MoshTerminalCommandBuilderTests {
         }
     }
 
+    @Test("launches a large Mosh preparation through the terminal boundary")
+    func largePreparationLaunchesWithoutE2BIG() throws {
+        try withFakeCommands(sshStatus: 0) { directory, environment in
+            let largePreparation = ": # " + String(repeating: "bootstrap", count: 120_000)
+            let command = builder(preparationShellScript: largePreparation).command()
+            let launcherURL = directory.appendingPathComponent("large-mosh-launcher.sh")
+            let commandForSpawn = try #require(LocalCommandArgumentLimitPolicy().commandForSpawn(
+                command: command,
+                workingDirectory: nil
+            ) { commandToExternalize, _ in
+                try? commandToExternalize.write(to: launcherURL, atomically: true, encoding: .utf8)
+                return "/bin/sh \(launcherURL.path)"
+            })
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/sh")
+            process.arguments = ["-c", commandForSpawn]
+            process.environment = environment
+            try process.run()
+            process.waitUntilExit()
+            #expect(process.terminationStatus == 0)
+            #expect(commandForSpawn.utf8.count < LocalCommandArgumentLimitPolicy.maximumInlineCommandBytes)
+        }
+    }
+
+    @Test("externalizes a large double-quoted POSIX shell command")
+    func largeDoubleQuotedCommandUsesExternalLauncher() throws {
+        let command = "/bin/sh -c \"printf '%s' \\\"" + String(repeating: "bootstrap", count: 120_000) + "\\\"\""
+        let writtenCommandURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-double-quoted-launcher-\(UUID().uuidString)", isDirectory: false)
+        defer { try? FileManager.default.removeItem(at: writtenCommandURL) }
+        let externalCommand = try #require(LocalCommandArgumentLimitPolicy().commandForSpawn(
+            command: command,
+            workingDirectory: nil
+        ) { commandToExternalize, _ in
+            try? commandToExternalize.write(to: writtenCommandURL, atomically: true, encoding: .utf8)
+            return "/bin/sh /tmp/cmux-launcher"
+        })
+
+        #expect(externalCommand == "/bin/sh /tmp/cmux-launcher")
+        #expect(try String(contentsOf: writtenCommandURL, encoding: .utf8) == "printf '%s' \"" + String(repeating: "bootstrap", count: 120_000) + "\"")
+    }
+
     @Test("keeps a large SSH fallback within the local launcher argument budget")
     func largeFallbackIsEmbeddedOnce() throws {
         try withFakeCommands(sshStatus: 0, installMosh: false) { _, environment in

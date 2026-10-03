@@ -8,6 +8,20 @@ nonisolated private let oneShotTerminalLauncherLogger = Logger(
 
 /// Stores one-shot terminal actions in private, self-deleting launcher scripts.
 struct OneShotTerminalLauncherStore {
+    enum LauncherInterpreter: Equatable {
+        case sh
+        case zsh
+
+        var path: String {
+            switch self {
+            case .sh:
+                return "/bin/sh"
+            case .zsh:
+                return "/bin/zsh"
+            }
+        }
+    }
+
     enum CommandExecution {
         /// Runs post-start input directly in the launcher child, then returns
         /// to the terminal host's already-initialized shell.
@@ -59,7 +73,8 @@ struct OneShotTerminalLauncherStore {
     func writeLauncherScript(
         command: String,
         workingDirectory: String?,
-        execution: CommandExecution = .direct
+        execution: CommandExecution = .direct,
+        interpreter: LauncherInterpreter = .zsh
     ) -> URL? {
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCommand.isEmpty else { return nil }
@@ -73,20 +88,34 @@ struct OneShotTerminalLauncherStore {
             pruneOldLaunchers(in: directoryURL)
 
             var lines = [
-                "#!/bin/zsh",
+                "#!\(interpreter.path)",
                 "rm -f -- \"$0\" 2>/dev/null || true"
             ]
             if let workingDirectory = normalized(workingDirectory) {
                 let quotedDirectory = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
+                lines.append("if ! cd -- \(quotedDirectory) 2>/dev/null; then")
                 lines.append(contentsOf: [
-                    "if ! cd -- \(quotedDirectory) 2>/dev/null; then",
                     "  _cmux_resume_probe=\(quotedDirectory)",
-                    "  [[ ! -e \"$_cmux_resume_probe\" ]] || exit 1",
+                    "  \(interpreter == .zsh ? "[[ ! -e \"$_cmux_resume_probe\" ]]" : "[ ! -e \"$_cmux_resume_probe\" ]") || exit 1",
                     "  while true; do",
-                    "    _cmux_resume_parent=\"${_cmux_resume_probe:h}\"",
-                    "    [[ \"$_cmux_resume_parent\" != \"$_cmux_resume_probe\" ]] || exit 1",
-                    "    if [[ -e \"$_cmux_resume_parent\" ]]; then",
-                    "      [[ -d \"$_cmux_resume_parent\" && -x \"$_cmux_resume_parent\" ]] || exit 1",
+                ])
+                switch interpreter {
+                case .zsh:
+                    lines.append(contentsOf: [
+                        "    _cmux_resume_parent=\"${_cmux_resume_probe:h}\"",
+                        "    [[ \"$_cmux_resume_parent\" != \"$_cmux_resume_probe\" ]] || exit 1",
+                        "    if [[ -e \"$_cmux_resume_parent\" ]]; then",
+                        "      [[ -d \"$_cmux_resume_parent\" && -x \"$_cmux_resume_parent\" ]] || exit 1",
+                    ])
+                case .sh:
+                    lines.append(contentsOf: [
+                        "    _cmux_resume_parent=$(/usr/bin/dirname -- \"$_cmux_resume_probe\") || exit 1",
+                        "    [ \"$_cmux_resume_parent\" != \"$_cmux_resume_probe\" ] || exit 1",
+                        "    if [ -e \"$_cmux_resume_parent\" ]; then",
+                        "      [ -d \"$_cmux_resume_parent\" ] && [ -x \"$_cmux_resume_parent\" ] || exit 1",
+                    ])
+                }
+                lines.append(contentsOf: [
                     "      break",
                     "    fi",
                     "    _cmux_resume_probe=\"$_cmux_resume_parent\"",
@@ -140,6 +169,22 @@ struct OneShotTerminalLauncherStore {
             return nil
         }
         return " /bin/zsh \(TerminalStartupShellQuoting.singleQuoted(launcherURL.path))\n"
+    }
+
+    /// Returns a short command that runs a large startup command from a private file.
+    func writeDirectStartupCommand(
+        command: String,
+        workingDirectory: String?
+    ) -> String? {
+        guard let launcherURL = writeLauncherScript(
+            command: command,
+            workingDirectory: workingDirectory,
+            execution: .direct,
+            interpreter: .sh
+        ) else {
+            return nil
+        }
+        return "/bin/sh \(TerminalStartupShellQuoting.singleQuoted(launcherURL.path))"
     }
 
     /// Returns a non-resume startup command that interprets a private launcher script.
