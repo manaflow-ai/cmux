@@ -93,7 +93,7 @@ describe("server pairing failure paths (workerd)", () => {
     expect(results.slice(0, 10).map((g) => g.error.code)).toEqual(Array(10).fill("selector.not_found"))
     expect(results.slice(10).every((g) => g.error.code === "auth.forbidden" && g.error.retryable)).toBe(true)
     expect(wakes).toBe(20)
-  })
+  }, 30_000) // about 60 sequential approvals over real owners
 
   it("a demoted approver's retry after a lost enrollment revokes the install; a lost abort is finished by the next retry", async () => {
     const owner = await sessionToken("stack-pair-demoted-owner")
