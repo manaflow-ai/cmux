@@ -21,6 +21,8 @@ nonisolated enum SettingsWindowStrings {
     static var soundDefault: String { text("settingsWindow.soundDefault", "Default") }
     static var soundNone: String { text("settingsWindow.soundNone", "None") }
     static var blankPage: String { text("settingsWindow.blankPage", "Blank page") }
+    static var backdropArtCredit: String { text("settingsWindow.backdropArt.credit", "Wheat Field with Cypresses · Vincent van Gogh · 1889 · The Metropolitan Museum of Art · CC0") }
+    static var backdropArtSource: String { text("settingsWindow.backdropArt.source", "Painting attribution and source") }
     static var themeTitle: String { text("settingsWindow.theme", "Theme") }
     static var themeLevelRoom: String { text("settingsWindow.themeLevel.room", "Space") }
     static var themeLevelWorkspace: String { text("settingsWindow.themeLevel.workspace", "Workspace") }

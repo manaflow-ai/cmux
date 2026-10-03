@@ -26,6 +26,7 @@ import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { acpWire } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { ScrollPacing } from "./pacing";
+import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { Composer } from "./Composer";
 import { ComposerPickers } from "./ComposerPickers";
 import { EmptyState, isNewChat, projectName } from "./EmptyState";
@@ -681,13 +682,11 @@ export function VirtualTranscript({
     if (node) scrolledTo.current = scrollPosition(node, layout.totalHeight);
   }, [layout, range.first, height]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
-  // Each settled scroll's frame pacing goes to the host, which picks the pane's rendering rate.
+  // The page picks adaptive rendering; the host supplies the display interval and applies it.
+  const renderRate = useMemo(() => new AdaptiveRenderRate(), []);
   const pacing = useMemo(
-    () =>
-      new ScrollPacing((intervals) => {
-        callNative("pane.framePacing", { intervals }).catch(() => {});
-      }),
-    [],
+    () => new ScrollPacing((intervals) => void reportScrollPacing(intervals, callNative, renderRate)),
+    [renderRate],
   );
   useEffect(() => () => pacing.stop(), [pacing]);
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
