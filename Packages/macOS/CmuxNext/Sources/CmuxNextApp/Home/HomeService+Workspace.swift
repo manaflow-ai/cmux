@@ -14,10 +14,13 @@ extension HomeService {
     static let tabOrigin = "cmux-next-home"
     static let chiefTabKey = "home-chief-tab"
 
-    /// The home workspace in the local store, once the store reported it.
+    /// The home workspace in the local store, once the store reported it:
+    /// the one `ensure_home` named, else the one the tree marks `home` (a
+    /// reconnect or a window that opened before `ensure_home` answered).
     var homeWorkspace: WorkspaceModel? {
-        guard let id = homeWorkspaceID else { return nil }
-        return services.machines.local.store.workspaces.first { $0.resourceID == id || $0.kind == "home" }
+        let workspaces = services.machines.local.store.workspaces
+        if let id = homeWorkspaceID, let named = workspaces.first(where: { $0.resourceID == id }) { return named }
+        return workspaces.first { $0.kind == "home" }
     }
 
     /// Asks the store for its home workspace, then gives it the chief tab.
