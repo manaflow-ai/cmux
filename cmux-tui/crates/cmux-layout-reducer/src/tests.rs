@@ -308,6 +308,58 @@ fn runtime_exit_marks_tabs_dead_and_keeps_the_layout() {
     assert_eq!(apply(&state, &op("w", invalid)), Err(Reject::InvalidWidth(99)));
 }
 
+/// User decision 2026-10-02: a dead tab restarts in place. The tab keeps its
+/// id and placement and shows the new content; a live tab is rejected, and
+/// so is a restart to dead content; a replay with the key is a no-op.
+#[test]
+fn restart_gives_a_dead_tab_new_content_in_place() {
+    let (state, _) = build(&[vec![vec![vec![2]]]]);
+    let fresh = TabContent { runtime: 99, terminal: Some("term_new".into()), dead: false };
+    let restart = LayoutOpKind::RestartTab { tab: 4, content: fresh.clone() };
+    assert_eq!(apply(&state, &op("r", restart.clone())), Err(Reject::TabNotDead(4)));
+
+    let (dead, _) =
+        apply(&state, &op("exit", LayoutOpKind::RuntimeExited { runtime: 40 })).unwrap();
+    let (restarted, events) = apply(&dead, &op("r", restart.clone())).unwrap();
+    assert_eq!(events, vec![LayoutEvent::TabRestarted { tab: 4 }]);
+    assert_eq!(restarted.tabs[&4], fresh);
+    assert_eq!(restarted.panes, dead.panes);
+    assert_eq!(placements(&restarted), placements(&dead));
+    assert_eq!(restarted.tabs[&5], dead.tabs[&5]);
+    assert!(introduced_violations_for(&dead, &restarted, &restart).is_empty());
+    // Without the op's restart allowance the same change is a content change.
+    assert_eq!(
+        check_conservation(&dead, &restarted, &BTreeSet::new()),
+        BTreeSet::from([Violation::TabContentChanged { tab: 4 }])
+    );
+
+    let mut dead_content = fresh.clone();
+    dead_content.dead = true;
+    assert_eq!(
+        apply(&dead, &op("d", LayoutOpKind::RestartTab { tab: 4, content: dead_content })),
+        Err(Reject::RestartContentDead(4))
+    );
+    assert_eq!(
+        apply(&dead, &op("u", LayoutOpKind::RestartTab { tab: 77, content: fresh.clone() })),
+        Err(Reject::UnknownTab(77))
+    );
+
+    // A kept tab whose runtime is gone has no content; a restart gives it some.
+    let mut kept = dead.clone();
+    kept.tabs.remove(&4);
+    let (from_kept, _) = apply(&kept, &op("k", restart.clone())).unwrap();
+    assert_eq!(from_kept.tabs[&4], fresh);
+    assert!(check_state(&from_kept).is_empty());
+
+    // I5: the same key replays.
+    let (once, ledger, _) =
+        apply_once(&dead, &Ledger::default(), &op("r", restart.clone())).unwrap();
+    assert_eq!(
+        apply_once(&once, &ledger, &op("r", restart)),
+        Ok((once.clone(), ledger, Vec::new()))
+    );
+}
+
 #[test]
 fn checkers_report_each_broken_invariant() {
     let (state, _) = build(&[vec![vec![vec![2, 1]]]]);
@@ -401,6 +453,9 @@ enum Step {
     RuntimeExited {
         tab: usize,
     },
+    Restart {
+        tab: usize,
+    },
     /// Apply the previous op again with its key.
     Replay,
     /// A stale or invented id.
@@ -428,7 +483,8 @@ fn step() -> impl Strategy<Value = Step> {
         2 => (pick.clone(), pick.clone())
             .prop_map(|(tab, workspace)| Step::ToWorkspace { tab, workspace }),
         1 => pick.clone().prop_map(|tab| Step::Close { tab }),
-        1 => pick.prop_map(|tab| Step::RuntimeExited { tab }),
+        1 => pick.clone().prop_map(|tab| Step::RuntimeExited { tab }),
+        1 => pick.prop_map(|tab| Step::Restart { tab }),
         1 => Just(Step::Replay),
         1 => any::<bool>().prop_map(|tab| Step::Unknown { tab }),
     ]
@@ -535,6 +591,13 @@ fn concrete(
         Step::RuntimeExited { tab: t } => {
             LayoutOpKind::RuntimeExited { runtime: state.tabs[&tab(*t)?].runtime }
         }
+        Step::Restart { tab: t } => {
+            let id = fresh();
+            LayoutOpKind::RestartTab {
+                tab: tab(*t)?,
+                content: TabContent { runtime: id * 10, terminal: None, dead: false },
+            }
+        }
         Step::Unknown { tab: true } => LayoutOpKind::CloseTab { tab: u64::MAX },
         Step::Unknown { tab: false } => {
             LayoutOpKind::MoveTab { tab: tab(0)?, pane: u64::MAX, index: 0 }
@@ -575,8 +638,15 @@ proptest! {
                     prop_assert!(check_state(&next).is_empty(), "{:?}", check_state(&next));
                     // I1: only the op's explicit creations appear (none on a replay).
                     let created = if replayed { BTreeSet::new() } else { op.kind.created_tabs() };
-                    let conservation =
-                        check_conservation_creating(&state, &next, &op.kind.closed_tabs(), &created);
+                    let restarted =
+                        if replayed { BTreeSet::new() } else { op.kind.restarted_tabs() };
+                    let conservation = check_conservation_restarting(
+                        &state,
+                        &next,
+                        &op.kind.closed_tabs(),
+                        &created,
+                        &restarted,
+                    );
                     prop_assert!(conservation.is_empty(), "{conservation:?}");
                     // A respawning split keeps the source pane, holding the fresh tab.
                     if let (false, LayoutOpKind::MoveTabToSplit { pane, respawn: Some(respawn), .. }) = (replayed, &op.kind) {
@@ -590,6 +660,17 @@ proptest! {
                     let (again, _, again_events) = apply_once(&next, &next_ledger, &op).unwrap();
                     prop_assert_eq!(&again, &next);
                     prop_assert!(again_events.is_empty());
+                    // A restart keeps the tab set and every placement and
+                    // changes only the restarted tab, which was dead.
+                    if let (false, LayoutOpKind::RestartTab { tab, content }) = (replayed, &op.kind) {
+                        prop_assert!(state.tabs[tab].dead);
+                        prop_assert_eq!(&next.tabs[tab], content);
+                        prop_assert_eq!(placements(&next), placements(&state));
+                        prop_assert_eq!(
+                            next.tabs.keys().collect::<Vec<_>>(),
+                            state.tabs.keys().collect::<Vec<_>>()
+                        );
+                    }
                     // A runtime's death changes no tab set, pane or workspace.
                     if matches!(op.kind, LayoutOpKind::RuntimeExited { .. }) {
                         prop_assert_eq!(&next.panes, &state.panes);
