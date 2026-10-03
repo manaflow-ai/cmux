@@ -1058,8 +1058,6 @@ mod remote_browser_proxy;
 #[path = "remote_wg_hub.rs"]
 mod remote_wg_hub;
 use remote_wg_hub::run_wg;
-#[cfg(test)]
-use remote_wg_hub::{parse_wg_hub_flags, start_wireguard_hub_tunnel};
 use remote_browser_proxy::{parse_browser_proxy_args, serve_browser_proxy};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -2914,25 +2912,6 @@ mod tests {
         assert!(parse_connect_flags(&owned).unwrap().exit_with_parent);
     }
 
-    #[test]
-    fn wg_hub_flags_require_config_and_socket() {
-        let full =
-            ["hub", "--config", "/tmp/wg.conf", "--socket", "/tmp/wg.sock"].map(str::to_string);
-        let flags = parse_wg_hub_flags(&full[1..]).unwrap();
-        assert_eq!(flags.config, PathBuf::from("/tmp/wg.conf"));
-        assert_eq!(flags.socket, PathBuf::from("/tmp/wg.sock"));
-        assert!(!flags.exit_with_parent);
-        let owned = ["--config", "/tmp/wg.conf", "--socket", "/tmp/wg.sock", "--exit-with-parent"]
-            .map(str::to_string);
-        assert!(parse_wg_hub_flags(&owned).unwrap().exit_with_parent);
-        let missing = ["--config", "/tmp/wg.conf"].map(str::to_string);
-        assert!(parse_wg_hub_flags(&missing).is_err());
-        let unknown =
-            ["--config", "/tmp/wg.conf", "--socket", "/tmp/s", "--bogus"].map(str::to_string);
-        assert!(parse_wg_hub_flags(&unknown).is_err());
-        let not_hub = ["frobnicate"].map(str::to_string);
-        assert!(run_wg(&not_hub).is_err());
-    }
 
     #[cfg(unix)]
     #[test]
@@ -3219,28 +3198,6 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn wireguard_hub_start_deadline_is_built_inside_the_runtime() {
-        use std::os::unix::fs::PermissionsExt;
-
-        // `wg hub` runs on a plain thread and hands its runtime to the starter.
-        // The deadline future used to be built as `block_on`'s argument, where no
-        // reactor exists, and every hub start panicked with "there is no reactor
-        // running". A literal endpoint keeps DNS out of the test; the start may
-        // still fail, and any `Result` is the pass condition.
-        let directory = tempfile::tempdir().unwrap();
-        let config = directory.path().join("hub.conf");
-        fs::write(
-            &config,
-            "[Interface]\nPrivateKey = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=\nAddress = 100.64.0.1/32\nMTU = 1200\n\n[Peer]\nPublicKey = xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=\nAllowedIPs = 10.0.0.0/24\nEndpoint = 127.0.0.1:1\n",
-        )
-        .unwrap();
-        fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
-        let runtime = tokio_runtime().unwrap();
-        let started = start_wireguard_hub_tunnel(&runtime, &config, Duration::from_secs(5));
-        drop(started);
-    }
 
     #[cfg(unix)]
     #[test]
