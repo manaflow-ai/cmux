@@ -65,6 +65,7 @@ describe("chief records", { timeout: 60_000 }, () => {
     expect(chief.main_conversation).toMatch(/^conv_[0-9A-HJKMNP-TV-Z]{26}$/)
     const dm = await op(t, "dm.open", { peer: chief.id })
     expect(dm.json.value).toMatchObject({ conversation: { id: chief.main_conversation, kind: "chief" }, redirected: "chief_main" })
+    expect(dm.json.value.conversation.participants.map((p: { id: string }) => p.id).sort()).toEqual([chief.id, user].sort())
     const hist = await call("/v1/read", t, { op: "conversation.history", params: { conversation: chief.main_conversation, limit: 5 } })
     expect(hist.status).toBe(200)
     const sent = await op(t, "message.send", { conversation: chief.main_conversation, client_msg_id: "hello-chief", parts: [{ type: "text", text: "hello" }] }, "hello-chief")

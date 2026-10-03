@@ -122,7 +122,14 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
       // A DM with your own chief is that chief's main conversation (one place per chief).
       if (typeof peer === "string" && peer.startsWith("agent_")) {
         const main = await ownChiefMain(env, principal, peer)
-        if (main) return { frames: [{ t: "result", tx: "", idempotency_key: key, value: { conversation: { id: main, kind: "chief" }, redirected: "chief_main" }, revision: "0", replayed: false } as OwnerFrame] }
+        if (main) {
+          // dm.open on an existing conversation id answers its full summary (no write). With no
+          // participants it can never create one: a main conversation still in the outbox is a retryable reject.
+          const res = await conversationStub(env, main).submit(main, principal, { ...frame, params: { id: main, participants: [] } })
+          const reply = resultOf(res)
+          if (reply?.t !== "result") return reject(key, "chief_main_pending", "the chief's main conversation is being created; retry")
+          return { frames: res.frames.map((f) => (f === reply ? { ...reply, value: { ...(reply.value as object), redirected: "chief_main" } } : f)) }
+        }
       }
       if (typeof peer === "string") {
         const id = homeConversation.dmConversationId(me, peer)
