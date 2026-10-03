@@ -10014,14 +10014,12 @@ fn run_session_event_stream(
         stream.next_sequence = stream.next_sequence.saturating_add(1);
     }
 
-    // `canceled` is only set together with closing `outbound`. The stream
-    // used to wake every second to re-check both.
     let interrupt = StreamInterrupt::new();
     writer.register_interrupt(&interrupt);
     stream.outbound.register_interrupt(&interrupt);
     mux.wake_journal_waiters_on(&interrupt);
     'stream: loop {
-        if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
+        if session_stream::stopped(&stream.canceled, writer, &stream.outbound) {
             break;
         }
         let epoch = mux.wait_for_journal_event_until_interrupted(stream.epoch, &interrupt);
@@ -10591,7 +10589,7 @@ fn run_session_journal_stream(
     stream.outbound.register_interrupt(&interrupt);
     mux.wake_journal_waiters_on(&interrupt);
     'stream: loop {
-        if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
+        if session_stream::stopped(&stream.canceled, writer, &stream.outbound) {
             break;
         }
         if complete_bounded_journal_replay(writer, &stream) {
@@ -10753,7 +10751,7 @@ fn run_session_journal_stream(
             }
         }
         loop {
-            if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
+            if session_stream::stopped(&stream.canceled, writer, &stream.outbound) {
                 break 'stream;
             }
             let epoch = if stream.shared_fanout && stream.reader.is_none() {

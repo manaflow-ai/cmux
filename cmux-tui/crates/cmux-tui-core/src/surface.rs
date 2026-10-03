@@ -921,6 +921,7 @@ impl AttachTap {
         }
         let mut queue = self.state.queue.lock().unwrap();
         if !queue.receiver_alive {
+            drop(queue); // cancel fires interrupt wakers that lock this queue.
             self.lifecycle.cancel();
             return false;
         }
