@@ -11,14 +11,11 @@ on:
     branches: [feat-cmux-next]
     paths:
       - App/**
-      - Packages/macOS/**
       - cmux.xcodeproj/**
       - scripts/cmux-next/bundle-*.sh
       - scripts/cmux-next/embed-cef.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
-      - Packages/Shared/**
-      - Packages/iOS/**
       - cmux-tui/**
       - CLI/**
       - cmuxCLITests/**
@@ -46,14 +43,11 @@ on:
     branches: [main, feat-cmux-next]
     paths:
       - App/**
-      - Packages/macOS/**
       - cmux.xcodeproj/**
       - scripts/cmux-next/bundle-*.sh
       - scripts/cmux-next/embed-cef.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
-      - Packages/Shared/**
-      - Packages/iOS/**
       - cmux-tui/**
       - CLI/**
       - cmuxCLITests/**
