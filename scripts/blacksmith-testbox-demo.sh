@@ -50,9 +50,9 @@ done
 test -x "$BOUNDED" || { echo "missing $BOUNDED; run from a cmux worktree" >&2; exit 65; }
 test -f "$WORKFLOW" || { echo "missing $WORKFLOW; rebase onto a main that has the lane" >&2; exit 65; }
 
-if [[ ! -f ghostty/build.zig.zon ]]; then
+if [[ ! -f ghostty/build.zig.zon || ! -f ghostty-next/build.zig.zon ]]; then
   say "Initializing the Ghostty submodule (one time, takes a moment)"
-  run_local git submodule update --init ghostty
+  run_local git submodule update --init ghostty ghostty-next
 fi
 
 BRANCH="$(git symbolic-ref --short HEAD 2>/dev/null || true)"
@@ -173,7 +173,7 @@ say "Waiting for hydration (installs pinned Zig and Rust, fetches Cargo and Zig 
 say "Pinning the box to your commit"
 echo "The box is an exact checkout of main right now, because that is what CI"
 echo "hydrated. This makes it an exact checkout of $SOURCE_SHA."
-pin_command="set -euo pipefail; git fetch --no-tags origin $SOURCE_SHA; git reset --hard $SOURCE_SHA; git submodule update --init --depth 1 ghostty; git rev-parse HEAD"
+pin_command="set -euo pipefail; git fetch --no-tags origin $SOURCE_SHA; git reset --hard $SOURCE_SHA; git submodule update --init --depth 1 ghostty ghostty-next; git rev-parse HEAD"
 printf '\033[2m$ blacksmith testbox run --id %s "%s"\033[0m\n' "$TBX" "$pin_command"
 "$BOUNDED" 300 blacksmith testbox run --id "$TBX" "$pin_command"
 

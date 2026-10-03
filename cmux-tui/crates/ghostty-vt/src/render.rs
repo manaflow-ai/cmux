@@ -759,14 +759,18 @@ pub(crate) fn cell_width(raw: sys::GhosttyCell) -> CellWidth {
 }
 
 fn underline_style(value: i32) -> Option<UnderlineStyle> {
-    match value {
-        value if value == sys::GHOSTTY_SGR_UNDERLINE_SINGLE as i32 => Some(UnderlineStyle::Single),
-        value if value == sys::GHOSTTY_SGR_UNDERLINE_DOUBLE as i32 => Some(UnderlineStyle::Double),
-        value if value == sys::GHOSTTY_SGR_UNDERLINE_CURLY as i32 => Some(UnderlineStyle::Curly),
-        value if value == sys::GHOSTTY_SGR_UNDERLINE_DOTTED as i32 => Some(UnderlineStyle::Dotted),
-        value if value == sys::GHOSTTY_SGR_UNDERLINE_DASHED as i32 => Some(UnderlineStyle::Dashed),
-        _ => None,
-    }
+    // bindgen types these constants as i32 or u32 depending on the target, so
+    // compare as i64 (lossless for both, and never a same-type cast).
+    let value = i64::from(value);
+    [
+        (sys::GHOSTTY_SGR_UNDERLINE_SINGLE as i64, UnderlineStyle::Single),
+        (sys::GHOSTTY_SGR_UNDERLINE_DOUBLE as i64, UnderlineStyle::Double),
+        (sys::GHOSTTY_SGR_UNDERLINE_CURLY as i64, UnderlineStyle::Curly),
+        (sys::GHOSTTY_SGR_UNDERLINE_DOTTED as i64, UnderlineStyle::Dotted),
+        (sys::GHOSTTY_SGR_UNDERLINE_DASHED as i64, UnderlineStyle::Dashed),
+    ]
+    .into_iter()
+    .find_map(|(raw, style)| (raw == value).then_some(style))
 }
 
 fn apply_style(cell: &mut Cell, raw: sys::GhosttyCell, style: &sys::GhosttyStyle) {

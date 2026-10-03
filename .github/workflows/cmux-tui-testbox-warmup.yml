@@ -24,6 +24,8 @@ concurrency:
 
 jobs:
   cmux-tui-rust:
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
     name: cmux-tui Rust setup
     # A Blacksmith Testbox exists only in the manaflow-ai organization. Skip
     # elsewhere rather than queue forever for a runner a fork cannot have.
@@ -140,7 +142,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git submodule update --init --depth 1 ghostty
+          git submodule update --init --depth 1 ghostty ghostty-next
           [[ "$(git -C ghostty rev-parse --show-toplevel)" == "$GITHUB_WORKSPACE/ghostty" ]] || {
             echo "::error::ghostty did not initialize as its own submodule checkout" >&2
             exit 1
@@ -162,6 +164,11 @@ jobs:
             exit 1
           }
           test -f ghostty/build.zig.zon
+          # libghostty-vt for cmux-tui builds from ghostty-next; fail loudly if empty.
+          test -f ghostty-next/include/ghostty/vt/snapshot.h || {
+            echo "::error::ghostty-next submodule is missing or empty" >&2
+            exit 1
+          }
 
       - name: Install Linux build dependencies
         shell: bash
@@ -174,7 +181,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/zig
-          key: cmux-tui-zig-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+          key: cmux-tui-zig-${{ hashFiles('ghostty-next/build.zig.zon', 'ghostty-next/build.zig.zon.json') }}
           restore-keys: |
             cmux-tui-zig-
 
@@ -183,7 +190,7 @@ jobs:
         run: ./scripts/install-zig-ci.sh
 
       - name: Fetch Ghostty Zig dependencies without compiling
-        working-directory: ghostty
+        working-directory: ghostty-next
         shell: bash
         run: |
           set -euo pipefail
