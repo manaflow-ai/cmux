@@ -125,7 +125,7 @@ CASES = {
     "hyperlinks": (hyperlinks, 100, 30, ["osc8", "underline-color", "underline-styles"]),
     "styles": (styles, 132, 50, ["palette", "truecolor", "sgr"]),
     "scrollback": (scrollback, 120, 40, ["scrollback-5000"]),
-    "kitty-graphics": (kitty_graphics, 80, 24, ["kitty-images-excluded-from-ghostsnp-v1"]),
+    "kitty-graphics": (kitty_graphics, 80, 24, ["kitty-placements", "kitty-image-data-not-in-ghostsnp-v1"]),
 }
 
 
