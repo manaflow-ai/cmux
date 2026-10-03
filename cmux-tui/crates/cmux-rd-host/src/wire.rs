@@ -65,7 +65,8 @@ impl FrameReader {
     /// Reads what is available; returns Err on EOF or a hard error.
     pub fn fill(&mut self, s: &mut TcpStream) -> io::Result<()> {
         let mut chunk = [0u8; 65536];
-        loop {
+        // Bounded: process what is buffered before reading more from a fast sender.
+        while self.buf.len() <= MAX_FRAME + 5 {
             match s.read(&mut chunk) {
                 Ok(0) => return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "peer closed")),
                 Ok(n) => self.buf.extend_from_slice(&chunk[..n]),
@@ -74,6 +75,7 @@ impl FrameReader {
                 Err(e) => return Err(e),
             }
         }
+        Ok(())
     }
 
     pub fn next(&mut self) -> io::Result<Option<(u8, Vec<u8>)>> {
@@ -110,7 +112,13 @@ pub fn write_control(s: &mut TcpStream, c: &Control) -> io::Result<()> {
 /// Writes all bytes to a non-blocking stream, waiting for writability when the kernel
 /// buffer is full (flow control keeps this rare: at most one frame is in flight).
 fn write_all_nb(s: &mut TcpStream, mut bytes: &[u8]) -> io::Result<()> {
+    // One deadline for the whole write: a viewer that drains slowly cannot hold the loop.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
     while !bytes.is_empty() {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            return Err(io::Error::new(io::ErrorKind::TimedOut, "send stalled for 1 s"));
+        }
         match s.write(bytes) {
             Ok(0) => return Err(io::Error::new(io::ErrorKind::WriteZero, "closed")),
             Ok(n) => bytes = &bytes[n..],
@@ -120,8 +128,8 @@ fn write_all_nb(s: &mut TcpStream, mut bytes: &[u8]) -> io::Result<()> {
                     events: libc::POLLOUT,
                     revents: 0,
                 };
-                // SAFETY: one valid pollfd; bounded 1 s wait.
-                let rc = unsafe { libc::poll(&mut pfd, 1, 1000) };
+                // SAFETY: one valid pollfd; bounded wait.
+                let rc = unsafe { libc::poll(&mut pfd, 1, left.as_millis().clamp(1, 1000) as i32) };
                 if rc == 0 {
                     return Err(io::Error::new(io::ErrorKind::TimedOut, "send stalled for 1 s"));
                 }
@@ -151,4 +159,22 @@ impl DatagramOut {
             DatagramOut::Stream => write_frame(stream, FRAME_DATAGRAM, datagram),
         }
     }
+}
+
+/// TCP keepalive (2 s idle, 1 s interval, 3 probes) and a 10 s user timeout, so a viewer
+/// that vanishes without a FIN ends its session quickly.
+pub fn harden_tcp(s: &TcpStream) {
+    use std::os::fd::AsRawFd;
+    let fd = s.as_raw_fd();
+    let set = |level: i32, name: i32, value: i32| {
+        // SAFETY: setsockopt with a valid fd and a pointer to a local int.
+        unsafe {
+            libc::setsockopt(fd, level, name, (&value as *const i32).cast(), std::mem::size_of::<i32>() as libc::socklen_t);
+        }
+    };
+    set(libc::SOL_SOCKET, libc::SO_KEEPALIVE, 1);
+    set(libc::IPPROTO_TCP, libc::TCP_KEEPIDLE, 2);
+    set(libc::IPPROTO_TCP, libc::TCP_KEEPINTVL, 1);
+    set(libc::IPPROTO_TCP, libc::TCP_KEEPCNT, 3);
+    set(libc::IPPROTO_TCP, libc::TCP_USER_TIMEOUT, 10_000);
 }

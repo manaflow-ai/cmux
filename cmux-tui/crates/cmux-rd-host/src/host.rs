@@ -9,7 +9,7 @@ use crate::wire::{write_control, Control, DatagramOut, FrameReader, FRAME_CONTRO
 use crate::Res;
 use cmux_rd_core::policy::{ConsentRule, HostPolicy, Mode, Principal, PrincipalClass};
 use cmux_rd_core::session::{Actor, SessionTable, StartRequest};
-use cmux_rd_proto::{MAX_DATAGRAM_DEFAULT, MAX_DATAGRAM_VPC, OVERLAY_PORT};
+use cmux_rd_proto::{MAX_DATAGRAM_DEFAULT, OVERLAY_PORT};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::time::Duration;
 
@@ -17,6 +17,17 @@ pub fn run(opts: &Opts) -> Res<()> {
     // No default: the host must listen only on a private VPC or overlay address in phase 1,
     // because the hello's principal claims are trusted until the link token arrives.
     let bind: IpAddr = opts.get("bind").ok_or("--bind <private VPC or overlay address> is required")?.parse()?;
+    if !is_private(bind) && opts.get("allow-non-private") != Some("1") {
+        return Err(format!(
+            "--bind {bind} is not a loopback, RFC 1918, CGNAT (100.64/10) or ULA address; phase 1 trusts the hello's \
+             claims, so it must not listen there (override: --allow-non-private 1)"
+        )
+        .into());
+    }
+    eprintln!(
+        "cmux-rd host: phase 1 trusts the principal claims in each hello: every process that can reach {bind} can \
+         claim the owner. Use loopback (through SSH or a tunnel) or a single-tenant overlay."
+    );
     let port: u16 = opts.num_or("port", OVERLAY_PORT)?;
     let owner =
         opts.get("owner").ok_or("--owner <user> is required (the host's owner)")?.to_string();
@@ -65,6 +76,20 @@ pub fn run(opts: &Opts) -> Res<()> {
     Ok(())
 }
 
+/// Loopback, RFC 1918, CGNAT (overlay) or IPv6 ULA; never the unspecified address.
+fn is_private(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            let o = v4.octets();
+            v4.is_loopback() || v4.is_private() || (o[0] == 100 && (o[1] & 0xc0) == 64)
+        }
+        IpAddr::V6(v6) => v6.is_loopback() || (v6.segments()[0] & 0xfe00) == 0xfc00,
+    }
+}
+
+/// Most bytes in any hello or start string.
+const MAX_CLAIM: usize = 256;
+
 fn parse_class(class: &str) -> PrincipalClass {
     match class {
         "user" => PrincipalClass::User,
@@ -102,6 +127,7 @@ fn serve_viewer(
     cfg: &SessionCfg,
 ) -> Res<String> {
     stream.set_nodelay(true)?;
+    crate::wire::harden_tcp(&stream);
     stream.set_nonblocking(true)?;
     let mut reader = FrameReader::default();
     let Control::Hello { user, install, class, interactive, udp_port, max_datagram } =
@@ -109,15 +135,21 @@ fn serve_viewer(
     else {
         return Err("first message must be hello".into());
     };
+    if [&user, &install, &class].iter().any(|v| v.len() > MAX_CLAIM) {
+        return Err("hello field too long".into());
+    }
+    if udp_port.is_some_and(|p| p < 1024) {
+        return Err("udp_port below 1024 refused".into());
+    }
     let principal = Principal { user, install, class: parse_class(&class), interactive };
-    let max_datagram = if max_datagram <= MAX_DATAGRAM_VPC {
-        MAX_DATAGRAM_VPC
-    } else {
-        MAX_DATAGRAM_DEFAULT.min(max_datagram)
-    };
+    // Never larger than the viewer asked for: a smaller path MTU would fragment or drop.
+    let max_datagram = max_datagram.clamp(512, MAX_DATAGRAM_DEFAULT);
     let Control::Start { key, mode } = read_control(&mut stream, &mut reader)? else {
         return Err("second message must be start".into());
     };
+    if key.len() > MAX_CLAIM || mode.len() > MAX_CLAIM {
+        return Err("start field too long".into());
+    }
     let mode = if mode == "control" { Mode::Control } else { Mode::View };
     let now_ms = now_ns() / 1_000_000;
     let start = StartRequest {
@@ -154,7 +186,11 @@ fn serve_viewer(
         },
     )?;
     write_control(&mut stream, &Control::Started { session })?;
+    // Datagrams left over from an earlier viewer must not reach this session.
+    let mut scratch = [0u8; 2048];
+    while udp.recv_from(&mut scratch).is_ok() {}
     let reason = media.run(&mut stream, &mut reader, udp, table, session, &principal);
+    media.release_input();
     let _ = table.stop(session, &Actor::Remote(Some(principal.clone())));
     let _ = write_control(&mut stream, &Control::Ended { reason: reason.clone() });
     stream.set_nonblocking(false)?;

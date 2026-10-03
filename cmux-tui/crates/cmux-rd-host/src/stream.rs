@@ -54,7 +54,13 @@ pub struct MediaSession {
     packetizer: Packetizer,
     applier: InputApplier,
     out: DatagramOut,
-    peer_ip: IpAddr,
+    /// Where the viewer's datagrams come from (UDP carrier); `None` on the stream carrier.
+    peer_udp: Option<std::net::SocketAddr>,
+    last_feedback_ns: u64,
+    last_input_ns: u64,
+    last_forced_idr_ns: u64,
+    deferred_error: Option<String>,
+    stats_frames_sent: u64,
     last_frame: u32,
     force_idr: bool,
     history: BTreeMap<u32, Vec<Vec<u8>>>,
@@ -68,6 +74,13 @@ pub struct MediaSession {
     cpu_last: (f64, u64),
     settle_ns: u64,
 }
+
+/// No feedback for this long ends the session.
+const LIVENESS_NS: u64 = 3_000_000_000;
+/// UDP datagrams read per wake.
+const MAX_UDP_PER_WAKE: usize = 64;
+/// Datagrams resent for NACKs per feedback.
+const MAX_RESENDS_PER_FEEDBACK: usize = 64;
 
 fn now_us() -> u64 {
     now_ns() / 1000
@@ -95,10 +108,11 @@ impl MediaSession {
         cfg: &SessionCfg,
         max_datagram: usize,
         out: DatagramOut,
-        peer_ip: IpAddr,
+        _peer_ip: IpAddr,
     ) -> Res<Self> {
         let cap = Capturer::new(&cfg.display, true)?;
-        let (w, h) = (cap.width, cap.height);
+        // x264 and 4:2:0 need even sizes; an odd last column or row is not sent.
+        let (w, h) = (cap.width & !1, cap.height & !1);
         let enc = encoder::open(&EncCfg {
             width: w,
             height: h,
@@ -117,6 +131,10 @@ impl MediaSession {
             ..CcConfig::default()
         };
         let gate = FrameGate::new(1, cfg.max_fps);
+        let peer_udp = match &out {
+            DatagramOut::Udp { peer, .. } => Some(*peer),
+            DatagramOut::Stream => None,
+        };
         Ok(Self {
             injector: Injector::new(&cfg.display)?,
             pic: I420::new(w as usize, h as usize),
@@ -126,7 +144,12 @@ impl MediaSession {
             packetizer: Packetizer::new(0, max_datagram),
             applier: InputApplier::new(200_000),
             out,
-            peer_ip,
+            peer_udp,
+            last_feedback_ns: now_ns(),
+            last_input_ns: 0,
+            last_forced_idr_ns: 0,
+            deferred_error: None,
+            stats_frames_sent: 0,
             last_frame: 0,
             force_idr: true,
             history: BTreeMap::new(),
@@ -144,8 +167,9 @@ impl MediaSession {
         })
     }
 
+    /// The streamed size (even; an odd last column or row of the display is not sent).
     pub fn size(&self) -> (u32, u32) {
-        (self.cap.width, self.cap.height)
+        (self.cap.width & !1, self.cap.height & !1)
     }
 
     pub fn encoder_name(&self) -> String {
@@ -165,7 +189,8 @@ impl MediaSession {
         let mut damage = Vec::new();
         let mut buf = vec![0u8; 65536];
         // The first frame covers the whole screen (an IDR).
-        let full = Rect { x: 0, y: 0, width: self.cap.width, height: self.cap.height };
+        let (w, h) = self.size();
+        let full = Rect { x: 0, y: 0, width: w, height: h };
         if let FlowAction::Encode { damage: d, frame } = self.gate.damage(full, now_us()) {
             if let Err(e) = self.encode(stream, d, frame) {
                 return format!("encode/send failed: {e}");
@@ -175,6 +200,13 @@ impl MediaSession {
             if !table.may_send_media(session, viewer) {
                 return "session not active".into();
             }
+            if let Some(e) = self.deferred_error.take() {
+                return format!("encode/send failed: {e}");
+            }
+            // The viewer sends feedback at least every second; silence means it is gone.
+            if now_ns().saturating_sub(self.last_feedback_ns) > LIVENESS_NS {
+                return "viewer silent for 3 s".into();
+            }
             let now = now_us();
             if let FlowAction::Encode { damage: d, frame } = self.gate.poll(now) {
                 if let Err(e) = self.encode(stream, d, frame) {
@@ -183,7 +215,12 @@ impl MediaSession {
             }
             let timeout = self.gate.next_deadline_us().map(|t| t.saturating_sub(now_us()) * 1000);
             let stats_in = self.next_stats_ns.saturating_sub(now_ns());
-            let timeout = Some(timeout.map_or(stats_in, |t| t.min(stats_in)).max(1_000_000));
+            let mut timeout = timeout.map_or(stats_in, |t| t.min(stats_in)).min(LIVENESS_NS);
+            // While the viewer types, wake often enough to release input held behind a gap.
+            if now_ns().saturating_sub(self.last_input_ns) < 1_000_000_000 {
+                timeout = timeout.min(50_000_000);
+            }
+            let timeout = Some(timeout.max(1_000_000));
             if let Err(e) =
                 wait_readable(&[self.cap.fd(), stream.as_raw_fd(), udp.as_raw_fd()], timeout)
             {
@@ -209,10 +246,13 @@ impl MediaSession {
                     Err(e) => return format!("bad frame: {e}"),
                 }
             }
-            // UDP datagrams, only from the viewer's address.
-            loop {
+            // UDP datagrams, only from the viewer's own socket, at most 64 per wake.
+            for _ in 0..MAX_UDP_PER_WAKE {
+                if self.peer_udp.is_none() {
+                    break;
+                }
                 match udp.recv_from(&mut buf) {
-                    Ok((n, from)) if from.ip() == self.peer_ip => {
+                    Ok((n, from)) if Some(from) == self.peer_udp => {
                         let datagram = buf[..n].to_vec();
                         self.on_datagram(stream, &datagram, table, session, viewer);
                     }
@@ -269,7 +309,7 @@ impl MediaSession {
     }
 
     fn encode(&mut self, stream: &mut TcpStream, d: Rect, frame: u32) -> Res<()> {
-        let (w, h) = (self.cap.width, self.cap.height);
+        let (w, h) = self.size();
         let r = CapRect { x: d.x, y: d.y, w: d.width, h: d.height }.align_even(w, h);
         if r.w > 0 && r.h > 0 {
             let px = self.cap.grab(r)?;
@@ -341,6 +381,7 @@ impl MediaSession {
                     self.applier.reset();
                     return;
                 }
+                self.last_input_ns = now_ns();
                 for event in self.applier.accept(&packet, now_us()) {
                     self.inject(&event, table, session, viewer);
                 }
@@ -353,25 +394,38 @@ impl MediaSession {
                 self.loss = 0.8 * self.loss + 0.2 * lost;
                 self.sent_since_feedback = 0;
                 self.cc.on_feedback(&fb.arrivals, lost, now_us());
+                self.last_feedback_ns = now_ns();
+                // Resends are bounded per feedback so a hostile feedback cannot amplify.
+                let mut budget = MAX_RESENDS_PER_FEEDBACK;
                 for nack in &fb.nacks {
                     if let Some(datagrams) = self.history.get(&nack.frame) {
                         for &i in &nack.indexes {
+                            if budget == 0 {
+                                break;
+                            }
                             if let Some(d) = datagrams.get(usize::from(i)) {
                                 let _ = self.out.send(stream, d);
+                                self.sent_since_feedback += 1;
+                                budget -= 1;
                             }
                         }
                     }
                 }
-                if fb.need_recovery {
+                let mut action = self.gate.ack(fb.acked_frame, now_us());
+                // At most one forced IDR per 250 ms.
+                if fb.need_recovery
+                    && now_ns().saturating_sub(self.last_forced_idr_ns) > 250_000_000
+                {
+                    self.last_forced_idr_ns = now_ns();
                     self.force_idr = true;
                     self.gate.clear_in_flight();
-                    let full = Rect { x: 0, y: 0, width: self.cap.width, height: self.cap.height };
-                    let _ = self.gate.damage(full, now_us());
+                    let (w, h) = self.size();
+                    action = self.gate.damage(Rect { x: 0, y: 0, width: w, height: h }, now_us());
                 }
-                if let FlowAction::Encode { damage, frame } =
-                    self.gate.ack(fb.acked_frame, now_us())
-                {
-                    let _ = self.encode(stream, damage, frame);
+                if let FlowAction::Encode { damage, frame } = action {
+                    if let Err(e) = self.encode(stream, damage, frame) {
+                        self.deferred_error = Some(e.to_string());
+                    }
                 }
             }
             _ => {}
@@ -413,11 +467,27 @@ impl MediaSession {
         let mut d = Vec::with_capacity(HEADER_LEN + 4);
         header.encode_into(&mut d);
         d.extend_from_slice(&self.applier.applied().to_le_bytes());
-        let _ = self.out.send(stream, &d);
+        if self.out.send(stream, &d).is_ok() {
+            self.sent_since_feedback += 1;
+        }
+        self.cc.on_sent(header.transport_seq, now_us());
+    }
+
+    /// Releases every key and button the viewer holds on the host and forgets held input
+    /// (called on every end of a session).
+    pub fn release_input(&mut self) {
+        let _ = self.injector.release_all();
+        self.applier.reset();
     }
 
     fn send_stats(&mut self, stream: &mut TcpStream) {
         let now = now_ns();
+        self.next_stats_ns = now + self.stats_every_ns.max(100_000_000);
+        // Stats only while frames flow: an idle session sends nothing.
+        if self.frames == self.stats_frames_sent {
+            return;
+        }
+        self.stats_frames_sent = self.frames;
         let cpu = process_cpu_s();
         let cpu_pct =
             (cpu - self.cpu_last.0) / ((now - self.cpu_last.1) as f64 / 1e9).max(1e-3) * 100.0;
@@ -434,6 +504,5 @@ impl MediaSession {
             loss_pct: self.loss * 100.0,
         };
         let _ = write_control(stream, &stats);
-        self.next_stats_ns = now + self.stats_every_ns.max(100_000_000);
     }
 }

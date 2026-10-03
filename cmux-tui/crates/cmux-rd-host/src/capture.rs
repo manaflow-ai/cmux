@@ -54,7 +54,7 @@ impl Capturer {
         }
         let (width, height) =
             (u32::from(screen.width_in_pixels), u32::from(screen.height_in_pixels));
-        let shm = ShmSeg::new(&conn, (width * height * 4) as usize)?;
+        let shm = ShmSeg::new(&conn, width as usize * height as usize * 4)?;
         if damage {
             conn.damage_query_version(1, 1)?.reply()?;
             let id = conn.generate_id()?;

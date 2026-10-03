@@ -176,7 +176,10 @@ impl Viewer {
     fn maybe_feedback(&mut self) -> Res<()> {
         let now = now_ns();
         let due = now.saturating_sub(self.last_feedback_ns) >= 50_000_000;
+        // At least one feedback per second keeps the session alive on an idle desktop.
+        let keepalive = now.saturating_sub(self.last_feedback_ns) >= 1_000_000_000;
         if !(self.released_since_feedback
+            || keepalive
             || (due && (!self.arrivals.is_empty() || self.reassembler.need_recovery())))
         {
             return Ok(());
