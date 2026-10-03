@@ -4839,7 +4839,7 @@ impl Drop for Terminal {
 
 #[path = "terminal_history.rs"]
 mod history;
-pub use history::{HistoryPage, HistoryPages, MarkerError};
+pub use history::{HistoryPage, HistoryPages, HistorySnapshot, MarkerError};
 
 #[cfg(test)]
 #[path = "terminal_tests.rs"]

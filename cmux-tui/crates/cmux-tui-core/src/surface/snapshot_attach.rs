@@ -262,7 +262,9 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::MarkerError::Invalid);
         };
-        pty.term.lock().unwrap().history_pages(epoch, before, max_bytes)
+        // Encode under the terminal lock; split and copy pages after it.
+        let snapshot = pty.term.lock().unwrap().history_snapshot(epoch, before)?;
+        snapshot.pages(max_bytes)
     }
 
     /// `terminal.read_range`: text or VT of a marker range.
