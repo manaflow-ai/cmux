@@ -81,8 +81,8 @@ struct ComputersSettingsRow: View {
         if computer.isHidden { return String(localized: "devices.hidden", defaultValue: "Hidden from sidebar") }
         if computer.isConnected { return String(localized: "devices.connected", defaultValue: "Connected") }
         return switch computer.isOnline {
-        case true: String(localized: "settings.computers.online", defaultValue: "Online")
-        case false: String(localized: "settings.computers.offline", defaultValue: "Offline")
+        case .some(true): String(localized: "settings.computers.online", defaultValue: "Online")
+        case .some(false): String(localized: "settings.computers.offline", defaultValue: "Offline")
         case nil: String(localized: "settings.computers.unknown", defaultValue: "Waiting for connection")
         }
     }

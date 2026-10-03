@@ -1872,6 +1872,8 @@ check_background_macos_lane() {
   local -a hosted_exceptions=(
     "ci-macos-compat.yml:          - os: macos-14"
     "ci-macos-compat.yml:          - os: macos-15-intel"
+    "ci-macos-compat.yml:          - os: macos-15"
+    "relay-publish-npm.yml:          - os: macos-15"
     "relay-publish-npm.yml:          - os: macos-14"
   )
   local failed=0 probe
