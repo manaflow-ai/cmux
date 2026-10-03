@@ -1125,7 +1125,11 @@ function AcpmuxPane() {
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
-        if (host.newSession && !host.sessionId) setSnapshot(emptySnapshot());
+        if (
+          (host.newSession && !host.sessionId) ||
+          (host.sessionId && snapshotRef.current?.sessionId && host.sessionId !== snapshotRef.current.sessionId)
+        )
+          setSnapshot(emptySnapshot());
         if (!reconnect) setSurface(readSurface(host.surface));
         // A tab opened as the new tab page shows it until it becomes something (#16620).
         if (!reconnect) setNewTab(newTabHost(host));
