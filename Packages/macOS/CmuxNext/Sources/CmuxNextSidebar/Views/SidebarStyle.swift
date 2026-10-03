@@ -8,10 +8,8 @@ enum SidebarStyle {
     static var rowCornerRadius: CGFloat { Metrics.itemCornerRadius }
     /// Leading indent of grouped rows (room for the group color rail).
     static var groupIndent: CGFloat { Metrics.space5 }
-    /// Height of a placeholder row's fallback bar (about a caption's x-height).
+    /// Height of a placeholder row's bar, and of its braille dots (about a caption's x-height).
     static var placeholderBarHeight: CGFloat { Metrics.space3 }
-    /// How strong a placeholder's braille is, as a share of secondary text.
-    static let placeholderGlyphAlpha: CGFloat = 0.35
     /// Placeholder texture widths, as shares of the title width.
     static let placeholderFractions: [CGFloat] = [0.72, 0.5, 0.62]
     /// Icon frame; the glyph inside uses `Metrics.smallIconSize`.

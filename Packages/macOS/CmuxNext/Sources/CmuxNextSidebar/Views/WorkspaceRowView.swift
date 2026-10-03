@@ -27,8 +27,8 @@ final class WorkspaceRowView: SidebarRowView {
     var onClose: (() -> Void)?
     /// The row draws a placeholder texture instead of a title.
     private(set) var isShowingPlaceholder = false
-    /// Static dim braille where the title goes (no shimmer), or a tonal
-    /// bar when no font draws braille.
+    /// The tonal bar as static braille where the title goes (no shimmer),
+    /// or the bar itself when no font draws braille.
     let placeholderTexture = PlaceholderTextureView()
     /// The texture's share of the text width, varied per row so a column of
     /// placeholders does not read as one block.
@@ -76,7 +76,7 @@ final class WorkspaceRowView: SidebarRowView {
         iconKind = ws.icon
         title.stringValue = ws.title
         title.font = ws.unread.isUnread ? SidebarStyle.titleUnreadFont : SidebarStyle.titleFont
-        placeholderTexture.pointSize = SidebarStyle.titleFont.pointSize
+        placeholderTexture.inkHeight = SidebarStyle.placeholderBarHeight
         subtitle.font = SidebarStyle.subtitleFont
         // Only live status earns a second line; the cwd is in the hover card.
         subtitle.stringValue = ws.liveDetail ?? ""
@@ -145,10 +145,8 @@ final class WorkspaceRowView: SidebarRowView {
             paintFill(isDropTarget ? Palette.selectionFill
                 : isSecondarySelected ? Palette.secondarySelectionFill
                 : isHovered && !isShowingPlaceholder ? Palette.hoverFill : nil)
-            // Dim secondary text for the braille; the sidebar's own tonal
-            // step, once more, for the fallback bar.
-            placeholderTexture.glyphColor = Palette.textSecondary.withAlphaComponent(SidebarStyle.placeholderGlyphAlpha)
-            placeholderTexture.barColor = Palette.sidebarStep
+            // The sidebar's own tonal step, once more: dots a step apart.
+            placeholderTexture.color = Palette.sidebarStep
         }
     }
 

@@ -69,8 +69,8 @@ import Testing
     /// macOS ships a braille face, so the texture draws glyphs, in a font
     /// that really has the cell (never the LastResort box).
     @Test func theTextureDrawsBrailleWhenAFontHasIt() throws {
-        let font = try #require(PlaceholderTextureView.brailleFont(size: 12))
+        let font = try #require(PlaceholderTextureView.brailleFont(inkHeight: 6))
         #expect(font.fontName != "LastResort")
-        #expect(PlaceholderTextureView.brailleFont(size: 0) == nil)
+        #expect(PlaceholderTextureView.brailleFont(inkHeight: 0) == nil)
     }
 }
