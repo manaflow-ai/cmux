@@ -105,7 +105,8 @@ fn digest_lines(case: &str, phase: &str, snapshot: &[u8]) -> Vec<String> {
                 payload[4..12].fill(0);
                 payload[37] = 0;
             }
-            let header = record.tag.to_le_bytes().into_iter().chain((payload.len() as u32).to_le_bytes());
+            let header =
+                record.tag.to_le_bytes().into_iter().chain((payload.len() as u32).to_le_bytes());
             let digest = fnv1a64(header.chain(payload.iter().copied()));
             format!("{case} {phase} {index} {} {digest:016x}", record.tag)
         })
