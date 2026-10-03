@@ -24,7 +24,7 @@ fi
 check_runs_json=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" --paginate --slurp)
 runs=$(jq -r '
   (map(.check_runs) | add)
-  | sort_by(.name, (.completed_at // .started_at // .created_at // ""), (.id // 0))
+  | sort_by(.name, (.id // 0))
   | group_by(.name)[]
   | last
   | [.name,.status,(.conclusion // "")]
@@ -60,7 +60,7 @@ for name in "${must[@]+"${must[@]}"}"; do
       reason=$(jq -r '
         (map(.check_runs) | add)
         | map(select(.name == "merge-gate"))
-        | sort_by((.completed_at // .started_at // .created_at // ""), (.id // 0))
+        | sort_by(.id // 0)
         | last
         | [(.output.title // ""), (.output.summary // "")]
         | join(": ")
