@@ -428,7 +428,10 @@ fn control_gained_through_an_unattended_grant_ends_when_unattended_is_forbidden(
         expires_at_ms: None,
     });
     t.set_policy(p.clone(), NOW);
-    assert_eq!(t.set_mode(id, Some(&owner), Mode::Control, Some("austin"), NOW), Ok(SessionState::Active));
+    assert_eq!(
+        t.set_mode(id, Some(&owner), Mode::Control, Some("austin"), NOW),
+        Ok(SessionState::Active)
+    );
     assert!(t.get(id).is_some_and(|s| !s.pending_control));
     assert!(t.may_inject_input(id, &owner));
     p.unattended_allowed = false;
