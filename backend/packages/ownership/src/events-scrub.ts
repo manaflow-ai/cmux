@@ -25,7 +25,8 @@ export const scrubStoredParams = (sql: SqlStore, t: Tables, redact: ((op: string
       sql.exec(`UPDATE ${t.events} SET params = ? WHERE seq = ?`, next, r.seq)
       rewritten += 1
     }
-    sql.exec(`INSERT OR REPLACE INTO ${t.meta} (key, value) VALUES (?, ?)`, key, String(high))
+    // Only a moved mark is written: a bind with nothing new costs no row write.
+    if (!prior || high > since) sql.exec(`INSERT OR REPLACE INTO ${t.meta} (key, value) VALUES (?, ?)`, key, String(high))
     return rewritten
   })
 }
