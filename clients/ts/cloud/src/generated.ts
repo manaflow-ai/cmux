@@ -268,10 +268,15 @@ export type Host = {
   readonly owner_user: UserId
   readonly enrolled_by: InstallId
   readonly enrolled_at: number
+  readonly kind?: HostKind
+  readonly wg_public_key?: WgPublicKey
+  readonly tags?: ReadonlyArray<string>
 }
 
 /** A machine's session host, enrolled by its link. */
 export type HostId = string
+
+export type HostKind = "device" | "server"
 
 export type Install = {
   readonly id: InstallId
@@ -285,6 +290,7 @@ export type Install = {
   readonly grant: GrantId
   readonly created_at: number
   readonly revoked_at: number | null
+  readonly bound_team?: TeamId
 }
 
 /** One app, CLI or daemon install with its own keypair. */
@@ -303,6 +309,26 @@ export type ManagedDevice = {
 }
 
 export type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive"
+
+/** A normalized pairing code: 8 Crockford base32 symbols, no hyphen. */
+export type PairingCode = string
+
+export type PairingInfo = {
+  readonly name: string
+  readonly platform: Platform
+  readonly os_version: string
+  readonly arch: "x86_64" | "aarch64"
+  readonly cmux_version: string
+}
+
+export type PairingPreview = {
+  readonly code: PairingCode
+  readonly info: PairingInfo
+  readonly public_jwk: PublicJwk
+  readonly thumbprint: string
+  readonly country: string | null
+  readonly expires_at: number
+}
 
 export type Platform = "macos" | "ios" | "linux" | "windows" | "web"
 
@@ -617,6 +643,9 @@ export type UserProfile = {
   readonly display_name: string
   readonly personal_team: TeamId
 }
+
+/** A WireGuard public key, standard base64 of 32 bytes. */
+export type WgPublicKey = string
 
 /** Params and result of every cloud op, keyed by op name. */
 export interface CloudOps {
@@ -1116,6 +1145,8 @@ export interface CloudOps {
       readonly device_name: string
       readonly platform: Platform
       readonly device?: DeviceId
+      readonly op_classes?: ReadonlyArray<OpClass>
+      readonly bound_team?: TeamId
     }
     readonly result: Install
   }
@@ -1225,6 +1256,37 @@ export interface CloudOps {
         readonly cidrV6: string | null
         readonly scope: "user" | "team"
       }>
+    }
+  }
+  /** Approve a pairing code: register the server's install key under you and add the server to the team directory. */
+  readonly "server.pair.approve": {
+    readonly params: {
+      readonly code: PairingCode
+      readonly team: TeamId
+      readonly name: string
+    }
+    readonly result: {
+      readonly host: HostId
+      readonly team: TeamId
+      readonly user: UserId
+      readonly install: InstallId
+    }
+  }
+  /** Show what a pending pairing code would add: the server's name, platform, key thumbprint and location. */
+  readonly "server.pair.preview": {
+    readonly params: {
+      readonly code: PairingCode
+    }
+    readonly result: PairingPreview
+  }
+  /** Remove a server from the team directory and revoke its install key (the owner; a team admin removes it from the directory). */
+  readonly "server.revoke": {
+    readonly params: {
+      readonly host: HostId
+    }
+    readonly result: {
+      readonly host: HostId
+      readonly install_revoked: boolean
     }
   }
   /** Post a message to a Slack channel as the cmux bot. */
@@ -1517,6 +1579,9 @@ export const cloudOpMeta = {
   "linear.issue.create": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "linear.teams.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
   "network.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
+  "server.pair.approve": { class: "mutation", owner: "cloud:PairingDO", risk: "mutate-shared" },
+  "server.pair.preview": { class: "read", owner: "cloud:PairingDO", risk: "read" },
+  "server.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "slack.post_as_bot": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
   "sso.connection.activate": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "sso.connection.create": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },

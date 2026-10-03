@@ -1,26 +1,20 @@
-import type { Principal, ReduceContext, ReduceResult, RowWrite } from "../conversation/engine-types.ts"
-import { rowsOf } from "../conversation/engine-types.ts"
-
 /**
- * The per-user level of in-app confirmation for actions asked by text
- * (decision 2026-10-02, home-messaging.md section 19):
+ * Text confirmation levels (home-messaging.md section 19), shared by the
+ * per-user owner (`user/text-confirm-user.ts`, hosted by UserDO) and each
+ * chief's projection (MuxDO):
  * - `strict` (default): destructive, money, send-external, access, irreversible;
  * - `destructive-only`: destructive and irreversible only;
  * - `off`: no confirmation.
- * A safer level applies at once. A riskier level needs a second, explicit
- * in-app confirmation from the owner's own app (origin user, never a text),
- * within 5 minutes. A team or MDM policy lock wins over both and names who
- * locked it. Every change is written to an audit table. MuxDO hosts it; pure.
  */
 export type ConfirmLevel = "strict" | "destructive-only" | "off"
 export const CONFIRM_LEVELS: ReadonlyArray<ConfirmLevel> = ["strict", "destructive-only", "off"]
 /** Higher = riskier. */
-const RISK_RANK: Readonly<Record<ConfirmLevel, number>> = { strict: 0, "destructive-only": 1, off: 2 }
+export const RISK_RANK: Readonly<Record<ConfirmLevel, number>> = { strict: 0, "destructive-only": 1, off: 2 }
 export const isRiskier = (to: ConfirmLevel, from: ConfirmLevel) => RISK_RANK[to] > RISK_RANK[from]
-
-export const LEVEL_CHANGE_TTL_MS = 5 * 60_000
-export const TABLE_LEVEL_AUDIT = "level_audit"
-export const MAX_AUDIT_ROWS = 100
+export const isLevel = (v: unknown): v is ConfirmLevel => typeof v === "string" && (CONFIRM_LEVELS as ReadonlyArray<string>).includes(v)
+/** The safest of several levels (migration of per-chief values; several locks). */
+export const safest = (levels: ReadonlyArray<ConfirmLevel>): ConfirmLevel | null =>
+  levels.reduce<ConfirmLevel | null>((best, l) => (best === null || RISK_RANK[l] < RISK_RANK[best] ? l : best), null)
 
 export interface LevelLock {
   readonly level: ConfirmLevel
@@ -30,6 +24,7 @@ export interface LevelLock {
   readonly at: number
 }
 
+/** One slot per source, so a team policy never lifts an MDM lock and the other way round. */
 export interface LevelLocks {
   readonly team_policy?: LevelLock
   readonly mdm?: LevelLock
@@ -41,123 +36,5 @@ export const effectiveLock = (locks: LevelLocks | null | undefined): LevelLock |
   return present.reduce<LevelLock | null>((best, l) => (best === null || RISK_RANK[l.level] < RISK_RANK[best.level] ? l : best), null)
 }
 
-export interface PendingLevelChange {
-  readonly id: string
-  /** The level when the raise was asked; a confirm is refused if the level moved since. */
-  readonly from: ConfirmLevel
-  readonly to: ConfirmLevel
-  readonly requested_by: string
-  readonly expires_at: number
-}
-
-export interface LevelHeadPart {
-  readonly agent: string | null
-  readonly owner_user: string | null
-  readonly text_confirm_level?: ConfirmLevel
-  /** Legacy boolean setting (before levels): "destructive" = on, "off" = off. */
-  readonly text_confirm?: "destructive" | "off"
-  /** One slot per source, so a team policy never lifts an MDM lock and the other way round. */
-  readonly text_confirm_lock?: LevelLocks | null
-  readonly level_change?: PendingLevelChange | null
-  readonly level_audit_n?: number
-}
-
-/** The level in effect: the safest lock wins, then the stored level, then the migrated boolean (on -> strict, off -> off). */
-export const levelOf = (head: LevelHeadPart): ConfirmLevel =>
-  effectiveLock(head.text_confirm_lock)?.level ?? head.text_confirm_level ?? (head.text_confirm === "off" ? "off" : "strict")
-
-export interface AuditRow {
-  readonly at: number
-  readonly kind: "set" | "raise_requested" | "raise_confirmed" | "raise_declined" | "lock" | "unlock"
-  readonly by: string
-  readonly from: ConfirmLevel
-  readonly to: ConfirmLevel
-  readonly lock?: { readonly by: LevelLock["by"]; readonly name: string }
-}
-
-export const LEVEL_OPS = new Set(["mux.text_confirm.level.set", "mux.text_confirm.level.confirm", "mux.text_confirm.lock"])
-
 /** Installs that are a person's app (never a daemon, CLI or VM install, where a chief may run). */
-const USER_APP_KINDS: ReadonlySet<string> = new Set(["mac", "ios", "web"])
-const userOf = (p: Principal) => (p.user ? (p.user.startsWith("user_") ? p.user : `user_${p.user}`) : null)
-
-export const isOwnerApp = (head: { readonly owner_user: string | null }, p: Principal): boolean =>
-  (p.kind === "session" || (p.kind === "install" && !p.agent && USER_APP_KINDS.has(p.install_kind ?? ""))) &&
-  head.owner_user !== null &&
-  userOf(p) === head.owner_user
-
-/** Set and confirm: only the owner's own app. Lock: only a system principal (team policy or MDM, pushed by the Worker). */
-export const authorizeLevel = (head: LevelHeadPart, op: string, p: Principal): boolean =>
-  op === "mux.text_confirm.lock" ? p.kind === "system" : isOwnerApp(head, p)
-
-type Params = Readonly<Record<string, unknown>>
-const isLevel = (v: unknown): v is ConfirmLevel => typeof v === "string" && (CONFIRM_LEVELS as ReadonlyArray<string>).includes(v)
-
-export const reduceLevel = <H extends LevelHeadPart>(head: H, op: string, params: Params, ctx: ReduceContext): ReduceResult<H> => {
-  const refuse = (code: string): ReduceResult<H> => ({ ok: false, code, message: code })
-  const rows = rowsOf(ctx)
-  const current = levelOf(head)
-  const actor = ctx.principal.kind === "system" ? ctx.principal.identity : (userOf(ctx.principal) ?? "unknown")
-  const audit = (row: AuditRow): ReadonlyArray<RowWrite> => {
-    const n = (head.level_audit_n ?? 0) + 1
-    const old = rows.range(TABLE_LEVEL_AUDIT, { before: n - MAX_AUDIT_ROWS + 1, limit: 1, desc: true })
-    return [{ table: TABLE_LEVEL_AUDIT, op: "upsert", key: `a${n}`, n, row }, ...old.map((r) => ({ table: TABLE_LEVEL_AUDIT, op: "delete" as const, key: r.key }))]
-  }
-  const nextN = { level_audit_n: (head.level_audit_n ?? 0) + 1 }
-  switch (op) {
-    case "mux.text_confirm.level.set": {
-      // A person's own tap in the app; never automation or a text acting with their identity.
-      if (ctx.origin !== "user") return refuse("forbidden")
-      const to = params.level
-      if (!isLevel(to)) return refuse("invalid_params")
-      const lock = effectiveLock(head.text_confirm_lock)
-      if (lock) return to === lock.level ? { ok: true, state: head, value: { level: current }, changed: false } : refuse("text_confirm.locked")
-      if (to === current) return { ok: true, state: head, value: { level: current }, changed: false }
-      if (!isRiskier(to, current)) {
-        const state = { ...head, text_confirm_level: to, level_change: null, ...nextN }
-        return { ok: true, state, value: { level: to }, writes: audit({ at: ctx.now, kind: "set", by: actor, from: current, to }) }
-      }
-      const change: PendingLevelChange = { id: ctx.newId("lvl"), from: current, to, requested_by: actor, expires_at: ctx.now + LEVEL_CHANGE_TTL_MS }
-      const state = { ...head, level_change: change, ...nextN }
-      return { ok: true, state, value: { level: current, pending: change }, writes: audit({ at: ctx.now, kind: "raise_requested", by: actor, from: current, to }) }
-    }
-    case "mux.text_confirm.level.confirm": {
-      if (ctx.origin !== "user") return refuse("forbidden")
-      const change = head.level_change
-      if (!change || change.id !== params.change) return refuse("text_confirm.no_pending_change")
-      if (typeof params.approve !== "boolean") return refuse("invalid_params")
-      if (ctx.now >= change.expires_at) return { ok: true, state: { ...head, level_change: null }, value: { level: current, expired: true } }
-      if (effectiveLock(head.text_confirm_lock)) return { ok: true, state: { ...head, level_change: null }, value: { level: current, locked: true } }
-      // Defense in depth: the level must still be where the raise started, and the change still riskier.
-      if (change.from !== current || !isRiskier(change.to, current)) return { ok: true, state: { ...head, level_change: null }, value: { level: current, stale: true } }
-      if (!params.approve) {
-        const state = { ...head, level_change: null, ...nextN }
-        return { ok: true, state, value: { level: current }, writes: audit({ at: ctx.now, kind: "raise_declined", by: actor, from: current, to: change.to }) }
-      }
-      const state = { ...head, text_confirm_level: change.to, level_change: null, ...nextN }
-      return { ok: true, state, value: { level: change.to }, writes: audit({ at: ctx.now, kind: "raise_confirmed", by: actor, from: current, to: change.to }) }
-    }
-    case "mux.text_confirm.lock": {
-      // Team policy or MDM, each in its own slot: `level` locks that source; null unlocks only that source.
-      const { level, by, name } = params
-      if (by !== "team_policy" && by !== "mdm") return refuse("invalid_params")
-      const locks: LevelLocks = head.text_confirm_lock ?? {}
-      if (level === null) {
-        const prior = locks[by]
-        if (!prior) return { ok: true, state: head, value: { level: current }, changed: false }
-        const { [by]: _gone, ...rest } = locks
-        // Unlock keeps the level that was in effect, so lifting a lock never lowers protection.
-        const state = { ...head, text_confirm_level: current, text_confirm_lock: rest, ...nextN }
-        return { ok: true, state, value: { level: levelOf(state) }, writes: audit({ at: ctx.now, kind: "unlock", by: actor, from: current, to: levelOf(state), lock: { by, name: prior.name } }) }
-      }
-      if (!isLevel(level) || typeof name !== "string" || name.length === 0 || name.length > 120) return refuse("invalid_params")
-      const prior = locks[by]
-      if (prior && prior.level === level && prior.name === name) return { ok: true, state: head, value: { level: current }, changed: false }
-      const state = { ...head, text_confirm_lock: { ...locks, [by]: { level, by, name, at: ctx.now } }, level_change: null, ...nextN }
-      const to = levelOf(state)
-      return { ok: true, state, value: { level: to, lock: effectiveLock(state.text_confirm_lock) }, writes: audit({ at: ctx.now, kind: "lock", by: actor, from: current, to, lock: { by, name } }) }
-    }
-    default:
-      return refuse("invalid_params")
-  }
-}
+export const USER_APP_KINDS: ReadonlySet<string> = new Set(["mac", "ios", "web"])
