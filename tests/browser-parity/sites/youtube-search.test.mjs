@@ -1,6 +1,7 @@
 // sites.youtube and sites.googleSearch against mock YouTube and Google Search.
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { createSitesEnv } from "./harness.mjs";
 
 const env = await createSitesEnv();
@@ -58,6 +59,16 @@ test("youtube.transcript fetches caption URLs only on YouTube's hosts", async ()
   assert.equal(await s.value('sites.youtube.transcript("vidForeign5")'), "Hello world from Foreign Captions");
   const off = env.state.requests.slice(before).filter((r) => !r.url.startsWith("https://www.youtube.com/"));
   assert.deepEqual(off.map((r) => r.url), [], "no caption request left YouTube");
+});
+
+test("page.exportContent({ transcript: true }) fetches caption URLs only on YouTube's hosts", async () => {
+  await s.run('await page.goto("https://www.youtube.com/watch?v=vidDirect01")');
+  const file = await s.value("page.exportContent({ transcript: true })");
+  assert.equal(fs.readFileSync(file, "utf8"), "Hello world\nfrom Direct Captions\n");
+  await s.run('await page.goto("https://www.youtube.com/watch?v=vidForeign5")');
+  const before = env.state.requests.length;
+  assert.match(await s.error("page.exportContent({ transcript: true })"), /video vidForeign5 has no captions on YouTube's caption hosts/);
+  assert.deepEqual(env.state.requests.slice(before).filter((r) => !r.url.startsWith("https://www.youtube.com/")).map((r) => r.url), [], "no caption request left YouTube");
 });
 
 test("youtube.transcript: a video without captions fails clearly", async () => {
