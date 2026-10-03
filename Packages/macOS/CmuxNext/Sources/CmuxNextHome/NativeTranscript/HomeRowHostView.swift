@@ -109,7 +109,13 @@ final class HomeRowHostView: NSView {
         pasteboard.setString(text, forType: .string)
     }
 
+    /// The viewport or draft changed: rebuild the elements on the next read.
     func accessibilityChanged() {
+        elements = []
+    }
+
+    /// The rows changed: VoiceOver re-reads the list.
+    func rowsChanged() {
         elements = []
         NSAccessibility.post(element: self, notification: .layoutChanged)
     }

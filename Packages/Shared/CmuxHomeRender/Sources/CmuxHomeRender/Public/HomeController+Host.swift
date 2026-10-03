@@ -93,3 +93,37 @@ extension HomeController {
         return (element.settleTime, { element.value($0, from: 0, to: 1) })
     }
 }
+
+extension HomeController {
+    /// The first message row of `item` in content points (the coordinates
+    /// of `scrollGeometry.offset`), or nil when the item is not loaded.
+    /// Hosts scroll to `frame.minY - topInset` (top) or center it.
+    public func contentFrame(for item: IdempotencyKey) -> CGRect? {
+        let prefix = "part:\(item.rawValue):"
+        guard let i = scene.model.rows.indices.first(where: { scene.model.rows[$0].spec.key.hasPrefix(prefix) && !scene.model.rows[$0].ghost })
+        else { return nil }
+        let spec = scene.model.rows[i].spec
+        return CGRect(x: 0, y: scene.layout.contentTop(i), width: scene.size.width, height: spec.height)
+    }
+
+    /// Keyframes that move a host view from `old` to `new` along the shared
+    /// field spring (one per 1/120 s), for hosts whose field view is laid
+    /// out every frame (Liquid Glass on AppKit, UIKit views). Nil when
+    /// motion is off.
+    public func fieldKeyframes(from old: CGRect, to new: CGRect, send: Bool)
+        -> (duration: Double, keyTimes: [Double], frames: [CGRect])? {
+        guard let curve = fieldCurve(send: send), curve.duration > 0 else { return nil }
+        let n = max(2, Int((curve.duration * 120).rounded(.up)) + 1)
+        var times: [Double] = []
+        var frames: [CGRect] = []
+        for k in 0..<n {
+            let t = Double(k) / Double(n - 1)
+            let p = CGFloat(curve.progress(t * curve.duration))
+            times.append(t)
+            frames.append(CGRect(x: old.minX + (new.minX - old.minX) * p, y: old.minY + (new.minY - old.minY) * p,
+                                 width: old.width + (new.width - old.width) * p, height: old.height + (new.height - old.height) * p))
+        }
+        frames[frames.count - 1] = new
+        return (curve.duration, times, frames)
+    }
+}

@@ -48,6 +48,18 @@ public final class HomeController {
     /// The conversation's summary changed (title, participants): hosts
     /// refresh their header.
     public var onSummaryChange: (ConversationSummary?) -> Void = { _ in }
+    /// A send the owner refused before logging it, in hosted-field mode:
+    /// the host puts `text` back into its own field if that is empty.
+    public var onRestoreDraft: (String) -> Void = { _ in }
+    /// The rows changed (not just the viewport): hosts post their platform's
+    /// layout-changed accessibility notification here.
+    public var onRowsChange: () -> Void = {}
+    /// Device pixels per point for row bitmaps (the host's backing or
+    /// display scale). A change redraws the rows.
+    public var contentsScale: CGFloat {
+        get { scene.bitmaps.scale }
+        set { scene.setContentsScale(newValue) }
+    }
     /// The latest summary from `update`.
     public var conversationSummary: ConversationSummary? { summary }
     /// The host shows this conversation to the user (window visible, app
@@ -153,6 +165,7 @@ public final class HomeController {
         if change == .initial { scene.pinned = true }
         guard scene.size.width > 0 else { return }
         scene.commit(rows(metrics: scene.metrics), change: change, sendField: sendField)
+        onRowsChange()
         publishScrollGeometryIfChanged()
         askForOlderIfNeeded()
         reportReadIfNeeded()

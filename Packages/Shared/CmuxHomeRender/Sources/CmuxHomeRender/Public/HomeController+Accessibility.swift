@@ -34,7 +34,8 @@ extension HomeController {
             case .unsent(let outgoing): label = outgoing ? HomeStrings.unsentMine : HomeStrings.unsentTheirs; value = ""
             case .typing: label = HomeStrings.typing; value = ""
             }
-            out.append(HomeAXItem(id: spec.key, role: .staticText, label: label, value: value, frame: frame))
+            let item: IdempotencyKey? = if case .part = spec.kind { Self.itemKey(of: spec.key).map { IdempotencyKey($0) } } else { nil }
+            out.append(HomeAXItem(id: spec.key, role: .staticText, label: label, value: value, frame: frame, item: item))
         }
         out.append(HomeAXItem(id: "compose", role: .textArea, label: HomeStrings.composeLabel, value: draft, frame: fieldRect))
         return out

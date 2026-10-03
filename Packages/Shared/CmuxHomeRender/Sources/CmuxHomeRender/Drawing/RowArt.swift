@@ -97,7 +97,7 @@ enum RowArt {
 extension RowArt {
     /// The row's bitmap. Pure: a value spec and palette in, an immutable
     /// image out, so it runs on any thread.
-    static func render(_ spec: RowSpec, palette: HomePalette, size: CGSize) -> CGImage? {
-        Canvas.image(size: size) { draw(spec, palette: palette, $0) }
+    static func render(_ spec: RowSpec, palette: HomePalette, size: CGSize, scale: CGFloat = Canvas.scale) -> CGImage? {
+        Canvas.image(size: size, scale: scale) { draw(spec, palette: palette, $0) }
     }
 }

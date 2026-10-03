@@ -38,6 +38,10 @@ extension HomeController {
     public func restoreDraft(for key: IdempotencyKey) {
         guard let pending = pendingSend, pending.intent.key == key else { return }
         pendingSend = nil
+        if scene.hostedField != nil {
+            onRestoreDraft(pending.text)
+            return
+        }
         guard scene.compose.text.isEmpty else { return }
         scene.compose.reset(pending.text)
         fieldChanged(send: false)

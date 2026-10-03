@@ -28,6 +28,8 @@ final class RowBitmaps {
     /// Bumped when the palette changes; old bitmaps and jobs stop matching.
     private(set) var paletteGeneration = 0
     private(set) var palette: HomePalette
+    /// Device pixels per point of the row bitmaps (2 on Mac, 3 on most iPhones).
+    private(set) var scale: CGFloat = Canvas.scale
 
     /// In-flight jobs and the installers waiting for each.
     private var jobs: [Key: Task<Void, Never>] = [:]
@@ -39,6 +41,17 @@ final class RowBitmaps {
     func setPalette(_ new: HomePalette) {
         guard new != palette else { return }
         palette = new
+        invalidate()
+    }
+
+    func setScale(_ new: CGFloat) {
+        guard new != scale, new > 0 else { return }
+        scale = new
+        invalidate()
+    }
+
+    /// Old bitmaps and jobs stop matching (palette or scale changed).
+    private func invalidate() {
         paletteGeneration += 1
         cache.removeAll()
         order.removeAll()
@@ -81,9 +94,10 @@ final class RowBitmaps {
         guard jobs[key] == nil else { return }
         renderCount += 1
         let palette = self.palette
+        let scale = self.scale
         // task-owner: kept in `jobs` until it installs; cancelled on a palette change.
         jobs[key] = Task.detached(priority: .userInitiated) { [weak self] in
-            let image = RowArt.render(spec, palette: palette, size: size)
+            let image = RowArt.render(spec, palette: palette, size: size, scale: scale)
             await self?.finish(key, image)
         }
     }

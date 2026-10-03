@@ -1,3 +1,4 @@
+public import CmuxHomeCore
 public import CoreGraphics
 public import Foundation
 
@@ -35,8 +36,12 @@ public struct HomeAXItem: Sendable, Hashable {
     public var value: String
     /// Viewport coordinates, points, top-left origin.
     public var frame: CGRect
+    /// The transcript item of a message row (nil for separators, receipts,
+    /// typing and the compose field).
+    public var item: IdempotencyKey?
 
-    public init(id: String, role: Role, label: String, value: String, frame: CGRect) {
+    public init(id: String, role: Role, label: String, value: String, frame: CGRect, item: IdempotencyKey? = nil) {
+        self.item = item
         self.id = id
         self.role = role
         self.label = label
