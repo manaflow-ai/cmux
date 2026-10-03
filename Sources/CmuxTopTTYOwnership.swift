@@ -161,6 +161,7 @@ struct CmuxTopTTYOwnershipResolver {
             for child in childrenByParentPID[pid] ?? [] {
                 prove(child, .ttyDescendant)
             }
+            guard processes[pid]?.processGroupID == pid else { continue }
             for member in membersByProcessGroupID[pid] ?? [] {
                 prove(member, .ttyProcessGroup)
             }
