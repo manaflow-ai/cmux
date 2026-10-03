@@ -107,6 +107,7 @@ let package = Package(
             dependencies: [
                 "CmuxNextMallocZone",
                 "CmuxNextHome",
+                "CmuxNextChief",
                 "CmuxNextWakeups",
                 "CmuxNextActions",
                 "CmuxNextDaemon",
@@ -268,6 +269,27 @@ let package = Package(
             ],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("sqlite3")]
+        ),
+        // Chief experiment (plans/cmux-next/chief.md, branch feat-cmux-next-chief only): a
+        // HomeSource over the experiment Worker, shown in the Home section with the shared
+        // Home store and native transcript.
+        .target(
+            name: "CmuxNextChief",
+            dependencies: [
+                "CmuxNextHome", "CmuxNextDesign", "CmuxNextWakeups",
+                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+            ],
+            resources: [.process("Resources")],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextChiefTests",
+            dependencies: [
+                "CmuxNextChief",
+                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+            ],
+            swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextHomeTests",

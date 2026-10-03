@@ -44,6 +44,7 @@ extension SidebarBridge {
         case LayoutItemRef.tabKind: revealPinnedTab(ref.value)
         case LayoutItemRef.urlKind: openPinnedPage(ref.value)
         case LayoutItemRef.roomKind: switchToPinnedSpace(ref.value)
+        case ChiefExperimentItem.kind: showChiefExperiment()
         default: break
         }
     }
@@ -56,14 +57,17 @@ extension SidebarBridge {
         // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         let service = services.sidebarLayout
         let apps = services.apps.registry
+        let chiefEnabled = ChiefExperimentItem.isEnabled
         sectionsObservation = Task { [weak self] in
             // The app registry is observed too: hiding or installing an app
             // changes its item at once.
-            for await layout in Observations({ _ = apps.apps; return service.document }) {
+            for await document in Observations({ _ = apps.apps; return service.document }) {
                 guard self != nil else { return }
+                let layout = ChiefExperimentItem.injected(into: document, enabled: chiefEnabled)
                 if model.layout != layout { model.layout = layout }
-                let infos = Self.itemInfo(for: layout, registered: { registry.action(for: $0) != nil },
+                var infos = Self.itemInfo(for: layout, registered: { registry.action(for: $0) != nil },
                                           app: { Self.appInfo($0, registry: apps) })
+                if chiefEnabled { infos[ChiefExperimentItem.id] = ChiefExperimentItem.info }
                 if model.itemInfo != infos { model.itemInfo = infos }
                 let suppressed = AppPresence(apps.apps).suppressed
                 if model.suppressedApps != suppressed { model.suppressedApps = suppressed }
