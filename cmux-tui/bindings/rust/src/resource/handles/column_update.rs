@@ -61,8 +61,8 @@ impl ColumnUpdateOptions {
         if self.sticky.is_none() && self.width.is_none() {
             return invalid("column update must set sticky, width, or both");
         }
-        if self.sticky.is_none() && (self.edge.is_some() || self.mode.is_some()) {
-            return invalid("column update edge and mode require sticky");
+        if self.sticky != Some(true) && (self.edge.is_some() || self.mode.is_some()) {
+            return invalid("column update edge and mode apply only with sticky: true");
         }
         if self.edge.as_deref().is_some_and(|edge| !matches!(edge, "left" | "right")) {
             return invalid("column edge must be left or right");

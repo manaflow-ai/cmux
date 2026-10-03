@@ -82,3 +82,32 @@ pub(crate) fn operation_class(operation: &str) -> OperationClass {
         OperationClass::Mutation
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every operation the SDK sends has the class the catalog declares.
+    #[test]
+    fn every_sdk_operation_has_its_catalog_class() {
+        let catalog: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../spec/resource-operations-v2.json"))
+                .unwrap();
+        let names = include_str!("ops.rs")
+            .lines()
+            .filter(|line| line.trim_start().starts_with("pub(crate) const "))
+            .filter_map(|line| line.split('"').nth(1))
+            .collect::<Vec<_>>();
+        assert!(!names.is_empty());
+        for name in names {
+            let expected = match catalog["operations"][name]["class"].as_str() {
+                Some("read") => OperationClass::Read,
+                Some("mutation") => OperationClass::Mutation,
+                Some("stream_open") => OperationClass::StreamOpen,
+                Some("connection_control") => OperationClass::ConnectionControl,
+                other => panic!("{name} has catalog class {other:?}"),
+            };
+            assert_eq!(operation_class(name), expected, "{name}");
+        }
+    }
+}

@@ -1577,13 +1577,16 @@ object{surface:Id, tab_resource_id:string, content_resource_id:string, replayed:
 ```
 
 With `idempotency_key`, the key commits with the browser record before the
-tab commits. A retry with the same key and the same request returns the tab
-the first request created with `replayed:true`;
-a retry after a crash between the two commits creates the tab under the
-recorded browser id. The same key with a different request (`url`, `engine`,
-`pane`, `title`, `favicon_url`, `profile_id`, `owner`, size) fails with an
-`idempotency.conflict` error and creates nothing. Without a key every request
-creates a tab and `replayed` is false.
+tab commits, and keyed creations run one at a time, so a retry that arrives
+while the first request still runs waits for it. A retry with the same key
+and the same request returns the tab the first request created with
+`replayed:true`; after a crash between the two commits it creates the tab
+under the recorded browser id; after that tab was closed it fails and
+creates nothing (send a new key for a new tab). The same key with a different
+request (`url`, `engine`, `pane`, `title`, `favicon_url`, `profile_id`,
+`owner`; the size hint does not count) fails with an `idempotency.conflict`
+error and creates nothing. Without a key every request creates a tab and
+`replayed` is false.
 
 ### update-frontend-browser-tab
 

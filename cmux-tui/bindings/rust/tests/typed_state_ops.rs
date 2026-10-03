@@ -249,8 +249,19 @@ fn column_update_sends_typed_edge_mode_and_width() {
         ColumnUpdateOptions::width(0.05),
         ColumnUpdateOptions::width(f64::INFINITY),
         ColumnUpdateOptions { edge: Some("left".into()), ..ColumnUpdateOptions::width(0.5) },
-        ColumnUpdateOptions { edge: Some("top".into()), ..ColumnUpdateOptions::unpin() },
-        ColumnUpdateOptions { mode: Some("floating".into()), ..ColumnUpdateOptions::unpin() },
+        ColumnUpdateOptions { edge: Some("left".into()), ..ColumnUpdateOptions::unpin() },
+        ColumnUpdateOptions {
+            edge: Some("top".into()),
+            sticky: Some(true),
+            mode: None,
+            width: None,
+        },
+        ColumnUpdateOptions {
+            mode: Some("floating".into()),
+            sticky: Some(true),
+            edge: None,
+            width: None,
+        },
     ] {
         assert!(matches!(screen.update_column(SPLIT, invalid), Err(Error::InvalidArgument(_))));
     }
@@ -325,6 +336,7 @@ fn window_records_list_put_with_record_revision_and_delete() {
     // oversized record, and a cursor revision in MutationOptions.
     assert!(session.put_window_record("install-a", "w1", json!([]), None).is_err());
     assert!(session.put_window_record("install a", "w1", record.clone(), None).is_err());
+    assert!(session.put_window_record("install_unadopted", "w1", record.clone(), None).is_err());
     let big = json!({"pad": "x".repeat(cmux::WINDOW_RECORD_MAX_BYTES)});
     assert!(session.put_window_record("install-a", "w1", big, None).is_err());
     let cursor = MutationOptions::unique().unwrap().with_expected_revision(1);

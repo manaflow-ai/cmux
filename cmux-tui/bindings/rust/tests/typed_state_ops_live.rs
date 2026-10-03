@@ -133,12 +133,16 @@ fn typed_state_ops_live_daemon() {
     let mut create =
         FrontendBrowserTabCreate::new("https://cmux.com", FrontendBrowserEngine::Cef, "live-tab-1");
     create.owner = Some("install-live".into());
+    let browser_tabs = |session: &cmux::Session| {
+        let tabs = session.snapshot().unwrap().tabs;
+        tabs.iter().filter(|tab| tab.content_kind == cmux::TabContentKind::Browser).count()
+    };
+    let before = browser_tabs(&session);
     let first = raw.create_frontend_browser_tab(create.clone()).unwrap();
     let retry = raw.create_frontend_browser_tab(create).unwrap();
     assert_eq!((first.replayed, retry.replayed), (false, true));
     assert_eq!((retry.tab_id.clone(), retry.surface), (first.tab_id.clone(), first.surface));
-    let tabs = session.snapshot().unwrap().tabs;
-    assert_eq!(tabs.iter().filter(|tab| tab.id == first.tab_id).count(), 1);
+    assert_eq!(browser_tabs(&session), before + 1, "the keyed retry made no second tab");
     let written = raw
         .write_frontend_browser_tab(FrontendBrowserTabUpdate {
             surface: first.surface,

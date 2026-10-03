@@ -137,7 +137,8 @@ impl Session {
     }
 }
 
-/// 1 to 128 ASCII letters, digits, `-`, `_`, `.`, or `:`.
+/// 1 to 128 ASCII letters, digits, `-`, `_`, `.`, or `:`; not the reserved
+/// `install_unadopted`.
 fn validate_record_key(label: &str, value: &str) -> Result<()> {
     let valid = (1..=128).contains(&value.len())
         && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"-_.:".contains(&byte));
@@ -145,6 +146,9 @@ fn validate_record_key(label: &str, value: &str) -> Result<()> {
         return Err(Error::InvalidArgument(format!(
             "window record {label} must be 1 to 128 ASCII letters, digits, '-', '_', '.', or ':'"
         )));
+    }
+    if value == "install_unadopted" {
+        return Err(Error::InvalidArgument("install_unadopted is reserved".to_string()));
     }
     Ok(())
 }
