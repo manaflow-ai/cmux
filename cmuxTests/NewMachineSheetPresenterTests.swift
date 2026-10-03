@@ -11,6 +11,21 @@ import Testing
 @MainActor
 @Suite("New machine sheet plan readiness")
 struct NewMachineSheetPresenterTests {
+    @Test("cached plan takes precedence over a stale caller plan")
+    func cachedPlanTakesPrecedence() {
+        let cached = MachineSnapshotBuilder.planSnapshot(
+            activeCount: 0,
+            limits: VMPlanLimits(planId: "cached", maxActiveVms: 10, freeAccessWindowDays: 0)
+        )
+        let caller = MachineSnapshotBuilder.planSnapshot(
+            activeCount: 0,
+            limits: VMPlanLimits(planId: "caller", maxActiveVms: 1, freeAccessWindowDays: 0)
+        )
+
+        #expect(NewMachineSheetPresenter.effectivePlan(cachedPlan: cached, callerPlan: caller)?.planId == "cached")
+        #expect(NewMachineSheetPresenter.effectivePlan(cachedPlan: nil, callerPlan: caller)?.planId == "caller")
+    }
+
     @Test("initial cached plan fills a model that opened before the panel refresh")
     func initialCachedPlanIsAppliedBeforePresentation() {
         let model = NewMachineModel(

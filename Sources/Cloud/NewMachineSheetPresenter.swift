@@ -194,7 +194,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         // The panel's snapshot can be stale or still empty while the shared
         // cache already has the authoritative plan. Use one effective plan for
         // both the upgrade gate and the model so they cannot disagree.
-        let effectivePlan = dataCache?.currentData?.plan ?? plan
+        let effectivePlan = Self.effectivePlan(cachedPlan: dataCache?.currentData?.plan, callerPlan: plan)
         if Self.shouldPresentUpgrade(for: effectivePlan) {
             ProUpgradePresenter.present(source: .newMachineAtLimit)
             return
@@ -363,6 +363,11 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         if !dataCache.refresh(), model.supportsNetworkPolicy, model.networkAvailability == .loading {
             model.applyNetworkCatalog(nil)
         }
+    }
+
+    /// Chooses the shared cache snapshot over a caller-owned panel snapshot.
+    static func effectivePlan(cachedPlan: MachinePlanSnapshot?, callerPlan: MachinePlanSnapshot?) -> MachinePlanSnapshot? {
+        cachedPlan ?? callerPlan
     }
 
     static func applyInitialData(_ data: NewMachineSheetData, to model: NewMachineModel) {
