@@ -219,6 +219,41 @@ fn flip_is_atomic_for_readers() {
 }
 
 #[test]
+fn flips_pin_the_old_link_and_old_pins_are_removed() {
+    use std::time::Duration;
+    let f = fixture();
+    f.apply(&f.release(1, "v1")).unwrap();
+    f.apply(&f.release(2, "v2")).unwrap();
+    for i in 0..4 {
+        f.store.switch_to(1 + i % 2).unwrap();
+    }
+    let pins = || -> Vec<String> {
+        fs::read_dir(&f.store.root)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with(".current.pin."))
+            .collect()
+    };
+    // Fresh pins stay (younger than PIN_MAX_AGE); each is the old symlink.
+    let fresh = pins();
+    assert!(fresh.len() >= 4, "{fresh:?}");
+    for name in &fresh {
+        assert!(!name.contains(".swap."), "{name}");
+        let target = fs::read_link(f.store.root.join(name)).unwrap();
+        assert!(target == Path::new("profiles/1") || target == Path::new("profiles/2"));
+    }
+    // Pins at least max_age old are removed (zero: all of them).
+    cmux_server::fsx::prune_pins(&f.store.current, Duration::ZERO).unwrap();
+    assert!(pins().is_empty(), "{:?}", pins());
+    assert!(fs::read_link(&f.store.current).is_ok(), "current itself stays");
+    // Uninstall leaves no pin behind, so the root goes away.
+    f.store.switch_to(1).unwrap();
+    f.store.remove_all().unwrap();
+    assert!(!f.store.root.exists());
+}
+
+#[test]
 fn concurrent_apply_is_refused_while_the_lock_is_held() {
     let f = fixture();
     let _held = cmux_server::store::state::StoreLock::acquire(&f.store.root).unwrap();

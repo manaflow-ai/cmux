@@ -352,7 +352,7 @@ impl Store {
 
     fn flip_locked(&self, generation: u64) -> Result<()> {
         let target = Path::new("profiles").join(generation.to_string());
-        fsx::swap_symlink(&self.current, &target)
+        fsx::swap_symlink_pinned(&self.current, &target)
     }
 
     /// Points `current` at an installed generation (`upgrade --generation`).
@@ -433,6 +433,7 @@ impl Store {
                 fsx::remove_tree(&entry.path())?;
             }
         }
+        fsx::prune_pins(&self.current, fsx::PIN_MAX_AGE)?;
         Ok((removed_profiles, removed_packages))
     }
 
@@ -445,6 +446,7 @@ impl Store {
         {
             let _lock = StoreLock::acquire(&self.root)?;
             fsx::remove_tree(&self.current)?;
+            fsx::prune_pins(&self.current, std::time::Duration::ZERO)?;
             fsx::remove_tree(&self.profiles)?;
             fsx::remove_tree(&self.store)?;
             fsx::remove_tree(&self.root.join(".downloads"))?;
