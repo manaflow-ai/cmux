@@ -72,15 +72,17 @@ final class AgentTabStore {
         actionRegistry = registry
         self.linkScheme = linkScheme
         self.git = git
+        let resolvedHost: any AgentPaneHostProviding
         if environment["CMUX_NEXT_AGENT_PANE_MOCK"] == "1" {
-            host = MockAgentPaneHost()
+            resolvedHost = MockAgentPaneHost()
         } else {
             let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-            host = AcpmuxHost { AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin, environment: environment) }
+            resolvedHost = AcpmuxHost { AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin, environment: environment) }
         }
+        host = resolvedHost
         // Start acpmux while the first pane is loading. The page still owns
         // the authenticated WebSocket handshake and session selection.
-        Task { try? await host.prewarm() }
+        Task { try? await resolvedHost.prewarm() }
         // Release loads only the bundled page; the dev server is for Debug
         // and tagged builds (webviews/src/agent-session/acpmux/README.md).
         #if DEBUG
