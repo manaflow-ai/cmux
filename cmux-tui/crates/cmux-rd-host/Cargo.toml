@@ -1,0 +1,39 @@
+[package]
+name = "cmux-rd-host"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "cmux remote desktop host engine for Linux (virtual X display): damage capture, x264, cmux.rd/1 over UDP or a stream, XTest input; plus the bench client"
+
+# Own workspace: links C libraries (x264, openh264 for the bench), so it stays out of
+# the cmux-tui workspace build until those dependencies are feature-gated for every OS.
+[workspace]
+
+[[bin]]
+name = "cmux-rd"
+path = "src/main.rs"
+
+[dependencies]
+cmux-rd-proto = { path = "../cmux-rd-proto" }
+cmux-rd-core = { path = "../cmux-rd-core" }
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+x11rb = { version = "0.14", features = ["shm", "damage", "xtest"] }
+openh264 = { version = "0.9", default-features = false, features = ["source"], optional = true }
+
+[build-dependencies]
+cc = "1"
+
+[features]
+default = ["x264", "bench"]
+# The host encoder (links libx264.a statically; GPL, decision D-RD1).
+x264 = []
+# The bench client decodes with openh264 built from source.
+bench = ["dep:openh264"]
+
+[profile.release]
+opt-level = 3
+debug = 1
+lto = "thin"
