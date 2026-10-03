@@ -29,7 +29,7 @@ FAILURES = []
 ARTIFACT_JOBS = {
     "cmux-tui-artifacts.yml": ["publish"],
 }
-ARTIFACT_SECRETS = {"CF_R2_ACCESS_KEY_ID", "CF_R2_SECRET_ACCESS_KEY", "CF_R2_ACCOUNT_ID"}
+ARTIFACT_SECRETS = {"TUI_R2_ACCESS_KEY_ID", "TUI_R2_SECRET_ACCESS_KEY", "TUI_R2_ACCOUNT_ID"}
 
 RELEASE_JOBS = {
     "release.yml": ["build-sign-notarize"],
@@ -63,7 +63,7 @@ def main():
         document = yaml.load(text, Loader=yaml.BaseLoader)
         for job in jobs:
             definition = document["jobs"].get(job, {})
-            _check(definition.get("environment") == "artifacts", f"{name} {job} runs in the artifacts environment")
+            _check(definition.get("environment") == "tui-artifacts", f"{name} {job} runs in the tui-artifacts environment")
             used = set(re.findall(r"secrets\.([A-Za-z0-9_]+)", yaml.dump(definition)))
             _check(used <= ARTIFACT_SECRETS, f"{name} {job} uses only R2 upload secrets (found {sorted(used)})")
     gate = yaml.load(open(os.path.join(WORKFLOWS, "iroh-release-gate.yml"), encoding="utf-8"), Loader=yaml.BaseLoader)

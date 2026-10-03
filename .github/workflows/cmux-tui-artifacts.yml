@@ -94,7 +94,9 @@ jobs:
     # The artifacts environment's deployment branch policy allows main,
     # feat-cmux-next and cmux-tui-pin-*; signing, Sparkle, Homebrew and Apple
     # secrets stay in the release environment.
-    environment: artifacts
+    # tui-artifacts: main, feat-cmux-next, cmux-tui-pin-*; TUI_R2_* can write
+    # only the cmux-tui-artifacts bucket (served by the files.cmux.com Worker).
+    environment: tui-artifacts
     name: publish to R2
     # PR runs of this workflow only validate the build; publishing is
     # main-push or manual dispatch.
@@ -391,10 +393,10 @@ jobs:
 
       - name: Upload to R2
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.TUI_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.TUI_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
-          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          R2_ENDPOINT: "https://${{ secrets.TUI_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: |
           set -euo pipefail
           publish_prefix() {
@@ -410,7 +412,7 @@ jobs:
               python3 scripts/ci/upload-r2-object.py "${upload_args[@]}" \
                 --file "$file" \
                 --endpoint-url "$R2_ENDPOINT" \
-                --bucket cmux-binaries \
+                --bucket cmux-tui-artifacts \
                 --key "$prefix/$(basename "$file")" \
                 --cache-control "$cache"
             done
@@ -475,7 +477,7 @@ jobs:
               python3 scripts/ci/upload-r2-object.py --write-once \
                 --file "$file" \
                 --endpoint-url "$R2_ENDPOINT" \
-                --bucket cmux-binaries \
+                --bucket cmux-tui-artifacts \
                 --key "$prefix/$(basename "$file")" \
                 --cache-control "$cache"
             done
@@ -515,10 +517,10 @@ jobs:
       - name: Publish rolling latest artifacts
         if: github.ref == 'refs/heads/main'
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.TUI_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.TUI_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
-          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          R2_ENDPOINT: "https://${{ secrets.TUI_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: |
           set -euo pipefail
           publish_prefix() {
@@ -535,7 +537,7 @@ jobs:
               python3 scripts/ci/upload-r2-object.py "${upload_args[@]}" \
                 --file "$file" \
                 --endpoint-url "$R2_ENDPOINT" \
-                --bucket cmux-binaries \
+                --bucket cmux-tui-artifacts \
                 --key "$prefix/$(basename "$file")" \
                 --cache-control "$cache"
             }
@@ -556,7 +558,7 @@ jobs:
               python3 scripts/ci/upload-r2-object.py \
                 --file "$file" \
                 --endpoint-url "$R2_ENDPOINT" \
-                --bucket cmux-binaries \
+                --bucket cmux-tui-artifacts \
                 --key "$prefix/$(basename "$file")" \
                 --cache-control "$cache"
             done
