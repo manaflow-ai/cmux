@@ -1,10 +1,10 @@
 import AppKit
+import CmuxNextIcons
 import Testing
 @testable import CmuxNextSidebar
 
-/// Workspace icons from the record's `icon` string: one emoji (drawn as
-/// text) or an SF Symbol name (Lawrence 2026-10-02: custom emoji and images
-/// for workspaces and Home; images wait for a store blob op).
+/// Workspace icons from the record's `icon` string remain custom emoji or SF
+/// Symbols. Rows without a custom icon use the built-in type glyph pack.
 @MainActor @Suite struct WorkspaceIconTests {
     @Test func parseTellsEmojiFromSymbols() {
         #expect(WorkspaceIcon.parse("🚀") == .emoji("🚀"))
@@ -22,6 +22,18 @@ import Testing
         view.layoutSubtreeIfNeeded()
         #expect(view.emojiText == "🚀")
         view.configure(icon: .symbol("house"))
+        #expect(view.emojiText == nil)
+    }
+
+    @Test func aBuiltInTypeIconDrawsWhenTheWorkspaceHasNoCustomIcon() throws {
+        let view = SidebarIconView()
+        view.frame = NSRect(x: 0, y: 0, width: 20, height: 20)
+        view.configure(icon: nil, fallback: .terminal)
+        view.layoutSubtreeIfNeeded()
+        let image = try #require(view.subviews.compactMap { $0 as? NSImageView }.first)
+        #expect(!view.isHidden)
+        #expect(!image.isHidden)
+        #expect(image.image != nil)
         #expect(view.emojiText == nil)
     }
 }

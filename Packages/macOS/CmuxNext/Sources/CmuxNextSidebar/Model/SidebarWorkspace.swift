@@ -1,4 +1,5 @@
 public import CmuxNextDesign
+public import CmuxNextIcons
 import Foundation
 
 /// Unread state for the badge.
@@ -31,6 +32,15 @@ public nonisolated enum SidebarWorkspaceKind: String, Codable, Hashable, Sendabl
         case .harness: "bubble.left.and.text.bubble.right"
         case .terminal: "terminal"
         case .browser: "globe"
+        }
+    }
+
+    /// The matching built-in icon-pack glyph for rows without a custom icon.
+    public var iconName: IconName {
+        switch self {
+        case .harness: .agentChat
+        case .terminal: .terminal
+        case .browser: .browser
         }
     }
 }
