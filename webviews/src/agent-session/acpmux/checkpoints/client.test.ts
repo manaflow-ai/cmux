@@ -146,6 +146,47 @@ describe("CheckpointClient", () => {
     expect(h.calls[2]?.params.idempotency_key).toBe("create-key");
   });
 
+  test("replays a found create to preserve the session ledger revision", async () => {
+    const persistence = new MemoryPersistence();
+    const calls: Call[] = [];
+    let first = true;
+    const request = async (method: string, params: Record<string, unknown>) => {
+      calls.push({ method, params: structuredClone(params) });
+      if (method === CHECKPOINT_OPS.create && first) {
+        first = false;
+        throw { code: "native.timed_out", origin: "native" };
+      }
+      if (method === CHECKPOINT_OPS.get) return { ...checkpoint, revision: "41" };
+      return { result: { ...checkpoint, revision: "42" }, revision: "99", replayed: true };
+    };
+    const client = new CheckpointClient(
+      request,
+      persistence,
+      () => "create-key",
+      async () => ({ checkpoints: true }),
+    );
+    client.select(target);
+    await client.refreshCapabilities();
+    await expect(client.create({ include_untracked: ["draft.txt"] })).rejects.toMatchObject({
+      code: "native.timed_out",
+    });
+
+    const receipt = await client.create({ include_untracked: ["draft.txt"] });
+    expect(receipt.revision).toBe("99");
+    expect(receipt.result.revision).toBe("42");
+    expect(calls.map((call) => call.method)).toEqual([
+      CHECKPOINT_OPS.create,
+      CHECKPOINT_OPS.get,
+      CHECKPOINT_OPS.create,
+    ]);
+    expect(calls[1]?.params).toEqual({ cwd: "/repo", idempotency_key: "create-key" });
+    expect(calls[2]?.params).toEqual({
+      cwd: "/repo",
+      include_untracked: ["draft.txt"],
+      idempotency_key: "create-key",
+    });
+  });
+
   test("reads the native capability once and gates actions when it is absent", async () => {
     const client = new CheckpointClient(
       async () => list,

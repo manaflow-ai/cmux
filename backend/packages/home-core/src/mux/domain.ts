@@ -1,5 +1,6 @@
 import type { Domain, Principal, Reject, ReduceResult, RowWrite } from "../conversation/engine-types.ts"
-import { authorizeLevel, LEVEL_OPS, reduceLevel, type ConfirmLevel, type LevelLocks, type PendingLevelChange } from "./confirm-level.ts"
+import type { ConfirmLevel, LevelLocks } from "./confirm-level.ts"
+import { PROJECTION_OPS, reduceProjection } from "./level-projection.ts"
 import { authorizeConfirm, CONFIRM_OPS, reduceConfirm } from "./text-confirm.ts"
 
 /**
@@ -28,13 +29,13 @@ export interface MuxHead {
   readonly next_n: number
   /** Per conversation: highest acked seq (wakes at or below it are ignored) and pending seqs, ascending. */
   readonly queues: Readonly<Record<string, ConversationQueue>>
-  /** In-app confirmation for risky actions asked by text: level (confirm-level.ts) and requests (text-confirm.ts). */
+  /** The owner's text confirmation level, pushed by UserDO (level-projection.ts). */
+  readonly user_level?: { readonly level: ConfirmLevel; readonly rev: number }
+  /** Per-chief fields before the level moved to UserDO; `mux.text_confirm.migrate` sends them once. */
   readonly text_confirm_level?: ConfirmLevel
-  /** Legacy boolean before levels; read once by levelOf (on -> strict, off -> off). */
   readonly text_confirm?: "destructive" | "off"
   readonly text_confirm_lock?: LevelLocks | null
-  readonly level_change?: PendingLevelChange | null
-  readonly level_audit_n?: number
+  readonly level_migrated?: boolean
   readonly confirm_n?: number
 }
 
@@ -82,7 +83,13 @@ export const muxDomain: Domain<MuxHead, Params> = {
   initial: () => INITIAL_MUX_HEAD,
   authorize: (head, op, _params, p): Reject | undefined => {
     if (CONFIRM_OPS.has(op)) return authorizeConfirm(head, op, p) ? undefined : { code: "forbidden", message: `${op} is not allowed for this caller` }
-    if (LEVEL_OPS.has(op)) return authorizeLevel(head, op, p) ? undefined : { code: "forbidden", message: `${op} is not allowed for this caller` }
+    if (PROJECTION_OPS.has(op)) {
+      // The level comes only from the owner's UserDO (identity system:user:<user>); the migrate pass from any system principal.
+      const owner = head.owner_user
+      const fromOwner = owner !== null && (p.identity === `system:user:${owner}` || p.identity === `system:user:${owner.replace(/^user_/, "")}`)
+      const ok = p.kind === "system" && (op !== "mux.text_confirm.level.sync" || fromOwner)
+      return ok ? undefined : { code: "forbidden", message: `${op} is not allowed for this caller` }
+    }
     const ok =
       op === "mux.bind" || op === "mux.wake"
         ? p.kind === "system"
@@ -95,7 +102,7 @@ export const muxDomain: Domain<MuxHead, Params> = {
   },
   reduce: (head, op, params, ctx) => {
     if (CONFIRM_OPS.has(op)) return head.agent === null ? refuse("mux.unbound") : reduceConfirm(head, op, params, ctx)
-    if (LEVEL_OPS.has(op)) return head.agent === null ? refuse("mux.unbound") : reduceLevel(head, op, params, ctx)
+    if (PROJECTION_OPS.has(op)) return head.agent === null ? refuse("mux.unbound") : reduceProjection(head, op, params, ctx)
     switch (op) {
       case "mux.bind": {
         const { agent, owner_user, brain } = params

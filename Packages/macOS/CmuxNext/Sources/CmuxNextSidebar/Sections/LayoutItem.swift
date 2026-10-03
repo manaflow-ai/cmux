@@ -60,6 +60,9 @@ public nonisolated struct LayoutItem: Hashable, Sendable, Codable, Identifiable 
     /// like the account avatar beside Settings.
     public var showsLabel: Bool
 
+    /// The app this item opens, for an app item.
+    public var owningAppID: String? { ref.kind == LayoutItemRef.appKind ? ref.value : nil }
+
     public init(id: LayoutItemID, ref: LayoutItemRef, showsLabel: Bool = true) {
         self.id = id
         self.ref = ref

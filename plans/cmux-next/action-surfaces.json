@@ -7826,7 +7826,8 @@
       "cli_name" : "sidebar hide-app",
       "context_menu" : "offered",
       "context_menus" : [
-        "sidebarItem"
+        "sidebarItem",
+        "sidebarSection"
       ],
       "id" : "sidebar.item.hideApp",
       "mcp" : "offered",
