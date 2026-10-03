@@ -83,7 +83,9 @@ jobs:
           # The paths compile admission and the seeds build at: part of the
           # seed key. On an owned Mac hold the root the hook exported (or root
           # 1) for the job, as the seed job does.
-          root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
+          root="$(scripts/ci/canonical-build-root.sh --print-root)"
+          export CMUX_CI_CANONICAL_ROOT="$root"
+          echo "CMUX_CI_CANONICAL_ROOT=$root" >> "$GITHUB_ENV"
           helper=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
           if [ -x "$helper" ]; then
             status=0
