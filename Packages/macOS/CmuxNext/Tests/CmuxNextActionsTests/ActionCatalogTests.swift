@@ -81,7 +81,7 @@ import Testing
         .agents: 30, // + Resume Agent Session, Toggle Dictation, Open Agent Activity, Search Agent Chats, Continue In, Create Checkpoint, 7 tool permission controls, Quick Agent Chat
         .cloud: 48, // + cloud file and tunnel/network/firewall actions
         .remote: 7, // SSH machines (Connect to Machine…), Open Terminal on Machine Here
-        .settings: 55, // + Toggle Column Scroll Bar, + Onboarding Gallery (DEBUG only), + Open Debug Settings (DEV and NIGHTLY only), + App Store, Installed Apps, Hide App, Unhide App, + Customize Appearance
+        .settings: 56, // + Toggle Column Scroll Bar, + Onboarding Gallery (DEBUG only), + Open Debug Settings (DEV and NIGHTLY only), + App Store, Installed Apps, Hide App, Unhide App, Run App Command, + Customize Appearance
     ]
 
     @Test func everyKeyboardShortcutIDExists() {

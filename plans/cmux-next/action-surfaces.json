@@ -8232,6 +8232,17 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "app run-command",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "app.command.run",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "link open",
       "context_menu" : "noObject",
       "context_menus" : [

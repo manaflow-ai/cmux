@@ -43,6 +43,17 @@ nonisolated enum AppStoreActionCatalog: ActionCatalogGroup {
                 cliName: "apps unhide",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
+            // Runs a command an app contributes (`contributes.commands`). With no
+            // arguments it opens a palette page of the visible apps' commands.
+            ActionDescriptor(
+                id: "app.command.run", title: t("action.app.command.run", "Run App Command…"),
+                keywords: ["apps", "command", "coderouter", "status", "accounts", "usage", "route"],
+                category: .settings, symbol: "puzzlepiece.extension", surfaces: [.palette, .keyboard],
+                arguments: [ActionArgument(name: "app", title: t("argument.appStore.app", "App"), kind: .string, isRequired: false),
+                            ActionArgument(name: "command", title: t("argument.app.command", "Command"), kind: .string, isRequired: false)],
+                cliName: "app run-command",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
         ]
     }
 

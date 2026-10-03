@@ -125,6 +125,18 @@ public final class SidebarView: NSView {
         list.showHoverCard(for: id)
     }
 
+    /// Draws the sections apps contribute (`SectionContent.app`); the App
+    /// injects one per window. Without it, app sections draw nothing.
+    public var appSections: (any SidebarAppSectionProvider)? {
+        didSet {
+            appSections?.onContentChange = { [weak self] in self?.needsLayout = true }
+            for region in [aboveRegion, belowRegion] {
+                region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
+            }
+            needsLayout = true
+        }
+    }
+
     /// The app's one hover card coordinator (the App injects it).
     public var hoverCards: HoverCardCoordinator {
         get { list.hoverCards }

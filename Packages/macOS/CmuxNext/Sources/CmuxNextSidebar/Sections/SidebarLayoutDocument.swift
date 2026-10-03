@@ -93,8 +93,11 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
     public static let topSectionID = LayoutSectionID("sec_top")
     public static let workspacesSectionID = LayoutSectionID("sec_workspaces")
     public static let bottomSectionID = LayoutSectionID("sec_bottom")
+    /// The first-party CodeRouter app's section (bottom, above Settings).
+    public static let codeRouterSectionID = LayoutSectionID("sec_app_coderouter")
 
-    /// Top: Home, then the App Store. Middle: workspaces. Bottom: one line with Settings (icon
+    /// Top: Home, then the App Store. Middle: workspaces. Bottom: the
+    /// CodeRouter app's section, then one line with Settings (icon
     /// and label) at the leading edge, and Customize Appearance and the
     /// account avatar (icons only) at the trailing edge. Sticky sections use
     /// the built-in look and draw no header.
@@ -103,6 +106,9 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
                       items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .builtIn(.home)),
                               LayoutItem(id: LayoutItemID("itm_app_store"), ref: .builtIn(.appStore))]),
         LayoutSection(id: workspacesSectionID, region: .middle, look: .list, content: .workspaces),
+        // First-party app sections ship in the default layout; a hidden or
+        // removed app draws nothing here and keeps its place.
+        LayoutSection(id: codeRouterSectionID, region: .bottom, look: .list, content: .app, contribution: "cmux/coderouter#coderouter"),
         LayoutSection(id: bottomSectionID, region: .bottom, look: .builtIn, arrangement: SectionArrangement(layout: .inline, align: .fill), items: [
             LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings)),
             LayoutItem(id: LayoutItemID("itm_customize"), ref: .builtIn(.customize), showsLabel: false),

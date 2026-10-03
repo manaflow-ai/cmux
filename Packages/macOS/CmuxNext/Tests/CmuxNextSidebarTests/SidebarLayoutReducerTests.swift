@@ -24,7 +24,8 @@ import Testing
         #expect(defaults.sections(in: .top, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.home), .builtIn(.appStore)])
         #expect(defaults.sections(in: .middle, room: nil).map(\.content) == [.workspaces])
         #expect(defaults.sections(in: .bottom, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.customize), .builtIn(.account)])
-        #expect(defaults.sections.filter { $0.region != .middle }.allSatisfy { $0.look == .builtIn && $0.title == nil })
+        #expect(defaults.sections.filter { $0.region != .middle && $0.content == .items }.allSatisfy { $0.look == .builtIn && $0.title == nil })
+        #expect(defaults.sections(in: .bottom, room: nil).first?.contribution == "cmux/coderouter#coderouter")
         #expect(defaults.firstTopItem(room: nil)?.ref == .builtIn(.home))
     }
 
@@ -119,7 +120,7 @@ import Testing
     @Test func removingASectionDeletesItsItems() throws {
         let doc = try reduce(defaults, .sectionRemove(SidebarLayoutDocument.bottomSectionID))
         #expect(doc.item(settings) == nil)
-        #expect(doc.sections(in: .bottom, room: nil).isEmpty)
+        #expect(doc.sections(in: .bottom, room: nil).map(\.id) == [SidebarLayoutDocument.codeRouterSectionID])
     }
 
     @Test func moveSectionBetweenRegions() throws {
@@ -127,7 +128,8 @@ import Testing
         #expect(doc.sections(in: .top, room: nil).map(\.id) == [SidebarLayoutDocument.topSectionID, SidebarLayoutDocument.workspacesSectionID])
         #expect(doc.sections(in: .middle, room: nil).isEmpty)
         let bottomFirst = try reduce(defaults, .sectionMove(SidebarLayoutDocument.topSectionID, region: .bottom, index: 0))
-        #expect(bottomFirst.sections(in: .bottom, room: nil).map(\.id) == [SidebarLayoutDocument.topSectionID, SidebarLayoutDocument.bottomSectionID])
+        #expect(bottomFirst.sections(in: .bottom, room: nil).map(\.id)
+            == [SidebarLayoutDocument.topSectionID, SidebarLayoutDocument.codeRouterSectionID, SidebarLayoutDocument.bottomSectionID])
     }
 
     @Test func updateSetsAndClearsFields() throws {

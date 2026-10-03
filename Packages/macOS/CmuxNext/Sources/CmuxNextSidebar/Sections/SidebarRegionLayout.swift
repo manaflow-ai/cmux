@@ -44,6 +44,8 @@ public nonisolated struct SidebarRegionRow: Hashable, Sendable {
         case tile(LayoutItemID, section: LayoutSectionID)
         /// An inline item with icon and label.
         case chip(LayoutItemID, section: LayoutSectionID)
+        /// The content of an app's section (`SectionContent.app`).
+        case app(LayoutSectionID)
     }
 
     public var kind: Kind
@@ -73,8 +75,15 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
 
     public static func make(sections: [LayoutSection], width: CGFloat, look: SectionsLookVariant,
                             collapsed: Set<LayoutSectionID>, metrics m: SidebarRegionMetrics,
-                            labelWidths: [LayoutItemID: CGFloat] = [:]) -> SidebarRegionLayout {
-        let shown = sections.filter { $0.content == .items && (!$0.items.isEmpty || header($0, look) != nil) }
+                            labelWidths: [LayoutItemID: CGFloat] = [:], appHeights: [LayoutSectionID: CGFloat] = [:]) -> SidebarRegionLayout {
+        // An app section shows only with content (a height from its provider).
+        let shown = sections.filter { section in
+            switch section.content {
+            case .items: !section.items.isEmpty || header(section, look) != nil
+            case .app: (appHeights[section.id] ?? 0) > 0
+            default: false
+            }
+        }
         guard !shown.isEmpty else { return .empty }
         var result = SidebarRegionLayout.empty
         var y = m.padding
@@ -100,7 +109,11 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
                 sectionCapped += m.headerHeight
             }
             if !(title != nil && collapsed.contains(section.id)) {
-                if let mode = SectionFlow.mode(section, look: look) {
+                if section.content == .app, let height = appHeights[section.id] {
+                    result.rows.append(SidebarRegionRow(kind: .app(section.id), frame: CGRect(x: x, y: y, width: innerWidth, height: height)))
+                    y += height
+                    sectionCapped += height
+                } else if let mode = SectionFlow.mode(section, look: look) {
                     let flow = SectionFlow.place(section, mode: mode, x: x + m.inset, y: y, width: max(0, innerWidth - m.inset * 2),
                                                  labelWidths: labelWidths, metrics: m)
                     result.rows += flow.rows

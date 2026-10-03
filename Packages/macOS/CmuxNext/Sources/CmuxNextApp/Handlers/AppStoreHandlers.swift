@@ -28,6 +28,18 @@ enum AppStoreHandlers {
                 })
             })
         }
+        services.palette.sources.actionPages["app.command.run"] = { [weak services] in services.map(AppCommandPalette.page) }
+        registry.bind("app.command.run", run: { invocation in
+            let appID = invocation["app"]?.stringValue ?? ""
+            let commandID = invocation["command"]?.stringValue ?? ""
+            guard !appID.isEmpty || !commandID.isEmpty else {
+                return services.palette.show(page: AppCommandPalette.page(services), relativeTo: context.activeWindow?.window)
+            }
+            guard let entry = AppCommandPalette.entries(services.apps.registry).first(where: { $0.app.id == appID && $0.command.id == commandID }) else {
+                throw ActionFailure(message: RefusalStrings.text("refusal.app.unknown", "No installed app with that id."))
+            }
+            AppCommandPalette.run(entry, services: services)
+        })
         bindHidden("app.hide", true)
         bindHidden("app.unhide", false)
     }
