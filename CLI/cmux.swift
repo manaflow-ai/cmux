@@ -33683,6 +33683,14 @@ struct CMUXCLI {
                     "hooks": [["type": "command", "command": cmd, "timeout": timeout] as [String: Any]]
                 ] as [String: Any])
                 result[event.agentEvent] = groups
+            case .copilotJSON(let timeoutSeconds):
+                var entries = result[event.agentEvent] as? [[String: Any]] ?? []
+                entries.append([
+                    "type": "command",
+                    "bash": cmd,
+                    "timeoutSec": max(timeoutSeconds, 1),
+                ])
+                result[event.agentEvent] = entries
             case .antigravityJSON(let timeoutSeconds):
                 var entries = result[event.agentEvent] as? [[String: Any]] ?? []
                 entries.append(Self.antigravityHookEntry(
@@ -33721,6 +33729,14 @@ struct CMUXCLI {
                     "hooks": [["type": "command", "command": feedCmd, "timeout": timeout] as [String: Any]]
                 ] as [String: Any])
                 result[agentEvent] = groups
+            case .copilotJSON(let timeoutSeconds):
+                var entries = result[agentEvent] as? [[String: Any]] ?? []
+                entries.append([
+                    "type": "command",
+                    "bash": feedCmd,
+                    "timeoutSec": max(timeoutSeconds, 1),
+                ])
+                result[agentEvent] = entries
             case .antigravityJSON:
                 var entries = result[agentEvent] as? [[String: Any]] ?? []
                 entries.append(Self.antigravityHookEntry(
@@ -34627,6 +34643,38 @@ export default {
                 } else {
                     hooks[event] = rewrittenEntries
                 }
+            case .copilotJSON:
+                guard let entries = value as? [[String: Any]] else { continue }
+                var rewrittenEntries: [[String: Any]] = []
+                for var entry in entries {
+                    if let command = entry["bash"] as? String,
+                       isCmuxOwnedCommand(command) {
+                        Self.appendCmuxHookInsertionIndex(
+                            rewrittenEntries.count,
+                            for: event,
+                            to: &cmuxInsertionIndexes
+                        )
+                        continue
+                    }
+                    if var legacyHooks = entry["hooks"] as? [[String: Any]] {
+                        if legacyHooks.contains(where: { isCmuxOwnedCommand($0["command"] as? String ?? "") }) {
+                            Self.appendCmuxHookInsertionIndex(
+                                rewrittenEntries.count,
+                                for: event,
+                                to: &cmuxInsertionIndexes
+                            )
+                        }
+                        legacyHooks.removeAll { isCmuxOwnedCommand($0["command"] as? String ?? "") }
+                        if legacyHooks.isEmpty { continue }
+                        entry["hooks"] = legacyHooks
+                    }
+                    rewrittenEntries.append(entry)
+                }
+                if rewrittenEntries.isEmpty {
+                    hooks.removeValue(forKey: event)
+                } else {
+                    hooks[event] = rewrittenEntries
+                }
             case .nested:
                 guard let groups = value as? [[String: Any]] else { continue }
                 var rewrittenGroups: [[String: Any]] = []
@@ -34665,7 +34713,7 @@ export default {
         // Add new cmux entries
         for (event, value) in newHooks {
             switch def.format {
-            case .flat, .kiroAgentJSON:
+            case .flat, .kiroAgentJSON, .copilotJSON:
                 var entries = hooks[event] as? [[String: Any]] ?? []
                 if let newEntries = value as? [[String: Any]] {
                     if let insertionIndexes = cmuxInsertionIndexes[event], !insertionIndexes.isEmpty {
@@ -34968,6 +35016,28 @@ export default {
                 guard var entries = value as? [[String: Any]] else { continue }
                 let before = entries.count
                 entries.removeAll { isCmuxOwnedCommand($0["command"] as? String ?? "") }
+                removed += before - entries.count
+                if entries.isEmpty {
+                    hooks.removeValue(forKey: event)
+                } else {
+                    hooks[event] = entries
+                }
+            case .copilotJSON:
+                guard var entries = value as? [[String: Any]] else { continue }
+                let before = entries.count
+                entries = entries.compactMap { entry in
+                    if let command = entry["bash"] as? String,
+                       isCmuxOwnedCommand(command) {
+                        return nil
+                    }
+                    var entry = entry
+                    if var legacyHooks = entry["hooks"] as? [[String: Any]] {
+                        legacyHooks.removeAll { isCmuxOwnedCommand($0["command"] as? String ?? "") }
+                        if legacyHooks.isEmpty { return nil }
+                        entry["hooks"] = legacyHooks
+                    }
+                    return entry
+                }
                 removed += before - entries.count
                 if entries.isEmpty {
                     hooks.removeValue(forKey: event)
