@@ -122,20 +122,21 @@ import Testing
     }
 
     /// Resolution audit: every layer that shows a bitmap draws it at least at
-    /// the display scale (2x), so nothing is upscaled.
+    /// the window's backing scale (2x on Retina), so nothing is upscaled.
     @Test func everyBitmapLayerIsDrawnAtDisplayScale() async throws {
         let (window, view) = host(messages: 30)
         defer { window.close() }
         await view.controller.bitmapsSettled()
         view.layoutSubtreeIfNeeded()
+        let expected: CGFloat = window.backingScaleFactor
         var checked = 0
         var findings: [String] = []
         func walk(_ layer: CALayer) {
             if let contents = layer.contents, CFGetTypeID(contents as CFTypeRef) == CGImage.typeID {
                 let image = contents as! CGImage // swiftlint:disable:this force_cast
                 checked += 1
-                if layer.contentsScale < 2 { findings.append("\(layer.name ?? "layer") scale \(layer.contentsScale)") }
-                let needed: CGFloat = layer.bounds.width * 2 * layer.contentsRect.width
+                if layer.contentsScale < expected { findings.append("\(layer.name ?? "layer") scale \(layer.contentsScale)") }
+                let needed: CGFloat = layer.bounds.width * expected * layer.contentsRect.width
                 let pixels: CGFloat = CGFloat(image.width) + 1
                 let unit = CGRect(x: 0, y: 0, width: 1, height: 1)
                 if layer.contentsCenter == unit, pixels < needed {
