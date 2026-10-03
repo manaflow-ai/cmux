@@ -3250,6 +3250,13 @@ mod tests {
     }
 
     #[test]
+    fn browser_open_alias_maps_to_tab_create_browser() {
+        let plan = protocol(&["browser", "open", "https://example.com"]);
+        assert_eq!(operation(&plan), "tab.create_browser");
+        assert_eq!(plan.params["url"], "https://example.com");
+    }
+
+    #[test]
     fn terminal_keep_maps_to_the_private_set_terminal_keep_command() {
         const TERMINAL: &str = "term_0123456789abcdef0123456789abcdef";
         let on = raw_request(&["terminal", TERMINAL, "keep", "on"]);
