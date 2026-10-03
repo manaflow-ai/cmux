@@ -12,8 +12,9 @@ name: Nightly macOS build
 # as cmux NIGHTLY (bundle id com.cmuxterm.app.nightly), but its own release
 # `nightly-next`, DMG names, Sparkle key and feed (NIGHTLY_NEXT_FEED_BASE), so
 # its installs never read main's NIGHTLY feed and main's never read its feed.
-# Only nightly-next-promote.yml moves `nightly-next`, to a feat-cmux-next head
-# whose Release compile is green. Its signing and upload secrets live in the
+# Only main's nightly.yml job promote-nightly-next (release environment, release
+# App) moves `nightly-next`, to a feat-cmux-next head whose Release compile is
+# green; cmux-next.yml requests it after a green push run. Its signing and upload secrets live in the
 # `release-next` environment, which only `nightly-next` may use.
 on:
   # Publish changed main revisions, at most once per NIGHTLY_PUSH_MIN_INTERVAL_HOURS
@@ -64,11 +65,6 @@ on:
           - github
           - warp
           - r2
-      promote_nightly_next_sha:
-        description: Run on feat-cmux-next only. Move nightly-next to this green feat-cmux-next commit (40 hex) and build nothing in this run; the push to nightly-next publishes it.
-        required: false
-        default: ''
-        type: string
       tag_permission_probe:
         description: Run the scratch-tag permission probe without building or publishing a channel.
         required: false
@@ -120,7 +116,7 @@ env:
 
 jobs:
   decide:
-    if: github.event_name != 'workflow_dispatch' || (inputs.tag_permission_probe != true && inputs.promote_nightly_next_sha == '')
+    if: github.event_name != 'workflow_dispatch' || inputs.tag_permission_probe != true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
@@ -488,19 +484,6 @@ jobs:
                 [{data: 'variants', header: true}, variants.join(', ')],
               ])
               .write();
-
-  # On-demand nightly-next promotion. nightly-next-promote.yml has no
-  # dispatch of its own (a dispatch needs the workflow on the default branch),
-  # so Run workflow on this file, ref feat-cmux-next, with the SHA.
-  promote-nightly-next:
-    if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/feat-cmux-next'
-    permissions:
-      contents: read
-      checks: read
-      actions: read
-    uses: ./.github/workflows/nightly-next-promote.yml
-    with:
-      sha: ${{ inputs.promote_nightly_next_sha }}
 
   probe-nightly-tag-permission:
     if: github.event_name == 'workflow_dispatch' && inputs.tag_permission_probe == true
@@ -2208,7 +2191,7 @@ jobs:
           set -euo pipefail
           # Every rc/** branch shares the rc tag and those branches diverge,
           # so only the nightly tag requires a fast-forward. nightly-next may
-          # move from a baseline build (see nightly-next-promote.yml). The helper retries
+          # move from a baseline build (see promote-nightly-next on main). The helper retries
           # only transient API/network failures and reads the ref back before
           # declaring the marker updated. Permission failures are terminal.
           python3 scripts/ci/update-release-tag.py \
