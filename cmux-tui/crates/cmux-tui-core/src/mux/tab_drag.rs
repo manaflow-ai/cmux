@@ -317,7 +317,9 @@ impl Mux {
     ) -> anyhow::Result<TabDragOutcome> {
         let size = self.surface(surface).map(|runtime| runtime.size());
         let fresh = match respawn {
-            SplitRespawn::Terminal(spawn) => self.new_tab_with_options(Some(source), spawn, size)?,
+            SplitRespawn::Terminal(spawn) => {
+                self.new_tab_with_options(Some(source), spawn, size)?
+            }
             SplitRespawn::Browser(record) => {
                 self.new_frontend_browser_tab(Some(source), record, size)?
             }
