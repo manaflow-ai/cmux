@@ -4034,19 +4034,8 @@ impl Terminal {
             },
             selection: &selection,
         };
-        let mut suffix = if origin_mode {
-            // The main formatter leaves the cursor at the authoritative cell.
-            // Move only to a wide glyph's lead cell, using a relative motion
-            // whose meaning is independent of the scrolling-region origin.
-            let columns_left = x.saturating_sub(start_x);
-            if columns_left == 0 {
-                Vec::new()
-            } else {
-                format!("\x1b[{}D", u32::from(columns_left)).into_bytes()
-            }
-        } else {
-            format!("\x1b[{};{}H", u32::from(y) + 1, u32::from(start_x) + 1).into_bytes()
-        };
+        let mut suffix =
+            format!("\x1b[{};{}H", u32::from(y) + 1, u32::from(start_x) + 1).into_bytes();
         suffix.extend_from_slice(&self.format(opts)?);
         Ok(Some(suffix))
     }
