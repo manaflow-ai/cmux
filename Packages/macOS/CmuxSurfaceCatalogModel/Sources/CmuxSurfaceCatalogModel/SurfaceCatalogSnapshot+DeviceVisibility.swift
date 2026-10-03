@@ -1,4 +1,3 @@
-import CmuxSurfaceCatalogModel
 import Foundation
 
 extension SurfaceCatalogSnapshot {
