@@ -10200,7 +10200,8 @@ fn prepare_session_journal_stream(
     } else {
         None
     };
-    let remote_redacted = !mux.control_clients.is_unix(client);
+    // A remote bridge peer gets the remote (metadata-only) view.
+    let remote_redacted = !mux.control_clients.is_local_principal(client);
     let mut filter = JournalStreamFilter::parse(request.fields.get("filter"))?;
     if remote_redacted {
         let requested_sensitivity = request
