@@ -61,7 +61,12 @@ for arch in $ARCHS; do
   fi
 done
 
-DEBUG_INFO="$(dwarfdump --debug-info "$BINARY" 2>&1)"
+# Resolve dwarfdump through xcrun so the Xcode toolchain's LLVM build is used.
+# Homebrew's dwarfutils installs a libdwarf dwarfdump at /opt/homebrew/bin,
+# which build-diff-sidecar.sh puts ahead of /usr/bin on PATH. That binary
+# rejects --debug-info, and under `set -e` the failing command substitution
+# aborts this script with no diagnostic at all.
+DEBUG_INFO="$(xcrun dwarfdump --debug-info "$BINARY" 2>&1)"
 if [[ "$DEBUG_INFO" == *"DW_TAG_"* ]]; then
   echo "error: diff sidecar retains embedded DWARF debug information" >&2
   exit 1
