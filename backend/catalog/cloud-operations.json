@@ -351,6 +351,11 @@
         }
       }
     },
+    "ChiefId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
     "ClientToken": {
       "kind": "primitive",
       "name": "string",
@@ -1632,11 +1637,11 @@
     "HomeChief": {
       "kind": "object",
       "fields": {
-        "agent": {
+        "id": {
           "required": true,
           "type": {
             "kind": "ref",
-            "name": "AgentId"
+            "name": "ChiefId"
           }
         },
         "owner_user": {
@@ -1646,27 +1651,20 @@
             "name": "string"
           }
         },
-        "name": {
+        "display_name": {
           "required": true,
           "type": {
             "kind": "primitive",
             "name": "string",
             "min_length": 1,
-            "max_length": 60
+            "max_length": 100
           }
         },
-        "avatar": {
-          "required": false,
+        "is_default": {
+          "required": true,
           "type": {
             "kind": "primitive",
-            "name": "string"
-          }
-        },
-        "parent": {
-          "required": false,
-          "type": {
-            "kind": "ref",
-            "name": "AgentId"
+            "name": "boolean"
           }
         },
         "brain": {
@@ -1674,23 +1672,72 @@
           "type": {
             "kind": "enum",
             "values": [
-              "local",
               "cloud"
             ]
           }
         },
-        "thread": {
+        "main_conversation": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "ConversationId"
+            }
+          }
+        },
+        "harness": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "rev": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        },
+        "created_at": {
           "required": true,
           "type": {
             "kind": "ref",
-            "name": "ConversationId"
+            "name": "Timestamp"
           }
         },
-        "archived_at": {
-          "required": false,
+        "updated_at": {
+          "required": true,
           "type": {
             "kind": "ref",
             "name": "Timestamp"
+          }
+        },
+        "archived_at": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "Timestamp"
+            }
           }
         }
       }
@@ -11797,187 +11844,30 @@
       "params": {
         "selectors": {},
         "fields": {
-          "agent": {
+          "chief": {
             "required": true,
             "type": {
               "kind": "ref",
-              "name": "AgentId"
+              "name": "ChiefId"
             }
           },
-          "expected_revision": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "decimal"
-            },
-            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
-          }
-        },
-        "extra": false
-      },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "HomeChief"
-          }
-        ]
-      },
-      "errors": [
-        "auth.forbidden",
-        "auth.unauthenticated",
-        "idempotency.conflict",
-        "revision.conflict",
-        "selector.not_found",
-        "validation.invalid"
-      ],
-      "owner": "cloud:UserDO",
-      "risk": "destructive",
-      "principals": [
-        "session"
-      ],
-      "focuses": false,
-      "queue_offline": false,
-      "remote_relay": "deny",
-      "transport": {
-        "http": {
-          "method": "POST",
-          "path": "/v1/ops"
-        }
-      },
-      "cli": {
-        "path": "chief archive",
-        "visible": true
-      },
-      "mcp": {
-        "expose": "never",
-        "group": "home"
-      },
-      "docs": "Archive a chief: its thread stays readable, it stops waking.",
-      "since": "cloud-1",
-      "input_json_schema": {
-        "type": "object",
-        "properties": {
-          "agent": {
-            "$ref": "#/$defs/AgentId"
-          }
-        },
-        "required": [
-          "agent"
-        ],
-        "additionalProperties": true,
-        "$defs": {
-          "AgentId": {
-            "type": "string",
-            "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
-          }
-        }
-      },
-      "output_json_schema": {
-        "$ref": "#/$defs/HomeChief",
-        "$defs": {
-          "AgentId": {
-            "type": "string",
-            "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
-          },
-          "ConversationId": {
-            "type": "string",
-            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
-            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
-          },
-          "Timestamp": {
-            "type": "string",
-            "description": "RFC 3339 UTC with milliseconds."
-          },
-          "HomeChief": {
-            "type": "object",
-            "properties": {
-              "agent": {
-                "$ref": "#/$defs/AgentId"
-              },
-              "owner_user": {
-                "type": "string"
-              },
-              "name": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 60
-              },
-              "avatar": {
-                "type": "string"
-              },
-              "parent": {
-                "$ref": "#/$defs/AgentId"
-              },
-              "brain": {
-                "type": "string",
-                "enum": [
-                  "local",
-                  "cloud"
-                ]
-              },
-              "thread": {
-                "$ref": "#/$defs/ConversationId"
-              },
-              "archived_at": {
-                "$ref": "#/$defs/Timestamp"
-              }
-            },
-            "required": [
-              "agent",
-              "owner_user",
-              "name",
-              "brain",
-              "thread"
-            ],
-            "additionalProperties": true
-          }
-        }
-      }
-    },
-    "chief.create": {
-      "class": "mutation",
-      "idempotency": "required",
-      "target": "chief",
-      "ancestors": [
-        "user"
-      ],
-      "params": {
-        "selectors": {},
-        "fields": {
-          "name": {
+          "expected_rev": {
             "required": true,
             "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 60
-            }
-          },
-          "parent": {
-            "required": false,
-            "type": {
-              "kind": "ref",
-              "name": "AgentId"
-            }
-          },
-          "avatar": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "max_length": 1024
-            }
-          },
-          "brain": {
-            "required": true,
-            "type": {
-              "kind": "enum",
-              "values": [
-                "local",
-                "cloud"
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
               ]
             }
           },
@@ -12005,12 +11895,14 @@
       "errors": [
         "auth.forbidden",
         "auth.unauthenticated",
+        "chief_is_default",
         "idempotency.conflict",
         "revision.conflict",
+        "selector.not_found",
         "validation.invalid"
       ],
       "owner": "cloud:UserDO",
-      "risk": "mutate-own",
+      "risk": "destructive",
       "principals": [
         "session"
       ],
@@ -12024,56 +11916,55 @@
         }
       },
       "cli": {
-        "path": "chief create",
+        "path": "chief archive",
         "visible": true
       },
       "mcp": {
         "expose": "never",
         "group": "home"
       },
-      "docs": "Create a chief (or a subchief under parent): its agent principal and mux grant, its wake queue and its chief thread.",
+      "docs": "Archive a chief (not the default): it stops waking; restorable for 30 days, then a tombstone keeps its id forever.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
         "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 60
+          "chief": {
+            "$ref": "#/$defs/ChiefId"
           },
-          "parent": {
-            "$ref": "#/$defs/AgentId"
-          },
-          "avatar": {
-            "type": "string",
-            "maxLength": 1024
-          },
-          "brain": {
-            "type": "string",
-            "enum": [
-              "local",
-              "cloud"
+          "expected_rev": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
             ]
           }
         },
         "required": [
-          "name",
-          "brain"
+          "chief",
+          "expected_rev"
         ],
         "additionalProperties": true,
         "$defs": {
-          "AgentId": {
+          "ChiefId": {
             "type": "string",
-            "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+            "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
           }
         }
       },
       "output_json_schema": {
         "$ref": "#/$defs/HomeChief",
         "$defs": {
-          "AgentId": {
+          "ChiefId": {
             "type": "string",
-            "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+            "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
           },
           "ConversationId": {
             "type": "string",
@@ -12087,50 +11978,97 @@
           "HomeChief": {
             "type": "object",
             "properties": {
-              "agent": {
-                "$ref": "#/$defs/AgentId"
+              "id": {
+                "$ref": "#/$defs/ChiefId"
               },
               "owner_user": {
                 "type": "string"
               },
-              "name": {
+              "display_name": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 60
+                "maxLength": 100
               },
-              "avatar": {
-                "type": "string"
-              },
-              "parent": {
-                "$ref": "#/$defs/AgentId"
+              "is_default": {
+                "type": "boolean"
               },
               "brain": {
                 "type": "string",
                 "enum": [
-                  "local",
                   "cloud"
                 ]
               },
-              "thread": {
-                "$ref": "#/$defs/ConversationId"
+              "main_conversation": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "harness": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "rev": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "created_at": {
+                "$ref": "#/$defs/Timestamp"
+              },
+              "updated_at": {
+                "$ref": "#/$defs/Timestamp"
               },
               "archived_at": {
-                "$ref": "#/$defs/Timestamp"
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Timestamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
-              "agent",
+              "id",
               "owner_user",
-              "name",
+              "display_name",
+              "is_default",
               "brain",
-              "thread"
+              "main_conversation",
+              "harness",
+              "rev",
+              "created_at",
+              "updated_at",
+              "archived_at"
             ],
             "additionalProperties": true
           }
         }
       }
     },
-    "chief.update": {
+    "chief.create": {
       "class": "mutation",
       "idempotency": "required",
       "target": "chief",
@@ -12140,28 +12078,20 @@
       "params": {
         "selectors": {},
         "fields": {
-          "agent": {
-            "required": true,
-            "type": {
-              "kind": "ref",
-              "name": "AgentId"
-            }
-          },
-          "name": {
+          "display_name": {
             "required": false,
             "type": {
               "kind": "primitive",
               "name": "string",
               "min_length": 1,
-              "max_length": 60
+              "max_length": 100
             }
           },
-          "avatar": {
+          "is_default": {
             "required": false,
             "type": {
               "kind": "primitive",
-              "name": "string",
-              "max_length": 1024
+              "name": "boolean"
             }
           },
           "expected_revision": {
@@ -12190,13 +12120,518 @@
         "auth.unauthenticated",
         "idempotency.conflict",
         "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chief create",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "home"
+      },
+      "docs": "Create a chief (the user's first chief is the default; use the idempotency key chief-default for it). Binds its wake queue and gives it the user's text confirmation level.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "is_default": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/HomeChief",
+        "$defs": {
+          "ChiefId": {
+            "type": "string",
+            "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
+          "Timestamp": {
+            "type": "string",
+            "description": "RFC 3339 UTC with milliseconds."
+          },
+          "HomeChief": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/ChiefId"
+              },
+              "owner_user": {
+                "type": "string"
+              },
+              "display_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "is_default": {
+                "type": "boolean"
+              },
+              "brain": {
+                "type": "string",
+                "enum": [
+                  "cloud"
+                ]
+              },
+              "main_conversation": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "harness": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "rev": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "created_at": {
+                "$ref": "#/$defs/Timestamp"
+              },
+              "updated_at": {
+                "$ref": "#/$defs/Timestamp"
+              },
+              "archived_at": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Timestamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "owner_user",
+              "display_name",
+              "is_default",
+              "brain",
+              "main_conversation",
+              "harness",
+              "rev",
+              "created_at",
+              "updated_at",
+              "archived_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "chief.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "chief",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "include_archived": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "chiefs": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "HomeChief"
+              }
+            }
+          },
+          "tombstones": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "object",
+                "fields": {
+                  "id": {
+                    "required": true,
+                    "type": {
+                      "kind": "ref",
+                      "name": "ChiefId"
+                    }
+                  },
+                  "owner_user": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string"
+                    }
+                  },
+                  "archived_at": {
+                    "required": true,
+                    "type": {
+                      "kind": "ref",
+                      "name": "Timestamp"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "chief list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "home"
+      },
+      "docs": "The user's chiefs (active first, the default marked), archived ones on request, and tombstones.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "include_archived": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "chiefs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/HomeChief"
+            }
+          },
+          "tombstones": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/ChiefId"
+                },
+                "owner_user": {
+                  "type": "string"
+                },
+                "archived_at": {
+                  "$ref": "#/$defs/Timestamp"
+                }
+              },
+              "required": [
+                "id",
+                "owner_user",
+                "archived_at"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "chiefs",
+          "tombstones"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ChiefId": {
+            "type": "string",
+            "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
+          "Timestamp": {
+            "type": "string",
+            "description": "RFC 3339 UTC with milliseconds."
+          },
+          "HomeChief": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/ChiefId"
+              },
+              "owner_user": {
+                "type": "string"
+              },
+              "display_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "is_default": {
+                "type": "boolean"
+              },
+              "brain": {
+                "type": "string",
+                "enum": [
+                  "cloud"
+                ]
+              },
+              "main_conversation": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "harness": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "rev": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "created_at": {
+                "$ref": "#/$defs/Timestamp"
+              },
+              "updated_at": {
+                "$ref": "#/$defs/Timestamp"
+              },
+              "archived_at": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Timestamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "owner_user",
+              "display_name",
+              "is_default",
+              "brain",
+              "main_conversation",
+              "harness",
+              "rev",
+              "created_at",
+              "updated_at",
+              "archived_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "chief.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "chief",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "chief": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ChiefId"
+            }
+          },
+          "expected_rev": {
+            "required": true,
+            "type": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          },
+          "display_name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 100
+            }
+          },
+          "is_default": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                true
+              ]
+            }
+          },
+          "harness": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "primitive",
+                "name": "string",
+                "max_length": 64
+              }
+            }
+          },
+          "archived": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                false
+              ]
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HomeChief"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "chief_archived",
+        "chief_expired",
+        "idempotency.conflict",
+        "revision.conflict",
         "selector.not_found",
         "validation.invalid"
       ],
       "owner": "cloud:UserDO",
       "risk": "mutate-own",
       "principals": [
-        "session"
+        "session",
+        "install"
       ],
       "focuses": false,
       "queue_offline": false,
@@ -12215,41 +12650,76 @@
         "expose": "never",
         "group": "home"
       },
-      "docs": "Rename a chief or change its avatar.",
+      "docs": "Rename a chief, make it the default (clears the old default in the same commit), set its harness, or restore it within 30 days of archiving (archived: false).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
         "properties": {
-          "agent": {
-            "$ref": "#/$defs/AgentId"
+          "chief": {
+            "$ref": "#/$defs/ChiefId"
           },
-          "name": {
+          "expected_rev": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          },
+          "display_name": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 60
+            "maxLength": 100
           },
-          "avatar": {
-            "type": "string",
-            "maxLength": 1024
+          "is_default": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "harness": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "archived": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
           }
         },
         "required": [
-          "agent"
+          "chief",
+          "expected_rev"
         ],
         "additionalProperties": true,
         "$defs": {
-          "AgentId": {
+          "ChiefId": {
             "type": "string",
-            "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+            "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
           }
         }
       },
       "output_json_schema": {
         "$ref": "#/$defs/HomeChief",
         "$defs": {
-          "AgentId": {
+          "ChiefId": {
             "type": "string",
-            "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+            "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
           },
           "ConversationId": {
             "type": "string",
@@ -12263,43 +12733,90 @@
           "HomeChief": {
             "type": "object",
             "properties": {
-              "agent": {
-                "$ref": "#/$defs/AgentId"
+              "id": {
+                "$ref": "#/$defs/ChiefId"
               },
               "owner_user": {
                 "type": "string"
               },
-              "name": {
+              "display_name": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 60
+                "maxLength": 100
               },
-              "avatar": {
-                "type": "string"
-              },
-              "parent": {
-                "$ref": "#/$defs/AgentId"
+              "is_default": {
+                "type": "boolean"
               },
               "brain": {
                 "type": "string",
                 "enum": [
-                  "local",
                   "cloud"
                 ]
               },
-              "thread": {
-                "$ref": "#/$defs/ConversationId"
+              "main_conversation": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "harness": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "rev": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "created_at": {
+                "$ref": "#/$defs/Timestamp"
+              },
+              "updated_at": {
+                "$ref": "#/$defs/Timestamp"
               },
               "archived_at": {
-                "$ref": "#/$defs/Timestamp"
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Timestamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
-              "agent",
+              "id",
               "owner_user",
-              "name",
+              "display_name",
+              "is_default",
               "brain",
-              "thread"
+              "main_conversation",
+              "harness",
+              "rev",
+              "created_at",
+              "updated_at",
+              "archived_at"
             ],
             "additionalProperties": true
           }
