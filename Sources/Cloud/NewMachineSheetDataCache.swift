@@ -69,6 +69,8 @@ final class NewMachineSheetDataCache {
 
     private var refreshTask: Task<Void, Never>?
     private var refreshID: UUID?
+    private var catalogTask: Task<Void, Never>?
+    private var catalogRequestID: UUID?
     private var scopeTask: Task<Void, Never>?
     private var activationObserver: NSObjectProtocol?
     private var listeners: [UUID: @MainActor (NewMachineSheetData) -> Void] = [:]
@@ -166,8 +168,7 @@ final class NewMachineSheetDataCache {
     /// network presets never extend the wait for machine sizes.
     func data(waitingAtMost limit: Duration? = nil) async -> NewMachineSheetData? {
         guard !Task.isCancelled else { return nil }
-        if let readyData {
-            refreshIfStale()
+        if let readyData, let fetchedAt, clock.now - fetchedAt < Self.staleAfter {
             return readyData
         }
         guard refresh() else { return currentData }
@@ -226,40 +227,43 @@ final class NewMachineSheetDataCache {
             adopt(scope: scope)
             return refreshTask != nil
         }
-        guard refreshTask == nil else { return true }
-        let id = UUID()
-        refreshID = id
-        let fetchPage = fetchPage
-        let fetchCatalog = fetchCatalog
-        refreshTask = Task { @MainActor [weak self] in
-            async let pageResult: Void = { @MainActor in
+        if refreshTask == nil {
+            let id = UUID()
+            refreshID = id
+            let fetchPage = fetchPage
+            refreshTask = Task { @MainActor [weak self] in
                 let result = await Self.capture(fetchPage)
-                guard !Task.isCancelled, let self,
-                      self.refreshID == id, self.isCurrent(scope) else { return }
+                guard let self, self.refreshID == id else { return }
+                self.refreshTask = nil
+                self.refreshID = nil
+                defer { self.resumeAllWaiters() }
+                guard !Task.isCancelled, self.isCurrent(scope) else { return }
                 if case .success(let page) = result {
                     self.page = (page.limits, page.vms.count)
                     self.fetchedAt = self.clock.now
                 }
                 self.notify()
-                self.resumeAllWaiters()
-            }()
-            async let catalogResult = Self.capture(fetchCatalog)
-            let (_, fetchedCatalog) = await (pageResult, catalogResult)
-            guard let self, self.refreshID == id else { return }
-            self.refreshTask = nil
-            self.refreshID = nil
-            defer { self.resumeAllWaiters() }
-            guard !Task.isCancelled, self.isCurrent(scope) else { return }
-            switch fetchedCatalog {
-            case .success(let catalog):
-                self.catalog = catalog
-                self.catalogFailed = false
-            case .failure:
-                // Keep an earlier catalog; only a cache that never had one
-                // reports the row as unavailable.
-                if self.catalog == nil { self.catalogFailed = true }
             }
-            self.notify()
+        }
+        if catalogTask == nil {
+            let id = UUID()
+            catalogRequestID = id
+            let fetchCatalog = fetchCatalog
+            catalogTask = Task { @MainActor [weak self] in
+                let result = await Self.capture(fetchCatalog)
+                guard let self, self.catalogRequestID == id else { return }
+                self.catalogTask = nil
+                self.catalogRequestID = nil
+                guard !Task.isCancelled, self.isCurrent(scope) else { return }
+                switch result {
+                case .success(let catalog):
+                    self.catalog = catalog
+                    self.catalogFailed = false
+                case .failure:
+                    if self.catalog == nil { self.catalogFailed = true }
+                }
+                self.notify()
+            }
         }
         return true
     }
@@ -272,6 +276,7 @@ final class NewMachineSheetDataCache {
         self.page = (page.limits, page.vms.count)
         fetchedAt = clock.now
         notify()
+        if readyData != nil { resumeAllWaiters() }
     }
 
     /// The scope a caller should capture before a read it will ``ingest(page:scope:)``.
@@ -286,6 +291,9 @@ final class NewMachineSheetDataCache {
             if scope != nil, page == nil { refresh() }
             return
         }
+        catalogTask?.cancel()
+        catalogTask = nil
+        catalogRequestID = nil
         refreshTask?.cancel()
         refreshTask = nil
         refreshID = nil

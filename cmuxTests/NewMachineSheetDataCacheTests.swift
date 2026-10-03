@@ -192,4 +192,31 @@ struct NewMachineSheetDataCacheTests {
         #expect(cache.readyData == nil)
     }
 
+    @Test func failedPlanCanRetryWhileCatalogIsPending() async {
+        let releaseCatalog = AsyncStream<Void>.makeStream()
+        defer { releaseCatalog.continuation.finish() }
+        let account = Self.scope("retry-plan")
+        var attempts = 0
+        let cache = NewMachineSheetDataCache(
+            currentScope: { account },
+            scopes: { AsyncStream { $0.finish() } },
+            fetchPage: {
+                attempts += 1
+                if attempts == 1 { throw URLError(.networkConnectionLost) }
+                return VMListPage(vms: [], limits: VMPlanLimits(
+                    planId: "pro", freeAccessWindowDays: 0, memoryOptionsMb: [4096, 8192]
+                ))
+            },
+            fetchCatalog: {
+                for await _ in releaseCatalog.stream { break }
+                return Self.catalog
+            }
+        )
+        let first = await cache.data(waitingAtMost: .milliseconds(100))
+        #expect(first?.hasPlan != true)
+        let second = await cache.data(waitingAtMost: .milliseconds(100))
+        #expect(second?.limits?.memoryOptionsMb == [4096, 8192])
+        #expect(attempts == 2)
+    }
+
 }
