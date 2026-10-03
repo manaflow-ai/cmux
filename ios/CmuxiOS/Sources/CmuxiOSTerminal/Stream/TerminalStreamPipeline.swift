@@ -84,7 +84,7 @@ final class TerminalStreamPipeline: @unchecked Sendable {
         }
     }
 
-    @MainActor func throttled(retryAfterMilliseconds: Int, requestID: String?) {
+    @MainActor func throttled(retryAfterMilliseconds: Int, requestID: String) {
         run { pipeline, _ in pipeline.viewer.throttled(retryAfterMilliseconds: retryAfterMilliseconds, requestID: requestID) }
     }
 

@@ -154,11 +154,11 @@ private func req(_ reason: SnapshotRequest.Reason, _ id: String = "r1", gen: UIn
         var viewer = TerminalViewer(terminal: "t1", snapshotVersion: 1, makeRequestID: Counter().next)
         _ = viewer.receive(ready("S", at: 10))
         _ = viewer.receive(bytes("lost", after: 20))
-        #expect(viewer.throttled(retryAfterMilliseconds: 500) == [.retryAfter(milliseconds: 500)])
+        #expect(viewer.throttled(retryAfterMilliseconds: 500, requestID: "r1") == [.retryAfter(milliseconds: 500)])
         #expect(viewer.retryDue() == [req(.gap, at: 10)])
         _ = viewer.receive(ready("S2", at: 30))
         #expect(viewer.retryDue().isEmpty)
-        #expect(viewer.throttled(retryAfterMilliseconds: 500).isEmpty)
+        #expect(viewer.throttled(retryAfterMilliseconds: 500, requestID: "r1").isEmpty)
     }
 
     @Test func attachRequestHasNoHaveAndTheJSONMatchesTheSpec() throws {
@@ -199,7 +199,7 @@ private func req(_ reason: SnapshotRequest.Reason, _ id: String = "r1", gen: UIn
 
     @Test func lateOrStrayThrottlesAreIgnoredAndASecondTriggerSendsNothing() {
         var viewer = TerminalViewer(terminal: "t1", snapshotVersion: 1, makeRequestID: Counter().next)
-        #expect(viewer.throttled(retryAfterMilliseconds: 500).isEmpty)
+        #expect(viewer.throttled(retryAfterMilliseconds: 500, requestID: "r1").isEmpty)
         _ = viewer.receive(ready("S", at: 4))
         _ = viewer.receive(bytes("lost", after: 20))
         let digest = TerminalFrame(kind: .digest, generation: 1, offset: 4, snapshotVersion: 1, payload: Data([1]))

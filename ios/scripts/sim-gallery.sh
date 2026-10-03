@@ -7,7 +7,7 @@
 set -euo pipefail
 udid="${NX_SIM_UDID:?set NX_SIM_UDID to an isolated simulator}"
 out="${NX_ARTIFACTS:-$PWD/artifacts/sim-gallery}"
-derived="${SIM_GALLERY_DERIVED:-/tmp/cmux-ios-sim-gallery}"
+derived="${SIM_GALLERY_DERIVED:-${NX_DERIVED_DATA:-/tmp}/cmux-ios-sim-gallery}"
 bundle="dev.cmux.ios"
 mkdir -p "$out"
 xcodebuild -workspace ios/cmux.xcworkspace -scheme cmux-ios -configuration Debug \

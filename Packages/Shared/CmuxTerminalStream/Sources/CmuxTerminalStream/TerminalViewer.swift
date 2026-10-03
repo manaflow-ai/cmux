@@ -59,10 +59,10 @@ public struct TerminalViewer: Sendable {
         return request(.attach)
     }
 
-    /// The host answered `snapshot_throttled {retry_after_ms}`. A throttle
-    /// naming another request (a late answer to an older one) is ignored.
-    public mutating func throttled(retryAfterMilliseconds: Int, requestID: String? = nil) -> [TerminalViewerAction] {
-        guard let inFlight, requestID == nil || requestID == inFlight.requestID else { return [] }
+    /// The host answered `snapshot_throttled {retry_after_ms, request_id}`.
+    /// A throttle naming another request (a late answer to an older one) is ignored.
+    public mutating func throttled(retryAfterMilliseconds: Int, requestID: String) -> [TerminalViewerAction] {
+        guard let inFlight, requestID == inFlight.requestID else { return [] }
         return [.retryAfter(milliseconds: max(0, retryAfterMilliseconds))]
     }
 
