@@ -6,7 +6,7 @@ import { handleProviderHook } from "./ingress/provider-hook.ts"
 import { handleGooglePubsub } from "./ingress/google-hooks.ts"
 import { handleSsoDiscover } from "./sso-discover.ts"
 import { handleInviteCard, handleInvitePreview } from "./home-routes.ts"
-import { signInRules, ssoRefusal, versionRefusal } from "./policy-gate.ts"
+import { signInRules, ssoRefusal, versionRefusal, withSsoSession } from "./policy-gate.ts"
 import type { PresenceKeyBody } from "./user-do.ts"
 import { handlePairBegin, handlePairWait } from "./pair-routes.ts"
 import { handleSsoCallback, handleSsoRedeem, handleSsoStart } from "./sso-routes.ts"
@@ -38,10 +38,11 @@ export { UsageMeterDO } from "./usage-meter-do.ts"
 const wire = async (request: Request, env: Env, scope: string, conversation?: string /* or agent for mux */): Promise<Response> => {
   const protocols = (request.headers.get("Sec-WebSocket-Protocol") ?? "").split(",").map((s) => s.trim())
   const token = protocols.find((p) => p.startsWith("bearer."))?.slice("bearer.".length)
-  const authed = await authenticate(env, token)
-  if (!authed?.user || !authed.team) return new Response("unauthenticated", { status: 401 })
+  const authenticated = await authenticate(env, token)
+  if (!authenticated?.user || !authenticated.team) return new Response("unauthenticated", { status: 401 })
   // Team policy (P17-4): SSO for sessions, minimum client version for every connect.
-  const rules = await signInRules(env, authed.team, authed.user)
+  const rules = await signInRules(env, authenticated.team, authenticated.user)
+  const authed = await withSsoSession(env, authenticated, rules)
   const refused = ssoRefusal(authed, rules) ?? versionRefusal(request.headers.get("x-cmux-client-version"), rules)
   if (refused) return Response.json({ error: refused }, { status: 403 })
   // TeamDO and FeedDO cannot see UserDO's revocations; resolve the grant first (UserDO checks its own installs).

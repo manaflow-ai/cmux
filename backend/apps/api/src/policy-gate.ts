@@ -4,8 +4,9 @@ import type { SignInRules } from "./team-do.ts"
 
 /**
  * Server-side team policy at sign-in (enterprise P17-4, coordinator decisions 2026-10-03):
- * - sso.enforce: a Stack session needs this team's SSO claim (`cmux_sso_team`, stamped by the
- *   enterprise OIDC callback); owners are exempt unless sso.enforceForOwners.
+ * - sso.enforce: a Stack session counts only when this team's OIDC callback created it (TeamDO
+ *   records it by Stack's refresh_token_id; no token claim is trusted); owners are exempt unless
+ *   sso.enforceForOwners.
  * - updates.minimumVersion: /v1/auth/token and wire connects send `x-cmux-client-version`; an
  *   older or (only when the key is set) missing version answers `client.too_old`.
  * - agents.allowedClasses: grants are minted only for listed classes (mux = chief creation and
@@ -27,7 +28,29 @@ export const signInRules = async (env: Env, team: string, user: string): Promise
 }
 
 /** Test hook: forget cached rules. */
-export const clearSignInRules = () => cache.clear()
+export const clearSignInRules = () => {
+  cache.clear()
+  ssoSessions.clear()
+}
+
+const ssoSessions = new Map<string, number>()
+
+/**
+ * The principal with `sso_team` set when the team enforces SSO and its OIDC callback created this
+ * Stack session (TeamDO's record, keyed by the Stack-signed refresh_token_id). Only confirmed
+ * sessions are cached (30 s per isolate); a refusal is asked again on the next request.
+ */
+export const withSsoSession = async (env: Env, principal: Principal, rules: SignInRules): Promise<Principal> => {
+  if (principal.kind !== "session" || !rules.sso_required || !principal.team || !principal.stack_session || !principal.stack_user_id) return principal
+  const key = `${principal.team}\u0000${principal.stack_session}\u0000${principal.stack_user_id}`
+  const at = ssoSessions.get(key)
+  if (at !== undefined && Date.now() - at < TTL_MS) return { ...principal, sso_team: principal.team }
+  const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(principal.team)) as unknown as { ssoSession(e: string, s: string, u: string): Promise<boolean> }
+  if (!(await stub.ssoSession(principal.team, principal.stack_session, principal.stack_user_id))) return principal
+  if (ssoSessions.size > 5000) ssoSessions.clear()
+  ssoSessions.set(key, Date.now())
+  return { ...principal, sso_team: principal.team }
+}
 
 const parse = (v: string): Array<number> | null => {
   const m = /^(\d+)\.(\d+)\.(\d+)/.exec(v.trim())

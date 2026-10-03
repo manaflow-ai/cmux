@@ -16,6 +16,8 @@ export interface CurrentPrincipalShape {
   /** Stack asserted the email as verified (claim `email_verified === true`). */
   readonly email_verified?: boolean
   readonly display_name?: string
+  /** Team whose SSO created this session, resolved server-side by the Worker (sso.enforce). */
+  readonly sso_team?: string
 }
 export class CurrentPrincipal extends Context.Service<CurrentPrincipal, CurrentPrincipalShape>()("cmux/CurrentPrincipal") {}
 

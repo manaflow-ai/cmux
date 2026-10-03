@@ -47,7 +47,9 @@ const sessionPrincipal = async (env: Env, token: string): Promise<Principal | un
       email_verified: emailVerified,
       ...(typeof payload.exp === "number" ? { expires_at: payload.exp * 1000 } : {}),
       ...(name ? { display_name: name } : {}),
-      ...(typeof payload.cmux_sso_team === "string" ? { sso_team: payload.cmux_sso_team } : {})
+      // SSO is never read from the token (Stack tokens carry no custom claims); policy-gate.ts
+      // resolves it from TeamDO's record of the sessions our OIDC callback created.
+      ...(typeof payload.refresh_token_id === "string" && payload.refresh_token_id ? { stack_session: payload.refresh_token_id } : {})
     }
   } catch {
     return undefined

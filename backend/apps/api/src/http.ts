@@ -35,7 +35,7 @@ import type { RedeemResult } from "./user-do.ts"
 import { pairApprove, pairPreview } from "./pair-routes.ts"
 import { conversationMutate, conversationRead } from "./home-routes.ts"
 import { homeSearch, type SearchParams } from "./home-search.ts"
-import { signInRules, ssoRefusal, versionRefusal } from "./policy-gate.ts"
+import { signInRules, ssoRefusal, versionRefusal, withSsoSession } from "./policy-gate.ts"
 import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
 
 /** DO RPC stubs erase union result types; the DO methods define them. */
@@ -54,7 +54,8 @@ const toPrincipal = (p: CurrentPrincipalShape): Principal => ({
   stack_user_id: p.stack_user_id,
   ...(p.email !== undefined ? { email: p.email } : {}),
   ...(p.email_verified !== undefined ? { email_verified: p.email_verified } : {}),
-  ...(p.display_name ? { display_name: p.display_name } : {})
+  ...(p.display_name ? { display_name: p.display_name } : {}),
+  ...(p.sso_team ? { sso_team: p.sso_team } : {})
 })
 
 const userStub = (user: string) => env.USER_DO.get(env.USER_DO.idFromName(user))
@@ -411,25 +412,27 @@ const AuthorizationLive = Layer.succeed(Authorization)(
   Authorization.of({
     bearer: (httpEffect, { credential }) =>
       Effect.gen(function* () {
-        const p = yield* Effect.promise(() => authenticate(env, Redacted.value(credential)))
-        if (!p || !p.user || !p.team) return yield* new Unauthenticated({ code: "auth.unauthenticated", message: "missing or invalid bearer token" })
+        const authed = yield* Effect.promise(() => authenticate(env, Redacted.value(credential)))
+        if (!authed || !authed.user || !authed.team) return yield* new Unauthenticated({ code: "auth.unauthenticated", message: "missing or invalid bearer token" })
         // Team policy (P17-4): a team that enforces SSO refuses sessions and installs not from its SSO.
+        const rules = yield* Effect.promise(() => signInRules(env, authed.team!, authed.user!))
+        const p = yield* Effect.promise(() => withSsoSession(env, authed, rules))
         {
-          const rules = yield* Effect.promise(() => signInRules(env, p.team!, p.user!))
           const refused = ssoRefusal(p, rules)
           if (refused) return yield* new PolicyRefused(refused)
         }
         const shape: CurrentPrincipalShape = {
           kind: p.kind === "session" ? "session" : "install",
           identity: p.identity,
-          user: p.user,
-          team: p.team,
+          user: authed.user,
+          team: authed.team,
           ...(p.install ? { install: p.install } : {}),
           ...(p.grant ? { grant: p.grant } : {}),
           stack_user_id: p.stack_user_id ?? "",
           ...(p.email !== undefined ? { email: p.email } : {}),
           ...(p.email_verified !== undefined ? { email_verified: p.email_verified } : {}),
-          ...(p.display_name ? { display_name: p.display_name } : {})
+          ...(p.display_name ? { display_name: p.display_name } : {}),
+          ...(p.sso_team ? { sso_team: p.sso_team } : {})
         }
         return yield* Effect.provideService(httpEffect, CurrentPrincipal, shape)
       })
