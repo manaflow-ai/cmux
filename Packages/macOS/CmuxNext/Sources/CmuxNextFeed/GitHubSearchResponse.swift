@@ -1,5 +1,5 @@
 public import Foundation
 
-struct GitHubSearchResponse<Entry: Decodable>: Decodable {
+nonisolated struct GitHubSearchResponse<Entry: Decodable>: Decodable {
     var items: [Entry]
 }
