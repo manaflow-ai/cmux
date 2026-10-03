@@ -1385,3 +1385,104 @@ fn raw_metadata_and_pin_commands_publish_the_same_state_on_session_events() {
             && change["value"]["extra"]["pinned"] == true
     }));
 }
+
+/// `sidebar_layout.get` / `.update` (sidebar-layout-v1): defaults, one
+/// committed op with its `state_upsert`, idempotent replay, reducer rejects
+/// as `validation.invalid`, no-ops without a change, and the snapshot.
+#[test]
+fn sidebar_layout_ops_commit_replay_and_reject() {
+    let mux = Mux::new_for_test("state-sidebar-layout", SurfaceOptions::default());
+    let before = revision(&mux);
+    let defaults = read(&mux, "sidebar_layout.get", json!({}));
+    assert_eq!(defaults["revision"], "0");
+    assert_eq!(defaults["sections"][0]["items"][0]["id"], "itm_home");
+    let update =
+        |key: &str, op: Value| send(&mux, "sidebar_layout.update", json!({"op": op}), Some(key));
+    let removed = update("s-1", json!({"kind": "item.remove", "id": "itm_home"})).unwrap();
+    assert_eq!(removed["replayed"], false);
+    assert_eq!(removed["value"]["revision"], "1");
+    assert_eq!(removed["value"]["sections"][0]["items"][0]["id"], "itm_app_store");
+    let replay = update("s-1", json!({"kind": "item.remove", "id": "itm_home"})).unwrap();
+    assert_eq!(replay["replayed"], true);
+    assert_eq!(
+        error_code(update("s-2", json!({"kind": "section.remove", "id": "sec_workspaces"}))),
+        "validation.invalid"
+    );
+    assert_eq!(error_code(update("s-3", json!({"kind": "item.teleport"}))), "validation.invalid");
+    let gap =
+        update("s-4", json!({"kind": "section.update", "id": "sec_bottom", "patch": {"gap": 6}}))
+            .unwrap();
+    assert_eq!(
+        gap["value"]["sections"][2]["arrangement"],
+        json!({"layout": "inline", "align": "fill", "gap": 6})
+    );
+    let noop = update("s-5", json!({"kind": "item.add", "item": {"id": "itm_x", "ref": {"kind": "built_in", "value": "settings"}},
+                                    "section": "sec_bottom", "index": 0})).unwrap();
+    assert_eq!(noop["value"]["revision"], "2");
+    let got = read(&mux, "sidebar_layout.get", json!({}));
+    assert_eq!(got["revision"], "2");
+    let changes = changes_after(&mux, before)
+        .into_iter()
+        .filter(|change| change["resource"] == "sidebar_layout")
+        .map(|change| {
+            (change["kind"].as_str().unwrap().to_string(), change["value"]["revision"].clone())
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        changes,
+        [("state_upsert".to_string(), json!("1")), ("state_upsert".to_string(), json!("2"))]
+    );
+    assert_eq!(snapshot(&mux)["extra"]["state"]["sidebar_layout"]["revision"], "2");
+    // Raw clients follow the layout through personal-changed.
+    let personal = mux.personal_snapshot().unwrap().personal_revision;
+    update("s-6", json!({"kind": "item.remove", "id": "itm_settings"})).unwrap();
+    assert_eq!(mux.personal_snapshot().unwrap().personal_revision, personal + 1);
+}
+
+/// The layout survives a reopen; a reused key with another op is
+/// `idempotency.conflict`; reset goes through the protocol; a row that no
+/// longer parses reads as the defaults instead of breaking snapshots.
+#[test]
+fn sidebar_layout_persists_conflicts_resets_and_survives_a_damaged_row() {
+    let session = Session::new("sidebar-layout-reopen");
+    {
+        let mux = session.open();
+        let op = json!({"kind": "item.remove", "id": "itm_home"});
+        send(&mux, "sidebar_layout.update", json!({"op": op}), Some("r-1")).unwrap();
+        let other = json!({"kind": "item.remove", "id": "itm_settings"});
+        assert_eq!(
+            error_code(send(&mux, "sidebar_layout.update", json!({"op": other}), Some("r-1"))),
+            "idempotency.conflict"
+        );
+    }
+    {
+        let mux = session.open();
+        let got = read(&mux, "sidebar_layout.get", json!({}));
+        assert_eq!(got["revision"], "1");
+        assert_eq!(got["sections"][0]["items"][0]["id"], "itm_app_store");
+        let reset = send(
+            &mux,
+            "sidebar_layout.update",
+            json!({"op": {"kind": "layout.reset"}}),
+            Some("r-2"),
+        )
+        .unwrap();
+        assert_eq!(reset["value"]["revision"], "2");
+        assert_eq!(reset["value"]["sections"][0]["items"][0]["id"], "itm_home");
+    }
+    {
+        let registry = WorkspaceRegistry::open(&session.root, session.name).unwrap();
+        registry
+            .read_state(|connection| {
+                connection.execute(
+                    "UPDATE sidebar_layout SET document_json = '{not json' WHERE id = 1",
+                    [],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+    }
+    let mux = session.open();
+    assert_eq!(read(&mux, "sidebar_layout.get", json!({}))["revision"], "0");
+    assert_eq!(snapshot(&mux)["extra"]["state"]["sidebar_layout"]["revision"], "0");
+}

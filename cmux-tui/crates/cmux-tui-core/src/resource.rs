@@ -408,6 +408,10 @@ pub enum ResourceOperation {
     WindowRecordPut,
     #[serde(rename = "window_record.delete")]
     WindowRecordDelete,
+    #[serde(rename = "sidebar_layout.get")]
+    SidebarLayoutGet,
+    #[serde(rename = "sidebar_layout.update")]
+    SidebarLayoutUpdate,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]
@@ -616,6 +620,7 @@ impl ResourceOperation {
                 | Self::SidebarViewGet
                 | Self::ClosedList
                 | Self::WindowRecordList
+                | Self::SidebarLayoutGet
                 | Self::RoomList
                 | Self::SavedTabGroupList
                 | Self::ScreenGroupGet
@@ -641,7 +646,9 @@ impl ResourceOperation {
 #[cfg(test)]
 #[path = "resource/wire_name_tests.rs"]
 mod resource_operation_wire_name_tests;
+mod ids;
 mod scope;
+use ids::resource_id_has_kind;
 
 impl ResourceOperation {
     pub const fn wire_name(self) -> &'static str {
@@ -787,6 +794,8 @@ impl ResourceOperation {
             Self::WindowRecordList => "window_record.list",
             Self::WindowRecordPut => "window_record.put",
             Self::WindowRecordDelete => "window_record.delete",
+            Self::SidebarLayoutGet => "sidebar_layout.get",
+            Self::SidebarLayoutUpdate => "sidebar_layout.update",
             Self::RoomCreate => "room.create",
             Self::RoomDelete => "room.delete",
             Self::RoomFollow => "room.follow",
@@ -1398,34 +1407,6 @@ fn catalog_value_matches(value: &Value, descriptor: &Value) -> bool {
             .is_some_and(|descriptor| catalog_value_matches(value, descriptor)),
         _ => false,
     }
-}
-
-fn resource_id_has_kind(value: &str, kind: &str) -> bool {
-    let prefix = match kind {
-        "machine" => "machine_",
-        "session" => "session_",
-        "client" => "client_",
-        "workspace" => "ws_",
-        "screen" => "screen_",
-        "pane" => "pane_",
-        "split" => "split_",
-        "tab" => "tab_",
-        "terminal" => "term_",
-        "browser" => "browser_",
-        "notification" => "notification_",
-        "agent" => "agent_",
-        "frontend_projection" => "projection_",
-        "pairing_request" => "pairing_",
-        "sidebar_view" => "sidebar_view_",
-        "stream" => "stream_",
-        _ => return false,
-    };
-    value.strip_prefix(prefix).is_some_and(is_lower_hex_128)
-}
-
-fn is_lower_hex_128(value: &str) -> bool {
-    value.len() == 32
-        && value.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 impl fmt::Display for ResourceError {

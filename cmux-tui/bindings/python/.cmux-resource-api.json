@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "a4a6e1038d6cca2230d219b8ee35ce165dbe9d31961f7a3adb918d0b547b360e",
+  "catalog_sha256": "52c40a436eee9d8ba9a874564418210b710575fb3ac0f31d97f1081213910cca",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -332,6 +332,12 @@
       "class": "mutation"
     },
     "session.window.title.set": {
+      "class": "mutation"
+    },
+    "sidebar_layout.get": {
+      "class": "read"
+    },
+    "sidebar_layout.update": {
       "class": "mutation"
     },
     "sidebar_view.attach": {
