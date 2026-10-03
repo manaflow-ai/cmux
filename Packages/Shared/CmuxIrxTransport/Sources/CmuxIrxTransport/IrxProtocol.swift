@@ -18,6 +18,14 @@ public struct IrxProtocol: Sendable {
     public let keepaliveInterval: Duration = .seconds(5)
     /// A missed application pong retires only the diagnostic stream.
     public let keepaliveDeadline: Duration = .seconds(2)
+    /// How long a control-stream replacement may take to open a fresh stream
+    /// and receive the host's acknowledgement. Generous next to the 2 s
+    /// keepalive deadline because it includes opening the stream and a host
+    /// actor hop, and a miss here only falls back to the conservative
+    /// two-silent-timeout threshold unless the connection is also silent.
+    public let controlRepairDeadline: Duration = .seconds(5)
+    /// Error code for resetting a control stream retired by a replacement.
+    public let retiredControlStreamErrorCode: UInt64 = 7
 
 }
 
@@ -93,6 +101,19 @@ public enum IrxLaneKind: String, Codable, Sendable {
     case terminalInput = "terminal_input"
     case artifact
     case simulatorStream = "simulator_stream"
+    /// Client-opened replacement for a stalled control stream on an admitted
+    /// connection. The server acknowledges with ``IrxControlLaneRepairAck``
+    /// and moves the session's control lane onto this stream. A server that
+    /// predates it cannot decode the descriptor and resets the stream, which
+    /// the client treats as "replacement unavailable".
+    case controlRepair = "control_repair"
+    /// Phone browser tunnel: one TCP connection opened from the Mac to the
+    /// descriptor's `host`/`port`, answered with an `IrxTunnelOpenReply`,
+    /// then raw bytes both ways (see `IrxTunnelHost`).
+    case tcpConnect = "tcp_connect"
+    /// Phone browser tunnel: the Mac's loopback listening ports, answered
+    /// with one `IrxListeningPortsReply` and a finished stream.
+    case listeningPorts = "listening_ports"
 }
 
 /// The first frame on every stream: which lane this is, plus lane-specific
@@ -107,18 +128,26 @@ public struct IrxLaneDescriptor: Codable, Equatable, Sendable {
     public var cursor: UInt64?
     /// Artifact byte offset.
     public var offset: UInt64?
+    /// `tcpConnect` destination host, as the phone's browser sent it.
+    public var host: String?
+    /// `tcpConnect` destination port.
+    public var port: Int?
 
     public init(
         lane: IrxLaneKind,
         resource: String? = nil,
         cursor: UInt64? = nil,
-        offset: UInt64? = nil
+        offset: UInt64? = nil,
+        host: String? = nil,
+        port: Int? = nil
     ) {
         v = IrxProtocol().version
         self.lane = lane
         self.resource = resource
         self.cursor = cursor
         self.offset = offset
+        self.host = host
+        self.port = port
     }
 }
 
@@ -131,11 +160,18 @@ public struct IrxHello: Codable, Equatable, Sendable {
     public var v: Int
     public var proto: String
     public var grant: String?
+    /// NAT-traversal authorization barrier capability. `true` means the
+    /// client will authorize NAT traversal for this connection and then send
+    /// ``IrxClientReady`` right after reading an admit that acks the barrier.
+    /// Absent on legacy hellos and on relay-only/direct-only dials, where the
+    /// server admits without waiting (the pre-barrier behavior).
+    public var natBarrier: Bool?
 
-    public init(grant: String? = nil) {
+    public init(grant: String? = nil, natBarrier: Bool? = nil) {
         v = IrxProtocol().version
         proto = IrxProtocol().alpn
         self.grant = grant
+        self.natBarrier = natBarrier
     }
 }
 
@@ -149,11 +185,44 @@ public struct IrxAdmit: Codable, Equatable, Sendable {
     /// Milliseconds the client waits for a pong before declaring death.
     public var keepaliveDeadlineMs: Int
 
-    public init(session: String) {
+    /// Acks the hello's ``IrxHello/natBarrier`` offer. When `true` the server
+    /// holds admission open until the client's ``IrxClientReady`` proves the
+    /// client authorized NAT traversal first, so the server's direct-path
+    /// candidate advertisement can never reach a not-yet-authorized client
+    /// (which would discard it unrecoverably). Absent for legacy clients.
+    public var natBarrier: Bool?
+
+    public init(session: String, natBarrier: Bool? = nil) {
         v = IrxProtocol().version
         self.session = session
         keepaliveIntervalMs = Int(IrxProtocol().keepaliveInterval.components.seconds) * 1000
         keepaliveDeadlineMs = Int(IrxProtocol().keepaliveDeadline.components.seconds) * 1000
+        self.natBarrier = natBarrier
+    }
+}
+
+/// Client -> server: sent on the control stream right after an admit that
+/// acked the NAT barrier, once the client has completed its NAT-traversal
+/// authorization attempt. Ordering, not success: the frame is sent even when
+/// the client's authorization call failed, so the server never deadlocks.
+public struct IrxClientReady: Codable, Equatable, Sendable {
+    public var v: Int
+
+    public init() {
+        v = IrxProtocol().version
+    }
+}
+
+/// Server -> client acknowledgement, first frame on a ``IrxLaneKind/controlRepair``
+/// stream. It is written by the server's application layer after it has
+/// moved the admitted session's control lane onto the stream, so receiving it
+/// is evidence that the host process, not just its QUIC stack, is serving the
+/// connection.
+public struct IrxControlLaneRepairAck: Codable, Equatable, Sendable {
+    public var v: Int
+
+    public init() {
+        v = IrxProtocol().version
     }
 }
 

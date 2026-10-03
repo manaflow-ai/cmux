@@ -95,9 +95,21 @@ final class AgentJournalLifecycleCenter: Sendable {
                 let canonical = Self.canonicalized(event, aliases: eventAliases)
                 let decision = notifications.apply(canonical)
                 if decision.disposition != .stale, decision.projectsLifecycle,
-                   let application = Self.reduceIngest(notifications.lifecycleEvent(canonical), aliases: eventAliases,
+                   let application = Self.reduceIngest(notifications.lifecycleEvent(canonical), sourceKind: canonical.kind,
+                       aliases: eventAliases,
                        reducer: reducer, state: &state) {
-                    await MainActor.run { Self.apply(application.assignment, workspaceHint: application.workspaceHint) }
+                    await MainActor.run {
+                        Self.apply(
+                            application.assignment,
+                            workspaceHint: application.workspaceHint,
+                            activity: application.activity
+                        )
+                    }
+                }
+                // Live events only: the startup replay folds history through
+                // its own path, so restoring a session never types `continue`.
+                if decision.disposition != .stale {
+                    await MainActor.run { AgentAutoResumeCoordinator.shared.observe(canonical.draft) }
                 }
                 Self.clearInvalidatedNotifications(canonical, decision: decision)
                 let notificationEvent = Self.canonicalized(decision.notificationEvent ?? canonical, aliases: eventAliases)

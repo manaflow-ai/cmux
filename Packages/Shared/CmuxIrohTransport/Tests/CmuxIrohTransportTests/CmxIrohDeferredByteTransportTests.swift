@@ -44,6 +44,35 @@ struct CmxIrohDeferredByteTransportTests {
         await transport.close()
     }
 
+    /// The RPC session only ever sees this wrapper, so control-stream repair
+    /// must reach the activated transport through it.
+    @Test
+    func forwardsControlStreamRepairToTheActivatedTransport() async throws {
+        let underlying = RepairingTransport()
+        let transport = CmxIrohDeferredByteTransport(
+            request: try request(), provider: DeferredProvider(transport: underlying)
+        )
+        let erased: any CmxByteTransport = transport
+        let repairing = try #require(erased as? any CmxByteTransportControlStreamRepairing)
+        #expect(await repairing.repairControlStream(silentSince: .now) == .unavailable)
+
+        try await transport.connect()
+        #expect(await repairing.repairControlStream(silentSince: .now) == .repaired(generation: 1))
+        #expect(try await repairing.sendReportingControlStreamGeneration(Data([1])) == 1)
+        await transport.close()
+    }
+
+    @Test
+    func aTransportThatCannotRepairReportsUnavailableAndTheFirstGeneration() async throws {
+        let transport = CmxIrohDeferredByteTransport(
+            request: try request(), provider: DeferredProvider(transport: ContinuityTransport(continuityID: 1))
+        )
+        try await transport.connect()
+        #expect(await transport.repairControlStream(silentSince: .now) == .unavailable)
+        #expect(try await transport.sendReportingControlStreamGeneration(Data([1])) == 0)
+        await transport.close()
+    }
+
     private func request() throws -> CmxByteTransportRequest {
         let peer = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "ab", count: 32)
@@ -141,5 +170,25 @@ private actor ContinuityTransport:
         await withCheckedContinuation { continuation in
             closeWaiters.append(continuation)
         }
+    }
+}
+
+private actor RepairingTransport: CmxByteTransportControlStreamRepairing {
+    private var generation: UInt64 = 0
+
+    func connect() {}
+    func receive() -> Data? { nil }
+    func send(_: Data) {}
+    func close() {}
+
+    func repairControlStream(
+        silentSince _: ContinuousClock.Instant
+    ) -> CmxControlStreamRepairOutcome {
+        generation += 1
+        return .repaired(generation: generation)
+    }
+
+    func sendReportingControlStreamGeneration(_: Data) -> UInt64 {
+        generation
     }
 }

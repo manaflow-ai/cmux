@@ -174,7 +174,8 @@ struct SSHDeepSleepReattachTests {
         #expect(command.contains(customSessionID))
         #expect(!command.contains("--require-existing"))
         #expect(command.contains("workspace.remote.foreground_auth_ready"))
-        #expect(command.contains(foregroundAuthToken))
+        #expect(!command.contains(foregroundAuthToken))
+        #expect(command.contains(SSHForegroundAuthenticationLaunch(token: foregroundAuthToken).commandMarker))
         #expect(command.contains("ssh-session-end"))
         let commandRange = try #require(
             command.range(of: #"--command-b64 [A-Za-z0-9+/=]+"#, options: .regularExpression)
@@ -185,8 +186,10 @@ struct SSHDeepSleepReattachTests {
             .map(String.init)
         let commandData = try #require(encodedCommand.flatMap { Data(base64Encoded: $0) })
         let decodedCommand = try #require(String(data: commandData, encoding: .utf8))
-        #expect(!decodedCommand.contains(configuredRemoteCommand))
-        #expect(decodedCommand.contains(Data((resumeCommand + "\n").utf8).base64EncodedString()))
+        // A persistent-SSH resume binding is no longer replayed into the restarted
+        // PTY, so the restart runs the configured remote command like any shell.
+        #expect(decodedCommand.contains(configuredRemoteCommand))
+        #expect(!decodedCommand.contains(Data((resumeCommand + "\n").utf8).base64EncodedString()))
         #expect(decodedCommand.contains("64007"))
         #expect(restarted.surface.respawnAdditionalEnvironment["CMUX_REMOTE_PTY_SESSION_ID"] == customSessionID)
         #expect(workspace.remotePTYSessionIDsByPanelId[panel.id] == customSessionID)
@@ -291,7 +294,12 @@ struct SSHDeepSleepReattachTests {
             detail: "Connected to Cloud VM",
             target: "cloud-vm"
         )
-        #expect(workspace.reconnectRemoteConnection(surfaceId: panel.id))
+        // The public reconnect command is correctly gated when Cloud is disabled
+        // on a CI runner. Exercise the persistent reattach operation directly.
+        #expect(workspace.reattachPersistentRemotePTYPanels(
+            requestedSurfaceId: panel.id,
+            restartEndedSessions: true
+        ).contains(panel.id))
 
         let restarted = try #require(workspace.terminalPanel(for: panel.id))
         #expect(restarted.surface !== panel.surface)

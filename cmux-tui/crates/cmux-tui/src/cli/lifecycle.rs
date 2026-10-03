@@ -81,7 +81,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             global.output,
         );
     }
-    let stream = match transport::connect(&socket) {
+    let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
         Err(error) if matches!(plan.action, ServerAction::Stop { .. }) && is_absent(&error) => {
             return print_success(

@@ -24,6 +24,9 @@ actor V2TestSocket: V2ControlSocket {
     var directoryConflictStep: Int?
     var directoryRevisions: [Int?] = []
     var directoryRevision = 1
+    var suspendRegistration = false
+    var deferredRegistration: String?
+    var registrationObserved: CheckedContinuation<Void, Never>?
     let record: V2DeviceRecord
 
     init(device: V2DeviceDescriptor, now: Int, directoryRules: [String]? = nil, directoryPageRules: [[String]?]? = nil) {
@@ -52,6 +55,12 @@ actor V2TestSocket: V2ControlSocket {
             acknowledgementObserved?.resume()
             acknowledgementObserved = nil
         case "device.register.v1":
+            if suspendRegistration {
+                deferredRegistration = header.requestId
+                registrationObserved?.resume()
+                registrationObserved = nil
+                return
+            }
             try push(V2RegisteredResponse(device: record, requestID: header.requestId, schemaID: .deviceRegisteredV1))
         case "ticket.request.v1":
             try push(V2TicketResponse(requestID: header.requestId, schemaID: .ticketResultV1, ticket: V2Ticket(expiresAt: now + 3600, refreshAfter: now + 3300, token: "replacement-ticket")))
@@ -136,6 +145,18 @@ actor V2TestSocket: V2ControlSocket {
     func rejectRelay(_ code: V2ErrorCode?) { rejectedRelay = code }
     func dropNextMetadataReply() { failNextMetadataReply = true }
     func holdRelayReplies() { suspendRelay = true }
+    func holdRegistration() { suspendRegistration = true }
+    func waitForHeldRegistration() async {
+        if deferredRegistration != nil { return }
+        await withCheckedContinuation { registrationObserved = $0 }
+    }
+    func releaseRegistration() throws {
+        suspendRegistration = false
+        if let requestID = deferredRegistration {
+            deferredRegistration = nil
+            try push(V2RegisteredResponse(device: record, requestID: requestID, schemaID: .deviceRegisteredV1))
+        }
+    }
     func waitForHeldRelay() async {
         if deferredRelay != nil { return }
         await withCheckedContinuation { relayObserved = $0 }

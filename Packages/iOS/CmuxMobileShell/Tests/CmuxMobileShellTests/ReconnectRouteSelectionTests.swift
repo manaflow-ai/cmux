@@ -249,7 +249,7 @@ import Testing
         try CmxAttachRoute(
             id: "tailscale",
             kind: .tailscale,
-            endpoint: .hostPort(host: "lawrences-macbook-pro-2.tail137216.ts.net", port: port),
+            endpoint: .hostPort(host: "my-mac.tail0000.ts.net", port: port),
             priority: 5
         )
     }
@@ -281,14 +281,14 @@ import Testing
             supportedKinds: [.debugLoopback, .tailscale],
             preferNonLoopback: true
         )
-        #expect(pick?.0 == "lawrences-macbook-pro-2.tail137216.ts.net")
+        #expect(pick?.0 == "my-mac.tail0000.ts.net")
     }
 
     @Test func ipLiteralHostClassification() {
         #expect(MobileShellComposite.isIPLiteralHost("100.82.214.112"))
         #expect(MobileShellComposite.isIPLiteralHost("127.0.0.1"))
         #expect(MobileShellComposite.isIPLiteralHost("fd7a:115c:a1e0::4b36:d670"))
-        #expect(!MobileShellComposite.isIPLiteralHost("lawrences-macbook-pro-2.tail137216.ts.net"))
+        #expect(!MobileShellComposite.isIPLiteralHost("my-mac.tail0000.ts.net"))
         #expect(!MobileShellComposite.isIPLiteralHost("example.com"))
         #expect(!MobileShellComposite.isIPLiteralHost("100.82.214")) // too few octets
         #expect(!MobileShellComposite.isIPLiteralHost("256.1.1.1")) // out of range
@@ -374,7 +374,14 @@ import Testing
 
         #expect(result == .connected)
         #expect(store.activeRoute?.id == "good")
-        #expect(store.pooledRouteForTesting(macDeviceID: "test-mac")?.id == "good")
+        // The pool is keyed by exact build identity (#10179), and the scripted
+        // host authenticates as tag "default", so read that pairing's entry.
+        #expect(store.activeMacInstanceTag == "default")
+        let pooledKey = MacPairingKey(
+            macDeviceID: "test-mac",
+            instanceTag: store.activeMacInstanceTag
+        )
+        #expect(store.pooledRouteForTesting(macDeviceID: pooledKey.pairingID)?.id == "good")
     }
 
     @Test func supersededReconnectGenerationAbortsRouteIteration() async throws {

@@ -24,6 +24,17 @@ extension CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[AppearanceSettings.appearanceModeKey] = .string(normalized)
         }
+        if section.keys.contains("accentColor") {
+            if let raw = jsonString(section["accentColor"]),
+               let parsed = CmuxAccentColorMode.parseSettingsFileValue(raw) {
+                snapshot.managedUserDefaults[CmuxAccentColorMode.userDefaultsKey] = .string(parsed.mode.rawValue)
+                if let hex = parsed.customHex {
+                    snapshot.managedUserDefaults[CmuxAccentColorMode.customHexUserDefaultsKey] = .string(hex)
+                }
+            } else {
+                logInvalid("app.accentColor", sourcePath: sourcePath)
+            }
+        }
         if let raw = jsonString(section["appIcon"]) {
             guard let mode = AppIconMode(rawValue: raw) else {
                 logInvalid("app.appIcon", sourcePath: sourcePath)
@@ -44,6 +55,14 @@ extension CmuxSettingsFileStore {
                 return
             }
             snapshot.managedUserDefaults[SettingCatalog().app.newWorkspacePlacement.userDefaultsKey] = .string(placement.rawValue)
+        }
+        if section.keys.contains("tabBarVisibility") {
+            if let raw = jsonString(section["tabBarVisibility"]),
+               let visibility = PaneTabBarVisibility(rawValue: raw) {
+                snapshot.managedUserDefaults[AppCatalogSection().tabBarVisibility.userDefaultsKey] = .string(visibility.rawValue)
+            } else {
+                logInvalid("app.tabBarVisibility", sourcePath: sourcePath)
+            }
         }
         if let value = jsonInt(section["globalFontMagnification"]) {
             let clamped = GlobalFontMagnification.clamp(value)
@@ -73,6 +92,16 @@ extension CmuxSettingsFileStore {
         }
         applyBooleanSettings(AppSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
         applyStringSettings(AppSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
+        // reorderOnNotification: the Bool form is applied by the boolean
+        // mappings above; the mode form is a string.
+        if section.keys.contains("reorderOnNotification"), jsonBool(section["reorderOnNotification"]) == nil {
+            let key = SettingCatalog().app.reorderOnNotification
+            if let mode = WorkspaceAutoReorderMode.decodeFromJSON(section["reorderOnNotification"]) {
+                snapshot.managedUserDefaults[key.userDefaultsKey] = .string(mode.rawValue)
+            } else {
+                logInvalid(key.id, sourcePath: sourcePath)
+            }
+        }
         if let value = jsonBool(section["minimalMode"]) {
             let mode = value ? WorkspacePresentationModeSettings.Mode.minimal : .standard
             snapshot.managedUserDefaults[WorkspacePresentationModeSettings.modeKey] = .string(mode.rawValue)

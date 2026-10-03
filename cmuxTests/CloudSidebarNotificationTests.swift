@@ -35,7 +35,7 @@ struct CloudSidebarNotificationTests {
         #expect(deliveries == [target])
         let arranged = CloudSidebarOrganizationTree(nodes: fixture.nodes(unread: sync.unreadTerminalIDs)).arrange(using: owner.state)
         let group = try #require(CloudSidebarOrganizationTree(nodes: arranged).parent(of: fixture.folderID("ws_1")))
-        #expect(group.children.map(\.id) == [fixture.folderID("ws_2"), fixture.folderID("ws_1")])
+        #expect(group.children.filter(\.canOrganize).map(\.id) == [fixture.folderID("ws_2"), fixture.folderID("ws_1")])
         #expect(group.children[0].hasUnreadDescendant)
         #expect(!group.children[1].hasUnreadDescendant)
         #expect(owner.perform(.down, id: fixture.folderID("ws_2"), nodes: arranged))
@@ -90,7 +90,7 @@ struct CloudSidebarNotificationTests {
         owner.raiseNotification(resource: SurfaceResourceID(machine: fixture.machine, kind: .terminal, key: "term_ws_2"), nodes: fixture.nodes())
         let arranged = CloudSidebarOrganizationTree(nodes: fixture.nodes()).arrange(using: owner.state)
         let parent = try #require(CloudSidebarOrganizationTree(nodes: arranged).parent(of: fixture.folderID("ws_1")))
-        #expect(parent.children.map(\.id) == [fixture.folderID("ws_1"), fixture.folderID("ws_2")])
+        #expect(parent.children.filter(\.canOrganize).map(\.id) == [fixture.folderID("ws_1"), fixture.folderID("ws_2")])
         #expect(parent.children[0].isPinned)
         #expect(owner.perform(.pin, id: fixture.folderID("ws_2"), nodes: fixture.nodes()))
         let pinnedOrder = owner.state
@@ -115,7 +115,7 @@ struct CloudSidebarNotificationTests {
             owner.raiseNotification(resource: terminal.id, nodes: tree)
             let arranged = CloudSidebarOrganizationTree(nodes: tree).arrange(using: owner.state)
             let parent = try #require(CloudSidebarOrganizationTree(nodes: arranged).parent(of: fixture.folderID("ws_1")))
-            #expect(parent.children.map(\.id) == [fixture.folderID("ws_1"), fixture.folderID("ws_2")])
+            #expect(parent.children.filter(\.canOrganize).map(\.id) == [fixture.folderID("ws_1"), fixture.folderID("ws_2")])
         }
     }
 
@@ -188,14 +188,14 @@ struct CloudSidebarNotificationTests {
         let before = CloudSidebarOrganizationTree(nodes: nodes).arrange(using: owner.state)
         let terminalOrders = Dictionary(uniqueKeysWithValues: CloudTreeNodeBuilder.flattened(before)
             .filter { $0.children.contains { if case .terminal = $0.kind { return true }; return false } }
-            .map { ($0.id, $0.children.map(\.id)) })
+            .map { ($0.id, $0.children.filter(\.canOrganize).map(\.id)) })
         let target = try #require(folder.children.last?.dragResource?.id)
         owner.raiseNotification(resource: target, nodes: before)
         let after = CloudSidebarOrganizationTree(nodes: nodes).arrange(using: owner.state)
         let group = try #require(CloudSidebarOrganizationTree(nodes: after).parent(of: folder.id))
         #expect(group.children.first?.id == folder.id)
         for row in CloudTreeNodeBuilder.flattened(after) {
-            if let expected = terminalOrders[row.id] { #expect(row.children.map(\.id) == expected) }
+            if let expected = terminalOrders[row.id] { #expect(row.children.filter(\.canOrganize).map(\.id) == expected) }
         }
         #expect(CloudSidebarOrganizationStore(defaults: fixture.defaults).state == owner.state)
     }
@@ -205,19 +205,29 @@ struct CloudSidebarNotificationTests {
         let fixture = CloudSidebarOrderingFixture()
         defer { fixture.close() }
         fixture.defaults.set(enabled, forKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey)
-        var localMoves = 0
+        final class Counter { var value = 0 }
+        let localMoves = Counter()
         let initial = fixture.catalog.sidebarOrganization.state
         var effects = TerminalNotificationPolicyEffects()
-        effects.applySidebarOrdering(defaults: fixture.defaults) {
-            localMoves += 1
-            fixture.catalog.sidebarOrganization.raiseNotification(resource: .init(machine: fixture.machine,
-                kind: .terminal, key: "term_ws_2"), nodes: fixture.nodes())
-        }
-        #expect(localMoves == (enabled ? 1 : 0))
+        effects.applySidebarOrdering(
+            defaults: fixture.defaults,
+            workspaceId: UUID(),
+            raiseCloudRow: {
+                fixture.catalog.sidebarOrganization.raiseNotification(resource: .init(machine: fixture.machine,
+                    kind: .terminal, key: "term_ws_2"), nodes: fixture.nodes())
+            },
+            moveLocalWorkspace: { localMoves.value += 1 }
+        )
+        #expect(localMoves.value == (enabled ? 1 : 0))
         #expect((fixture.catalog.sidebarOrganization.state != initial) == enabled)
         let admitted = fixture.catalog.sidebarOrganization.state
         effects.reorderWorkspace = false
-        effects.applySidebarOrdering(defaults: fixture.defaults) { Issue.record("Suppressed event reordered sidebars") }
+        effects.applySidebarOrdering(
+            defaults: fixture.defaults,
+            workspaceId: UUID(),
+            raiseCloudRow: { Issue.record("Suppressed event raised the cloud row") },
+            moveLocalWorkspace: { Issue.record("Suppressed event reordered sidebars") }
+        )
         #expect(fixture.catalog.sidebarOrganization.state == admitted)
     }
 

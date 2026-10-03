@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
+import { runChild } from "./helpers/run-child";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -45,12 +45,13 @@ describe("devbox identity contract (services/vms/images/identity.ts)", () => {
     "# END freestyle-tls-egress",
     "",
   ].join("\n");
-  const rewrite = (contents: string): string => {
+  /** Applies the hosts alias rewrite to a scratch hosts file and returns the result. */
+  const rewrite = async (contents: string): Promise<string> => {
     const dir = mkdtempSync(path.join(tmpdir(), "cmux-identity-"));
     try {
       const hosts = path.join(dir, "hosts");
       writeFileSync(hosts, contents);
-      const run = spawnSync("bash", ["-c", devboxHostsAliasRewriteCommand(DEVBOX_HOSTNAME, hosts)], { encoding: "utf8" });
+      const run = await runChild("bash", ["-c", devboxHostsAliasRewriteCommand(DEVBOX_HOSTNAME, hosts)]);
       expect({ status: run.status, stderr: run.stderr }).toEqual({ status: 0, stderr: "" });
       expect(existsSync(`${hosts}.cmux-identity`)).toBe(false);
       return readFileSync(hosts, "utf8");
@@ -66,18 +67,18 @@ describe("devbox identity contract (services/vms/images/identity.ts)", () => {
     expect(DEVBOX_IDENTITY_RESIDUE_ROOTS).toEqual(["/etc", "/home", "/root", "/usr/local", "/opt"]);
   });
 
-  test("the hosts rewrite renames only the loopback alias line", () => {
-    expect(rewrite(providerHosts)).toBe(providerHosts.replace("127.0.1.1\tfreestyle-vm", "127.0.1.1\tcmux"));
+  test("the hosts rewrite renames only the loopback alias line", async () => {
+    expect(await rewrite(providerHosts)).toBe(providerHosts.replace("127.0.1.1\tfreestyle-vm", "127.0.1.1\tcmux"));
   });
 
-  test("the hosts rewrite is idempotent, keeps one alias, and adds a missing one", () => {
-    const once = rewrite(providerHosts);
-    expect(rewrite(once)).toBe(once);
-    expect(rewrite("127.0.1.1 a\n127.0.0.1\tlocalhost\n127.0.1.1 b\n")).toBe("127.0.1.1\tcmux\n127.0.0.1\tlocalhost\n");
-    expect(rewrite("127.0.0.1\tlocalhost\n")).toBe("127.0.0.1\tlocalhost\n127.0.1.1\tcmux\n");
+  test("the hosts rewrite is idempotent, keeps one alias, and adds a missing one", async () => {
+    const once = await rewrite(providerHosts);
+    expect(await rewrite(once)).toBe(once);
+    expect(await rewrite("127.0.1.1 a\n127.0.0.1\tlocalhost\n127.0.1.1 b\n")).toBe("127.0.1.1\tcmux\n127.0.0.1\tlocalhost\n");
+    expect(await rewrite("127.0.0.1\tlocalhost\n")).toBe("127.0.0.1\tlocalhost\n127.0.1.1\tcmux\n");
   });
 
-  test("the residue audit matches the base's name as a whole word, never the provider's platform naming", () => {
+  test("the residue audit matches the base's name as a whole word, never the provider's platform naming", async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "cmux-residue-"));
     try {
       // The provider's own naming and a package tree mentioning the name: allowed.
@@ -85,11 +86,11 @@ describe("devbox identity contract (services/vms/images/identity.ts)", () => {
       writeFileSync(path.join(dir, "agent.service"), "ExecStart=/sbin/freestyle-vms-agent\n");
       mkdirSync(path.join(dir, "node_modules"));
       writeFileSync(path.join(dir, "node_modules", "readme.md"), "tested on freestyle-vm\n");
-      const clean = spawnSync("bash", ["-c", devboxProviderResidueCommand(DEVBOX_PROVIDER_HOSTNAME, [dir])], { encoding: "utf8" });
+      const clean = await runChild("bash", ["-c", devboxProviderResidueCommand(DEVBOX_PROVIDER_HOSTNAME, [dir])]);
       expect({ status: clean.status, stdout: clean.stdout, stderr: clean.stderr }).toEqual({ status: 0, stdout: "", stderr: "" });
       // The base's name where the machine speaks for itself: residue, named.
       writeFileSync(path.join(dir, "ssh_host_ed25519_key.pub"), "ssh-ed25519 AAAA root@freestyle-vm\n");
-      const dirty = spawnSync("bash", ["-c", devboxProviderResidueCommand(DEVBOX_PROVIDER_HOSTNAME, [dir])], { encoding: "utf8" });
+      const dirty = await runChild("bash", ["-c", devboxProviderResidueCommand(DEVBOX_PROVIDER_HOSTNAME, [dir])]);
       expect(dirty.status).toBe(1);
       expect(dirty.stdout).toContain("freestyle-vm residue:");
       expect(dirty.stdout).toContain("ssh_host_ed25519_key.pub");
@@ -178,27 +179,28 @@ describe("devbox identity contract (services/vms/images/identity.ts)", () => {
 // none by itself. The shell runs here against fake `ip` and `arping` binaries;
 // the boot supervisor, the attach path, the image and its verify are pinned.
 describe("devbox private-network announce (services/vms/images/network.ts)", () => {
-  const withFakeNet = (addrs: string, run: (env: NodeJS.ProcessEnv, log: string) => void) => {
+  /** Runs body with fake ip and arping binaries first on PATH, logging arping calls. */
+  const withFakeNet = async (addrs: string, run: (env: NodeJS.ProcessEnv, log: string) => Promise<void>) => {
     const dir = mkdtempSync(path.join(tmpdir(), "cmux-announce-"));
     try {
       const log = path.join(dir, "arping.log");
       writeFileSync(path.join(dir, "ip"), `#!/bin/sh\n[ "$*" = "-o -4 addr show scope global" ] || { echo "unexpected ip $*" >&2; exit 2; }\ncat <<'EOF'\n${addrs}EOF\n`, { mode: 0o755 });
       writeFileSync(path.join(dir, "arping"), `#!/bin/sh\necho "$*" >> ${JSON.stringify(log)}\n`, { mode: 0o755 });
-      run({ ...process.env, PATH: `${dir}:${process.env.PATH ?? ""}` }, log);
+      await run({ ...process.env, PATH: `${dir}:${process.env.PATH ?? ""}` }, log);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   };
 
-  test("announces every global IPv4 on a real interface, two unsolicited probes each, and skips container bridges and the provider's link-local leg", () => {
-    withFakeNet(
+  test("announces every global IPv4 on a real interface, two unsolicited probes each, and skips container bridges and the provider's link-local leg", async () => {
+    await withFakeNet(
       "2: eth0    inet 169.254.77.2/30 scope global eth0\\       valid_lft forever\n" +
         "3: docker0    inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0\\       valid_lft forever\n" +
         "4: veth1a2b    inet 172.18.0.2/16 scope global veth1a2b\\       valid_lft forever\n" +
         "5: eth0.164    inet 10.16.162.53/24 brd 10.16.162.255 scope global eth0.164\\       valid_lft forever\n" +
         "6: eth1    inet 10.16.163.7/24 scope global eth1\\       valid_lft forever\n",
-      (env, log) => {
-        const result = spawnSync("sh", ["-c", devboxNetworkAnnounceCommand()], { env, encoding: "utf8" });
+      async (env, log) => {
+        const result = await runChild("sh", ["-c", devboxNetworkAnnounceCommand()], { env });
         expect(result.status).toBe(0);
         expect(readFileSync(log, "utf8").trim().split("\n").sort()).toEqual([
           "-U -c 2 -w 2 -I eth0.164 10.16.162.53",
@@ -208,9 +210,9 @@ describe("devbox private-network announce (services/vms/images/network.ts)", () 
     );
   });
 
-  test("is a successful no-op with no global address and without arping", () => {
-    withFakeNet("", (env, log) => {
-      const result = spawnSync("sh", ["-c", devboxNetworkAnnounceCommand()], { env, encoding: "utf8" });
+  test("is a successful no-op with no global address and without arping", async () => {
+    await withFakeNet("", async (env, log) => {
+      const result = await runChild("sh", ["-c", devboxNetworkAnnounceCommand()], { env });
       expect(result.status).toBe(0);
       expect(existsSync(log)).toBe(false);
     });
@@ -218,9 +220,8 @@ describe("devbox private-network announce (services/vms/images/network.ts)", () 
     try {
       // PATH holds only the empty dir, so `command -v arping` cannot find a host
       // binary; /bin/sh is invoked by absolute path and needs no PATH.
-      const result = spawnSync("/bin/sh", ["-c", devboxNetworkAnnounceCommand()], {
+      const result = await runChild("/bin/sh", ["-c", devboxNetworkAnnounceCommand()], {
         env: { ...process.env, PATH: empty },
-        encoding: "utf8",
       });
       expect(result.status).toBe(0);
     } finally {
@@ -287,15 +288,15 @@ describe("devbox private-network announce (services/vms/images/network.ts)", () 
 // shell, never the daemon's per-machine state. The wipe runs with a scratch
 // working directory so a regression can never touch the checkout.
 describe("devbox warm template terminal", () => {
+  /** Runs the park wipe against stateRoot from a scratch working directory. */
   function wipe(root: string, stateRoot: string) {
-    return spawnSync("sh", ["-c", `${devboxWipeDaemonStateKeepingTemplateCommand(stateRoot)} && echo "$cmux_keep"`], {
-      encoding: "utf8",
+    return runChild("sh", ["-c", `${devboxWipeDaemonStateKeepingTemplateCommand(stateRoot)} && echo "$cmux_keep"`], {
       cwd: root,
       timeout: 5_000,
     });
   }
 
-  test("the park wipe keeps only the terminal host records and removes every identity file", () => {
+  test("the park wipe keeps only the terminal host records and removes every identity file", async () => {
     const root = mkdtempSync(path.join(tmpdir(), "cmux-template-wipe-"));
     try {
       const state = path.join(root, "cmux-tui");
@@ -311,7 +312,7 @@ describe("devbox warm template terminal", () => {
       writeFileSync(path.join(session, "workspace-registry.sqlite3-wal"), "wal");
       writeFileSync(path.join(state, "stray.lock"), "");
       writeFileSync(path.join(root, "sentinel"), "");
-      const result = wipe(root, `'${state}'`);
+      const result = await wipe(root, `'${state}'`);
       expect(result.stderr).toBe("");
       expect(result.status).toBe(0);
       expect(result.stdout.trim()).toBe(hosts);
@@ -326,7 +327,7 @@ describe("devbox warm template terminal", () => {
     }
   });
 
-  test("the park wipe fails without deleting anything when there is no template host", () => {
+  test("the park wipe fails without deleting anything when there is no template host", async () => {
     const root = mkdtempSync(path.join(tmpdir(), "cmux-template-wipe-"));
     try {
       const state = path.join(root, "state");
@@ -334,7 +335,8 @@ describe("devbox warm template terminal", () => {
       writeFileSync(path.join(state, "sessions", "machine-id"), "m");
       writeFileSync(path.join(root, "sentinel"), "");
       for (const stateRoot of [`'${state}'`, "''", "relative"]) {
-        const result = wipe(root, stateRoot);
+        const result = await wipe(root, stateRoot);
+        expect(result.signal).toBeNull();
         expect(result.status).not.toBe(0);
       }
       expect(existsSync(path.join(state, "sessions", "machine-id"))).toBe(true);
@@ -347,6 +349,7 @@ describe("devbox warm template terminal", () => {
   test("a clone reseeds the kernel RNG and starts the shell's bounded wait before its daemon starts", () => {
     expect(devboxBoot).toContain("export CMUX_TUI_ADOPT_TEMPLATE_TERMINAL=1");
     expect(devboxBoot).toContain('export CMUX_TUI_TEMPLATE_BOUND_FILE="$TEMPLATE_RUN_DIR/bound"');
+    expect(devboxBoot).toContain("export CMUX_TUI_TEMPLATE_WORKSPACE_NAME=workspace-1");
     const cloneBranch = devboxBoot.indexOf('if [ -n "$id" ] && [ "$id" != "$(cat "$BOUND_INSTANCE_FILE" 2>/dev/null)" ]; then');
     const announce = devboxBoot.indexOf("( announce_network & )", cloneBranch);
     const cloneStarted = devboxBoot.indexOf('"$TEMPLATE_RUN_DIR/clone-started"', cloneBranch);
@@ -360,10 +363,10 @@ describe("devbox warm template terminal", () => {
     expect(rekey).toBeGreaterThan(reseed);
   });
 
-  test("the RNG reseed runs cleanly as a shell function", () => {
+  test("the RNG reseed runs cleanly as a shell function", async () => {
     const start = devboxBoot.indexOf("reseed_kernel_rng() {");
     const fn = devboxBoot.slice(start, devboxBoot.indexOf("\n}\n", start) + 3);
-    const result = spawnSync("sh", ["-c", `${fn}\nreseed_kernel_rng vm-test && echo ok`], { encoding: "utf8", timeout: 5_000 });
+    const result = await runChild("sh", ["-c", `${fn}\nreseed_kernel_rng vm-test && echo ok`], { timeout: 5_000 });
     expect(result.stdout.trim()).toBe("ok");
   });
 
@@ -377,7 +380,7 @@ describe("devbox warm template terminal", () => {
       expect(park).toBeGreaterThan(prepare);
     }
     const prepare = devboxPrepareTemplateTerminalCommand();
-    expect(prepare.indexOf("template-arm")).toBeLessThan(prepare.indexOf("workspace create --name Cloud"));
+    expect(prepare.indexOf("template-arm")).toBeLessThan(prepare.indexOf("workspace create --name workspace-1"));
     expect(prepare).toContain("test -e /run/cmux/template-shell-ready");
     expect(prepare).toContain("test ! -e /run/cmux/template-arm");
     const park = devboxParkDaemonCommand();
@@ -385,4 +388,3 @@ describe("devbox warm template terminal", () => {
     expect(park).toContain("rm -f /run/cmux/bound /run/cmux/clone-started /run/cmux/first-prompt-named");
   });
 });
-

@@ -60,6 +60,11 @@ public protocol NotificationDismissalHosting: AnyObject {
     /// default) the legacy workspace-visibility withdraw is preserved.
     var suppressOnlyFocusedSurface: Bool { get }
 
+    /// Whether terminal typing should flash the pane after dismissing its
+    /// notification. The app setting defaults to the legacy flashing behavior;
+    /// turning it off gives typing the calmer dismissal feedback.
+    var paneFlashOnTyping: Bool { get }
+
     // MARK: Workspace indicator reads
 
     /// Whether the panel carries a manually-set unread indicator.
@@ -87,6 +92,10 @@ public protocol NotificationDismissalHosting: AnyObject {
 
     /// Marks the workspace's (or surface's) notifications read.
     func storeMarkRead(workspaceId: UUID, surfaceId: UUID?)
+    /// Marks read only the notifications recorded against the workspace itself,
+    /// with no surface and no panel, leaving every surface-scoped notification
+    /// and every unread indicator as it is.
+    func storeMarkWorkspaceLevelNotificationsRead(workspaceId: UUID)
     /// Clears the workspace-level manual unread indicator; returns whether
     /// anything was cleared.
     @discardableResult

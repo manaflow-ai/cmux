@@ -1020,7 +1020,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(workspace.panels.count, initialPanelCount, "Unmatched chord suffix must not trigger the action")
     }
 
-    func testCreateMainWindowDisallowsFullScreenTilingByDefault() {
+    func testCreateMainWindowAllowsFullScreenTilingByDefault() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -1036,9 +1036,97 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+        XCTAssertFalse(
+            window.collectionBehavior.contains(.fullScreenDisallowsTiling),
+            "Main windows should allow macOS Full Screen Tile unless they are spawned from a native fullscreen source"
+        )
+    }
+
+    func testCreateMainWindowAppliesFullscreenSourceTilingOptOut() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let sourceWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .resizable, .fullScreen],
+            backing: .buffered,
+            defer: false
+        )
+        sourceWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.test-source")
+        sourceWindow.isReleasedWhenClosed = false
+        defer { sourceWindow.close() }
+
+        let windowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: sourceWindow)
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
         XCTAssertTrue(
             window.collectionBehavior.contains(.fullScreenDisallowsTiling),
-            "Main windows should opt out of macOS Full Screen Tile so native fullscreen does not trap Space navigation"
+            "A window created from native fullscreen should temporarily opt out of tiling"
+        )
+    }
+
+    func testCreateMainWindowTemporarilyDisallowsFullScreenTilingFromFullscreenSource() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let controller = MainWindowController(window: window)
+        defer {
+            window.close()
+        }
+
+        controller.disallowFullscreenTilingUntilPresentation()
+        XCTAssertTrue(
+            window.collectionBehavior.contains(.fullScreenDisallowsTiling),
+            "A window spawned from native fullscreen should opt out while it is being presented"
+        )
+
+        controller.windowDidBecomeKey(Notification(name: NSWindow.didBecomeKeyNotification, object: window))
+
+        XCTAssertFalse(
+            window.collectionBehavior.contains(.fullScreenDisallowsTiling),
+            "The fullscreen tiling opt-out should be cleared when presentation makes the window key"
+        )
+    }
+
+    func testFullscreenTilingOptOutOnlyAppliesToNativeFullscreenSources() {
+        let sourceWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .resizable, .fullScreen],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            sourceWindow.close()
+        }
+
+        XCTAssertTrue(
+            MainWindowController.shouldTemporarilyDisallowFullscreenTiling(
+                sourceWindow: sourceWindow,
+                restoringSessionWindow: false
+            )
+        )
+        XCTAssertFalse(
+            MainWindowController.shouldTemporarilyDisallowFullscreenTiling(
+                sourceWindow: sourceWindow,
+                restoringSessionWindow: true
+            )
+        )
+        XCTAssertFalse(
+            MainWindowController.shouldTemporarilyDisallowFullscreenTiling(
+                sourceWindow: nil,
+                restoringSessionWindow: false
+            )
         )
     }
 
@@ -2095,8 +2183,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         let originalPanelIds = Set(workspace.panels.keys)
+        // createMainWindow copies the size of the current main window, and
+        // earlier tests in the host leave 320-point windows behind. Split
+        // admission then correctly refuses the second side-by-side split this
+        // test makes, so give the window and its split container a realistic
+        // size first (same fix as #15434).
+        window.setContentSize(NSSize(width: 1_000, height: 700))
+        window.contentView?.layoutSubtreeIfNeeded()
+        workspace.bonsplitController.setContainerFrame(CGRect(x: 0, y: 0, width: 1_000, height: 700))
 
-        guard let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+        guard let rightPanel = newTerminalSplitForSplitAdmissionTesting(window: window, workspace: workspace, from: leftPanelId, orientation: .horizontal) else {
             XCTFail("Expected split terminal panels")
             return
         }
@@ -2232,10 +2328,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let windowId = appDelegate.createMainWindow()
         defer { closeWindow(withId: windowId) }
 
-        guard let targetWindow = window(withId: windowId) else {
-            XCTFail("Expected test window")
+        guard let targetWindow = window(withId: windowId),
+              let workspace = appDelegate.tabManagerFor(windowId: windowId)?.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected test window and focused panel")
             return
         }
+        // Close Window only asks when something would be lost.
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
 
         var promptedWindow: NSWindow?
         appDelegate.debugCloseMainWindowConfirmationHandler = { candidate in
@@ -3233,8 +3333,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let windowId = appDelegate.createMainWindow(sessionWindowSnapshot: snapshot)
         defer { closeWindow(withId: windowId) }
 
-        guard let manager = appDelegate.tabManagerFor(windowId: windowId) else {
-            XCTFail("Expected tab manager for created window")
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected window and tab manager for created window")
             return
         }
 
@@ -3251,6 +3352,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         // collapsed sidebar, but the selected workspace's live Bonsplit inset is stale.
         sourceWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset = 0
 
+        // This API deliberately routes to the focused window. Reassert focus after
+        // draining the run loop so unrelated window activity cannot redirect the test.
+        window.makeKeyAndOrderFront(nil)
         guard let createdWorkspace = appDelegate.addWorkspaceInPreferredMainWindow(debugSource: "test.issue2737") else {
             XCTFail("Expected workspace creation to route to the test window")
             return
@@ -4665,6 +4769,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+        // French AZERTY types "$" on kVK_ANSI_RightBracket and "*" with Shift.
+        appDelegate.shortcutLayoutCharacterProvider = { keyCode, flags in
+            guard keyCode == 30 else { return nil }
+            return flags.contains(.shift) ? "*" : "$"
+        }
+        defer {
+            appDelegate.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
+        }
+
         withTemporaryShortcut(action: .nextSurface) {
             // Non-US layouts can report "*" (or other symbols) for kVK_ANSI_RightBracket with Shift.
             // Shortcut matching should still allow Cmd+Shift+] via keyCode fallback.
@@ -6032,6 +6145,22 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testBrowserFirstDocumentEditingRoutingIncludesPaste() {
+        // Cmd+V must reach focused web content before cmux's terminal text box
+        // fallback when the text-box beta is enabled (issue #6380).
+        let event = makeKeyEvent(
+            modifierFlags: [.command],
+            characters: "v",
+            charactersIgnoringModifiers: "v",
+            keyCode: 9 // kVK_ANSI_V
+        )
+
+        XCTAssertTrue(
+            shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(event),
+            "Cmd+V must be routed through web content first while a browser pane is focused"
+        )
+    }
+
     func testBrowserFirstDocumentEditingRoutingStillExcludesPlainShortcuts() {
         // Guard against over-broadening the editing allowlist: a bare Cmd+I with no
         // browser semantics is the only italics addition; an unrelated combo such as
@@ -7311,7 +7440,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
               let workspace = manager.selectedWorkspace,
               let leftPanelId = workspace.focusedPanelId,
               let leftPanel = workspace.terminalPanel(for: leftPanelId),
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal, focus: false) else {
+              let rightPanel = newTerminalSplitForSplitAdmissionTesting(window: window, workspace: workspace, from: leftPanelId, orientation: .horizontal, focus: false) else {
             XCTFail("Expected split terminal panels")
             return
         }
@@ -7556,7 +7685,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
               let workspace = manager.selectedWorkspace,
               let leftPanelId = workspace.focusedPanelId,
               let leftPanel = workspace.terminalPanel(for: leftPanelId),
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+              let rightPanel = newTerminalSplitForSplitAdmissionTesting(window: window, workspace: workspace, from: leftPanelId, orientation: .horizontal) else {
             XCTFail("Expected split terminal panels")
             return
         }
@@ -7637,7 +7766,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testTextBoxPendingFocusRunsWhenTextViewMovesToWindow() {
         let terminalPanel = TerminalPanel(workspaceId: UUID())
-        defer { terminalPanel.surface.teardownSurface() }
+        defer { terminalPanel.surface.teardownHostedSurfaceForTesting() }
 
         XCTAssertTrue(terminalPanel.focusTextBoxInputOrTerminal())
 #if DEBUG
@@ -7689,7 +7818,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     func testTextBoxFocusShortcutReportsUnhandledWhenTerminalCannotReceiveFocus() {
         let terminalPanel = TerminalPanel(workspaceId: UUID())
-        defer { terminalPanel.surface.teardownSurface() }
+        defer { terminalPanel.surface.teardownHostedSurfaceForTesting() }
 
         XCTAssertTrue(terminalPanel.focusTextBoxInputOrTerminal())
         XCTAssertFalse(
@@ -7782,7 +7911,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(bareDollarQuery?.trigger, "$")
         XCTAssertEqual(bareDollarQuery?.query, "")
 
-        let emailPrompt = "mail lawrence@example.com"
+        let emailPrompt = "mail user@example.com"
         XCTAssertNil(TextBoxMentionCompletionDetector.query(
             in: emailPrompt,
             selectedRange: NSRange(location: (emailPrompt as NSString).length, length: 0)
@@ -10302,7 +10431,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             case .insertText(let text):
                 textView.insertText(text, replacementRange: textView.selectedRange())
                 return true
-            case .reject:
+            case .reject, .rejectOversizedImage:
                 return false
             }
         }

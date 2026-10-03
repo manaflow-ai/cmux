@@ -186,7 +186,7 @@ final class DeviceSurfaceProviderRegistry {
         reconcile()
     }
 
-    /// Settings › Computers "Open": show this device's row in the Devices tab,
+    /// Settings › Devices "Open": show this device's row in the Devices tab,
     /// expanded and selected, even if it was collapsed. Never opens a terminal.
     /// The panel consumes the request when it is (or becomes) mounted, so the
     /// caller may switch the sidebar mode first and reveal right after.

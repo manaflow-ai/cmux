@@ -1,4 +1,5 @@
 public import CmuxCore
+internal import CmuxFoundation
 public import CmuxRemoteDaemon
 internal import CmuxSettings
 internal import Darwin
@@ -26,6 +27,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
     private let configuration: WorkspaceRemoteConfiguration
     private let remotePath: String
     private let localPort: Int
+    private let credential: BrowserProxyCredential
     private let strings: RemoteDaemonStrings
     let ptyBridgeStrings: any RemotePTYBridgeStrings
     let clock: any RemoteProxyRetryClock
@@ -44,6 +46,8 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
     /// - Parameters:
     ///   - remotePath: Resolved remote path of the daemon binary.
     ///   - localPort: Loopback port to bind the proxy listener to.
+    ///   - credential: Credential every proxy client must present before a
+    ///     daemon stream opens.
     ///   - strings: App-resolved daemon error strings, passed through to the
     ///     RPC client (localization stays app-side).
     ///   - ptyBridgeStrings: App-resolved PTY attach error strings, passed
@@ -56,6 +60,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         configuration: WorkspaceRemoteConfiguration,
         remotePath: String,
         localPort: Int,
+        credential: BrowserProxyCredential,
         strings: RemoteDaemonStrings,
         ptyBridgeStrings: any RemotePTYBridgeStrings,
         clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock(),
@@ -64,6 +69,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         self.configuration = configuration
         self.remotePath = remotePath
         self.localPort = localPort
+        self.credential = credential
         self.strings = strings
         self.ptyBridgeStrings = ptyBridgeStrings
         self.clock = clock
@@ -222,6 +228,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
 
         let session = RemoteDaemonProxySession(
             connection: connection,
+            credential: credential,
             rpcClient: rpcClient,
             queue: queue
         ) { [weak self] id in
@@ -615,7 +622,23 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         return envelope["ok"] as? Bool == true
     }
 
-    private static func roundTripUnixSocket(socketPath: String, request: Data) throws -> Data {
+    /// Sends one validated cloud CLI request to the local cmux socket,
+    /// authenticating first when a socket password is configured.
+    ///
+    /// - Parameters:
+    ///   - socketPath: The local cmux control socket.
+    ///   - request: The validated, newline-terminated request.
+    ///   - peerCheck: Check run on the listening peer before anything,
+    ///     the password included, is written.
+    ///   - socketPassword: Reads the configured socket password.
+    internal static func roundTripUnixSocket(
+        socketPath: String,
+        request: Data,
+        peerCheck: UnixSocketPeerCheck = UnixSocketPeerCheck(),
+        socketPassword: () -> String? = {
+            SocketControlPasswordStore().configuredPassword(allowLazyKeychainFallback: true)
+        }
+    ) throws -> Data {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
             throw NSError(domain: "cmux.remote.cli-bridge", code: 1, userInfo: [
@@ -657,8 +680,14 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                 NSLocalizedDescriptionKey: "failed to connect to local cmux socket",
             ])
         }
+        // Check the listener before the password or request leaves this process.
+        guard peerCheck.isTrustedPeer(fd) else {
+            throw NSError(domain: "cmux.remote.cli-bridge", code: 9, userInfo: [
+                NSLocalizedDescriptionKey: "local cmux socket is not owned by the current user",
+            ])
+        }
 
-        if let socketPassword = SocketControlPasswordStore().configuredPassword(allowLazyKeychainFallback: true),
+        if let socketPassword = socketPassword(),
            !socketPassword.isEmpty {
             try writeAll(cloudCLIAuthLoginRequest(password: socketPassword), to: fd)
             let authResponse = try readLineFromUnixSocket(fd: fd)

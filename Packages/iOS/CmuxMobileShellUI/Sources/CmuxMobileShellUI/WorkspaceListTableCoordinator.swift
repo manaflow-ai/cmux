@@ -1,6 +1,7 @@
 #if os(iOS)
 import CMUXMobileCore
 import CmuxMobileDiagnostics
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
@@ -69,7 +70,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
     private var reportedScrollInteraction = false
     private weak var tableView: UITableView?
 
-    private var renderedItems: [WorkspaceListTableItem] = []
+    /// The rows the data source serves, in table order.
+    private(set) var renderedItems: [WorkspaceListTableItem] = []
     private var renderedRows: [String: Row] = [:]
     private var rowIndexByID: [String: Int] = [:]
 
@@ -331,10 +333,14 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
         guard offset > -topInset + 0.5 else { return nil }
 
         let visibleTop = offset + topInset
+        let pixel = 1 / max(tableView.traitCollection.displayScale, 1)
         for indexPath in (tableView.indexPathsForVisibleRows ?? []).sorted() {
             guard let id = item(at: indexPath)?.id, stableIDs.contains(id) else { continue }
             let rect = tableView.rectForRow(at: indexPath)
-            guard rect.height > 0, rect.maxY > visibleTop else { continue }
+            // A row ending within a pixel of the top edge only touches the
+            // viewport through rounding, as the row above a scroll-to-row
+            // target does. Anchoring on it would shift every row the user sees.
+            guard rect.height > 0, rect.maxY - visibleTop >= pixel else { continue }
             return ViewportAnchor(rowID: id, distanceFromOffset: rect.minY - offset)
         }
         return nil
@@ -572,7 +578,10 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
             refreshIfStale(cell)
         }
         #if DEBUG
-        scheduleReleaseGateRows(in: tableView)
+        // UIKit is about to make this cell visible. Register immediately so
+        // the release gate measures the actual visibility callback instead of
+        // adding an actor turn after the row has already appeared.
+        installReleaseGateRows(in: tableView)
         #endif
     }
 
@@ -690,7 +699,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
                 filter: filter,
                 showAll: { [weak self] in self?.configuration.showAll() }
             )
-        case .emptyWorkspaceList:
+        case .emptyWorkspaceList(let empty):
             MobileWorkspaceListEmptyRow(
                 retry: configuration.refresh,
                 cancelRetry: configuration.cancelRefresh,
@@ -699,7 +708,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
                 isRetryOwnerCurrentOnDisappear: configuration.isRetryOwnerCurrentOnDisappear,
                 beginRetry: configuration.beginRefresh,
                 cancelRetryAttempt: configuration.cancelRefreshAttempt,
-                cancelRetryOnDisappear: configuration.cancelRefreshAttemptOnDisappear
+                cancelRetryOnDisappear: configuration.cancelRefreshAttemptOnDisappear,
+                guidance: empty.guidance
             )
         case .missing:
             EmptyView()
@@ -1016,7 +1026,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
         waitsForContextMenuDismissal: Bool,
         contextMenuIdentifier: String? = nil
     ) {
-        guard configuration.closeWorkspace != nil else { return }
+        guard let closeWorkspace = configuration.closeWorkspace else { return }
+        guard configuration.closeConfirmation(workspace.id) != nil else {
+            // Nothing to ask (an SSH shell): close in one tap.
+            closeWorkspace(workspace.id)
+            return
+        }
         if waitsForContextMenuDismissal {
             pendingContextMenuWorkspaceClose = (
                 workspace,
@@ -1038,10 +1053,14 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
         for workspace: MobileWorkspacePreview,
         sourceView: UIView
     ) {
-        guard let tableViewController, configuration.closeWorkspace != nil else { return }
+        guard let tableViewController,
+              configuration.closeWorkspace != nil,
+              let confirmation = configuration.closeConfirmation(workspace.id)
+        else { return }
         let workspaceID = workspace.id
         tableViewController.presentWorkspaceCloseConfirmation(
             workspaceID: workspaceID,
+            confirmation: confirmation,
             sourceView: sourceView
         ) { [weak self] in
             self?.configuration.closeWorkspace?(workspaceID)
@@ -1424,44 +1443,53 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
     // MARK: Release gate probe
 
     #if DEBUG
+    private func installReleaseGateRows(in tableView: UITableView) {
+        guard let probe = releaseGateUIProbe, probe.awaitsVisibleRows,
+              tableView.window != nil else { return }
+        probe.revealWorkspace = { [weak self, weak tableView] rawID in
+            guard let self, let tableView, tableView.window != nil else { return }
+            let id = MobileWorkspacePreview.ID(rawValue: rawID)
+            if let indexPath = self.renderedItems.firstIndex(where: { $0.workspaceID == id })
+                .map({ IndexPath(row: $0, section: Self.section) }) {
+                if tableView.indexPathsForVisibleRows?.contains(indexPath) != true {
+                    tableView.scrollToRow(at: indexPath, at: .middle, animated: false)
+                    tableView.layoutIfNeeded()
+                }
+            } else if let groupID = self.configuration.workspacesByID[id]?.groupID,
+                      self.configuration.groupsByID[groupID]?.isCollapsed == true {
+                self.configuration.toggleGroupCollapsed?(groupID, false)
+            }
+        }
+        for indexPath in tableView.indexPathsForVisibleRows ?? [] {
+            guard let id = self.item(at: indexPath)?.workspaceID,
+                  let workspace = self.configuration.workspacesByID[id],
+                  !workspace.terminals.isEmpty
+            else { continue }
+            probe.registerVisibleWorkspace(id.rawValue) { [weak self, weak tableView] in
+                guard let self, let tableView, tableView.window != nil,
+                      tableView.indexPathsForVisibleRows?.contains(indexPath) == true,
+                      self.item(at: indexPath)?.workspaceID == id,
+                      let current = self.configuration.workspacesByID[id],
+                      (current.macConnectionStatus ?? self.configuration.connectionStatus) == .connected
+                else { return false }
+                self.releaseGateSnapshotter?.capture(tableView.window, name: "workspaces")
+                self.tableView(tableView, didSelectRowAt: indexPath)
+                return true
+            }
+        }
+    }
+
     private func scheduleReleaseGateRows(in tableView: UITableView) {
-        guard let probe = releaseGateUIProbe, probe.awaitsVisibleRows, releaseGateRowTask == nil else { return }
+        guard let probe = releaseGateUIProbe, probe.awaitsVisibleRows,
+              releaseGateRowTask == nil else { return }
         releaseGateRowTask = Task { @MainActor [weak self, weak tableView] in
-            // Run after UIKit applies the current row update. This is an actor
-            // handoff, not a timing delay or a surrogate for data readiness.
+            // Run after UIKit applies a model update. This path is used for
+            // updates that do not have a willDisplay callback of their own.
             await Task.yield()
             guard let self else { return }
             defer { self.releaseGateRowTask = nil }
-            guard !Task.isCancelled, let tableView, tableView.window != nil else { return }
-            probe.revealWorkspace = { [weak self, weak tableView] rawID in
-                guard let self, let tableView, tableView.window != nil else { return }
-                let id = MobileWorkspacePreview.ID(rawValue: rawID)
-                if let indexPath = self.renderedItems.firstIndex(where: { $0.workspaceID == id })
-                    .map({ IndexPath(row: $0, section: Self.section) }) {
-                    if tableView.indexPathsForVisibleRows?.contains(indexPath) != true {
-                        tableView.scrollToRow(at: indexPath, at: .middle, animated: false)
-                        tableView.layoutIfNeeded()
-                    }
-                } else if let groupID = self.configuration.workspacesByID[id]?.groupID,
-                          self.configuration.groupsByID[groupID]?.isCollapsed == true {
-                    self.configuration.toggleGroupCollapsed?(groupID, false)
-                }
-            }
-            for indexPath in tableView.indexPathsForVisibleRows ?? [] {
-                guard let id = self.item(at: indexPath)?.workspaceID,
-                      let workspace = self.configuration.workspacesByID[id],
-                      !workspace.terminals.isEmpty,
-                      (workspace.macConnectionStatus ?? self.configuration.connectionStatus) == .connected
-                else { continue }
-                probe.registerVisibleWorkspace(id.rawValue) { [weak self, weak tableView] in
-                    guard let self, let tableView, tableView.window != nil,
-                          tableView.indexPathsForVisibleRows?.contains(indexPath) == true,
-                          self.item(at: indexPath)?.workspaceID == id else { return false }
-                    self.releaseGateSnapshotter?.capture(tableView.window, name: "workspaces")
-                    self.tableView(tableView, didSelectRowAt: indexPath)
-                    return true
-                }
-            }
+            guard !Task.isCancelled, let tableView else { return }
+            self.installReleaseGateRows(in: tableView)
         }
     }
     #endif

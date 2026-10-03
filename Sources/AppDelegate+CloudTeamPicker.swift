@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CmuxCloud
 
@@ -50,6 +51,33 @@ extension AppDelegate {
         state.cloudTeamPickerPresentation.isPresented = auth?.accountFlow.isAuthenticated == true
 #if DEBUG
         cmuxDebugLog("cloud.teamPicker.open source=\(debugSource)")
+#endif
+        return true
+    }
+
+    /// Reveals the active window's Cloud panel and opens the Invite popover
+    /// on its header button. Shared by the palette, the socket and
+    /// ``HostAccountFlow/showTeamInvite(preferredWindow:)``.
+    @MainActor
+    @discardableResult
+    func openCloudTeamInvite(preferredWindow: NSWindow? = nil, debugSource: String) -> Bool {
+        guard CloudMachinesFeature.isEnabled, RightSidebarMode.machines.isAvailable(),
+              let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow),
+              let state = context.fileExplorerState else {
+            NSSound.beep()
+            return false
+        }
+        state.mode = .machines
+        state.setVisible(true)
+        _ = focusRightSidebarInActiveMainWindow(
+            mode: .machines,
+            focusFirstItem: false,
+            preferredWindow: context.window ?? preferredWindow
+        )
+        state.cloudTeamPickerPresentation.isPresented = false
+        state.cloudTeamPickerPresentation.isInvitePresented = auth?.accountFlow.isAuthenticated == true
+#if DEBUG
+        cmuxDebugLog("cloud.teamInvite.open source=\(debugSource)")
 #endif
         return true
     }

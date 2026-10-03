@@ -2,7 +2,7 @@ import AppKit
 import Bonsplit
 import CmuxSettings
 
-private struct DockPaneCloseConfirmationPrompt: Sendable {
+struct DockPaneCloseConfirmationPrompt: Sendable {
     let title: String
     let message: String
     let details: String
@@ -49,7 +49,7 @@ extension DockSplitStore {
         let closeWarningStore = CloseTabWarningStore(
             defaults: confirmationManager?.closeTabWarningDefaults ?? .standard
         )
-        guard closeWarningStore.shouldConfirmClose(
+        guard closeWarningStore.shouldConfirmCloseIncludingSafety(
             requiresConfirmation: dockPanelNeedsConfirmClose(panel),
             source: closeSource
         ) else {
@@ -124,7 +124,7 @@ extension DockSplitStore {
             let panel = panel(for: tab.id)
             paneTitles.append(CloseOtherTabsConfirmationPrompt.displayTitle(panel?.displayTitle ?? tab.title))
             guard userCloseTabIds.contains(tab.id), let panel else { continue }
-            if closeWarningStore.shouldConfirmClose(
+            if closeWarningStore.shouldConfirmCloseIncludingSafety(
                 requiresConfirmation: dockPanelNeedsConfirmClose(panel),
                 source: .shortcut
             ) {

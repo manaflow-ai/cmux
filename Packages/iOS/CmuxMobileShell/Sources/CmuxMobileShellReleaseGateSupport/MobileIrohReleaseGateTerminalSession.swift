@@ -75,6 +75,9 @@ public final class MobileIrohReleaseGateTerminalSession {
                             try Task.checkCancellation()
                             return
                         }
+                        // A cancelled iteration ends the stream with nil, so
+                        // cancellation must win over a round-trip failure.
+                        try Task.checkCancellation()
                         throw MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed
                     } onCancel: {
                         submitTask.cancel()

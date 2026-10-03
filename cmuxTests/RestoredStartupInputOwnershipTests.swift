@@ -24,7 +24,6 @@ struct RestoredStartupInputOwnershipTests {
             panelId: panelId,
             snapshot: nil,
             manualResumeAvailable: false,
-            willRunStartupCommand: false,
             willRunStartupInput: true,
             resumeWorkingDirectory: nil
         )
@@ -43,7 +42,6 @@ struct RestoredStartupInputOwnershipTests {
             panelId: panelId,
             snapshot: nil,
             manualResumeAvailable: true,
-            willRunStartupCommand: false,
             willRunStartupInput: false,
             resumeWorkingDirectory: nil
         )
@@ -99,7 +97,6 @@ struct RestoredStartupInputOwnershipTests {
             panelId: panelId,
             snapshot: nil,
             manualResumeAvailable: false,
-            willRunStartupCommand: false,
             willRunStartupInput: true,
             resumeWorkingDirectory: nil
         )
@@ -121,7 +118,6 @@ struct RestoredStartupInputOwnershipTests {
             panelId: panelId,
             snapshot: nil,
             manualResumeAvailable: false,
-            willRunStartupCommand: false,
             willRunStartupInput: true,
             resumeWorkingDirectory: nil
         )

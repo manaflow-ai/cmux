@@ -132,6 +132,7 @@ extension Workspace {
                 remoteSessionControllerID: controllerID
             ),
             buildInfo: WorkspaceRemoteSessionBuildInfo(),
+            codexWrapperScript: RemoteSessionBundledResourceLoader().codexWrapperScript(),
             daemonStrings: RemoteDaemonStrings.appLocalized,
             strings: RemoteSessionStrings.appLocalized
         )
@@ -157,6 +158,8 @@ extension Workspace {
         if isManagedCloudVMWorkspace, !CloudMachinesFeature.offMainIsEnabled() { return false }
         if let surfaceId, let session = tuiMirrorSession(for: surfaceId) { return session.retryConnection() }
         if usesSSHTui, let configuration = remoteConfiguration {
+            // A targeted pane reconnect cannot escalate into retrying every SSH viewer.
+            guard surfaceId == nil else { return false }
             AppDelegate.shared?.sshTuiWorkspaceCoordinator.connect(workspace: self, configuration: configuration)
             return true
         }

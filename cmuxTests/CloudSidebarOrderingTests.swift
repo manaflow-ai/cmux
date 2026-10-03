@@ -28,7 +28,7 @@ struct CloudSidebarOrderingTests {
         #expect(up.isEnabled)
         #expect(NSApp.sendAction(action, to: up.target, from: up))
         let group = try #require(outline.parent(forItem: folder) as? CloudTreeNode)
-        #expect(group.children.map(\.id) == [folder.id, fixture.folderID("ws_1")])
+        #expect(group.children.filter(\.canOrganize).map(\.id) == [folder.id, fixture.folderID("ws_1")])
         try fixture.attachScreenshot(named: "cloud-sidebar-after-move")
         let pin = try #require(menu.items.first { $0.title == String(localized: "cloudTree.menu.pin", defaultValue: "Pin") })
         #expect(NSApp.sendAction(try #require(pin.action), to: pin.target, from: pin))
@@ -62,14 +62,14 @@ struct CloudSidebarOrderingTests {
         let restored = CloudSidebarOrganizationStore(defaults: fixture.defaults)
         let reconnect = CloudSidebarOrganizationTree(nodes: fixture.nodes(titles: ["renamed", "renamed"])).arrange(using: restored.state)
         let group = try #require(CloudSidebarOrganizationTree(nodes: reconnect).parent(of: first))
-        #expect(group.children.map(\.id) == [second, first])
+        #expect(group.children.filter(\.canOrganize).map(\.id) == [second, first])
         #expect(group.children[0].isPinned)
-        #expect(group.children.map(\.searchableTitle) == ["renamed", "renamed"])
+        #expect(group.children.filter(\.canOrganize).map(\.searchableTitle) == ["renamed", "renamed"])
         #expect(restored.perform(.unpin, id: second, nodes: reconnect))
         #expect(restored.perform(.down, id: second, nodes: reconnect))
         let restarted = CloudSidebarOrganizationStore(defaults: fixture.defaults)
         let rows = CloudSidebarOrganizationTree(nodes: fixture.nodes()).arrange(using: restarted.state)
-        #expect(CloudSidebarOrganizationTree(nodes: rows).parent(of: first)?.children.map(\.id) == [first, second])
+        #expect(CloudSidebarOrganizationTree(nodes: rows).parent(of: first)?.children.filter(\.canOrganize).map(\.id) == [first, second])
         #expect(restarted.state.groups.values.allSatisfy { $0.pinned.isEmpty })
     }
 
@@ -86,12 +86,12 @@ struct CloudSidebarOrderingTests {
             unreadTerminalIDs: [fixture.machine.rawValue: [resource.id.key]], includeLocalMachine: false)
         let parent = try #require(CloudTreeNodeBuilder.flattened(nodes).first { $0.id == fixture.folderID("ws_1") })
         #expect(parent.children.count == 2)
-        let ids = parent.children.map(\.id)
+        let ids = parent.children.filter(\.canOrganize).map(\.id)
         let groups = parent.children.map(\.dragGroup)
         #expect(fixture.catalog.sidebarOrganization.perform(.pin, id: ids[1], nodes: nodes))
         let arranged = CloudSidebarOrganizationTree(nodes: nodes).arrange(using: fixture.catalog.sidebarOrganization.state)
         let moved = try #require(CloudSidebarOrganizationTree(nodes: arranged).parent(of: ids[0]))
-        #expect(moved.children.map(\.id) == Array(ids.reversed()))
+        #expect(moved.children.filter(\.canOrganize).map(\.id) == Array(ids.reversed()))
         #expect(moved.children.map(\.dragGroup) == Array(groups.reversed()))
         #expect(moved.children.map(\.isPinned) == [true, false])
         #expect(moved.children.allSatisfy { if case .terminal(let row) = $0.kind { return row.hasUnreadNotification }; return false })
@@ -116,6 +116,27 @@ struct CloudSidebarOrderingTests {
         let folder = try #require(folders.first)
         let drag = try #require(writer.outlineView(outline, pasteboardWriterForItem: folder) as? NSPasteboardItem)
         #expect(drag.string(forType: .cloudSidebarRow) == folder.id)
+    }
+
+    @Test("A remote workspace keeps organization dragging when pane projection is unavailable")
+    func remoteWorkspaceFallsBackToOrganizationWithoutProjectionRegistry() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let nodes = fixture.nodes()
+        let workspace = try #require(
+            CloudTreeNodeBuilder.flattened(nodes).first { $0.id == fixture.folderID("ws_2") }
+        )
+
+        // The real pane registry may be unavailable while a Cloud outline is
+        // being reconstructed. The row must still produce its sidebar move
+        // payload instead of disappearing from AppKit's drag source callback.
+        let registration = try #require(
+            CloudTreeDragRegistration(node: workspace, registry: nil)
+        )
+        guard case .organization = registration else {
+            Issue.record("Remote workspace should retain organization drag when projection registration is unavailable")
+            return
+        }
     }
 
     @Test("Folder drags use the shared provisional owner without exposing pane projection")
@@ -223,7 +244,8 @@ final class CloudSidebarOrderingFixture {
         defaults.removePersistentDomain(forName: defaultsName)
     }
 
-    func attachScreenshot(named name: String) throws {
+    func attachScreenshot(named name: String, of view: NSView? = nil) throws {
+        let container = view ?? self.container
         container.layoutSubtreeIfNeeded()
         let bitmap = try #require(container.bitmapImageRepForCachingDisplay(in: container.bounds))
         container.cacheDisplay(in: container.bounds, to: bitmap)

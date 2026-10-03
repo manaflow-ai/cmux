@@ -195,6 +195,30 @@ struct SidebarHiddenPresentationTests {
         #expect(spinner.contentLayer.animation(forKey: GPUSpinnerNSView.animationKey) == nil)
     }
 
+    @Test
+    func hiddenSpinnerRemovesItsInstalledAnimation() {
+        let spinner = GPUSpinnerNSView(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
+        spinner.contentLayer.add(
+            CABasicAnimation(keyPath: "transform.rotation.z"),
+            forKey: GPUSpinnerNSView.animationKey
+        )
+        #expect(spinner.contentLayer.animation(forKey: GPUSpinnerNSView.animationKey) != nil)
+
+        spinner.isHidden = true
+
+        #expect(spinner.contentLayer.animation(forKey: GPUSpinnerNSView.animationKey) == nil)
+    }
+
+    @Test
+    func spinnerAnimationsRequestTheirStepRateFromTheCompositor() {
+        let spokes = GPUSpinnerNSView.makeRotationAnimation(style: .macOSSpokes, beginTime: 0)
+        #expect(spokes.preferredFrameRateRange.maximum <= 20)
+        #expect(spokes.preferredFrameRateRange.minimum >= 10)
+
+        let arc = GPUSpinnerNSView.makeRotationAnimation(style: .arc, beginTime: 0)
+        #expect(arc.preferredFrameRateRange.maximum <= 60)
+    }
+
     /// Ensures a hidden sidebar rebuilds retained rows from current Cloud state.
     @Test
     func visibilityToggleKeepsAppKitTableContainerMounted() async throws {

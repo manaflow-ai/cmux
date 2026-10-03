@@ -90,6 +90,9 @@ jobs:
           retention-days: 3
 
   build-sign-notarize:
+    # Production secrets: GitHub releases them only to protected refs (the
+    # environment's deployment branch policy: main, tags v*).
+    environment: release
     needs: build-ghostty-cli-helper
     # Build the app on macOS 26 so SDK-gated SwiftUI Liquid Glass code compiles
     # into stable releases. The real universal Ghostty CLI helper is built on
@@ -323,9 +326,9 @@ jobs:
       - name: Start Computer Use helper notarization
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           state="$RUNNER_TEMP/cmux-computer-use-notarization.state"
@@ -527,18 +530,30 @@ jobs:
             ./scripts/smoke-launch-macos-app.sh \
             "build-universal/Build/Products/Release/cmux.app"
 
+      - name: Smoke bundled CLI against the signed app
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          # Launch-only smoke proves the process lives; this drives the shipped
+          # app through the CLI inside the same bundle (version, help, SSH
+          # daemon manifest, ping, capabilities, workspace create/list/close).
+          ./scripts/smoke-signed-app-cli.sh \
+            "build-universal/Build/Products/Release/cmux.app"
+
       - name: Notarize app
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
-          if [ -z "$APPLE_ID" ] || [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
-            echo "Missing notarization secrets (APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID)" >&2
-            exit 1
-          fi
+          # notarytool authenticates with the team App Store Connect API key.
+          # The decoded key stays in a private temp dir removed on exit.
+          NOTARY_TMP="$(mktemp -d "$RUNNER_TEMP/cmux-notary.XXXXXX")"
+          trap 'rm -rf "$NOTARY_TMP"' EXIT
+          source ./scripts/ci/lib/notary-auth.sh
+          notary_auth_init "$NOTARY_TMP"
           APP_PATH="build-universal/Build/Products/Release/cmux.app"
           ZIP_SUBMIT="cmux-notary.zip"
           DMG_RELEASE="cmux-macos.dmg"
@@ -548,12 +563,12 @@ jobs:
             cmux.release.entitlements \
             "$APPLE_SIGNING_IDENTITY"
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_SUBMIT"
-          APP_SUBMIT_JSON="$(xcrun notarytool submit "$ZIP_SUBMIT" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
+          APP_SUBMIT_JSON="$(xcrun notarytool submit "$ZIP_SUBMIT" "${NOTARY_AUTH_ARGS[@]}" --wait --output-format json)"
           APP_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$APP_SUBMIT_JSON")"
           APP_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$APP_SUBMIT_JSON")"
           if [ "$APP_STATUS" != "Accepted" ]; then
             echo "App notarization failed with status: $APP_STATUS" >&2
-            xcrun notarytool log "$APP_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
+            xcrun notarytool log "$APP_SUBMIT_ID" "${NOTARY_AUTH_ARGS[@]}" || true
             exit 1
           fi
           xcrun stapler staple "$APP_PATH"
@@ -574,12 +589,12 @@ jobs:
             --sign "$APPLE_SIGNING_IDENTITY" \
             "$DMG_RELEASE"
           /usr/bin/codesign --verify --verbose=2 "$DMG_RELEASE"
-          DMG_SUBMIT_JSON="$(xcrun notarytool submit "$DMG_RELEASE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
+          DMG_SUBMIT_JSON="$(xcrun notarytool submit "$DMG_RELEASE" "${NOTARY_AUTH_ARGS[@]}" --wait --output-format json)"
           DMG_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$DMG_SUBMIT_JSON")"
           DMG_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$DMG_SUBMIT_JSON")"
           if [ "$DMG_STATUS" != "Accepted" ]; then
             echo "DMG notarization failed with status: $DMG_STATUS" >&2
-            xcrun notarytool log "$DMG_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
+            xcrun notarytool log "$DMG_SUBMIT_ID" "${NOTARY_AUTH_ARGS[@]}" || true
             exit 1
           fi
           xcrun stapler staple "$DMG_RELEASE"

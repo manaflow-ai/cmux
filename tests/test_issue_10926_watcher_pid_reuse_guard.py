@@ -2,8 +2,7 @@
 """
 Regression for https://github.com/manaflow-ai/cmux/issues/10926.
 
-The zsh integration spawns two disowned watcher loops per pane (PR poll,
-git HEAD watch); the bash integration spawns one (PR poll). Each loop
+The remaining zsh watchers (git HEAD and the legacy PR poll entrypoint)
 guarded parent liveness with a bare `kill -0 $watch_shell_pid`, which is
 defeated by PID reuse: once macOS recycles the recorded PID onto any live
 process, the guard returns true forever and the watcher never exits
@@ -28,12 +27,11 @@ import socket
 import subprocess
 import tempfile
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ZSH_INTEGRATION = ROOT / "Resources" / "shell-integration" / "cmux-zsh-integration.zsh"
-BASH_INTEGRATION = ROOT / "Resources" / "shell-integration" / "cmux-bash-integration.bash"
 
 # Start identities are epoch seconds from both Darwin providers.
 FAKE_START_TIME = "1000000000"
@@ -137,7 +135,7 @@ def ps_epoch_start_time(pid: int, env: dict[str, str]) -> str:
     if len(words) != 5:
         return ""
     try:
-        started = datetime.strptime(" ".join(words), "%a %b %d %H:%M:%S %Y").replace(tzinfo=UTC)
+        started = datetime.strptime(" ".join(words), "%a %b %d %H:%M:%S %Y").replace(tzinfo=timezone.utc)
     except ValueError:
         return ""
     return str(int(started.timestamp()))
@@ -329,15 +327,12 @@ def check_injected_watcher_loop(name: str, shell_argv: list[str], integration: P
     def spawn_loop(pid: int, expected: str) -> tuple[int | None, int, bool]:
         read_fd, write_fd = os.pipe()
         try:
-            ready_command = (
-                f"print -r -- READY >&{write_fd}" if name == "zsh" else f"printf 'READY\\n' >&{write_fd}"
-            )
-            launch_suffix = "&!;" if name == "zsh" else "& disown;"
+            ready_command = f"print -r -- READY >&{write_fd}"
             loop_script = (
                 'source "$1"; '
                 f"{{ _cmux_watcher_guard_tick \"$2\" \"$3\" || exit 0; {ready_command}; "
                 "while true; do sleep 0.2; _cmux_watcher_guard_tick \"$2\" \"$3\" || exit 0; done; } >/dev/null 2>&1 "
-                f"{launch_suffix} "
+                "&!; "
                 'printf \'LOOP:%s\\n\' "$!"'
             )
             proc = run_shell(
@@ -421,8 +416,7 @@ def check_real_loops(name: str, shell_argv: list[str], integration: Path, tmp: P
     )
 
     ready_read, ready_write = os.pipe()
-    if name == "zsh":
-        parent_script = f"""
+    parent_script = f"""
 source "$1"
 functions[_cmux_test_guard_tick_impl]="${{functions[_cmux_watcher_guard_tick]}}"
 typeset -g _CMUX_TEST_READY_SENT=0
@@ -444,27 +438,6 @@ _CMUX_PR_POLL_INTERVAL=1
 _cmux_start_pr_poll_loop "$PWD" 1
 _cmux_start_git_head_watch
 print -r -- "WATCHERS:$_CMUX_PR_POLL_PID:$_CMUX_GIT_HEAD_WATCH_PID"
-exec sleep 300
-"""
-    else:
-        parent_script = f"""
-source "$1"
-eval "$(declare -f _cmux_watcher_guard_tick | sed 's/_cmux_watcher_guard_tick/_cmux_test_guard_tick_impl/g')"
-_CMUX_TEST_READY_SENT=0
-_cmux_watcher_guard_tick() {{
-    _cmux_test_guard_tick_impl "$@"
-    local guard_status=$?
-    if [[ "$guard_status" == "0" && "${{_CMUX_TEST_READY_SENT:-0}}" != "1" ]]; then
-        printf 'READY\\n' >&{ready_write}
-        _CMUX_TEST_READY_SENT=1
-    fi
-    return "$guard_status"
-}}
-_cmux_run_pr_probe_with_timeout() {{ true; }}
-_cmux_pr_force_signal_path() {{ printf '%s\\n' {str(tmp / 'pr-force')!r}; }}
-_CMUX_PR_POLL_INTERVAL=1
-_cmux_start_pr_poll_loop "$PWD" 1
-printf 'WATCHERS:%s:\\n' "$_CMUX_PR_POLL_PID"
 exec sleep 300
 """
 
@@ -502,8 +475,7 @@ exec sleep 300
             fail(f"[{name}] real-loop parent reported no watcher PIDs")
             return
 
-        expected_ready = 2 if name == "zsh" else 1
-        if not wait_ready(ready_read, expected=expected_ready):
+        if not wait_ready(ready_read, expected=2):
             fail(f"[{name}] real-loop watchers did not report their first identity checks")
         for pid in watcher_pids:
             if not pid_alive(pid):
@@ -537,13 +509,12 @@ exec sleep 300
 
 
 def main() -> int:
-    if not ZSH_INTEGRATION.exists() or not BASH_INTEGRATION.exists():
+    if not ZSH_INTEGRATION.exists():
         print("SKIP: shell integration resources not found")
         return 0
     zsh = shutil.which("zsh")
-    bash = shutil.which("bash")
-    if zsh is None or bash is None:
-        print("SKIP: zsh or bash not installed")
+    if zsh is None:
+        print("SKIP: zsh not installed")
         return 0
 
     tmp = Path(tempfile.mkdtemp(prefix="cmux_10926_"))
@@ -551,7 +522,6 @@ def main() -> int:
     try:
         shells = [
             ("zsh", [zsh, "-f"], ZSH_INTEGRATION),
-            ("bash", [bash, "--norc"], BASH_INTEGRATION),
         ]
         for name, argv, integration in shells:
             env = base_env(tmp)
@@ -565,7 +535,7 @@ def main() -> int:
     if FAILURES:
         print(f"FAILED: {len(FAILURES)} assertion(s)")
         return 1
-    print("PASS: watcher parent-identity guard holds under PID reuse for zsh and bash")
+    print("PASS: watcher parent-identity guard holds under PID reuse for zsh (bash poller retired by #15067)")
     return 0
 
 

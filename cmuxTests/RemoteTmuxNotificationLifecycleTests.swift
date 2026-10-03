@@ -137,6 +137,26 @@ struct RemoteTmuxNotificationLifecycleTests {
     }
 
     @Test
+    func relayAliasesIncludeTrackedRemoteTmuxMirrorSurfaces() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        try harness.publishSinglePane()
+
+        let sessionMirror = try #require(harness.workspace.remoteTmuxSessionMirror)
+        let containerPanelID = try #require(sessionMirror.panelIdByWindow[2])
+        let mirror = try #require(
+            harness.workspace.remoteTmuxWindowMirror(forPanelId: containerPanelID)
+        )
+        let mirrorSurfaceID = try #require(mirror.surfaceIDsInLayoutOrder.first)
+        harness.workspace.trackRemoteTerminalSurface(mirrorSurfaceID)
+
+        let aliases = harness.workspace.remoteRelayIDAliasesForController()
+        #expect(aliases.surfaceAliases[mirrorSurfaceID] == mirrorSurfaceID)
+        let sessionSurfaceID = try #require(sessionMirror.controlPaneLocations().first?.pane.panel.id)
+        #expect(aliases.surfaceAliases[sessionSurfaceID] == sessionSurfaceID)
+    }
+
+    @Test
     func projectedPaneNotificationStoresOpensAndPreservesRecoverableRoute() throws {
         TerminalNotificationStore.shared.clearAll()
         let harness = try Harness()
@@ -242,11 +262,15 @@ struct RemoteTmuxNotificationLifecycleTests {
             sourcePanelId: panePanel.id,
             workingDirectory: nil
         ))
-        #expect(localOpenResult)
         #expect(
-            fileOpener.opened == [localOnlyPath],
-            "Remote transcript paths must use the external file-opening seam instead of opening in cmux"
+            !localOpenResult,
+            "A path in a projected SSH-tmux pane names a remote file, so it must be refused here"
         )
+        #expect(
+            fileOpener.opened.isEmpty,
+            "Remote transcript paths must never open the same path on this Mac"
+        )
+        #expect(externallyOpenedURLs == [projectedURL])
 
         #expect(harness.manager.focusedSurfaceId(for: harness.workspace.id) == panePanel.id)
         #expect(AppDelegate.shared?.agentNotificationDeliveryTarget(

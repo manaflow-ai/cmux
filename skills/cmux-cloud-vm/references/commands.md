@@ -59,6 +59,8 @@ cmux surface ls [--json]               # same catalog; `surface open <resource>`
 cmux vm status <id>                    # provider, status, image
 cmux vm stats <id>                     # CPU/mem/disk now; sleeping machines stay asleep
 cmux vm resize <id> --disk 40G         # grow persistent disk in 4 GiB steps (never shrinks)
+cmux vm network <id>                   # outbound policy: mode, presets, domains, ranges, applied state
+cmux vm agent-updates <id>             # latest (updated on attach) or image (baked pins)
 cmux vm tools <id>                     # which tools are installed
 cmux vm ports <id>                     # listening TCP ports inside the machine
 cmux vm handoff <id>                   # short attach block to paste to a human or another agent
@@ -107,12 +109,12 @@ someone else's machine or Base.
 ### `cmux vm new`
 
 ```bash
-cmux vm new [--desktop|--base] [--size <4g|8g|16g|24g|32g|64g|MB>] [--name <label>] [--provider <p>] [--image <id>] [--workspace <id>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d] [--json]
+cmux vm new [--desktop|--base] [--size <4g|8g|16g|24g|32g|64g|MB>] [--name <label>] [--provider <p>] [--image <id>] [--workspace <id>] [--window <id|ref|index>] [--focus|--no-focus] [--detach|-d] [--json]
 # alias: cmux vm create
 ```
 
 Socket `vm.create` with `kind: desktop` for every new machine. The legacy `--base`/`--no-desktop` and `--desktop` flags all select the same devbox; contradictory flags are rejected. The backend selects the image from its manifest; `--image <id>` is the explicit override and the only way an image id leaves the client. If the requested kind is not offered, the server fails closed with an image-config error rather than silently returning the wrong shape. `--size` accepts `4g`, `8g`, `16g`, `24g`, `32g`, `64g`, or raw MB ≥ 512. `vm ls --json` → `limits.memoryOptionsMb` is authoritative for the current plan; the backend selects its default when a parsed request is unavailable, and the chosen image supplies the matching CPU and initial disk. `--name` applies a display label through `vm.rename` after the create. Positional arguments are rejected (`cmux vm new myvm` errors instead of provisioning). Retries of a failed create reuse an idempotency key so a transient failure never mints two machines.
-Without `--detach`, opens a plain terminal on the machine (the same open path as `vm shell`); `--focus false` opens it without switching to its workspace (what the New Machine sheet does — the app's Create returns control immediately and the pane appears in the background); desktop machines also get their screen in a split. Text output carries the stable `OK machine=<id>` marker after the localized created line; `--detach` prints `<id> is ready` and the follow-up commands. `--json`: the `vm.create` payload (`{id, provider, image, kind?, …}`) and no pane. Sidebar: Machines panel ＋ / "New Cloud Machine…" sheet (name, size, plan meter). On a free or unknown plan the backend returns `vm_requires_pro` (exit 1); paid-plan machine caps come from the backend (`vm ls --json` → `limits.maxActiveVms`; absent means uncapped). The current CLI accepts `--provider freestyle`; omit it to let the server choose the configured default. If a deployment adds another provider, read that tagged app's `vm new --help` before using it.
+Without `--detach`, opens a plain terminal on the machine (the same open path as `vm shell`); it switches to its workspace only when run interactively from a terminal (an agent or script gets it in the background, marked unread); `--focus` / `--no-focus` (also `--focus true|false`) override that, and `--no-focus` is what the New Machine sheet does — the app's Create returns control immediately and the pane appears in the background); desktop machines also get their screen in a split. Text output carries the stable `OK machine=<id>` marker after the localized created line; `--detach` prints `<id> is ready` and the follow-up commands. `--json`: the `vm.create` payload (`{id, provider, image, kind?, …}`) and no pane. Sidebar: Machines panel ＋ / "New Cloud Machine…" sheet (name, size, plan meter). On a free or unknown plan the backend returns `vm_requires_pro` (exit 1); paid-plan machine caps come from the backend (`vm ls --json` → `limits.maxActiveVms`; absent means uncapped). The current CLI accepts `--provider freestyle`; omit it to let the server choose the configured default. If a deployment adds another provider, read that tagged app's `vm new --help` before using it.
 
 ### `cmux vm rename`
 
@@ -168,6 +170,61 @@ resources, so confirm the machine and desired sizes before running it, then use
 `cmux vm stats <id>` to verify the result. Sidebar: machine row › Resize machine
 › Increase CPU / Increase Memory / Increase Disk uses the same action path.
 
+### `cmux vm network`
+
+```bash
+cmux vm network <id> [--json]                                   # show the policy and preset ids
+cmux vm network <id> set --mode <full|allowlist|none> [--dns <on|off>]
+cmux vm network <id> preset add anthropic openai                # quick-add exact HTTPS hosts
+cmux vm network <id> add-domain api.example.com                 # exact HTTPS name, no wildcards
+cmux vm network <id> add-range 203.0.113.0/24 --port 443 --protocol tcp
+cmux vm network <id> remove-domain api.example.com
+cmux vm new --network allowlist   # or --network-policy '<json>' to choose at create
+```
+
+Controls where the machine can connect out. `full` (the default) reaches any
+public address. `allowlist` reaches only listed domains and IP ranges; `none`
+reaches only the hosts cmux needs (`files.cmux.com` and the GitHub release hosts).
+Model traffic through CodeRouter keeps working in every mode. Changes apply to a
+running machine in a few seconds with no restart, and the text result ends with
+`applied=applied` once the provider confirmed them.
+
+Domains are exact names on HTTPS/443, steered through the machine's
+`/etc/hosts`; tools that bypass `/etc/hosts` (a container with its own DNS) or pin
+certificates are not steered, so give them an IP range instead. `--dns on` lets
+tools resolve names for IP ranges but is itself an outbound channel. Before
+restricting a machine an agent is using, add the hosts its task needs (package
+registries, the git remote, model providers), then check with
+`cmux vm exec <id> -- curl -sS -o /dev/null -w '%{http_code}' https://<host>`.
+Socket methods `vm.network_get {id}` and `vm.network_update {id, edits}`; the
+machine row's Network… menu, the web dashboard, and `PUT /api/vm/<id>/network`
+use the same policy.
+
+### `cmux vm agent-updates`
+
+```bash
+cmux vm agent-updates <id> [--json]     # show: latest or image
+cmux vm agent-updates <id> latest       # update coding agents on attach, at most once a day
+cmux vm agent-updates <id> image        # keep the image's versions (the default)
+cmux vm new --agent-updates latest      # choose at create
+```
+
+`latest` makes each attach start a detached updater on the machine that installs
+the newest Claude Code, Codex, OpenCode, Pi, and agent-browser releases that have
+been public for 3 days, at most once a day; attach never waits for it. Each comes
+from the tool's own GitHub release asset, checked against its sha256 digest; npm
+is never used, and a machine baked with npm installs migrates on its first
+update. The New Machine sheet checks it by default. Switching back to `image`
+stops further updates but does not downgrade what is installed. Updates reach
+only `api.github.com`, `github.com` and GitHub's release-asset host, which every
+`cmux vm network` mode allows; a failed check (for example a GitHub rate limit)
+is retried on the next attach.
+On the machine, `/etc/cmux/agent-updates.state` records the last check and
+`/var/log/cmux-agent-updates.log` its output. Socket methods
+`vm.agent_updates_get {id}` and `vm.agent_updates_set {id, agent_updates}`; the
+machine row's Keep Agents Up to Date menu item and
+`PUT /api/vm/<id>/agent-updates` use the same setting.
+
 ### `cmux vm wait`
 
 ```bash
@@ -195,7 +252,7 @@ Socket `vm.status`, printed as a short block (id, provider, status, `attach: cmu
 ### Base: `cmux vm base open` / `cmux vm base reset`
 
 ```bash
-cmux vm base [open] [--desktop|--base] [--workspace <workspace-id>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d] [--json]
+cmux vm base [open] [--desktop|--base] [--workspace <workspace-id>] [--window <id|ref|index>] [--focus|--no-focus] [--detach|-d] [--json]
 cmux vm base reset [--desktop|--base] [--reason <text>] [--workspace <workspace-id>] [--window <id|ref|index>] [--detach|-d] [--json]
 ```
 
@@ -562,7 +619,7 @@ Opens the full cmux-tui client in a pane, with its own workspaces, panes, and ta
 ### `cmux vm open`
 
 ```bash
-cmux vm open <target> [--workspace <id|ref|index>] [--focus <true|false>] [--print] [--json]
+cmux vm open <target> [--workspace <id|ref|index>] [--focus|--no-focus] [--print] [--json]
 cmux vm open <id> <port> [--print] [--json]
 ```
 
@@ -577,7 +634,7 @@ One resolver, several target shapes (copy them from `cmux vm tree`):
 | `<machine>:port/<n>` and `<machine> <n>` | an HTTP port on the machine, as a browser pane — the URL is the machine's private VPC address, so it needs `cmux vpn up` | `vm.port_open {id, port, workspace_id?}` |
 | `… --print` | ports only: mint and print the URL, no pane | `vm.open_port {id, port}` → `{open_url, …}` |
 
-`--workspace` targets a local workspace (default: the machine's open workspace, else where you are); `--focus` defaults to false so the pane opens beside you without stealing typing. Text `OK surface=… workspace=… terminal=… [reused=true]`; ports print `<id>:<port>` and the URL. Anything else is a usage error (exit 1). `cmux vm port` is an alias for the verb. Sidebar: row click / Open; Port row click.
+`--workspace` targets a local workspace (default: the machine's open workspace, else where you are); focus follows the open-command default: interactive runs switch to the pane, agents and scripts open it beside you in the background (marked unread) without stealing typing; `--focus` / `--no-focus` override it and `CMUX_FOCUS_NEW=1|0` sets it for a whole environment. Text `OK surface=… workspace=… terminal=… [reused=true]`; ports print `<id>:<port>` and the URL. Anything else is a usage error (exit 1). `cmux vm port` is an alias for the verb. Sidebar: row click / Open; Port row click.
 
 ### `cmux vm desktop`
 
@@ -618,7 +675,7 @@ Socket `surface.catalog` — exactly `cmux vm tree`, including This Mac.
 ### `cmux surface open`
 
 ```bash
-cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>] [--json]
+cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus|--no-focus] [--json]
 # alias: cmux surface project
 ```
 
@@ -627,7 +684,7 @@ Socket `surface.project {resource, workspace_id?, pane_id?, direction?, placemen
 ### `cmux surface new-terminal`
 
 ```bash
-cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [--json] [-- <command...>]
+cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json] [-- <command...>]
 # alias: cmux surface new
 ```
 
@@ -740,6 +797,12 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | `vm.base_open`, `vm.base_reset` | `vm base open`, `vm base reset` |
 | `vm.status` | `vm status`, `vm handoff`, `vm wait` |
 | `vm.stats` | `vm stats`; the router's load scoring |
+| `vm.env_set` | `vm env set` |
+| `vm.file_put` | `vm push` |
+| `vm.pause`, `vm.resume` | `vm pause`, `vm resume` |
+| `vm.reflection` | `vm self` |
+| `vm.snapshot_list`, `vm.snapshot_delete` | `cmux rpc vm.snapshot_list`, `cmux rpc vm.snapshot_delete` |
+| `vm.terminal_output`, `vm.terminal_wait_exit` | `vm terminal output`, `vm terminal wait-exit` |
 | `vm.diagnostics` | `cmux rpc vm.diagnostics '{}'` returns the app's cloud-operation report; `{"show":true}` also opens the diagnostics window |
 | `vm.resize` | `vm resize <id> [--cpu …] [--memory …] [--disk …]`; machine row › Resize machine |
 | `vm.rename` | `vm new --name` and the router's `agent-pool` label; direct machine-label editing is currently a sidebar action |

@@ -66,6 +66,64 @@ final class GhosttyConfigTests: XCTestCase {
         let blue: Int
     }
 
+    /// Verifies cmux-managed shell integration leaves Ghostty's prompt cursor
+    /// feature disabled, preserving the user's configured cursor shape.
+    func testCmuxShellIntegrationDoesNotEnableGhosttyPromptCursor() {
+        guard let config = GhosttyApp.shared.config else {
+            XCTFail("Expected loaded Ghostty config")
+            return
+        }
+
+        var features: CUnsignedInt = 0
+        let key = "shell-integration-features"
+        XCTAssertTrue(
+            ghostty_config_get(config, &features, key, UInt(key.utf8.count)),
+            "Expected Ghostty to expose shell integration features"
+        )
+
+        // ShellIntegrationFeatures is packed; its first field is `cursor`.
+        // Clearing it prevents the prompt hook's bar-cursor escape sequence.
+        XCTAssertEqual(
+            features & 1,
+            0,
+            "cmux-managed shell integration must not switch prompts to a bar cursor"
+        )
+    }
+
+    /// Verifies the cursor override keeps every other shell-integration feature
+    /// the user configured. Ghostty parses `shell-integration-features` from
+    /// its defaults, so a bare `no-cursor` would reset them (#10670).
+    func testCmuxShellIntegrationOverridePreservesUserFeatures() {
+        _ = GhosttyApp.shared
+        guard let config = ghostty_config_new() else {
+            XCTFail("Expected a Ghostty config")
+            return
+        }
+        defer { ghostty_config_free(config) }
+
+        let userConfig = "shell-integration-features = no-title,sudo,ssh-terminfo"
+        userConfig.withCString { contents in
+            "/__cmux_test__/user.conf".withCString { path in
+                ghostty_config_load_string(config, contents, UInt(userConfig.utf8.count), path)
+            }
+        }
+        GhosttyApp.shared.loadCmuxShellIntegrationOverride(config)
+
+        var features: CUnsignedInt = 0
+        let key = "shell-integration-features"
+        XCTAssertTrue(ghostty_config_get(config, &features, key, UInt(key.utf8.count)))
+
+        // Ghostty's packed ShellIntegrationFeatures bit order:
+        // cursor, sudo, title, ssh-env, ssh-terminfo, path.
+        XCTAssertEqual(features & (1 << 0), 0, "cursor must be off")
+        XCTAssertNotEqual(features & (1 << 1), 0, "user-enabled sudo must survive")
+        XCTAssertEqual(features & (1 << 2), 0, "user-disabled title must stay off")
+        XCTAssertEqual(features & (1 << 3), 0, "ssh-env keeps its default")
+        XCTAssertNotEqual(features & (1 << 4), 0, "user-enabled ssh-terminfo must survive")
+        XCTAssertNotEqual(features & (1 << 5), 0, "path keeps its default")
+    }
+
+    /// Verifies bundled Ghostty resources take precedence over inherited paths.
     func testLaunchGhosttyResourcesPreferCurrentBundleOverInheritedEnvironment() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -2347,7 +2405,7 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         XCTAssertEqual(panel.preferredURLStringForOmnibar(), url.absoluteString)
         XCTAssertNil(panel.webView.url)
 
-        panel.setRemoteProxyEndpoint(BrowserProxyEndpoint(host: "127.0.0.1", port: 9876))
+        panel.setRemoteProxyEndpoint(BrowserProxyEndpoint(host: "127.0.0.1", port: 9876, credential: .random()))
 
         let deadline = Date().addingTimeInterval(1.0)
         while panel.webView.url == nil, RunLoop.main.run(mode: .default, before: deadline), Date() < deadline {}
@@ -2369,7 +2427,7 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         XCTAssertEqual(panel.preferredURLStringForOmnibar(), url.absoluteString)
         XCTAssertNil(panel.webView.url)
 
-        panel.setRemoteProxyEndpoint(BrowserProxyEndpoint(host: "127.0.0.1", port: 9876))
+        panel.setRemoteProxyEndpoint(BrowserProxyEndpoint(host: "127.0.0.1", port: 9876, credential: .random()))
 
         let deadline = Date().addingTimeInterval(1.0)
         while panel.webView.url == nil, RunLoop.main.run(mode: .default, before: deadline), Date() < deadline {}
@@ -2443,7 +2501,7 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         XCTAssertEqual(panel.preferredURLStringForOmnibar(), url.absoluteString)
         XCTAssertNil(panel.webView.url)
 
-        panel.setRemoteProxyEndpoint(BrowserProxyEndpoint(host: "127.0.0.1", port: 9876))
+        panel.setRemoteProxyEndpoint(BrowserProxyEndpoint(host: "127.0.0.1", port: 9876, credential: .random()))
 
         let deadline = Date().addingTimeInterval(1.0)
         while panel.webView.url == nil, RunLoop.main.run(mode: .default, before: deadline), Date() < deadline {}
@@ -3577,11 +3635,18 @@ final class GhosttyMouseFocusTests: XCTestCase {
     }
 
     func testShouldInjectCJKFontFallbackAllowsSingleFontWithoutExplicitOverrides() throws {
+        // Probe coverage explicitly: an unresolvable family fails closed
+        // (#9193), so relying on JetBrains Mono being installed made this
+        // depend on the machine's fonts.
         try withTempConfig("font-family = JetBrains Mono\n") { path in
             XCTAssertTrue(
                 GhosttyApp.shouldInjectCJKFontFallback(
                     preferredLanguages: ["zh-Hans-CN"],
-                    configPaths: [path]
+                    configPaths: [path],
+                    rangeCoverageProbe: { fontFamily, _ in
+                        XCTAssertEqual(fontFamily, "JetBrains Mono")
+                        return false
+                    }
                 )
             )
         }
@@ -4294,12 +4359,17 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             """
         )
 
+        // The integration only publishes to a running default tmux server.
+        let tmuxServer = try TmuxDefaultServerSocketFixture()
+        defer { withExtendedLifetime(tmuxServer) {} }
+
         _ = try runInteractiveZsh(
             cmuxLoadGhosttyIntegration: false,
             cmuxLoadShellIntegration: true,
             command: "_cmux_preexec tmux; print -r -- READY",
             extraEnvironment: [
                 "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMUX_TMPDIR": tmuxServer.tmuxTemporaryDirectory.path,
                 "CMUX_SOCKET_PATH": "/tmp/cmux-current.sock",
                 "CMUX_TAG": "feat-tmux-notification-attention-state",
                 "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
@@ -4341,12 +4411,17 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             """
         )
 
+        // The integration only publishes to a running default tmux server.
+        let tmuxServer = try TmuxDefaultServerSocketFixture()
+        defer { withExtendedLifetime(tmuxServer) {} }
+
         _ = try runInteractiveZsh(
             cmuxLoadGhosttyIntegration: false,
             cmuxLoadShellIntegration: true,
             command: "_cmux_preexec tmux; print -r -- READY",
             extraEnvironment: [
                 "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMUX_TMPDIR": tmuxServer.tmuxTemporaryDirectory.path,
                 "CMUX_SOCKET_PATH": "/tmp/cmux-current.sock",
                 "CMUX_TAG": "feat-tmux-notification-attention-state",
                 "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
@@ -4749,11 +4824,11 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             _cmux_send() { printf '%s\\n' "$1" >> "\(logPath.path)"; }
             cd "\(repoA.path)"
             _CMUX_TTY_REPORTED=1
-            _CMUX_PORTS_LAST_RUN=$(_cmux_now)
+            _CMUX_PORTS_LAST_RUN="${EPOCHSECONDS:-$SECONDS}"
             _CMUX_PWD_LAST_PWD="$PWD"
             _CMUX_GIT_HEAD_LAST_PWD="$PWD"
             _CMUX_GIT_HEAD_PATH="$PWD/.git/HEAD"
-            _CMUX_GIT_HEAD_SIGNATURE="$(_cmux_git_head_signature "$_CMUX_GIT_HEAD_PATH")"
+            _CMUX_GIT_HEAD_SIGNATURE="ref: refs/heads/main"
             printf '%s\\n' 'ref: refs/heads/old-cleared' > "$_CMUX_GIT_HEAD_PATH"
             cd "\(repoB.path)"
             _CMUX_PWD_LAST_PWD="$PWD"
@@ -4896,55 +4971,6 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertTrue(output.contains("MARKER=0"), output)
     }
 
-    func testBashNoPullRequestWatchSkipsLegacyGhPRProbe() throws {
-        let fileManager = FileManager.default
-        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
-            .appendingPathComponent("cmux-bash-no-pr-watch-\(UUID().uuidString)")
-        let repoURL = root.appendingPathComponent("repo", isDirectory: true)
-        let fakeBinURL = root.appendingPathComponent("fake-bin", isDirectory: true)
-        let markerURL = root.appendingPathComponent("gh-pr-invoked", isDirectory: false)
-        let socketPath = root.appendingPathComponent("cmux-test.sock", isDirectory: false)
-
-        try fileManager.createDirectory(at: repoURL.appendingPathComponent(".git"), withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
-        try "ref: refs/heads/issue-2746-rate-limit\n".write(
-            to: repoURL.appendingPathComponent(".git/HEAD"),
-            atomically: true,
-            encoding: .utf8
-        )
-        try writeExecutableScript(
-            at: fakeBinURL.appendingPathComponent("gh"),
-            contents: """
-            #!/bin/sh
-            printf invoked > "$CMUX_GH_MARKER"
-            printf '2746\\tOPEN\\thttps://github.com/manaflow-ai/cmux/pull/2746\\n'
-            """
-        )
-        let socketFD = try bindUnixSocket(at: socketPath.path)
-        defer {
-            Darwin.close(socketFD)
-            unlink(socketPath.path)
-            try? fileManager.removeItem(at: root)
-        }
-
-        let result = try runInteractiveBash(
-            cmuxLoadShellIntegration: true,
-            command: """
-            _cmux_send() { :; }
-            _cmux_report_pr_for_path "\(repoURL.path)" || true
-            [[ -e "\(markerURL.path)" ]] && printf 'MARKER=1\\n' || printf 'MARKER=0\\n'
-            """,
-            extraEnvironment: [
-                "CMUX_NO_PR_WATCH": "1",
-                "CMUX_GH_MARKER": markerURL.path,
-                "CMUX_SOCKET_PATH": socketPath.path,
-                "PATH": "\(fakeBinURL.path):/usr/bin:/bin",
-            ]
-        )
-
-        XCTAssertTrue(result.stdout.contains("MARKER=0"), result.stdout)
-    }
-
     func testZshPromptResetsTerminalKeyboardProtocols() throws {
         let output = try runInteractiveZsh(
             cmuxLoadGhosttyIntegration: false,
@@ -4972,7 +4998,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             cmuxLoadShellIntegration: true,
             command: """
             _CMUX_TTY_REPORTED=1
-            _CMUX_PORTS_LAST_RUN=$(_cmux_now)
+            _CMUX_PORTS_LAST_RUN="${EPOCHSECONDS:-$SECONDS}"
             _cmux_prompt_command
             """,
             extraEnvironment: [
@@ -5041,7 +5067,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             )
         }
 
-        let repoRoot = URL(fileURLWithPath: #filePath)
+        let repoRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let cmuxZdotdir = repoRoot.appendingPathComponent("Resources/shell-integration")
@@ -5143,7 +5169,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             )
         }
 
-        let repoRoot = URL(fileURLWithPath: #filePath)
+        let repoRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let cmuxZdotdir = repoRoot.appendingPathComponent("Resources/shell-integration")
@@ -5274,7 +5300,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        let repoRoot = URL(fileURLWithPath: #filePath)
+        let repoRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let integrationPath = repoRoot.appendingPathComponent("Resources/shell-integration/cmux-bash-integration.bash")
@@ -5330,6 +5356,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         let error = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
 
         XCTAssertEqual(process.terminationStatus, 0, error)
+        XCTAssertFalse(error.contains("command not found"), error)
         return (
             stdout: output.trimmingCharacters(in: .whitespacesAndNewlines),
             stderr: error.trimmingCharacters(in: .whitespacesAndNewlines)

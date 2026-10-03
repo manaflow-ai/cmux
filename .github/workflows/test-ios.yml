@@ -5,11 +5,13 @@ run-name: >-
   on ${{ inputs.runner || 'auto' }}
 
 on:
-  # Pull requests that touch the iOS app or its packages run again (paused
-  # 2026-07-13 to cut CI load). A same-repository pull request takes an idle
-  # simulator mini through the `runner` job like an `auto` dispatch, with
-  # Blacksmith as overflow; a fork's never reaches an owned Mac.
-  # detect-ios-changes narrows further (and decides the conventions lint).
+  # Pull requests that touch the iOS app or its packages run again. A
+  # same-repository pull request takes an idle simulator mini through the
+  # `runner` job like an `auto` dispatch, with Blacksmith as overflow; a fork's
+  # never reaches an owned Mac. Merge-group runs always exercise the iOS
+  # aggregate against the queued commit, so the queue sees the same check name.
+  # detect-ios-changes narrows pull-request work further (and decides the
+  # conventions lint).
   pull_request:
     paths:
       - "ios/**"
@@ -24,6 +26,7 @@ on:
       - "scripts/ci/ios_runner_pool.py"
       - "scripts/ci/select_ios_simulator.py"
       - ".github/workflows/test-ios.yml"
+  merge_group:
   workflow_dispatch:
     inputs:
       ref:
@@ -45,6 +48,7 @@ on:
           - CmuxSyncStore
           - CmuxMobilePairedMac
           - CmuxMobileChanges
+          - CmuxMobileBilling
           - CmuxMobileShell
           - CmuxMobileShellModel
       ios_version:
@@ -109,11 +113,13 @@ jobs:
     # The macOS pool mobile-core-package, ios-simulator-build and ios-simulator
     # run on. `auto` follows MACOS_RUNNER_TESTS, then MACOS_RUNNER_IOS. With
     # CI_PR_POOL_OWNED=1 and CI_IOS_OWNED=1 an auto run on the 6vcpu macOS 26
-    # default takes an owned Mac when the pool picker E2E uses
-    # (e2e_runner_pool.py, pull request CI's rule, with CI_PR_POOL_QUEUE_ROUNDS)
-    # places its two jobs on the owned pool within the queue rounds and
-    # CI_OWNED_POOL_SLOTS' glaeda-ios-sim entry leaves one simulator mini free
-    # per requested device family. The build and simulator jobs then ask for
+    # default takes an owned Mac when enough simulator minis are idle now
+    # (read live from the runners API with the route token), or, without the
+    # token, when the pool picker E2E uses (e2e_runner_pool.py, pull request
+    # CI's rule, with CI_PR_POOL_QUEUE_ROUNDS) places its two jobs on the
+    # owned pool within the queue rounds and CI_OWNED_POOL_SLOTS'
+    # glaeda-ios-sim entry leaves one simulator mini free per requested
+    # device family. The build and simulator jobs then ask for
     # the pool label with glaeda-ios-sim, the label glaeda puts on minis with
     # an iOS 26.x simulator runtime; mobile-core-package needs no simulator and
     # takes the pool label alone. Otherwise, and for an ios_version run, the
@@ -124,7 +130,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     # Reads the queue janitor's pool snapshot and the runs created since it
-    # (six API calls at most; see ios_runner_pool.py for the budget).
+    # (see ios_runner_pool.py for the API budget).
     permissions:
       contents: read
       actions: read
@@ -148,14 +154,50 @@ jobs:
             scripts/ci/ios_runner_pool.py
             scripts/ci/e2e_runner_pool.py
             scripts/ci/pr_runner_pool.py
+            scripts/ci/simple_pool_picker.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
+
+      - name: Mint the owned-pool routing token
+        id: route-token
+        # The org's manaflow-glaeda-route App, read-only on runners, so the
+        # choice below sees which simulator minis are idle now (as in ci.yml).
+        # The minis are org runners in the glaeda-minis group, so the token
+        # also reads the org's self-hosted runners.
+        # Same-repository runs only, on this ephemeral Linux runner: a fork
+        # run never sees the key, and no Mac ever holds it. Any failure leaves
+        # the token empty, and the choice falls back to the janitor snapshot.
+        if: (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && vars.CI_IOS_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Mint the routing token without the org permission
+        id: route-token-repo
+        # The mint is all or nothing: an App not yet granted the organization
+        # self-hosted runners permission gets no token above. This one asks
+        # for the repository permission alone, as before.
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
 
       - name: Pick the macOS pool
         id: pool
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          # Empty unless the step above minted it: idle owned runners, live.
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           REQUESTED_RUNNER: ${{ inputs.runner }}
           FORK_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
           RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}
@@ -263,6 +305,11 @@ jobs:
           # history automatically if pull_request routing is re-enabled later,
           # because that path computes a merge base below.
           fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
+          # Routing needs only commits and trees (merge-base, diff --name-only).
+          # A blobless full-history fetch fits the job timeout; fetching every
+          # blob of every branch did not, which cancelled the job and failed
+          # the required ios-tests aggregate.
+          filter: blob:none
           persist-credentials: false
           submodules: false
 
@@ -319,7 +366,13 @@ jobs:
             exit 0
           fi
           BASE_MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
-          git diff --name-only "$BASE_MERGE_BASE" "$HEAD_SHA" > /tmp/changed-files.txt
+          # --no-renames keeps this diff inside the blobless clone. Rename
+          # detection scores content, so an inexact rename makes git lazily
+          # fetch blobs from the promisor remote, and the whole step exits
+          # 128 if that fetch fails. It also hides a file moved out of ios/
+          # behind its new path; without it both paths are listed, so the
+          # greps below stay conservative.
+          git diff --name-only --no-renames "$BASE_MERGE_BASE" "$HEAD_SHA" > /tmp/changed-files.txt
           if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/ci/ios_runner_pool\.py$|scripts/ci/select_ios_simulator\.py$|\.github/workflows/test-ios\.yml$)' /tmp/changed-files.txt; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
@@ -409,11 +462,53 @@ jobs:
           SELECTED_PACKAGE: ${{ inputs.swift_package }}
         run: |
           case "$SELECTED_PACKAGE" in
-            ""|CMUXMobileCore|CmuxSyncStore|CmuxMobilePairedMac|CmuxMobileChanges|CmuxMobileShell|CmuxMobileShellModel) ;;
+            ""|CMUXMobileCore|CmuxSyncStore|CmuxMobilePairedMac|CmuxMobileChanges|CmuxMobileBilling|CmuxMobileShell|CmuxMobileShellModel) ;;
             *) echo "::error::Unsupported Swift package: $SELECTED_PACKAGE"; exit 1 ;;
           esac
 
+      # Start from main's git objects, so checkout fetches only what changed
+      # since then instead of the whole tree and its submodules
+      # (scripts/ci/git-seed.sh, as ci-macos.yml does). The script is read at
+      # this commit over HTTPS because nothing is checked out yet. A miss, or a
+      # reused self-hosted workspace, leaves checkout to work as before.
+      - name: Restore git object seed
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          script="$RUNNER_TEMP/git-seed.sh"
+          curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \
+            -o "$script" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git-seed.sh"
+          bash "$script" restore "$GITHUB_WORKSPACE"
+
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          # Self-hosted macOS runners reuse the workspace. A job cancelled or
+          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
+          # fails every later submodule checkout (e.g. ghostty). Clear them first.
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
       - name: Checkout
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
+          persist-credentials: false
+          submodules: false
+
+      # A seeded repository that checkout cannot use must not fail the retry the same way.
+      - name: Discard the git object seed after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+      - name: Retry checkout without the git object seed
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
@@ -488,6 +583,22 @@ jobs:
           python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
             --label CmuxMobileChanges --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileChanges}"
+
+      - name: Run CmuxMobileBilling package tests
+        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxMobileBilling' }}
+        run: |
+          set -euo pipefail
+          args=(--package-path Packages/iOS/CmuxMobileBilling)
+          if [ -n "${FOCUSED_SWIFT_PACKAGE:-}" ]; then
+            args+=(--no-parallel)
+          fi
+          if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
+            args+=(--filter "$SWIFT_TEST_FILTER")
+          fi
+          log_path="$RUNNER_TEMP/CmuxMobileBilling-tests.log"
+          python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
+            --label CmuxMobileBilling --log "$log_path" -- swift test "${args[@]}"
+          ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileBilling}"
 
       - name: Run CmuxMobileShell package tests
         if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxMobileShell' }}
@@ -577,7 +688,51 @@ jobs:
               fi
               ;;
           esac
+
+      # Start from main's git objects, so checkout fetches only what changed
+      # since then instead of the whole tree and its submodules
+      # (scripts/ci/git-seed.sh, as ci-macos.yml does). The script is read at
+      # this commit over HTTPS because nothing is checked out yet. A miss, or a
+      # reused self-hosted workspace, leaves checkout to work as before.
+      - name: Restore git object seed
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          script="$RUNNER_TEMP/git-seed.sh"
+          curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \
+            -o "$script" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git-seed.sh"
+          bash "$script" restore "$GITHUB_WORKSPACE"
+
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          # Self-hosted macOS runners reuse the workspace. A job cancelled or
+          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
+          # fails every later submodule checkout (e.g. ghostty). Clear them first.
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
       - name: Checkout
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
+          persist-credentials: false
+          submodules: recursive
+
+      # A seeded repository that checkout cannot use (a submodule moved to
+      # another URL) must not fail the retry the same way.
+      - name: Discard the git object seed after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+      - name: Retry checkout without the git object seed
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
@@ -926,7 +1081,10 @@ jobs:
           && needs.detect-ios-changes.outputs.should_run == 'true' && inputs.swift_package == '' }}
     # Runtime-only consumers share the producer's exact Build/Products tree.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
-    timeout-minutes: 35
+    # The 2026-09-25..30 mini sample has p99 14.1m and max 15.9m. The per-step
+    # watchdogs remain the first line of defense; this 25-minute job cap bounds
+    # setup or teardown that makes no test progress.
+    timeout-minutes: 25
     env:
       # An owned Mac's label (glaeda-<class>-xcode-<version>) names the
       # pull-request lane's Xcode pin, so take that Xcode there, as
@@ -1247,7 +1405,9 @@ jobs:
       - mobile-core-package
       - ios-simulator-build
       - ios-simulator
-    if: ${{ always() }}
+    # Preserve the aggregate verdict after a failed suite, but do not allocate
+    # a Blacksmith runner after the workflow has been cancelled.
+    if: ${{ !cancelled() }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
@@ -1261,6 +1421,22 @@ jobs:
           import sys
 
           needs = json.loads(os.environ["IOS_NEEDS"])
+
+          # A cancelled job reaches this gate as a `cancelled` result, and the
+          # routing verdict below would report it as though the pull request had
+          # a routing defect. It does not: the run was stopped before it tested
+          # anything. Say that instead, and still fail. This gate is in the
+          # branch protection required list, so reporting success on a cancelled
+          # run would put a green on a required check that no suite stood
+          # behind, and a pull request could merge with the iOS suites never
+          # having run. Rerunning the run clears it.
+          cancelled = sorted(name for name, data in needs.items()
+                             if data["result"] == "cancelled")
+          if cancelled:
+              print("cancelled: " + ", ".join(cancelled), file=sys.stderr)
+              print("this run was stopped before it reported an iOS verdict; "
+                    "rerun it, or push again, to get one", file=sys.stderr)
+              sys.exit(1)
 
           # The routing job must succeed for its should_run/should_lint outputs to
           # be trustworthy; the suites below run or skip based on those outputs.

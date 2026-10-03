@@ -1,13 +1,15 @@
 ---
 name: cmux-settings
-description: "View and edit cmux settings in ~/.config/cmux/cmux.json. Use when the user wants to change cmux preferences (appearance, sidebar, notifications, automation, browser, shortcuts), set a value by JSON path, validate the file, open it in an editor, or look up which keys cmux recognizes. Triggers on '/cmux-settings', 'change cmux setting', 'set <something> in cmux', 'cmux config', 'cmux.json', or 'rebind a cmux shortcut'."
+description: "View and edit cmux settings in ~/.config/cmux/cmux.json, including terminal, browser, Markdown, diff, notes, HTML, file preview, and sidebar-tool behavior. Use when the user wants to change cmux preferences, set a value by JSON path, validate the file, open it in an editor, or look up which keys cmux recognizes. Triggers on '/cmux-settings', 'change cmux setting', 'customize viewer', 'set <something> in cmux', 'cmux config', 'cmux.json', or 'rebind a cmux shortcut'."
 ---
 
 # cmux-settings
 
 cmux reads user settings from `~/.config/cmux/cmux.json` (JSONC). A file watcher applies changes on save, no restart. Legacy `~/.config/cmux/settings.json` is read only as a fallback for keys absent from `cmux.json`.
 
-Schema: `https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json`. The helper uses the schema-generated path list in `references/all-keys.md` in both checkouts and installed skills. If that reference is unavailable, it falls back to paths discoverable in `Sources/CmuxSettingsJSONPathSupport.swift`. Settings sections are `app`, `terminal`, `notifications`, `sidebar`, `sidebarAppearance`, `workspaceColors`, `automation`, `browser`, `shortcuts`. Non-settings sections (`actions`, `ui`, `commands`, `vault`, `rightSidebar`) share the same file.
+Schema: `https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json`. The helper uses the schema-generated path list in `references/all-keys.md` in both checkouts and installed skills. If that reference is unavailable, it falls back to paths discoverable in `Sources/CmuxSettingsJSONPathSupport.swift`. Settings sections are `app`, `terminal`, `notifications`, `sidebar`, `sidebarAppearance`, `workspaceColors`, `automation`, `agentMessages`, `browser`, `markdown`, `fileEditor`, `fileExplorer`, `diffViewer`, and `shortcuts`. Non-settings sections (`actions`, `ui`, `commands`, `vault`, `rightSidebar`) share the same file.
+
+For a viewer-specific route, read [the viewer matrix](../cmux-customization/references/viewer-types.md). It distinguishes settings-backed knobs from structural configuration and viewer types that do not have a shipped setting yet. Do not invent a `templates.<viewer>` path: the schema is authoritative, and the adjacent templates proposal is not a supported configuration surface until its keys appear in `web/data/cmux.schema.json`.
 
 ## Helper script
 
@@ -35,6 +37,8 @@ The rest of this doc assumes it is on `$PATH` as `cmux-settings`; from a checkou
 
 `--file <path>` overrides the target file. Scope is inferred from the real global paths and the project config discovered from the current directory; use `--scope global|project` to override that inference for an arbitrary file.
 
+The installed `cmux` CLI covers the common edits without the helper: `cmux config get|set|unset|toggle|cycle <path>` and `cmux config preset <name>` validate against the same schema, keep comments, and write `~/.config/cmux/cmux.json`. They share one write path with `"type": "setting"` and `"type": "settingPreset"` actions, which put the same edits on a tab bar button, shortcut, or Command Palette entry. Use the helper when you need `--preview`, receipts, `undo`, or a file other than the global config. Paths split on every `.`, so a key that itself contains `.` (for example a `workspaceGroups.byCwd` entry for `~/src/app.web`) is refused by these commands with an error saying so; edit that key in the file directly.
+
 ## Workflow
 
 1. Look up the key when the user named a setting in plain English:
@@ -50,6 +54,28 @@ The rest of this doc assumes it is on `$PATH` as `cmux-settings`; from a checkou
    ```
 3. Read back and `cmux-settings validate`.
 4. Tell the user it auto-reloaded, and that `cmux-settings unset <key>` reverts it.
+
+## Viewer settings
+
+Use the matrix to identify the surface before editing. The shipped settings-backed viewer paths are:
+
+```bash
+cmux-settings list-supported | rg '^(browser|markdown|fileEditor|fileExplorer|diffViewer)\.'
+```
+
+Examples:
+
+```bash
+cmux-settings set markdown.fontSize 16
+cmux-settings set fileEditor.wordWrap true
+cmux-settings set fileExplorer.doubleClickAction '"preferredEditor"'
+cmux-settings set diffViewer.defaultLayout '"split"'
+```
+
+Browser profile import, per-page navigation, developer tools, and the current
+right-sidebar tab are runtime or UI state; use the browser/sidebar commands or
+the relevant Settings pane instead of adding guessed JSON keys. After any
+successful edit, run `cmux reload-config` and validate the exact path.
 
 `set` and `unset` print a JSON result such as `{"status": "persisted", "key": "app.appearance", "runtime": "unobserved"}`. It records what reached disk; the running app's reload is not observed. A refusal prints `{"status": "conflict", "code": ...}` on stderr and exits 1 without writing. An `invalid_config` refusal adds `issues`, the path and message of each problem the change would add.
 

@@ -1,3 +1,4 @@
+import type { NetworkRulePlan } from "./networkPolicy";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -13,6 +14,7 @@ import {
   type ProviderId,
   type ProviderNetwork,
   type ProviderTunnel,
+  type ProviderTunnelAttachment,
   type ProviderTunnelCreateResult,
   type RestoreOptions,
   type SnapshotRef,
@@ -30,6 +32,7 @@ import {
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
   type VmCapabilities,
+  type EnsureProviderNetworkOptions,
   vmCapabilitiesFor,
 } from "./drivers";
 import { VmOperationUnsupportedError, VmProviderOperationError } from "./errors";
@@ -99,6 +102,11 @@ export type VmProviderGatewayShape = {
     vmId: string,
     options: VMResizeOptions,
   ) => Effect.Effect<void, VmProviderOperationError | VmOperationUnsupportedError>;
+  readonly applyNetworkPolicy?: (
+    provider: ProviderId,
+    vmId: string,
+    plan: NetworkRulePlan,
+  ) => Effect.Effect<void, VmProviderOperationError | VmOperationUnsupportedError>;
   /** Session transports the provider serves; undefined = legacy websocket/ssh. */
   readonly attachTransports?: (provider: ProviderId) => readonly AttachTransport[] | undefined;
   readonly openAttach: (
@@ -135,12 +143,12 @@ export type VmProviderGatewayShape = {
   readonly supportsPrivateNetworking?: (provider: ProviderId) => boolean;
   readonly ensureNetwork?: (
     provider: ProviderId,
-    options: { slug: string; displayName?: string; heal?: boolean },
+    options: EnsureProviderNetworkOptions,
   ) => Effect.Effect<ProviderNetwork, VmProviderOperationError>;
-  /** Read a provider network without creating or repairing it. */
+  /** Read a provider network by id or slug without creating or repairing it. */
   readonly getNetwork?: (
     provider: ProviderId,
-    networkId: string,
+    networkIdOrSlug: string,
   ) => Effect.Effect<ProviderNetwork | null, VmProviderOperationError>;
   readonly deleteNetwork?: (
     provider: ProviderId,
@@ -165,6 +173,9 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     tunnelId: string,
   ) => Effect.Effect<void, VmProviderOperationError>;
+  readonly attachTunnelNetwork?: (provider: ProviderId, tunnelId: string, networkId: string) => Effect.Effect<ProviderTunnelAttachment, VmProviderOperationError>;
+  readonly detachTunnelNetwork?: (provider: ProviderId, tunnelId: string, networkId: string) => Effect.Effect<void, VmProviderOperationError>;
+  readonly listNetworkTunnelIds?: (provider: ProviderId, networkId: string) => Effect.Effect<string[], VmProviderOperationError>;
 };
 
 export class VmProviderGateway extends Context.Tag("cmux/VmProviderGateway")<
@@ -205,8 +216,12 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
   deleteHomeVolume: (provider, volumeName) =>
     providerEffect(provider, "deleteHomeVolume", async () => {
       const impl = getProvider(provider);
-      // Providers without persistent volumes have nothing to delete.
-      if (!impl.deleteHomeVolume) return;
+      // A caller only reaches this seam with an explicitly owned volume. Do
+      // not report success when the current driver cannot delete legacy
+      // storage: durable cleanup must remain pending for retry/operator work.
+      if (!impl.deleteHomeVolume) {
+        throw new VmOperationUnsupportedError({ provider, operation: "deleteHomeVolume" });
+      }
       await impl.deleteHomeVolume(volumeName);
     }),
   listVolumes: (provider, options) =>
@@ -293,6 +308,11 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     if (!impl.resize) return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "resize" }));
     return providerEffect(provider, "resize", () => impl.resize!(vmId, options));
   },
+  applyNetworkPolicy: (provider, vmId, plan) => {
+    const impl = getProvider(provider);
+    if (!impl.applyNetworkPolicy) return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "applyNetworkPolicy" }));
+    return providerEffect(provider, "applyNetworkPolicy", () => impl.applyNetworkPolicy!(vmId, plan));
+  },
   attachTransports: (provider) => getProvider(provider).attachTransports,
   openAttach: (provider, vmId, options) =>
     providerEffect(provider, "openAttach", async () => {
@@ -375,4 +395,22 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "deleteTunnel", () =>
       privateNetworking(provider).deleteTunnel(tunnelId)
     ),
+  attachTunnelNetwork: (provider, tunnelId, networkId) =>
+    providerEffect(provider, "attachTunnelNetwork", async () => {
+      const networking = privateNetworking(provider);
+      if (!networking.attachTunnelNetwork) throw new VmOperationUnsupportedError({ provider, operation: "attachTunnelNetwork" });
+      return await networking.attachTunnelNetwork(tunnelId, networkId);
+    }),
+  detachTunnelNetwork: (provider, tunnelId, networkId) =>
+    providerEffect(provider, "detachTunnelNetwork", async () => {
+      const networking = privateNetworking(provider);
+      if (!networking.detachTunnelNetwork) throw new VmOperationUnsupportedError({ provider, operation: "detachTunnelNetwork" });
+      await networking.detachTunnelNetwork(tunnelId, networkId);
+    }),
+  listNetworkTunnelIds: (provider, networkId) =>
+    providerEffect(provider, "listNetworkTunnelIds", async () => {
+      const networking = privateNetworking(provider);
+      if (!networking.listNetworkTunnelIds) throw new VmOperationUnsupportedError({ provider, operation: "listNetworkTunnelIds" });
+      return await networking.listNetworkTunnelIds(networkId);
+    }),
 });

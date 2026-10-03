@@ -767,8 +767,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let socketHash = UUID().uuidString
             .replacingOccurrences(of: "-", with: "")
             .lowercased() + "01234567"
-        let staleControlPath = URL(fileURLWithPath: "/tmp", isDirectory: true)
-            .appendingPathComponent("cmux-ssh-\(getuid())-\(socketHash)")
+        let controlSocketDirectory = try XCTUnwrap(
+            SSHConnectionSharingOptions().controlSocketDirectoryPath
+        )
+        let staleControlPath = URL(fileURLWithPath: controlSocketDirectory, isDirectory: true)
+            .appendingPathComponent(socketHash)
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
@@ -1739,6 +1742,15 @@ final class StreamingChildProcess: @unchecked Sendable {
         }
         if process.isRunning {
             process.terminate()
+        }
+        // The tree cleanup above can time out, and the root may ignore SIGTERM;
+        // escalate so teardown cannot block forever in waitUntilExit.
+        let exitDeadline = Date.now.addingTimeInterval(2)
+        while process.isRunning, Date.now < exitDeadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        if process.isRunning {
+            Darwin.kill(process.processIdentifier, SIGKILL)
         }
         process.waitUntilExit()
         _ = drainGroup.wait(timeout: .now() + 2)

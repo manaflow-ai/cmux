@@ -219,6 +219,7 @@ prepare_app_host_home_for_console_user() {
 
 console_user="$(stat -f %Su /dev/console 2>/dev/null || true)"
 if [ -n "$console_user" ] && [ "$console_user" != "root" ] \
+  && [ "$console_user" != "loginwindow" ] \
   && console_uid="$(id -u "$console_user" 2>/dev/null)" && sudo -n true 2>/dev/null; then
   console_home="$( (dscl . -read "/Users/$console_user" NFSHomeDirectory 2>/dev/null || true) | awk '{print $2}')"
   [ -n "$console_home" ] || console_home="$HOME"
@@ -230,15 +231,16 @@ if [ -n "$console_user" ] && [ "$console_user" != "root" ] \
   # value for an unset var (that would defeat a `${VAR:-default}` downstream).
   # HOME is set explicitly to the console user's home.
   forward=(PATH DEVELOPER_DIR GITHUB_WORKSPACE RUNNER_TEMP CI GITHUB_ACTIONS \
-    CMUX_DERIVED_DATA_PATH CMUX_TAG CMUX_SKIP_ZIG_BUILD \
+    CMUX_DERIVED_DATA_PATH CMUX_CI_RUNTIME_SOURCE_ROOT CMUX_TAG CMUX_SKIP_ZIG_BUILD \
     CMUX_UNIT_TEST_TIMEOUT_SECONDS \
     CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS \
     CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS \
     CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS \
     CMUX_APP_HOST_XCODEBUILD_ATTEMPTS \
+    CMUX_CI_RUNTIME_SOURCE_ROOT \
     CMUX_RENDERER_MEMORY_REGRESSION \
     CMUX_APP_HOST_CAPTURE_XCRESULTS CMUX_APP_HOST_RESULT_BUNDLE_ROOT CMUX_APP_HOST_TEST_CASE_TIMEOUT_SECONDS \
-    GITHUB_REPOSITORY_ID GITHUB_RUN_ID GITHUB_RUN_ATTEMPT CMUX_APP_HOST_SHARD CMUX_APP_HOST_XCTESTRUN CMUX_NUMERIC_LOCALE_XCTESTRUN CMUX_CI_APP_HOST_ISOLATION_REQUIRED CMUX_APP_HOST_KEY CMUX_APP_HOST_HOME CMUX_APP_HOST_XDG_CONFIG_HOME CMUX_APP_HOST_RECEIPT_DIR CMUX_APP_HOST_CLEANUP_CONFIRMATION CMUX_APP_HOST_CONFIRMATION_FILE \
+    GITHUB_REPOSITORY_ID GITHUB_RUN_ID GITHUB_RUN_ATTEMPT CMUX_APP_HOST_SHARD CMUX_APP_HOST_XCTESTRUN CMUX_NUMERIC_LOCALE_XCTESTRUN CMUX_CI_RUNTIME_SOURCE_ROOT CMUX_CI_APP_HOST_ISOLATION_REQUIRED CMUX_APP_HOST_KEY CMUX_APP_HOST_HOME CMUX_APP_HOST_XDG_CONFIG_HOME CMUX_APP_HOST_RECEIPT_DIR CMUX_APP_HOST_CLEANUP_CONFIRMATION CMUX_APP_HOST_CONFIRMATION_FILE \
     CFFIXED_USER_HOME XDG_CONFIG_HOME CARGO_HOME RUSTUP_HOME)
   if [ "${CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER:-0}" = "1" ]; then
     forward+=(CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER CMUX_APP_HOST_LSOF CMUX_FAKE_LSOF_STATE)
@@ -256,5 +258,19 @@ if [ -n "$console_user" ] && [ "$console_user" != "root" ] \
     bash -c 'cd "$GITHUB_WORKSPACE" && exec "$@"' bash "$@"
 fi
 
-echo "::warning::No logged-in console user (or no passwordless sudo) on this runner; running in the current bootstrap. XCTest will fail here if this runner has no GUI session." >&2
+# A LaunchAgent already inherits Aqua even when it cannot sudo. Console owner
+# alone is insufficient: an SSH/daemon process can run as that same account.
+if [ -z "$console_user" ] || [ "$console_user" = "root" ] \
+  || [ "$console_user" = "loginwindow" ]; then
+  echo "::warning::No logged-in console user on this runner; running in the current bootstrap. GUI XCTest requires an active console login." >&2
+else
+  current_uid="$(id -u 2>/dev/null || true)"
+  session_manager="$(launchctl managername 2>/dev/null || true)"
+  if [ -n "${console_uid:-}" ] && [ "$current_uid" = "$console_uid" ] \
+    && [ "$session_manager" = "Aqua" ]; then
+    echo "Console session: already running as console user '$console_user' (uid $console_uid) in Aqua; no sudo hop needed." >&2
+  else
+    echo "::warning::Cannot enter console user '$console_user' Aqua session without passwordless sudo; current uid=${current_uid:-unknown}, session=${session_manager:-unknown}. Running in the current bootstrap; verify the runner is a console-user LaunchAgent before GUI XCTest." >&2
+  fi
+fi
 exec "$@"

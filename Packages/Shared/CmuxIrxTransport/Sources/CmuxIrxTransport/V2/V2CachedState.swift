@@ -16,6 +16,9 @@ public struct V2CachedState: Codable, Sendable, Equatable {
     public var directory: V2Directory?
     /// Whether a known revocation invalidates all cached authority for this scope.
     public var authorityRevoked: Bool
+    /// Whether the current revocation was the owner's recoverable Forget action.
+    /// Optional keeps state files written before this field decodable.
+    public var authorityRevocationRecoverable: Bool?
 
     /// Starts an empty v2 cache without reading pre-v2 keys or credentials.
     /// - Parameter identity: The complete new authorization scope.
@@ -27,5 +30,6 @@ public struct V2CachedState: Codable, Sendable, Equatable {
         relayCredentials = []
         directory = nil
         authorityRevoked = false
+        authorityRevocationRecoverable = nil
     }
 }

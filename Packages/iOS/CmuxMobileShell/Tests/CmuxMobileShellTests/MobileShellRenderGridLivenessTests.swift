@@ -212,6 +212,7 @@ import Testing
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing primary render-grid delivery"
     )
@@ -235,6 +236,7 @@ import Testing
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing alternate render-grid delivery"
     )
@@ -277,6 +279,7 @@ import Testing
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing stale alternate suppression"
     )
@@ -313,6 +316,7 @@ import Testing
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing alternate-to-primary restore"
     )
@@ -348,6 +352,7 @@ import Testing
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing primary-delta recovery"
     )
@@ -411,6 +416,7 @@ import Testing
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing empty primary-delta recovery"
     )
@@ -498,6 +504,7 @@ import Testing
     #expect(sawMountReplay, "mounting a sink arms exactly one cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing healthy idle liveness"
     )
@@ -780,6 +787,7 @@ import Testing
     #expect(sawMountReplay, "mounting a sink arms exactly one cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing repaired subscription replay"
     )
@@ -844,6 +852,28 @@ import Testing
     let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
     #expect(sawSubscribe, "listener must establish the push subscription")
     let hostStatusCountBeforeFailure = await router.count(of: "mobile.host.status")
+
+    // The event lane dies while the transport itself keeps carrying bytes.
+    // Since #14030 (be3855bb2d0) the RPC session condemns a transport after
+    // two request timeouts with no inbound delivery at all, which would end
+    // the listener before the watchdog's second probe ever ran. That case is
+    // owned by the session; the watchdog owns this one, so keep unrelated
+    // traffic (a topic no listener subscribes to) flowing throughout.
+    let transport = try #require(box.get())
+    let keepaliveFrame = try MobileSyncFrameCodec.encodeFrame(
+        JSONSerialization.data(withJSONObject: [
+            "kind": "event",
+            "topic": "test.unsubscribed_keepalive",
+            "payload": [String: Any](),
+        ])
+    )
+    let keepalive = Task {
+        while !Task.isCancelled {
+            await transport.deliver(keepaliveFrame)
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+    }
+    defer { keepalive.cancel() }
 
     // The host stops answering two independent read-only subscription probes,
     // and also stops answering repair attempts, confirming a dead push path

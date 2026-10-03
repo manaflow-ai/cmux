@@ -1,10 +1,9 @@
 import Foundation
 
 /// Beta-feature toggles. Each key here gates an experimental code path
-/// in the running app. The id prefix is `rightSidebar.beta.*` for the
-/// existing right-sidebar Dock toggle; new betas should follow the
-/// pattern `<feature-domain>.beta.<flag-name>` so the cmux.json view
-/// groups them sensibly.
+/// in the running app. New beta keys should follow the pattern
+/// `<feature-domain>.beta.<flag-name>` so the cmux.json view groups them
+/// sensibly.
 public struct BetaFeaturesCatalogSection: SettingCatalogSection {
     /// Right-sidebar Feed: an experimental mode that surfaces inline agent
     /// decisions (permission prompts, questions) in the right-sidebar mode
@@ -16,13 +15,12 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "rightSidebar.beta.feed.enabled"
     )
 
-    /// Right-sidebar Dock: an experimental terminal-controls dock that
-    /// replaces the per-pane action chrome with a unified right-side
-    /// rail. Defaults off; flagged as unstable in the Settings UI.
-    public let rightSidebarDock = DefaultsKey<Bool>(
-        id: "rightSidebar.beta.dock.enabled",
+    /// Conversations: opt-in unified coding-agent session navigation in the
+    /// left sidebar. Disabling it hides the provider while preserving sessions.
+    public let conversationSidebar = DefaultsKey<Bool>(
+        id: "sidebar.beta.conversations.enabled",
         defaultValue: false,
-        userDefaultsKey: "rightSidebar.beta.dock.enabled"
+        userDefaultsKey: "sidebar.beta.conversations.enabled"
     )
 
     /// Extensions: the experimental ExtensionKit sidebar-extension surface
@@ -66,22 +64,17 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarWorkspaceTodosChecklistStyle"
     )
 
-    /// Cloud Machines: the Cloud tab in the right sidebar plus every other
-    /// Cloud VM surface (Settings section, palette commands), and the gate
-    /// for launch-time Cloud work (fleet polling, the Cloud tunnel). Dev
-    /// builds default on for dogfood; release builds stay opt-in. An explicit
-    /// setting still wins on either build.
+    /// Cloud Machines' persisted first-use activation marker. The row moved out
+    /// of Beta Features when Cloud graduated; this storage key remains stable
+    /// so installed users keep their activation and existing configuration
+    /// domains migrate without a destructive reset.
     public let cloudMachines = DefaultsKey<Bool>(
         id: "cloud.beta.machines.enabled",
         defaultValue: Self.cloudMachinesDefault,
         userDefaultsKey: "cloud.beta.machines.enabled"
     )
 
-    #if DEBUG
-    private static let cloudMachinesDefault = true
-    #else
     private static let cloudMachinesDefault = false
-    #endif
 
     /// Remote tmux: mirror a remote host's tmux sessions in the cmux sidebar
     /// over `ssh … tmux -CC` (iTerm2-style control mode). Sessions appear as

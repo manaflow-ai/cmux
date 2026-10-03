@@ -212,9 +212,12 @@ struct CloudDisplayCatalogTests {
         )
         catalog.register(provider)
         defer { catalog.unregister(machine: machine) }
-        await provider.refreshDisplays()
+        // Creation performs the first guest discovery itself. The Displays
+        // group is expanded by default, so a user can press + before an
+        // explicit expansion callback has refreshed this provider.
         let second = try await provider.createDisplay()
         #expect(second.id == SurfaceResourceID(machine: machine, kind: .display, key: "display:2"))
+        #expect(catalog.resources[second.id]?.title == "Display 2")
 
         func displayPorts() -> [String: Int?] {
             Dictionary(uniqueKeysWithValues: catalog.snapshot.resources(on: machine)
@@ -245,6 +248,17 @@ struct CloudDisplayCatalogTests {
         )
         #expect(displayPorts() == ["display:1": 6901, "display:2": 6902], "a delta touching display 2 keeps its target")
         #expect(catalog.resources[second.id]?.url?.contains(":6902/") == true)
+    }
+
+    @Test("Guest displays use numbered sidebar titles")
+    func numberedTitles() throws {
+        let snapshot = try decode("""
+        {"version":1,"canCreate":true,"displays":[
+          {"id":"display:1","number":1,"port":6901,"state":"running"},
+          {"id":"display:2","number":2,"port":6902,"state":"running"}]}
+        """)
+        let resources = snapshot.displays.map { $0.resource(on: .cloud("titles"), address: nil) }
+        #expect(resources.map(\.title) == ["Display 1", "Display 2"])
     }
 
     /// Waits until the fake guest exec starts creating, or answers false when

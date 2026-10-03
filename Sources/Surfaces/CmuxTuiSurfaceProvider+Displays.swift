@@ -5,8 +5,11 @@ import CmuxFoundation
 
 extension CmuxTuiSurfaceProvider {
     var supportsDisplayCreation: Bool {
-        isAwake && info.hasDesktop && summary.resolvedKind.hasDesktop
-            && isRegisteredInCatalog() && displayCoordinator.canCreate
+        // The stored machine kind predates the desktop capability contract and
+        // is stale on some VMs that already have the validated runtime. The
+        // display coordinator's live guest probe is the authority; retain the
+        // local checks that prevent requests while asleep or detached.
+        isAwake && info.hasDesktop && isRegisteredInCatalog()
     }
 
     var displayResources: [SurfaceResource] {
@@ -30,6 +33,15 @@ extension CmuxTuiSurfaceProvider {
 
     func createDisplay() async throws -> SurfaceResource {
         guard supportsDisplayCreation else { throw SurfaceCatalogError.unsupported(CloudGuestDisplaySnapshot.unavailableMessage) }
+        // The Displays group is expanded by default, so its first render can
+        // happen before the demand-driven guest discovery callback. Make the
+        // button self-starting instead of requiring a collapse/expand cycle.
+        if !displayCoordinator.canCreate {
+            await refreshDisplays()
+        }
+        guard displayCoordinator.canCreate else {
+            throw SurfaceCatalogError.unsupported(CloudGuestDisplaySnapshot.unavailableMessage)
+        }
         let generation = currentLifecycleGeneration
         defer {
             if isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() { publishDisplays() }

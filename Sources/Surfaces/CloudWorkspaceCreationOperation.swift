@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -11,18 +12,32 @@ final class CloudWorkspaceCreationOperation {
     var validateOperation: @MainActor () throws -> Void
     let terminalRequest = CloudTerminalCreationRequest()
     var receipt: SurfaceWorkspaceCreationReceipt?
+    /// The exact daemon tab selected by an existing-workspace row, when the
+    /// row represents a terminal with more than one remote view.
+    var existingRemoteView: SurfaceRemoteView?
+    /// The immutable row group admitted by an existing-workspace open. The
+    /// catalog re-resolves it before materialization, so this is request
+    /// ownership rather than a second presentation graph.
+    var pendingWorkspaceGroup: SurfaceResourceGroup?
     var reservation: CloudTerminalPaneReservation?
+    var openedProjections: [SurfaceProjection] = []
     var terminal: SurfaceResource?
     var terminalCursor: CloudVMCursor?
     var isComplete = false
     var isRunning = false
     var failure: Error?
     var retryTask: Task<Void, Never>?
+    /// The initiating window's tree reveal, when the create selected its pane.
+    var revealToken: UUID?
     /// Remote resources created by this operation are cleaned up on cancellation.
     /// Failed live panes retain them for their explicit retry action.
     var ownsRemoteWorkspace = false
     var ownsRemoteTerminal = false
     var remoteCleanupStarted = false
+    /// Existing-workspace opens must roll back their local admission on an
+    /// attach/materialization error. New workspace creates retain a live pane
+    /// for the established reconnect affordance.
+    var isExistingWorkspaceOpen = false
 
     init(
         provider: any SurfaceProvider,

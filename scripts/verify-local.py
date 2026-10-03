@@ -25,13 +25,19 @@ import verification_receipt as receipt
 CHECKS = (
     ("xcstrings", "static_analysis", "XCStrings structure", ["python3", "scripts/lint-xcstrings.py"]),
     ("localization", "static_analysis", "Localization parity", ["python3", "scripts/localization_catalog.py", "check"]),
+    ("localization-defaults", "static_analysis", "Swift defaultValue parity", ["python3", "scripts/localization_defaults.py"]),
     ("project-tests", "tests", "Project normalizer tests", ["python3", "tests/test_normalize_pbxproj.py"]),
     ("project", "static_analysis", "Xcode project normalization and version", ["bash", "scripts/check-pbxproj.sh"]),
     ("config-schema", "static_analysis", "Embedded cmux.json schema", ["python3", "scripts/generate-cmux-config-schema.py", "--check"]),
     ("test-wiring-sync", "tests", "Test-wiring sync tool", ["python3", "tests/test_sync_test_wiring.py"]),
+    ("wire-app-sources", "tests", "App-source wiring tool", ["python3", "tests/test_wire_app_sources.py"]),
+    ("ui-lab", "tests", "ui-lab harness directives", ["python3", "tests/test_ui_lab.py"]),
+    ("ui-fuzzer", "tests", "UI fuzzer engine", ["python3", "tests/test_ui_fuzzer_engine.py"]),
     ("launch-policy", "static_analysis", "Generated Claude launch policy", ["python3", "scripts/generate-claude-launch-environment-policy.py", "--check"]),
     ("test-wiring", "static_analysis", "Swift test wiring and regression guard", ["bash", "tests/test_ci_pbxproj_test_wiring.sh"]),
     ("package-groups", "static_analysis", "Workspace Swift package groups", ["python3", "scripts/check-workspace-package-groups.py", "--check"]),
+    ("remote-tmux-waits-tests", "static_analysis", "Remote-tmux time-based wait lint tests", ["bash", "scripts/lint-remote-tmux-no-polling.test.sh"]),
+    ("remote-tmux-waits", "static_analysis", "Remote-tmux time-based waits", ["bash", "scripts/lint-remote-tmux-no-polling.sh"]),
     ("feature-flags", "static_analysis", "Feature flag policy", ["python3", "scripts/lint-feature-flags.py"]),
 )
 
@@ -43,6 +49,9 @@ CHECK_INPUTS = {
     "xcstrings": ("*.xcstrings",),
     "localization": ("*.xcstrings", "scripts/localization-allowed-omissions.json",
                      "scripts/localization-plurals.json"),
+    "localization-defaults": ("*.xcstrings", "Sources/*", "Packages/*", "CLI/*", "ios/*", "TunnelExtension/*",
+                              "scripts/localization_catalog.py", "scripts/localize_changes.py",
+                              "scripts/localization-default-mismatches.json"),
     "project-tests": ("scripts/normalize-pbxproj.py", "scripts/check-pbxproj-group-membership.py"),
     "project": ("scripts/normalize-pbxproj.py", "scripts/check-pbxproj-group-membership.py",
                 "cmux.xcodeproj/project.pbxproj",
@@ -51,6 +60,9 @@ CHECK_INPUTS = {
                       "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/ConfigValidation/CmuxConfigSchema.generated.swift"),
     "test-wiring-sync": ("scripts/sync-test-wiring", "scripts/sync_test_wiring.py", "scripts/lint-pbxproj-test-wiring.sh",
                          "scripts/normalize-pbxproj.py", "tests/fixtures/pbxproj-test-wiring/*"),
+    "wire-app-sources": ("scripts/wire-app-sources.py", "cmux.xcodeproj/project.pbxproj", "Sources/**/*.swift"),
+    "ui-lab": ("scripts/ui-lab/**", "tests/test_ui_lab.py"),
+    "ui-fuzzer": ("dogfood/fuzz/**", "scripts/fuzz", "tests/test_ui_fuzzer_engine.py"),
     "launch-policy": (
         "scripts/claude-launch-environment-policy.json",
         "Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/ClaudeSessionEnvironmentPolicy+Generated.swift",
@@ -59,6 +71,9 @@ CHECK_INPUTS = {
     "test-wiring": ("scripts/lint-pbxproj-test-wiring.sh", "cmuxTests/*",
                     "cmux.xcodeproj/project.pbxproj"),
     "package-groups": ("Packages/*", "cmux.xcworkspace/contents.xcworkspacedata"),
+    "remote-tmux-waits-tests": ("scripts/lint-remote-tmux-no-polling.sh",),
+    "remote-tmux-waits": ("Sources/*RemoteTmux*", "Packages/*RemoteTmux*",
+                          "scripts/remote-tmux-polling-baseline.txt"),
     "feature-flags": ("web/*", "Sources/*", "Packages/*", "ios/*", "CLI/*",
                       "scripts/retired-feature-flags.txt"),
 }
@@ -97,7 +112,8 @@ def affected_checks(repo, base):
                    for pattern in (argv[1],) + CHECK_INPUTS[name]):
                 reasons[name].append(path)
                 matched = True
-        prose = (path in ("README.md", "CONTRIBUTING.md", "CLAUDE.md", "AGENTS.md", "STYLE.md")
+        prose = (path in ("README.md", "CONTRIBUTING.md", "CLAUDE.md", "AGENTS.md", "STYLE.md",
+                          "CODE_OF_CONDUCT.md", "SECURITY.md")
                  or (path.endswith(".md") and path.startswith(("docs/", "skills/"))))
         if not matched and not prose:
             unknown.append(path)
@@ -240,7 +256,15 @@ def changed_files(repo, base, include_deleted=False):
         kind = "inputs" if include_deleted else "Swift files"
         raise ValueError(f"Cannot select changed {kind} against {base!r}; "
                          "check the Git checkout and local base ref") from error
-    names = sorted({os.fsdecode(p) for p in (changed + untracked).split(b"\0") if p and (include_deleted or p.endswith(b".swift"))})
+    # Interpreted custom-sidebar templates use `.swift` as their runtime file
+    # extension, but are SwiftUI-style source snippets rather than Swift files
+    # for the compiler. Keep them out of the native syntax preflight.
+    names = sorted({
+        os.fsdecode(p) for p in (changed + untracked).split(b"\0")
+        if p and (include_deleted or p.endswith(b".swift"))
+        and b"/Resources/CustomSidebarTemplates/" not in p
+        and b"Examples/CustomSidebars/" not in p
+    })
     return names, {"base_ref": base, "base_sha": base_sha, "merge_base_sha": merge_base,
                    "excluded_untracked_prefixes": [".glaeda/apple-build/"],
                    "contents": "current working tree, including staged/unstaged and nonignored untracked files"}
@@ -307,10 +331,17 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_chan
                          "-D", "DEBUG", "-enable-bare-slash-regex"] +
                         ["./" + str(p.relative_to(repo.resolve())) for p in paths]))
         if compiler:
+            # A compiler that can parse the selected files is still useful
+            # evidence when its version probe is slow or unavailable on a
+            # hosted runner. Keep the receipt honest and distinguish that
+            # from an absent compiler without making the guard flaky.
+            result["environment"]["toolchain"] = "Swift (version probe unavailable)"
             try:
                 version = subprocess.run([compiler, "--version"], capture_output=True, text=True,
                                          timeout=min(timeout, 5), check=True)
-                result["environment"]["toolchain"] = version.stdout.strip()[:2048]
+                description = (version.stdout + version.stderr).strip()
+                if description:
+                    result["environment"]["toolchain"] = description[:2048]
             except KeyboardInterrupt:
                 cancelled = True
                 receipt.check(result, "preparation").update(

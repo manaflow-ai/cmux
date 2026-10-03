@@ -16,6 +16,10 @@ even `verify-local.py --help` and `--list` load repository code.
 | Run the full CI static recipe | `python3 scripts/verify-local.py --all` |
 | Parse current Swift edits | `python3 scripts/verify-local.py --only swift-syntax --swift-changed` |
 | Check new Swift test-file wiring | `python3 scripts/verify-local.py --only test-wiring` |
+| See what a UI test did, one frame per action | `scripts/ui-test ClassName` or `scripts/ui-test <run URL>` ([guide](references/ui-test-frames.md)) |
+| Render view code to PNGs in seconds, light and dark, without building the app | `scripts/ui-lab/ui-lab.py <harness> [--watch]` ([guide](references/ui-lab.md)) |
+| Dogfood the app from CI: drive it with a JSON tour and get screenshots and accessibility trees | `scripts/run-e2e.sh --scenario dogfood/scenarios/<tour>.json --ref <sha> --frames` ([guide](references/dogfood-scenarios.md)) |
+| Read the screenshots and GIF CI posted of an app PR's build before merging it | the PR's dogfood comment ([guide](references/dogfood-scenarios.md#pr-media)) |
 
 Add a base ref after `--swift-changed` to include committed changes. Use `--list`
 to find other checks and `--help` for options. Parsing checks syntax; it doesn't
@@ -32,10 +36,14 @@ Keep a focused command that fails on the reported symptom, then rerun it after
 the repair. Setup failures and zero executed tests don't demonstrate the bug.
 Exercise one behavior at a time so a failure identifies what needs fixing.
 
-Keep the failing test and repair in separate commits. Record both SHAs and the
-red/green command; push both together when reproduced locally. Follow the root
-[regression policy](../../CLAUDE.md#regression-test-commits) for CI-only failures
-and final-head checks.
+Keep two commits: first the failing behavioral regression, then the fix. Run
+the same focused command on both and record the commit SHAs, the expected
+failure and the passing result. A setup failure or zero executed tests is not
+regression proof. When the proof is available locally, push both commits
+together after the fix passes; a separate hosted CI run on the deliberately
+broken intermediate commit is unnecessary. If the failure only reproduces in CI,
+use that lane and keep its receipts. Required CI and review still apply to the
+final pushed head.
 
 ## Test wiring
 
@@ -44,7 +52,7 @@ membership in `cmux.xcodeproj/project.pbxproj`. Add through Xcode or follow a wi
 sibling, then run the wiring check above: an unwired file can otherwise produce
 a misleading zero-test pass.
 
-After creating, renaming, or deleting a direct `cmuxTests/*.swift` file, run `./scripts/sync-test-wiring`. It deterministically reconciles the `PBXFileReference`, `PBXBuildFile`, `cmuxTests` group child, and `cmuxTests` Sources membership; `--check` performs the same validation without writing. Foreign target membership is rejected with an explicit diagnostic. The `workflow-guard-tests` CI job still runs `./scripts/lint-pbxproj-test-wiring.sh` as a defensive Sources-phase guard.
+After creating, renaming, or deleting a direct `cmuxTests/*.swift` file, run `./scripts/sync-test-wiring`. It deterministically reconciles the `PBXFileReference`, `PBXBuildFile`, `cmuxTests` group child, and `cmuxTests` Sources membership; `--check` performs the same validation without writing. Foreign target membership is rejected with an explicit diagnostic. New `Sources/**/*.swift` app files are wired with `./scripts/wire-app-sources.py` (`--check` lists unwired ones); UI tests with `--target cmuxUITests --dir cmuxUITests`; run it after any merge that took main's `project.pbxproj`, which drops a branch's app-source entries. The `workflow-guard-tests` CI job still runs `./scripts/lint-pbxproj-test-wiring.sh` as a defensive Sources-phase guard.
 
 ## Test quality
 
@@ -71,7 +79,13 @@ an edit already crosses it; see [the migration mapping](references/swift-testing
 
 An app build does not compile test targets. Package/refactor and public API changes
 need the relevant test target compiled, then the selected tests actually executed.
-Follow [build-for-testing and execution guidance](references/local-vs-ci-validation.md)
-and the current native capacity owner; report skipped/unsupported checks explicitly.
+Follow [build-for-testing and execution guidance](references/local-vs-ci-validation.md);
+report skipped/unsupported checks explicitly.
 
 For remote tmux sizing changes, use the [E2E recipe](references/remote-tmux-sizing-e2e.md).
+
+## PR CI labels
+
+Normal PR CI already runs the suites a diff edits or touches. `full-ci` and
+`unit-ci` are not review or merge requirements; see
+[PR CI coverage](references/pr-ci-coverage.md) before adding either.

@@ -154,6 +154,26 @@ final class WindowAccessorTests: XCTestCase {
         XCTAssertTrue(coordinator.shouldInvoke(window: window, dedupeByWindow: false, refreshID: "same"))
         XCTAssertTrue(coordinator.shouldInvoke(window: window, dedupeByWindow: false, refreshID: "same"))
     }
+
+}
+
+@MainActor
+@Suite("Window accessor")
+struct WindowAccessorSwiftTestingTests {
+    @Test func resetAllowsSameWindowAfterDetach() {
+        _ = NSApplication.shared
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let coordinator = WindowAccessor.Coordinator()
+
+        #expect(coordinator.shouldInvoke(window: window, dedupeByWindow: true, refreshID: "same"))
+        coordinator.reset()
+        #expect(coordinator.shouldInvoke(window: window, dedupeByWindow: true, refreshID: "same"))
+    }
 }
 
 @MainActor
@@ -628,7 +648,16 @@ final class AppDelegateLaunchServicesRegistrationTests: XCTestCase {
 
     func testScheduleLaunchServicesRegistrationDefersRegisterWork() {
         _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
+        defer {
+            // The temporary delegate must not replace the running test host's
+            // delegate while its installed shortcut monitor still owns events.
+            AppDelegate.shared = previousAppDelegate
+            if let previousAppDelegate {
+                GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(previousAppDelegate)
+            }
+        }
 
         var scheduledWork: (@Sendable () -> Void)?
         var registerCallCount = 0
@@ -688,6 +717,35 @@ final class TerminalDefaultFileOpenRequestTests: XCTestCase {
         XCTAssertEqual(request.initialInput, "'\(executable.path)'\n")
     }
 
+    func testExecutableSourceFileOpensInPreviewInsteadOfRunning() {
+        let url = URL(fileURLWithPath: "/tmp/tool.py")
+
+        XCTAssertNil(TerminalDefaultFileOpenRequest(fileURL: url, contentType: .pythonScript, isExecutable: true))
+    }
+
+    func testExecutableMarkdownFileOpensInPreviewInsteadOfRunning() {
+        let url = URL(fileURLWithPath: "/tmp/README.md")
+        let contentType = UTType("net.daringfireball.markdown") ?? .plainText
+
+        XCTAssertNil(TerminalDefaultFileOpenRequest(fileURL: url, contentType: contentType, isExecutable: true))
+    }
+
+    func testTerminalCommandFileRunsEvenThoughItIsText() throws {
+        let url = URL(fileURLWithPath: "/tmp/Run Me.command")
+
+        let request = try XCTUnwrap(TerminalDefaultFileOpenRequest(fileURL: url, contentType: .shellScript, isExecutable: true))
+
+        XCTAssertEqual(request.initialInput, "'/tmp/Run Me.command'\n")
+    }
+
+    func testExtensionlessExecutableDataFileRuns() throws {
+        let url = URL(fileURLWithPath: "/tmp/runme")
+
+        let request = try XCTUnwrap(TerminalDefaultFileOpenRequest(fileURL: url, contentType: .data, isExecutable: true))
+
+        XCTAssertEqual(request.initialInput, "'/tmp/runme'\n")
+    }
+
     func testIgnoresDirectoriesWithTerminalScriptExtension() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-terminal-default-directory-\(UUID().uuidString).command", isDirectory: true)
@@ -702,38 +760,47 @@ final class TerminalDefaultFileOpenRequestTests: XCTestCase {
 
 
 final class FocusFlashPatternTests: XCTestCase {
-    func testFocusFlashPatternMatchesTerminalDoublePulseShape() {
-        XCTAssertEqual(FocusFlashPattern.values, [0, 1, 0, 1, 0])
-        XCTAssertEqual(FocusFlashPattern.keyTimes, [0, 0.25, 0.5, 0.75, 1])
-        XCTAssertEqual(FocusFlashPattern.duration, 0.9, accuracy: 0.0001)
-        XCTAssertEqual(FocusFlashPattern.curves, [.easeOut, .easeIn, .easeOut, .easeIn])
+    func testDefaultPatternIsOneShortPulse() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "FocusFlashPatternTests.\(UUID().uuidString)"))
+        XCTAssertTrue(NotificationPaneFlashSettings.usesDoubleBlink(defaults: defaults))
+
+        let pulse = FocusFlashPattern.pulse
+        XCTAssertEqual(pulse.values, [0, 1, 0])
+        XCTAssertEqual(pulse.keyTimes, [0, 0.3, 1])
+        XCTAssertEqual(pulse.duration, 0.6, accuracy: 0.0001)
+        XCTAssertEqual(pulse.curves, [.easeOut, .easeIn])
         XCTAssertEqual(FocusFlashPattern.ringInset, Double(PanelOverlayRingMetrics.inset), accuracy: 0.0001)
         XCTAssertEqual(FocusFlashPattern.ringCornerRadius, Double(PanelOverlayRingMetrics.cornerRadius), accuracy: 0.0001)
     }
 
-    func testFocusFlashPatternSegmentsCoverFullDoublePulseTimeline() {
-        let segments = FocusFlashPattern.segments
-        XCTAssertEqual(segments.count, 4)
+    func testDoubleBlinkSettingSelectsTheOlderPattern() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "FocusFlashPatternTests.\(UUID().uuidString)"))
+        defaults.set(true, forKey: NotificationPaneFlashSettings.doubleBlinkKey)
+        XCTAssertTrue(NotificationPaneFlashSettings.usesDoubleBlink(defaults: defaults))
+
+        let doubleBlink = FocusFlashPattern.doubleBlink
+        XCTAssertEqual(doubleBlink.values, [0, 1, 0, 1, 0])
+        XCTAssertEqual(doubleBlink.keyTimes, [0, 0.25, 0.5, 0.75, 1])
+        XCTAssertEqual(doubleBlink.duration, 0.9, accuracy: 0.0001)
+        XCTAssertEqual(doubleBlink.segments.count, 4)
+    }
+
+    func testPulseSegmentsCoverThePulse() {
+        let pulse = FocusFlashPattern.pulse
+        let segments = pulse.segments
+        XCTAssertEqual(segments.count, 2)
 
         XCTAssertEqual(segments[0].delay, 0.0, accuracy: 0.0001)
-        XCTAssertEqual(segments[0].duration, 0.225, accuracy: 0.0001)
+        XCTAssertEqual(segments[0].duration, 0.18, accuracy: 0.0001)
         XCTAssertEqual(segments[0].targetOpacity, 1, accuracy: 0.0001)
         XCTAssertEqual(segments[0].curve, .easeOut)
 
-        XCTAssertEqual(segments[1].delay, 0.225, accuracy: 0.0001)
-        XCTAssertEqual(segments[1].duration, 0.225, accuracy: 0.0001)
+        XCTAssertEqual(segments[1].delay, 0.18, accuracy: 0.0001)
+        XCTAssertEqual(segments[1].duration, 0.42, accuracy: 0.0001)
         XCTAssertEqual(segments[1].targetOpacity, 0, accuracy: 0.0001)
         XCTAssertEqual(segments[1].curve, .easeIn)
-
-        XCTAssertEqual(segments[2].delay, 0.45, accuracy: 0.0001)
-        XCTAssertEqual(segments[2].duration, 0.225, accuracy: 0.0001)
-        XCTAssertEqual(segments[2].targetOpacity, 1, accuracy: 0.0001)
-        XCTAssertEqual(segments[2].curve, .easeOut)
-
-        XCTAssertEqual(segments[3].delay, 0.675, accuracy: 0.0001)
-        XCTAssertEqual(segments[3].duration, 0.225, accuracy: 0.0001)
-        XCTAssertEqual(segments[3].targetOpacity, 0, accuracy: 0.0001)
-        XCTAssertEqual(segments[3].curve, .easeIn)
+        XCTAssertEqual(pulse.opacity(at: 0.18), 1, accuracy: 0.0001)
+        XCTAssertEqual(pulse.opacity(at: 0.6), 0, accuracy: 0.0001)
     }
 }
 
@@ -3939,13 +4006,13 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async {
-        for _ in 0..<1000 {
-            if !panel.isSaving {
-                return
-            }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while panel.isSaving, ContinuousClock.now < deadline {
             await Task.yield()
         }
-        XCTFail("Timed out waiting for file preview save", file: file, line: line)
+        if panel.isSaving {
+            XCTFail("Timed out waiting for file preview save", file: file, line: line)
+        }
     }
 
     private func waitForPanelPreviewMode(
@@ -3954,13 +4021,13 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async {
-        for _ in 0..<1000 {
-            if panel.previewMode == mode {
-                return
-            }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while panel.previewMode != mode, ContinuousClock.now < deadline {
             await Task.yield()
         }
-        XCTFail("Timed out waiting for file preview mode", file: file, line: line)
+        if panel.previewMode != mode {
+            XCTFail("Timed out waiting for file preview mode", file: file, line: line)
+        }
     }
 
     private func waitForPanelTextContent(
@@ -3969,13 +4036,13 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async {
-        for _ in 0..<1000 {
-            if panel.textContent == content {
-                return
-            }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while panel.textContent != content, ContinuousClock.now < deadline {
             await Task.yield()
         }
-        XCTFail("Timed out waiting for file preview text content", file: file, line: line)
+        if panel.textContent != content {
+            XCTFail("Timed out waiting for file preview text content", file: file, line: line)
+        }
     }
 
     private func closeWindow(_ window: NSWindow) {
@@ -4321,8 +4388,8 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
 
     func testFocusFlashUsesNotificationRingColor() {
         XCTAssertEqual(
-            WorkspaceAttentionCoordinator.flashStyle(for: .navigation).accent.strokeColor.hexString(),
-            WorkspaceAttentionCoordinator.notificationRingStyle.accent.strokeColor.hexString()
+            WorkspaceAttentionCoordinator.flashStyle(for: .navigation).accent.strokeColor(accent: CmuxAccentColor()).hexString(),
+            WorkspaceAttentionCoordinator.notificationRingStyle.accent.strokeColor(accent: CmuxAccentColor()).hexString()
         )
     }
 
@@ -4348,5 +4415,25 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
             CGRect(x: 120, y: 48, width: 300, height: 200)
         )
     }
+
+    func testPaneExactRectUsesOverlayReferenceCoordinates() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 400),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let reference = NSView(frame: NSRect(x: 0, y: 32, width: 640, height: 368))
+        let target = NSView(frame: NSRect(x: 10, y: 50, width: 300, height: 200))
+        window.contentView?.addSubview(reference)
+        window.contentView?.addSubview(target)
+
+        XCTAssertEqual(
+            ContentView.tmuxWorkspacePaneExactRect(for: target, in: reference),
+            CGRect(x: 10, y: 18, width: 300, height: 200)
+        )
+    }
+
 }
 #endif

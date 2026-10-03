@@ -107,6 +107,51 @@ jobs:
             -Dsentry=false \
             -Dtest-filter="open stderr reader exits"
 
+      - name: Test Ghostty CJK fallback sizing
+        run: |
+          set -euo pipefail
+          cd ghostty
+          zig build test \
+            -Dapp-runtime=none \
+            -Demit-macos-app=false \
+            -Dsentry=false \
+            -Dtest-filter="ideograph fallback sizing fills two primary cells" \
+            --summary all
+
+      - name: Test Ghostty unfocused render pacing
+        run: |
+          set -euo pipefail
+          cd ghostty
+          zig build test \
+            -Dapp-runtime=none \
+            -Demit-macos-app=false \
+            -Dsentry=false \
+            -Dtest-filter="unfocused render pacer spaces unfocused frames" \
+            --summary all
+
+      - name: Test Ghostty startup input bytes
+        run: |
+          set -euo pipefail
+          cd ghostty
+          zig build test \
+            -Dapp-runtime=none \
+            -Demit-macos-app=false \
+            -Dsentry=false \
+            -Dtest-filter="parse: hex escapes are bytes" \
+            -Dtest-filter="cloneParsed restores Zig-escaped bytes" \
+            --summary all
+
+      - name: Test Ghostty styled blank VT replay rows
+        run: |
+          set -euo pipefail
+          cd ghostty
+          zig build test \
+            -Dapp-runtime=none \
+            -Demit-macos-app=false \
+            -Dsentry=false \
+            -Dtest-filter="Page VT preserves a fully styled blank row" \
+            --summary all
+
       - name: Build GhosttyKit.xcframework
         if: steps.check-release.outputs.exists == 'false' || inputs.verify_build
         run: |

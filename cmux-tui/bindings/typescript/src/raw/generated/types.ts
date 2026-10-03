@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 133bac0154f8f94aa30e40c11ff7ed38b10dd4d82974aec87c02d404fcd12619. */
+/* cmux-tui mux protocol 12, IR 2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -37,6 +37,7 @@ export type AttachedViewOutcomeResult = {
 export type AttachedViewResizeResult = {
   "accepted": boolean;
   "outcome": ViewAttachmentOutcome;
+  "participant"?: string;
   "reservation_id": (bigint) | null;
 };
 
@@ -149,6 +150,11 @@ export type DeclarativeLayout = ({ "type": "leaf" } & {
   "type": "stack";
 });
 
+/** Opaque JSON: A uint64 client id or a shared-sizing participant id string. */
+export type DetachClientTarget = JsonValue;
+
+export type DetachReason = "network" | "disconnected-by" | "host-shutdown" | "superseded";
+
 export type EmptyResult = {
 };
 
@@ -213,6 +219,11 @@ export type GetCellPixelsResult = {
   "height_px": number;
   "surfaces": Array<CellPixelSurface>;
   "width_px": number;
+};
+
+export type GetSizeStateResult = {
+  "self_participant": (string) | null;
+  "state": SizeState;
 };
 
 export type GuestUrlAcknowledgeResult = {
@@ -352,6 +363,7 @@ export type MintTerminalRendererResult = {
   "incarnation": string;
   "protocol_version": number;
   "rights": number;
+  "supports_viewer_size_priority"?: boolean;
   "terminal_id": string;
   "token": string;
   "ttl_ms": bigint;
@@ -371,6 +383,11 @@ export type MoveTerminalResult = {
   "terminal_revision": bigint;
   "workspace": (Id) | null;
   "workspace_key": string;
+};
+
+export type NoteSizeActivityResult = {
+  "changed": boolean;
+  "participant": string;
 };
 
 export type NotificationLevel = "info" | "warning" | "error";
@@ -426,6 +443,11 @@ export type ReadScrollbackResult = {
   "rows": Array<RenderRow>;
   "start": number;
   "total": number;
+};
+
+export type ReattachViewResult = {
+  "participant": string;
+  "state": SizeState;
 };
 
 export type RenderCursor = {
@@ -646,6 +668,21 @@ export type SetCellPixelsResult = {
   "resizes": Array<CellPixelResize>;
 };
 
+export type SetSizeCountsResult = {
+  "changed"?: boolean;
+  "outcome": ViewAttachmentOutcome;
+  "participant"?: string;
+};
+
+export type SetSizePolicyResult = {
+  "state"?: SizeState;
+};
+
+export type SetTerminalIdlePolicyResult = {
+  "idle_close_seconds": (bigint) | null;
+  "terminal_id": string;
+};
+
 export type ShutdownDaemonResult = {
   "accepted": true;
   "generation": string;
@@ -661,6 +698,56 @@ export type SidebarPluginResult = {
 export type Size = {
   "cols": number;
   "rows": number;
+};
+
+export type SizeDetachActor = {
+  "device_name"?: (string) | null;
+  "display_name"?: (string) | null;
+  "user_id"?: (string) | null;
+};
+
+export type SizeDeviceKind = "mac" | "iphone" | "ipad" | "tui" | "browser" | "unknown";
+
+export type SizeMode = "latest" | "smallest" | "largest" | "priority" | "fixed";
+
+export type SizeParticipant = {
+  "counts": boolean;
+  "counts_override": (boolean) | null;
+  "device_id": (string) | null;
+  "device_kind": SizeDeviceKind;
+  "device_name": (string) | null;
+  "display_name": (string) | null;
+  "id": string;
+  "priority_key": string;
+  "user_id": (string) | null;
+  "via": (string) | null;
+  "viewport": (Size) | null;
+};
+
+export type SizePolicy = {
+  "fixed"?: (Size) | null;
+  "mode"?: SizeMode;
+  "priority"?: Array<string>;
+};
+
+export type SizeReason = "latest" | "smallest" | "largest" | "priority" | "fixed" | "held" | "priority-fallback";
+
+export type SizeState = {
+  "cols": number;
+  "generation": bigint;
+  "owners": Array<string>;
+  "participants": Array<SizeParticipant>;
+  "policy": SizePolicy;
+  "reason": SizeReason;
+  "rows": number;
+};
+
+export type SizingIdentity = {
+  "device_id"?: (string) | null;
+  "device_kind"?: (string) | null;
+  "device_name"?: (string) | null;
+  "display_name"?: (string) | null;
+  "user_id"?: (string) | null;
 };
 
 export type SplitDirection = "right" | "down";

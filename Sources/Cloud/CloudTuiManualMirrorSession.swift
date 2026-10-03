@@ -2,6 +2,8 @@ import CmuxCloud
 import CmuxCloudTui
 import CmuxSurfaceCatalogModel
 import CmuxTerminal
+import CmuxTerminalSharing
+import CmuxTerminalSizing
 import CmuxCore
 import CmuxCloudImagePaste
 import Foundation
@@ -21,6 +23,19 @@ final class CloudTuiManualMirrorSession {
     let machineID: String
     let terminalID: String
     private(set) var remoteSurfaceID: UInt64
+    /// Shared-sizing relay bookkeeping (`shared-sizing-v1` daemons only).
+    var sizingRelay = CloudTerminalSizingRelay()
+    /// Set when someone disconnected this Mac; the pane shows it with Reattach
+    /// and the session does not reconnect by itself.
+    var sharingDetachment: TerminalSharingDetachment?
+    /// Set while only this Mac's own view is detached (`scope:"view"`): the
+    /// connection stays and keeps relaying phones; this pane stops sending
+    /// its own activity until `reattach-view`.
+    var sharingOwnViewDetached = false
+    /// Reattach as a viewer: send `counts: false` for this lease after attach.
+    var sharingReattachAsViewerPending = false
+    /// The local surface id this session published sharing state under.
+    var sharingSurfaceID: UUID?
     let inputRouter: CloudTuiManualIOInputRouter
     let imagePaste = CloudImagePasteCoordinator()
     private let operations: CloudOperationRecorder?
@@ -31,25 +46,26 @@ final class CloudTuiManualMirrorSession {
     private var diagnosticDeadline: Task<Void, Never>?
     private(set) var diagnosticFailure: CloudDiagnosticFailure?
     private var diagnosticReference: String?
-    private weak var surface: TerminalSurface?
+    private(set) weak var surface: TerminalSurface?
     private let onNeedsReconnect: @MainActor () -> Void
-    private let commandBuilder: CloudTuiManualIOCommand
-    private var connection: CloudTuiManualIOConnection?
+    let commandBuilder: CloudTuiManualIOCommand
+    private(set) var connection: CloudTuiManualIOConnection?
     private var eventTask: Task<Void, Never>?
     private var connectTask: Task<Void, Never>?
     private var runtimeSampleTask: Task<Void, Never>?
-    private var socketPath: String?
+    private(set) var socketPath: String?
     private var nextRequestID: UInt64 = 1
-    private var pendingRequests: [UInt64: CloudTuiManualMirrorRequestKind] = [:]
+    var pendingRequests: [UInt64: CloudTuiManualMirrorRequestKind] = [:]
+    var pendingReplay: Data?
     /// Capabilities belong to the current control connection. They must not
     /// survive a daemon restart because an older generation may not implement
     /// lease-fenced sizing or initial attach dimensions.
     private var serverCapabilities: Set<String> = []
-    private var resizeScheduler = CloudTuiManualIOResizeScheduler()
-    private var attachResponseReceived = false
-    private var claimInFlight = false
+    private(set) var resizeScheduler = CloudTuiManualIOResizeScheduler()
+    private(set) var attachResponseReceived = false
+    private(set) var claimInFlight = false
     private var geometryClaimed = false
-    private var geometryClaimBlockedByPeer = false
+    private(set) var geometryClaimBlockedByPeer = false
     private var explicitGeometryClaimPending = false
     private var geometryClaimLossPending = false
     private var geometryClaimEligible: Bool
@@ -59,11 +75,13 @@ final class CloudTuiManualMirrorSession {
     private var claimUnsupported = false
     /// Retained for diagnostics and for a future targeted detach. Closing the
     /// socket is still the cleanup fence for peers without lease support.
-    private var remoteLease: String?
+    var remoteLease: String?
     /// The last sidecar fed to the local surface; the next one is applied as a delta from it.
     private var appliedRemoteColors = CloudTuiRemoteColors()
     private var hasReceivedRemoteReplay = false
-    private var lastRemoteGrid: CloudTuiManualIOGrid?
+    private(set) var lastRemoteGrid: CloudTuiManualIOGrid?
+    var replayFidelity = CloudTuiReplayFidelity()
+    var fidelityCheckTask: Task<Void, Never>?
     private(set) var phase: CloudTuiManualMirrorPhase = .idle {
         didSet {
             if phase == .disconnected, oldValue != .disconnected, diagnosticContext != nil {
@@ -86,8 +104,17 @@ final class CloudTuiManualMirrorSession {
     private let log: CloudTerminalAttachmentLog
     private var attachAttempts = 0
     private var interruption: CloudTerminalAttachmentInterruption?
-    private var automaticReconnectSuppressed = false
+    var automaticReconnectSuppressed = false
     var allowsAutomaticReconnect: Bool { !automaticReconnectSuppressed }
+
+    /// SSH hosts can continue over the byte-oriented attach protocol when the
+    /// remote cmux-tui predates replay framing. Cloud machines remain strict,
+    /// because their managed transport cannot safely recover incomplete VT
+    /// sequences without the modern capability.
+    nonisolated static func shouldRejectStaleReplay(machineID: String, capabilities: [String]) -> Bool {
+        guard !machineID.hasPrefix("ssh:") else { return false }
+        return CloudTuiManualIOCommand().isStaleReplayDaemon(capabilities: capabilities)
+    }
     var attachmentCorrelationID: String { log.correlationID }
     /// Grace bounds for the connection card; tests inject short ones.
     let presentationPolicy: CloudTerminalConnectionPresentationPolicy
@@ -106,13 +133,18 @@ final class CloudTuiManualMirrorSession {
     /// The card the pane shows for this attachment: nil while it is usable, being
     /// worked on, or still inside the failure grace; the Reconnect card otherwise.
     var connectionPresentation: CloudTerminalReconnectOverlayPolicy.Presentation? {
+        // A disconnected-by detach shows the sharing card with Reattach instead.
+        if sharingDetachment != nil { return nil }
         switch CloudTerminalConnectionPresentationPolicy.outcome(for: presentationInput) {
         case .none:
             return nil
         case .failure:
+            let detail = interruption == .staleDaemon
+                ? interruption?.localizedDescription
+                : diagnosticFailure?.label
             var presentation = CloudTerminalReconnectOverlayPolicy.presentation(
                 isManagedCloudWorkspace: true, isRemoteTerminalSurface: true,
-                connectionState: .error, detail: diagnosticFailure?.label
+                connectionState: .error, detail: detail
             )
             presentation?.diagnosticReference = diagnosticReference
             return presentation
@@ -127,6 +159,10 @@ final class CloudTuiManualMirrorSession {
             automaticReconnectSuppressed = true
         } else {
             automaticReconnectSuppressed = false
+            if sharingDetachment != nil {
+                sharingDetachment = nil
+                publishSharingSnapshot()
+            }
         }
         // Explicit recovery must pass through the provider's fresh resolution,
         // including when the current socket is still attached or connecting.
@@ -186,24 +222,33 @@ final class CloudTuiManualMirrorSession {
         if let previous = self.surface, previous !== surface,
            previous.hostedView.cloudTerminalOverlay.session === self {
             previous.onManualSizeApplied = nil
+            previous.onNaturalGridInputsChanged = nil
             previous.onRuntimeReady = nil
             previous.onManualWindowAttached = nil
             previous.onManualVisibilityChanged = nil
+            previous.clearAssignedGrid()
             previous.hostedView.cloudTerminalOverlay.unbindSession(self)
         }
         self.surface = surface
+        bindSharing(surfaceID: surface.id)
         surface.hostedView.cloudTerminalOverlay.session = self
         manualMirrorLogger.info("bind terminal=\(self.terminalID, privacy: .private(mask: .hash)) surface=\(self.remoteSurfaceID)")
-        // A color sidecar that arrived before any surface existed reaches this
-        // one now. The stored sidecar is the remote truth, and the next
-        // identical sidecar would produce an empty delta and leave the pane on
-        // the local theme.
+        // A color sidecar that arrived before any surface existed reaches this one now.
         let pendingColors = appliedRemoteColors.oscBytes
         if !pendingColors.isEmpty {
             surface.processRemoteOutput(pendingColors)
         }
         surface.onManualSizeApplied = { [weak self] sample in
             self?.apply(size: sample, validatePanePixels: false)
+        }
+        // While the grid is pinned to the daemon's, a view resize changes no
+        // Ghostty size, so it arrives here instead of onManualSizeApplied.
+        surface.onNaturalGridInputsChanged = { [weak self] in
+            // Hop out of the in-progress updateSize before re-reporting.
+            Task { @MainActor [weak self] in
+                guard let self, let sample = self.surface?.rawSizingSample() else { return }
+                self.apply(size: sample, validatePanePixels: false)
+            }
         }
         surface.onRuntimeReady = { [weak self] in
             self?.runtimeReady()
@@ -214,6 +259,7 @@ final class CloudTuiManualMirrorSession {
         surface.onManualVisibilityChanged = { [weak self] visible in
             self?.visibilityChanged(visible)
         }
+        flushPendingReplay()
         surface.flushPendingManualSizeReportIfAttached()
         runtimeReady()
     }
@@ -285,8 +331,9 @@ final class CloudTuiManualMirrorSession {
     /// capabilities, pending requests and acknowledged grids belong to one
     /// connection generation and never survive it; a later replay starts from
     /// a reset screen.
-    private func tearDownConnection() {
+    func tearDownConnection() {
         watchdog.cancel()
+        fidelityCheckTask?.cancel()
         connectTask?.cancel()
         connectTask = nil
         eventTask?.cancel()
@@ -304,7 +351,7 @@ final class CloudTuiManualMirrorSession {
         remoteLease = nil
         serverCapabilities.removeAll(keepingCapacity: true)
         resizeScheduler.resetForReconnect()
-        lastRemoteGrid = nil
+        lastRemoteGrid = nil; pendingReplay = nil
         diagnosticReplayReceived = false
     }
     /// Samples the grid after Ghostty has created its runtime surface. Runtime
@@ -405,11 +452,18 @@ final class CloudTuiManualMirrorSession {
         size sample: TerminalSurfaceRawSizingSample,
         validatePanePixels: Bool = false
     ) {
+        defer { localGridChanged(to: sample) }
+        // `sample` is the grid Ghostty holds (the fidelity tracker needs it).
+        // The viewport reported to the daemon is the view's own grid, which
+        // differs while the grid is pinned to the daemon's.
         guard phase != .stopped,
               let surface,
               surface.isNativeViewInRealWindow,
               surface.isRendererPortalVisible,
-              let grid = CloudTuiManualIOGrid.usable(from: sample, validatePanePixels: validatePanePixels) else {
+              let grid = CloudTuiManualIOGrid.usable(
+                  from: surface.viewSizingSample() ?? sample,
+                  validatePanePixels: validatePanePixels
+              ) else {
             return
         }
         let canSend = attachResponseReceived && !claimInFlight
@@ -425,16 +479,43 @@ final class CloudTuiManualMirrorSession {
     /// is also used by the composed explicit-input callback.
     func claimGeometry() {
         guard surface?.isRendererPortalVisible == true else { return }
+        guard !sharingOwnViewDetached else { return }
+        if sizingRelay.isSupported {
+            sendSharingFocusActivity()
+            return
+        }
         (geometryClaimEligible, geometryClaimBlockedByPeer, explicitGeometryClaimPending, geometryClaimLossPending) = (true, false, true, false)
         geometryClaimed = false
         claimUnsupported = false
         sendClaimIfNeeded()
     }
+    /// Called for each explicit keystroke or paste in this pane. The pane the
+    /// user is typing in must be the authoritative geometry owner. An owner
+    /// already confirmed, or a server without claims, sends its keys alone.
+    func noteExplicitInput() {
+        guard !sharingOwnViewDetached else { return }
+        if sizingRelay.isSupported {
+            // Activity only matters when it moves ownership to this Mac.
+            if let me = sizingRelay.selfParticipantID, sizingRelay.state?.owners == [me] { return }
+            sendSharingFocusActivity()
+            return
+        }
+        guard (!geometryClaimed && !claimUnsupported) || geometryClaimBlockedByPeer else { return }
+        claimGeometry()
+    }
+    /// Why this attachment stopped; nil until ``stop(reason:)`` runs.
+    private(set) var stopReason: CloudTuiManualMirrorStopReason?
     /// Permanently tears down this view's attachment without closing the remote
     /// terminal. Closing the control socket is the cleanup fence for old
     /// servers; newer servers additionally retire the lease with the same close.
-    func stop() {
+    ///
+    /// - Parameter reason: Why the attachment ends. Unless the pane is closing,
+    ///   the pane keeps a card for `reason`, so a stop never leaves a silent
+    ///   frozen frame that drops input.
+    func stop(reason: CloudTuiManualMirrorStopReason = .paneClosed) {
         guard phase != .stopped else { return }
+        stopReason = reason
+        unbindSharing()
         let wasAttached = phase == .attached
         transition(to: .stopped)
         endPresentationEpisode()
@@ -445,6 +526,7 @@ final class CloudTuiManualMirrorSession {
         eventTask = nil
         runtimeSampleTask?.cancel()
         runtimeSampleTask = nil
+        fidelityCheckTask?.cancel()
         inputRouter.invalidate()
         imagePaste.disconnect()
         if let connection,
@@ -465,11 +547,14 @@ final class CloudTuiManualMirrorSession {
         connection = nil
         pendingRequests.removeAll(keepingCapacity: false)
         if let surface, surface.hostedView.cloudTerminalOverlay.session === self {
-            surface.hostedView.cloudTerminalOverlay.unbindSession(self)
+            surface.hostedView.cloudTerminalOverlay.endSession(self, presentation: reason.endedPresentation)
+            surface.hostedView.synchronizeCloudTerminalReconnectOverlay()
             surface.onManualSizeApplied = nil
+            surface.onNaturalGridInputsChanged = nil
             surface.onRuntimeReady = nil
             surface.onManualWindowAttached = nil
             surface.onManualVisibilityChanged = nil
+            surface.clearAssignedGrid()
         }
         self.surface = nil
     }
@@ -519,12 +604,12 @@ final class CloudTuiManualMirrorSession {
         presentationStage = .silent
     }
 
-    private func synchronizePresentation() {
+    func synchronizePresentation() {
         surface?.hostedView.synchronizeCloudTerminalReconnectOverlay()
         surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
     }
 
-    private func finishDiagnostics(error: Error? = nil) {
+    func finishDiagnostics(error: Error? = nil) {
         diagnosticDeadline?.cancel()
         diagnosticDeadline = nil
         if let error, !(error is CancellationError) { diagnosticFailure = .classify(error) }
@@ -554,7 +639,7 @@ final class CloudTuiManualMirrorSession {
     private func handle(frame: CloudTuiManualIOFrame) {
         watchdog.noteFrame()
         switch frame {
-        case let .snapshot(surfaceID, columns, rows, bytes, colors):
+        case let .snapshot(surfaceID, columns, rows, bytes, colors, pending):
             // This dedicated connection has only one pending attachment. The
             // identity-capable daemon validates the receipt before sending its
             // initial frame; input still waits for the attachment acknowledgement.
@@ -565,46 +650,28 @@ final class CloudTuiManualMirrorSession {
                 inputRouter.updateSurfaceID(surfaceID)
             }
             guard surfaceID == remoteSurfaceID else { return }
-            // A snapshot replaces the local VT state. Reset first so cells,
-            // cursor state, alternate-screen mode, and SGR from a prior
-            // restore cannot survive where the replacement is shorter.
-            applyReplay(bytes, colors: colors)
-            hasReceivedRemoteReplay = true
-            diagnosticReplayReceived = true
-            if phase == .attached { finishDiagnostics() }
-            updatePresentationEpisode()
-            synchronizePresentation()
-            lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
-            if geometryClaimLossPending { geometryClaimLossPending = false; geometryClaimBlockedByPeer = !explicitGeometryClaimPending && lastRemoteGrid != resizeScheduler.desired; geometryClaimed = geometryClaimed && !geometryClaimBlockedByPeer }
-            reconcileRemoteGrid()
+            applyReplacement(bytes, colors: colors, columns: columns, rows: rows, pending: pending)
         case let .output(surfaceID, bytes, colors):
             guard surfaceID == remoteSurfaceID else { return }
             surface?.processRemoteOutput(bytes)
+            if surface == nil { pendingReplay = (pendingReplay ?? Data()) + bytes }
             applyColors(colors)
-        case let .resized(surfaceID, columns, rows, bytes, colors):
+        case let .resized(surfaceID, columns, rows, bytes, colors, pending):
             guard surfaceID == remoteSurfaceID else { return }
-            // `resized` carries a replacement replay, not an incremental
-            // output chunk. Resetting first prevents old rows/cursor state from
-            // surviving a shrink or a reconnect.
-            applyReplay(bytes, colors: colors)
-            hasReceivedRemoteReplay = true
-            diagnosticReplayReceived = true
-            if phase == .attached { finishDiagnostics() }
-            updatePresentationEpisode()
-            synchronizePresentation()
-            lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
-            if geometryClaimLossPending { geometryClaimLossPending = false; geometryClaimBlockedByPeer = !explicitGeometryClaimPending && lastRemoteGrid != resizeScheduler.desired; geometryClaimed = geometryClaimed && !geometryClaimBlockedByPeer }
-            reconcileRemoteGrid()
+            applyReplacement(bytes, colors: colors, columns: columns, rows: rows, pending: pending)
         case let .colorsChanged(surfaceID, colors):
             guard surfaceID == remoteSurfaceID else { return }
             applyColors(colors)
-        case let .detached(surfaceID):
+        case let .detached(surfaceID, reason, view, viewOnly):
             guard surfaceID == remoteSurfaceID else { return }
-            transitionToDisconnected(reason: .transportClosed)
+            handleSharingDetached(reason: reason, view: view, viewOnly: viewOnly)
+        case let .sizeState(surfaceID, state):
+            guard surfaceID == remoteSurfaceID else { return }
+            receiveSizeState(state)
         case let .overflow(surfaceID):
             guard surfaceID == nil || surfaceID == remoteSurfaceID else { return }
             transitionToDisconnected(reason: .transportClosed)
-        case let .response(requestID, ok, lease, capabilities, outcome, accepted, error):
+        case let .response(requestID, ok, lease, capabilities, outcome, accepted, error, sizing):
             handleResponse(
                 requestID: requestID,
                 ok: ok,
@@ -612,7 +679,8 @@ final class CloudTuiManualMirrorSession {
                 capabilities: capabilities,
                 outcome: outcome,
                 accepted: accepted,
-                error: error
+                error: error,
+                sizing: sizing
             )
         case .message:
             // Resource responses belong to the per-machine command
@@ -621,7 +689,29 @@ final class CloudTuiManualMirrorSession {
             break
         }
     }
-    private func applyReplay(_ bytes: Data, colors: CloudTuiRemoteColors?) {
+    /// A snapshot or `resized` frame replaces the local VT state with a replay
+    /// authored for the daemon's grid. Resetting first keeps the cells, cursor,
+    /// alternate screen and SGR of a prior restore from surviving a shorter one.
+    private func applyReplacement(
+        _ bytes: Data, colors: CloudTuiRemoteColors?, columns: Int, rows: Int, pending: Data
+    ) {
+        lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
+        // The daemon owns the grid, and the replay addresses rows and wraps at
+        // its size. Pin Ghostty to it before parsing; the view letterboxes or
+        // clips the difference and keeps reporting its own grid.
+        surface?.setAssignedGrid(columns: columns, rows: rows)
+        applyReplay(bytes, colors: colors, remote: lastRemoteGrid, pending: pending)
+        hasReceivedRemoteReplay = true
+        diagnosticReplayReceived = true
+        if phase == .attached { finishDiagnostics() }
+        updatePresentationEpisode()
+        synchronizePresentation()
+        if geometryClaimLossPending { geometryClaimLossPending = false; geometryClaimBlockedByPeer = !explicitGeometryClaimPending && lastRemoteGrid != resizeScheduler.desired; geometryClaimed = geometryClaimed && !geometryClaimBlockedByPeer }
+        reconcileRemoteGrid()
+    }
+    private func applyReplay(
+        _ bytes: Data, colors: CloudTuiRemoteColors?, remote: CloudTuiManualIOGrid?, pending: Data
+    ) {
         // A sidecar replaces authored colors; an absent sidecar preserves them.
         // Restore the authoritative set after resetting the replacement VT state.
         let replayColors = colors ?? appliedRemoteColors
@@ -629,13 +719,20 @@ final class CloudTuiManualMirrorSession {
         replay.append(Self.replayReset)
         replay.append(bytes)
         replay.append(replayColors.oscBytes)
+        // The daemon's parser is inside this sequence; the next output
+        // completes it. It goes last because the color OSCs above would
+        // otherwise land inside it.
+        replay.append(pending)
         appliedRemoteColors = replayColors
-        guard let surface else { return }
-        surface.processRemoteReplay(replay) { [weak surface] in
+        guard let surface else { pendingReplay = replay; return }
+        let token = replayFidelity.replayQueued(remote: remote, local: settledGrid())
+        surface.processRemoteReplay(replay) { [weak self, weak surface] in
             surface?.forceRefresh(reason: "cloud.replay.applied")
+            self?.replayApplied(token: token)
+        } onDiscarded: { [weak self] in
+            self?.replayDiscarded(token: token)
         }
     }
-
     /// The replay is theme-portable: it carries no palette or default-color
     /// OSC state, so the local Ghostty theme stands for every color the
     /// remote PTY did not author. The sidecar restores the authored ones and
@@ -648,17 +745,19 @@ final class CloudTuiManualMirrorSession {
         appliedRemoteColors = colors
         guard !delta.isEmpty else { return }
         surface?.processRemoteOutput(delta)
+        if surface == nil { pendingReplay = (pendingReplay ?? Data()) + delta }
     }
 
     private func transitionToDisconnected(reason: CloudTerminalAttachmentInterruption) {
+        guard phase != .stopped, phase != .disconnected else { return }
         tearDownConnection()
-        guard phase != .stopped else { return }
         let diagnosticError: CloudDiagnosticFailure
         switch reason {
         case .handshakeTimedOut, .livenessTimedOut: diagnosticError = .timeout
         case .rejected: diagnosticError = .protocol
         case .unresolved: diagnosticError = .notFound
         case .transportClosed: diagnosticError = .network
+        case .staleDaemon: diagnosticError = .unsupported
         }
         finishDiagnostics(error: diagnosticError)
         transition(to: .disconnected, reason: reason)
@@ -666,11 +765,27 @@ final class CloudTuiManualMirrorSession {
     }
 
     private func transitionToDisconnected(error: Error? = CloudDiagnosticFailure.network) {
+        guard phase != .stopped, phase != .disconnected else { return }
         tearDownConnection()
-        guard phase != .stopped else { return }
         finishDiagnostics(error: error ?? CancellationError())
         transition(to: .disconnected, reason: .transportClosed)
         onNeedsReconnect()
+    }
+
+    /// A host `detached` for this Mac: a network drop reconnects as before; a
+    /// person's disconnect (or host shutdown / supersede) stays down until the
+    /// user reattaches from the pane.
+    func disconnectForSharing(reconnect: Bool) {
+        guard !reconnect else {
+            transitionToDisconnected(reason: .transportClosed)
+            return
+        }
+        automaticReconnectSuppressed = true
+        tearDownConnection()
+        guard phase != .stopped else { return }
+        finishDiagnostics(error: CancellationError())
+        transition(to: .disconnected, reason: .rejected("detached by the terminal host"))
+        synchronizePresentation()
     }
 
     private func fenceAttachment(error: Error, reason: CloudTerminalAttachmentInterruption = .transportClosed) {
@@ -688,7 +803,7 @@ final class CloudTuiManualMirrorSession {
 
     /// Every phase change goes through here, so the unified log and the pane's
     /// status can never disagree with the session.
-    private func transition(to next: CloudTuiManualMirrorPhase, reason: CloudTerminalAttachmentInterruption? = nil) {
+    func transition(to next: CloudTuiManualMirrorPhase, reason: CloudTerminalAttachmentInterruption? = nil) {
         phase = next
         if let reason { interruption = reason }
         if next == .attached {
@@ -720,9 +835,11 @@ final class CloudTuiManualMirrorSession {
         capabilities: [String],
         outcome: String?,
         accepted: Bool?,
-        error: String?
+        error: String?,
+        sizing: CloudTuiSizingResponse? = nil
     ) {
         guard !imagePaste.receive(requestID: requestID, ok: ok, accepted: accepted, error: error), let kind = pendingRequests.removeValue(forKey: requestID) else { return }
+        defer { scheduleFidelityCheck() }
         manualMirrorLogger.info("answer terminal=\(self.terminalID, privacy: .private(mask: .hash)) surface=\(self.remoteSurfaceID) request=\(String(describing: kind), privacy: .public) ok=\(ok) outcome=\(outcome ?? "none", privacy: .private) error=\(error ?? "none", privacy: .private)")
         switch kind {
         case .identify:
@@ -739,6 +856,24 @@ final class CloudTuiManualMirrorSession {
                 return
             }
             serverCapabilities = Set(capabilities)
+            if Self.shouldRejectStaleReplay(machineID: machineID, capabilities: capabilities) {
+                // This daemon can attach, but it cannot preserve incomplete VT
+                // sequences across replay boundaries. Retrying the same VM
+                // forever only recreates the garbled pane, so leave the pane
+                // intact and wait for an explicit retry after an upgrade.
+                // Reset the connection-scoped relay state before publishing the
+                // failure so phones cannot observe the old host or geometry.
+                sizingRelay.connectionStarted(capabilities: serverCapabilities)
+                publishSharingSnapshot()
+                automaticReconnectSuppressed = true
+                fenceAttachment(error: CloudDiagnosticFailure.unsupported, reason: .staleDaemon)
+                startPresentationEpisode(elapsed: presentationPolicy.failureGrace)
+                synchronizePresentation()
+                return
+            }
+            sizingRelay.connectionStarted(capabilities: serverCapabilities)
+            // A new connection attaches a fresh view.
+            sharingOwnViewDetached = false
             if creationAttachment != nil, !serverCapabilities.contains("attach-identity-v1") {
                 guard let resolveLegacySurfaceID, let currentConnection = connection else {
                     transitionToDisconnected(reason: .rejected("creation attachment identity unsupported"))
@@ -790,6 +925,7 @@ final class CloudTuiManualMirrorSession {
             attachResponseReceived = true
             if diagnosticReplayReceived { finishDiagnostics() }
             remoteLease = lease
+            sharingAttached(selfParticipantID: sizing?.participant)
             transition(to: .attached)
             watchdog.armLiveness(
                 probe: { [weak self] in self?.sendPing() },
@@ -808,6 +944,14 @@ final class CloudTuiManualMirrorSession {
             resumeSizingIfNeeded()
         case .ping:
             watchdog.noteProbeAnswered()
+        case let .relayView(view):
+            if ok, let participant = sizing?.participant {
+                sizingRelay.noteHostParticipant(participant, forView: view)
+                publishSharingSnapshot()
+            }
+            if let state = sizing?.state { receiveSizeState(state) }
+        case .sizing:
+            if let state = sizing?.state { receiveSizeState(state) }
         case let .resize(requestedGrid):
             guard resizeScheduler.inFlight == requestedGrid else {
                 // The request may have been retired by a hide/reveal or a
@@ -898,6 +1042,7 @@ final class CloudTuiManualMirrorSession {
             commandBuilder.setClientInfo(
                 name: "cmux cloud terminal",
                 kind: "native-mirror",
+                identity: sizingRelay.isSupported ? sharingSelfIdentity() : nil,
                 requestID: requestID
             )
         )
@@ -966,6 +1111,12 @@ final class CloudTuiManualMirrorSession {
     }
 
     private func sendClaimIfNeeded() {
+        if sizingRelay.isSupported {
+            // The host's policy decides the grid; resizes are plain reports and
+            // explicit claims are sent only as focus activity (claimGeometry).
+            claimUnsupported = true
+            return
+        }
         guard attachResponseReceived,
               surface?.isRendererPortalVisible == true,
               surface?.isNativeViewInRealWindow == true,
@@ -1000,7 +1151,7 @@ final class CloudTuiManualMirrorSession {
         }
     }
 
-    private func takeRequestID() -> UInt64 {
+    func takeRequestID() -> UInt64 {
         defer { nextRequestID = nextRequestID == UInt64.max ? 1 : nextRequestID + 1 }
         return nextRequestID
     }
@@ -1013,7 +1164,7 @@ final class CloudTuiManualMirrorSession {
             switch kind {
             case .resize(_), .claim:
                 return false
-            case .identify, .clientInfo, .attach, .ping:
+            case .identify, .clientInfo, .attach, .ping, .relayView, .sizing:
                 return true
             }
         }
