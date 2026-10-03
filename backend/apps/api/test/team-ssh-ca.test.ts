@@ -342,7 +342,7 @@ describe("team SSH CA (TeamDO, workerd)", () => {
     expect(JSON.parse(dump.sealed.split("\n")[0]!)).toMatchObject({ v: 1 })
   })
 
-  it("installs get the restricted agent class by default; a full shell needs execute on a Mac or CLI install; agents, servers and outsiders are refused", async () => {
+  it("installs get only the restricted agent class; a full shell needs a person's session; agents, servers and outsiders are refused", async () => {
     const t = await setup("stack-ssh-0000000002")
     const key = await sshLine("p256")
     const agent = await t.op(t.install(t.owner, ["read", "mutate-own"]), "team_vm.ssh_cert", { public_key: key })
@@ -356,8 +356,9 @@ describe("team SSH CA (TeamDO, workerd)", () => {
     expect((await t.op(t.install(t.owner, ["read", "mutate-own", "execute"], "vm"), "team_vm.ssh_cert", { public_key: key, class: "human" })).error!.code).toBe("team_vm.ssh_class_refused")
     expect((await t.op(t.install(t.owner, ["read"]), "team_vm.ssh_cert", { public_key: key })).error!.code).toBe("team_vm.ssh_class_refused")
     expect((await t.op({ ...t.ownerP, agent: "agent_x" }, "team_vm.ssh_cert", { public_key: key, class: "human" })).error!.code).toBe("team_vm.ssh_class_refused")
-    const human = await t.op(t.install(t.owner, ["read", "mutate-own", "execute"], "cli"), "team_vm.ssh_cert", { public_key: key, class: "human" })
-    expect(human.value).toMatchObject({ class: "human", principals: ["lawrence"] })
+    // Install tokens never mint a full shell, not even a Mac or CLI install with execute: only a person's session does.
+    for (const kind of ["cli", "mac"]) expect((await t.op(t.install(t.owner, ["read", "mutate-own", "execute"], kind), "team_vm.ssh_cert", { public_key: key, class: "human" })).error!.code).toBe("team_vm.ssh_class_refused")
+    expect((await t.op(t.install(t.owner, ["read", "mutate-own", "execute"], "cli"), "team_vm.ssh_cert", { public_key: key })).value).toMatchObject({ class: "agent", principals: ["lawrence-agents"] })
     const aziz = await t.op(t.memberP, "team_vm.ssh_cert", { public_key: key })
     expect(aziz.value.principals).toEqual(["aziz"])
     const outsider: Principal = { identity: "session:user_00000000000000000777", kind: "session", user: "user_00000000000000000777", team: t.team }
