@@ -180,3 +180,26 @@ fn stream_refuses_unknown_types_and_oversized_lengths() {
     d.extend(&((MAX_STREAM_FRAME as u32) + 1).to_le_bytes());
     assert!(d.next_frame().is_err());
 }
+
+#[test]
+fn many_small_frames_in_one_chunk_are_all_read() {
+    use cmux_rd_proto::{STREAM_CONTROL, StreamDeframer, encode_stream_frame};
+    let mut bytes = Vec::new();
+    for _ in 0..100_000 {
+        encode_stream_frame(STREAM_CONTROL, b"", &mut bytes).expect("control");
+    }
+    bytes.extend_from_slice(&[STREAM_CONTROL, 3, 0]);
+    let mut d = StreamDeframer::default();
+    d.extend(&bytes);
+    let mut n = 0;
+    while let Some((kind, payload)) = d.next_frame().expect("frame") {
+        assert_eq!((kind, payload.len()), (STREAM_CONTROL, 0));
+        n += 1;
+    }
+    assert_eq!(n, 100_000);
+    // Only the partial frame stays, and it completes with the next chunk.
+    assert_eq!(d.buffered(), 3);
+    d.extend(&[0, 0, b'a', b'b', b'c']);
+    assert_eq!(d.next_frame().expect("frame"), Some((STREAM_CONTROL, b"abc".to_vec())));
+    assert_eq!(d.buffered(), 0);
+}

@@ -29,19 +29,28 @@ pub fn encode_stream_frame(kind: u8, payload: &[u8], out: &mut Vec<u8>) -> Resul
 }
 
 /// Splits a byte stream into stream frames. Bytes may arrive in any chunks;
-/// the deframer holds at most one partial frame.
+/// the deframer holds at most one chunk plus one partial frame. Frames are
+/// read at an offset and the consumed prefix is dropped once per
+/// [`Self::extend`], so many small frames in one chunk cost linear time.
 #[derive(Debug, Default)]
 pub struct StreamDeframer {
     buf: Vec<u8>,
+    /// Start of the first unread byte in `buf`.
+    read: usize,
     failed: bool,
 }
 
 impl StreamDeframer {
     /// Adds received bytes.
     pub fn extend(&mut self, bytes: &[u8]) {
-        if !self.failed {
-            self.buf.extend_from_slice(bytes);
+        if self.failed {
+            return;
         }
+        if self.read > 0 {
+            self.buf.drain(..self.read);
+            self.read = 0;
+        }
+        self.buf.extend_from_slice(bytes);
     }
 
     /// Returns the next complete frame `(type, payload)`, `Ok(None)` when more
@@ -52,26 +61,32 @@ impl StreamDeframer {
         if self.failed {
             return Err(DecodeError::Invalid("stream"));
         }
-        if self.buf.len() < STREAM_PREFIX_LEN {
+        let rest = &self.buf[self.read..];
+        if rest.len() < STREAM_PREFIX_LEN {
             return Ok(None);
         }
-        let kind = self.buf[0];
-        let len = u32::from_le_bytes([self.buf[1], self.buf[2], self.buf[3], self.buf[4]]) as usize;
+        let kind = rest[0];
+        let len = u32::from_le_bytes([rest[1], rest[2], rest[3], rest[4]]) as usize;
         if !matches!(kind, STREAM_CONTROL | STREAM_DATAGRAM) || len > MAX_STREAM_FRAME {
             self.failed = true;
             self.buf = Vec::new();
+            self.read = 0;
             return Err(DecodeError::Invalid("stream"));
         }
-        if self.buf.len() < STREAM_PREFIX_LEN + len {
+        if rest.len() < STREAM_PREFIX_LEN + len {
             return Ok(None);
         }
-        let payload = self.buf[STREAM_PREFIX_LEN..STREAM_PREFIX_LEN + len].to_vec();
-        self.buf.drain(..STREAM_PREFIX_LEN + len);
+        let payload = rest[STREAM_PREFIX_LEN..STREAM_PREFIX_LEN + len].to_vec();
+        self.read += STREAM_PREFIX_LEN + len;
+        if self.read == self.buf.len() {
+            self.buf.clear();
+            self.read = 0;
+        }
         Ok(Some((kind, payload)))
     }
 
     /// Bytes held for a partial frame.
     pub fn buffered(&self) -> usize {
-        self.buf.len()
+        self.buf.len() - self.read
     }
 }

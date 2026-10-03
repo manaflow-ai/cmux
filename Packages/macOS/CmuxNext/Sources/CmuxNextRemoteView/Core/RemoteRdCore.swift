@@ -51,7 +51,7 @@ public nonisolated final class RemoteRdCore {
     @discardableResult
     public func push(datagram: Data, nowMicros: UInt64) throws(RemoteRdCoreError) -> Int {
         let code = datagram.withUnsafeBytes { raw in
-            cmux_rd_receiver_push_datagram(handle, raw.bindMemory(to: UInt8.self).baseAddress, raw.count, nowMicros)
+            cmux_rd_receiver_push_datagram(handle, raw.baseAddress?.assumingMemoryBound(to: UInt8.self), raw.count, nowMicros)
         }
         return try RemoteRdCoreError.check(code)
     }
@@ -60,7 +60,7 @@ public nonisolated final class RemoteRdCore {
     @discardableResult
     public func push(streamBytes: Data, nowMicros: UInt64) throws(RemoteRdCoreError) -> Int {
         let code = streamBytes.withUnsafeBytes { raw in
-            cmux_rd_receiver_push_stream(handle, raw.bindMemory(to: UInt8.self).baseAddress, raw.count, nowMicros)
+            cmux_rd_receiver_push_stream(handle, raw.baseAddress?.assumingMemoryBound(to: UInt8.self), raw.count, nowMicros)
         }
         return try RemoteRdCoreError.check(code)
     }
@@ -155,7 +155,7 @@ public nonisolated final class RemoteRdCore {
         let code = payload.withUnsafeBytes { raw in
             out.withUnsafeMutableBufferPointer { buf in
                 cmux_rd_encode_stream_frame(
-                    kind, raw.bindMemory(to: UInt8.self).baseAddress, raw.count, buf.baseAddress, buf.count, &length
+                    kind, raw.baseAddress?.assumingMemoryBound(to: UInt8.self), raw.count, buf.baseAddress, buf.count, &length
                 )
             }
         }

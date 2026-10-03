@@ -232,6 +232,9 @@ fn bad_input_is_refused() {
         unsafe { cmux_rd_receiver_push_stream(s.0, [1u8, 0, 0, 0, 0].as_ptr(), 5, 0) },
         CMUX_RD_ERR_FAILED
     );
+    // A failed receiver asks for no timer (no busy loop on a past deadline).
+    // SAFETY: live receiver.
+    assert_eq!(unsafe { cmux_rd_receiver_next_deadline_us(s.0) }, u64::MAX);
     let mut len = 0usize;
     // SAFETY: unknown kind is refused before any write.
     let rc = unsafe {
@@ -383,4 +386,21 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
     assert_eq!(size_of::<CmuxRdFrame>(), 40);
     assert_eq!(size_of::<CmuxRdMessage>(), 24);
     assert_eq!(size_of::<CmuxRdStats>(), 24);
+}
+
+#[test]
+fn a_flood_of_empty_control_messages_is_bounded() {
+    let r = receiver(CMUX_RD_CARRIER_STREAM);
+    // 1 MiB of empty control frames (5 bytes each) that nobody pops.
+    let flood: Vec<u8> = [1u8, 0, 0, 0, 0].repeat((1 << 20) / 5);
+    let mut rc = 0;
+    for _ in 0..4 {
+        // SAFETY: live receiver, readable bytes.
+        rc = unsafe { cmux_rd_receiver_push_stream(r.0, flood.as_ptr(), flood.len(), 0) };
+        if rc == CMUX_RD_ERR_FAILED {
+            break;
+        }
+    }
+    // Each message costs its overhead, so the queue budget ends the session.
+    assert_eq!(rc, CMUX_RD_ERR_FAILED);
 }

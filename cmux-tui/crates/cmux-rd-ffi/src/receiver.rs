@@ -50,6 +50,9 @@ pub const MAX_READY_FRAMES: usize = 16;
 pub const MAX_PENDING_ARRIVALS: usize = 8 * MAX_ARRIVALS;
 /// Bytes of queued messages before the receiver fails (a peer that floods).
 pub const MAX_MESSAGE_BYTES: usize = 4 << 20;
+/// What each queued message costs against [`MAX_MESSAGE_BYTES`] besides its
+/// bytes, so a flood of empty messages is bounded too (64k messages at most).
+pub const MESSAGE_OVERHEAD: usize = 64;
 /// Decode times kept for the feedback median.
 const DECODE_SAMPLES: usize = 30;
 
@@ -166,7 +169,7 @@ impl Receiver {
     /// The oldest queued message.
     pub fn pop_message(&mut self) -> Option<Message> {
         let m = self.messages.pop_front()?;
-        self.message_bytes = self.message_bytes.saturating_sub(m.bytes.len());
+        self.message_bytes = self.message_bytes.saturating_sub(m.bytes.len() + MESSAGE_OVERHEAD);
         Some(m)
     }
 
@@ -203,6 +206,10 @@ impl Receiver {
     /// the earliest frame deadline or feedback time. `None` never happens
     /// while the session lives, because feedback doubles as keepalive.
     pub fn next_deadline_us(&self) -> u64 {
+        // A failed receiver has nothing due: never ask for a timer.
+        if self.failed {
+            return u64::MAX;
+        }
         let Some(last) = self.last_feedback_us else { return 0 };
         if self.released_since_feedback || self.arrivals.len() > MAX_ARRIVALS {
             return 0;
@@ -328,11 +335,12 @@ impl Receiver {
 
     fn queue_message(&mut self, kind: u8, bytes: Vec<u8>) -> Result<(), ReceiverError> {
         debug_assert!(matches!(kind, STREAM_CONTROL | STREAM_DATAGRAM));
-        if self.message_bytes + bytes.len() > MAX_MESSAGE_BYTES {
+        let cost = bytes.len() + MESSAGE_OVERHEAD;
+        if self.message_bytes + cost > MAX_MESSAGE_BYTES {
             self.failed = true;
             return Err(ReceiverError::StreamFailed);
         }
-        self.message_bytes += bytes.len();
+        self.message_bytes += cost;
         self.messages.push_back(Message { kind, bytes });
         Ok(())
     }

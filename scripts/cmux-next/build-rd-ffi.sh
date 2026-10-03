@@ -13,6 +13,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 crate_dir="$repo_root/cmux-tui/crates/cmux-rd-ffi"
 out_root="${CMUX_RD_FFI_OUT:-$repo_root/cmux-tui/target/cmux-rd-ffi}"
+case "$out_root" in ""|"/") echo "error: CMUX_RD_FFI_OUT must name a directory, not '$out_root'" >&2; exit 2 ;; esac
 xcframework="$out_root/CCmuxRdFFI.xcframework"
 lib_name="libcmux_rd_ffi.a"
 
@@ -112,14 +113,19 @@ check_symbols() {
 hide_rust_symbols() {
   local lib="$1" triple="$2" out="$3" work
   work="$(mktemp -d "${TMPDIR:-/tmp}/cmux-rd-ffi.XXXXXX")"
+  work_dirs+=("$work")
   grep -oE '\bcmux_rd_[a-z0-9_]+\(' "$crate_dir/include/cmux_rd_ffi.h" | tr -d '(' | sort -u | sed 's/^/_/' > "$work/exports.txt"
   # clang drives ld so it passes the platform version for the triple.
   xcrun clang -target "$triple" -r -nostdlib -Wl,-force_load,"$lib" \
     -Wl,-exported_symbols_list,"$work/exports.txt" -o "$work/cmux_rd_ffi.o"
   rm -f "$out"
   xcrun libtool -static -o "$out" "$work/cmux_rd_ffi.o"
-  rm -rf "$work"
 }
+
+# Prelink work directories, removed on any exit (a failed step included).
+work_dirs=()
+cleanup_work_dirs() { (( ${#work_dirs[@]} == 0 )) || rm -rf -- "${work_dirs[@]}"; }
+trap cleanup_work_dirs EXIT
 
 args=()
 mac_libs=()
