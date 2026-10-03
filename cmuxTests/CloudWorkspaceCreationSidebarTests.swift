@@ -82,6 +82,80 @@ struct CloudWorkspaceCreationSidebarTests {
         }
     }
 
+    @Test("Sharing a Cloud port copies once, opens one local workspace, and restores selection")
+    func cloudPortShareInNewWorkspacePreservesSelection() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try CloudWorkspaceCreationSidebarFixture()
+            defer { fixture.close() }
+            fixture.manager.window = fixture.window
+            fixture.window.makeKeyAndOrderFront(nil)
+            let other = try #require(fixture.manager.addWorkspaceIfActive(title: "Other", select: false))
+            fixture.manager.selectedTabId = other.id
+
+            let url = "https://cloud.example/3000"
+            let port = SurfaceResource(
+                id: SurfaceResourceID(
+                    machine: fixture.provider.machine,
+                    kind: .browser,
+                    key: SurfaceResourceID.portKey(3000)
+                ),
+                title: "3000",
+                lifecycle: .running,
+                remoteWorkspace: nil,
+                remoteViews: [],
+                port: 3000,
+                url: url
+            )
+            fixture.catalog.upsert(port, from: fixture.provider)
+
+            let materializeStarted = CloudLinkFirstValue<Bool>()
+            let releaseMaterialize = CloudLinkFirstValue<Bool>()
+            fixture.provider.beforeMaterialize = { resource, _ in
+                #expect(resource.id == port.id)
+                materializeStarted.resolve(true)
+                _ = await releaseMaterialize.result
+            }
+            let operations = CloudWorkspaceOperationController(
+                isAvailable: { true }, notificationCenter: NotificationCenter()
+            )
+            fixture.app.cloudWorkspaceOperationController = operations
+            var copies: [String] = []
+            var failures: [String] = []
+            let actions = CloudTreeNodeActions.bound(
+                navigationHost: CloudTerminalNavigationHost(focus: { _, _ in }, closeWorkspace: { _ in }),
+                catalog: { fixture.catalog },
+                selectedWorkspaceID: { fixture.manager.selectedTabId },
+                selectLocalWorkspace: { fixture.manager.selectedTabId = $0 },
+                onDidMutate: {},
+                onFailure: { failures.append($0) },
+                refresh: {},
+                operationController: operations,
+                workspaceCreationHost: { CloudWorkspaceCreationHost(manager: fixture.manager) },
+                pasteboardWriter: { copies.append($0) }
+            )
+
+            actions.sharePort(port, url, .newWorkspace)
+            #expect(await materializeStarted.result == true)
+            #expect(fixture.manager.tabs.count == 3)
+            #expect(fixture.manager.selectedTabId == other.id)
+            #expect(copies == [url])
+
+            // The keyed operation drops a second activation while the first
+            // projection is still attaching, including its second copy.
+            actions.sharePort(port, url, .newWorkspace)
+            #expect(fixture.manager.tabs.count == 3)
+            #expect(copies == [url])
+
+            releaseMaterialize.resolve(true)
+            await operations.waitForPendingOperations()
+            #expect(failures.isEmpty)
+            #expect(fixture.manager.tabs.count == 3)
+            #expect(fixture.manager.selectedTabId == other.id)
+            #expect(fixture.catalog.projections.filter { $0.resource == port.id }.count == 1)
+            #expect(fixture.manager.tabs.filter { $0.id != fixture.originalWorkspaceID && $0.id != other.id }.count == 1)
+        }
+    }
+
     @Test("A failed existing Cloud workspace open rolls back and preserves the previous selection")
     func existingWorkspaceOpenFailureRollsBackSelection() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {

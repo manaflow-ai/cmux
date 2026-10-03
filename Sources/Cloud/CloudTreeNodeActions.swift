@@ -2,6 +2,13 @@ import CmuxCloud
 import AppKit
 import CmuxSurfaceCatalogModel
 import Foundation
+
+/// The two destinations exposed by a port's Share affordances.
+enum CloudPortShareDestination: Equatable, Sendable {
+    case copyURL
+    case newWorkspace
+}
+
 /// Closure bundle handed to Cloud outline rows for the nodes below a machine.
 struct CloudTreeNodeActions {
     /// Whether a device's menu should offer the explicit pairing flow.
@@ -60,6 +67,9 @@ struct CloudTreeNodeActions {
     var renameRemoteView: @MainActor (_ resource: SurfaceResource, _ view: SurfaceRemoteView) -> Void = { _, _ in }
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
+    /// Copy a port URL, optionally projecting the same port into a new local
+    /// workspace while restoring the previously selected workspace.
+    var sharePort: @MainActor (_ resource: SurfaceResource, _ url: String, _ destination: CloudPortShareDestination) -> Void = { _, _, _ in }
     /// Copy the machine port's private URL without changing network state.
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
     let refresh: @MainActor () -> Void
@@ -106,7 +116,8 @@ struct CloudTreeNodeActions {
         onFailure: @escaping @MainActor (String) -> Void,
         refresh: @escaping @MainActor () -> Void,
         refreshMachine: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }, operationController: CloudWorkspaceOperationController? = nil,
-        workspaceCreationHost: @escaping @MainActor () -> CloudWorkspaceCreationHost? = { nil }
+        workspaceCreationHost: @escaping @MainActor () -> CloudWorkspaceCreationHost? = { nil },
+        pasteboardWriter: @escaping @MainActor (String) -> Void = Self.copyToPasteboard
     ) -> CloudTreeNodeActions {
         @MainActor @discardableResult
         func run(
@@ -506,7 +517,7 @@ struct CloudTreeNodeActions {
                 }
             },
             selectLocalWorkspace: selectLocalWorkspace,
-            copyToPasteboard: Self.copyToPasteboard,
+            copyToPasteboard: pasteboardWriter,
             copyPortLink: { resource in
                 guard let port = resource.forwardedPort else { return }
                 run(String(localized: "cloudTree.operation.copyPortLink", defaultValue: "Preparing the link\u{2026}")) { catalog in
@@ -519,6 +530,56 @@ struct CloudTreeNodeActions {
             },
             refresh: refresh
         )
+        actions.sharePort = { resource, url, destination in
+            // Both the context menu and the hover button use this closure, so
+            // every entry point copies the exact URL that was rendered.
+            guard destination == .newWorkspace else {
+                pasteboardWriter(url)
+                return
+            }
+
+            // Keep a sidebar action in the window that initiated it. The
+            // global SurfacePaneFactory fallback can otherwise admit the new
+            // workspace into whichever tab manager happens to be active.
+            guard let creationHost = workspaceCreationHost(),
+                  creationHost.isAvailable,
+                  let manager = creationHost.manager
+            else {
+                pasteboardWriter(url)
+                return
+            }
+
+            let group = SurfaceResourceGroup(single: resource)
+            let currentWorkspace = selectedWorkspaceID()
+            let title = Self.localWorkspaceTitle(hostName: machineName(resource.machine), group: group)
+            let key = "cloud-port-share:\(resource.id.rawValue)"
+            let host = SurfaceCatalog.NewWorkspaceHost(tabManager: manager)
+            let started = runKeyed(key, openingLabel(resource.machine)) { catalog in
+                let opened = try await catalog.projectGroupAsNewLocalWorkspace(
+                    group,
+                    title: title,
+                    focus: false,
+                    host: host,
+                    layout: nil
+                )
+                catalog.bindCloudWorkspace(
+                    localWorkspaceID: opened.workspaceID,
+                    machine: resource.machine,
+                    remoteWorkspaceID: group.remoteWorkspaceID
+                        ?? resource.remoteWorkspace?.id
+                        ?? resource.remoteViews?.first?.workspace.id,
+                    generatedTitle: title
+                )
+                if let currentWorkspace {
+                    selectLocalWorkspace(currentWorkspace)
+                }
+            }
+            // A duplicate activation is dropped by the keyed controller, so
+            // it must not rewrite the pasteboard a second time.
+            if started {
+                pasteboardWriter(url)
+            }
+        }
         actions.openWorkspace = { machine, workspace, group in
             let host = workspaceCreationHost() ?? selectedWorkspaceID()
                 .flatMap { Workspace.liveWorkspace(id: $0)?.owningTabManager }
