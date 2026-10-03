@@ -50,10 +50,13 @@ import Testing
         let rail = SidebarRailLayout.make(document: doc, room: nil, height: 600, metrics: m)
         #expect(rail.buttons.map(\.item.rawValue) == ["a_0", "b_0"])
         #expect(rail.overflow.map(\.rawValue) == ["a_1", "a_2"])
-        #expect(rail.more == CGRect(x: 7, y: 40 + 34 + 4, width: 34, height: 34))
+        let moreY: CGFloat = 40 + 34 + 4
+        #expect(rail.more == CGRect(x: 7, y: moreY, width: 34, height: 34))
         // The line before section b comes after the More button.
-        #expect(rail.separators == [CGRect(x: 12, y: 40 + 34 + 4 + 34 + 8, width: 24, height: 1)])
-        #expect(rail.buttons[1].frame.minY == CGFloat(40 + 34 + 4 + 34 + 8 + 1 + 8))
+        let lineY: CGFloat = moreY + 34 + 8
+        #expect(rail.separators == [CGRect(x: 12, y: lineY, width: 24, height: 1)])
+        let sectionBY: CGFloat = lineY + 1 + 8
+        #expect(rail.buttons[1].frame.minY == sectionBY)
 
         // A cap at or above the item count changes nothing.
         capped.maxRows = 3
