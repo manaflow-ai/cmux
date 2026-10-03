@@ -12,6 +12,7 @@ const call = (fields: Partial<Tool>): AcpmuxActivity => ({
 const command = (line: string, fields: Partial<Tool> = {}) =>
   call({ kind: "execute", title: line, command: line, ...fields });
 const read = (path: string) => call({ kind: "read", title: `Read ${path}`, locations: [{ path }] });
+const edited = (path: string) => call({ kind: "edit", diffs: [{ path, oldText: "a\n", newText: "b\n" }] });
 const thought: AcpmuxActivity = { kind: "thought", text: "Checking the build" };
 
 describe("tool groups", () => {
@@ -52,8 +53,8 @@ describe("tool groups", () => {
     );
     expect(toolGroupLabel("reads", [read("a.ts"), read("a.ts"), read("b.ts")])).toBe("Read 2 files");
     expect(toolGroupLabel("reads", [read("a.ts")])).toBe("Read 1 file");
-    expect(toolGroupLabel("edits", [call({ kind: "edit" })], ["/repo/src/App.tsx"])).toBe("Edited App.tsx");
-    expect(toolGroupLabel("edits", [call({ kind: "edit" })], ["a.ts", "b.ts"])).toBe("Edited 2 files");
+    expect(toolGroupLabel("edits", [edited("/repo/src/App.tsx")], ["/repo/src/App.tsx"])).toBe("Edited App.tsx");
+    expect(toolGroupLabel("edits", [edited("a.ts"), edited("b.ts")], ["a.ts", "b.ts"])).toBe("Edited 2 files");
     expect(toolGroupLabel("searches", [call({ kind: "search" }), call({ kind: "search" })])).toBe("Ran 2 searches");
   });
 
@@ -62,5 +63,19 @@ describe("tool groups", () => {
     expect(toolDuration({ id: "", title: "", status: "completed", startedAt: 0, endedAt: 4210 })).toBe("4.2s");
     expect(toolDuration({ id: "", title: "", status: "completed", startedAt: 0, endedAt: 125_000 })).toBe("2m 5s");
     expect(toolDuration({ id: "", title: "", status: "in_progress", startedAt: 0 })).toBeUndefined();
+  });
+});
+
+describe("edit groups", () => {
+  test("a delete or move without a diff counts as a file and is still listed", () => {
+    const edit = call({
+      kind: "edit",
+      title: "Edit",
+      diffs: [{ path: "src/App.tsx", oldText: "a\n", newText: "b\n" }],
+    });
+    const removed = call({ kind: "delete", title: "Delete old.ts" });
+    const groups = toolGroups([edit, removed]);
+    expect(groups).toHaveLength(1);
+    expect(toolGroupLabel("edits", [edit, removed], ["src/App.tsx"])).toBe("Edited 2 files");
   });
 });

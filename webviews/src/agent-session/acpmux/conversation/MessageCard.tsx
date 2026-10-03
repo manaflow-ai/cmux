@@ -22,7 +22,10 @@ export function MessageCard({ item, message }: { item: AcpmuxActivity; message: 
         type="button"
         className="cv-message__head"
         aria-expanded={open}
-        aria-label={t("message.label", { from, to })}
+        // The route reads as a sentence; the arrow is a glyph a screen reader skips.
+        aria-label={[t("message.label", { from, to }), preview, failed ? t("tools.failed") : ""]
+          .filter(Boolean)
+          .join(". ")}
         onClick={() => setOpen((value) => !value)}
       >
         <span className="cv-message__route">

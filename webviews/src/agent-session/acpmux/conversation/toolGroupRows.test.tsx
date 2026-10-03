@@ -40,7 +40,7 @@ describe("grouped tool rows", () => {
     const html = renderToStaticMarkup(
       createElement(MessageCard, { item: command(line), message: commandMessage(line)! }),
     );
-    expect(html).toContain('aria-label="Message from cc-pane-transcript to cc-next-ci"');
+    expect(html).toContain('aria-label="Message from cc-pane-transcript to cc-next-ci. Landed #17079"');
     expect(html).toContain("Coordinator");
     expect(html).toContain('<span class="cv-message__preview">Landed #17079</span>');
     expect(html).not.toContain("tell-coordinator --from");

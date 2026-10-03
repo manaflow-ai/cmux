@@ -103,10 +103,13 @@ export function toolGroupLabel(
     }
     case "searches":
       return t("tools.searched", { n: items.length });
-    case "edits":
-      return files.length === 1
+    case "edits": {
+      // Calls without a diff (a delete or move the agent did not diff) count as a file each.
+      const n = files.length + items.filter((item) => !item.tool?.diffs?.length).length;
+      return n === 1 && files.length === 1
         ? t("tools.edited.file", { file: fileName(files[0]!) })
-        : t("tools.edited.files", { n: files.length || items.length });
+        : t("tools.edited.files", { n });
+    }
   }
 }
 
@@ -114,10 +117,10 @@ export function toolGroupLabel(
 export function toolDuration(tool: Tool): string | undefined {
   if (tool.startedAt === undefined || tool.endedAt === undefined) return undefined;
   const ms = Math.max(0, tool.endedAt - tool.startedAt);
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  if (ms < 1000) return t("duration.ms", { n: ms });
+  if (ms < 60_000) return t("duration.s", { n: (ms / 1000).toFixed(1) });
   const seconds = Math.round(ms / 1000);
-  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  return t("duration.m", { m: Math.floor(seconds / 60), s: seconds % 60 });
 }
 
 /// The last path component, for "Edited App.tsx".

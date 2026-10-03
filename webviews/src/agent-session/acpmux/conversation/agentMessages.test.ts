@@ -80,3 +80,68 @@ describe("shell steps", () => {
     ]);
   });
 });
+
+describe("what is not a message", () => {
+  test("source files in a folder named inbox are edits, and so is a rewrite of a mailbox file", () => {
+    const edit = (path: string, oldText: string | undefined, newText: string) =>
+      agentMessage(tool({ kind: "edit", title: "Edit", diffs: [{ path, oldText, newText }] }));
+    expect(edit("backend/packages/home-core/src/inbox/reducer.ts", "a\n", "b\n")).toBeUndefined();
+    expect(edit("first-party-apps/inbox/README.md", undefined, "# Inbox\n")).toBeUndefined();
+    expect(edit("src/inbox/components/List.tsx", undefined, "x")).toBeUndefined();
+    expect(edit("/home/a/inbox/leo/note.md", "first\n", "changed\n")).toBeUndefined();
+    expect(edit("/home/a/inbox/leo/note.md", "first\n", "first\nsecond\n")).toEqual({
+      channel: "mailbox",
+      to: "leo",
+      text: "second",
+    });
+  });
+
+  test("an inbox path in quotes, a here-document or a non-mailbox redirect is not a mailbox write", () => {
+    expect(commandMessage(`git commit -m "fix: append >> inbox/leo when idle"`)).toBeUndefined();
+    expect(commandMessage(`grep foo bar > /tmp/inbox/out.txt`)).toBeUndefined();
+    expect(
+      commandMessage(`cat > first-party-apps/inbox/README.md <<'EOF'\n# Inbox\necho hi >> inbox/leo/x\nEOF`),
+    ).toBeUndefined();
+  });
+
+  test("tell-coordinator --help sends nothing", () => {
+    expect(commandMessage(`tell-coordinator --help`)).toBeUndefined();
+  });
+});
+
+describe("shell details", () => {
+  test("a descriptor before a redirect is not part of the message", () => {
+    expect(commandMessage(`tell-coordinator "build done" 2>&1`)?.text).toBe("build done");
+    expect(commandMessage(`tell-coordinator "build done" &>/dev/null`)?.text).toBe("build done");
+  });
+
+  test("a background & ends the step", () => {
+    expect(commandMessage(`tell-coordinator "x" & wait`)?.text).toBe("x");
+    expect(shellSteps(`a 2>&1 & b`)).toEqual(["a 2>&1", "b"]);
+  });
+
+  test("--name=value options", () => {
+    expect(commandMessage(`cmux send --surface=surface:2 "go"`)).toEqual({
+      channel: "terminal",
+      to: "surface:2",
+      text: "go",
+    });
+    expect(commandMessage(`tell-coordinator --to=cc-next-ci --re=7 "ok"`)).toMatchObject({
+      to: "cc-next-ci",
+      text: "ok",
+    });
+  });
+
+  test("tee and echo into a mailbox", () => {
+    expect(commandMessage(`echo "ready" | tee -a ~/inbox/leo/coordinator`)).toEqual({
+      channel: "mailbox",
+      to: "leo",
+      text: "ready",
+    });
+    expect(commandMessage(`cat >> ~/.cache/coordinator-inbox/leoli-24.jsonl <<'EOF'\n{"text":"hi"}\nEOF`)).toEqual({
+      channel: "mailbox",
+      to: "leoli-24",
+      text: '{"text":"hi"}',
+    });
+  });
+});

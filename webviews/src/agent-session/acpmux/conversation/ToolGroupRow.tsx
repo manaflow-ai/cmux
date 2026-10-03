@@ -67,9 +67,13 @@ export function ToolGroupRow({ kind, items }: { kind: ToolGroupKind; items: read
         <div className="cv-tool-group">
           {kind === "commands"
             ? items.map((item, index) => <CommandRow key={item.tool!.id || index} item={item} />)
-            : files.length
-              ? files.map((file) => <EditDiff key={file.path} file={file} />)
-              : items.map((item, index) => <ToolRow key={item.tool!.id || index} item={item} />)}
+            : [
+                ...files.map((file) => <EditDiff key={file.path} file={file} />),
+                // Reads and searches, and edits that carried no diff (a delete, a move), as rows.
+                ...items
+                  .filter((item) => !files.length || !item.tool!.diffs?.length)
+                  .map((item, index) => <ToolRow key={item.tool!.id || index} item={item} />),
+              ]}
         </div>
       )}
     </>
