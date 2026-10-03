@@ -7,6 +7,9 @@ public import SwiftUI
 /// integration, and the shortcut writer. Reads happen in SwiftUI bodies, so
 /// an observable App store behind them updates the window.
 @MainActor public protocol SettingsWindowHost: AnyObject {
+    /// Closes the focused Settings page tab when Escape is pressed outside
+    /// shortcut recording. Window Settings uses the regular window close path.
+    func closeSettingsPane()
     /// Rooms of the local daemon; nil when it has no rooms (older daemon),
     /// so the section shows a placeholder.
     var rooms: [SettingsListRow]? { get }
@@ -48,6 +51,7 @@ public import SwiftUI
 }
 
 extension SettingsWindowHost {
+    public func closeSettingsPane() {}
     public var themeLevels: [SettingsThemeLevel] { [] }
     public var themeNames: [String] { [] }
     public func theme(at level: SettingsThemeLevel) -> String? { nil }
@@ -78,6 +82,7 @@ public struct SettingsListRow: Identifiable, Hashable, Sendable {
 
 /// A host with sample data, for the demo and tests.
 @MainActor public final class MockSettingsWindowHost: SettingsWindowHost {
+    public private(set) var closeSettingsPaneCalls = 0
     public var rooms: [SettingsListRow]? = [
         SettingsListRow(id: "default", title: "Personal", subtitle: "3 workspaces", symbol: "person", isActive: true),
         SettingsListRow(id: "work", title: "Work", subtitle: "5 workspaces", symbol: "briefcase"),
@@ -96,4 +101,6 @@ public struct SettingsListRow: Identifiable, Hashable, Sendable {
     ]
 
     public init() {}
+
+    public func closeSettingsPane() { closeSettingsPaneCalls += 1 }
 }

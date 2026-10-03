@@ -155,6 +155,24 @@ import Testing
         #expect(!h.model.registry.globalHotKeysSuspended)
     }
 
+    @Test func escapeClosesAnIdlePaneButCancelsRecordingFirst() async throws {
+        let h = try await harness()
+        defer { h.model.settings.stop() }
+        let view = h.model.makePaneView(scope: .app)
+        guard let pane = view as? SettingsPaneHostingView else {
+            Issue.record("Settings pane uses its close-aware hosting view")
+            return
+        }
+
+        pane.cancelOperation(nil)
+        #expect(h.host.closeSettingsPaneCalls == 1)
+
+        #expect(h.model.beginRecording("a.first"))
+        pane.cancelOperation(nil)
+        #expect(h.model.recorder == nil)
+        #expect(h.host.closeSettingsPaneCalls == 1)
+    }
+
     @Test func aShortcutRefusedSystemWideIsMarkedOnItsRow() async throws {
         let h = try await harness()
         defer { h.model.settings.stop() }
