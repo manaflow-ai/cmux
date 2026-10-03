@@ -55,8 +55,10 @@ export function EditBlock({
   const annotations = useMemo(
     () =>
       reviewing
-        ? edit.hunks.flatMap(
-            (hunk, hunkIndex) => hunkAnchor(hunk, hunkKey(file, index, hunkIndex), file, edit.numbered) ?? [],
+        ? edit.hunks.flatMap((hunk, hunkIndex) =>
+            hunk.reviewKeys?.length === 0
+              ? []
+              : (hunkAnchor(hunk, hunkKey(file, index, hunkIndex), file, edit.numbered) ?? []),
           )
         : [],
     [reviewing, edit, file, index],
@@ -102,8 +104,13 @@ export function EditBlock({
             return review && focusAfter && anchor ? (
               <HunkActions
                 anchor={anchor}
-                decision={review.decisions.get(anchor.key)}
-                onDecide={(decision) => review.decide(anchor.key, decision)}
+                decision={
+                  anchor.keys.length > 0 &&
+                  anchor.keys.every((key) => review.decisions.get(key) === review.decisions.get(anchor.keys[0]!))
+                    ? review.decisions.get(anchor.keys[0]!)
+                    : undefined
+                }
+                onDecide={(decision) => anchor.keys.forEach((key) => review.decide(key, decision))}
                 focusAfter={focusAfter}
               />
             ) : null;
