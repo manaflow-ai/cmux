@@ -910,25 +910,7 @@ final class BrowserReplTabAttachment {
 enum BrowserReplAgentWorld {
     static let name = "cmux-agent"
 
-    @MainActor static let world: WKContentWorld = configuredWorld() ?? .world(name: name)
-
-    @MainActor private static func configuredWorld() -> WKContentWorld? {
-        guard let configurationClass = NSClassFromString("_WKContentWorldConfiguration") as? NSObject.Type else {
-            return nil
-        }
-        let configuration = configurationClass.init()
-        let setName = NSSelectorFromString("setName:")
-        let setClosed = NSSelectorFromString("setAllowAccessToClosedShadowRoots:")
-        let factory = NSSelectorFromString("_worldWithConfiguration:")
-        guard configuration.responds(to: setName), configuration.responds(to: setClosed),
-              (WKContentWorld.self as AnyObject).responds(to: factory) else {
-            return nil
-        }
-        configuration.setValue(name, forKey: "name")
-        configuration.setValue(true, forKey: "allowAccessToClosedShadowRoots")
-        return (WKContentWorld.self as AnyObject).perform(factory, with: configuration)?
-            .takeUnretainedValue() as? WKContentWorld
-    }
+    @MainActor static let world = WKContentWorld.browserReplWorld(seeingClosedShadowRoots: name)
 }
 
 /// Receives console and page error reports from the page telemetry script.

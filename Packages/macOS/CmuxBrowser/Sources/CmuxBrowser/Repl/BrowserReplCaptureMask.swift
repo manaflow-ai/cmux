@@ -13,6 +13,33 @@ extension WKFrameInfo {
     }
 }
 
+extension WKContentWorld {
+    /// A named content world that sees closed shadow roots
+    /// (`_WKContentWorldConfiguration.allowAccessToClosedShadowRoots`, the
+    /// switch WebKit gives web extension worlds): in it `element.shadowRoot`
+    /// returns a closed root too. Page scripts in other worlds still see
+    /// `null`. Without the SPI it is a plain named world and closed roots
+    /// stay hidden.
+    @MainActor
+    public static func browserReplWorld(seeingClosedShadowRoots name: String) -> WKContentWorld {
+        guard let configurationClass = NSClassFromString("_WKContentWorldConfiguration") as? NSObject.Type else {
+            return .world(name: name)
+        }
+        let configuration = configurationClass.init()
+        let setName = NSSelectorFromString("setName:")
+        let setClosed = NSSelectorFromString("setAllowAccessToClosedShadowRoots:")
+        let factory = NSSelectorFromString("_worldWithConfiguration:")
+        guard configuration.responds(to: setName), configuration.responds(to: setClosed),
+              (WKContentWorld.self as AnyObject).responds(to: factory) else {
+            return .world(name: name)
+        }
+        configuration.setValue(name, forKey: "name")
+        configuration.setValue(true, forKey: "allowAccessToClosedShadowRoots")
+        return (WKContentWorld.self as AnyObject).perform(factory, with: configuration)?
+            .takeUnretainedValue() as? WKContentWorld ?? .world(name: name)
+    }
+}
+
 /// Hides secret values in one screenshot or PDF of a tab.
 ///
 /// The session sends a capture its `secretMasks` (`[{ value, domains }]`).
@@ -20,7 +47,8 @@ extension WKFrameInfo {
 /// can be typed into), fields and text holding a value render as password
 /// dots for the length of the capture. Other frames never get a value. The
 /// scan runs in a content world of its own, which page scripts and agent
-/// code cannot reach. Each element keeps a count, so concurrent captures do
+/// code cannot reach, and which sees closed shadow roots as the agent's
+/// world does, so a value the agent can read there is masked there too. Each element keeps a count, so concurrent captures do
 /// not unmask each other.
 @MainActor
 public struct BrowserReplCaptureMask {
@@ -30,7 +58,7 @@ public struct BrowserReplCaptureMask {
     }
 
     /// The content world the mask scan runs in.
-    static let world = WKContentWorld.world(name: "cmux-capture-mask")
+    static let world = WKContentWorld.browserReplWorld(seeingClosedShadowRoots: "cmux-capture-mask")
 
     let masks: [Mask]
 
