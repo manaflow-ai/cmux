@@ -55,13 +55,22 @@ public import WebKit
 ///   start in time does not run (`busy`, naming the tab it waited for), and
 ///   nothing is redirected for it while it waits.
 ///
+/// - A copy another web view makes during the command (WebKit's lookups do not
+///   say which web view they serve, so it gets the tab's pasteboard too) is
+///   never taken as the tab's: WebKit's own Copy or Cut writes the
+///   pasteboard at most once and a Paste never does (each write is one
+///   change count), so a command whose pasteboard was written more often is
+///   `interfered`, and the caller discards the pasteboard.
+///
 /// Residual risk: while a command is in flight (milliseconds, at most its
-/// timeout), a person pasting or copying in another web view of this process
-/// gets or fills the tab's pasteboard, and so does app code that WebKit
-/// calls back into (a delegate) if it looks up the general pasteboard by
-/// name. A copy made that way lands on the tab's clipboard. The same holds
-/// after a `timedOutStillRunning` until WebKit finishes, at most one more
-/// timeout. The caller test errs
+/// timeout), a person pasting in another web view of this process reads the
+/// tab's pasteboard, and a copy made there fills it (and does not reach the
+/// system clipboard); so does app code that WebKit calls back into (a
+/// delegate) if it looks up the general pasteboard by name. Such a copy
+/// reaches the tab's clipboard only when it is the one write of a Copy or
+/// Cut whose page wrote nothing itself (a `copy` handler that cancels the
+/// event and sets no data). The same holds after a `timedOutStillRunning`
+/// until WebKit finishes, at most one more timeout. The caller test errs
 /// toward WebKit: should WebKit's pasteboard code move, its lookups still
 /// come from a WebKit image and stay redirected, unless it moves to
 /// `+generalPasteboard`, which the WebKit tests catch as a change of the
@@ -95,6 +104,12 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         /// An earlier command, from the tab the caller named `tab`, was still
         /// unfinished when this one's wait ended; this one did not start.
         case busy(tab: String)
+        /// WebKit reported the command done within the timeout, but the
+        /// tab's pasteboard was written more often than the command writes
+        /// it (WebKit's Copy or Cut writes it at most once, a Paste never):
+        /// another web view's copy reached it during the command. What it
+        /// holds is not the tab's, and the caller must not take it.
+        case interfered
         /// The pasteboard lookup or WebKit's editing-command or
         /// process-ending SPI is missing, the caller may not end the web
         /// content process, or a Paste could not be kept from reading the
@@ -176,6 +191,7 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
             tab: tab,
             timeout: timeout,
             grace: grace,
+            maximumWrites: command == "Paste" ? 0 : 1,
             endWebContent: {
                 // At the timeout the caller decides; one timeout later the
                 // web content is ended regardless.
@@ -216,7 +232,9 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
     /// (`timedOutStillRunning`) the redirect lasts until WebKit reports the
     /// command done or `grace` (one more `timeout` when `nil`) passes, when
     /// `endWebContent` is called again (the caller then ends the web content
-    /// regardless) and the redirect ends whatever it returns. Cancelling the caller's task
+    /// regardless) and the redirect ends whatever it returns. A command that
+    /// completed but whose pasteboard was written more than `maximumWrites`
+    /// times during it is `interfered`. Cancelling the caller's task
     /// shortens none of these waits. `whenFinished` is called once, when
     /// `invoke`'s argument is called or the web content is ended, or at once
     /// when the command does not start.
@@ -226,6 +244,7 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         tab: String = "",
         timeout: Duration,
         grace: Duration? = nil,
+        maximumWrites: Int? = nil,
         clock: C = ContinuousClock(),
         endWebContent: @escaping @MainActor () -> Bool,
         whenFinished: @escaping @MainActor () -> Void = {},
@@ -244,14 +263,21 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         }
         let command = Command(pasteboard: pasteboard, tab: tab, whenFinished: whenFinished)
         unfinished = command
+        let startCount = pasteboard.changeCount
         setTarget(pasteboard)
         let deadline = clock.now.advanced(by: timeout)
         invoke { self.finish(command) }
-        if await command.finished.wait(until: deadline, clock: clock, honoringCancellation: false) { return .completed }
+        // The redirect ended when WebKit reported the command done, so no
+        // write reaches the pasteboard after that.
+        let completed: () -> Outcome = {
+            guard let maximumWrites, pasteboard.changeCount - startCount > maximumWrites else { return .completed }
+            return .interfered
+        }
+        if await command.finished.wait(until: deadline, clock: clock, honoringCancellation: false) { return completed() }
         // Past the timeout. Until this turn ends nothing else runs on the
         // main thread, so WebKit handles no more of the page's pasteboard
         // messages before its process is gone.
-        if command.finished.isSignaled { return .completed }
+        if command.finished.isSignaled { return completed() }
         if endWebContent() {
             // WebKit may already have reported the command done while it
             // ended the process; `finish` runs once either way.

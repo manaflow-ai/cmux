@@ -1707,6 +1707,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                     "timeout",
                     "\(name) did not start within 5 s: a Copy, Cut or Paste in tab \(tab) has not finished. One runs at a time across all tabs, since WebKit's pasteboard requests do not say which tab they serve"
                 )
+            case .interfered:
+                throw Self.error(
+                    "stale",
+                    "\(name) finished, but a copy in another web view reached the private pasteboard during it (WebKit's pasteboard requests do not say which web view they serve), so the tab's clipboard is unchanged\(isPaste ? " and the page may have pasted nothing" : ""). Try again"
+                )
             case .unavailable:
                 try await performClipboardCommandWithoutWebKit(command, attachment: attachment, webView: webView)
             }
