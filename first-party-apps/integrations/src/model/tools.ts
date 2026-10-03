@@ -8,7 +8,7 @@ import { mcpListedTools, resolveEffectivePolicy, type EffectivePolicy, type Poli
 import { t } from "../l10n.ts"
 import type { Connection } from "./connections.ts"
 import { builtinTools } from "./providers.ts"
-import { isMissing, problemOf, say, sayProblem, type Problem } from "./store.ts"
+import { connections, isMissing, problemOf, say, sayProblem, type Problem } from "./store.ts"
 
 export interface ToolsState {
   readonly phase: "loading" | "ready" | "error"
@@ -120,6 +120,9 @@ export const mcpNames = (connections: ReadonlyArray<Connection>): Map<string, st
   })
   return new Map(mcpListedTools(input).map((l) => [`${l.connection}|${l.address}`, l.name]))
 }
+
+/** `mcpNames` over the current list, recomputed only when the list or a loaded catalog or rule changes. */
+export const mcpNameMap = computed(() => mcpNames(connections()))
 
 export const sourceLabel = (s: ToolsState): string | null => {
   if (s.source === "builtin") return t("tools.builtin", "Built-in list")

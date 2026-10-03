@@ -231,214 +231,67 @@
       "updated_by": "usr_ada"
     },
     "integration.tools.list": {
-      "namespace": "taskboard_api",
+      "namespace": "docs_server",
       "tools": [
         {
-          "path": "health.getHealth",
-          "title": "Health",
-          "kind": "openapi",
-          "method": "GET",
-          "target": "/health",
+          "path": "search_docs",
+          "title": "search_docs",
+          "description": "Search the docs.",
+          "kind": "mcp",
+          "target": "search_docs",
           "op_class": "read",
-          "default_action": "allow"
-        },
-        {
-          "path": "projects.createProject",
-          "title": "Create a project",
-          "kind": "openapi",
-          "method": "POST",
-          "target": "/v1/projects",
-          "op_class": "mutate-shared",
-          "default_action": "ask",
+          "default_action": "allow",
           "input_schema": {
             "type": "object",
             "properties": {
-              "body": {
-                "$ref": "#/components/schemas/ProjectInput"
+              "q": {
+                "type": "string"
               }
-            },
-            "required": [
-              "body"
-            ],
-            "additionalProperties": false
-          },
-          "scopes": [
-            [
-              "projects:write"
-            ]
-          ]
+            }
+          }
         },
         {
-          "path": "projects.deleteProject",
-          "title": "Delete a project",
-          "kind": "openapi",
-          "method": "DELETE",
-          "target": "/v1/projects/{projectId}",
+          "path": "create_page",
+          "title": "create-page",
+          "description": "Create a page.",
+          "kind": "mcp",
+          "target": "create-page",
+          "op_class": "mutate-shared",
+          "default_action": "ask"
+        },
+        {
+          "path": "create_page_2",
+          "title": "create page",
+          "description": "Same id after sanitizing.",
+          "kind": "mcp",
+          "target": "create page",
+          "op_class": "mutate-shared",
+          "default_action": "ask"
+        },
+        {
+          "path": "delete_page",
+          "title": "Delete a page",
+          "description": "MCP tool: Delete Page",
+          "kind": "mcp",
+          "target": "Delete Page",
           "op_class": "destructive",
-          "default_action": "block",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "projectId": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "projectId"
-            ],
-            "additionalProperties": false
-          }
-        },
-        {
-          "path": "projects.getProject",
-          "title": "Get a project",
-          "kind": "openapi",
-          "method": "GET",
-          "target": "/v1/projects/{projectId}",
-          "op_class": "read",
-          "default_action": "allow",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "projectId": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "projectId"
-            ],
-            "additionalProperties": false
-          }
-        },
-        {
-          "path": "projects.listProjects",
-          "title": "List projects",
-          "kind": "openapi",
-          "method": "GET",
-          "target": "/v1/projects",
-          "op_class": "read",
-          "default_action": "allow",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "limit": {
-                "type": "integer"
-              }
-            },
-            "additionalProperties": false
-          }
-        },
-        {
-          "path": "projects.updateProject",
-          "title": "Rename a project",
-          "kind": "openapi",
-          "method": "PATCH",
-          "target": "/v1/projects/{projectId}",
-          "op_class": "mutate-shared",
-          "default_action": "ask",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "projectId": {
-                "type": "string"
-              },
-              "body": {
-                "type": "object"
-              },
-              "contentType": {
-                "type": "string",
-                "enum": [
-                  "application/json",
-                  "application/merge-patch+json"
-                ],
-                "default": "application/json"
-              }
-            },
-            "required": [
-              "projectId"
-            ],
-            "additionalProperties": false
-          }
-        },
-        {
-          "path": "tasks.createTask",
-          "title": "Add a task",
-          "kind": "openapi",
-          "method": "POST",
-          "target": "/v1/projects/{projectId}/tasks",
-          "op_class": "mutate-shared",
-          "default_action": "ask",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "projectId": {
-                "type": "string"
-              },
-              "body": {
-                "type": "object"
-              }
-            },
-            "required": [
-              "projectId"
-            ],
-            "additionalProperties": false
-          },
-          "deprecated": true
-        },
-        {
-          "path": "tasks.listTasks",
-          "title": "List tasks",
-          "kind": "openapi",
-          "method": "GET",
-          "target": "/v1/projects/{projectId}/tasks",
-          "op_class": "read",
-          "default_action": "allow",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "projectId": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "projectId"
-            ],
-            "additionalProperties": false
-          }
+          "default_action": "block"
         }
       ],
       "rules": [
         {
-          "id": "pol_t1",
-          "owner": "team",
-          "pattern": "taskboard_api.tasks.*",
-          "action": "ask"
-        },
-        {
-          "id": "pol_u1",
+          "id": "pol_u2",
           "owner": "user",
-          "pattern": "taskboard_api.tasks.listTasks",
-          "action": "allow"
-        },
-        {
-          "id": "pol_u3",
-          "owner": "user",
-          "pattern": "taskboard_api.projects.createProject",
-          "action": "allow"
-        },
-        {
-          "id": "pol_u4",
-          "owner": "user",
-          "pattern": "taskboard_api.projects.*",
-          "action": "allow"
+          "pattern": "docs_server.create_page_2",
+          "action": "block"
         }
       ],
       "catalog": {
-        "kind": "openapi",
-        "title": "Taskboard API",
-        "version": "2.4.0",
-        "digest": "openapi:8dfd4a2e",
-        "source_url": "https://specs.taskboard.example.com/openapi.json"
+        "kind": "mcp",
+        "title": "Docs Server",
+        "version": "1.2.0",
+        "digest": "mcp:ec9223b0",
+        "source_url": "https://mcp.docs.example.com/mcp"
       }
     }
   }

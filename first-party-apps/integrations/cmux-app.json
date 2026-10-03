@@ -40,7 +40,7 @@
     "integration:read": "List your team's connections, their health and the team's integration policy."
   },
   "optionalScopes": {
-    "integration:write": "Start a connection, sign in again, share it with your team, disconnect it, or change a tool's policy when you click those buttons.",
+    "integration:write": "Start a connection, sign in again, share it with your team, disconnect it (cmux confirms first), turn its MCP exposure on or off, or change a tool's policy when you click those buttons.",
     "workspace:write": "Open the Integrations pane from the palette or the sidebar."
   },
   "contributes": {
@@ -112,9 +112,7 @@
           "oauth",
           "github",
           "linear",
-          "slack",
-          "calendar",
-          "gmail"
+          "slack"
         ],
         "contexts": [
           "palette"
@@ -130,11 +128,9 @@
               "enum": [
                 "github",
                 "linear",
-                "slack",
-                "google_calendar",
-                "gmail"
+                "slack"
               ],
-              "description": "The provider to connect."
+              "description": "The provider to connect (Google Calendar and Gmail are coming)."
             }
           }
         },

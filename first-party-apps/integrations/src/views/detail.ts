@@ -7,8 +7,8 @@ import { t } from "../l10n.ts"
 import { openFeedItem, reconnect, revoke, setMcpExposed, share } from "../model/actions.ts"
 import { displayName, needsAttention, permissionsFor, policySourceLabel, providerAllowed, providerOf, type Connection } from "../model/connections.ts"
 import { providerInfo } from "../model/providers.ts"
-import { connections, findConnection, list, teamPolicy } from "../model/store.ts"
-import { loadTools, mcpNames } from "../model/tools.ts"
+import { findConnection, list, teamPolicy } from "../model/store.ts"
+import { loadTools, mcpNameMap } from "../model/tools.ts"
 import { aboutLine, credentialKindText, dayText, header, noticeLine, onOffControl, sectionTitle, smallButton, statusBadge } from "./common.ts"
 import { toolList } from "./policy.ts"
 
@@ -22,7 +22,7 @@ const sharingText = (c: Connection) => (c.sharing === "team" ? t("sharing.team",
 const perms = (c: Connection) => permissionsFor(c, list()?.viewer)
 
 /** A box with one padding inside and the outer margin on a wrapper (modifiers are single props). */
-const box = (children: CmuxView[]) => HStack({ spacing: 0 }, [VStack({ spacing: 6 }, children).padding(10).background("hover").cornerRadius(6)]).padding({ top: 4, leading: 12, bottom: 6, trailing: 12 })
+const box = (children: Array<CmuxView | null>) => HStack({ spacing: 0 }, [VStack({ spacing: 6 }, children.filter((v): v is CmuxView => v !== null)).padding(10).background("hover").cornerRadius(6)]).padding({ top: 4, leading: 12, bottom: 6, trailing: 12 })
 
 function healthBlock(c: () => Connection) {
   return () => {
@@ -106,7 +106,7 @@ function mcpBlock(c: () => Connection) {
     () => {
       if (!on()) return note(t("mcp.off", "Off: agents do not see these tools at {path}.", { path: MCP_ENDPOINT_PATH }))
       const id = c().id
-      const n = [...mcpNames(connections()).keys()].filter((k) => k.startsWith(`${id}|`)).length
+      const n = [...mcpNameMap().keys()].filter((k) => k.startsWith(`${id}|`)).length
       return note(t("mcp.on", "{n} tools at {path}. Block tools are hidden; Ask waits for approval in the feed or the agent.", { n, path: MCP_ENDPOINT_PATH }))
     }
   ])
