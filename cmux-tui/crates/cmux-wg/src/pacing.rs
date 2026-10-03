@@ -31,6 +31,8 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::net::IpAddr;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use tokio::time::Instant;
@@ -230,8 +232,27 @@ pub enum Priority {
     Bulk,
 }
 
+/// Datagrams the datagram service dropped, by reason, since the tunnel
+/// started. Shared between the driver and [`crate::WgNet::datagram_drops`].
+#[derive(Debug, Default)]
+pub(crate) struct DropCounters {
+    pub(crate) media_stale: AtomicU64,
+    pub(crate) media_full: AtomicU64,
+    pub(crate) interactive_full: AtomicU64,
+    pub(crate) bulk_full: AtomicU64,
+    pub(crate) inbox_full: AtomicU64,
+}
+
+impl DropCounters {
+    pub(crate) fn count(counter: &AtomicU64) {
+        counter.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct Pacer {
+    /// Datagrams dropped (stale media, a full class queue).
+    pub(crate) drops: Arc<DropCounters>,
     connections: HashMap<Flow, Connection>,
     /// Packets from the TCP stack that are not TCP (rare): first, unpaced.
     other: VecDeque<Vec<u8>>,
@@ -284,11 +305,13 @@ impl Pacer {
                 self.interactive.push_back(packet);
             }
             Priority::Bulk if self.bulk.len() < MAX_DATAGRAMS => self.bulk.push_back(packet),
-            Priority::Interactive | Priority::Bulk => {}
+            Priority::Interactive => DropCounters::count(&self.drops.interactive_full),
+            Priority::Bulk => DropCounters::count(&self.drops.bulk_full),
             Priority::Media => {
                 self.expire_media(now);
                 if self.media.len() >= MAX_DATAGRAMS {
                     self.media.pop_front();
+                    DropCounters::count(&self.drops.media_full);
                 }
                 self.media.push_back((now, packet));
             }
@@ -303,6 +326,7 @@ impl Pacer {
             .is_some_and(|(queued_at, _)| now.saturating_duration_since(*queued_at) > MEDIA_MAX_AGE)
         {
             self.media.pop_front();
+            DropCounters::count(&self.drops.media_stale);
         }
     }
 

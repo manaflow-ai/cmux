@@ -95,6 +95,10 @@ struct Shared {
     events: broadcast::Sender<PathEvent>,
     last_event: Option<Instant>,
     max_datagram: usize,
+    /// No path will ever be added: once every path failed, the underlay
+    /// reports the last failure and the session ends, as a plain socket's
+    /// would. Otherwise the endpoint may still add a path.
+    fixed_paths: bool,
 }
 
 impl Shared {
@@ -112,20 +116,24 @@ impl Shared {
         }
     }
 
-    fn emit(&mut self, now: Instant) {
+    /// The current path and how it performs, as a path event carries it.
+    fn event(&self) -> PathEvent {
         let path = self.selector.current();
         let view = path.and_then(|id| self.selector.path(id));
         let slot = path.and_then(|id| self.slots.iter().find(|slot| slot.id == id));
-        let event = PathEvent {
+        PathEvent {
             path,
             kind: view.map(|view| view.kind),
             rtt_ms: view.and_then(|view| view.rtt_us).map_or(0.0, |rtt| rtt as f64 / 1000.0),
             jitter_ms: slot.map_or(0.0, |slot| slot.jitter_us / 1000.0),
             loss_pct: slot.map_or(0.0, |slot| slot.loss_pct),
             max_datagram: self.max_datagram,
-        };
+        }
+    }
+
+    fn emit(&mut self, now: Instant) {
         // No subscriber is fine: events are for whoever listens.
-        let _ = self.events.send(event);
+        let _ = self.events.send(self.event());
         self.last_event = Some(now);
     }
 
@@ -220,8 +228,16 @@ impl Multipath {
             events: broadcast::channel(EVENT_BACKLOG).0,
             last_event: None,
             max_datagram: 0,
+            fixed_paths: false,
         }));
         (Self { shared: Arc::clone(&shared) }, MultipathControl { shared })
+    }
+
+    /// Declare the path set final: when every path has failed, the next
+    /// receive returns the failure and the driver ends the session.
+    pub(crate) fn with_fixed_paths(self) -> Self {
+        lock(&self.shared).fixed_paths = true;
+        self
     }
 }
 
@@ -285,6 +301,12 @@ impl MultipathControl {
         shared.publish();
         wake_driver(shared);
         switch
+    }
+
+    /// The path event that describes the session now, for a subscriber
+    /// that must not wait for the next switch or the next 5 s tick.
+    pub fn snapshot(&self) -> PathEvent {
+        lock(&self.shared).event()
     }
 
     /// Subscribe to path events (`path.changed`).
@@ -447,6 +469,9 @@ impl Underlay for Multipath {
                     Poll::Ready(Err(error)) => {
                         eprintln!("wireguard path {:?} failed: {error}", slot.id);
                         slot.failed = true;
+                        if shared.fixed_paths && shared.slots.iter().all(|slot| slot.failed) {
+                            return Poll::Ready(Err(error));
+                        }
                         break;
                     }
                     Poll::Pending => break,

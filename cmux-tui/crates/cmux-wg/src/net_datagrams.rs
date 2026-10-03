@@ -6,7 +6,7 @@
 //! are dropped.
 
 use super::*;
-use crate::pacing::Priority;
+use crate::pacing::{DropCounters, Priority};
 use crate::udp;
 
 /// Datagrams a bound port holds before new ones are dropped (unreliable by
@@ -21,6 +21,22 @@ pub(super) type UdpDatagram = (SocketAddr, SocketAddr, Vec<u8>);
 
 /// One received datagram: payload and the peer's overlay address and port.
 pub type Datagram = (Vec<u8>, SocketAddr);
+
+/// Datagrams the service dropped since the tunnel started, by reason.
+/// Datagrams are unreliable by design; these counts say where they went.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DatagramDrops {
+    /// Media datagrams older than 50 ms in the send queue.
+    pub media_stale: u64,
+    /// Media datagrams pushed out of a full queue (oldest first).
+    pub media_full: u64,
+    /// Interactive datagrams refused by a full queue.
+    pub interactive_full: u64,
+    /// Bulk datagrams refused by a full queue.
+    pub bulk_full: u64,
+    /// Received datagrams dropped because the bound socket's reader fell behind.
+    pub inbox_full: u64,
+}
 
 /// A bound overlay UDP port. Dropping it unbinds the port.
 pub struct WgDatagramSocket {
@@ -86,6 +102,18 @@ impl WgNet {
         self.max_datagram
     }
 
+    /// Datagrams dropped so far, by reason.
+    pub fn datagram_drops(&self) -> DatagramDrops {
+        let load = |counter: &std::sync::atomic::AtomicU64| counter.load(Ordering::Relaxed);
+        DatagramDrops {
+            media_stale: load(&self.drops.media_stale),
+            media_full: load(&self.drops.media_full),
+            interactive_full: load(&self.drops.interactive_full),
+            bulk_full: load(&self.drops.bulk_full),
+            inbox_full: load(&self.drops.inbox_full),
+        }
+    }
+
     /// Bind overlay UDP `port` for the datagram service.
     pub async fn bind_datagram(&self, port: u16) -> Result<WgDatagramSocket, WgError> {
         let (reply_tx, reply_rx) = oneshot::channel();
@@ -140,7 +168,9 @@ impl Driver {
         let for_us = self.config.addresses.iter().any(|entry| entry.address == destination.ip());
         if let Some(sender) = self.datagram_ports.get(&destination.port()).filter(|_| for_us) {
             // A full inbox drops the datagram: unreliable by design.
-            let _ = sender.try_send((payload, source));
+            if let Err(TrySendError::Full(_)) = sender.try_send((payload, source)) {
+                DropCounters::count(&self.pacer.drops.inbox_full);
+            }
             self.schedule.on_activity(Instant::now());
         }
     }
