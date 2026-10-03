@@ -441,6 +441,8 @@ impl Supervisor {
     fn persist(&self, mirror: &Mirror) -> std::io::Result<()> {
         use std::io::Write as _;
         let Some(dir) = &self.config.state_dir else { return Ok(()) };
+        // A fresh daemon may not have created its state directory yet.
+        std::fs::create_dir_all(dir)?;
         let temp = dir.join("apps.json.tmp");
         let body = serde_json::to_vec_pretty(&json!({ "version": 1, "mirror": mirror }))
             .map_err(std::io::Error::other)?;
@@ -522,6 +524,8 @@ pub(super) fn entry(id: &str, package: Option<&Package>, record: Option<&Record>
         // Local connections only (apps commands refuse remote ones), so the
         // client may read icons and images straight from the package.
         "bundle_dir": package.map(|p| p.dir.to_string_lossy().into_owned()),
+        // Palette entries (`apps-run {app, op}` runs them).
+        "commands": package.map(Package::palette_commands).unwrap_or_default(),
         "manifest": package.map(|p| p.manifest.clone()).unwrap_or(Value::Null),
     })
 }

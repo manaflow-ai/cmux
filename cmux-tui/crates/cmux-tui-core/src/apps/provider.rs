@@ -35,8 +35,10 @@ use super::timer::TimerId;
 
 /// Families a provider may serve. The supervisor's own ops (`app.storage.*`,
 /// `net.fetch`) and the daemon's catalog ops are never routed.
+/// The allowlist stays explicit: a new family is a decision, never "any
+/// family the daemon does not own".
 pub const FAMILIES: &[&str] =
-    &["fs", "action", "app.settings", "power", "feed", "integration", "team", "app"];
+    &["fs", "action", "app.settings", "power", "feed", "integration", "team", "app", "coderouter"];
 
 /// Ops that wait for the user (a file panel) get the long deadline.
 const WAITS_FOR_USER: &[&str] = &["fs.pick"];
