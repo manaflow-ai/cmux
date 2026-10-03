@@ -83,7 +83,13 @@ export const muxDomain: Domain<MuxHead, Params> = {
   initial: () => INITIAL_MUX_HEAD,
   authorize: (head, op, _params, p): Reject | undefined => {
     if (CONFIRM_OPS.has(op)) return authorizeConfirm(head, op, p) ? undefined : { code: "forbidden", message: `${op} is not allowed for this caller` }
-    if (PROJECTION_OPS.has(op)) return p.kind === "system" ? undefined : { code: "forbidden", message: `${op} is a system op` }
+    if (PROJECTION_OPS.has(op)) {
+      // The level comes only from the owner's UserDO (identity system:user:<user>); the migrate pass from any system principal.
+      const owner = head.owner_user
+      const fromOwner = owner !== null && (p.identity === `system:user:${owner}` || p.identity === `system:user:${owner.replace(/^user_/, "")}`)
+      const ok = p.kind === "system" && (op !== "mux.text_confirm.level.sync" || fromOwner)
+      return ok ? undefined : { code: "forbidden", message: `${op} is not allowed for this caller` }
+    }
     const ok =
       op === "mux.bind" || op === "mux.wake"
         ? p.kind === "system"

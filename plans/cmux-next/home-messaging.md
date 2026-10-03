@@ -663,8 +663,8 @@ Goal: a person texts the cmux line and talks to their Chief; Chief replies in th
   - `destructive-only`: `destructive` or flagged irreversible only;
   - `off`: no confirmation.
   A safer level applies at once; a riskier level needs Face ID or the device passcode and a
-  device proof the server checks; a team or MDM lock wins (one slot per source, the safest wins,
-  shown as "Locked by <name>"); every change is audited and every lowering is announced to all of
+  device proof the server checks; a team or MDM lock is a minimum (one slot per source, shown as
+  "Locked by <name>"; it can raise the level, never lower it); every change is audited and every lowering is announced to all of
   the owner's devices and by email. Details and the client contract: section 21. The former
   per-chief ops `mux.text_confirm.level.set|confirm|lock` are removed; per-chief values migrate
   to the safest.
@@ -747,13 +747,13 @@ the user's chiefs and the locale):
 | Op | Caller | Effect |
 | --- | --- | --- |
 | `user.text_confirm.level.set {level}` | owner's app (session or mac/ios/web install, no agent), origin `user` | safer: applies; riskier: `text_confirm.proof_required`; locked: no-op on the locked level, else `text_confirm.locked` |
-| `user.text_confirm.lower.challenge {level}` | owner's mac or ios install with an active presence key past its 24 h cooldown, origin `user` | returns `{sign: {op: "user.text_confirm.lower", user, install, new_level, nonce, expires_at}}`; 2 minutes; one live nonce per install |
+| `user.text_confirm.lower.challenge {level}` | owner's mac or ios install with an active presence key past its 24 h cooldown, origin `user` | returns `{sign: {op: "user.text_confirm.lower", user, install, new_level, nonce, expires_at}, message}` (`message` = the exact bytes to sign, base64url); 2 minutes; one live nonce per install |
 | `user.text_confirm.lower {level, nonce, presence_sig, app_attest?}` | the same install, origin `user` | spends the nonce on any attempt; checks install, level, expiry, active key, lock, still riskier, the presence signature and (iOS) the App Attest assertion with a growing counter; applies, audits, syncs every chief, notifies |
-| `user.text_confirm.lock {level or null, by: team_policy or mdm, name}` | system (Worker, from TeamPolicy or MDM) | one slot per source; the safest lock wins; unlock never lowers |
-| `user.text_confirm.migrate {level}` | system (from `mux.text_confirm.migrate`) | keeps the safest of the chiefs' former values; only ever safer |
-| `user.presence_key.register {install, jwk, platform, app_attest?}` | system (Worker, after its checks below) | stores the key; usable after 24 h; notifies every device and email |
+| `user.text_confirm.lock {level or null, by: team_policy or mdm, name}` | system (Worker, from TeamPolicy or MDM) | one slot per source; a lock is a minimum: it raises the user's own level to at least its level (ratchet) and caps how far the owner can lower; it never makes the level riskier; unlock never lowers |
+| `user.text_confirm.migrate {level}` | system, only `system:mux:<agent>` of one of this user's chiefs | an unset level reads as strict, so migration never lowers; a user who had chiefs at off lowers again with a proof |
+| `user.presence_key.register {install, jwk, platform, app_attest?}` | system (Worker, after its checks below) | the platform must equal the install's registered kind; stores the key; usable after 24 h; notifies every device and email |
 | `user.presence_key.revoke {install}` | owner's app, or system (`install.revoke`, device loss) | key unusable at once; its nonces dropped |
-| `mux.text_confirm.level.sync {level, rev}` | system (UserDO outbox, coalesced) | each chief keeps the newest rev; `chiefLevelOf` feeds `needsConfirmation` |
+| `mux.text_confirm.level.sync {level, rev}` | only the owner's UserDO (`system:user:<user>`) | each chief keeps the newest rev; `chiefLevelOf` feeds `needsConfirmation` |
 | `mux.text_confirm.migrate {}` | system (one maintenance pass per chief) | sends the chief's former level to UserDO once |
 
 Device keys (presence keys):
@@ -777,10 +777,10 @@ Client contract (iOS lane and the Mac Home lead):
 1. Settings shows the three levels with the section 19 copy, and the lock line when locked.
 2. A safer level: `user.text_confirm.level.set {level}`.
 3. A riskier level: show the raise dialog (raiseTitle, raiseBody, raiseConfirm), then call
-   `user.text_confirm.lower.challenge {level}`; sign the bytes `"cmux-text-confirm-v1\n"` + the
-   returned payload as JSON with sorted keys (`proofMessage`) with the presence key (the system
-   Face ID or passcode prompt; ES256; raw r||s; base64url); on iOS also generate an App Attest
-   assertion with clientDataHash = sha256 of the same bytes; send `user.text_confirm.lower
+   `user.text_confirm.lower.challenge {level}`; sign the returned `message` bytes as they are
+   (never re-encode the JSON) with the presence key (the system Face ID or passcode prompt;
+   ES256; raw r||s, exactly 64 bytes; base64url); on iOS also generate an App Attest assertion
+   with clientDataHash = sha256 of the same bytes; send `user.text_confirm.lower
    {level, nonce, presence_sig, app_attest?}` with a fresh idempotency key; read
    `value.lowered` (a refused proof commits with `lowered: false` and a code).
 4. First run on a device: create and register the presence key (backend route); say that
@@ -794,6 +794,15 @@ outbox items `mail.security_notice` (target class `MailerDO`, which does not exi
 accepts `feed.post` notices from UserDO.
 
 Residual risks: a person with the phone and its passcode can still lower the level (the proof
-cannot tell the owner from someone who knows the passcode); the notices make it visible.
+cannot tell the owner from someone who knows the passcode); the notices make it visible. On
+macOS there is no key attestation: the server cannot prove the presence key lives in the Secure
+Enclave with a presence requirement, so a stolen install key plus a modified client could
+register a software key, which works after the 24 h cooldown unless the owner acts on the
+notice. `origin: user` is claimed by the client and is not a control; the device proof is. The
+per-chief MDM or team locks of the old design are not carried by `mux.text_confirm.migrate`
+(only their level); the Worker must push the locks to UserDO again before the migrate pass.
+DECISION: may a team or MDM lock make the level riskier (force `off`), or only set a minimum?
+RECOMMEND only a minimum (built), because otherwise a team admin can turn protection off without
+the owner's device.
 node:crypto `createPublicKey` and `verify` inside workerd, and the App Attest attestation check,
 are UNVERIFIED until the backend lead runs them in the Worker.

@@ -1,6 +1,6 @@
 import type { OutboxItem, Principal, ReduceContext } from "../conversation/engine-types.ts"
 import { effectiveLock, isLevel, isRiskier, safest, USER_APP_KINDS, type ConfirmLevel, type LevelLocks } from "../mux/confirm-level.ts"
-import { LOWER_OP, verifyAppAttest, verifyPresence, p256Key, type AppAttestKey, type ProofPayload } from "./device-proof.ts"
+import { LOWER_OP, proofMessage, verifyAppAttest, verifyPresence, p256Key, type AppAttestKey, type ProofPayload } from "./device-proof.ts"
 import { securityNotice } from "./notices.ts"
 
 /**
@@ -59,12 +59,20 @@ export interface UserConfirmState {
 
 export const EMPTY_USER_CONFIRM: UserConfirmState = { level: null, locks: {}, rev: 0, challenges: [], presence_keys: {}, audit: [] }
 
-export const userLevelOf = (s: UserConfirmState): ConfirmLevel => effectiveLock(s.locks)?.level ?? s.level ?? "strict"
+/**
+ * The level in effect. A team or MDM lock is a minimum (decision pending, recommended): it can
+ * make the level safer, never riskier, so no policy can turn protection off without the owner.
+ */
+export const userLevelOf = (s: UserConfirmState): ConfirmLevel => safest([s.level ?? "strict", ...(effectiveLock(s.locks) ? [effectiveLock(s.locks)!.level] : [])])!
 
 /** What the host (UserDO) knows that this module does not own. */
 export interface UserConfirmEnv {
   readonly user: string
   readonly installActive: (install: string) => boolean
+  /** The install's registered kind (mac, ios, web, daemon, cli); a presence key must match it. */
+  readonly installKind: (install: string) => string | undefined
+  /** sha256("<Team ID>.<bundle id>") (base64url), a server constant for App Attest. */
+  readonly appIdHash: string
   /** The user's chiefs (agent ids), which receive the level. */
   readonly chiefs: ReadonlyArray<string>
   /** Locale for the notices (from the user profile), default en. */
@@ -91,6 +99,8 @@ const isOwnerDevice = (p: Principal, user: string) =>
   p.kind === "install" && !p.agent && (p.install_kind === "mac" || p.install_kind === "ios") && userOf(p) === user && typeof p.install === "string"
 
 export const authorizeUserConfirm = (op: string, p: Principal, env: UserConfirmEnv): boolean => {
+  // Migration comes only from the MuxDO of one of this user's chiefs (identity system:mux:<agent>).
+  if (op === "user.text_confirm.migrate") return p.kind === "system" && env.chiefs.some((agent) => p.identity === `system:mux:${agent}`)
   if (SYSTEM_ONLY.has(op)) return p.kind === "system"
   if (DEVICE_ONLY.has(op)) return isOwnerDevice(p, env.user)
   if (op === "user.presence_key.revoke") return p.kind === "system" || isOwnerApp(p, env.user)
@@ -115,13 +125,15 @@ export const reduceUserConfirm = (s: UserConfirmState, op: string, params: Param
     const to = userLevelOf(next)
     if (to === current) return { ok: true, state: next, value, outbox: extra }
     const rev = s.rev + 1
+    // Defense in depth: any path that makes the level riskier announces it.
+    const notice = isRiskier(to, current) && !extra.some((o) => o.kind === "feed.post") ? securityNotice(env, "lowered", rev, { from: current, to, install: "policy", at: ctx.now }) : []
     const sync: Array<OutboxItem> = env.chiefs.map((agent) => ({
       kind: "mux.text_confirm.level.sync",
       entity: `level:${env.user}:${rev}`,
       payload: { level: to, rev },
       target: { class: "MuxDO", name: agent, coalesce: "text_confirm_level" }
     }))
-    return { ok: true, state: { ...next, rev }, value, outbox: [...sync, ...extra] }
+    return { ok: true, state: { ...next, rev }, value, outbox: [...sync, ...extra, ...notice] }
   }
   switch (op) {
     case "user.text_confirm.level.set": {
@@ -129,7 +141,7 @@ export const reduceUserConfirm = (s: UserConfirmState, op: string, params: Param
       const to = params.level
       if (!isLevel(to)) return refuse("invalid_params")
       const lock = effectiveLock(s.locks)
-      if (lock) return to === lock.level ? { ok: true, state: s, value: { level: current }, changed: false } : refuse("text_confirm.locked")
+      if (lock && isRiskier(to, lock.level)) return refuse("text_confirm.locked")
       if (to === current) return { ok: true, state: s, value: { level: current }, changed: false }
       if (isRiskier(to, current)) return refuse("text_confirm.proof_required")
       return commit(audited({ ...s, level: to, challenges: [] }, { at: ctx.now, kind: "set", by: actor, from: current, to }), { level: to })
@@ -139,14 +151,17 @@ export const reduceUserConfirm = (s: UserConfirmState, op: string, params: Param
       const to = params.level
       const install = ctx.principal.install!
       if (!isLevel(to)) return refuse("invalid_params")
-      if (effectiveLock(s.locks)) return refuse("text_confirm.locked")
+      const lockNow = effectiveLock(s.locks)
+      if (lockNow && isRiskier(to, lockNow.level)) return refuse("text_confirm.locked")
       if (!isRiskier(to, current)) return refuse("text_confirm.not_lower")
       const key = s.presence_keys[install]
-      if (!key || key.revoked_at !== null || !env.installActive(install)) return refuse("text_confirm.no_presence_key")
+      if (!key || key.revoked_at !== null || !env.installActive(install) || key.platform !== env.installKind(install)) return refuse("text_confirm.no_presence_key")
       if (ctx.now < key.usable_from) return refuse("text_confirm.key_cooling_down")
       const challenge: Challenge = { nonce: ctx.newId("nonce"), install, new_level: to, expires_at: ctx.now + CHALLENGE_TTL_MS }
       const payload: ProofPayload = { op: LOWER_OP, user: env.user, install, new_level: to, nonce: challenge.nonce, expires_at: challenge.expires_at }
-      return { ok: true, state: { ...s, challenges: [...live.filter((c) => c.install !== install), challenge].slice(-MAX_CHALLENGES) }, value: { sign: payload } }
+      // The exact bytes to sign, so clients never re-encode JSON.
+      const message = proofMessage(payload).toString("base64url")
+      return { ok: true, state: { ...s, challenges: [...live.filter((c) => c.install !== install), challenge].slice(-MAX_CHALLENGES) }, value: { sign: payload, message } }
     }
     case LOWER_OP: {
       if (ctx.origin !== "user") return refuse("forbidden")
@@ -163,14 +178,15 @@ export const reduceUserConfirm = (s: UserConfirmState, op: string, params: Param
       if (challenge.install !== install || params.level !== challenge.new_level) return fail("text_confirm.proof_mismatch")
       if (ctx.now >= challenge.expires_at) return fail("text_confirm.proof_expired")
       const key = s.presence_keys[install]
-      if (!key || key.revoked_at !== null || !env.installActive(install) || ctx.now < key.usable_from) return fail("text_confirm.no_presence_key")
-      if (effectiveLock(s.locks) || !isRiskier(challenge.new_level, current)) return fail("text_confirm.stale")
+      if (!key || key.revoked_at !== null || !env.installActive(install) || ctx.now < key.usable_from || key.platform !== env.installKind(install)) return fail("text_confirm.no_presence_key")
+      const lockAt = effectiveLock(s.locks)
+      if ((lockAt && isRiskier(challenge.new_level, lockAt.level)) || !isRiskier(challenge.new_level, current)) return fail("text_confirm.stale")
       const payload: ProofPayload = { op: LOWER_OP, user: env.user, install, new_level: challenge.new_level, nonce: challenge.nonce, expires_at: challenge.expires_at }
       if (!str(params.presence_sig, 512) || !verifyPresence(key.jwk, payload, params.presence_sig)) return fail("text_confirm.bad_proof")
       let keys = s.presence_keys
       if (key.platform === "ios") {
         if (!key.app_attest || !str(params.app_attest, 8192)) return fail("text_confirm.bad_proof")
-        const attest = verifyAppAttest(key.app_attest, payload, params.app_attest)
+        const attest = verifyAppAttest({ ...key.app_attest, app_id_hash: env.appIdHash }, payload, params.app_attest)
         if (!attest.ok) return fail("text_confirm.bad_proof")
         keys = { ...keys, [install]: { ...key, app_attest: { ...key.app_attest, counter: attest.counter } } }
       }
@@ -185,21 +201,24 @@ export const reduceUserConfirm = (s: UserConfirmState, op: string, params: Param
         const prior = s.locks[by]
         if (!prior) return { ok: true, state: s, value: { level: current }, changed: false }
         const { [by]: _gone, ...rest } = s.locks
-        // Unlock keeps the level in effect, so lifting one lock never lowers protection by itself.
-        return commit(audited({ ...s, level: current, locks: rest }, { at: ctx.now, kind: "unlock", by: actor, from: current, to: current }), { level: current })
+        // A lock already ratcheted the user's own level (below), so lifting it never lowers.
+        return commit(audited({ ...s, locks: rest }, { at: ctx.now, kind: "unlock", by: actor, from: current, to: current }), { level: current })
       }
       if (!isLevel(level) || typeof name !== "string" || name.length === 0 || name.length > 120) return refuse("invalid_params")
       const prior = s.locks[by]
       if (prior && prior.level === level && prior.name === name) return { ok: true, state: s, value: { level: current }, changed: false }
       const locks = { ...s.locks, [by]: { level, by, name, at: ctx.now } }
-      const next = audited({ ...s, locks, challenges: [] }, { at: ctx.now, kind: "lock", by: actor, from: current, to: userLevelOf({ ...s, locks }) })
+      // The lock is a minimum and ratchets the user's own level, so a later unlock cannot lower.
+      const own = safest([s.level ?? "strict", level])!
+      const next = audited({ ...s, level: own, locks, challenges: [] }, { at: ctx.now, kind: "lock", by: actor, from: current, to: userLevelOf({ ...s, level: own, locks }) })
       return commit(next, { level: userLevelOf(next), lock: effectiveLock(locks) })
     }
     case "user.text_confirm.migrate": {
       // From each chief's former per-chief level: the result only ever gets safer.
       const { level } = params
       if (!isLevel(level)) return refuse("invalid_params")
-      const to = s.level === null ? level : safest([s.level, level])!
+      // An unset level reads as strict, so migration can only keep or raise protection.
+      const to = safest([s.level ?? "strict", level])!
       if (to === s.level) return { ok: true, state: s, value: { level: current }, changed: false }
       return commit(audited({ ...s, level: to }, { at: ctx.now, kind: "migrate", by: actor, from: current, to }), { level: to })
     }
@@ -207,7 +226,7 @@ export const reduceUserConfirm = (s: UserConfirmState, op: string, params: Param
       // Built by the Worker after it authenticated the install and (iOS) verified Apple's App Attest attestation.
       const { install, jwk, platform, app_attest } = params
       if (!str(install, 128) || (platform !== "mac" && platform !== "ios") || !p256Key(jwk)) return refuse("invalid_params")
-      if (!env.installActive(install)) return refuse("forbidden")
+      if (!env.installActive(install) || env.installKind(install) !== platform) return refuse("forbidden")
       const attest = app_attest as AppAttestKey | undefined
       if (platform === "ios" && (!attest || !p256Key(attest.jwk) || !str(attest.app_id_hash, 64) || !Number.isSafeInteger(attest.counter))) return refuse("invalid_params")
       const key: PresenceKey = { jwk, platform, ...(platform === "ios" ? { app_attest: attest! } : {}), registered_at: ctx.now, usable_from: ctx.now + NEW_KEY_COOLDOWN_MS, revoked_at: null }

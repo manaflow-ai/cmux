@@ -12,9 +12,12 @@ interface JsonWebKey {
  * Server-checked device proofs for lowering the text confirmation level
  * (decision 2026-10-02, home-messaging.md section 19). The owner's device
  * signs exactly {op, user, install, new_level, nonce, expires_at}:
- * - `presence`: an ES256 signature by a Secure Enclave key created with a
- *   user-presence access control (Face ID, Touch ID or the device passcode),
- *   so the key cannot sign without the person; required on every platform;
+ * - `presence`: an ES256 signature by a key the app creates in the Secure
+ *   Enclave with a user-presence access control (Face ID, Touch ID or the
+ *   device passcode); required on every platform. On macOS the server cannot
+ *   prove the key really is such a key (no attestation): a stolen install key
+ *   with a modified client could register a software key (24 h cooldown and
+ *   notices are the defense);
  * - `app_attest` (iOS): an App Attest assertion over the same payload, which
  *   proves the genuine cmux app on a genuine device (it does not prove Face ID;
  *   the presence signature does). Required for iOS installs.
@@ -51,14 +54,14 @@ export const p256Key = (jwk: unknown) => {
   }
 }
 
-/** Presence signature: ES256 over proofMessage, raw r||s (64 bytes) or DER, base64url. */
+/** Presence signature: ES256 over proofMessage, raw r||s (exactly 64 bytes), base64url. */
 export const verifyPresence = (jwk: unknown, payload: ProofPayload, signature: string): boolean => {
   const key = p256Key(jwk)
   const sig = b64u(signature)
-  if (!key || !sig) return false
+  if (!key || !sig || sig.length !== 64) return false
   const data = proofMessage(payload)
   try {
-    return verifySignature("sha256", data, { key, dsaEncoding: sig.length === 64 ? "ieee-p1363" : "der" }, sig)
+    return verifySignature("sha256", data, { key, dsaEncoding: "ieee-p1363" }, sig)
   } catch {
     return false
   }
@@ -84,13 +87,15 @@ const readCborMap = (buf: Buffer): Record<string, Buffer> | null => {
   if (!h || h[0] !== 5) return null
   const n = len(h[1])
   if (n === null || n > 8) return null
-  const out: Record<string, Buffer> = {}
+  // No prototype, no duplicate keys.
+  const out: Record<string, Buffer> = Object.create(null) as Record<string, Buffer>
   for (let k = 0; k < n; k++) {
     const kh = head()
     if (!kh || kh[0] !== 3) return null
     const kl = len(kh[1])
     if (kl === null || i + kl > buf.length) return null
     const key = new TextDecoder().decode(buf.subarray(i, i + kl))
+    if (key in out) return null
     i += kl
     const vh = head()
     if (!vh || vh[0] !== 2) return null
