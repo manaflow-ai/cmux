@@ -180,6 +180,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugHomeNativeFixture.open(services: services))
             },
+            .mainActor("debug.window_list") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugWindowList.list(services: services))
+            },
             .mainActor("debug.window_snapshot") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugWindowSnapshot.capture(call.params, services: services))

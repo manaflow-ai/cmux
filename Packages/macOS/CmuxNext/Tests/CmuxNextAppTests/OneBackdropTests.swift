@@ -28,7 +28,9 @@ struct OneBackdropTests {
 
     /// The fill a view paints behind its subviews, if any is visible.
     private static func fill(of view: NSView) -> String? {
-        if view.isHidden { return nil }
+        // Invisible views and layers that only serve as another layer's mask draw nothing.
+        if view.isHiddenOrHasHiddenAncestor || view.alphaValue < 0.01 || (view.layer?.opacity ?? 1) < 0.01 { return nil }
+        if let layer = view.layer, layer.superlayer?.mask === layer { return nil }
         if let color = view.layer?.backgroundColor, color.alpha > 0.002 { return "layer \(color)" }
         if let scroll = view as? NSScrollView, scroll.drawsBackground, scroll.backgroundColor.alphaComponent > 0 { return "scroll view" }
         if let clip = view as? NSClipView, clip.drawsBackground, clip.backgroundColor.alphaComponent > 0 { return "clip view" }
@@ -41,7 +43,12 @@ struct OneBackdropTests {
     private static func filledSurfaces(_ view: NSView, in window: NSWindow, skipping backdrop: NSView) -> [String] {
         if view === backdrop || view.isHidden { return [] }
         var found: [String] = []
-        if isSurface(view, in: window), let fill = fill(of: view) { found.append("\(type(of: view)) \(fill)") }
+        if isSurface(view, in: window), let fill = fill(of: view) {
+            var chain: [String] = []
+            var up = view.superview
+            while let parent = up, chain.count < 4 { chain.append(String(describing: type(of: parent))); up = parent.superview }
+            found.append("\(type(of: view)) \(view.frame) in \(chain.joined(separator: "<")): \(fill)")
+        }
         for sub in view.subviews { found += filledSurfaces(sub, in: window, skipping: backdrop) }
         return found
     }

@@ -61,6 +61,52 @@ token. `utilityWindowBackground` and `SettingsStyle.background` go away or
 become the same token. A test renders each surface kind with
 `NSWindow.renderSnapshot()` and compares a background pixel with the token.
 
+### One backdrop rule (Lawrence R31, coordinator 2026-10-03; landed)
+
+Every window kind gets exactly one backdrop, the main window's: one
+material plus the token as its tint at the theme's `background-opacity`
+(`WindowBackdrop`). The main window's root draws it (`WindowSurfacePainting`);
+every other kind gets it from `WindowKit.install`, which wraps the content in
+a `WindowSurfaceView` (backdrop at the bottom, content above). With opacity
+below 1 or blur on, the window itself is clear and every surface above the
+backdrop (sidebar, panes, strips, titlebar, docks, page tabs incl. Settings
+and App Store, web pages) is clear, never a semi-opaque fill of its own. At
+opacity 1 they draw the token or stay clear. There are no tonal steps
+(`appearance.tabBarBackground` and the sidebar step are gone; retired keys:
+`SettingsSchema.retiredKeys`). `OneBackdropTests` walks every kind.
+
+### Web theme (shared by every cmux web view)
+
+`WebTheme` (CmuxNextDesign) is the one web theme, from the same tokens.
+A cmux web view installs `WebTheme.bootstrapScript` at document start; it
+defines `window.cmuxTheme.apply(payload)`, makes `html` paint
+`var(--cmux-surface-background)` and keeps `body` transparent. The view runs
+`WebTheme(tokens).applyScript` on load and on every theme change (the agent
+pane does this in `AgentPaneTheme.script`). Payload:
+
+```json
+{
+  "colorScheme": "dark",
+  "variables": {
+    "--cmux-surface-background": "rgba(30, 30, 46, 1.0)",
+    "--cmux-surface-token": "rgba(30, 30, 46, 0.6)",
+    "--cmux-elevated-background": "rgba(...)",
+    "--cmux-text": "rgba(...)",
+    "--cmux-text-secondary": "rgba(...)",
+    "--cmux-text-tertiary": "rgba(...)",
+    "--cmux-separator": "rgba(...) or transparent (appearance.borders none)",
+    "--cmux-hover": "rgba(...)",
+    "--cmux-selection": "rgba(...)"
+  }
+}
+```
+
+`--cmux-surface-background` is the page background: the opaque token in an
+opaque window, `rgba(..., 0.0)` over a see-through window (the window's one
+backdrop shows through). `--cmux-surface-token` is the token itself with its
+opacity. A page listens to `cmux-theme` events (`detail` = payload) for live
+changes. The React Settings page is transparent over it.
+
 ## One keyboard table
 
 `WindowKeyTable.behavior(for: ActionID, in: WindowKind) -> WindowKeyBehavior`:
@@ -90,6 +136,12 @@ produce `debug.window_snapshot` and shows a visible close button above its
 content.
 
 ## debug.window_snapshot (landed, fe8178428ee)
+
+`debug.window_list` lists every app window (`NSApp.windows`, popover, panel
+and sheet windows too): `id` (window number), `kind` (the kit kind, else
+`popover`, `sheet`, `panel`, the `cmux.` identifier or the class name),
+`title`, `frame`, `visible`, `parent`. `debug.window_snapshot` takes any of
+those ids as `window`.
 
 Renders a window's frame view through AppKit (`cacheDisplay`), no Screen
 Recording grant. Differs from the screen: Metal layers (Ghostty terminal

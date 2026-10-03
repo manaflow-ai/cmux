@@ -8,7 +8,8 @@ import CmuxNextSettings
 /// Chromium) and Liquid Glass blur differ from the screen
 /// (plans/cmux-next/windows.md).
 ///
-/// Params: `window` (a main window id or a window number), or `kind`
+/// Params: `window` (a main window id, or any window's number from
+/// `debug.window_list`: popovers, panels and sheets too), or `kind`
 /// (a `WindowKind` raw value: `main`, `settings`, `debugSettings`,
 /// `appStore`, `onboarding`, ...);
 /// default the key window, else the active main window. `path` is the PNG
@@ -45,11 +46,8 @@ enum DebugWindowSnapshot {
         return NSApp.keyWindow ?? services.windows.active?.window
     }
 
-    /// The window's kind (`WindowKind`, as the window kit recorded it),
-    /// else its identifier without the `cmux.` prefix, else its class name.
+    /// The window's kind as `debug.window_list` names it.
     static func kind(of window: NSWindow, services: AppServices) -> String {
-        if let kind = window.windowKind { return kind.rawValue }
-        if let id = window.identifier?.rawValue, id.hasPrefix("cmux.") { return String(id.dropFirst("cmux.".count)) }
-        return String(describing: type(of: window))
+        DebugWindowList.kind(of: window, services: services)
     }
 }
