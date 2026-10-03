@@ -828,11 +828,16 @@ impl Hub {
                 )
                 .await;
             }
+            let hosted = child.host_record().is_some();
             child.kill().await;
+            // A host whose link was lost cannot take a Terminate frame.
+            if hosted {
+                self.end_unadopted_host(session).await;
+            }
         } else {
             // A host this daemon could not adopt keeps running until the user
             // ends the session: end it without its protocol (frozen path).
-            self.end_unadopted_host(session);
+            self.end_unadopted_host(session).await;
         }
         *session.turn.lock().unwrap() = None;
         self.set_status(session, SessionStatus::Closed);
@@ -881,19 +886,21 @@ impl Hub {
         for s in &sessions {
             // An agent under a host keeps running, with its turn and its
             // permission prompts, for the next daemon to adopt.
-            if let Ok(slot) = tokio::time::timeout(LOCK, s.child.lock()).await
-                && let Some(child) = slot.as_ref().filter(|c| c.host_record().is_some())
+            let mut slot = match tokio::time::timeout(LOCK, s.child.lock()).await {
+                Ok(slot) => Some(slot),
+                Err(_) => None,
+            };
+            if let Some(child) =
+                slot.as_ref().and_then(|g| g.as_ref()).filter(|c| c.host_record().is_some())
             {
                 hosted.push(child.clone());
                 continue;
             }
+            let taken = slot.as_mut().and_then(|g| g.take());
+            drop(slot);
             self.revoke_permission_chat(s);
             self.cancel_pending_permissions(s);
-            if let Ok(mut slot) = tokio::time::timeout(LOCK, s.child.lock()).await
-                && let Some(child) = slot.take()
-            {
-                children.push(child);
-            }
+            children.extend(taken);
             *s.turn.lock().unwrap() = None;
             if s.status() != SessionStatus::Closed {
                 self.set_status(s, SessionStatus::Idle);

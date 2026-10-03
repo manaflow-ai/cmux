@@ -328,8 +328,42 @@ impl Hub {
     pub(super) fn session_tap(self: &Arc<Self>, session: &Arc<Session>) -> crate::agent::Tap {
         let tap_session = session.clone();
         let tap_hub = self.clone();
-        Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| {
+        Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
+            let errors = tap_session.append_errors.load(Ordering::SeqCst);
+            let stored = |s: &Session| s.append_errors.load(Ordering::SeqCst) == errors;
             let (d, kind) = match (dir, msg) {
+                // Agent host stderr and exit entries: logged here, in entry
+                // order, before the entry is acknowledged.
+                (Direction::In, Message::Notification { method, params })
+                    if method == crate::agent::HOST_STDERR =>
+                {
+                    let text = params.as_ref().and_then(|p| p.get("text")).cloned();
+                    tap_hub.append_with_host_seq(
+                        &tap_session,
+                        "mux",
+                        "stderr",
+                        json!({"text": text}),
+                        host_seq,
+                    );
+                    return stored(&tap_session);
+                }
+                (Direction::In, Message::Notification { method, params })
+                    if method == crate::agent::HOST_EXIT =>
+                {
+                    let code = params.as_ref().and_then(|p| p.get("code")).cloned();
+                    let intentional = matches!(
+                        tap_session.status(),
+                        SessionStatus::Idle | SessionStatus::Closed
+                    );
+                    tap_hub.append_with_host_seq(
+                        &tap_session,
+                        "mux",
+                        if intentional { "stopped" } else { "exited" },
+                        json!({"code": code}),
+                        host_seq,
+                    );
+                    return stored(&tap_session);
+                }
                 (Direction::In, Message::Notification { method, params }) => {
                     let mut kind = method.clone();
                     if method.starts_with("claude.") {
@@ -341,7 +375,7 @@ impl Hub {
                             params.clone().unwrap_or(Value::Null),
                             host_seq,
                         );
-                        return;
+                        return stored(&tap_session);
                     }
                     if method == crate::rpc::method::SESSION_UPDATE {
                         if let Some(su) = params
@@ -371,7 +405,7 @@ impl Hub {
                         params.clone().unwrap_or(Value::Null),
                         host_seq,
                     );
-                    return;
+                    return stored(&tap_session);
                 }
                 (Direction::Out, Message::Notification { method, .. }) => ("out", method.clone()),
                 (Direction::Out, Message::Response { .. }) => ("out", "response".to_owned()),
@@ -388,6 +422,7 @@ impl Hub {
             if live_update {
                 tap_hub.after_agent_update(&tap_session, &rec);
             }
+            stored(&tap_session)
         })
     }
 
@@ -809,7 +844,7 @@ impl Hub {
         profile: &HarnessProfile,
     ) -> anyhow::Result<usize> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-        let tap: crate::agent::Tap = Arc::new(|_, _, _| {});
+        let tap: crate::agent::Tap = Arc::new(|_, _, _| true);
         let cwd = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/"));
         let child = crate::agent::ChildAgent::spawn(name, profile, &cwd, tx, tap).await?;
         // Drain anything the agent sends so its writer never blocks.
@@ -950,26 +985,38 @@ impl Hub {
             hosts_dir: hosts,
             buffer_cap: crate::agent_host::DEFAULT_BUFFER_CAP,
         };
+        // Never start a second agent beside a host that may still run.
+        if Self::host_record_live(&session.id) {
+            return Err(RpcError::internal(
+                "this session's agent host is still running; close the session to end it",
+            ));
+        }
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
-        let child = ChildAgent::spawn_hosted(
+        let record = crate::agent_host::link::spawn(&launcher, &spec).await.map_err(internal)?;
+        // Logged before the first entry, so a later controller counts every
+        // entry of this incarnation.
+        self.append(
+            session,
+            "mux",
+            "host_started",
+            json!({"incarnation": record.incarnation, "hostPid": record.host_pid, "hostBuild": record.host_build}),
+        );
+        let attached = ChildAgent::attach_hosted(
             &meta.harness,
-            spec,
-            &launcher,
+            record,
+            0,
+            Vec::new(),
             session.inbound_tx.clone(),
             tap,
         )
         .await
         .map_err(internal)?;
-        if let Some(record) = child.host_record() {
-            // A later controller resumes after the last entry logged under
-            // this incarnation.
-            self.append(
-                session,
-                "mux",
-                "host_started",
-                json!({"incarnation": record.incarnation, "hostPid": record.host_pid, "hostBuild": record.host_build}),
-            );
-        }
+        let child = match attached {
+            crate::agent::Attached::Ready(child, _, _) => child,
+            crate::agent::Attached::Incompatible { .. } => {
+                return Err(RpcError::internal("a host of this build refused its controller"));
+            }
+        };
         Ok(child)
     }
 

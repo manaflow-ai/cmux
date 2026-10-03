@@ -103,6 +103,14 @@ pub struct Link {
 /// Connect as owner and resume after `resume_after` (the last entry already
 /// in this session's log).
 pub async fn connect(record: HostRecord, resume_after: u64) -> Result<Connect> {
+    // A wedged host must not hold up the daemon: the handshake is bounded.
+    const HELLO_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+    tokio::time::timeout(HELLO_BUDGET, connect_inner(record, resume_after))
+        .await
+        .map_err(|_| anyhow!("agent host did not answer hello within {HELLO_BUDGET:?}"))?
+}
+
+async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect> {
     let stream = UnixStream::connect(&record.socket)
         .await
         .with_context(|| format!("connect {}", record.socket.display()))?;

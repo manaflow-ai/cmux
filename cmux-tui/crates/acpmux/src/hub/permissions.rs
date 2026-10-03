@@ -36,13 +36,10 @@ impl Hub {
                         }
                         tail.push_back(line.clone());
                     }
-                    self.append_with_host_seq(
-                        &session,
-                        "mux",
-                        "stderr",
-                        json!({"text": line}),
-                        host_seq,
-                    );
+                    // An agent host's stderr was logged before its ack.
+                    if host_seq.is_none() {
+                        self.append(&session, "mux", "stderr", json!({"text": line}));
+                    }
                 }
                 Inbound::Exited { pid, code, host_seq } => {
                     {
@@ -58,13 +55,15 @@ impl Hub {
                     self.revoke_permission_chat(&session);
                     let intentional =
                         matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
-                    self.append_with_host_seq(
-                        &session,
-                        "mux",
-                        if intentional { "stopped" } else { "exited" },
-                        json!({"code": code}),
-                        host_seq,
-                    );
+                    // An agent host's exit was logged before its ack.
+                    if host_seq.is_none() {
+                        self.append(
+                            &session,
+                            "mux",
+                            if intentional { "stopped" } else { "exited" },
+                            json!({"code": code}),
+                        );
+                    }
                     if !intentional {
                         self.set_status(&session, SessionStatus::Disconnected);
                     }

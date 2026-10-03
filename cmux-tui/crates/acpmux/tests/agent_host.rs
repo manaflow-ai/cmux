@@ -225,7 +225,6 @@ async fn an_incompatible_controller_is_refused_and_the_agent_keeps_running() {
             &record.session_id,
             None,
             Some(record.host_pid),
-            record.harness_pid,
         )
         .unwrap()
     );
@@ -234,7 +233,6 @@ async fn an_incompatible_controller_is_refused_and_the_agent_keeps_running() {
         &record.session_id,
         Some(&record.start_nonce),
         Some(record.host_pid),
-        record.harness_pid,
     )
     .unwrap();
     assert!(ended);

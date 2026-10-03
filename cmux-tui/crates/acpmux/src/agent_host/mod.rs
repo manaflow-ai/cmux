@@ -32,7 +32,7 @@ pub const PROTOCOL_MAX: u16 = 1;
 /// Discovery record schema this build writes and reads.
 pub const RECORD_VERSION: u32 = 1;
 /// Largest frame either side accepts.
-pub const MAX_FRAME: usize = 16 << 20;
+pub const MAX_FRAME: usize = 64 << 20;
 /// Bytes of unacknowledged entries a host keeps before it stops reading the
 /// harness's stdout. Back-pressure, never a drop.
 pub const DEFAULT_BUFFER_CAP: usize = 64 << 20;
@@ -362,41 +362,55 @@ pub fn liveness(dir: &Path, session_id: &str, start_nonce: &str) -> Liveness {
 }
 
 /// End a host without speaking its protocol: the path for a host this build
-/// cannot adopt, frozen across versions. Signals only with proof that the
-/// recorded PIDs belong to this session's live host: the exact lock its
-/// record names (`<session>.<start nonce>.live`) is held by a live process.
-/// Then waits for that lock to drop, which is the death proof (SIGKILL makes
-/// it prompt). `Ok(true)` when no such host runs any more.
+/// cannot adopt, frozen across versions. Signals only the host, and only with
+/// proof that the recorded PID is this session's live host: the exact lock
+/// its record names (`<session>.<start nonce>.live`) is held. A host ends its
+/// harness group on SIGTERM while that group is still its own (it alone knows
+/// whether the leader was reaped), then exits. If it does not exit within
+/// `TERM_GRACE` it is killed; the dropped lock is the death proof.
+/// `Ok(true)` when no such host runs any more. Blocks up to about twice
+/// `TERM_GRACE`: call it off the async runtime.
 pub fn terminate_unadoptable(
     dir: &Path,
     session_id: &str,
     start_nonce: Option<&str>,
     host_pid: Option<u32>,
-    harness_pid: Option<u32>,
 ) -> Result<bool> {
     use std::os::fd::AsRawFd;
+    const TERM_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
     let Some(nonce) = start_nonce else { return Ok(false) };
     if liveness(dir, session_id, nonce) == Liveness::Dead {
         return Ok(true);
     }
     let Some(pid) = host_pid else { return Ok(false) };
+    let pid = i32::try_from(pid).context("pid")?;
     let lock = std::fs::OpenOptions::new().read(true).write(true).open(live_path(dir, session_id, nonce))?;
-    for target in [harness_pid, Some(pid)].into_iter().flatten() {
-        let target = i32::try_from(target).context("pid")?;
-        // SAFETY: the host and the harness lead their own process groups,
-        // and the held lock proves the host still runs.
-        unsafe { libc::killpg(target, libc::SIGKILL) };
-    }
-    loop {
-        // SAFETY: a blocking lock returns when the host's descriptor closes
-        // at its death; it is the proof, not a delay.
-        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) } == 0 {
-            return Ok(true);
+    // The death proof: a blocking lock that returns when the host's
+    // descriptor closes, on its own thread so the wait has a deadline.
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    let fd = lock.try_clone()?;
+    std::thread::spawn(move || {
+        loop {
+            // SAFETY: a blocking lock on a descriptor this thread owns.
+            if unsafe { libc::flock(fd.as_raw_fd(), libc::LOCK_EX) } == 0 {
+                let _ = done_tx.send(());
+                return;
+            }
+            if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+                return;
+            }
         }
-        if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
-            return Ok(false);
-        }
+    });
+    // SAFETY: the held lock proves `pid` is this session's live host.
+    unsafe { libc::kill(pid, libc::SIGTERM) };
+    if done_rx.recv_timeout(TERM_GRACE).is_ok() {
+        return Ok(true);
     }
+    if liveness(dir, session_id, nonce) == Liveness::Live {
+        // SAFETY: as above, re-proven just now.
+        unsafe { libc::kill(pid, libc::SIGKILL) };
+    }
+    Ok(done_rx.recv_timeout(TERM_GRACE).is_ok())
 }
 
 /// Remove a dead host's record, lock and socket.

@@ -177,6 +177,9 @@ pub struct Session {
     /// Recent client prompt ids and their outcomes, newest last: a prompt
     /// sent again with the same id never runs a second turn.
     pub(super) prompts: StdMutex<std::collections::VecDeque<(String, PromptOutcome)>>,
+    /// Bumped when a record failed to reach the store; an agent host entry
+    /// is acknowledged only when its record was stored.
+    pub(super) append_errors: AtomicU64,
 }
 
 impl Session {
@@ -430,6 +433,7 @@ impl Hub {
             attached: std::sync::atomic::AtomicUsize::new(0),
             stderr_tail: StdMutex::new(std::collections::VecDeque::new()),
             prompts: StdMutex::new(std::collections::VecDeque::new()),
+            append_errors: AtomicU64::new(0),
         })
     }
 
@@ -493,6 +497,7 @@ impl Hub {
             return record;
         }
         if let Err(e) = self.store.append(&session.id, &record) {
+            session.append_errors.fetch_add(1, Ordering::SeqCst);
             tracing::warn!(session = %session.id, "append failed: {e}");
         }
         {

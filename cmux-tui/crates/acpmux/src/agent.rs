@@ -48,7 +48,14 @@ pub enum Inbound {
 
 /// Logs one wire message. The `u64` is the agent host entry it logs, when
 /// the agent runs under a host (`hostSeq` on the record).
-pub type Tap = Arc<dyn Fn(Direction, &Message, Option<u64>) + Send + Sync>;
+/// Returns whether the record reached the store; an agent host entry is
+/// acknowledged only then.
+pub type Tap = Arc<dyn Fn(Direction, &Message, Option<u64>) -> bool + Send + Sync>;
+
+/// Tap methods for an agent host's stderr and exit entries, so they are
+/// logged in entry order before the entry is acknowledged.
+pub const HOST_STDERR: &str = "_acpmux/host_stderr";
+pub const HOST_EXIT: &str = "_acpmux/host_exit";
 
 /// A Claude stream-json harness's translator state.
 #[derive(Debug, Clone, Default)]
@@ -69,6 +76,8 @@ struct Hosted {
     /// agent's death, so pending requests stay open for the next daemon.
     detached: Arc<std::sync::atomic::AtomicBool>,
     exit: tokio::sync::Notify,
+    /// Last entry whose record reached the store.
+    logged: tokio::sync::watch::Sender<u64>,
 }
 
 /// How a hosted agent was reached.
@@ -91,7 +100,12 @@ const LEADER_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 
 struct Pending {
     map: HashMap<String, oneshot::Sender<Result<Value, RpcError>>>,
+    /// Answers that arrived with nobody waiting (a replayed answer to a
+    /// request of the previous daemon); `await_response` takes them.
+    orphans: std::collections::VecDeque<(String, Result<Value, RpcError>)>,
 }
+
+const ORPHAN_ANSWERS: usize = 64;
 
 fn key(id: &Id) -> String {
     id.to_string()
@@ -219,7 +233,8 @@ impl ChildAgent {
         let stderr = child.stderr.take().context("agent stderr")?;
 
         let (stdin_tx, mut stdin_rx) = mpsc::channel::<String>(256);
-        let pending = Arc::new(Mutex::new(Pending { map: HashMap::new() }));
+        let pending =
+            Arc::new(Mutex::new(Pending { map: HashMap::new(), orphans: Default::default() }));
         let agent = Arc::new(Self {
             name: name.to_owned(),
             child: Mutex::new(Some(child)),
@@ -566,8 +581,22 @@ impl ChildAgent {
     /// sent this agent (a recovered turn); it arrives like any other.
     pub async fn await_response(&self, id: Id) -> oneshot::Receiver<Result<Value, RpcError>> {
         let (tx, rx) = oneshot::channel();
-        self.pending.lock().await.map.insert(key(&id), tx);
+        let mut p = self.pending.lock().await;
+        if let Some(i) = p.orphans.iter().position(|(k, _)| *k == key(&id)) {
+            let (_, answer) = p.orphans.remove(i).expect("position is in range");
+            let _ = tx.send(answer);
+        } else {
+            p.map.insert(key(&id), tx);
+        }
         rx
+    }
+
+    /// Wait (bounded) until the entries this host had when it was adopted
+    /// are in the session log, so a scan of the log sees all of them.
+    pub async fn wait_logged(&self, h: u64, budget: std::time::Duration) -> bool {
+        let Some(hosted) = &self.hosted else { return true };
+        let mut rx = hosted.logged.subscribe();
+        tokio::time::timeout(budget, rx.wait_for(|logged| *logged >= h)).await.is_ok_and(|r| r.is_ok())
     }
 
     /// The Claude translator's state, wherever the translator runs.
@@ -604,21 +633,6 @@ impl ChildAgent {
         }
     }
 
-    /// Start the agent under a new `__agent-host` process.
-    pub async fn spawn_hosted(
-        name: &str,
-        spec: crate::agent_host::SpawnSpec,
-        launcher: &crate::agent_host::link::HostLauncher,
-        inbound: mpsc::Sender<Inbound>,
-        tap: Tap,
-    ) -> Result<Arc<Self>> {
-        let record = crate::agent_host::link::spawn(launcher, &spec).await?;
-        match Self::attach_hosted(name, record, 0, Vec::new(), inbound, tap).await? {
-            Attached::Ready(agent, _, _) => Ok(agent),
-            Attached::Incompatible { .. } => Err(anyhow!("a host of this build refused it")),
-        }
-    }
-
     /// Become the owner of a running host and resume after `resume_after`,
     /// the last entry of it already in the session log.
     pub async fn attach_hosted(
@@ -647,7 +661,7 @@ impl ChildAgent {
             map.insert(key(&id), tx);
             responses.push(rx);
         }
-        let pending = Arc::new(Mutex::new(Pending { map }));
+        let pending = Arc::new(Mutex::new(Pending { map, orphans: Default::default() }));
         let detached = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let agent = Arc::new(Self {
             name: name.to_owned(),
@@ -661,6 +675,7 @@ impl ChildAgent {
             hosted: Some(Hosted {
                 link: link.clone(),
                 detached: detached.clone(),
+                logged: tokio::sync::watch::channel(resume_after).0,
                 exited: std::sync::atomic::AtomicBool::new(false),
                 exit: tokio::sync::Notify::new(),
             }),
@@ -669,7 +684,15 @@ impl ChildAgent {
         tokio::spawn(async move {
             let mut entries = link.entries.lock().await;
             while let Some((h, entry)) = entries.recv().await {
-                reader.on_host_entry(h, entry, &inbound).await;
+                if !reader.on_host_entry(h, entry, &inbound).await {
+                    // Not stored: never acknowledge it or anything after it;
+                    // the next daemon resumes before it.
+                    tracing::warn!(agent = %reader.name, "agent host entry {h} not logged; acks stop");
+                    break;
+                }
+                if let Some(hosted) = &reader.hosted {
+                    hosted.logged.send_replace(h);
+                }
                 if link.ack(h).await.is_err() {
                     break;
                 }
@@ -687,25 +710,42 @@ impl ChildAgent {
         Ok(Attached::Ready(agent, adopted, responses))
     }
 
-    async fn on_host_entry(&self, h: u64, entry: crate::agent_host::Entry, inbound: &mpsc::Sender<Inbound>) {
+    /// Log one host entry, then act on it. Returns whether its record was
+    /// stored (only then may it be acknowledged).
+    async fn on_host_entry(
+        &self,
+        h: u64,
+        entry: crate::agent_host::Entry,
+        inbound: &mpsc::Sender<Inbound>,
+    ) -> bool {
         use crate::agent_host::{Entry, TapDir};
         match entry {
-            Entry::Tap { dir, msg } => {
-                if let Ok(m) = Message::from_value(msg) {
+            Entry::Tap { dir, msg } => match Message::from_value(msg) {
+                Ok(m) => {
                     let d = if dir == TapDir::In { Direction::In } else { Direction::Out };
-                    (self.tap)(d, &m, Some(h));
+                    (self.tap)(d, &m, Some(h))
                 }
-            }
+                Err(_) => true,
+            },
             Entry::In { msg } => {
-                let Ok(m) = Message::from_value(msg) else { return };
-                (self.tap)(Direction::In, &m, Some(h));
+                let Ok(m) = Message::from_value(msg) else { return true };
+                if !(self.tap)(Direction::In, &m, Some(h)) {
+                    return false;
+                }
                 match m {
                     Message::Response { id, result, error } => {
-                        if let Some(tx) = self.pending.lock().await.map.remove(&key(&id)) {
-                            let _ = tx.send(match error {
-                                Some(e) => Err(e),
-                                None => Ok(result.unwrap_or(Value::Null)),
-                            });
+                        let answer = match error {
+                            Some(e) => Err(e),
+                            None => Ok(result.unwrap_or(Value::Null)),
+                        };
+                        let mut p = self.pending.lock().await;
+                        if let Some(tx) = p.map.remove(&key(&id)) {
+                            let _ = tx.send(answer);
+                        } else {
+                            if p.orphans.len() >= ORPHAN_ANSWERS {
+                                p.orphans.pop_front();
+                            }
+                            p.orphans.push_back((key(&id), answer));
                         }
                     }
                     Message::Request { id, method, params } => {
@@ -715,11 +755,21 @@ impl ChildAgent {
                         let _ = inbound.send(Inbound::Notification { method, params }).await;
                     }
                 }
+                true
             }
             Entry::Err { line } => {
+                let note = Message::notification(HOST_STDERR, serde_json::json!({"text": line}));
+                if !(self.tap)(Direction::In, &note, Some(h)) {
+                    return false;
+                }
                 let _ = inbound.send(Inbound::Stderr(line, Some(h))).await;
+                true
             }
             Entry::Exit { code } => {
+                let note = Message::notification(HOST_EXIT, serde_json::json!({"code": code}));
+                if !(self.tap)(Direction::In, &note, Some(h)) {
+                    return false;
+                }
                 let mut p = self.pending.lock().await;
                 for (_, tx) in p.map.drain() {
                     let _ = tx.send(Err(RpcError::internal("agent process closed")));
@@ -730,7 +780,9 @@ impl ChildAgent {
                     hosted.exit.notify_waiters();
                 }
                 let _ = inbound.send(Inbound::Exited { pid: self.pid, code, host_seq: Some(h) }).await;
+                true
             }
         }
     }
+
 }

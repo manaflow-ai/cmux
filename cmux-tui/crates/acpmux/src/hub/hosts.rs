@@ -1,28 +1,33 @@
 //! Part of `Hub`; see `hub/mod.rs`. Adopting agent hosts after a daemon
 //! restart or upgrade (plans/cmux-next/durable-sessions.md 2.5): reattach,
-//! resume the host's entries after the last one logged, and rebuild the turn
-//! and permission state that died with the previous daemon.
+//! resume the host's entries after the last one logged, wait until the
+//! replayed entries are in the log, then rebuild the turn and permission
+//! state that died with the previous daemon from that complete log.
 
 use super::*;
 use crate::agent::Attached;
 use crate::agent_host::{self, Liveness};
 
-/// What the session log says about the work in flight when the previous
-/// controller stopped.
+/// How long adoption waits for one host's replayed entries to be logged.
+const REPLAY_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// What the session log says about the work in flight under one host
+/// incarnation when the previous controller stopped.
 #[derive(Debug, Default)]
 struct OpenWork {
     /// `turn_started` without `turn_result`: (seq, turnId, promptId, prompt, client).
     turn: Option<(u64, String, String, String, String)>,
-    /// The `session/prompt` request id written for that turn, and its
-    /// response when it is already logged.
+    /// The `session/prompt` request id written to this host for that turn,
+    /// and its answer when it is already logged.
     prompt_request: Option<Value>,
     prompt_response: Option<Value>,
-    /// Agent requests with no logged answer: (id, method, params).
+    /// Agent requests to this host with no logged answer: (id, method, params).
     requests: Vec<(Value, String, Option<Value>)>,
-    /// `permission_request` records with no decision, by agent request id:
-    /// (permissionId, request).
-    permissions: HashMap<String, (String, Value)>,
-    /// Largest `hostSeq` logged under the host incarnation being adopted.
+    /// `permission_request` records by agent request id: (permissionId,
+    /// request, logged decision when there is one).
+    permissions: HashMap<String, (String, Value, Option<Value>)>,
+    /// Largest `hostSeq` logged under this incarnation. Every entry kind is
+    /// logged in entry order before its ack, so this is the logged prefix.
     last_host_seq: u64,
 }
 
@@ -41,6 +46,11 @@ impl Hub {
             .collect();
         live.extend(bad.into_iter().map(|b| b.session_id));
         live
+    }
+
+    /// Whether a host for `session` may still run (a live or unproven record).
+    pub(super) fn host_record_live(session_id: &str) -> bool {
+        Self::live_host_sessions().contains(session_id)
     }
 
     /// Reattach every running agent host. Called once at daemon start,
@@ -63,14 +73,16 @@ impl Hub {
             let Some(session) = self.session_by_id(&record.session_id) else {
                 // A host for a session this daemon does not know (purged):
                 // nothing can show it, so end it.
-                let _ = agent_host::terminate_unadoptable(
-                    &dir,
-                    &record.session_id,
-                    Some(&record.start_nonce),
+                let ended = end_host_blocking(
+                    dir.clone(),
+                    record.session_id.clone(),
+                    Some(record.start_nonce.clone()),
                     Some(record.host_pid),
-                    record.harness_pid,
-                );
-                agent_host::remove_artifacts(&dir, &record);
+                )
+                .await;
+                if ended {
+                    agent_host::remove_artifacts(&dir, &record);
+                }
                 continue;
             };
             if let Err(e) = self.adopt_one(&session, record).await {
@@ -87,36 +99,28 @@ impl Hub {
         }
     }
 
-    /// End the host of a session that has no adopted child, when one runs.
-    pub(super) fn end_unadopted_host(&self, session: &Session) {
+    /// End the host of a session that has no adopted child, when one runs
+    /// (a host this build cannot adopt, or one whose link was lost).
+    pub(super) async fn end_unadopted_host(&self, session: &Session) {
         let dir = agent_host::hosts_dir();
         let Ok((good, bad)) = agent_host::load_records(&dir) else { return };
-        let host = good
-            .iter()
-            .find(|(_, r)| r.session_id == session.id)
-            .map(|(_, r)| (Some(r.start_nonce.clone()), Some(r.host_pid), r.harness_pid))
+        let record = good.iter().find(|(_, r)| r.session_id == session.id).map(|(_, r)| r.clone());
+        let host = record
+            .as_ref()
+            .map(|r| (Some(r.start_nonce.clone()), Some(r.host_pid)))
             .or_else(|| {
                 bad.iter()
                     .find(|b| b.session_id == session.id)
-                    .map(|b| (b.start_nonce.clone(), b.host_pid, b.harness_pid))
+                    .map(|b| (b.start_nonce.clone(), b.host_pid))
             });
-        let Some((nonce, host_pid, harness_pid)) = host else { return };
-        match agent_host::terminate_unadoptable(
-            &dir,
-            &session.id,
-            nonce.as_deref(),
-            host_pid,
-            harness_pid,
-        ) {
-            Ok(true) => {
-                if let Some((_, record)) = good.iter().find(|(_, r)| r.session_id == session.id) {
-                    agent_host::remove_artifacts(&dir, record);
-                }
-                self.append(session, "mux", "host_ended", json!({}));
+        let Some((nonce, host_pid)) = host else { return };
+        if end_host_blocking(dir.clone(), session.id.clone(), nonce, host_pid).await {
+            if let Some(record) = record {
+                agent_host::remove_artifacts(&dir, &record);
             }
-            Ok(false) | Err(_) => {
-                tracing::warn!(session = %session.id, "could not end its unadopted agent host");
-            }
+            self.append(session, "mux", "host_ended", json!({}));
+        } else {
+            tracing::warn!(session = %session.id, "could not end its unadopted agent host");
         }
     }
 
@@ -135,25 +139,20 @@ impl Hub {
         session: &Arc<Session>,
         record: agent_host::HostRecord,
     ) -> anyhow::Result<()> {
-        let work = self.open_work(session, &record.incarnation);
+        let resume_after = self.last_host_seq(session, &record.incarnation);
         let tap = self.session_tap(session);
         let incarnation = record.incarnation.clone();
-        // The open turn's answer may already sit in the host's buffer.
-        let awaiting = match (&work.turn, &work.prompt_request, &work.prompt_response) {
-            (Some(_), Some(id), None) => vec![id.clone()],
-            _ => Vec::new(),
-        };
         let attached = ChildAgent::attach_hosted(
             &session.meta().harness,
             record,
-            work.last_host_seq,
-            awaiting,
+            resume_after,
+            Vec::new(),
             session.inbound_tx.clone(),
             tap,
         )
         .await?;
-        let (child, adopted, mut responses) = match attached {
-            Attached::Ready(child, adopted, responses) => (child, adopted, responses),
+        let (child, adopted) = match attached {
+            Attached::Ready(child, adopted, _) => (child, adopted),
             Attached::Incompatible { min, max, host_build } => {
                 self.mark_unadoptable(
                     session,
@@ -168,35 +167,64 @@ impl Hub {
             let s = session.clone();
             tokio::spawn(async move { hub.inbound_loop(s, rx).await });
         }
+        // Scan only once every entry the host had is in the log: what the
+        // previous daemon wrote or answered may still sit in its buffer.
+        if !child.wait_logged(adopted.last_h, REPLAY_BUDGET).await {
+            tracing::warn!(session = %session.id, "agent host replay incomplete; recovering from the partial log");
+        }
         self.append(
             session,
             "mux",
             "host_adopted",
-            json!({"incarnation": incarnation, "hostBuild": adopted.host_build, "resumedAfter": work.last_host_seq}),
+            json!({"incarnation": incarnation, "hostBuild": adopted.host_build, "resumedAfter": resume_after}),
         );
         self.set_status(session, SessionStatus::Ready);
-        self.recover_work(session, &child, work, responses.pop()).await;
+        let work = self.open_work(session, &incarnation);
+        self.recover_work(session, &child, work).await;
         self.save_meta(session);
         Ok(())
     }
 
-    /// Scan the log for the work in flight under host `incarnation`.
+    /// Largest `hostSeq` logged under host `incarnation`.
+    fn last_host_seq(&self, session: &Session, incarnation: &str) -> u64 {
+        let mut last = 0;
+        let mut current = false;
+        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+            if e.dir == "mux" && e.kind == "host_started" {
+                current = e.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation);
+                if current {
+                    last = 0;
+                }
+            } else if current && let Some(h) = e.host_seq {
+                last = last.max(h);
+            }
+            true
+        });
+        last
+    }
+
+    /// Scan the log for the work in flight under host `incarnation`. Agent
+    /// requests, answers and permission records count only within this
+    /// incarnation: every harness restarts its own request ids.
     fn open_work(&self, session: &Session, incarnation: &str) -> OpenWork {
         let mut work = OpenWork::default();
-        let mut in_incarnation = false;
-        // Agent requests and the ids answered, in log order.
+        let mut current = false;
         let mut requests: Vec<(Value, String, Option<Value>)> = Vec::new();
         let mut answered: std::collections::HashSet<String> = Default::default();
-        let mut decided: std::collections::HashSet<String> = Default::default();
-        let mut asked: HashMap<String, (String, Value)> = HashMap::new();
+        let mut asked: HashMap<String, (String, Value, Option<Value>)> = HashMap::new();
+        let mut by_permission: HashMap<String, String> = HashMap::new();
         let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
             match (e.dir.as_str(), e.kind.as_str()) {
                 ("mux", "host_started") => {
-                    in_incarnation = e.msg.get("incarnation").and_then(Value::as_str)
-                        == Some(incarnation);
-                    if in_incarnation {
-                        work.last_host_seq = 0;
-                    }
+                    current = e.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation);
+                    // A new harness: its ids and answers start over.
+                    requests.clear();
+                    answered.clear();
+                    asked.clear();
+                    by_permission.clear();
+                    work.prompt_request = None;
+                    work.prompt_response = None;
+                    work.last_host_seq = 0;
                 }
                 ("mux", "turn_started") => {
                     let field = |k: &str| {
@@ -217,38 +245,43 @@ impl Hub {
                     work.prompt_request = None;
                     work.prompt_response = None;
                 }
-                ("mux", "permission_request") => {
+                ("mux", "permission_request") if current => {
                     if let (Some(pid), Some(aid)) = (
                         e.msg.get("permissionId").and_then(Value::as_str),
                         e.msg.get("agentRequestId").filter(|v| !v.is_null()),
                     ) {
                         let request = e.msg.get("request").cloned().unwrap_or(Value::Null);
-                        asked.insert(aid.to_string(), (pid.to_owned(), request));
+                        asked.insert(aid.to_string(), (pid.to_owned(), request, None));
+                        by_permission.insert(pid.to_owned(), aid.to_string());
                     }
                 }
-                ("mux", "permission_decision") => {
-                    if let Some(pid) = e.msg.get("permissionId").and_then(Value::as_str) {
-                        decided.insert(pid.to_owned());
+                ("mux", "permission_decision") if current => {
+                    if let Some(aid) = e
+                        .msg
+                        .get("permissionId")
+                        .and_then(Value::as_str)
+                        .and_then(|pid| by_permission.get(pid))
+                        && let Some(entry) = asked.get_mut(aid)
+                    {
+                        entry.2 = e.msg.get("outcome").cloned();
                     }
                 }
-                // Only work handed to this host can still be answered by it.
-                ("out", method::SESSION_PROMPT) if work.turn.is_some() && in_incarnation => {
+                ("out", method::SESSION_PROMPT) if current && work.turn.is_some() => {
                     work.prompt_request = e.msg.get("id").cloned();
                 }
-                ("in", "response") => {
-                    if work.prompt_request.is_some() && e.msg.get("id") == work.prompt_request.as_ref() {
+                ("in", "response") if current => {
+                    if work.prompt_request.is_some() && e.msg.get("id") == work.prompt_request.as_ref()
+                    {
                         work.prompt_response = Some(e.msg.clone());
                     }
                 }
-                ("out", "response") => {
+                ("out", "response") if current => {
                     if let Some(id) = e.msg.get("id") {
                         answered.insert(id.to_string());
                     }
                 }
                 ("in", kind)
-                    if in_incarnation
-                        && e.msg.get("id").is_some()
-                        && e.msg.get("method").is_some() =>
+                    if current && e.msg.get("id").is_some() && e.msg.get("method").is_some() =>
                 {
                     let id = e.msg["id"].clone();
                     let params = e.msg.get("params").cloned();
@@ -256,75 +289,77 @@ impl Hub {
                 }
                 _ => {}
             }
-            if in_incarnation && let Some(h) = e.host_seq {
+            if current && let Some(h) = e.host_seq {
                 work.last_host_seq = work.last_host_seq.max(h);
             }
             true
         });
         work.requests =
             requests.into_iter().filter(|(id, _, _)| !answered.contains(&id.to_string())).collect();
-        work.permissions =
-            asked.into_iter().filter(|(_, (pid, _))| !decided.contains(pid)).collect();
+        work.permissions = asked;
         work
     }
 
     /// Rebuild the turn and the unanswered agent requests of an adopted host.
-    async fn recover_work(
-        self: &Arc<Self>,
-        session: &Arc<Session>,
-        child: &Arc<ChildAgent>,
-        work: OpenWork,
-        prompt_answer: Option<crate::agent::Response>,
-    ) {
-        // The turn first, so a re-registered permission sees it.
-        if let (Some((turn_seq, turn_id, prompt_id, prompt, client)), Some(_)) =
-            (work.turn.clone(), work.prompt_request.clone())
-        {
-            *session.turn.lock().unwrap() = Some(TurnInfo {
-                started_at: now_ms(),
-                client,
-                prompt_preview: prompt,
-                turn_id: turn_id.clone(),
-                prompt_id: prompt_id.clone(),
-                turn_seq,
-            });
-            self.set_status(session, SessionStatus::Running);
-            let response = match work.prompt_response.clone() {
-                // The answer reached the log before the old daemon settled it.
-                Some(msg) => Box::pin(async move { response_result(&msg) })
-                    as std::pin::Pin<
-                        Box<dyn std::future::Future<Output = Result<Value, RpcError>> + Send>,
-                    >,
-                None => {
-                    let rx = prompt_answer;
-                    Box::pin(async move {
-                        match rx {
-                            Some(rx) => rx.await.unwrap_or_else(|_| {
+    async fn recover_work(self: &Arc<Self>, session: &Arc<Session>, child: &Arc<ChildAgent>, work: OpenWork) {
+        if let Some((turn_seq, turn_id, prompt_id, prompt, client)) = work.turn.clone() {
+            match (work.prompt_request.clone(), work.prompt_response.clone()) {
+                // The prompt never reached this host (or another host ran
+                // it): nothing can answer it any more.
+                (None, _) => {
+                    let error = "the agent host never received this turn's prompt";
+                    self.append(session, "mux", "turn_result", json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "error": error, "errorText": error}));
+                }
+                (Some(request_id), answer) => {
+                    *session.turn.lock().unwrap() = Some(TurnInfo {
+                        started_at: now_ms(),
+                        client,
+                        prompt_preview: prompt,
+                        turn_id: turn_id.clone(),
+                        prompt_id: prompt_id.clone(),
+                        turn_seq,
+                    });
+                    self.set_status(session, SessionStatus::Running);
+                    // The answer is either logged already, or still to come
+                    // (`await_response` also takes one that arrived first).
+                    let rx = match answer {
+                        Some(_) => None,
+                        None => Some(child.await_response(request_id).await),
+                    };
+                    let hub = self.clone();
+                    let s = session.clone();
+                    let c = child.clone();
+                    tokio::spawn(async move {
+                        // New prompts queue behind the recovered turn.
+                        let guard = s.turn_lock.lock().await;
+                        let result = match (answer, rx) {
+                            (Some(msg), _) => response_result(&msg),
+                            (None, Some(rx)) => rx.await.unwrap_or_else(|_| {
                                 Err(RpcError::internal("agent response channel dropped"))
                             }),
-                            None => Err(RpcError::internal("agent response was not awaited")),
-                        }
-                    })
+                            (None, None) => Err(RpcError::internal("agent answer lost")),
+                        };
+                        let _ =
+                            hub.finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq).await;
+                        drop(guard);
+                    });
                 }
-            };
-            let hub = self.clone();
-            let s = session.clone();
-            let c = child.clone();
-            tokio::spawn(async move {
-                // New prompts queue behind the recovered turn.
-                let guard = s.turn_lock.lock().await;
-                let result = response.await;
-                let _ = hub.finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq).await;
-                drop(guard);
-            });
+            }
         }
         let epoch = session.permission_epoch.load(Ordering::SeqCst);
         let turn_id = session.turn().map(|t| t.turn_id);
         for (id, m, params) in work.requests {
             if m == method::SESSION_REQUEST_PERMISSION
-                && let Some((permission_id, request)) = work.permissions.get(&id.to_string()).cloned()
+                && let Some((permission_id, request, decided)) =
+                    work.permissions.get(&id.to_string()).cloned()
             {
-                self.reregister_permission(session, child, id, permission_id, request);
+                match decided {
+                    // Decided but the answer never reached the agent: send it.
+                    Some(outcome) => {
+                        let _ = child.respond(id, Ok(permission_answer(outcome))).await;
+                    }
+                    None => self.reregister_permission(session, child, id, permission_id, request),
+                }
                 continue;
             }
             // Never answered and never asked: handle it as if it just came.
@@ -372,16 +407,22 @@ impl Hub {
                     hub.set_status(&s, next);
                 }
             }
-            let mut out = json!({"outcome": outcome});
-            if let Some(m) = out["outcome"].get("_meta").cloned() {
-                out["_meta"] = m;
-                if let Some(o) = out["outcome"].as_object_mut() {
-                    o.remove("_meta");
-                }
-            }
-            let _ = c.respond(agent_request_id, Ok(out)).await;
+            let _ = c.respond(agent_request_id, Ok(permission_answer(outcome))).await;
         });
     }
+}
+
+/// The `session/request_permission` result for a logged outcome, shaped as
+/// `handle_permission` shapes it (`_meta` lifted out of the outcome).
+fn permission_answer(outcome: Value) -> Value {
+    let mut out = json!({"outcome": outcome});
+    if let Some(m) = out["outcome"].get("_meta").cloned() {
+        out["_meta"] = m;
+        if let Some(o) = out["outcome"].as_object_mut() {
+            o.remove("_meta");
+        }
+    }
+    out
 }
 
 fn response_result(msg: &Value) -> Result<Value, RpcError> {
@@ -390,4 +431,19 @@ fn response_result(msg: &Value) -> Result<Value, RpcError> {
             .unwrap_or_else(|_| RpcError::internal("agent error"))),
         _ => Ok(msg.get("result").cloned().unwrap_or(Value::Null)),
     }
+}
+
+/// `agent_host::terminate_unadoptable` off the async runtime.
+async fn end_host_blocking(
+    dir: std::path::PathBuf,
+    session_id: String,
+    nonce: Option<String>,
+    host_pid: Option<u32>,
+) -> bool {
+    tokio::task::spawn_blocking(move || {
+        agent_host::terminate_unadoptable(&dir, &session_id, nonce.as_deref(), host_pid)
+            .unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false)
 }

@@ -12,9 +12,6 @@ use tokio::net::UnixListener;
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
-/// Frames queued to one controller before the host drops that connection
-/// (the controller reconnects and resumes from its last logged entry).
-const CONTROLLER_QUEUE: usize = 4096;
 
 /// Entry point of `acpmux __agent-host`: read the spawn spec from stdin,
 /// start the harness, answer on stdout, then serve controllers until the
@@ -89,9 +86,7 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         // started (background shells included).
         .process_group(0)
         .kill_on_drop(false);
-    let child = cmd
-        .spawn()
-        .with_context(|| format!("spawn {} {}", spec.program, spec.args.join(" ")))?;
+    // Bind before the harness starts, so a failure leaves nothing running.
     let _ = std::fs::remove_file(&spec.socket);
     let listener = UnixListener::bind(&spec.socket)
         .with_context(|| format!("bind {}", spec.socket.display()))?;
@@ -99,6 +94,9 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&spec.socket, std::fs::Permissions::from_mode(0o600))?;
     }
+    let mut child = cmd
+        .spawn()
+        .with_context(|| format!("spawn {} {}", spec.program, spec.args.join(" ")))?;
     let record = HostRecord {
         record_version: RECORD_VERSION,
         session_id: spec.session_id.clone(),
@@ -112,7 +110,15 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         host_build: crate::hub::BUILD.to_owned(),
         socket: spec.socket.clone(),
     };
-    write_record_atomic(&record_path(&spec.hosts_dir, &spec.session_id), &record)?;
+    if let Err(e) = write_record_atomic(&record_path(&spec.hosts_dir, &spec.session_id), &record) {
+        if let Some(pg) = child.id() {
+            // SAFETY: the harness just started as the leader of this group.
+            unsafe { libc::killpg(pg as i32, libc::SIGKILL) };
+        }
+        let _ = child.start_kill();
+        let _ = std::fs::remove_file(&spec.socket);
+        return Err(e);
+    }
     Ok(Started { record, listener, child, _live: live })
 }
 
@@ -139,11 +145,13 @@ enum Event {
     Exited(Option<i32>),
     Accepted(tokio::net::UnixStream),
     Frame(u64, Option<ControllerFrame>),
+    /// SIGTERM: end the harness and the host.
+    Term,
 }
 
 struct Controller {
     id: u64,
-    tx: mpsc::Sender<HostFrame>,
+    tx: mpsc::UnboundedSender<HostFrame>,
     /// Entries flow only after `Resume`.
     resumed: bool,
 }
@@ -161,11 +169,17 @@ struct State {
     stderr_done: bool,
     leader_code: Option<Option<i32>>,
     /// Connections that have not said `Hello` yet.
-    pending_conns: Vec<(u64, mpsc::Sender<HostFrame>)>,
+    pending_conns: Vec<(u64, mpsc::UnboundedSender<HostFrame>)>,
     controller: Option<Controller>,
-    stdin_tx: mpsc::Sender<String>,
+    /// Unbounded: a harness that stops reading never blocks the loop; what
+    /// waits here is bounded by the controller, which waits for answers.
+    stdin_tx: mpsc::UnboundedSender<String>,
     translator: Option<Arc<Translator>>,
     pgid: Option<i32>,
+    /// The harness leader has not been reaped: its group id is still ours.
+    leader_alive: Arc<std::sync::atomic::AtomicBool>,
+    /// Stderr lines not kept while over the buffer cap.
+    stderr_dropped: u64,
 }
 
 impl Started {
@@ -178,7 +192,7 @@ impl Started {
         let pgid = child.id().map(|p| p as i32);
 
         // stdin writer: a full pipe never blocks the event loop.
-        let (stdin_tx, mut stdin_rx) = mpsc::channel::<String>(256);
+        let (stdin_tx, mut stdin_rx) = mpsc::unbounded_channel::<String>();
         tokio::spawn(async move {
             let mut stdin = stdin;
             while let Some(line) = stdin_rx.recv().await {
@@ -226,6 +240,19 @@ impl Started {
         {
             let tx = events_tx.clone();
             tokio::spawn(async move {
+                let Ok(mut term) =
+                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                else {
+                    return;
+                };
+                if term.recv().await.is_some() {
+                    let _ = tx.send(Event::Term).await;
+                }
+            });
+        }
+        {
+            let tx = events_tx.clone();
+            tokio::spawn(async move {
                 while let Ok((stream, _)) = listener.accept().await {
                     if tx.send(Event::Accepted(stream)).await.is_err() {
                         break;
@@ -260,6 +287,8 @@ impl Started {
             stdin_tx,
             translator,
             pgid,
+            leader_alive: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            stderr_dropped: 0,
         };
         let mut next_conn = 0u64;
         let mut permit_out = pace_tx.try_send(()).is_ok();
@@ -275,7 +304,7 @@ impl Started {
                     state.stdout_done = true;
                     state.maybe_push_exit();
                 }
-                Event::Stderr(Some(line)) => state.push(Entry::Err { line }),
+                Event::Stderr(Some(line)) => state.on_stderr(line),
                 Event::Stderr(None) => {
                     state.stderr_done = true;
                     state.maybe_push_exit();
@@ -283,17 +312,33 @@ impl Started {
                 Event::Exited(code) => {
                     state.leader_code = Some(code);
                     // Stop what the agent left running so its pipes close.
+                    // The group outlives its reaped leader while members
+                    // remain, so its id is not reused yet.
+                    state.leader_alive.store(false, std::sync::atomic::Ordering::SeqCst);
                     if let Some(pg) = state.pgid {
-                        // SAFETY: the harness leads this process group.
+                        // SAFETY: the harness led this process group.
                         unsafe { libc::killpg(pg, libc::SIGKILL) };
                     }
                     state.maybe_push_exit();
+                }
+                Event::Term => {
+                    // The frozen end path (`terminate_unadoptable`): end the
+                    // harness while its group is still ours, then the host.
+                    if state.leader_alive.load(std::sync::atomic::Ordering::SeqCst)
+                        && let Some(pg) = state.pgid
+                    {
+                        // SAFETY: the leader is unreaped, so the group is ours.
+                        unsafe { libc::killpg(pg, libc::SIGKILL) };
+                    }
+                    break;
                 }
                 Event::Accepted(stream) => {
                     next_conn += 1;
                     let id = next_conn;
                     let (mut rd, mut wr) = stream.into_split();
-                    let (tx, mut rx) = mpsc::channel::<HostFrame>(CONTROLLER_QUEUE);
+                    // Unbounded: the retained entries already bound it, and a
+                    // slow owner must not be dropped (it would never return).
+                    let (tx, mut rx) = mpsc::unbounded_channel::<HostFrame>();
                     tokio::spawn(async move {
                         while let Some(frame) = rx.recv().await {
                             if write_frame(&mut wr, &frame).await.is_err() {
@@ -339,13 +384,26 @@ impl State {
             self.exit_h = Some(h);
         }
         if let Some(c) = self.controller.as_ref().filter(|c| c.resumed)
-            && c.tx.try_send(HostFrame::Entry { h, e: entry.clone() }).is_err()
+            && c.tx.send(HostFrame::Entry { h, e: entry.clone() }).is_err()
         {
-            // A controller that cannot keep up reconnects and resumes.
+            // The connection closed; the next owner resumes from the buffer.
             self.controller = None;
         }
         self.entries.push_back((h, entry, weight));
         self.weight += weight;
+    }
+
+    fn on_stderr(&mut self, line: String) {
+        // Diagnostics only: over the cap they are counted, not kept.
+        if self.weight > self.spec.buffer_cap {
+            self.stderr_dropped += 1;
+            return;
+        }
+        if self.stderr_dropped > 0 {
+            let n = std::mem::take(&mut self.stderr_dropped);
+            self.push(Entry::Err { line: format!("[{n} stderr lines dropped while no controller read them]") });
+        }
+        self.push(Entry::Err { line });
     }
 
     fn drop_through(&mut self, h: u64) {
@@ -378,6 +436,11 @@ impl State {
 
     async fn on_stdout(&mut self, line: String) {
         if line.trim().is_empty() {
+            return;
+        }
+        // A line no frame can carry would wedge every replay.
+        if line.len() > MAX_FRAME - 4096 {
+            self.push(Entry::Err { line: format!("[stdout line of {} bytes dropped: over the frame limit]", line.len()) });
             return;
         }
         let Some(tr) = self.translator.clone() else {
@@ -420,7 +483,7 @@ impl State {
         });
         let mut s = line.to_string();
         s.push('\n');
-        let _ = self.stdin_tx.try_send(s);
+        let _ = self.stdin_tx.send(s);
     }
 
     async fn on_line(&mut self, msg: Value) {
@@ -432,7 +495,7 @@ impl State {
         }
         let Some(tr) = self.translator.clone() else {
             self.push(Entry::Tap { dir: TapDir::Out, msg: message.to_value() });
-            let _ = self.stdin_tx.send(message.to_line()).await;
+            let _ = self.stdin_tx.send(message.to_line());
             return;
         };
         self.push(Entry::Tap { dir: TapDir::Out, msg: message.to_value() });
@@ -470,12 +533,11 @@ impl State {
                         min: PROTOCOL_MIN,
                         max: PROTOCOL_MAX,
                         host_build: self.record.host_build.clone(),
-                    })
-                    .await;
+                    });
                 return;
             };
             if let Some(old) = self.controller.take() {
-                let _ = old.tx.try_send(HostFrame::Superseded);
+                let _ = old.tx.send(HostFrame::Superseded);
             }
             let exited = self.exit_h.map(|_| self.leader_code.unwrap_or(None));
             let _ = tx
@@ -488,8 +550,7 @@ impl State {
                     acked_h: self.acked_h,
                     max_out_id: self.max_out_id,
                     exited,
-                })
-                .await;
+                });
             self.controller = Some(Controller { id, tx, resumed: false });
             return;
         }
@@ -508,7 +569,7 @@ impl State {
                     .collect();
                 let Some(c) = self.controller.as_mut() else { return };
                 for frame in backlog {
-                    if c.tx.send(frame).await.is_err() {
+                    if c.tx.send(frame).is_err() {
                         self.controller = None;
                         return;
                     }
@@ -518,20 +579,25 @@ impl State {
             ControllerFrame::Line { msg } => self.on_line(msg).await,
             ControllerFrame::Ack { h } => self.drop_through(h),
             ControllerFrame::Terminate { grace_ms } => {
-                if let Some(pg) = self.pgid {
+                if let Some(pg) = self.pgid.filter(|_| {
+                    self.leader_alive.load(std::sync::atomic::Ordering::SeqCst)
+                }) {
                     // SAFETY: the harness leads this process group.
                     unsafe { libc::killpg(pg, libc::SIGTERM) };
                     let grace = std::time::Duration::from_millis(grace_ms);
+                    let alive = self.leader_alive.clone();
                     // A bounded kill deadline, not synchronization: the exit
                     // entry is the signal that the harness ended.
                     tokio::spawn(async move {
                         tokio::time::sleep(grace).await;
-                        // SAFETY: as above; harmless once the group is gone.
-                        unsafe { libc::killpg(pg, libc::SIGKILL) };
+                        if alive.load(std::sync::atomic::Ordering::SeqCst) {
+                            // SAFETY: the leader is unreaped, so the group is ours.
+                            unsafe { libc::killpg(pg, libc::SIGKILL) };
+                        }
                     });
                 }
                 if let Some(c) = self.controller.as_ref() {
-                    let _ = c.tx.send(HostFrame::TerminateAck).await;
+                    let _ = c.tx.send(HostFrame::TerminateAck);
                 }
             }
             ControllerFrame::Query { id } => {
@@ -546,13 +612,12 @@ impl State {
                 if let Some(c) = self.controller.as_ref() {
                     let _ = c
                         .tx
-                        .send(HostFrame::QueryReply { id, claude_session_id, modes, config_options })
-                        .await;
+                        .send(HostFrame::QueryReply { id, claude_session_id, modes, config_options });
                 }
             }
             ControllerFrame::Detach => {
                 if let Some(c) = self.controller.take() {
-                    let _ = c.tx.send(HostFrame::DetachAck).await;
+                    let _ = c.tx.send(HostFrame::DetachAck);
                 }
             }
         }
