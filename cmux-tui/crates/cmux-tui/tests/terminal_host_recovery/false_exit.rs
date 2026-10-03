@@ -101,20 +101,14 @@ fn pending_adoption_tab_is_not_dead_and_completion_pushes_tree_changed() {
         }
     });
     fs::rename(&held_endpoint, &endpoint).unwrap();
-    let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
-    let mut request_id = 4;
-    loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        pushes
-            .recv_timeout(remaining)
-            .expect("adoption completion pushed no tree-changed that shows the tab running");
-        request_id += 1;
-        let tab = tab_with_resource_id(&harness.socket, &tab_id, request_id);
-        assert_eq!(tab["dead"], false, "{tab}");
-        if tab["terminal_state"] == "running" {
-            break;
-        }
-    }
+    // Nothing else changes the tree meanwhile, so the first push after the
+    // host is reachable again must be adoption's, and must show it running.
+    pushes
+        .recv_timeout(test_timeout(Duration::from_secs(15)))
+        .expect("adoption completion pushed no tree-changed");
+    let tab = tab_with_resource_id(&harness.socket, &tab_id, 4);
+    assert_eq!(tab["dead"], false, "{tab}");
+    assert_eq!(tab["terminal_state"], "running", "{tab}");
 }
 
 /// C3: a host record this build cannot validate (here a future
@@ -179,4 +173,63 @@ fn unreadable_host_record_keeps_terminal_unadoptable_not_ended() {
         }),
     );
     wait_for_process_and_group_absent(host_pid);
+}
+
+/// C3, continued: an unadoptable host whose shell exits by itself must not
+/// leave its tab "unadoptable" forever. The daemon watches the host's live
+/// marker and ends the terminal with the exit status the host recorded.
+#[test]
+fn unadoptable_host_that_exits_ends_its_terminal_with_the_real_status() {
+    let mut harness = RecoveryHarness::start("false-exit-unadoptable-exit");
+    let gate = harness.dir.join("gate");
+    let c_path = std::ffi::CString::new(gate.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: valid NUL-terminated path.
+    assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": ["/bin/sh", "-c", format!("read line < '{}'; exit 7", gate.display())],
+            "new_workspace": true,
+            "cols": 80,
+            "rows": 24,
+        }),
+    );
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let host_pid = record.host_pid as libc::pid_t;
+
+    harness.sigkill();
+    let mut future: serde_json::Value =
+        serde_json::from_slice(&fs::read(&record_path).unwrap()).unwrap();
+    future["record_version"] = serde_json::json!(99);
+    fs::write(&record_path, serde_json::to_vec(&future).unwrap()).unwrap();
+    harness.restart();
+    let resolved = request(
+        &harness.socket,
+        serde_json::json!({"id": 2, "cmd": "resolve-terminal", "terminal_id": terminal_id}),
+    );
+    assert_ne!(resolved["lifecycle"], "exited", "{resolved}");
+
+    fs::write(&gate, b"go\n").unwrap();
+    wait_for_process_and_group_absent(host_pid);
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
+    let resolved = loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"id": 3, "cmd": "resolve-terminal", "terminal_id": terminal_id}),
+        );
+        if resolved["lifecycle"] == "exited" {
+            break resolved;
+        }
+        assert!(Instant::now() < deadline, "the ended unadoptable host never ended its terminal");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(
+        resolved["exit"]["outcome"],
+        serde_json::json!({"kind": "exit", "code": 7}),
+        "{resolved}"
+    );
+    assert!(!record_path.exists(), "the ended host's record must be removed");
 }
