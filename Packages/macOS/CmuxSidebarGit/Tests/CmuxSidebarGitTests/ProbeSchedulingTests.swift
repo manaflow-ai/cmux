@@ -74,13 +74,9 @@ import CmuxGit
         #expect(await clock.recordedDurations.last == SidebarGitMetadataService.terminalTypingQuietInterval)
 
         host.terminalTypingActive = false
-        service.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
-            workspaceId: workspaceId,
-            panelId: panelId,
-            reason: "typingEnded"
-        )
         await clock.waitForSleeper()
         await clock.resumeNext()
+        #expect(await reader.waitForProbe())
         await reader.openGate()
     }
 

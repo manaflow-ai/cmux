@@ -224,6 +224,39 @@ extension SidebarGitMetadataService {
     ) {
         workspaceGitSnapshotTasksByDirectory.removeValue(forKey: expectedDirectory)
         workspaceGitSnapshotTaskContextByDirectory.removeValue(forKey: expectedDirectory)
+
+        // A reader admitted before typing began can still finish during the
+        // typing window. Keep its requests in the directory mailbox and use
+        // the same owned snapshot-task slot for a quiet-period retry, rather
+        // than publishing sidebar state in the middle of a terminal turn.
+        if host?.terminalTypingIsActive(within: Self.terminalTypingQuietInterval) == true {
+            let delay = max(
+                Self.terminalTypingQuietInterval,
+                host?.terminalTypingQuietDelay(for: Self.terminalTypingQuietInterval) ?? 0
+            )
+            let clock = clock
+            workspaceGitSnapshotTasksByDirectory[expectedDirectory] = Task { @MainActor [weak self] in
+                do {
+                    try await clock.sleep(for: .seconds(delay))
+                } catch {
+                    return
+                }
+                guard let self, !Task.isCancelled else { return }
+                self.workspaceGitSnapshotTasksByDirectory.removeValue(forKey: expectedDirectory)
+                let requests = self.workspaceGitSnapshotRequestsByDirectory.removeValue(forKey: expectedDirectory) ?? [:]
+                for request in requests.values {
+                    self.workspaceGitSnapshotDirectoryByProbeKey.removeValue(forKey: request.probeKey)
+                    self.workspaceGitProbeStateByKey[request.probeKey] = .idle
+                    self.scheduleWorkspaceGitMetadataRefreshIfPossible(
+                        workspaceId: request.probeKey.workspaceId,
+                        panelId: request.probeKey.panelId,
+                        reason: "terminalTypingDeferredApply"
+                    )
+                }
+            }
+            return
+        }
+
         let requests = workspaceGitSnapshotRequestsByDirectory.removeValue(forKey: expectedDirectory) ?? [:]
         for request in requests.values {
             workspaceGitSnapshotDirectoryByProbeKey.removeValue(forKey: request.probeKey)
