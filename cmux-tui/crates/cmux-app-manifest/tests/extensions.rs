@@ -39,6 +39,7 @@ fn every_scope_in_the_grammar_has_a_class() {
         ("usage:read", ScopeClass::Restricted, false),
         ("mcp:expose", ScopeClass::Restricted, false),
         ("clipboard:write", ScopeClass::Restricted, false),
+        ("coderouter:keys", ScopeClass::Restricted, false),
         ("process:spawn:sr", ScopeClass::Restricted, true),
         ("op:coderouter.accounts.usage", ScopeClass::Sensitive, true),
     ];

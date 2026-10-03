@@ -533,7 +533,7 @@
       "type": "object",
       "maxProperties": 64,
       "propertyNames": {
-        "pattern": "^([a-z][a-z0-9_-]{0,31}:(read|write|execute|external|answer|control|input)|actions:run|embed:run|storage:(local|synced)|net:(\\*\\.)?[a-z0-9.-]{1,253}|integration:[a-z0-9-]{1,32}(:read)?|clipboard:write|mcp:expose)$"
+        "pattern": "^([a-z][a-z0-9_-]{0,31}:(read|write|execute|external|answer|control|input|keys)|actions:run|embed:run|storage:(local|synced)|net:(\\*\\.)?[a-z0-9.-]{1,253}|integration:[a-z0-9-]{1,32}(:read)?|clipboard:write|mcp:expose)$"
       },
       "additionalProperties": {
         "type": "string",
@@ -730,7 +730,7 @@
       "maxProperties": 64,
       "description": "The server principal's own scopes: app scopes plus the server-only process:spawn:<binary> and op:<op name>.",
       "propertyNames": {
-        "pattern": "^([a-z][a-z0-9_-]{0,31}:(read|write|execute|external|answer|control|input)|actions:run|embed:run|storage:(local|synced)|net:(\\*\\.)?[a-z0-9.-]{1,253}|integration:[a-z0-9-]{1,32}(:read)?|clipboard:write|mcp:expose|process:spawn:[a-z0-9][a-z0-9-]{0,63}|op:[a-z][a-zA-Z0-9_.-]{0,95})$"
+        "pattern": "^([a-z][a-z0-9_-]{0,31}:(read|write|execute|external|answer|control|input|keys)|actions:run|embed:run|storage:(local|synced)|net:(\\*\\.)?[a-z0-9.-]{1,253}|integration:[a-z0-9-]{1,32}(:read)?|clipboard:write|mcp:expose|process:spawn:[a-z0-9][a-z0-9-]{0,63}|op:[a-z][a-zA-Z0-9_.-]{0,95})$"
       },
       "additionalProperties": {
         "type": "string",
