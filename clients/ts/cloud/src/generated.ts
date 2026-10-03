@@ -1552,6 +1552,11 @@ export interface CloudOps {
     }
     readonly result: Install
   }
+  /** Sign this install out: revokes the calling install (its token, grant, push targets and presence key) so a signed-out device keeps nothing usable. */
+  readonly "install.sign_out": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: Install
+  }
   /** Finish a connection from the provider's redirect (the signed-in user must be the one who started it). */
   readonly "integration.complete": {
     readonly params: {
@@ -2133,6 +2138,7 @@ export const cloudOpMeta = {
   "install.register": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "install.rename": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "install.revoke": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
+  "install.sign_out": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "integration.complete": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "integration.connect": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "integration.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },

@@ -86,6 +86,21 @@ export const InstallRename = def({
   mcp: { expose: "opt_in", group: "account" }
 })
 
+export const InstallSignOut = def({
+  name: "install.sign_out",
+  owner: "cloud:UserDO",
+  class: "mutation",
+  risk: "mutate-own",
+  target: "install",
+  principals: ["install"],
+  params: Schema.Struct({}),
+  result: Install,
+  errors: [...mutationErrors],
+  docs: "Sign this install out: revokes the calling install (its token, grant, push targets and presence key) so a signed-out device keeps nothing usable.",
+  cli: { path: "install sign-out", visible: true },
+  mcp: { expose: "never", group: "account" }
+})
+
 export const InstallRevoke = def({
   name: "install.revoke",
   owner: "cloud:UserDO",
@@ -166,6 +181,7 @@ export const cloudOps = [
   InstallRegister,
   InstallRename,
   InstallRevoke,
+  InstallSignOut,
   InstallList,
   TeamDirectory,
   HostEnroll,
