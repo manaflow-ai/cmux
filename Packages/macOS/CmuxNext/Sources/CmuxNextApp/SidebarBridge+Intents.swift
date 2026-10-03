@@ -95,6 +95,7 @@ extension SidebarBridge {
             model.apply(intent)
             sendPinned(ids, pinned)
         case .activateItem(let id):
+            model.apply(intent)
             activateLayoutItem(id)
         case .layout(let op):
             applyLayoutOp(op)

@@ -101,6 +101,7 @@ import Testing
         let menu = view.overflowMenu()
         #expect(menu.items.map(\.title) == [SidebarBuiltIn.appStore.title, SidebarBuiltIn.settings.title, SidebarBuiltIn.customize.title,
                                              "cmux/coderouter"])
+        #expect(menu.items.allSatisfy { $0.image != nil })
         var activated: [LayoutItemID] = []
         view.onActivate = { activated.append($0) }
         menu.performActionForItem(at: 0)

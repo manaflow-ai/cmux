@@ -28,6 +28,7 @@ final class SidebarItemRowView: NSView {
     var isRailButton = false
     var onPress: (() -> Void)?
     var onContextMenu: ((NSEvent, NSView) -> Void)?
+    var onHoverChanged: ((Bool) -> Void)?
 
     private(set) var info = SidebarItemInfo(title: "", symbol: "circle")
     private(set) var style = Style.builtIn
@@ -124,7 +125,7 @@ final class SidebarItemRowView: NSView {
 
     override func updateLayer() {
         performWithTheme {
-            ChromeHover.paint(pill, fill, animated: fadesNextFill)
+            ChromeHover.paint(pill, fill, animated: fadesNextFill && !isRailButton)
             fadesNextFill = false
             chip.backgroundColor = style == .list ? (info.color.map(SidebarStyle.color) ?? Palette.hoverFill).cgColor : nil
             title.textColor = Palette.textPrimary
@@ -200,8 +201,16 @@ final class SidebarItemRowView: NSView {
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false; isPressed = false }
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+        onHoverChanged?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        isPressed = false
+        onHoverChanged?(false)
+    }
 
     /// Activates on press, as the sidebar's rows do; the pressed fill shows
     /// until release.

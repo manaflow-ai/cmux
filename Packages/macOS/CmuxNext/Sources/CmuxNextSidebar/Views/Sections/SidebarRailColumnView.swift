@@ -43,7 +43,7 @@ public final class SidebarRailColumnView: NSView {
         addSubview(rail)
         // task-owner: this view (cancelled in deinit); event-driven (Observation)
         observation = Task { [weak self, model] in
-            for await _ in Observations({ (model.layout, model.itemInfo, model.suppressedApps, model.activeProfileID, Metrics.iconSize, Metrics.lineWidth(Metrics.dividerThickness)) }) {
+            for await _ in Observations({ (model.layout, model.itemInfo, model.activeLayoutItemID, model.suppressedApps, model.activeProfileID, Metrics.iconSize, Metrics.lineWidth(Metrics.dividerThickness)) }) {
                 self?.refresh()
             }
         }
@@ -85,7 +85,11 @@ public final class SidebarRailColumnView: NSView {
                 }
             }
         }
-        rail.update(SidebarRailView.Content(document: document, room: model.activeProfileID?.rawValue, infos: model.itemInfo,
+        var infos = model.itemInfo
+        if let active = model.activeLayoutItemID {
+            for id in infos.keys { infos[id]?.isActive = id == active }
+        }
+        rail.update(SidebarRailView.Content(document: document, room: model.activeProfileID?.rawValue, infos: infos,
                                             toolTips: toolTips, metrics: Self.metrics(width: bounds.width, topInset: topInset),
                                             accessory: showsAccessory))
     }
