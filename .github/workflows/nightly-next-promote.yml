@@ -13,8 +13,8 @@ name: Promote cmux-next to nightly-next
 # feat-cmux-next, input promote_nightly_next_sha (a dispatched caller bypasses
 # the debounce, never the green check).
 #
-# Only the GitHub App that the nightly-next ruleset allows can move the branch
-# (ruleset "nightly-next: fast-forward by the promote app only"). The ref
+# Only the release GitHub App (CMUX_RELEASE_APP_*), the one bypass actor of
+# ruleset "nightly-next: fast-forward by the promote app only", can move it. The ref
 # update fast-forwards; the one forced case replaces a baseline build (a
 # feat-cmux-next commit plus patches) with a later feat-cmux-next commit.
 on:
@@ -24,9 +24,6 @@ on:
         description: feat-cmux-next commit to promote.
         required: true
         type: string
-    secrets:
-      GLAEDA_ROUTE_APP_KEY:
-        required: true
 
 permissions:
   contents: read
@@ -39,6 +36,9 @@ jobs:
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next'
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
+    # Holds only the release App id and key (CMUX_RELEASE_APP_ID/KEY); its
+    # deployment policy allows only feat-cmux-next.
+    environment: nightly-next-promote
     concurrency:
       group: nightly-next-promote
       cancel-in-progress: false
@@ -47,11 +47,12 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-contents: write
+          permission-workflows: write
 
       - name: Fast-forward nightly-next
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
