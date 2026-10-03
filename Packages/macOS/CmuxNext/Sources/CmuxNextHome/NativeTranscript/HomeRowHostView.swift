@@ -1,4 +1,5 @@
 import AppKit
+import CmuxHomeCore
 import CmuxHomeRender
 import CmuxNextDesign
 
@@ -7,6 +8,11 @@ import CmuxNextDesign
 /// visible message is an explicit `NSAccessibilityElement` in a list.
 final class HomeRowHostView: NSView {
     weak var controller: HomeController?
+    /// False while the owner is unreachable: nothing queues, so no tapback
+    /// picker and no reaction actions (the parent mirrors `isSendEnabled`).
+    var reactionsEnabled = true {
+        didSet { if reactionsEnabled != oldValue { elements = [] } }
+    }
     private var elements: [NSAccessibilityElement] = []
     /// Messages selected by a drag across rows, top to bottom.
     private(set) var selection: [HomeHit] = []
@@ -84,22 +90,37 @@ final class HomeRowHostView: NSView {
     /// The message a context menu was opened on.
     private(set) var menuHit: HomeHit?
 
-    /// Right-click or Control-click on a bubble: Copy. Actions the local
-    /// owner refuses (and tapbacks, which need a message id the transcript
-    /// item does not carry yet) are not offered.
+    /// Right-click or Control-click on a bubble: the tapback picker (only
+    /// for a committed message with the owner's id, while online), then
+    /// Copy. Actions the local owner refuses are not offered.
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
         return menu(at: point)
     }
 
     func menu(at point: CGPoint) -> NSMenu? {
-        guard let hit = controller?.hit(at: point) else { return nil }
+        guard let controller, let hit = controller.hit(at: point) else { return nil }
         menuHit = hit
         let menu = NSMenu()
+        if let target = controller.reactionTarget(for: hit, isOnline: reactionsEnabled) {
+            let picker = NSMenuItem()
+            picker.view = HomeTapbackPickerView(target: target) { [weak self] tapback in
+                self?.react(tapback, to: target)
+            }
+            menu.addItem(picker)
+            menu.addItem(.separator())
+        }
         let copy = NSMenuItem(title: HomeStrings.copyMessage, action: #selector(copyMessage(_:)), keyEquivalent: "")
         copy.target = self
         menu.addItem(copy)
         return menu
+    }
+
+    /// Sends a tapback through the controller's intents (`addReaction`).
+    @discardableResult
+    func react(_ tapback: Reaction.Tapback, to target: HomeReactionTarget) -> HomeIntent? {
+        guard reactionsEnabled else { return nil }
+        return controller?.react(tapback, to: target)
     }
 
     @objc func copyMessage(_ sender: Any?) {
@@ -132,6 +153,13 @@ final class HomeRowHostView: NSView {
         e.setAccessibilityLabel(item.label)
         e.setAccessibilityValue(item.value)
         e.setAccessibilityIdentifier(item.id)
+        if let target = controller?.reactionTarget(for: item, isOnline: reactionsEnabled) {
+            e.setAccessibilityCustomActions(HomeReactionStyle.tapbacks.map { tapback in
+                NSAccessibilityCustomAction(name: HomeReactionStyle.accessibilityName(tapback)) { [weak self] in
+                    self?.react(tapback, to: target) != nil
+                }
+            })
+        }
         let inWindow = convert(item.frame, to: nil)
         e.setAccessibilityFrame(window?.convertToScreen(inWindow) ?? inWindow)
         return e

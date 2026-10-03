@@ -11,23 +11,32 @@ final class HomeFieldView: NSView {
     var onHeightChange: () -> Void = {}
     var onSend: () -> Void = {}
 
-    static let lineHeight: CGFloat = 16
     static let maxLines = 8
-    static let horizontalInset: CGFloat = 12
-    static let verticalInset: CGFloat = 7
+    /// The 13 pt reference metrics; `scale` multiplies them.
+    static let baseFontSize: CGFloat = 13
+    static let baseLineHeight: CGFloat = 16
+    static let baseHorizontalInset: CGFloat = 12
+    static let baseVerticalInset: CGFloat = 7
 
-    static func height(lines: Int) -> CGFloat { 30 + lineHeight * CGFloat(lines - 1) + (lines >= 2 ? 1 : 0) }
+    /// The user's text size relative to 13 pt (the transcript's `textScale`).
+    var scale: CGFloat = 1 {
+        didSet {
+            guard scale != oldValue else { return }
+            applyFont()
+            needsLayout = true
+            onHeightChange()
+        }
+    }
+
+    var lineHeight: CGFloat { (Self.baseLineHeight * scale).rounded() }
+    var horizontalInset: CGFloat { (Self.baseHorizontalInset * scale).rounded() }
+    var verticalInset: CGFloat { (Self.baseVerticalInset * scale).rounded() }
+
+    func height(lines: Int) -> CGFloat { 2 * verticalInset + lineHeight * CGFloat(lines) + (lines >= 2 ? 1 : 0) }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        glass.cornerRadius = 15
         addSubview(glass)
-        let font = NSFont.systemFont(ofSize: 13)
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.minimumLineHeight = Self.lineHeight
-        paragraph.maximumLineHeight = Self.lineHeight
-        textView.font = font
-        textView.typingAttributes = [.font: font, .paragraphStyle: paragraph, .foregroundColor: NSColor.labelColor]
         textView.drawsBackground = false
         textView.isRichText = false
         textView.allowsUndo = true
@@ -40,10 +49,26 @@ final class HomeFieldView: NSView {
         textView.onChange = { [weak self] in self?.textChanged() }
         textView.setAccessibilityLabel(HomeStrings.messagePlaceholder)
         placeholder.stringValue = HomeStrings.messagePlaceholder
-        placeholder.font = font
         placeholder.textColor = .placeholderTextColor
         glass.contentView = textView
         addSubview(placeholder)
+        applyFont()
+    }
+
+    private func applyFont() {
+        glass.cornerRadius = height(lines: 1) / 2
+        let font = NSFont.systemFont(ofSize: Self.baseFontSize * scale)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.minimumLineHeight = lineHeight
+        paragraph.maximumLineHeight = lineHeight
+        textView.font = font
+        textView.typingAttributes = [.font: font, .paragraphStyle: paragraph, .foregroundColor: NSColor.labelColor]
+        // Restyle committed text only: IME marked text keeps its own
+        // attributes (the scale applies to it once it is committed).
+        if let storage = textView.textStorage, storage.length > 0, !textView.hasMarkedText() {
+            storage.addAttributes([.font: font, .paragraphStyle: paragraph], range: NSRange(location: 0, length: storage.length))
+        }
+        placeholder.font = font
     }
 
     required init?(coder: NSCoder) { nil }
@@ -55,11 +80,11 @@ final class HomeFieldView: NSView {
         guard let manager = textView.textLayoutManager else { return 1 }
         manager.ensureLayout(for: manager.documentRange)
         let used = manager.usageBoundsForTextContainer.height
-        let n = Int((max(used, Self.lineHeight) / Self.lineHeight).rounded())
+        let n = Int((max(used, lineHeight) / lineHeight).rounded())
         return min(Self.maxLines, max(1, n))
     }
 
-    var preferredHeight: CGFloat { Self.height(lines: lines) }
+    var preferredHeight: CGFloat { height(lines: lines) }
 
     var text: String {
         get { textView.string }
@@ -74,9 +99,9 @@ final class HomeFieldView: NSView {
     override func layout() {
         super.layout()
         glass.frame = bounds
-        let inner = bounds.insetBy(dx: Self.horizontalInset, dy: Self.verticalInset)
-        textView.frame = CGRect(x: Self.horizontalInset, y: Self.verticalInset, width: inner.width, height: inner.height)
-        placeholder.frame = CGRect(x: inner.minX, y: inner.minY - 1, width: inner.width, height: Self.lineHeight + 2)
+        let inner = bounds.insetBy(dx: horizontalInset, dy: verticalInset)
+        textView.frame = CGRect(x: horizontalInset, y: verticalInset, width: inner.width, height: inner.height)
+        placeholder.frame = CGRect(x: inner.minX, y: inner.minY - 1, width: inner.width, height: lineHeight + 2)
     }
 }
 

@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxHomeCore
 public import CmuxHomeRender
 import CmuxNextDesign
+import Observation
 
 /// The Home transcript on the shared render core with native AppKit parts
 /// (plans/cmux-next/home-mac.md, mac-home-rendering.md option B): the rows,
@@ -17,7 +18,9 @@ public final class HomeNativeTranscriptView: NSView {
     let header = HomeGlassHeaderView()
     /// False while the owner is unreachable (H17: offline Send is off; the
     /// text stays a draft). The wiring sets it from `HomeStore.connection`.
-    public var isSendEnabled = true
+    public var isSendEnabled = true {
+        didSet { rowHost.reactionsEnabled = isSendEnabled }
+    }
     /// A user-chosen sent-bubble colour; nil follows the theme.
     public var accentOverride: NSColor? { didSet { applyTheme() } }
     private var observers: [any NSObjectProtocol] = []
@@ -51,6 +54,23 @@ public final class HomeNativeTranscriptView: NSView {
         }
         field.onSend = { [weak self] in self?.send() }
         field.onHeightChange = { [weak self] in self?.needsLayout = true }
+        followTextSize()
+    }
+
+    /// The Mac's text size (Settings > Interface Size, the palette's
+    /// Increase, Decrease and Reset Interface Size) scales the transcript and
+    /// the field, live: `DesignSettings` is observed, not polled.
+    private func followTextSize() {
+        withObservationTracking {
+            applyTextScale(Typography.userScale)
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.followTextSize() }
+        }
+    }
+
+    func applyTextScale(_ scale: CGFloat) {
+        controller.textScale = scale
+        field.scale = controller.textScale
     }
 
     required init?(coder: NSCoder) { nil }

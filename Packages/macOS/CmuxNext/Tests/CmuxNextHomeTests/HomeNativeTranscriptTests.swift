@@ -247,7 +247,8 @@ import Testing
 
 @MainActor
 @Suite struct HomeContextMenuTests {
-    /// A context menu on a bubble offers Copy for that message, nothing on
+    /// A context menu on a bubble offers Copy for that message (below the
+    /// tapback picker, HomeTapbackPickerTests), nothing on
     /// empty space. (The Copy action itself is not run: the user's clipboard stays.)
     @Test func bubbleMenuOffersCopyOfThatMessage() throws {
         let me = ParticipantID("user_me")
@@ -274,8 +275,7 @@ import Testing
         let hits = view.controller.hits(in: view.bounds)
         let last = try #require(hits.last)
         let menu = try #require(view.rowHost.menu(at: CGPoint(x: last.bubble.midX, y: last.bubble.midY)))
-        #expect(menu.items.count == 1)
-        #expect(menu.items.first?.action == #selector(HomeRowHostView.copyMessage(_:)))
+        #expect(menu.items.last?.action == #selector(HomeRowHostView.copyMessage(_:)))
         #expect(view.rowHost.menuHit?.text == "Message 6")
         #expect(view.rowHost.menu(at: CGPoint(x: 2, y: last.bubble.midY)) == nil)
     }

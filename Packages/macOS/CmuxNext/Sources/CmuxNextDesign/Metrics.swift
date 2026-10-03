@@ -158,6 +158,10 @@ public struct Typography {
         guard let body = DesignSettings.shared.overrides[.chromeFontSize] else { return 1 }
         return body / (compact ? 12 : 13)
     }
+    /// The user's text size relative to the density's body size (1 when
+    /// Interface Size is not overridden). Surfaces with their own type scale
+    /// (the Home transcript's `textScale`) follow it.
+    public static var userScale: CGFloat { scale }
     private static func size(_ compactSize: CGFloat, _ comfortableSize: CGFloat) -> CGFloat {
         (compact ? compactSize : comfortableSize) * scale
     }
