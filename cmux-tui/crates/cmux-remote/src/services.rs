@@ -801,7 +801,7 @@ impl DaemonServices {
         let path = mux_socket.as_ref().ok_or_else(|| {
             ServicesError::Unavailable("mux control socket is not configured".into())
         })?;
-        let socket = connect_owned_unix_socket(path).await?;
+        let socket = connect_mux_socket_for_peer(path).await?;
         let stream = Arc::new(stream);
         send_opened(&stream, Lane::Interactive).await?;
         let (reader, writer) = socket.into_split();
@@ -1530,6 +1530,57 @@ async fn connect_owned_unix_socket(
     crate::admin::verify_unix_peer_owner(&stream)
         .map_err(|error| ServicesError::Unavailable(error.to_string()))?;
     Ok(stream)
+}
+
+/// The longest reply to the remote bridge mark this bridge reads.
+#[cfg(unix)]
+const BRIDGE_MARK_REPLY_LIMIT: usize = 4096;
+#[cfg(unix)]
+const BRIDGE_MARK_REPLY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Connect to the session socket for a peer's mux control stream. Before any
+/// peer byte, mark the connection as a remote bridge so the session never
+/// takes the peer for a local principal (a launch credential or the
+/// frontend; plans/cmux-next/identity.md section 3). Every peer mux
+/// connection goes through here.
+#[cfg(unix)]
+async fn connect_mux_socket_for_peer(
+    path: impl AsRef<std::path::Path>,
+) -> Result<tokio::net::UnixStream, ServicesError> {
+    use cmux_tui_core::server::connection_origin::{
+        RemoteBridgeMarkReply, remote_bridge_mark_line, remote_bridge_mark_reply,
+    };
+    let mut socket = connect_owned_unix_socket(path).await?;
+    socket.write_all(&remote_bridge_mark_line()).await?;
+    socket.flush().await?;
+    let reply = tokio::time::timeout(BRIDGE_MARK_REPLY_TIMEOUT, read_one_line(&mut socket))
+        .await
+        .map_err(|_| ServicesError::Unavailable("no reply to the remote bridge mark".into()))??;
+    match remote_bridge_mark_reply(&reply) {
+        RemoteBridgeMarkReply::Accepted | RemoteBridgeMarkReply::UnknownToDaemon => Ok(socket),
+        RemoteBridgeMarkReply::Refused => {
+            Err(ServicesError::Unavailable("the session refused the remote bridge mark".into()))
+        }
+    }
+}
+
+/// Read one LF-terminated line byte by byte, so nothing after it is taken
+/// from the socket the pump reads next.
+#[cfg(unix)]
+async fn read_one_line(socket: &mut tokio::net::UnixStream) -> Result<String, ServicesError> {
+    let mut line = Vec::new();
+    loop {
+        let byte = socket.read_u8().await?;
+        if byte == b'\n' {
+            break;
+        }
+        if line.len() == BRIDGE_MARK_REPLY_LIMIT {
+            return Err(ServicesError::MessageTooLarge(line.len()));
+        }
+        line.push(byte);
+    }
+    String::from_utf8(line)
+        .map_err(|_| ServicesError::Unavailable("remote bridge mark reply is not UTF-8".into()))
 }
 
 #[derive(Debug)]
@@ -3197,6 +3248,22 @@ mod tests {
                 let mux_round_trip =
                     tokio::time::timeout(std::time::Duration::from_secs(2), async {
                         let (fake_core, _) = listener.accept().await.unwrap();
+                        // The bridge marks the connection before any peer
+                        // byte, and opens the stream only after the reply.
+                        let mut fake_core = BufReader::new(fake_core);
+                        let mut mark = String::new();
+                        fake_core.read_line(&mut mark).await.unwrap();
+                        assert_eq!(
+                            mark.as_bytes(),
+                            cmux_tui_core::server::connection_origin::remote_bridge_mark_line()
+                        );
+                        fake_core
+                            .get_mut()
+                            .write_all(
+                                b"{\"id\":0,\"ok\":true,\"data\":{\"origin\":\"remote_bridge\"}}\n",
+                            )
+                            .await
+                            .unwrap();
                         for _ in 0..3 {
                             let opened = mux_stream.receive().await.unwrap().unwrap();
                             assert!(matches!(
@@ -3209,7 +3276,6 @@ mod tests {
                         for packet in crate::mux_codec::encode_line(1, request).unwrap() {
                             mux_stream.send_on(Lane::Interactive, packet).await.unwrap();
                         }
-                        let mut fake_core = BufReader::new(fake_core);
                         let mut command = String::new();
                         fake_core.read_line(&mut command).await.unwrap();
                         assert_eq!(command.as_bytes(), request);
@@ -3576,5 +3642,54 @@ mod tests {
             .expect("completed process stream handler should release its slot")
             .unwrap()
             .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_peer_mux_connection_is_marked_before_any_peer_byte() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        async fn run(
+            reply: &'static [u8],
+        ) -> (Result<tokio::net::UnixStream, ServicesError>, String) {
+            let directory = tempdir().unwrap();
+            let path = directory.path().join("mux.sock");
+            let listener = tokio::net::UnixListener::bind(&path).unwrap();
+            let core = tokio::spawn(async move {
+                let (socket, _) = listener.accept().await.unwrap();
+                let mut socket = tokio::io::BufReader::new(socket);
+                let mut first = String::new();
+                socket.read_line(&mut first).await.unwrap();
+                // The reply and the next line arrive together; the bridge
+                // must take only the reply.
+                socket.get_mut().write_all(reply).await.unwrap();
+                socket.get_mut().write_all(b"after\n").await.unwrap();
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                first
+            });
+            let connected = connect_mux_socket_for_peer(&path).await;
+            let first = core.await.unwrap();
+            (connected, first)
+        }
+        let mark =
+            String::from_utf8(cmux_tui_core::server::connection_origin::remote_bridge_mark_line())
+                .unwrap();
+
+        let (connected, first) =
+            run(b"{\"id\":0,\"ok\":true,\"data\":{\"origin\":\"remote_bridge\"}}\n").await;
+        assert_eq!(first, mark);
+        let mut socket = tokio::io::BufReader::new(connected.unwrap());
+        let mut next = String::new();
+        socket.read_line(&mut next).await.unwrap();
+        assert_eq!(next, "after\n");
+
+        let (connected, _) = run(
+            b"{\"id\":0,\"ok\":false,\"error\":\"bad request: unknown variant `connection-origin`\"}\n",
+        )
+        .await;
+        assert!(connected.is_ok(), "a daemon from before the mark still serves the peer");
+
+        let (connected, _) =
+            run(b"{\"id\":0,\"ok\":false,\"error\":\"daemon shutdown is in progress\"}\n").await;
+        assert!(connected.is_err(), "a refused mark closes the peer's connection");
     }
 }

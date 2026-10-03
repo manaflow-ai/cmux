@@ -96,6 +96,7 @@ pub use loopback_forward::{
 };
 mod bookmarks;
 mod browser_profiles;
+pub mod connection_origin;
 mod conversation_tabs_wire;
 mod conversations;
 mod frontend_browser_history;
@@ -5200,6 +5201,8 @@ impl From<ResourceWorkerAdmissionError> for ResourceWaitInstallError {
 
 struct ClientRecord {
     transport: ClientTransport,
+    /// A cmux-remote bridge carries this connection (`connection_origin`).
+    remote_bridge: bool,
     connected_at: Instant,
     name: Option<String>,
     kind: Option<String>,
@@ -5294,6 +5297,7 @@ impl ClientRegistry {
             client,
             ClientRecord {
                 transport,
+                remote_bridge: false,
                 connected_at: Instant::now(),
                 name: None,
                 kind: None,
@@ -7527,7 +7531,7 @@ fn handle_resource_connection_message(
     // The actor stamp (plans/cmux-next/identity.md section 3), resolved
     // before any owner takes its locks.
     let credential = request.envelope.credential.take();
-    match mux.request_actor(mux.control_clients.is_unix(client), credential.as_deref()) {
+    match mux.request_actor(mux.control_clients.is_local_principal(client), credential.as_deref()) {
         Ok(actor) => request.actor = actor,
         Err(error) => return send_resource_response(writer, id, operation, Err(error)),
     }
@@ -10621,6 +10625,9 @@ fn handle_connection_message(
     // without being executed and the connection stays open.
     if mux.daemon_handoff_in_progress() {
         return reject_message_during_pending_handoff(message, writer);
+    }
+    if connection_origin::is_remote_bridge_mark(message) {
+        return connection_origin::accept_remote_bridge_mark(&mux.control_clients, client, writer);
     }
     if crate::resource_router::is_resource_protocol_message(message) {
         return handle_resource_connection_message(mux, client, message, writer);
