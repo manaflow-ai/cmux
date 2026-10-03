@@ -248,6 +248,7 @@
     "tunnel.attach",
     "tunnel.detach",
     "tunnel.rotate-key",
+    "usage.summary",
     "window_record.delete",
     "window_record.list",
     "window_record.put",

@@ -7,6 +7,7 @@ import type { PairingDO } from "./pairing-do.ts"
 import type { HostDO } from "./host-do.ts"
 import type { ConnectionDO } from "./connection-do.ts"
 import type { FeedDO } from "./feed-do.ts"
+import type { UsageMeterDO } from "./usage-meter-do.ts"
 import type { AutomationRunParams, SchedulerDO } from "./scheduler-do.ts"
 import type { TeamDO } from "./team-do.ts"
 import type { UserDO } from "./user-do.ts"
@@ -102,6 +103,13 @@ export interface Env {
   readonly APNS_KEY_P8?: string
   readonly APNS_KEY_ID?: string
   readonly APNS_TEAM_ID?: string
+  /** One UsageMeterDO per team: the automation usage ledger and hard cap (automations-billing.md). */
+  readonly USAGE_METER_DO: DurableObjectNamespace<UsageMeterDO>
+  /**
+   * Hard cap per team per UTC month for automations (USD, decision A18). Staging and development: "25"
+   * until Lawrence sets the value (Stripe TEST only). Missing = 0 = no metered run may start.
+   */
+  readonly AUTOMATION_CAP_CEILING_USD?: string
   /** code.storage organization for team code repositories (decisions A12, C1); staging and development share one (A2). */
   readonly CODE_STORAGE_ORG?: string
   /** Secret: PKCS#8 PEM of that organization's ES256 key. Code automations refuse to pin without it. */

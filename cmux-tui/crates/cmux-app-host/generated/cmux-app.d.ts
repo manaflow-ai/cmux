@@ -160,6 +160,7 @@ declare namespace Cmux {
   type MachineSnapshot = { id: string /* machine_… */; name: string; origin: "local"; status: "running" | "connecting" | "sleeping" | "stopped" | "unavailable"; connectable: boolean; deleted: boolean; recoverable: boolean; extra?: Record<string, Cmux.JsonValue> }
   type ManagedDevice = { install: Cmux.InstallId; user: string; via: "token" | "accept"; token: Cmux.EnrollmentTokenId | null; at: number }
   type MessageId = string
+  type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd"
   type NotificationAckResult = { client_id: string; acknowledged: Array<string /* notification_… */>; unknown: Array<string /* notification_… */> }
   type NotificationClearResult = { cleared: Array<string /* notification_… */> }
   type NotificationLevel = "info" | "warning" | "error"
@@ -276,6 +277,9 @@ declare namespace Cmux {
   type Trigger = { id: Cmux.TriggerId; status: "active" | "not_yet_supported"; spec: Cmux.TriggerInput; next_at: number | null }
   type TriggerId = string
   type TriggerInput = unknown
+  type UsageMeterLine = { meter: Cmux.Meter; unit: string; quantity: unknown; usd: unknown }
+  type UsageStopReason = "cap.reached" | "cap.not_configured"
+  type UsageSummary = { owner: Cmux.TeamId | null; month: string; meters: Array<Cmux.UsageMeterLine>; total_usd: unknown; cap_usd: unknown; ceiling_usd: unknown; team_cap_usd: unknown | null; stopped: Cmux.UsageStopReason | null }
   type UserId = string
   type UserProfile = { id: Cmux.UserId; stack_user_id: string; email: string | null; email_verified?: boolean; display_name: string; personal_team: Cmux.TeamId }
   type ViewAttachmentOutcome = "applied" | "passive" | "superseded"
@@ -957,6 +961,10 @@ interface CmuxGlobal {
     detach: CmuxOp<{ device_fingerprint: string; network_id: string; expected_revision?: string }, Cmux.MutationResult<{ tunnel_id: string; network_id: string }>>
     /** `tunnel.rotate-key` (mutation, scope `tunnel:write`): Rotate an owned tunnel's WireGuard public key without changing its address. */
     "rotate-key": CmuxOp<{ device_fingerprint: string; client_public_key: string; expected_revision?: string }, Cmux.MutationResult<{ tunnel_id: string; client_public_key: string }>>
+  }
+  usage: {
+    /** `usage.summary` (read, scope `usage:read`): This month's automation usage of the caller's team, its cost estimate and the hard cap that stops runs. */
+    summary: CmuxOp<Record<string, never>, Cmux.UsageSummary>
   }
   window_record: {
     /** `window_record.delete` (mutation, scope `window_record:write`) */

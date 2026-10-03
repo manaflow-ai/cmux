@@ -17,6 +17,8 @@ export interface CloudOpDef<P extends Schema.Top = Schema.Top, R extends Schema.
     | "cloud:MuxDO"
     | "cloud:AddressDO"
     | "cloud:PairingDO"
+    /** One per team: the automation usage ledger and hard cap (automations-billing.md). */
+    | "cloud:UsageMeterDO"
     /** A read of a PlanetScale projection through the read-only Hyperdrive (for example home.search). */
     | "cloud:planetscale"
   readonly class: "read" | "mutation"

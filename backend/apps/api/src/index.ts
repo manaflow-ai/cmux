@@ -22,6 +22,7 @@ export { FeedDO } from "./feed-do.ts"
 export { SchedulerDO } from "./scheduler-do.ts"
 export { TeamDO } from "./team-do.ts"
 export { UserDO } from "./user-do.ts"
+export { UsageMeterDO } from "./usage-meter-do.ts"
 
 /**
  * WebSocket gateway: `GET /v1/wire/{user|team|feed}` and `/v1/wire/conv/<conversation>` with subprotocols

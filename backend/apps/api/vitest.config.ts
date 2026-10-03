@@ -19,6 +19,8 @@ export default defineConfig({
       miniflare: {
         bindings: {
           ENVIRONMENT: "test",
+          // Automation hard cap ceiling per team per month (USD); tests set it explicitly.
+          AUTOMATION_CAP_CEILING_USD: "25",
           STACK_TEST_JWKS: JSON.stringify({ keys: [stackPublic] }),
           STACK_TEST_PRIVATE_JWK: JSON.stringify(stackPrivate),
           JWT_PRIVATE_JWK: JSON.stringify(apiPrivate),

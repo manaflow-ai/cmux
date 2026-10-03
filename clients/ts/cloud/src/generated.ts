@@ -513,6 +513,8 @@ export type ManagedDevice = {
 
 export type MessageId = string
 
+export type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd"
+
 export type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive"
 
 /** A normalized pairing code: 8 Crockford base32 symbols, no hyphen. */
@@ -854,6 +856,26 @@ export type TriggerInput = {
   readonly when: "user_active" | "user_returns_after"
   readonly idle_minutes?: number
   readonly earliest?: CronSpec
+}
+
+export type UsageMeterLine = {
+  readonly meter: Meter
+  readonly unit: string
+  readonly quantity: number | "Infinity" | "-Infinity" | "NaN"
+  readonly usd: number | "Infinity" | "-Infinity" | "NaN"
+}
+
+export type UsageStopReason = "cap.reached" | "cap.not_configured"
+
+export type UsageSummary = {
+  readonly owner: TeamId | null
+  readonly month: string
+  readonly meters: ReadonlyArray<UsageMeterLine>
+  readonly total_usd: number | "Infinity" | "-Infinity" | "NaN"
+  readonly cap_usd: number | "Infinity" | "-Infinity" | "NaN"
+  readonly ceiling_usd: number | "Infinity" | "-Infinity" | "NaN"
+  readonly team_cap_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+  readonly stopped: UsageStopReason | null
 }
 
 /** A cmux user (Stack user id kept as an external id). */
@@ -2256,6 +2278,21 @@ export interface CloudOps {
       readonly client_public_key: string
     }
   }
+  /** Set the team's own monthly hard cap for automations (team admins). The cap in force is the lower of it and the deployment ceiling. */
+  readonly "usage.cap.set": {
+    readonly params: {
+      readonly cap_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+    }
+    readonly result: {
+      readonly owner: TeamId | null
+      readonly team_cap_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+    }
+  }
+  /** This month's automation usage of the caller's team, its cost estimate and the hard cap that stops runs. */
+  readonly "usage.summary": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: UsageSummary
+  }
   /** Create or refresh the caller's user record from the Stack session. */
   readonly "user.ensure": {
     readonly params: Readonly<Record<string, never>>
@@ -2427,6 +2464,8 @@ export const cloudOpMeta = {
   "tunnel.attach": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "tunnel.detach": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "tunnel.rotate-key": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "usage.cap.set": { class: "mutation", owner: "cloud:UsageMeterDO", risk: "money" },
+  "usage.summary": { class: "read", owner: "cloud:UsageMeterDO", risk: "read" },
   "user.ensure": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "user.presence_key.revoke": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "user.text_confirm.get": { class: "read", owner: "cloud:UserDO", risk: "read" },

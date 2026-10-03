@@ -989,6 +989,10 @@
       "scope": "tunnel:write",
       "class": "mutation"
     },
+    "usage.summary": {
+      "scope": "usage:read",
+      "class": "read"
+    },
     "window_record.delete": {
       "scope": "window_record:write",
       "class": "mutation"
@@ -1152,6 +1156,7 @@
     "terminal.renderer_grant.create",
     "terminal.viewer.release",
     "terminal.viewer.resize",
+    "usage.cap.set",
     "user.ensure",
     "user.presence_key.revoke",
     "user.text_confirm.get",

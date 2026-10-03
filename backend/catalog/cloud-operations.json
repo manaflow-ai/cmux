@@ -2965,6 +2965,17 @@
       "name": "string",
       "pattern": "^msg_[0-9A-Za-z]{1,64}$"
     },
+    "Meter": {
+      "kind": "enum",
+      "values": [
+        "automation.steps",
+        "automation.cpu_ms",
+        "automation.invocations",
+        "automation.dynamic_workers",
+        "egress.requests",
+        "model.spend_usd"
+      ]
+    },
     "OpClass": {
       "kind": "enum",
       "values": [
@@ -5003,6 +5014,197 @@
           }
         }
       ]
+    },
+    "UsageMeterLine": {
+      "kind": "object",
+      "fields": {
+        "meter": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "Meter"
+          }
+        },
+        "unit": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "quantity": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        },
+        "usd": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "UsageStopReason": {
+      "kind": "enum",
+      "values": [
+        "cap.reached",
+        "cap.not_configured"
+      ]
+    },
+    "UsageSummary": {
+      "kind": "object",
+      "fields": {
+        "owner": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          }
+        },
+        "month": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "meters": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "UsageMeterLine"
+            }
+          }
+        },
+        "total_usd": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        },
+        "cap_usd": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        },
+        "ceiling_usd": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        },
+        "team_cap_usd": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "stopped": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "UsageStopReason"
+            }
+          }
+        }
+      }
     },
     "UserId": {
       "kind": "primitive",
@@ -41368,6 +41570,448 @@
         ],
         "additionalProperties": true,
         "$defs": {}
+      }
+    },
+    "usage.cap.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "usage",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "cap_usd": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "union",
+                "variants": [
+                  {
+                    "kind": "primitive",
+                    "name": "float64"
+                  },
+                  {
+                    "kind": "enum",
+                    "values": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "owner": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "ref",
+                    "name": "TeamId"
+                  }
+                }
+              },
+              "team_cap_usd": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "union",
+                    "variants": [
+                      {
+                        "kind": "primitive",
+                        "name": "float64"
+                      },
+                      {
+                        "kind": "enum",
+                        "values": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "team.roles_required",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UsageMeterDO",
+      "risk": "money",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "usage cap set",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "usage"
+      },
+      "docs": "Set the team's own monthly hard cap for automations (team admins). The cap in force is the lower of it and the deployment ceiling.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "cap_usd": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "cap_usd"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TeamId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "team_cap_usd": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "owner",
+          "team_cap_usd"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          }
+        }
+      }
+    },
+    "usage.summary": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "usage",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "UsageSummary"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:UsageMeterDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "usage",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "usage"
+      },
+      "docs": "This month's automation usage of the caller's team, its cost estimate and the hard cap that stops runs.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/UsageSummary",
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "Meter": {
+            "type": "string",
+            "enum": [
+              "automation.steps",
+              "automation.cpu_ms",
+              "automation.invocations",
+              "automation.dynamic_workers",
+              "egress.requests",
+              "model.spend_usd"
+            ]
+          },
+          "UsageMeterLine": {
+            "type": "object",
+            "properties": {
+              "meter": {
+                "$ref": "#/$defs/Meter"
+              },
+              "unit": {
+                "type": "string"
+              },
+              "quantity": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "meter",
+              "unit",
+              "quantity",
+              "usd"
+            ],
+            "additionalProperties": true
+          },
+          "UsageStopReason": {
+            "type": "string",
+            "enum": [
+              "cap.reached",
+              "cap.not_configured"
+            ]
+          },
+          "UsageSummary": {
+            "type": "object",
+            "properties": {
+              "owner": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/TeamId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "month": {
+                "type": "string"
+              },
+              "meters": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/UsageMeterLine"
+                }
+              },
+              "total_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "cap_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "ceiling_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "team_cap_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "stopped": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/UsageStopReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "owner",
+              "month",
+              "meters",
+              "total_usd",
+              "cap_usd",
+              "ceiling_usd",
+              "team_cap_usd",
+              "stopped"
+            ],
+            "additionalProperties": true
+          }
+        }
       }
     },
     "user.ensure": {
