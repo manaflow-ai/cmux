@@ -3781,6 +3781,7 @@
 		C7A50B000000000000000002 /* TerminalControllerV2ParamParsingSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000001 /* TerminalControllerV2ParamParsingSupport.swift */; };
 		A5C41105A1B2C3D4E5F60718 /* TerminalControllingTTYWaiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C41106A1B2C3D4E5F60718 /* TerminalControllingTTYWaiter.swift */; };
 		C0DE7C0A0000000000000001 /* TerminalCopyAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7C0A0000000000000002 /* TerminalCopyAction.swift */; };
+		C7A1A8B7E267C7B0D02B6BD3 /* TerminalCopyConfirmationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFBEF3C280B3683394335075 /* TerminalCopyConfirmationView.swift */; };
 		6190C0126190C0126190C012 /* TerminalCopyOnSelectManagedConfigLayeringTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6190C0116190C0116190C011 /* TerminalCopyOnSelectManagedConfigLayeringTests.swift */; };
 		EC010B01 /* TerminalCustomUploadRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC010B02 /* TerminalCustomUploadRunner.swift */; };
 		6277E32DA3CFCD625C6BD4E0 /* TerminalDictationAccessibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81B9355A408361D86E077820 /* TerminalDictationAccessibilityTests.swift */; };
@@ -8127,6 +8128,7 @@
 		C7A50B000000000000000001 /* TerminalControllerV2ParamParsingSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerV2ParamParsingSupport.swift; sourceTree = "<group>"; };
 		A5C41106A1B2C3D4E5F60718 /* TerminalControllingTTYWaiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllingTTYWaiter.swift; sourceTree = "<group>"; };
 		C0DE7C0A0000000000000002 /* TerminalCopyAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCopyAction.swift; sourceTree = "<group>"; };
+		FFBEF3C280B3683394335075 /* TerminalCopyConfirmationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCopyConfirmationView.swift; sourceTree = "<group>"; };
 		6190C0116190C0116190C011 /* TerminalCopyOnSelectManagedConfigLayeringTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCopyOnSelectManagedConfigLayeringTests.swift; sourceTree = "<group>"; };
 		EC010B02 /* TerminalCustomUploadRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalCustomUploadRunner.swift; sourceTree = "<group>"; };
 		81B9355A408361D86E077820 /* TerminalDictationAccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalDictationAccessibilityTests.swift"; sourceTree = "<group>"; };
@@ -11760,6 +11762,7 @@
 				3840C3CAEE266F282EE96A37 /* SidebarReorderInteractionState.swift */,
 				01AFEB5B2588D6391DC94892 /* WorkspaceActivityReorderController.swift */,
 				55884034E492CBE2F7651022 /* TerminalJumpToBottomIndicatorView.swift */,
+				FFBEF3C280B3683394335075 /* TerminalCopyConfirmationView.swift */,
 				77D43E8C83C3C45D6EB08A8E /* GhosttySurfaceScrollView+JumpToBottom.swift */,
 				D7BD0D257D72F490464EF7CA /* TabManager+TerminalScrollToBottom.swift */,
 				C916AD2024A810937F4718CE /* ContentView+TerminalScrollCommandPalette.swift */,
@@ -16249,6 +16252,7 @@
 				C7A505000000000000000002 /* TerminalControllerTopSupport.swift in Sources */,
 				C7A50B000000000000000002 /* TerminalControllerV2ParamParsingSupport.swift in Sources */,
 				C0DE7C0A0000000000000001 /* TerminalCopyAction.swift in Sources */,
+				C7A1A8B7E267C7B0D02B6BD3 /* TerminalCopyConfirmationView.swift in Sources */,
 				EC010B01 /* TerminalCustomUploadRunner.swift in Sources */,
 				0D56BE882EAD4B67AC44F96D /* TerminalDirectoryOpenSupport.swift in Sources */,
 				E5C0F1A0E5C0F1A0E5C0F1A0 /* TerminalFindEscapeRouting.swift in Sources */,

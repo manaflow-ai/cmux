@@ -358353,6 +358353,65 @@
         }
       }
     },
+    "settings.search.alias.setting.terminal.copy-confirmation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse تأكيد نسخ حافظة تحديد"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse Bestätigung kopiert Zwischenablage Auswahl"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse confirmación copiado portapapeles selección"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse confirmation copié presse-papiers sélection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse 確認 コピー クリップボード 選択"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse 확인 복사됨 클립보드 선택"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse 确认 已复制 剪贴板 选择"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse 確認 已複製 剪貼簿 選取"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.terminal.reflow-hard-wrap-on-copy": {
       "extractionState": "manual",
       "localizations": {
@@ -365856,6 +365915,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "選取時複製"
+          }
+        }
+      }
+    },
+    "settings.terminal.showCopyConfirmation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Copy Confirmation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار تأكيد النسخ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopierbestätigung anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar confirmación de copia"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher la confirmation de copie"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピーの確認を表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복사 확인 표시"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示复制确认"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示複製確認"
           }
         }
       }
@@ -618534,6 +618652,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "SSH 接続を確立できませんでした."
+          }
+        }
+      }
+    },
+    "terminal.copyConfirmation.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied to clipboard"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم النسخ إلى الحافظة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In die Zwischenablage kopiert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiado al portapapeles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copié dans le presse-papiers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリップボードにコピーしました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클립보드에 복사됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制到剪贴板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已複製到剪貼簿"
           }
         }
       }

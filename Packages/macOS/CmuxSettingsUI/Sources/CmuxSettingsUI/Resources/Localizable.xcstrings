@@ -13928,6 +13928,124 @@
           }
         }
       }
+    },
+    "settings.terminal.showCopyConfirmation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Copy Confirmation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار تأكيد النسخ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopierbestätigung anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar confirmación de copia"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher la confirmation de copie"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピーの確認を表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복사 확인 표시"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示复制确认"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示複製確認"
+          }
+        }
+      }
+    },
+    "settings.terminal.showCopyConfirmation.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Briefly shows “Copied to clipboard” at the bottom of a terminal when selecting text copies it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض «تم النسخ إلى الحافظة» لفترة وجيزة أسفل الطرفية عندما يؤدي تحديد النص إلى نسخه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt unten im Terminal kurz „In die Zwischenablage kopiert“ an, wenn durch Auswählen von Text kopiert wird."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra brevemente «Copiado al portapapeles» en la parte inferior de una terminal cuando al seleccionar texto se copia."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche brièvement « Copié dans le presse-papiers » en bas d’un terminal lorsque la sélection de texte le copie."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストを選択してコピーしたときに、ターミナルの下部に「クリップボードにコピーしました」を短く表示します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "텍스트를 선택해 복사하면 터미널 하단에 “클립보드에 복사됨”을 잠시 표시합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择文本并复制时，在终端底部短暂显示“已复制到剪贴板”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選取文字並複製時，在終端機底部短暫顯示「已複製到剪貼簿」。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
