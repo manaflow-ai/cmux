@@ -211,6 +211,13 @@ Two signals reach the guest before `vms.create` returns: the provider's guest ag
 
 The resume signals also fire about ten times per control-plane call (each exec or file write) and never on an idle machine (0 in 300 s). Each wake costs one metadata read, so they are harmless.
 
+Decision on netlink (2026-10-03, accepted by the coordinator): the implemented bind agent (crate `cmux-host`) wakes on the clock-set timer and on the driver's file write. It does not wake on netlink address messages. On an idle machine the kernel repeats RTM_NEWADDR for the eth0 IPv6 address every 180 s, and container interfaces add more messages. If each message counted as a resume, every one would cost a metadata read and an announce, and the machine would never be idle. The agent now acts on netlink only when the set of global addresses changes (`AddressesChanged`, for listener rebinds), and it never treats that as a resume. The trade-off in the measured numbers (n = 25 clones each, wake relative to `vms.create` returning):
+- clock-set timer: p50 16 ms before create returns;
+- netlink: p50 28 ms before;
+- driver file write: lands about 25 ms after create returns (the fallback).
+
+Detection is therefore about 12 ms later than with netlink. It still happens before create returns, so New Machine latency does not change: the daemon listening time (about 0.5 s) is far longer. Idle wakeups from these signals fall to 0. A clone whose clock is not set by the provider agent is still found through the driver's file.
+
 Metadata service rules learned the hard way: concurrent readers stall (8 parallel readers: 18 of 160 requests hung to the 1 s timeout), and a request in flight when a snapshot or pause is taken hangs until its timeout after resume. So: one reader per machine, a 250 ms timeout, retries counted by attempts (a monotonic time budget expires across a pause), and no request in flight while parked.
 
 ### 6.3 Bind sequence
