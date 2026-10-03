@@ -209,6 +209,20 @@ func makeClient(_ owner: FakeOwner, _ signer: SoftwareSigner, record: InstallRec
         #expect(InstallAuthClient.environment(inPrefix: "cmux-auth-v1\nst\naging\ninst_1\n", install: "inst_1") == nil)
         #expect(InstallAuthClient.environment(inPrefix: "cmux-auth-v1\nStaging\ninst_1\n", install: "inst_1") == nil)
         #expect(InstallAuthClient.environment(inPrefix: "cmux-auth-v1\nstaging\ninst_2\n", install: "inst_1") == nil)
+        #expect(InstallAuthClient.environment(inPrefix: "cmux-auth-v1\n1staging\ninst_1\n", install: "inst_1") == nil)
+        let long = String(repeating: "a", count: 33)
+        #expect(InstallAuthClient.environment(inPrefix: "cmux-auth-v1\n\(long)\ninst_1\n", install: "inst_1") == nil)
+        #expect(InstallAuthClient.issuer(of: "not-a-jwt") == nil)
+    }
+
+    @Test func aLearnedEnvironmentNeverChanges() async throws {
+        let owner = FakeOwner(), clock = TestClock()
+        let client = makeClient(owner, SoftwareSigner(), clock: clock)
+        _ = try await client.installToken()
+        await owner.setEnvironment("production")
+        clock.now = clock.now.addingTimeInterval(3600)
+        await #expect(throws: InstallAuthError.unexpectedChallenge) { try await client.installToken() }
+        #expect(await client.environment == "staging")
     }
 
     @Test func thePhoneAsksForNoExecuteAndSignOutRevokes() async throws {
