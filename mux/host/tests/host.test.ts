@@ -440,3 +440,22 @@ describe("connect handshake deadlines", () => {
     expect(await settle(() => w.acpmux.clientCount, 1)).toBe(1);
   }, 10_000);
 });
+
+describe("reconnect backoff", () => {
+  test("a daemon that accepts the full connect and closes at once gets growing delays", async () => {
+    const w = await setup();
+    const clock = fakeClock();
+    const host = w.host({ clock, requestTimeoutMs: 1_000 });
+    host.start();
+    await host.ready;
+    const lists = () => w.daemon.requests.filter((r) => r.cmd === "conversation-list").length;
+    const waits: number[] = [];
+    for (let i = 1; i <= 3; i++) {
+      // The catch-up's list request comes after daemon_connected: the connection is fully up.
+      await w.daemon.until(() => lists() >= i);
+      w.daemon.dropClients();
+      waits.push(await advanceUntil(clock, () => lists() >= i + 1));
+    }
+    expect(waits).toEqual([20, 40, 80]);
+  }, 10_000);
+});
