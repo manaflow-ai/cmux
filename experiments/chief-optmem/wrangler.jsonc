@@ -1,0 +1,23 @@
+// Chief experiment Worker (plans/cmux-next/chief.md): isolated from the cmux-next API Worker,
+// with its own name and Durable Object namespaces. Staging only; there is no production env.
+// Secret CHIEF_TOKEN per env: `bunx wrangler secret put CHIEF_TOKEN --env staging`.
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "cmux-chief-optmem-local",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-08-20",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "vars": { "ENVIRONMENT": "local" },
+  "durable_objects": { "bindings": [{ "name": "MEMORY_DO", "class_name": "MemoryDO" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MemoryDO"] }],
+  "env": {
+    "staging": {
+      "name": "cmux-chief-optmem-staging",
+      "workers_dev": true,
+      "vars": { "ENVIRONMENT": "staging" },
+      "durable_objects": { "bindings": [{ "name": "MEMORY_DO", "class_name": "MemoryDO" }] },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MemoryDO"] }],
+    },
+  },
+}

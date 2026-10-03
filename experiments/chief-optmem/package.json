@@ -10,13 +10,17 @@
     "lint": "vp lint",
     "test": "vp test run",
     "typecheck": "vp check --no-fmt --no-lint",
-    "conformance": "python3 conformance/generate.py"
+    "conformance": "python3 conformance/generate.py",
+    "dev": "wrangler dev",
+    "deploy:staging": "wrangler deploy --env staging"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "5.20260925.1",
     "@types/node": "26.6.2",
     "typescript": "^5.9.3",
     "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0",
-    "vite-plus": "1.0.0"
+    "vite-plus": "1.0.0",
+    "wrangler": "4.139.0"
   },
   "overrides": {
     "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0"

@@ -1,7 +1,16 @@
 import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { describe, expect, it } from "vite-plus/test";
-import { ArrayStorage, Memory, run } from "../src/memory/index.ts";
+import { DatabaseSync } from "node:sqlite";
+import { ArrayStorage, Memory, type MemoryStorage, run, SqlMemoryStorage } from "../src/memory/index.ts";
+
+const STORAGES: Record<string, () => MemoryStorage> = {
+  array: () => new ArrayStorage(),
+  sqlite: () => {
+    const db = new DatabaseSync(":memory:");
+    return new SqlMemoryStorage((q, ...p) => db.prepare(q).all(...(p as Array<string | number>)) as never);
+  },
+};
 
 interface Step {
   readonly argv: Array<string>;
@@ -19,11 +28,11 @@ const vectors = JSON.parse(
   sequences: Array<{ seed: number; steps: Array<Step> }>;
 };
 
-describe(`memory matches ${vectors.reference}`, () => {
+describe.each(Object.keys(STORAGES))(`memory on %s storage matches ${vectors.reference}`, (storage) => {
   for (const seq of vectors.sequences) {
     it(`sequence ${seq.seed}`, () => {
       let today = "2026-10-01";
-      const memory = new Memory(new ArrayStorage(), { today: () => today });
+      const memory = new Memory(STORAGES[storage]!(), { today: () => today });
       seq.steps.forEach((step, i) => {
         today = step.today;
         const got = run(memory, step.argv, step.file === undefined ? {} : { [step.argv[1]!]: step.file });
