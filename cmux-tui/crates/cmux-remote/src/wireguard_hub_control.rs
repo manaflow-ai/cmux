@@ -37,7 +37,7 @@ use std::sync::Arc;
 use cmux_wg::{MultipathControl, PathEvent, PathKind, Priority, WgDatagramSocket, WgError, WgNet};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixDatagram, UnixStream};
 use tokio::sync::{Semaphore, broadcast, mpsc, oneshot};
 use tokio::task::JoinSet;
