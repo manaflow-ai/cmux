@@ -92,6 +92,13 @@ impl FrameReader {
         Ok(())
     }
 
+    /// True when the buffered start of the stream is not this protocol: the first byte of
+    /// every valid stream is a control frame (type 1). An HTTP request (for example a
+    /// cross-protocol POST from a browser page) starts with an ASCII method instead.
+    pub fn foreign_prefix(&self) -> bool {
+        self.buf.first().is_some_and(|&b| b != FRAME_CONTROL)
+    }
+
     pub fn next(&mut self) -> io::Result<Option<(u8, Vec<u8>)>> {
         if self.buf.len() < 5 {
             return Ok(None);

@@ -76,6 +76,9 @@ pub fn run(opts: &Opts) -> Res<()> {
     let workload = opts.str_or("workload", "marker");
     let kbps: u32 = opts.num_or("kbps", 8000)?;
     let profile = opts.str_or("profile", "high");
+    if width < 640 || height < 64 || width % 2 == 1 || height % 2 == 1 {
+        return Err("encode-selftest needs an even size of at least 640x64".into());
+    }
     let mut enc = encoder::open(&EncCfg {
         width,
         height,
@@ -99,7 +102,8 @@ pub fn run(opts: &Opts) -> Res<()> {
             _ => draw_marker(&mut pic, i as u32),
         }
         let t0 = now_ns();
-        let idr = enc.encode(&pic, i == 0, i as i64 * 16, &mut au)?;
+        // Capture time in microseconds at 60 fps.
+        let idr = enc.encode(&pic, i == 0, i as i64 * 16_667, &mut au)?;
         encode_ms.push((now_ns() - t0) as f64 / 1e6);
         if au.is_empty() {
             empty += 1;
@@ -152,7 +156,7 @@ mod tests {
     #[test]
     fn openh264_passes_the_structure_check() {
         let opts = Opts::parse(
-            &["--codec", "openh264", "--width", "320", "--height", "192", "--frames", "10"]
+            &["--codec", "openh264", "--width", "640", "--height", "192", "--frames", "10"]
                 .map(String::from),
         )
         .expect("opts");
