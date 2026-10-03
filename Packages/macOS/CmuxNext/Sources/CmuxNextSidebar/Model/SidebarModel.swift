@@ -133,7 +133,7 @@ public final class SidebarModel {
             dropClosed(Set(ids))
         case let .switchProfile(id):
             activeProfileID = id
-        case let .activateItem(id):
+        case let .activateItem(id, _):
             activeLayoutItemID = id
         case let .layout(op):
             if case .success(let next) = SidebarLayoutReducer.reduce(layout, op) { layout = next }
