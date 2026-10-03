@@ -15,7 +15,9 @@ public enum LocalAuthStatus: String, Sendable, Equatable, Codable {
 
 /// Where a detection came from. Values name a place, never a secret: a
 /// display path with `~`, an environment variable name, a Keychain service.
-public enum DetectionSource: Sendable, Equatable, Hashable {
+/// An email inside a path is shortened when the source is made
+/// (``DetectionEnvironment/display(_:)``).
+public enum DetectionSource: Sendable, Equatable, Hashable, Encodable {
     case file(String)
     case environment(String)
     case keychain(String)
@@ -34,22 +36,29 @@ public enum DetectionSource: Sendable, Equatable, Hashable {
     }
 }
 
-/// One provider's detection result. `identity` and `plan` are shown only
-/// when the source exposes them as plain, non-secret fields (an email, a
-/// plan name, a profile name); a credential value is never kept here.
-public struct ProviderDetection: Sendable, Equatable {
+/// One provider's detection result. A credential value is never kept
+/// here, and neither is an email or login: the signed-in account is an
+/// ``AccountLabel`` (an opaque handle and a redacted display), made inside
+/// the detector from the raw identity, which is then dropped.
+public struct ProviderDetection: Sendable, Equatable, Encodable {
     public var provider: AIProvider
     public var status: LocalAuthStatus
-    public var identity: String?
-    public var plan: String?
+    /// The signed-in account, when the source names one.
+    public let account: AccountLabel?
+    /// A non-personal fact: a local server address, an AWS profile name, a
+    /// credential type. Emails inside it are shortened.
+    public let detail: String?
+    /// A plan, organization, region or project name. Emails inside it are shortened.
+    public let plan: String?
     public var sources: [DetectionSource]
 
-    public init(provider: AIProvider, status: LocalAuthStatus, identity: String? = nil, plan: String? = nil,
-                sources: [DetectionSource] = []) {
+    public init(provider: AIProvider, status: LocalAuthStatus, account: AccountLabel? = nil, detail: String? = nil,
+                plan: String? = nil, sources: [DetectionSource] = []) {
         self.provider = provider
         self.status = status
-        self.identity = identity
-        self.plan = plan
+        self.account = account
+        self.detail = detail.map(EmailRedaction.redactEmails(in:))
+        self.plan = plan.map(EmailRedaction.redactEmails(in:))
         self.sources = sources
     }
 

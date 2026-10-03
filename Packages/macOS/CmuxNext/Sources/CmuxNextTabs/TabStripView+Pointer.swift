@@ -57,7 +57,6 @@ extension TabStripView {
             if let closeID { cells[closeID]?.isCloseHovered = true }
         }
         newTabButton.isHovered = !dragging && isInNewTabButton(point)
-        locationField.isHovered = !dragging && locationField.hit(point, from: self)
         buttonGroup.hoveredIndex = dragging ? nil : trailingButtonIndex(at: point)
 
         // The coordinator hit-tests the pointer itself (`hoverCardTarget`).
@@ -93,7 +92,6 @@ extension TabStripView {
         if let closeHoveredID { cells[closeHoveredID]?.isCloseHovered = false }
         closeHoveredID = nil
         newTabButton.isHovered = false
-        locationField.isHovered = false
         buttonGroup.hoveredIndex = nil
         hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
         if closingModeWidth != nil, drag == nil {
@@ -114,7 +112,6 @@ extension TabStripView {
             startNewTabHold()
             return
         }
-        if locationField.beginPress(at: point, from: self) { return }
         if let index = trailingButtonIndex(at: point) {
             pendingTrailingPress = index
             buttonGroup.pressedIndex = index
@@ -161,7 +158,6 @@ extension TabStripView {
             return
         }
         if trackTrailingButtonDrag(at: point) { return }
-        if locationField.trackPress(at: point, from: self) { return }
         if drag != nil {
             updateDrag(at: point, event: event)
             return
@@ -191,7 +187,6 @@ extension TabStripView {
         }
         if endNewTabPress(at: point) { return }
         if endTrailingButtonPress(at: point) { return }
-        if locationField.endPress(at: point, from: self) { return updateHover(at: point, moved: false) }
         if drag != nil { endDrag() }
         press = nil
         if groups.drag != nil {
@@ -230,7 +225,7 @@ extension TabStripView {
     private func contextMenu(for event: NSEvent) -> NSMenu? {
         hoverCards.dismiss(.action)
         let point = convert(event.locationInWindow, from: nil)
-        if trailingButtonIndex(at: point) != nil || locationField.hit(point, from: self) { return nil }
+        if trailingButtonIndex(at: point) != nil { return nil }
         if isInNewTabButton(point) {
             // Anchored under the button, like the press-and-hold menu.
             showNewTabMenu()

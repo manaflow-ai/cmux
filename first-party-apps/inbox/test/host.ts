@@ -95,9 +95,9 @@ export const nodeWith = (host: FakeHost, mount: string, type: string, title: str
   walk(host, mount).find((n) => n.type === type && (n.props.title === title || n.props.text === title))?.id
 
 /** Runs a command export and waits for its result. */
-export async function command(host: FakeHost, name: string, args: unknown = {}) {
+export async function command(host: FakeHost, name: string, args: unknown = {}, ctx?: Record<string, unknown>) {
   const cb = 1000 + host.commandResults.size
-  host.global.__cmuxAppRunCommand(name, JSON.stringify(args), cb)
+  host.global.__cmuxAppRunCommand(name, JSON.stringify(args), cb, ctx ? JSON.stringify(ctx) : undefined)
   for (let i = 0; i < 50 && !host.commandResults.has(cb); i++) await host.settle(2)
   return host.commandResults.get(cb)!
 }

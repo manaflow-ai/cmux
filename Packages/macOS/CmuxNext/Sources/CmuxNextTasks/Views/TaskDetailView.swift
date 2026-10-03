@@ -24,7 +24,13 @@ struct TaskDetailView: View {
                     }
                     PriorityGlyph(priority: task.priority)
                     Spacer()
-                    AssigneeBadge(assignee: task.assignee, delegate: task.delegate)
+                    Menu {
+                        AssigneeMenu(task: task, model: model)
+                    } label: {
+                        AssigneeBadge(assignee: task.assignee, delegate: task.delegate)
+                    }
+                    .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+                    .help(TasksStrings.assignee)
                 }
                 Text(task.title).font(.system(size: 17, weight: .semibold)).foregroundStyle(colors.primary)
                     .fixedSize(horizontal: false, vertical: true)

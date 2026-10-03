@@ -68,6 +68,28 @@ describe("iPhone install principal (D5)", { timeout: 30_000 }, () => {
     })
   }
 
+  it("an iPhone install gets read and mutate-own only (L14-1), and install.sign_out revokes it (L14-2)", async () => {
+    const session = await sessionToken("ios-grant")
+    const user = (await op(session, "user.ensure", {})).json.value.id as string
+    const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
+    const jwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey
+    const public_jwk = { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }
+    const reg = await op(session, "install.register", { public_jwk, kind: "ios", name: "x", device_name: "x", platform: "ios" })
+    const install = reg.json.value.id as string
+    expect((await op(session, "install.register", { public_jwk, kind: "ios", name: "y", device_name: "y", platform: "ios", op_classes: ["execute"] })).json.ok).toBe(false)
+    const ch = await call("/v1/auth/challenge", undefined, { user, install })
+    const raw = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(`${ch.json.message_prefix}${ch.json.nonce}`)))
+    const token = (await call("/v1/auth/token", undefined, { user, install, nonce: ch.json.nonce, signature: b64u(raw) })).json.access_token as string
+    const list = await call("/v1/read", token, { op: "install.list", params: {} })
+    const grant = list.json.value.grants.find((g: { grantee: string }) => g.grantee === install)
+    expect([...grant.op_classes].sort()).toEqual(["mutate-own", "read"])
+    const out = await op(token, "install.sign_out", {})
+    expect(out.json.ok).toBe(true)
+    expect(out.json.value.revoked_at).not.toBeNull()
+    // The still-unexpired token reads nothing after sign-out.
+    expect((await call("/v1/read", token, { op: "install.list", params: {} })).status).toBe(403)
+  })
+
   it("a malformed DER signature is refused", async () => {
     const session = await sessionToken("ios-bad-der")
     const user = (await op(session, "user.ensure", {})).json.value.id as string

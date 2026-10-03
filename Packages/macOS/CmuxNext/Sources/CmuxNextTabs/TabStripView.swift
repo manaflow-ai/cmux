@@ -62,8 +62,6 @@ public final class TabStripView: NSView {
     var fadedEdges: (leading: Bool, trailing: Bool) = (false, false)
     let newTabButton = NewTabButtonView()
     let buttonGroup = TabStripButtonGroupView()
-    /// The selected browser tab's address in the free space after the tabs.
-    let locationField = TabLocationFieldView()
     let hoverCard = TabHoverCardController()
     let groupEditor = TabGroupEditorController()
     var trackingArea: NSTrackingArea?
@@ -79,7 +77,7 @@ public final class TabStripView: NSView {
     /// Tabs in visual order, excluding dying and torn-out tabs.
     var displayed: [TabItem] = []
     var result = TabLayoutResult(slots: [], contentWidth: 0, standardWidth: 0, availableWidth: 0)
-    var scroll = Spring(value: 0, token: .scroll)
+    var scroll = Spring(value: 0, token: .scroll, kind: .position)
     var closingModeWidth: CGFloat?
     var hasSynced = false
     var lastSelectedID: TabID?
@@ -175,8 +173,6 @@ public final class TabStripView: NSView {
         contentView.addSubview(newTabButton)
         newTabButton.onPress = { [weak self] in self?.model.send(.newTab(after: nil)) }
         contentView.addSubview(buttonGroup)
-        contentView.addSubview(locationField)
-        locationField.onPress = { [weak self] in self?.model.send(.focusLocation) }
         buttonGroup.onPress = { [weak self] id in self?.model.send(.trailingButton(id)) }
         buttonGroup.onAccessibilityFocus = { [weak self] focused in self?.buttonReveal.accessibilityFocused = focused }
         groupEditor.onCommand = { [weak self] command in self?.model.send(.group(command)) }
@@ -215,7 +211,6 @@ public final class TabStripView: NSView {
             }
         }
         if !newTabButton.isHidden { children.append(newTabButton) }
-        if !locationField.isHidden { children.append(locationField) }
         if !buttonGroup.isHidden { children.append(buttonGroup) }
         return children
     }
@@ -328,7 +323,6 @@ public final class TabStripView: NSView {
         }
         groupEditor.hide()
         newTabButton.needsLayout = true
-        locationField.font = Typography.caption
         buttonGroup.metrics = metrics
         glassView?.cornerRadius = metrics.cornerRadius + metrics.stripVerticalPadding
         invalidateIntrinsicContentSize()

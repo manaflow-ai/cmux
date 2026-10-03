@@ -10,10 +10,16 @@ use std::collections::{HashMap, HashSet};
 /// Name of the isolated world that holds the page agent.
 pub const AGENT_WORLD: &str = "cmux-agent";
 
+/// Name of the isolated world only the host uses (focus checks, select-all,
+/// capture masking). VM code can never target it: the host's gate refuses
+/// `world: "host"` from the VM.
+pub const HOST_WORLD: &str = "cmux-host";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum World {
     Page,
     Agent,
+    Host,
 }
 
 impl World {
@@ -21,6 +27,7 @@ impl World {
         match value {
             None | Some("agent") => Some(World::Agent),
             Some("page") => Some(World::Page),
+            Some("host") => Some(World::Host),
             _ => None,
         }
     }
@@ -385,6 +392,8 @@ impl State {
                     Some(World::Page)
                 } else if context.get("name").and_then(Value::as_str) == Some(AGENT_WORLD) {
                     Some(World::Agent)
+                } else if context.get("name").and_then(Value::as_str) == Some(HOST_WORLD) {
+                    Some(World::Host)
                 } else {
                     None
                 };

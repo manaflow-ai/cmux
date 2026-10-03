@@ -60,7 +60,7 @@ impl fmt::Display for ColumnStickyError {
             }
             Self::LastScrollingColumn => formatter.write_str("at least one column must scroll"),
             Self::InvalidArgument { field: "edge", value } => {
-                write!(formatter, "bad edge {value:?} (want \"left\" or \"right\")")
+                write!(formatter, "bad edge {value:?} (want left, right, top or bottom)")
             }
             Self::InvalidArgument { field, value } => {
                 write!(formatter, "bad {field} {value:?} (want \"docked\" or \"overlay\")")
@@ -303,7 +303,7 @@ mod tests {
 
     fn all_flags() -> Vec<Option<ColumnSticky>> {
         let mut flags = vec![None];
-        for edge in [StickyEdge::Left, StickyEdge::Right] {
+        for edge in StickyEdge::ALL {
             for mode in [StickyMode::Docked, StickyMode::Overlay] {
                 flags.push(Some(ColumnSticky { edge, mode }));
             }
@@ -388,7 +388,14 @@ mod tests {
                 }
             }
         }
-        assert_eq!((accepted, rejected), (4455, 20), "every state and op was checked");
+        // Derived by counting, independently of the reducer (4 edges x 2
+        // modes = 8 flags, 9 ops per column). Rejected = the target column is
+        // the only scrolling one and the other n-1 hold distinct edges other
+        // than the new one: sum 8*n*P(3,n-1)*2^(n-1) = 8+96+576+1536+0 = 2216.
+        // Consistent states with n columns: 1 + sum_k C(n,k)*P(4,k)*2^k for
+        // 1 <= k < n = 1, 17, 169, 1089, 4361; ops = sum states*n*9 = 240327;
+        // accepted = 240327 - 2216 = 238111.
+        assert_eq!((accepted, rejected), (238111, 2216), "every state and op was checked");
     }
 
     #[test]

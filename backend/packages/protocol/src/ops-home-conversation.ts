@@ -336,7 +336,48 @@ export const ConversationHistory = def({
   mcp: { expose: "default", group: "home" }
 })
 
+export const ConversationImport = def({
+  name: "conversation.import",
+  owner: "cloud:ConversationDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "conversation",
+  principals: ["session", "install"],
+  params: Schema.Struct({
+    id: Schema.optionalKey(ConversationId),
+    source: Schema.optionalKey(Schema.Struct({ kind: Schema.Literal("mac"), host: Schema.String.check(Schema.isMaxLength(128)), local_id: Schema.String.check(Schema.isMaxLength(128)) })),
+    kind: Schema.optionalKey(Schema.Literals(["group", "chief"])),
+    title: Schema.optionalKey(Title),
+    participants: Schema.optionalKey(Schema.Array(ParticipantInput).check(Schema.isMaxLength(64))),
+    after_seq: Schema.optionalKey(Seq),
+    messages: Schema.Array(Schema.Unknown).check(Schema.isMaxLength(500)),
+    read_cursors: Schema.optionalKey(Schema.Unknown)
+  }),
+  result: commit,
+  errors: [...conversationErrors, "conversation_exists", "import_out_of_order", "importing", "invalid_conversation_id"],
+  docs: "Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch.",
+  cli: { path: "chat import", visible: false },
+  mcp: { expose: "never", group: "home" }
+})
+
+export const ConversationImportCommit = def({
+  name: "conversation.import.commit",
+  owner: "cloud:ConversationDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "conversation",
+  principals: ["session", "install"],
+  params: Schema.Struct({ id: ConversationId, last_seq: Seq }),
+  result: commit,
+  errors: [...conversationErrors, "import_out_of_order"],
+  docs: "Finish an import: read cursors are clamped, normal ops open, each human gets one inbox entry.",
+  cli: { path: "chat import commit", visible: false },
+  mcp: { expose: "never", group: "home" }
+})
+
 export const homeConversationOps = [
+  ConversationImport,
+  ConversationImportCommit,
   ConversationCreate,
   DmOpen,
   MessageSend,

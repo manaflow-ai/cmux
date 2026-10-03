@@ -776,7 +776,10 @@ mod prompt_tests {
         cfg.permission_policy = PermissionPolicy::ApproveAll;
         let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
         let hub = crate::hub::Hub::new(cfg, store);
-        let dir = std::env::temp_dir().join(format!("acpmux-queue-{}", uuid::Uuid::now_v7()));
+        // A Unix socket path must fit sun_path (104 bytes on macOS); the per-user temp
+        // dir there is already about 50, so the socket lives under /tmp.
+        let dir = std::path::PathBuf::from("/tmp")
+            .join(format!("acpmux-q-{}", &uuid::Uuid::now_v7().simple().to_string()[20..]));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("d.sock");
         let listener = crate::server::bind_unix(&path).await.unwrap();

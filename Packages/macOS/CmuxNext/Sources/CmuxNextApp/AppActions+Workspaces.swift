@@ -30,12 +30,17 @@ extension AppActions {
         registry.bind("selectWorkspaceByNumber", invoke: { invocation in
             guard let number = invocation["index"]?.intValue, let state = services.windows.active?.state else { return }
             // Sidebar order across every machine section.
-            let all = services.windows.active?.sidebar.model.allWorkspaces.map(\.id.rawValue) ?? []
+            let all = services.windows.active?.sidebar.model.selectableWorkspaces.map(\.id.rawValue) ?? []
             guard !all.isEmpty else { return }
             let pick = number >= 9 ? all[all.count - 1] : all[min(number - 1, all.count - 1)]
             services.windows.show(workspaceID: pick, in: state)
         })
-        registry.bind("moveWorkspaceUp", invoke: { moveWorkspace(services, $0, by: -1) })
+        // Home is the store's home workspace (home.md 7): select it like any workspace.
+        registry.bind("home.show") {
+            guard let state = services.windows.active?.state, let home = services.home.homeWorkspace else { return }
+            services.windows.show(workspaceID: home.id, in: state)
+        }
+                registry.bind("moveWorkspaceUp", invoke: { moveWorkspace(services, $0, by: -1) })
         registry.bind("moveWorkspaceDown", invoke: { moveWorkspace(services, $0, by: 1) })
     }
 
@@ -90,7 +95,7 @@ extension AppActions {
 
     private static func selectWorkspace(_ services: AppServices, offset: Int) {
         guard let state = services.windows.active?.state else { return }
-        let ids = services.windows.active?.sidebar.model.allWorkspaces.map(\.id.rawValue) ?? []
+        let ids = services.windows.active?.sidebar.model.selectableWorkspaces.map(\.id.rawValue) ?? []
         guard !ids.isEmpty else { return }
         let current = state.workspaceID.flatMap(ids.firstIndex(of:)) ?? 0
         services.windows.show(workspaceID: ids[(current + offset + ids.count) % ids.count], in: state)

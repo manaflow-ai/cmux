@@ -3,8 +3,8 @@ import CmuxNextDesign
 import CmuxNextSettings
 import Testing
 
-/// `appearance.focusIndicator`, `appearance.tabBarBackground` and
-/// `focus.inactiveTabStyle`.
+/// `appearance.focusIndicator` and `focus.inactiveTabStyle`
+/// (`appearance.tabBarBackground` is gone: one background everywhere).
 @Suite struct PaneFocusSettingsTests {
     func parse(_ text: String) throws -> CmuxConfigSnapshot {
         CmuxConfigSnapshot.parse(try JSONC.parse(text), validDensities: [], validMetrics: [])
@@ -13,7 +13,6 @@ import Testing
     @Test func defaults() throws {
         let snapshot = try parse("{}")
         #expect(snapshot.focusIndicator == .both)
-        #expect(snapshot.tabBarBackground == .window)
         #expect(snapshot.inactiveTabStyle == .fade)
         #expect(snapshot.diagnostics.isEmpty)
     }
@@ -30,35 +29,31 @@ import Testing
     }
 
     @Test func readsBoth() throws {
-        let snapshot = try parse(#"{"appearance": {"focusIndicator": "tabs", "tabBarBackground": "darker"}}"#)
+        let snapshot = try parse(#"{"appearance": {"focusIndicator": "tabs"}}"#)
         #expect(snapshot.focusIndicator == .tabs)
-        #expect(snapshot.tabBarBackground == .darker)
     }
 
     @Test func badValuesKeepDefaultsWithDiagnostics() throws {
-        let snapshot = try parse(#"{"appearance": {"focusIndicator": "glow", "tabBarBackground": 3}}"#)
+        let snapshot = try parse(#"{"appearance": {"focusIndicator": "glow"}}"#)
         #expect(snapshot.focusIndicator == .both)
-        #expect(snapshot.tabBarBackground == .window)
-        #expect(Set(snapshot.diagnostics.map(\.path)) == ["appearance.focusIndicator", "appearance.tabBarBackground"])
+        #expect(Set(snapshot.diagnostics.map(\.path)) == ["appearance.focusIndicator"])
     }
 
     @MainActor @Test func appliesAndRevertsWhenRemoved() throws {
         let design = DesignSettings()
         let applier = SettingsApplier(design: design, registry: ActionRegistry.standard())
-        applier.apply(try parse(#"{"appearance": {"focusIndicator": "none", "tabBarBackground": "darker"}, "focus": {"inactiveTabStyle": "quiet"}}"#))
+        applier.apply(try parse(#"{"appearance": {"focusIndicator": "none"}, "focus": {"inactiveTabStyle": "quiet"}}"#))
         #expect(design.focusIndicator == .none)
-        #expect(design.tabBarBackground == .darker)
         #expect(design.inactiveTabStyle == .quiet)
         #expect(design.effectiveInactiveTabStyle == .quiet)
         applier.apply(try parse("{}"))
         #expect(design.focusIndicator == .both)
-        #expect(design.tabBarBackground == .window)
         #expect(design.inactiveTabStyle == .fade)
     }
 
     @Test func theSettingsWindowOffersThem() {
         #expect(SettingsSchema.all.contains { $0.path == ["appearance", "focusIndicator"] })
-        #expect(SettingsSchema.all.contains { $0.path == ["appearance", "tabBarBackground"] })
+        #expect(!SettingsSchema.all.contains { $0.path == ["appearance", "tabBarBackground"] }, "one background everywhere")
         #expect(SettingsSchema.all.contains { $0.path == ["focus", "inactiveTabStyle"] })
     }
 }

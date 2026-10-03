@@ -63,14 +63,16 @@ NPM_SSH_MANIFEST_BINARIES = {
     "cmux-tui-aarch64-apple-darwin": "cmux-tui-darwin-arm64",
     "cmux-tui-x86_64-apple-darwin": "cmux-tui-darwin-x64",
 }
+# Every package ships the GPL text; npm packs LICENSE without a "files" entry.
+NPM_LICENSE_FILE = "LICENSE"
 NPM_PLATFORM_FILES = frozenset(
-    {"package.json", "bin/cmux-tui", "bin/cmux-tui-hook", NPM_SSH_MANIFEST}
+    {"package.json", NPM_LICENSE_FILE, "bin/cmux-tui", "bin/cmux-tui-hook", NPM_SSH_MANIFEST}
 )
-NPM_LAUNCHER_FILES = frozenset({"package.json", "bin/cmux.js"})
+NPM_LAUNCHER_FILES = frozenset({"package.json", NPM_LICENSE_FILE, "bin/cmux.js"})
 NPM_RELAY_PLATFORM_FILES = frozenset(
-    {"package.json", "bin/chatmux-relay", "bin/cmux-tui"}
+    {"package.json", NPM_LICENSE_FILE, "bin/chatmux-relay", "bin/cmux-tui"}
 )
-NPM_RELAY_LAUNCHER_FILES = frozenset({"package.json", "bin/cmux-relay.js"})
+NPM_RELAY_LAUNCHER_FILES = frozenset({"package.json", NPM_LICENSE_FILE, "bin/cmux-relay.js"})
 
 
 def npm_targets(include_windows: bool) -> tuple[NpmTarget, ...]:
@@ -117,6 +119,7 @@ PYPI_WHEEL_FILES = frozenset(
         "cmux_tui/bin/cmux-tui-hook",
         "{dist_info}/WHEEL",
         "{dist_info}/METADATA",
+        "{dist_info}/licenses/LICENSE",
         "{dist_info}/entry_points.txt",
         "{dist_info}/RECORD",
     }
@@ -400,6 +403,7 @@ def validate_npm_tree(
             expected_files=frozenset(
                 {
                     "package.json",
+                    NPM_LICENSE_FILE,
                     f"bin/cmux-tui{'.exe' if target.os == 'win32' else ''}",
                     f"bin/cmux-tui-hook{'.exe' if target.os == 'win32' else ''}",
                     NPM_SSH_MANIFEST,
@@ -418,6 +422,7 @@ def validate_npm_tree(
             expected_files=frozenset(
                 {
                     "package.json",
+                    NPM_LICENSE_FILE,
                     f"bin/chatmux-relay{'.exe' if target.os == 'win32' else ''}",
                     f"bin/cmux-tui{'.exe' if target.os == 'win32' else ''}",
                 }
@@ -485,6 +490,8 @@ def validate_wheel(path: Path, version: str) -> None:
             raise _error(f"{path.name}: METADATA Name is not cmux")
         if _metadata_value(metadata, "Version") != version:
             raise _error(f"{path.name}: METADATA Version does not match filename")
+        if _metadata_value(metadata, "License-Expression") != "GPL-3.0-or-later":
+            raise _error(f"{path.name}: METADATA License-Expression is not GPL-3.0-or-later")
 
         executable_names = {
             "cmux_tui/bin/cmux-tui",

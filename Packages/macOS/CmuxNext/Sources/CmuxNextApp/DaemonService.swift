@@ -17,6 +17,8 @@ final class DaemonService {
     /// `local`, or the Cloud machine id (`vm-…`).
     let machineID: String
     let store = DaemonStore()
+    /// Set while an administrator turned this machine's feature off: no endpoint, no re-attach.
+    let policyBlock = PolicyBlock()
     private(set) var connection: DaemonConnection?
     private(set) var windowState: WindowStateStore?
     /// The current (or last) daemon's identity. The store owns it and
@@ -29,7 +31,7 @@ final class DaemonService {
     @ObservationIgnored private let scheduler = FrameBatcher(owner: "DaemonStore.drain")
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
     /// The window records of the daemon's launch snapshot, drawn before the
-    /// first connection (`WindowManager.showLaunchSnapshot`); nil without one.
+    /// first connection (`LaunchSnapshotWindow`); nil without one.
     @ObservationIgnored var launchSnapshotWindows: WindowStateDocument?
     /// The local session whose launch snapshot path each handshake records.
     @ObservationIgnored var launchSnapshotSession: String?
@@ -156,7 +158,7 @@ final class DaemonService {
     /// such an event: the machine's daemon can be updated in place behind
     /// the same link, and the next event then connects to the new build.
     func start(remote endpoint: @escaping @Sendable () async throws -> String) {
-        guard runTask == nil else { return }
+        guard runTask == nil, !policyBlock.isBlocked else { return }
         let store = store
         let machineID = machineID
         armStartupDeadline()
@@ -245,6 +247,7 @@ final class DaemonService {
 
     /// The socket for dedicated terminal attachments (re-read on reconnect).
     func endpoint() async throws -> DaemonEndpoint {
+        if policyBlock.isBlocked { throw DaemonError.endpointBlocked("turned off by your organization") }
         if connection == nil, startup == .connecting, isStarting { await firstConnection() }
         guard let connection, let endpoint = await connection.endpoint else { throw DaemonError.notConnected }
         return endpoint

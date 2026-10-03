@@ -8,6 +8,10 @@ use std::sync::Arc;
 /// block on a driver call.
 pub type EventSink = Arc<dyn Fn(DriverEvent) + Send + Sync>;
 
+/// Decides one network request by URL: `Some(reason)` blocks it. Called on
+/// a driver worker thread; it must not make driver calls.
+pub type RequestFilter = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
 /// One engine behind the driver protocol. Calls block the calling thread
 /// until the result arrives or the call's deadline (`timeoutMs`, else
 /// [`crate::protocol::DEFAULT_TIMEOUT`]) passes.
@@ -17,6 +21,15 @@ pub trait Driver: Send + Sync {
 
     /// Capability names beyond the core protocol (`cdp`, `route`, `history`, `tabGroups`).
     fn capabilities(&self) -> Vec<&'static str>;
+
+    /// Installs (or removes, with `None`) a filter that the engine applies
+    /// to every request of every tab, before the request is sent: document
+    /// navigations from page script, links, popups and redirects included.
+    /// Returns false when the engine cannot filter requests.
+    fn set_request_filter(&self, filter: Option<RequestFilter>) -> bool {
+        let _ = filter;
+        false
+    }
 }
 
 /// An event sink that drops every event.

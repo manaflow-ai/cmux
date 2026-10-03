@@ -1,0 +1,173 @@
+{
+  "family": "monaco",
+  "operations": [
+    {
+      "name": "monaco.open",
+      "owner": "app:cmux/monaco",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": true,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "uri": {
+            "type": "string",
+            "description": "file:// or cmux-fs:// URI."
+          },
+          "doc": {
+            "type": "string",
+            "description": "A document handle (doc_…)."
+          }
+        },
+        "required": []
+      },
+      "cli": {
+        "path": "apps run cmux/monaco open",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "docs": "Open a file or a document handle in a Monaco editor pane.",
+      "since": "monaco/1",
+      "export": "open"
+    },
+    {
+      "name": "monaco.save",
+      "owner": "app:cmux/monaco",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "doc": {
+            "type": "string",
+            "description": "A document handle; the focused editor when absent."
+          }
+        },
+        "required": []
+      },
+      "cli": {
+        "path": "apps run cmux/monaco save",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "palette": {
+        "title": "Save"
+      },
+      "docs": "Save the focused editor's document, or the document handle given.",
+      "since": "monaco/1",
+      "export": "save",
+      "keyboard": [
+        {
+          "key": "cmd+s",
+          "when": "paneFocused:editor"
+        }
+      ],
+      "gesture": "optional"
+    },
+    {
+      "name": "monaco.revert",
+      "owner": "app:cmux/monaco",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "doc": {
+            "type": "string"
+          }
+        },
+        "required": []
+      },
+      "cli": {
+        "path": "apps run cmux/monaco revert",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "palette": {
+        "title": "Revert to Saved"
+      },
+      "docs": "Drop unsaved edits and show the saved revision of the document.",
+      "since": "monaco/1",
+      "export": "revert",
+      "gesture": "required"
+    },
+    {
+      "name": "monaco.toggle_read_only",
+      "owner": "app:cmux/monaco",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "apps run cmux/monaco toggle-read-only",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Toggle Read-Only"
+      },
+      "docs": "Turn read-only mode on or off in the focused editor.",
+      "since": "monaco/1",
+      "export": "toggleReadOnly"
+    },
+    {
+      "name": "monaco.cycle_variant",
+      "owner": "app:cmux/monaco",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "apps run cmux/monaco cycle-variant",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Next Monaco Variant"
+      },
+      "docs": "Switch to the next Monaco design variant (DEV and NIGHTLY).",
+      "since": "monaco/1",
+      "export": "cycleVariant"
+    }
+  ]
+}

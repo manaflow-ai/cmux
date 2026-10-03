@@ -12,8 +12,9 @@ name: Nightly macOS build
 # as cmux NIGHTLY (bundle id com.cmuxterm.app.nightly), but its own release
 # `nightly-next`, DMG names, Sparkle key and feed (NIGHTLY_NEXT_FEED_BASE), so
 # its installs never read main's NIGHTLY feed and main's never read its feed.
-# Only nightly-next-promote.yml moves `nightly-next`, to a feat-cmux-next head
-# whose Release compile is green. Its signing and upload secrets live in the
+# Only main's nightly.yml job promote-nightly-next (release environment, release
+# App) moves `nightly-next`, to a feat-cmux-next head whose Release compile is
+# green; cmux-next.yml requests it after a green push run. Its signing and upload secrets live in the
 # `release-next` environment, which only `nightly-next` may use.
 on:
   # Publish changed main revisions, at most once per NIGHTLY_PUSH_MIN_INTERVAL_HOURS
@@ -1264,6 +1265,7 @@ jobs:
             ./scripts/install-cmux-tui-client.sh "$app" \
             --require-capability wireguard-hub \
             --require-acpmux
+          ./scripts/cmux-next/check-daemon-capabilities.sh --binary "$app/Contents/Resources/bin/cmux-tui"
 
       - name: Build immutable SSH daemon assets once for every app variant
         if: needs.decide.outputs.build_only != 'true'
@@ -1354,9 +1356,11 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
-    timeout-minutes: 30
+    # Waits up to 45 minutes for the artifacts workflow to publish this tree.
+    timeout-minutes: 55
     outputs:
       commit: ${{ steps.resolve.outputs.commit }}
+      key: ${{ steps.resolve.outputs.key }}
     steps:
       - name: Checkout build ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1366,16 +1370,22 @@ jobs:
           submodules: false
 
       # The fast arm64 build bundles its own compiled client instead.
-      # The app ships the cmux-tui daemon it was built and tested against:
-      # scripts/cmux-next/cmux-tui.pin (the same pin every tagged build bundles).
+      # The nightly ships the daemon built from its own cmux-tui tree, as every
+      # tagged build does (scripts/cmux-next/pin-cmux-tui.sh --help): the commit
+      # that published this tree, whose attested manifest the sign job installs.
       - name: Resolve cmux-tui client commit
         id: resolve
         if: needs.decide.outputs.fast_build != 'true'
+        env:
+          CMUX_TUI_TREE_WAIT_SECONDS: "2700"
         run: |
           set -euo pipefail
-          cmux_tui_commit="$(awk -F= '$1=="commit"{print $2}' scripts/cmux-next/cmux-tui.pin)"
+          cmux_tui_key="$(scripts/cmux-next/pin-cmux-tui.sh key)"
+          cmux_tui_commit="$(scripts/cmux-next/pin-cmux-tui.sh resolve-commit)"
           [[ "$cmux_tui_commit" =~ ^[0-9a-f]{40}$ ]]
+          echo "cmux-tui tree $cmux_tui_key: commit $cmux_tui_commit"
           echo "commit=$cmux_tui_commit" >> "$GITHUB_OUTPUT"
+          echo "key=$cmux_tui_key" >> "$GITHUB_OUTPUT"
 
   build-sign-notarize-nightly:
     # Production secrets: GitHub releases them only to protected refs (the
@@ -1555,6 +1565,7 @@ jobs:
           # attestation with gh before trusting it.
           GH_TOKEN: ${{ github.token }}
           CMUX_TUI_CLIENT_COMMIT: ${{ needs.resolve-nightly-cmux-tui-client.outputs.commit }}
+          CMUX_TUI_CLIENT_KEY: ${{ needs.resolve-nightly-cmux-tui-client.outputs.key }}
           # Per-job cache, so legs sharing a host never race on one download.
           CMUX_TUI_CLIENT_CACHE: ${{ runner.temp }}/cmux-tui-client
         run: |
@@ -1572,7 +1583,8 @@ jobs:
           # the client was bundled before the unsigned app was archived.
           # bin/cmux-tui and bin/acpmux are symlinks to bin/cmux.
           strip -S -x "$app/Contents/Resources/bin/cmux"
-          ./scripts/cmux-next/write-cmux-tui-version.sh "$app" "$cmux_tui_commit"
+          ./scripts/cmux-next/write-cmux-tui-version.sh "$app" "$cmux_tui_commit" "$CMUX_TUI_CLIENT_KEY"
+          ./scripts/cmux-next/check-daemon-capabilities.sh --binary "$app/Contents/Resources/bin/cmux-tui"
 
       - name: Run bundled Ghostty theme picker helper regression
         run: |
@@ -2164,8 +2176,10 @@ jobs:
         timeout-minutes: 2
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          # The release App (Contents + Workflows write only); its id and key
+          # live only in the release and release-next environments.
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-contents: write
@@ -2187,14 +2201,15 @@ jobs:
         run: |
           set -euo pipefail
           # Every rc/** branch shares the rc tag and those branches diverge,
-          # so only the nightly and nightly-next tags require a fast-forward. The helper retries
+          # so only the nightly tag requires a fast-forward. nightly-next may
+          # move from a baseline build (see promote-nightly-next on main). The helper retries
           # only transient API/network failures and reads the ref back before
           # declaring the marker updated. Permission failures are terminal.
           python3 scripts/ci/update-release-tag.py \
             --repo "$GITHUB_REPOSITORY" \
             --tag "$CHANNEL_RELEASE_TAG" \
             --sha "${{ needs.decide.outputs.head_sha }}" \
-            ${{ needs.decide.outputs.release_tag == 'rc' && '--allow-non-descendant' || '' }}
+            ${{ needs.decide.outputs.release_tag != 'nightly' && '--allow-non-descendant' || '' }}
 
       - name: Record nightly publication marker outcome
         id: tag-outcome

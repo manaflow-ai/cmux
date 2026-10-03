@@ -192,6 +192,15 @@ def make_package_fixture(packages: Path) -> None:
     relay_launcher_bin = relay_launcher / "bin" / "cmux-relay.js"
     relay_launcher_bin.parent.mkdir(parents=True, exist_ok=True)
     write_relay_launcher_fixture(relay_launcher_bin)
+    write_license_files(packages)
+
+
+def write_license_files(packages: Path) -> None:
+    """Every generated npm package ships the GPL text as LICENSE."""
+
+    for package in packages.iterdir():
+        if package.is_dir():
+            (package / "LICENSE").write_text("GPL-3.0-or-later\n")
 
 
 def test_archive_round_trip_preserves_package_executables(tmp_path: Path) -> None:

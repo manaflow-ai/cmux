@@ -110,7 +110,7 @@ nonisolated struct LayoutModel: Hashable, Sendable {
             // Splitting a pane that just closed (its only tab left) is a loss.
             guard let (w, p) = model.location(pane: paneID) else { return nil }
             model.workspaces[w].panes.insert(model.makePane([tab]), at: p + 1)
-        case .newColumn:
+        case .newColumn, .newDock:
             guard let (w, _) = model.location(of: tab) else { return nil }
             model.remove(tab)
             let target = min(w, model.workspaces.count - 1)

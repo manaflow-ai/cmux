@@ -67,6 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         launchSettle.install(daemon: services.daemon)
         services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(), prestart: daemonPrestart)
+        FeaturePolicyEnforcer(services: services).start()
         cloudContext = services.startCloud()
         services.ssh.start()
         services.updater.start()
@@ -118,6 +119,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// control socket (`action.list/describe/run`) over the same registry.
     private func startSettingsAndControl(registry: ActionRegistry) {
         let settings = SettingsController(registry: registry)
+        settings.applyManagedFeaturesNow()
+        ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloud.auth).start()
         self.settings = settings
         services.settings = settings
         services.history.commands.start(settings: settings)

@@ -12,12 +12,10 @@ import Testing
         ThemeTokens.derive(from: ThemeFixtures.all.first { $0.0 == name }!.1)
     }
 
-    @Test func defaultsMarkBothAndPaintNoStripFill() {
+    @Test func defaultsMarkBoth() {
         let design = DesignSettings()
         #expect(design.focusIndicator == .both)
-        #expect(design.tabBarBackground == .window)
         #expect(FocusIndicatorTunables.indicator.defaultValue == .both)
-        #expect(FocusIndicatorTunables.tabBarBackground.defaultValue == .window)
         #expect(FocusIndicatorTunables.inactiveTabStrength.defaultValue > 0)
     }
 
@@ -70,13 +68,6 @@ import Testing
             #expect(holds(quiet.textTertiary, full.textTertiary, ThemeTokens.subtleTertiaryFloor), "\(name) \(style) \(strength)")
             #expect(quiet.textPrimary.contrast(with: page) > quiet.textSecondary.contrast(with: page), "\(name) \(style) \(strength)")
         }
-    }
-
-    @Test func theStripPaintsOnlyWhereTheSheetShowsAnotherColor() {
-        let dark = ThemeRGB(hex: 0x272822), light = ThemeRGB(hex: 0xFFFFFF)
-        #expect(!TabBarBackground.window.paintsStripFill(paneWindowBackground: dark, sheet: dark))
-        #expect(TabBarBackground.window.paintsStripFill(paneWindowBackground: light, sheet: dark))
-        #expect(TabBarBackground.darker.paintsStripFill(paneWindowBackground: dark, sheet: dark))
     }
 
     /// A strip scope's emphasis colors only its own views; a child scope

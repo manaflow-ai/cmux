@@ -1,6 +1,268 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "updater.required": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your organization requires cmux %@ or newer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تتطلب مؤسستك cmux %@ أو أحدث."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vaša organizacija zahtijeva cmux %@ ili noviji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Din organisation kræver cmux %@ eller nyere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deine Organisation erfordert cmux %@ oder neuer."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tu organización requiere cmux %@ o posterior."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Votre organisation exige cmux %@ ou une version ultérieure."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La tua organizzazione richiede cmux %@ o versioni successive."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組織では cmux %@ 以降が必要です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្ថាប័នរបស់អ្នកទាមទារ cmux %@ ឬថ្មីជាងនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "조직에서 cmux %@ 이상을 요구합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Organisasjonen din krever cmux %@ eller nyere."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Twoja organizacja wymaga cmux %@ lub nowszego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sua organização exige o cmux %@ ou mais recente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваша организация требует cmux %@ или новее."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "องค์กรของคุณกำหนดให้ใช้ cmux %@ ขึ้นไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kuruluşunuz cmux %@ veya daha yeni bir sürüm gerektiriyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваша організація вимагає cmux %@ або новішої версії."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tổ chức của bạn yêu cầu cmux %@ trở lên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的组织要求 cmux %@ 或更高版本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的組織要求 cmux %@ 或更新版本。"
+          }
+        }
+      }
+    },
+    "updater.managed.channel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your organization keeps this Mac on the %@ channel."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تُبقي مؤسستك جهاز Mac هذا على قناة %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vaša organizacija drži ovaj Mac na kanalu %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Din organisation holder denne Mac på kanalen %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deine Organisation hält diesen Mac auf dem Kanal %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tu organización mantiene este Mac en el canal %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Votre organisation maintient ce Mac sur le canal %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La tua organizzazione mantiene questo Mac sul canale %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組織によって、この Mac は %@ チャンネルに固定されています。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្ថាប័នរបស់អ្នករក្សា Mac នេះនៅលើឆានែល %@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "조직에서 이 Mac을 %@ 채널로 유지합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Organisasjonen din holder denne Macen på kanalen %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Twoja organizacja utrzymuje ten Mac na kanale %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sua organização mantém este Mac no canal %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваша организация закрепила этот Mac на канале %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "องค์กรของคุณให้ Mac เครื่องนี้อยู่ในช่อง %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kuruluşunuz bu Mac'i %@ kanalında tutuyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваша організація тримає цей Mac на каналі %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tổ chức của bạn giữ máy Mac này ở kênh %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的组织将此 Mac 固定在 %@ 渠道。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的組織將此 Mac 固定在 %@ 頻道。"
+          }
+        }
+      }
+    },
     "updater.button.cancel": {
       "extractionState": "manual",
       "localizations": {

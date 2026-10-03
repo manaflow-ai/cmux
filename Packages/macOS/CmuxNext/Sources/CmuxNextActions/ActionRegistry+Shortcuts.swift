@@ -100,7 +100,7 @@ extension ActionRegistry {
         var index = ShortcutIndex()
         var ids = descriptors.map(\.id)
         ids += actions.map(\.id).filter { descriptorIndexByID[$0] == nil }
-        for id in ids {
+        for id in ids where disabledFeature(for: id) == nil { // DisabledFeatures: no key, chord or leader row
             if let chord = effectiveChord(for: id) {
                 if isDigitFamily(id, chord.second) {
                     index.chordDigitFamilies[chord.first, default: [:]][chord.second, default: []].append(id)

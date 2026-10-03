@@ -18,9 +18,15 @@ pub struct RegistryViewportColumn {
     pub auto_layout: Option<Vec<PanePublicId>>,
     /// `sticky-columns-v1`. Additive: records written before it omit the
     /// field, and it is omitted while the column is not sticky, so an older
-    /// daemon still reads every record that has no sticky column.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// daemon still reads every record that has no sticky column. A top or
+    /// bottom dock (`edge-docks-v1`) is never serialized here: it lives in
+    /// `resource_column_docks` (screen_rows.rs) and is overlaid at load.
+    #[serde(default, skip_serializing_if = "not_a_side_flag")]
     pub sticky: Option<crate::model::ColumnSticky>,
+}
+
+fn not_a_side_flag(sticky: &Option<crate::model::ColumnSticky>) -> bool {
+    sticky.is_none_or(|sticky| sticky.edge.is_band())
 }
 
 impl RegistryViewportColumn {

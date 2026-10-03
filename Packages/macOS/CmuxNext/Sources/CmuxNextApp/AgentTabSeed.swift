@@ -61,7 +61,7 @@ extension PaneController {
                 let selection = try? await page?.evaluate(AgentTabSeed.selectionScript, world: .isolated).stringValue
                 return AgentPaneSeed(cwd: cwd, draft: AgentTabSeed.browserDraft(title: title, url: url, selection: selection))
             }
-        case .agent, .page, .placeholder, nil:
+        case .agent, .page, .placeholder, .conversation, nil:
             return nil
         }
     }

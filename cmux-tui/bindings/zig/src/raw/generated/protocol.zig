@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "9db25213cb8861aa38070472e063471f073e76674033258697acacca8a4398b7";
+pub const ir_sha256 = "9a93a666e8f059fe58fafce71e3c8f25d47a930c49c9058ed455f3ca46b21d7b";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -233,6 +233,11 @@ pub const CloseTerminalResult = struct {
 };
 
 pub const ColorHex = []const u8;
+
+pub const ColumnPin = struct {
+    edge: []const u8,
+    mode: []const u8,
+};
 
 pub const CopyResultMode = enum {
     screen,
@@ -4480,7 +4485,9 @@ pub fn moveTabGroupToSplit(client: anytype, request: MoveTabGroupToSplitRequest)
 pub const MoveTabToColumnRequest = struct {
     after_column: wire.Field(Id) = .absent,
     pane: wire.Field(Id) = .absent,
+    respawn: wire.Field(SplitRespawn) = .absent,
     screen: wire.Field(Id) = .absent,
+    sticky: wire.Field(ColumnPin) = .absent,
     surface: Id,
     transaction: wire.Field([]const u8) = .absent,
     width: wire.Field(f32) = .absent,
@@ -4496,6 +4503,10 @@ pub fn moveTabToColumn(client: anytype, request: MoveTabToColumnRequest) !wire.D
             .authority = "control",
             .since = 12,
             .capability = "tab-drag-v1",
+            .fields = &.{
+                .{ .name = "respawn", .since = 12, .capability = "tab-column-respawn-v1" },
+                .{ .name = "sticky", .since = 12, .capability = "edge-docks-v1" },
+            },
         },
         request,
     );
@@ -4727,6 +4738,7 @@ pub const NewFrontendBrowserTabRequest = struct {
     cols: wire.Field(u16) = .absent,
     engine: []const u8,
     favicon_url: wire.Field([]const u8) = .absent,
+    idempotency_key: wire.Field([]const u8) = .absent,
     owner: wire.Field([]const u8) = .absent,
     pane: wire.Field(Id) = .absent,
     profile_id: wire.Field([]const u8) = .absent,

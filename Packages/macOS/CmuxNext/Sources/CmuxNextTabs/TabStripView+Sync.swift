@@ -90,7 +90,6 @@ extension TabStripView {
             needsLayout = true
         }
         syncButtonGroup()
-        locationField.location = model.selectedID.flatMap(model.tab)?.location
 
         relayout(animated: animated || (styleChanged && !reduceMotion), added: added)
 

@@ -72,7 +72,10 @@ nonisolated enum HistoryActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "history.reopen", title: t("action.history.reopen", "Reopen Last Closed Item"),
                 keywords: ["history", "reopen", "undo", "closed", "tab", "screen"], category: .window,
-                symbol: "arrow.uturn.backward.circle", surfaces: [.palette, .keyboard], cliName: "history reopen"
+                symbol: "arrow.uturn.backward.circle", surfaces: [.palette, .keyboard],
+                // A closed item's id (Search Tabs rows, `palette.run`); none reopens the last one.
+                arguments: [ActionArgument(name: "id", title: t("argument.history.closedItem", "Closed Item ID"), kind: .string, isRequired: false)],
+                cliName: "history reopen"
             ),
             ActionDescriptor(
                 id: "history.clear", title: t("action.history.clear", "Clear History…"),

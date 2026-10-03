@@ -154,7 +154,7 @@ Registry rules:
 | State | Owner | Role |
 | --- | --- | --- |
 | items, lifecycle, answers, triage (read, seen, archived, snoozed), dedupe index, per-user push preferences | `FeedDO` (one per user) | single writer |
-| items posted while the DO is unreachable or the user has no account | the local feed server (`cmux-feed serve`, the feed app's server in `local` mode, supervised by the daemon; never PTY code) | single writer of its own items until handoff |
+| items posted while the DO is unreachable or the user has no account | the daemon's in-process local owner (`cmux-feed-core`, 9.1); `cmux-feed serve` only on a machine without a daemon | single writer of its own items until handoff |
 | attachment bytes | R2 (cloud), local store (local) | the owner writes the reference |
 | presence for push (which client is active and what it shows) | each client, sent as `presence.set` to `FeedDO`; kept in memory, never committed | client view state |
 | per-device presentation (banners, sounds, rings, dock badge) | config layer, cmux.json on that machine | owner |
@@ -171,7 +171,7 @@ The app manifest's `server` block (`{kind: native, binary, args, catalog, hosts:
 | Data | Scope | Owner | Why |
 | --- | --- | --- | --- |
 | a user's items, answers, triage, push prefs | per user | `cloud:FeedDO` (N10) | the feed is the path that wakes the user (push to the iPhone); it must not depend on a team VM that pauses when idle (D21) or a cmux server Mac that sleeps; personal accounts have no team host; every device must reach it |
-| items a daemon holds while offline or without an account | per user per machine | the feed app's server in `local` mode: `cmux-feed serve` (Rust, `cmux-feed-core` reducer), supervised by the daemon like any server app, `data: durable` in the app data directory | the same supervisor and catalog as server apps; the item's `home` (`local:<install>`) makes each item single-writer even though every machine runs one instance |
+| items a daemon holds while offline or without an account | per user per machine | the daemon itself: `cmux-feed-core` runs in-process in cmux-tui, so a notification and its local `feed.post` are one journal commit (9.1, daemon owner ruling 2026-10-03). `cmux-feed serve` exists only for a machine without a daemon (a server or VM that runs no cmux-tui) | the same supervisor and catalog as server apps; the item's `home` (`local:<install>`) makes each item single-writer even though every machine runs one instance |
 | team-scoped feed (later): requests addressed to a team or role ("any admin approves this deploy", first answer wins), shared team notices, team routing rules | per team | the feed app's server on the team host (`app:dev.cmux.feed`, hosts `team-vm`, `cmux-server`) | team data with one writer per team, exactly the server block's model |
 
 Manifest: `dev.cmux.feed` (publisher cmux, first-party, installed by default): `server {kind: native, binary: cmux-feed, args: [serve], catalog: catalog/feed-catalog.json, hosts: [local], data: durable}` for the fallback now, `team-vm` and `cmux-server` added with the team feed; `contributes.paneKinds: [{id: feed, renderer: native}]` (CmuxNextFeed), `statusItems` (menu bar count), `sidebarSections` (open requests), `commands` from the catalog, `feedKinds` renderers; `mcp: {group: feed}`.
@@ -259,7 +259,7 @@ In view: no banner, no sound, no ring animation; the client sends `feed.seen`. A
 
 ### 7.3 iPhone push (owner decides)
 
-On post (or snooze wake) of a push-eligible item, the owner sets a push deadline: urgent 0 s, high 20 s, normal 120 s, low never (`feed.prefs.push.delay.*`). At the deadline (`feed.push_due`, owner alarm), it pushes only if the item is still open (requests) or unread (notices), not seen, and no Mac client of the user reported `active` presence in the last 120 s (the user is at the desk and got the Mac banner), unless the item is urgent. Answer actions in the push (Allow/Deny, choice options) call `feed.answer` from the iPhone with origin `user`. Push delivery is an external effect after commit (`push.send` outbox row, APNs sender with its own idempotency key); the APNs sender belongs to the iOS lane.
+On post (or snooze wake) of a push-eligible item, the owner sets a push deadline: urgent 0 s, high 20 s, normal 120 s, low never (`feed.prefs.push.delay.*`). At the deadline (`feed.push_due`, owner alarm), it pushes only if the item is still open (requests) or unread (notices), not seen, and no Mac client of the user reported `active` presence in the last 120 s (the user is at the desk and got the Mac banner), unless the item is urgent. Answer actions in the push (Allow/Deny, choice options) call `feed.answer` from the iPhone with origin `user`. Push delivery is an external effect after commit: the owner commits the decision (`feed.push_due`), then its wake sends to the user's iOS push targets (owned by `UserDO`: only an iOS install registers, topics limited to the cmux apps, a revoked install's tokens are released) through APNs from the Worker (ES256 provider token, collapse id = item id, category `FEED_<KIND>` for answer actions, payload cut under 4 KB, mail items carry no content). Delivery is at most once (decided): a send that fails after the commit is logged, not retried, because a late push for a request that may be answered by then is worse than none; a `push.send` outbox with retries can come later if dogfood shows lost pushes. A send never fails the owner's wake.
 
 ### 7.4 Focus
 
@@ -297,7 +297,7 @@ Kind mapping: permission prompts become `approve` (Claude Code `permission_sugge
 - acpmux mirrors pending permissions into the feed and answers through `_acpmux/permission_respond`. This is the cleanest path: no hook process and no deadline.
 - The Swift compat `feed.push` (`CompatFeed.swift`) answers `timed_out` at once today; it routes to the feed owner once the Rust CLI verb exists.
 
-UNVERIFIED (read from docs and source, no harness run live): whether Claude Code shows its dialog while a `PermissionRequest` hook still runs; `updatedInput.answers` for AskUserQuestion in interactive mode (the old app ships it); whether the `Elicitation` hook delays the dialog; whether a second Codex app-server client receives requests that were pending before it subscribed.
+Live finding: `sr claude` drops hooks passed with `--settings`; project or user `.claude/settings.json` hooks load. UNVERIFIED (read from docs and source): whether Claude Code shows its dialog while a `PermissionRequest` hook still runs; `updatedInput.answers` for AskUserQuestion in interactive mode (the old app ships it); whether the `Elicitation` hook delays the dialog; whether a second Codex app-server client receives requests that were pending before it subscribed.
 
 ## 9. Migration of today's notifications
 
@@ -314,6 +314,36 @@ UNVERIFIED (read from docs and source, no harness run live): whether Claude Code
 
 Steps: (1) bridge: the daemon's `notify` path also posts the notice to the feed owner; the app keeps today's ledger; (2) the app reads rings, badges and the panel from the feed mirror; (3) the daemon ledger stops keeping read state (producer only), and `ack-tab-notifications` becomes `feed.read`. Step 3 changes a daemon protocol and needs the daemon owners (COORDINATION.md line).
 
+### 9.1 Steps 2 and 3 as one change (plan for the daemon owner's review)
+
+Step 1 (1c9b829aeb2, hardened in the next commit) is a bridge: the app copies alerting daemon notifications into FeedDO and mirrors reads. Read state then has two writers (the daemon's unread markers and `read_by` sets, and FeedDO's `read_at`). Steps 2 and 3 land together so that read state has exactly one writer per item.
+
+Target:
+1. One writer per item for lifecycle and read state: the item's owner (section 5). A local item's owner is the daemon's local feed owner; a cloud item's owner is FeedDO. The daemon's notification ledger stops being a store: it becomes a producer that posts items.
+2. The daemon hosts the local owner (F4) as a module (`cmux-feed-core`, the same reducer as FeedDO, checked by the shared conformance vectors). It runs with or without an account, so rings and badges keep working signed out.
+3. Every daemon notification (`cmux notify`, `notification.create*`, OSC 9/777/99 after Ghostty's rate limit, `status run`) is a local `feed.post` in the daemon's own commit: poster kind `system` (or `agent` with the launch credential), context `{host, workspace, tab, terminal}`, dedupe key `notify:<daemon session>:<public notification id>`. Content stays on the Mac.
+4. Handoff to the cloud follows section 5 rule 3: only when the user is signed in, and only for items that `feed.mirrorNotifications` allows (agents on by default; terminal off, title or full). The app holds the cloud credential, so it drives `feed.adopt` for the daemon (the daemon marks `handing_off`, the app sends `feed.adopt` with key `adopt:<item>`, the daemon commits `moved`). Items the setting keeps local never leave the Mac. Until the daemon has its own install token this keeps the "no app, no cloud" limit of step 1.
+5. Reads (spec C-BATCH): unread clears ONLY on an explicit per-client view acknowledgement, `ack-tab-notifications` (a client sends it when its dismissal policy says the user saw the tab, or for Mark Read and `cmux` clear), which becomes `feed.read` on the items whose context is that tab, routed to each item's owner (local or cloud, `owner.moved` reroutes). `select-workspace`, `select-tab`, focus and any other selection never clear unread as a side effect: the daemon's legacy "selecting a tab acknowledges" path (mux.rs, terminal selection) is removed. The iPhone acknowledges the same way. `read_by` per client is dropped: a read is per user (3.7). Step 1 already follows this: the bridge reads only on this app's own acknowledgement, not on daemon-side clears.
+6. Rings, the tab unread marker, the sidebar dot and the dock badge derive on each client from unread items (local stream plus cloud stream, merged by item id). No client keeps a second unread flag.
+7. The step-1 bridge is deleted in the same change.
+
+Migration (daemon journal): on first start of the new daemon, each entry of the 256-entry notification ledger becomes a local item (read when its marker was cleared), with the same dedupe key, so a step-1 cloud copy and the local item do not double. The `notification` event and `list-notifications` stay for one release as read-only projections of local items.
+
+Binding changes from the daemon owner's review (ad349, 2026-10-03; approved with these):
+- B1 Capability: the daemon half ships behind a new served capability `feed-local-owner-v1` (same tree, no pin wait since #17066). In the same daemon change the TUI sends `ack-tab-notifications` from its own dismissal policy. The app uses the explicit ack when the bundled daemon serves the capability and keeps working against an older daemon (remote or older hosts) that still clears on select-tab.
+- B2 In-process: `cmux-feed-core` runs inside the daemon; the notification and its local `feed.post` are one commit. Section 4.1 says `cmux-feed serve` serves only machines without a daemon.
+- B3 Handoff queue: at launch the app rebuilds its handoff queue from the daemon's items in `handing_off`, never from app memory. Test: kill the app between `handing_off` and `feed.adopt`, relaunch, the item reaches `moved` with the same key `adopt:<item>`.
+- B4 Migration: a ledger entry becomes READ if any `read_by` entry or the persisted ack exists, else unread. Idempotent: the dedupe key plus a journal marker.
+- B5 The moved-items cache is a non-authoritative projection, never a write target. A TUI ack on a moved item while no app holds a cloud credential is refused (`owner.unreachable`, retryable), not queued (U5).
+- B6 The actor (P8 shape) travels beside `origin`, outside the idempotency fingerprint.
+- B7 Coalescing (one pending post per terminal, latest wins) runs before the daemon commit, with a test.
+
+Open points for the daemon owner (answered by B1 to B7 where noted):
+- TUI and iPhone clients without a cloud credential see only local items: a cloud item's ring needs the cloud stream. Proposal: the daemon keeps a read-only cache of moved items (id, context, read_at) fed by the app, so every client of that daemon still draws rings.
+- Journal cost: one local commit per notification (today the ledger write is in memory plus a persisted ack). OSC spam needs the coalescing rule from step 1 (one pending post per terminal, latest wins) inside the daemon.
+- Who stamps the actor of a read (P8 shape `{kind: user|terminal|acp_session, id, host, agent?}`): the daemon stamps local reads; FeedDO stamps cloud reads.
+- Retention: FeedDO events keep full `feed.post` params up to 30 days (or the newest 10,000 events). Before terminal text is mirrored by default, event params for notices need redaction (title, body, label), which the shared engine does not allow without `rowMode` today (backend lead).
+
 ## 10. Sign-in and passkey requests (N12)
 
 ### 10.1 Feasibility per engine (code and docs read; nothing run live)
@@ -322,10 +352,10 @@ Steps: (1) bridge: the daemon's `notify` path also posts the notice to the feed 
 | --- | --- | --- |
 | (a) copy cookies and storage into another profile | partial: HttpOnly and SameSite cookies copy through `cmux_shim_import_cookies`; partitioned cookies do not (`cef_cookie_t` has no partition key); no IndexedDB write path; the session must be copied back. Rejected. | partial: `getAllCookies` includes HttpOnly; batch `setCookies` needs macOS 26; no public localStorage or IndexedDB copy. Rejected. |
 | (b) hand the live tab to the user and back | works (`cmux_tab_move_to_window` keeps the WebContents) and keeps in-memory state, but agent shims stay in the page until a reload, the login POST stays in history and the back/forward cache, and the tab must stay sealed for its lifetime, so the agent loses evaluate. Rejected. | works (a WKWebView moves like any NSView); same taint and seal problems. Rejected. |
-| (c) new user-owned tab, same profile, copied history and sessionStorage | **recommended.** Chromium `NavigationController` clone copies history with page state (scroll, form fields; password fields are never saved) and a sessionStorage snapshot; cookies, localStorage, IndexedDB and service workers are shared by the profile. In-memory JS state is lost (the copy reloads). | **recommended.** Same `WKWebsiteDataStore` shares cookies, storage and service workers; `interactionState` (macOS 12) carries history, scroll and form state; sessionStorage is copied by an app-private content world (no public native path). |
+| (c) new user-owned tab, same profile, copied history and sessionStorage | **recommended.** Chromium `NavigationController` clone copies history with page state (scroll, form fields; password fields are never saved) and a sessionStorage snapshot; cookies, localStorage, IndexedDB and service workers are shared by the profile. In-memory JS state is lost (the copy reloads). | **recommended, prototyped** (`plans/cmux-next/feed/prototypes/webkit-duplicate`, 26/26 checks). Same `WKWebsiteDataStore` shares cookies (HttpOnly stays HttpOnly), localStorage and service workers; `interactionState` (macOS 12) carries history and scroll, NOT the current page's form values (WebKit saves them only when a page leaves memory) and NOT sessionStorage; a one-shot app-private seed script writes sessionStorage before page scripts run. Two traps: a restored POST entry is sent again without a prompt (a restore-phase guard must cancel main-frame POST and load the last GET page), and `WKWebViewConfiguration.copy()` shares A's script controller (D needs a fresh one). |
 | (d) a second live view of the same renderer | impossible: a WebContents has one view; a screencast mirror is not interactive and WebAuthn needs the real WebContents `VISIBLE` (K16). | impossible: an NSView has one superview. |
 
-Verdict: CEF feasible with one fork export; WebKit feasible with public API plus an app-private script; both UNVERIFIED until a live prototype.
+Verdict: CEF feasible with one fork export (`cmux_tab_duplicate`, requested from the browser lane); WebKit proven in a prototype with public API plus an app-private seed script, a POST guard and a fresh script controller. The passkey ceremony in D stays UNVERIFIED until a signed build.
 
 ### 10.2 Flow
 
@@ -422,10 +452,14 @@ Screenshots and the recommendation are in section 15 when built.
 | --- | --- | --- |
 | F1 | Owner: `FeedDO`, `feed.*` ops in the cloud catalog, pure reducer with lifecycle, dedupe, expiry, triage, limits; reducer property tests; DO tests (ledger replay, events, alarms); shared conformance vectors for the local owner | this branch |
 | F2 | CLI and MCP verbs (Rust CLI owner, requests in the report); generated MCP tools from the catalog | requested |
+| F3a | App mirror over `FeedDO` (`CloudFeedSource`, `FeedService`), Cmd-I list panel, `feed.request`/`feed.cancel`/`debug.feed` control methods; FeedDO live events carry the changed items | landed 38aa052b4cb..1807fb31d80 |
+| F5a | Prototype Claude Code adapter `scripts/cmux-next/feed-hook.py` (stand-in for `cmux feed hook`); proven live: Claude Code's PreToolUse hook -> app -> FeedDO -> user answer -> allow or deny with reason | landed with F3a |
+| F8a | Push targets on UserDO + Worker-native APNs sender called from FeedDO's push decision (iOS client: CmuxFeedPushCore) | landed with this note |
+| F7a | WebKit duplication prototype | 0438a9f60aa |
 | F3 | Mac: `CmuxNextFeed` module (model mirror + intent log, three prototypes, mock source), app wiring to the DO stream and the local owner, actions and settings | next |
 | F4 | Local feed server (`cmux-feed-core` Rust reducer passing the same vectors, `cmux-feed serve` supervised as a server app, `feed.adopt` handoff, `formal/FeedHandoff.tla`) | after F1 review |
 | F5 | Harness adapters (`cmux feed hook claude-code\|codex\|opencode\|pi`, acpmux `request_permission` bridge) | after F2 |
-| F6 | Migration steps 1 to 3 (section 9) | after F3 |
+| F6 | Migration steps 1 to 3 (section 9) | step 1 landed 1c9b829aeb2 (app-side bridge: the app posts each local daemon notification as a notice, key `notify:<daemon session>:<id>`, and reads it when any client reads the tab; nothing is mirrored while no app runs or while signed out); steps 2 and 3 next |
 | F7 | Sign-in and passkey handover (section 10) | after the browser host lease work |
 | F8 | iPhone: push sender, iOS feed list, answer actions in pushes | iOS lane |
 | F9 | Email as a feed source (11.2): ids-only mail items, gateway peek, triage effects, reply and compose actions | with the integrations lead and lane 3 |
@@ -433,7 +467,7 @@ Screenshots and the recommendation are in section 15 when built.
 
 ## 14. Settings (cmux.json, Settings > Feed)
 
-`feed.desktop`, `feed.sound`, `feed.quietHours`, `feed.mutedPosters`, `feed.inViewIdleSeconds` (60), `feed.dismissal` (`keystroke`), `feed.badge` (`requestsAndUnread`), `feed.attention.*` (ring, from notifications.md), `feed.layout` (prototype switch), `feed.menubar` (`off`), `feed.requestDefaults.expiry` (24 h). Owner-side (synced, `feed.prefs.set`): `push.enabled` (true), `push.delay.{urgent,high,normal,low}` (0, 20, 120, never), `push.skipWhenMacActive` (true).
+`feed.desktop`, `feed.sound`, `feed.quietHours`, `feed.mutedPosters`, `feed.inViewIdleSeconds` (60), `feed.dismissal` (`keystroke`), `feed.badge` (`requestsAndUnread`), `feed.attention.*` (ring, from notifications.md), `feed.layout` (prototype switch), `feed.menubar` (`off`), `feed.requestDefaults.expiry` (24 h). `feed.mirrorNotifications.agents` (true: notices from agents, agent hooks and `cmux notify` go to the feed) and `feed.mirrorNotifications.terminal` (`off` default, `title`, `full`: terminal program notifications; off sends nothing, title sends the title only). Only notifications that would alert on this Mac (a banner) are mirrored; muted workspaces, quiet hours and banners turned off stay on the Mac. Text is scrubbed of known secret shapes; the poster label is the source (`agent`, `cli`, `terminal`), never the tab title. Owner-side (synced, `feed.prefs.set`): `push.enabled` (true), `push.delay.{urgent,high,normal,low}` (0, 20, 120, never), `push.skipWhenMacActive` (true).
 
 ## 15. Prototype screenshots and recommendation
 

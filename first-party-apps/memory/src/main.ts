@@ -36,8 +36,8 @@ export function renderPane(ctx: Record<string, unknown> = {}) {
   ])
 }
 
-export async function openMemory() {
-  await openPane()
+export async function openMemory(_args: Record<string, unknown> = {}, ctx?: CmuxCommandContext) {
+  await openPane(ctx?.gesture ?? null)
   return {}
 }
 

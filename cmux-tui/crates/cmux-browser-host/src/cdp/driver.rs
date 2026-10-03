@@ -16,8 +16,12 @@ use serde_json::{Value, json};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak, mpsc};
 use std::time::{Duration, Instant};
 
-/// Deadline for the per-tab setup calls and other internal calls.
+/// Deadline for internal calls.
 pub(super) const INTERNAL_TIMEOUT: Duration = Duration::from_secs(10);
+/// Deadline for a new target's setup batch: its replies wait for the
+/// renderer process to start, which takes seconds on a cold, loaded machine
+/// (hosted macOS runners exceeded 10 s).
+pub(super) const SETUP_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub struct CdpDriver {
     pub(super) inner: Arc<Inner>,
@@ -31,6 +35,11 @@ pub(super) struct Inner {
     events: Mutex<mpsc::Sender<DriverEvent>>,
     state: Mutex<State>,
     changed: Condvar,
+    /// The request filter (`set_request_filter`), shared with the worker
+    /// that decides paused requests.
+    pub(super) request_filter: Arc<Mutex<Option<crate::driver::RequestFilter>>>,
+    /// Paused requests to decide: (session, request id, URL).
+    pub(super) paused: Mutex<mpsc::Sender<(String, String, String)>>,
 }
 
 impl CdpDriver {
@@ -51,12 +60,16 @@ impl CdpDriver {
                 }
             })
             .map_err(|e| DriverError::closed(format!("could not start the event thread: {e}")))?;
+        let request_filter = Arc::new(Mutex::new(None));
+        let paused = super::requests::start_worker(conn.clone(), request_filter.clone())?;
         let inner = Arc::new(Inner {
             conn: conn.clone(),
             agent_source: agent_source.into(),
             events: Mutex::new(event_tx),
             state: Mutex::new(State::default()),
             changed: Condvar::new(),
+            request_filter,
+            paused: Mutex::new(paused),
         });
         let weak: Weak<Inner> = Arc::downgrade(&inner);
         conn.set_event_handler(Arc::new(move |event| {
@@ -138,6 +151,11 @@ impl Driver for CdpDriver {
     fn capabilities(&self) -> Vec<&'static str> {
         vec!["cdp"]
     }
+
+    fn set_request_filter(&self, filter: Option<crate::driver::RequestFilter>) -> bool {
+        self.inner.set_request_filter(filter);
+        true
+    }
 }
 
 /// A ready tab's session.
@@ -152,6 +170,10 @@ impl Inner {
     }
 
     fn handle_event(self: &Arc<Self>, event: CdpEvent) {
+        if event.method == "Fetch.requestPaused" {
+            self.request_paused(&event);
+            return;
+        }
         let applied = self.lock().apply(&event);
         self.changed.notify_all();
         if !applied.events.is_empty() {
@@ -174,12 +196,14 @@ impl Inner {
     fn run_follow_up(&self, follow_up: FollowUp) {
         match follow_up {
             FollowUp::Resume { session_id } => {
-                let _ = self.conn.call(
-                    Some(&session_id),
-                    "Runtime.runIfWaitingForDebugger",
-                    json!({}),
-                    INTERNAL_TIMEOUT,
-                );
+                // Workers and prerenders make requests too: interception
+                // first while a filter is set, then let them run.
+                let steps: Vec<(&str, Value)> = self
+                    .fetch_enable_step()
+                    .into_iter()
+                    .chain([("Runtime.runIfWaitingForDebugger", json!({}))])
+                    .collect();
+                let _ = self.conn.call_batch(Some(&session_id), steps, INTERNAL_TIMEOUT);
             }
             FollowUp::SetUpFrame { target_id: _, session_id } => {
                 // Failures leave the frame unreachable; it must still run.
@@ -231,9 +255,12 @@ impl Inner {
                 ("Emulation.setFocusEmulationEnabled", json!({"enabled": true})),
                 // Out-of-process iframes attach as child sessions of this page.
                 ("Target.setAutoAttach", auto_attach),
-                ("Runtime.runIfWaitingForDebugger", json!({})),
-            ],
-            INTERNAL_TIMEOUT,
+            ]
+            .into_iter()
+            .chain(self.fetch_enable_step())
+            .chain([("Runtime.runIfWaitingForDebugger", json!({}))])
+            .collect(),
+            SETUP_TIMEOUT,
         );
         if let Some(Ok(tree)) = results.get(1) {
             let frame = &tree["frameTree"]["frame"];
@@ -263,9 +290,12 @@ impl Inner {
                     json!({"source": &*self.agent_source, "worldName": AGENT_WORLD, "runImmediately": true}),
                 ),
                 ("Target.setAutoAttach", auto_attach),
-                ("Runtime.runIfWaitingForDebugger", json!({})),
-            ],
-            INTERNAL_TIMEOUT,
+            ]
+            .into_iter()
+            .chain(self.fetch_enable_step())
+            .chain([("Runtime.runIfWaitingForDebugger", json!({}))])
+            .collect(),
+            SETUP_TIMEOUT,
         );
         results.into_iter().find_map(Result::err).map_or(Ok(()), Err)
     }

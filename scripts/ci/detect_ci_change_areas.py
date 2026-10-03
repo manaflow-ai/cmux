@@ -935,6 +935,7 @@ def is_web_change(path: str) -> bool:
         "scripts/ci/web_subareas.py",
         "tests/test_web_validation.py",
         "scripts/build-webviews-app.sh",
+        "scripts/check-webviews-bun-version.sh",
         "scripts/check-webviews-react-compiler.mjs",
         # The generated agent pane page, its build and regenerate scripts, and
         # the merge driver that keeps it mergeable: react-apps-check verifies
@@ -1334,8 +1335,11 @@ def is_macos_neutral(
             "plans/",
             "ios/",
             "web/",
-            "webviews/",
-            # Lint and format settings for webviews/ and cmux-tui web only.
+            # Webview sources feed generated resources consumed by the native app.
+            # Keep web CI routing and add one compile admission for webview-only
+            # pull requests, so a resource integration break is caught without
+            # escalating to the full macOS suite.
+            # Lint and format settings for cmux-tui web only.
             "config/vite-plus/",
             "cmux-tui/",
             "cmux-browser/",

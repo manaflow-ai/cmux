@@ -7,7 +7,7 @@ struct TasksBoardView: View {
     @Environment(\.tasksColors) private var colors
 
     var body: some View {
-        let tasks = model.visibleTasks
+        let tasks = model.shownTasks
         ScrollView(.horizontal) {
             HStack(alignment: .top, spacing: 10) {
                 ForEach(model.statuses.filter { $0.category != .canceled }) { status in
@@ -89,6 +89,6 @@ private struct BoardCard: View {
         .opacity(model.isPending(task.id) ? 0.6 : 1)
         .onHover { hovering = $0 }
         .onTapGesture { model.selection = task.id }
-        .contextMenu { StatusMenu(task: task, model: model) }
+        .contextMenu { TaskContextMenu(task: task, model: model) }
     }
 }

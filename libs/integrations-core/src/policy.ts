@@ -7,7 +7,8 @@
 // Changes for cmux: actions are allow/ask/block (upstream approve,
 // require_approval, block); owners are team (outer) and user (inner); rules
 // are ordered by specificity instead of fractional position keys; defaults
-// derive from cmux op classes, so destructive tools default to block.
+// derive from cmux op classes, so destructive tools default to block, and
+// only a rule for the exact tool may loosen a block default.
 
 import type { CatalogKind, OpClass, ToolAction } from "./types.ts"
 
@@ -156,9 +157,30 @@ export const resolveToolPolicy = (address: string, rules: readonly PolicyRule[])
   return selected ? { action: selected.action, source: selected.owner, pattern: selected.pattern, ruleId: selected.id } : undefined
 }
 
-/** A matching rule wins over the default derived from the spec; with no rule the default applies. */
-export const resolveEffectivePolicy = (address: string, rules: readonly PolicyRule[], defaultAction: ToolAction): EffectivePolicy =>
-  resolveToolPolicy(address, rules) ?? { action: defaultAction, source: "default" }
+/**
+ * A matching rule wins over the default derived from the spec; with no rule
+ * the default applies. Exception for tools whose default is Block (destructive
+ * and money ops): only a rule for that exact tool may loosen it. A broader
+ * rule (`ns.*`, `ns.*.delete`, `*`) that would allow or ask counts as the
+ * default for its owner, so a subtree rule never unblocks a destructive tool
+ * by accident. Across owners the most restrictive action still wins.
+ */
+export const resolveEffectivePolicy = (address: string, rules: readonly PolicyRule[], defaultAction: ToolAction): EffectivePolicy => {
+  if (defaultAction !== "block") return resolveToolPolicy(address, rules) ?? { action: defaultAction, source: "default" }
+  const byOwner = new Map<string, PolicyRule>()
+  for (const rule of [...rules].sort(byPrecedence)) {
+    if (!matchPattern(rule.pattern, address)) continue
+    const cur = byOwner.get(rule.owner)
+    // An exact rule of an owner beats that owner's equally specific wildcard.
+    if (!cur || (rule.pattern === address && cur.pattern !== address)) byOwner.set(rule.owner, rule)
+  }
+  let selected: EffectivePolicy | undefined
+  for (const rule of byOwner.values()) {
+    const effective: EffectivePolicy = rule.action !== "block" && rule.pattern !== address ? { action: "block", source: "default" } : { action: rule.action, source: rule.owner, pattern: rule.pattern, ruleId: rule.id }
+    if (!selected || restriction[effective.action] > restriction[selected.action]) selected = effective
+  }
+  return selected ?? { action: "block", source: "default" }
+}
 
 /** cmux grant shape for an action (identity-and-permissions: grants carry op classes and an approval mode). */
 export const grantFor = (action: ToolAction): { granted: boolean; approval: "none" | "per_call" } | null =>

@@ -458,19 +458,19 @@ ${body}
     const limit = Math.min(50, Math.max(1, Number(args.limit ?? 20) || 20));
     return api.search(str(args, "query", true), limit);
   });
-  var exportNotes2 = (args = {}) => run(async () => {
+  var exportNotes2 = (args = {}, ctx) => run(async () => {
     const id = str(args, "id");
     try {
-      return await exportNotes(id ? [id] : null, cmux.gesture());
+      return await exportNotes(id ? [id] : null, ctx?.gesture ?? null);
     } catch (e) {
       if (codeOf(e) === CANCELLED)
         return { folder: null, files: [] };
       throw e;
     }
   });
-  var importNotes2 = () => run(async () => {
+  var importNotes2 = (_args = {}, ctx) => run(async () => {
     try {
-      return await importNotes(cmux.gesture());
+      return await importNotes(ctx?.gesture ?? null);
     } catch (e) {
       if (codeOf(e) === CANCELLED)
         return { imported: [], skipped: [] };

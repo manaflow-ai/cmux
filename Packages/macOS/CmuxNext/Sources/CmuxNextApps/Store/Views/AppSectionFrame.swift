@@ -5,22 +5,27 @@ public import SwiftUI
 /// prototype: `native` (a plain header with the section glyph, built-in
 /// rows), `card` (a subtle inset card with the app icon in the header),
 /// `minimal` (title only). The sidebar provider and store previews share it.
+/// In the sidebar the section header row already draws the title (and owns
+/// collapse), so the provider passes `showsHeader: false`; drawing both
+/// produced a doubled, overlapping title.
 public struct AppSectionFrame<Content: View>: View {
     let look: AppSectionLook
     let title: String
     let symbol: String?
     let icon: AppIcon?
     let bundleDirectory: URL?
+    let showsHeader: Bool
     let content: Content
     @Environment(\.appSceneColors) private var colors
 
     public init(look: AppSectionLook, title: String, symbol: String?, icon: AppIcon?, bundleDirectory: URL?,
-                @ViewBuilder content: () -> Content) {
+                showsHeader: Bool = true, @ViewBuilder content: () -> Content) {
         self.look = look
         self.title = title
         self.symbol = symbol
         self.icon = icon
         self.bundleDirectory = bundleDirectory
+        self.showsHeader = showsHeader
         self.content = content()
     }
 
@@ -47,7 +52,12 @@ public struct AppSectionFrame<Content: View>: View {
         }
     }
 
+    @ViewBuilder
     private func header<Leading: View>(@ViewBuilder _ leading: () -> Leading) -> some View {
+        if showsHeader { headerRow(leading) }
+    }
+
+    private func headerRow<Leading: View>(_ leading: () -> Leading) -> some View {
         HStack(spacing: Metrics.space2) {
             leading()
             Text(title).font(Font(Typography.header))

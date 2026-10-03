@@ -1957,8 +1957,8 @@
       }
     ]);
   }
-  async function openFinder() {
-    return ops.openPane(gesture());
+  async function openFinder(_args = {}, ctx) {
+    return ops.openPane(ctx?.gesture ?? null);
   }
   async function addFolder2() {
     await addFolder();

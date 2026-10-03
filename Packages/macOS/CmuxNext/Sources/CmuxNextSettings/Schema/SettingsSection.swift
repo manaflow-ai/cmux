@@ -8,6 +8,9 @@ public nonisolated enum SettingsSection: String, Sendable, Hashable, CaseIterabl
 
     public var id: String { rawValue }
 
+    /// The string catalog key of `title`.
+    public var titleKey: String { "settings.section.\(rawValue)" }
+
     public var title: String {
         switch self {
         case .general: SettingsText.text("settings.section.general", "General")
@@ -42,6 +45,16 @@ public nonisolated enum SettingsSection: String, Sendable, Hashable, CaseIterabl
 
 /// Localized text of the settings schema (Localizable.xcstrings in this module).
 nonisolated enum SettingsText {
+    /// `text` with its key, for schema texts that clients outside the app
+    /// localize (`SettingsSchemaExport`).
+    static func keyed(
+        _ key: StaticString,
+        _ value: String.LocalizationValue,
+        strings: ModuleResourceBundle = .settings
+    ) -> SettingText {
+        SettingText(key: "\(key)", text: strings.text(key, defaultValue: value))
+    }
+
     static func text(
         _ key: StaticString,
         _ value: String.LocalizationValue,

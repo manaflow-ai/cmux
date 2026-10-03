@@ -3,8 +3,8 @@ import CoreText
 import Foundation
 
 /// Text measured and wrapped with Core Text, the way the bubbles draw it.
-struct TextLayout: Hashable {
-    struct Line: Hashable {
+struct TextLayout: Hashable, Sendable {
+    struct Line: Hashable, Sendable {
         var range: NSRange
         var width: CGFloat
         /// The line ended because the next word did not fit (not at a newline or the end).

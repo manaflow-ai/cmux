@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9db25213cb8861aa38070472e063471f073e76674033258697acacca8a4398b7. */
+/* cmux-tui mux protocol 12, IR 9a93a666e8f059fe58fafce71e3c8f25d47a930c49c9058ed455f3ca46b21d7b. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "9db25213cb8861aa38070472e063471f073e76674033258697acacca8a4398b7" as const;
+export const SDK_IR_SHA256 = "9a93a666e8f059fe58fafce71e3c8f25d47a930c49c9058ed455f3ca46b21d7b" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -513,7 +513,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "Trusted local connections only. limit is 1-100; query is at most 200 characters, and every word matches as a prefix. See spec/commands.md for the result object."
+      "Trusted local connections only. query is trimmed, 1-200 characters, no control characters; limit is 1-100 (rejects: conversation_rejected with reason invalid_query or invalid_limit). See spec/commands.md for the result object."
     ]
   },
   "conversation-snapshot": {
@@ -1170,7 +1170,16 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "tab-drag-v1",
-    "fields": {},
+    "fields": {
+      "respawn": {
+        "since": 12,
+        "capability": "tab-column-respawn-v1"
+      },
+      "sticky": {
+        "since": 12,
+        "capability": "edge-docks-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -3646,6 +3655,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "kind": "scalar",
       "name": "string"
     }
+  },
+  "ColumnPin": {
+    "additional_properties": false,
+    "fields": {
+      "edge": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "mode": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
   },
   "CopyResult": {
     "additional_properties": false,
@@ -13167,6 +13198,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "Id"
           }
         },
+        "respawn": {
+          "capability": "tab-column-respawn-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "SplitRespawn"
+          }
+        },
         "screen": {
           "default": null,
           "nullable": true,
@@ -13174,6 +13216,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "Id"
+          }
+        },
+        "sticky": {
+          "capability": "edge-docks-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "ColumnPin"
           }
         },
         "surface": {
@@ -13797,6 +13850,15 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "favicon_url": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "idempotency_key": {
           "default": null,
           "nullable": true,
           "presence": "optional",

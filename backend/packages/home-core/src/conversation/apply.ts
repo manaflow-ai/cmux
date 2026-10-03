@@ -60,6 +60,8 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
   if (!actor) return fail("not_participant")
   if (actor.kind === "address") fail("address_cannot_act")
   if (head.state === "archived") fail("archived")
+  // A promoted conversation opens for normal ops only after `conversation.import.commit`.
+  if (head.state === "importing") fail("importing")
   const now = request.now
   switch (op.kind) {
     case "message.send": {

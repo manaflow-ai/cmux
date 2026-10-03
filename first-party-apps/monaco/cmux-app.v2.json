@@ -1,166 +1,188 @@
 {
-  "$comment": "SKETCH of this app on platform v2 (plan app-platform section 12). Not loaded by today's runtime; cmux-app.json is the live manifest.",
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
   "manifestVersion": 2,
   "id": "cmux/monaco",
+  "name": {
+    "en": "Monaco",
+    "ja": "Monaco"
+  },
   "version": "0.1.0",
+  "description": {
+    "en": "A full code editor (Monaco) for files and documents in cmux, with your terminal's font and colors, save, conflict handling, read-only mode, a diff view and an optional minimap.",
+    "ja": "cmuxのファイルとドキュメント向けの本格的なコードエディタ(Monaco)。ターミナルのフォントと色、保存、競合の処理、読み取り専用モード、差分表示、ミニマップ(任意)に対応します。"
+  },
   "publisher": {
     "name": "cmux",
     "url": "https://cmux.dev"
   },
   "repository": "https://github.com/manaflow-ai/cmux",
   "license": "MIT",
+  "icon": "assets/icon.svg",
+  "categories": [
+    "developer-tools",
+    "productivity"
+  ],
+  "keywords": [
+    "editor",
+    "code",
+    "text",
+    "monaco"
+  ],
   "engines": {
     "cmux": "^2.0"
   },
-  "name": {
-    "en": "Monaco",
-    "ja": "Monaco"
+  "runtime": {
+    "main": "dist/main.js",
+    "web": {
+      "root": "web/",
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'"
+    }
   },
-  "strings": "strings/",
-  "main": "dist/main.js",
-  "scopes": {
-    "document:write": "Edit and save the documents you open with this editor."
-  },
+  "catalog": "catalog/monaco-catalog.json",
   "implements": {
     "cmux.editor/1": {
-      "renderer": "web",
       "web": "web/index.html",
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'",
+      "title": {
+        "en": "Monaco",
+        "ja": "Monaco"
+      },
+      "symbol": "doc.text",
       "types": [
         "public.source-code",
         "public.plain-text",
         "public.json",
         "net.daringfireball.markdown"
       ],
-      "capabilities": [
-        "diff",
-        "readOnly",
-        "multiCursor",
-        "decorations"
-      ],
-      "paneCommands": [
-        "save",
-        "revert",
-        "toggleReadOnly",
-        "focus"
-      ]
-    }
-  },
-  "consumes": [
-    "cmux.diff.renderer/1"
-  ],
-  "handles": [
-    "doc",
-    "diff"
-  ],
-  "catalog": {
-    "owner": "app:cmux/monaco",
-    "ops": [
-      {
-        "name": "monaco.open",
-        "export": "open",
-        "risk": "read",
-        "params": {
-          "uri": "string?",
-          "doc": "doc_…?"
-        },
-        "surfaces": {
-          "cli": "cmux open --with cmux/monaco <uri>",
-          "mcp": true
-        },
-        "gesture": "required"
-      },
-      {
-        "name": "monaco.save",
-        "export": "save",
-        "risk": "mutate-shared",
-        "params": {
-          "doc": "doc_…?"
-        },
-        "surfaces": {
-          "palette": {
-            "title": "Save"
-          },
-          "keyboard": {
-            "key": "cmd+s",
-            "when": "pane:editor"
-          },
-          "mcp": true
-        }
-      },
-      {
-        "name": "monaco.revert",
-        "export": "revert",
-        "risk": "mutate-shared",
-        "surfaces": {
-          "palette": {
-            "title": "Revert to Saved"
-          }
-        }
-      },
-      {
-        "name": "monaco.toggle_read_only",
-        "export": "toggleReadOnly",
-        "risk": "mutate-own",
-        "surfaces": {
-          "palette": {
-            "title": "Toggle Read-Only"
-          }
-        }
+      "options": {
+        "capabilities": [
+          "diff",
+          "readOnly",
+          "multiCursor",
+          "decorations"
+        ],
+        "paneCommands": [
+          "save",
+          "revert",
+          "toggleReadOnly",
+          "focus"
+        ]
       }
-    ]
-  },
-  "openWith": {
-    "types": [
-      "public.source-code",
-      "public.plain-text"
-    ],
-    "askToBecomeDefault": true
-  },
-  "variants": {
-    "setting": "variant",
-    "values": [
-      "statusLine",
-      "header",
-      "bare"
-    ],
-    "default": "statusLine",
-    "channels": [
-      "dev",
-      "nightly"
-    ]
-  },
-  "settings": {
-    "fontFamily": {
-      "default": "",
-      "description": "Empty: the terminal font."
-    },
-    "fontSize": {
-      "default": 0
-    },
-    "wordWrap": {
-      "default": false
-    },
-    "lineNumbers": {
-      "default": true
-    },
-    "tabSize": {
-      "default": 2
-    },
-    "minimap": {
-      "default": false
-    },
-    "renderWhitespace": {
-      "default": "none"
     }
   },
-  "v2Gaps": [
-    "The web pane bridge message shape is not specified in V7 (interfaces/web-bridge.ts proposes one).",
-    "No pane-routed commands: Save from the palette or Cmd-S must reach the focused web pane (paneCommands here).",
-    "V7 CSP: both editor libraries inject styles at runtime and need style-src 'unsafe-inline'; scripts stay 'self'.",
-    "No terminal theme in the pane init (background, foreground, cursor, selection, 16-color palette, font): the editors must not fall back to library colors.",
-    "document.read {doc, revision} for an older revision (conflict compare) is not in V3's op list.",
-    "No locale in the web pane init; cmux.t(key) is defined for the script VM only.",
-    "No pane visibility event to pause work in hidden panes."
-  ]
+  "scopes": {
+    "document:write": "Edit and save the files and documents you open with this editor.",
+    "workspace:write": "Open an editor pane when you run Open File."
+  },
+  "strings": "strings/",
+  "variants": [
+    {
+      "id": "variant",
+      "title": "Design variant",
+      "values": [
+        "statusLine",
+        "header",
+        "bare"
+      ],
+      "default": "statusLine"
+    }
+  ],
+  "settings": {
+    "type": "object",
+    "properties": {
+      "fontFamily": {
+        "type": "string",
+        "default": "",
+        "title": "Font family",
+        "description": "Empty: the terminal font."
+      },
+      "fontSize": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 72,
+        "default": 0,
+        "title": "Font size",
+        "description": "0: the terminal font size."
+      },
+      "wordWrap": {
+        "type": "boolean",
+        "default": false,
+        "title": "Wrap long lines"
+      },
+      "lineNumbers": {
+        "type": "boolean",
+        "default": true,
+        "title": "Show line numbers"
+      },
+      "tabSize": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 16,
+        "default": 2,
+        "title": "Tab size"
+      },
+      "minimap": {
+        "type": "boolean",
+        "default": false,
+        "title": "Show minimap"
+      },
+      "renderWhitespace": {
+        "type": "string",
+        "enum": [
+          "none",
+          "boundary",
+          "all"
+        ],
+        "default": "none",
+        "title": "Show whitespace"
+      }
+    }
+  },
+  "activation": [
+    "onInterface:cmux.editor/1",
+    "onOp:monaco.open",
+    "onOp:monaco.save",
+    "onOp:monaco.revert",
+    "onOp:monaco.toggle_read_only"
+  ],
+  "files": [
+    "dist/",
+    "assets/",
+    "catalog/",
+    "strings/",
+    "web/",
+    "THIRD_PARTY_NOTICES"
+  ],
+  "openWith": [
+    {
+      "interface": "cmux.editor/1",
+      "types": [
+        "public.source-code",
+        "public.plain-text",
+        "public.json",
+        "net.daringfireball.markdown"
+      ],
+      "default": "ask"
+    }
+  ],
+  "handles": {
+    "document": {
+      "reason": "Edit the file you open with this editor.",
+      "rights": [
+        "read",
+        "write"
+      ],
+      "max": 64
+    }
+  },
+  "consumes": {
+    "ops": [
+      "document.open",
+      "document.edit",
+      "document.save",
+      "document.revert"
+    ],
+    "handles": [
+      "document"
+    ]
+  }
 }

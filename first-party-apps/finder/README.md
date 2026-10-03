@@ -53,6 +53,27 @@ None of these exist yet; the app calls them with `cmux.call` and shows what is m
 | `agent.attach` | ACP session owner | mutate-shared | `agent:write` | none |
 | `app.pane.open` | app supervisor / Mac app | mutate-own | none | none |
 
+## Manifest v2
+
+`cmux-app.v2.json` is the manifest v2 that the daemon's app supervisor loads; it passes the one validator (`cmux-tui/crates/cmux-app-manifest`). It declares the same app as `cmux-app.json`: `runtime.main` `dist/main.js`, `cmux.section/1` (`renderFiles`) and `cmux.pane/1` (`renderFinder`), handles `root` and `host`, and the catalog fragment `catalog/finder-catalog.json`. Every v1 command is one catalog op of family `finder` (owner `app:cmux/finder`, `export` names the JS function, CLI `apps run cmux/finder <verb>`, palette title only for palette commands, MCP as v1 exposed it). The DEV/NIGHTLY `variant` setting is the `variants` block. `cmux-app.json` stays for today's in-app runtime.
+
+The v2 schema cannot hold these parts of the app, so the manifest leaves them out:
+
+1. Scopes `host:control` (open the connect sheet) and `terminal:input` (insert a path into the focused terminal): not in the v2 scope grammar. Connect to Host and Send to Terminal need grammar entries before the supervisor can grant them.
+2. Handle limits (`max`, `rights`, host kinds): `handles` holds a reason only.
+3. `cmux.opener/1` and `cmux.search.provider/1`: the app has no `openLocation` or `searchNames` export yet, so it does not claim them.
+4. Drag sources and drop targets (`drag.provides`, `drop.accepts`): no manifest field.
+
+Platform gaps found by the earlier v2 sketch (still open):
+
+- No ScrollView, visible-range events, keyboard selection or Table in the v2 scene vocabulary list beyond the names in V7.
+- No scene props for drag sources and drop targets (12.4 names the payload, not the scene contract).
+- Image cannot render an img_… handle from fs.thumbnail.
+- No ent_… handle for one dropped file; the 12.4 payload passes the dragger's handle.
+- No fs.search op named in cmux.fs.provider/1 (needed for the search provider without a crawl).
+
+Update (2026-10-03): the manifest v2 extensions (app-platform.md 12.5) now hold the items above that this app needed; `cmux-app.v2.json` and its catalog declare them (scopes, handles, keyboard, gestures, presets, requires, lifecycle, documents, openWith, notices, drag/drop and `consumes` as applicable). Items that depend on missing runtime support (embed node, pane-routed commands, native servers) stay open.
+
 ## Platform gaps
 
 1. No scroll container and no visible-range events: lists page 22 rows at a time.

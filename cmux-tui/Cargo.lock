@@ -24,6 +24,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "tokio-util",
+ "toml",
  "tracing",
  "tracing-subscriber",
  "unicode-width",
@@ -786,6 +787,7 @@ name = "cmux-app-manifest"
 version = "0.1.0"
 dependencies = [
  "jsonschema",
+ "regex",
  "serde_json",
 ]
 
@@ -793,9 +795,12 @@ dependencies = [
 name = "cmux-browser-host"
 version = "0.1.0"
 dependencies = [
+ "hmac",
  "libc",
+ "rquickjs",
  "serde",
  "serde_json",
+ "sha1",
  "url",
 ]
 
@@ -844,6 +849,21 @@ dependencies = [
  "anyhow",
  "libc",
  "portable-pty",
+]
+
+[[package]]
+name = "cmux-rd-core"
+version = "0.1.0"
+dependencies = [
+ "cmux-rd-proto",
+ "proptest",
+]
+
+[[package]]
+name = "cmux-rd-proto"
+version = "0.1.0"
+dependencies = [
+ "proptest",
 ]
 
 [[package]]
@@ -4789,6 +4809,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
+name = "relative-path"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bca40a312222d8ba74837cb474edef44b37f561da5f773981007a10bbaa992b0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "reqwest"
 version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4845,6 +4874,35 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "rquickjs"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0a22bf72f515cc4189dd7c63d016f6de92a11eee98ddf7dd64794198f6eb34e"
+dependencies = [
+ "rquickjs-core",
+]
+
+[[package]]
+name = "rquickjs-core"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6657979a24d543e5fc66f32cef2f47ca82ce8eb55cec5f7d59a12b7b570bbf24"
+dependencies = [
+ "hashbrown 0.17.1",
+ "relative-path",
+ "rquickjs-sys",
+]
+
+[[package]]
+name = "rquickjs-sys"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cee271d0eeba64f0915b846cb7ae02e16faf3dfdffdca91731101d9d30fe3423"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

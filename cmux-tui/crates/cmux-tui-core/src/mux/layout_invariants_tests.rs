@@ -612,7 +612,7 @@ fn run(
                     pick(&ids, index).or(Some(u64::MAX))
                 })
             });
-            accepted(mux.move_tab_to_column(tab(t), pane, after_column, width, None))
+            accepted(mux.move_tab_to_column(tab(t), pane, after_column, width, None, None))
         }
         Op::NewWorkspace { tab: t } => accepted(mux.move_tab_to_new_workspace(tab(t), None, None)),
         Op::ToWorkspace { tab: t, workspace } => accepted(

@@ -79,9 +79,10 @@ nonisolated enum CatalogArgument {
     }
 
     /// A sticky column's viewport edge (plans/cmux-next/sticky-column.md).
+    /// Top and bottom are edge docks (layout-model.md, edge-docks-v1).
     static var edgeChoice: ActionArgument {
         ActionArgument(name: "edge", title: String(localized: "argument.edge", defaultValue: "Edge", bundle: .module),
-                       kind: .enumeration([choice("right"), choice("left")]))
+                       kind: .enumeration([choice("right"), choice("left"), choice("top"), choice("bottom")]))
     }
 
     /// Docked (the strip makes room) or overlay (floats over the strip).
@@ -169,6 +170,13 @@ nonisolated enum CatalogArgument {
     }
 
     /// Optional page to open (`openBrowser`).
+    /// Optional palette scope id (`palette.open`): `tabs`, `workspaces`,
+    /// `app:<id>#<scope>`; the full palette when absent.
+    static var scopeString: ActionArgument {
+        ActionArgument(name: "scope", title: String(localized: "argument.scope", defaultValue: "Scope", bundle: .module), kind: .string,
+                       isRequired: false)
+    }
+
     /// Optional search text (`tab.search`): the page opens with it typed.
     static var queryString: ActionArgument {
         ActionArgument(name: "query", title: String(localized: "argument.query", defaultValue: "Search", bundle: .module), kind: .string,

@@ -3,20 +3,24 @@ import CmuxNextDesign
 import SwiftUI
 
 /// Hosts the Tasks pane in a tab's content area. The App creates it with a
-/// model over `SocketTasksSource`; demos use `MockTasksSource`. Resolves the
+/// model over `SocketTasksSource`; demos use `MockTasksSource`. The layout
+/// comes from `layout`, read in a tracked scope: when it reads observable
+/// state (the App passes the user setting `tasks.layout` from cmux.json),
+/// a change switches the layout live. Resolves the
 /// pane colors (chrome tokens and the terminal's ANSI palette) in this
 /// view's theme scope and again on every theme change.
 public final class TasksHostView: NSView {
     public let model: TasksModel
     private let appearanceState = TasksAppearance()
 
-    /// `layoutOverride` pins a prototype layout (demos and snapshots); nil
-    /// follows the Debug Settings switch.
-    public init(model: TasksModel, layoutOverride: TasksLayout? = nil) {
+    /// The pane's tab title (localized).
+    public static var paneTitle: String { TasksStrings.title }
+
+    public init(model: TasksModel, layout: @escaping @MainActor () -> TasksLayout) {
         self.model = model
         super.init(frame: .zero)
         wantsLayer = true
-        let hosting = NSHostingView(rootView: TasksRoot(model: model, appearance: appearanceState, layoutOverride: layoutOverride))
+        let hosting = NSHostingView(rootView: TasksRoot(model: model, appearance: appearanceState, layout: layout))
         hosting.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hosting)
         NSLayoutConstraint.activate([
@@ -29,6 +33,11 @@ public final class TasksHostView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    /// A fixed layout (demos and snapshots).
+    public convenience init(model: TasksModel, layout: TasksLayout) {
+        self.init(model: model, layout: { layout })
+    }
 
     public override var wantsUpdateLayer: Bool { true }
 
@@ -71,15 +80,15 @@ public final class TasksHostView: NSView {
     }
 }
 
-/// Reads the layout tunable and the resolved colors in a tracked scope, so a
-/// Debug Settings or theme change updates the pane live.
+/// Reads the layout and the resolved colors in a tracked scope, so a
+/// settings or theme change updates the pane live.
 struct TasksRoot: View {
     let model: TasksModel
     let appearance: TasksAppearance
-    var layoutOverride: TasksLayout?
+    let layout: @MainActor () -> TasksLayout
 
     var body: some View {
-        TasksView(model: model, layout: layoutOverride ?? TasksTunables.layout.value)
+        TasksView(model: model, layout: layout())
             .environment(\.tasksColors, appearance.colors)
     }
 }

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "9db25213cb8861aa38070472e063471f073e76674033258697acacca8a4398b7";
+inline constexpr std::string_view kProtocolIrSha256 = "9a93a666e8f059fe58fafce71e3c8f25d47a930c49c9058ed455f3ca46b21d7b";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -38,6 +38,7 @@ struct ClientSize;
 enum class ClientTransport;
 struct CloseTerminalResult;
 struct ColorHex;
+struct ColumnPin;
 struct CopyResult;
 enum class CursorStyle;
 struct DeadPane;
@@ -1155,6 +1156,12 @@ struct ColorsChangedEvent {
     friend bool operator==(const ColorsChangedEvent&, const ColorsChangedEvent&) = default;
 };
 
+struct ColumnPin {
+    std::string edge{};
+    std::string mode{};
+    friend bool operator==(const ColumnPin&, const ColumnPin&) = default;
+};
+
 struct ConfigReloadRequestedEvent {
     friend bool operator==(const ConfigReloadRequestedEvent&, const ConfigReloadRequestedEvent&) = default;
 };
@@ -2251,10 +2258,24 @@ struct MoveTabRequest {
     friend bool operator==(const MoveTabRequest&, const MoveTabRequest&) = default;
 };
 
+struct SplitRespawn {
+    Field<std::string> cwd{};
+    Field<std::string> engine{};
+    Field<std::map<std::string, std::string, std::less<>>> env{};
+    std::string kind{};
+    Field<std::string> profile_id{};
+    Field<std::vector<std::string>> shell_args{};
+    Field<std::string> terminal_id{};
+    Field<std::string> url{};
+    friend bool operator==(const SplitRespawn&, const SplitRespawn&) = default;
+};
+
 struct MoveTabToColumnRequest {
     Field<Id> after_column{};
     Field<Id> pane{};
+    Field<SplitRespawn> respawn{};
     Field<Id> screen{};
+    Field<ColumnPin> sticky{};
     Id surface{};
     Field<std::string> transaction{};
     Field<float> width{};
@@ -2267,18 +2288,6 @@ struct MoveTabToNewWorkspaceRequest {
     Id surface{};
     Field<std::string> transaction{};
     friend bool operator==(const MoveTabToNewWorkspaceRequest&, const MoveTabToNewWorkspaceRequest&) = default;
-};
-
-struct SplitRespawn {
-    Field<std::string> cwd{};
-    Field<std::string> engine{};
-    Field<std::map<std::string, std::string, std::less<>>> env{};
-    std::string kind{};
-    Field<std::string> profile_id{};
-    Field<std::vector<std::string>> shell_args{};
-    Field<std::string> terminal_id{};
-    Field<std::string> url{};
-    friend bool operator==(const SplitRespawn&, const SplitRespawn&) = default;
 };
 
 struct MoveTabToSplitRequest {
@@ -2379,6 +2388,7 @@ struct NewFrontendBrowserTabRequest {
     Field<std::uint16_t> cols{};
     std::string engine{};
     Field<std::string> favicon_url{};
+    Field<std::string> idempotency_key{};
     Field<std::string> owner{};
     Field<Id> pane{};
     Field<std::string> profile_id{};
@@ -4076,6 +4086,12 @@ template <>
 struct Codec<ColorHex> {
     static Result<Json> encode(const ColorHex& value);
     static Result<ColorHex> decode(const Json& value);
+};
+
+template <>
+struct Codec<ColumnPin> {
+    static Result<Json> encode(const ColumnPin& value);
+    static Result<ColumnPin> decode(const Json& value);
 };
 
 template <>

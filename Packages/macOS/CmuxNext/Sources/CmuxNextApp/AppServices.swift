@@ -15,6 +15,10 @@ import CmuxNextUpdater
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {
     let environment: AppEnvironment
+    /// Each window's last sidebar, drawn before the daemon answers.
+    let sidebarSnapshots: SidebarSnapshotStore
+    /// Launch load-in by region; tests inject one with their own clock.
+    var launchReveal = LaunchReveal.shared
     /// Run marker, restart notice, crash reports (`debug.crashes`).
     let crashRecovery: CrashRecoveryService
     /// The local daemon. Cloud machines are in `machines`; code acting on a
@@ -29,6 +33,9 @@ final class AppServices {
     /// Brings a window forward for a jump (`revealTab`, a `cmux://` link).
     /// Tests replace it to record the intent without ordering windows in.
     var showJumpWindow: @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
+    /// The app's key window. Tests and `debug.key` replace it: a window
+    /// only becomes key in a running, active app.
+    var keyWindowSource: @MainActor () -> NSWindow? = { NSApp.keyWindow }
     private(set) var cloud: CloudService!
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
     private(set) var feed: FeedService!
@@ -71,12 +78,17 @@ final class AppServices {
     private(set) lazy var historyPage = HistoryPageService(services: self)
     /// `cmux://agent-activity`: the computer use sessions page.
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
+    private(set) lazy var remoteViewPages = RemoteViewPageService()
     /// Recently closed workspaces (history lists).
     private(set) lazy var closedWorkspaces = ClosedWorkspaceTracker(services: self)
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)
     /// App platform (DEV prototype): registry, JavaScriptCore app host, App Store.
     private(set) lazy var apps = AppsService(services: self)
+    /// The Tasks page and its mirror of the local Tasks owner (plans/cmux-next/tasks.md).
+    private(set) lazy var tasks = TasksPageService(services: self)
+    /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).
+    private(set) lazy var serverMenuBar = ServerMenuBarController()
     /// Home: local conversations with the mux (plans/cmux-next/home.md).
     private(set) lazy var home = HomeService(services: self)
     /// `cmux://bookmarks`: the manager pages.
@@ -150,12 +162,14 @@ final class AppServices {
     private(set) var remoteTerminals: RemoteTerminalService!
 
     init(environment: AppEnvironment) {
+        sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus
         popups = BrowserPopupPanels(contextMenus: contextMenus)
         self.environment = environment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
         machines = MachineRegistry(local: daemon)
+        machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
         cloud = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)
         feed = FeedService(auth: cloud.auth)
         ssh = SSHService(machines: machines, bundleID: environment.launch.bundleID)
@@ -169,6 +183,7 @@ final class AppServices {
             await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) ?? base
         }
         cache.findTab = { [weak self] key in self?.remoteLocalhost.tab(id: key) }
+        cache.onRelease = { [weak self] key in self?.home.releaseTabView(key) }
         cache.machineBadge = { [weak self] key, url in
             guard let self, let tab = remoteLocalhost.tab(id: key) else { return nil }
             let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit

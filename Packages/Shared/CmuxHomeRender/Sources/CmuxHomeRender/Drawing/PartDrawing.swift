@@ -3,8 +3,8 @@ import CoreText
 
 /// Drawing of one text bubble: the incoming fill (the outgoing fill is the
 /// row's gradient layer, so it can shade with the row's viewport position),
-/// the text, the failed badge and the tapback badges.
-@MainActor
+/// the text, the failed badge and the tapback badges. Nonisolated: it runs
+/// off the main actor inside `RowBitmaps`.
 enum PartDrawing {
     static func draw(_ ctx: CGContext, _ p: PartRow, body: CGRect, palette: HomePalette) {
         if !p.outgoing {

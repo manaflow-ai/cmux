@@ -19,6 +19,11 @@ import Testing
                 == "Disconnected: connection lost · Click or type to reconnect"
         )
         #expect(TerminalStatusBanner.text(for: .connected, strings: missing) == nil)
+        // DisabledFeatures: a plain banner, no reconnect hint, even while a re-attach is pending.
+        for reconnecting in [false, true] {
+            #expect(TerminalStatusBanner.text(for: .disconnected(.turnedOffByOrganization, reconnecting: reconnecting), strings: missing)
+                    == "Turned off by your organization")
+        }
     }
 
     /// The safe lookup searches where SwiftPM puts the bundle, so the real

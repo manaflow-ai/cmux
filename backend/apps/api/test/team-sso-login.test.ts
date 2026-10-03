@@ -2,6 +2,7 @@ import { env, exports } from "cloudflare:workers"
 import { runInDurableObject } from "cloudflare:test"
 import { exportJWK, generateKeyPair, importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
+import { withSsoSession } from "../src/policy-gate.ts"
 
 const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; TEAM_DO: DurableObjectNamespace }
 const worker = (exports as unknown as { default: Fetcher }).default
@@ -65,7 +66,9 @@ const setup = async () => {
       },
       createSession: async (user: string, ttl?: number) => {
         stack.sessions.push({ user, ...(ttl ? { ttl } : {}) })
-        return { access_token: `at-${user}`, refresh_token: `rt-${user}` }
+        // A Stack-shaped access token: the callback reads its refresh_token_id (unverified decode).
+        const body = btoa(JSON.stringify({ sub: user, refresh_token_id: `rtid-${user}` })).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+        return { access_token: `eyJhbGciOiJFUzI1NiJ9.${body}.sig`, refresh_token: `rt-${user}` }
       }
     }
   })
@@ -126,7 +129,17 @@ describe("OIDC sign-in (workerd)", () => {
     // Login CSRF / code theft: without the verifier of the client that started the flow, the code is useless.
     expect((await redeem(code, "someone-elses-verifier-0123456789-abcdefghijklmnop")).status).toBe(400)
     const redeemed = await redeem(code)
-    expect(await redeemed.json()).toEqual({ access_token: "at-stack_1", refresh_token: "rt-stack_1" })
+    const tokens = (await redeemed.json()) as { access_token: string; refresh_token: string }
+    expect(tokens.refresh_token).toBe("rt-stack_1")
+    // sso.enforce (P17-4): the team recorded the session it created, by Stack's refresh token id.
+    const sso = s.stub as unknown as { ssoSession(e: string, sid: string, user: string): Promise<boolean> }
+    expect(await sso.ssoSession(s.team, "rtid-stack_1", "stack_1")).toBe(true)
+    expect(await sso.ssoSession(s.team, "rtid-other", "stack_1")).toBe(false)
+    expect(await sso.ssoSession(s.team, "rtid-stack_1", "stack_2")).toBe(false)
+    const rules = { sso_required: true, minimum_version: null, allowed_classes: [] }
+    const principal = { identity: "session:u", kind: "session" as const, user: "user_u", team: s.team, stack_user_id: "stack_1" }
+    expect((await withSsoSession(env as never, { ...principal, stack_session: "rtid-stack_1" }, rules)).sso_team).toBe(s.team)
+    expect((await withSsoSession(env as never, { ...principal, stack_session: "rtid-other" }, rules)).sso_team).toBeUndefined()
     expect((await redeem(code)).status).toBe(400)
     // The state is single-use.
     expect((await callback(state, "code-1")).status).toBe(400)
@@ -140,10 +153,15 @@ describe("OIDC sign-in (workerd)", () => {
 
     await inDO(s.stub, async (_i, state) => {
       const all = JSON.stringify([state.storage.sql.exec("SELECT * FROM own_events").toArray(), state.storage.sql.exec("SELECT * FROM own_outbox").toArray()])
-      expect(all).not.toContain("at-stack_1")
+      expect(all).not.toContain("rt-stack_1")
+      expect(all).not.toContain("eyJhbGciOiJFUzI1NiJ9")
       expect(all).not.toContain("idp-user-1")
       expect(all).toContain("sso.signed_in")
     })
+    // Disabling the connection ends the standing of the sessions it created.
+    const standing = s.stub as unknown as { ssoSession(e: string, sid: string, user: string): Promise<boolean> }
+    expect((await op(s.admin, "sso.connection.disable", { connection: s.connection })).ok).toBe(true)
+    expect(await standing.ssoSession(s.team, "rtid-stack_1", "stack_1")).toBe(false)
   })
 
   it("refuses bad ID tokens: wrong nonce, wrong issuer, wrong audience, wrong key, other domain, unverified email", async () => {

@@ -20,9 +20,22 @@ public nonisolated struct SettingDescriptor: Sendable, Hashable, Identifiable {
     public let defaultLabel: String?
     /// Extra words the Settings search matches.
     public let keywords: [String]
+    /// String catalog keys of `group`, `title`, `help` and `defaultLabel`
+    /// (nil for text that is not localized), so clients outside the app
+    /// localize from the same catalog (`SettingsSchemaExport`).
+    public let textKeys: SettingTextKeys
+
+    /// A row whose texts come from the string catalog (`SettingsText.keyed`).
+    public init(_ path: [String], section: SettingsSection, group: SettingText, title: SettingText, help: SettingText? = nil,
+                kind: SettingKind, default defaultValue: JSONValue?, defaultLabel: SettingText? = nil, keywords: [String] = []) {
+        self.init(path, section: section, group: group.text, title: title.text, help: help?.text, kind: kind,
+                  default: defaultValue, defaultLabel: defaultLabel?.text, keywords: keywords,
+                  textKeys: SettingTextKeys(group: group.key, title: title.key, help: help?.key, defaultLabel: defaultLabel?.key))
+    }
 
     public init(_ path: [String], section: SettingsSection, group: String, title: String, help: String? = nil,
-                kind: SettingKind, default defaultValue: JSONValue?, defaultLabel: String? = nil, keywords: [String] = []) {
+                kind: SettingKind, default defaultValue: JSONValue?, defaultLabel: String? = nil, keywords: [String] = [],
+                textKeys: SettingTextKeys = SettingTextKeys()) {
         self.path = path
         self.section = section
         self.group = group
@@ -32,6 +45,7 @@ public nonisolated struct SettingDescriptor: Sendable, Hashable, Identifiable {
         self.defaultValue = defaultValue
         self.defaultLabel = defaultLabel
         self.keywords = keywords
+        self.textKeys = textKeys
     }
 
     /// The dotted key, as diagnostics and the CLI print it.

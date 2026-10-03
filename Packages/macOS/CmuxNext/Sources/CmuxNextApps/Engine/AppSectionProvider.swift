@@ -15,6 +15,8 @@ public final class AppSectionProvider {
     private var mounts: [String: (mount: AppMount, view: NSView)] = [:]
     /// `apps.section.look` unless overridden (demo).
     public var lookOverride: AppSectionLook?
+    /// Runs when a mounted section's content height may have changed.
+    public var onContentChange: (() -> Void)?
 
     public init(registry: AppRegistry, host: AppHost) {
         self.registry = registry
@@ -33,10 +35,12 @@ public final class AppSectionProvider {
         let mount = host.mount(app.manifest, directory: app.bundle.directory, contribution: section, surface: "sidebarSection")
         let look = lookOverride ?? AppsTunables.sectionLook.value
         let root = AppSectionFrame(look: look, title: section.title?.resolved() ?? app.manifest.name.resolved(), symbol: section.symbol,
-                                   icon: app.manifest.icon, bundleDirectory: app.bundle.directory) {
+                                   icon: app.manifest.icon, bundleDirectory: app.bundle.directory,
+                                   showsHeader: false) {
             AppSceneView(model: mount.model, bundleDirectory: mount.bundleDirectory)
         }
         let view = AppSectionHostingView(rootView: root)
+        view.onSizeChange = { [weak self] in self?.onContentChange?() }
         mounts[contribution] = (mount, view)
         return view
     }
@@ -55,7 +59,7 @@ public final class AppSectionProvider {
 
     private func resolve(_ contribution: String) -> (InstalledApp, AppContribution)? {
         let parts = contribution.split(separator: "#", maxSplits: 1).map(String.init)
-        guard parts.count == 2, let app = registry.app(parts[0]), app.isActive,
+        guard parts.count == 2, let app = registry.app(parts[0]), app.isVisible,
               let section = app.manifest.contributes.of(.sidebarSection).first(where: { $0.id == parts[1] }) else { return nil }
         return (app, section)
     }
@@ -65,6 +69,8 @@ public final class AppSectionProvider {
 final class AppSectionHostingView: NSHostingView<AnyView> {
     private let sceneAppearance = AppSceneAppearance()
     private let measurer: NSHostingController<AnyView>
+    /// Runs when SwiftUI changes the content size (new scene content).
+    var onSizeChange: (() -> Void)?
 
     init<Content: View>(rootView content: Content) {
         let appearance = sceneAppearance
@@ -88,6 +94,11 @@ final class AppSectionHostingView: NSHostingView<AnyView> {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         sceneAppearance.update(from: self)
+    }
+
+    override func invalidateIntrinsicContentSize() {
+        super.invalidateIntrinsicContentSize()
+        onSizeChange?()
     }
 
     func preferredHeight(width: CGFloat) -> CGFloat {

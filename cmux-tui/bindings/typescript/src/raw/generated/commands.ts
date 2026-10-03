@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9db25213cb8861aa38070472e063471f073e76674033258697acacca8a4398b7. */
+/* cmux-tui mux protocol 12, IR 9a93a666e8f059fe58fafce71e3c8f25d47a930c49c9058ed455f3ca46b21d7b. */
 
 
 import type * as T from "./types.js";
@@ -917,7 +917,9 @@ export interface MoveTabToColumnRequest extends CmuxRequestBase {
   cmd: "move-tab-to-column";
   "after_column"?: (T.Id) | null;
   "pane"?: (T.Id) | null;
+  "respawn"?: (T.SplitRespawn) | null;
   "screen"?: (T.Id) | null;
+  "sticky"?: (T.ColumnPin) | null;
   "surface": T.Id;
   "transaction"?: (string) | null;
   "width"?: (number) | null;
@@ -1032,6 +1034,7 @@ export interface NewFrontendBrowserTabRequest extends CmuxRequestBase {
   "cols"?: (number) | null;
   "engine": string;
   "favicon_url"?: (string) | null;
+  "idempotency_key"?: (string) | null;
   "owner"?: (string) | null;
   "pane"?: (T.Id) | null;
   "profile_id"?: (string) | null;

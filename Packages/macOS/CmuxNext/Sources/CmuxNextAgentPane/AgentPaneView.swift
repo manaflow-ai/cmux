@@ -70,6 +70,12 @@ public final class AgentPaneView: NSView {
         if renderRate != .capped {
             configuration.preferences.setWebKitFeature(Self.near60FPSFeature, enabled: false)
         }
+        source.register(on: configuration)
+        // The shared web theme (`window.cmuxTheme`, `--cmux-*`): the page
+        // background is the one surface token, or clear over a see-through
+        // window (plans/cmux-next/windows.md).
+        configuration.userContentController.addUserScript(
+            WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let webView = WKWebView(frame: .zero, configuration: configuration)
         self.webView = webView
         dictation = AgentPaneDictation { [weak webView] script in webView?.evaluateJavaScript(script, completionHandler: nil) }

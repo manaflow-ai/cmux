@@ -20,9 +20,7 @@ public struct TabItemMapping {
             isPinned: tab.pinned,
             isUnread: tab.hasUnread,
             isBusy: busy.state.isLoading || isReportingProgress(tab),
-            status: status(tab),
-            // The strip's location field: web pages only (`TabLocation`).
-            location: isBrowser ? TabLocation(address: tab.url) : nil
+            status: status(tab)
         )
         if busy.state.isLoading { item.indicator = busy.state }
         item.busyStyle = busy.style

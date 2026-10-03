@@ -60,7 +60,7 @@ enum AgentPaneTheme {
     /// (an opaque window), clear where the window root paints the one
     /// translucent sheet (`WindowBackdrop`), as the terminal leaves it.
     static func pageColor(_ tokens: ThemeTokens) -> ThemeRGB {
-        WindowBackdrop(tokens).panesPaintBackground ? tokens.contentBackground : tokens.contentBackground.withAlpha(0)
+        WindowBackdrop(tokens).panesPaintBackground ? tokens.surfaceBackground.withAlpha(1) : tokens.surfaceBackground.withAlpha(0)
     }
 
     /// The color WebKit shows behind and around the page, the same as the
@@ -80,6 +80,8 @@ enum AgentPaneTheme {
     static func script(_ tokens: ThemeTokens) -> String? {
         guard let data = try? JSONSerialization.data(withJSONObject: values(tokens), options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return nil }
-        return "window.cmuxAcpmuxBridge?.applyTheme(\(json));"
+        // The shared web theme first (`--cmux-*`, the page background), then
+        // the pane's own bridge.
+        return WebTheme(tokens).applyScript + "window.cmuxAcpmuxBridge?.applyTheme(\(json));"
     }
 }

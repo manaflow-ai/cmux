@@ -22,8 +22,10 @@ Adapted files (each keeps a header naming its upstream paths and the changes):
   src/mcp.ts            packages/plugins/mcp/src/sdk/manifest.ts
                         packages/plugins/mcp/src/sdk/types.ts (McpToolAnnotations)
 
-cmux files (no upstream code): src/types.ts, src/catalog.ts, src/index.ts and
-the tests.
+cmux files (no upstream code): src/types.ts, src/catalog.ts, src/auth.ts,
+src/egress.ts, src/mcp-names.ts, src/text.ts, src/index.ts and the tests.
+src/policy.ts adds cmux code to the adapted matcher: the exact-rule condition
+for loosening a Block default in resolveEffectivePolicy.
 
 No telemetry, billing, analytics, registry-fetch or credential-storage code was
 copied.

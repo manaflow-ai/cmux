@@ -23,7 +23,7 @@ import Testing
         // Documented in plans/cmux-next/column-sizing.md.
         #expect(snapshot.splitSizing == .even && design.splitSizing == .even)
         #expect(snapshot.newColumnWidth == .matchCurrent && design.newColumnWidth == .matchCurrent)
-        #expect(snapshot.stickyColumnEdge == .right && design.stickyColumnEdge == .right)
+        #expect(snapshot.stickyColumnEdge == .nearest && design.stickyColumnEdge == .nearest)
         #expect(snapshot.stickyColumnMode == .docked && design.stickyColumnMode == .docked)
         // Documented in plans/cmux-next/layout-model.md (decision 2).
         #expect(snapshot.frameOrientation == .columnMajor && design.frameOrientation == .columnMajor)
@@ -31,7 +31,7 @@ import Testing
         #expect(design.minimumPaneContentSize == CGSize(width: 200, height: 64))
         #expect(schemaDefault(ColumnLayoutSettings.splitSizingPath) == .string("even"))
         #expect(schemaDefault(ColumnLayoutSettings.newColumnWidthPath) == .string("matchCurrent"))
-        #expect(schemaDefault(ColumnLayoutSettings.stickyEdgePath) == .string("right"))
+        #expect(schemaDefault(ColumnLayoutSettings.stickyEdgePath) == .string("nearest"))
         #expect(schemaDefault(ColumnLayoutSettings.stickyModePath) == .string("docked"))
         #expect(schemaDefault(ColumnLayoutSettings.frameOrientationPath) == .string("columnMajor"))
         #expect(schemaDefault(ColumnLayoutSettings.minimumPaneWidthPath) == .number(200))

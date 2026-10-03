@@ -19,7 +19,7 @@ interface Automation {
   enabled: boolean
   version: number
   triggers: Array<Trigger>
-  body: { type: "steps"; steps: Array<{ type: string }> } | { type: "agent_prompt"; instructions: string }
+  body: { type: "steps"; steps: Array<{ type: string }> } | { type: "agent_prompt"; instructions: string } | { type: "code"; ref: { commit: string; path: string; export?: string } }
   concurrency: { max: number; on_limit: string }
   next_run_at: number | null
   updated_at: number

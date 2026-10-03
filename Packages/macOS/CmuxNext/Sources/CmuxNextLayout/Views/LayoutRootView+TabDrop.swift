@@ -20,6 +20,7 @@ extension LayoutRootView {
         }
         let rect = convert(hit.highlight, from: view)
         let region = convert(hit.region, from: view)
+        tabDragHighlightOnScreen = window.map { $0.convertToScreen(convert(rect, to: nil)) }
         let style = context.style
         // Pane zones trace the rounded pane rect (already inset by the
         // padding); without pane chrome the highlight floats inside the pane.
@@ -50,6 +51,7 @@ extension LayoutRootView {
     }
 
     func hideHighlight() {
+        tabDragHighlightOnScreen = nil
         if highlight.hide(animated: canAnimate) { driver.start() }
     }
 

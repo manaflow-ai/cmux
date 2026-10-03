@@ -376,8 +376,8 @@
   function refresh() {
     return load(true);
   }
-  function openPane() {
-    return call("app.pane.open", { kind: "agentHub" }, withGesture(gesture()));
+  function openPane(token = gesture()) {
+    return call("app.pane.open", { kind: "agentHub" }, withGesture(token));
   }
   // first-party-apps/agents/strings/en.json
   var en_default = {
@@ -926,8 +926,8 @@
       }
     ]);
   }
-  async function openAgents() {
-    await openPane();
+  async function openAgents(_args = {}, ctx) {
+    await openPane(ctx?.gesture ?? null);
     return {};
   }
   async function checkForUpdates() {

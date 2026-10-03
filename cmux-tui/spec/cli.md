@@ -372,6 +372,7 @@ notification ack --client <id> <notification-id>...
 git status [--path <path>|--workspace|--screen|--pane|--tab|--terminal <selector>]
 git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch] [--patch]
   [--max-patch-bytes <n>] [--max-files <n>] [<path>...]
+git files [TARGET] [--limit <n>] <query>...
 git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...] [--exclude <path,...>]
   [--reason manual|handoff] [--max-bytes <n>] [--max-files <n>]
   [--expected-repository <id>] [--expected-worktree <id>]
@@ -463,6 +464,12 @@ status and line counts, adds patches only with `--patch` (each cut at
 `--max-patch-bytes`, 262144 by default, and marked `patch_truncated`), lists at
 most `--max-files` (500) files with the rest counted in `files_omitted`, and
 counts at most 200 untracked files, reporting the rest as `untracked_skipped`.
+`git files` (`git.files.search`) lists the files under the target folder whose
+path holds the query's characters in order, case-insensitively and ignoring
+spaces, best first: tracked files still in the working tree and untracked
+files no ignore rule hides. It prints at most `--limit` (50, up to 200)
+results relative to `search_root`, the folder searched; `root` is the
+repository top level.
 A repository's filter drivers never run: every configured `filter.<driver>` is
 blanked for the read. One reply carries at most 8 MiB of patches.
 

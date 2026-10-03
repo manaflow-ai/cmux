@@ -146,6 +146,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_main_compile_attribution.py
 
+      - name: Validate generated cmux-next coordination index
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 scripts/cmux-next/generate-coordination-index.py --check
+
       - name: Validate CI failure attribution
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_classify_failures.py

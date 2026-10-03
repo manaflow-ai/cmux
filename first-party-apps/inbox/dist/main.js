@@ -536,27 +536,27 @@
     noticeFor(t("error.feed", { reason: describe(e) }));
     return false;
   });
-  function openItem(item) {
+  function openItem(item, api = cmux) {
     setSelected(item.id);
-    return quiet(cmux.actions.run("feed.openItem", { item: item.id }).catch((e) => {
+    return quiet(api.actions.run("feed.openItem", { item: item.id }).catch((e) => {
       throw codeOf(e) === "operation.unsupported" ? new Error(t("open.unsupported")) : e;
     }));
   }
-  function userGesture() {
-    const g = cmux.gesture();
+  function userGesture(explicit) {
+    const g = explicit ?? cmux.gesture();
     if (!g)
       noticeFor(t("answer.needsTap"));
     return g;
   }
-  function answer(item, value) {
-    const gesture = userGesture();
+  function answer(item, value, token) {
+    const gesture = userGesture(token);
     if (!gesture)
       return Promise.resolve(false);
     moveSelectionOff([item.id]);
     return quiet(feed.answer(item.id, value, gesture));
   }
-  function decline(item) {
-    const gesture = userGesture();
+  function decline(item, token) {
+    const gesture = userGesture(token);
     if (!gesture || !isOpenRequest(item))
       return Promise.resolve(false);
     moveSelectionOff([item.id]);
@@ -1264,9 +1264,9 @@
       throw commandError("item.not_found", t("item.noneSelected"));
     return item;
   }
-  async function openInbox() {
+  async function openInbox(_args = {}, ctx) {
     try {
-      await cmux.call("app.pane.open", { contribution: `${cmux.app.id}#pane` });
+      await (ctx?.cmux ?? cmux).call("app.pane.open", { contribution: `${cmux.app.id}#pane` });
       return { opened: true };
     } catch (e) {
       throw commandError(e.code ?? "operation.failed", t("pane.unsupported"));
@@ -1277,20 +1277,20 @@
       throw commandError("feed.refused", t("command.refused"));
     return { read: true };
   }
-  async function move(direction, args) {
+  async function move(direction, args, ctx) {
     if (items().length === 0)
       await listNow();
     const item = step(direction);
     if (item && args.open !== false)
-      await openItem(item);
+      await openItem(item, ctx?.cmux);
     return { id: item?.id ?? null };
   }
-  var nextItem = (args = {}) => move(1, args);
-  var previousItem = (args = {}) => move(-1, args);
-  async function openItem2(args = {}) {
+  var nextItem = (args = {}, ctx) => move(1, args, ctx);
+  var previousItem = (args = {}, ctx) => move(-1, args, ctx);
+  async function openItem2(args = {}, ctx) {
     const item = await findItem(args.id);
     setSelected(item.id);
-    await openItem(item);
+    await openItem(item, ctx?.cmux);
     return { id: item.id };
   }
   async function markDone2(args = {}) {

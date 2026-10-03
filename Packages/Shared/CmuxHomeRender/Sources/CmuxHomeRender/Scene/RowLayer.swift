@@ -77,18 +77,29 @@ final class RowLayer {
     }
 
     /// Shows `spec` laid out for `metrics`. The bitmap comes from the content
-    /// cache, so a row whose content did not change is not redrawn.
+    /// cache, so a row whose content did not change is not redrawn; a new
+    /// bitmap is drawn off the main actor and installed when it is ready.
     func configure(_ spec: RowSpec, metrics: Metrics, bitmaps: RowBitmaps, viewportHeight: CGFloat) {
         if key != spec.key { clearAnimations(); applied = []; key = spec.key }
         let paletteChanged = paletteGeneration != bitmaps.paletteGeneration
         guard paletteChanged || self.spec != spec || self.metrics != metrics || self.viewportHeight != viewportHeight else { return }
-        if paletteChanged { applyPalette(bitmaps.palette); paletteGeneration = bitmaps.paletteGeneration }
+        if paletteChanged {
+            applyPalette(bitmaps.palette)
+            paletteGeneration = bitmaps.paletteGeneration
+            bitmap.contentsScale = bitmaps.scale
+            receiptOld.contentsScale = bitmaps.scale
+        }
         self.spec = spec
         self.metrics = metrics
         self.viewportHeight = viewportHeight
         let frame = RowArt.frame(spec, metrics: metrics)
         bitmap.frame = frame
-        bitmap.contents = bitmaps.image(for: spec, size: frame.size)
+        // A miss draws off the main actor; the result lands here if the row still shows this spec.
+        let generation = paletteGeneration
+        bitmap.contents = bitmaps.image(for: spec, size: frame.size) { [weak self] image in
+            guard let self, self.spec == spec, self.paletteGeneration == generation else { return }
+            self.bitmap.contents = image
+        }
         let typing = if case .typing = spec.kind { true } else { false }
         typingContainer.isHidden = !typing
         if typing {

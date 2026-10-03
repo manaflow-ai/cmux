@@ -19,6 +19,30 @@ public struct TranscriptItem: Hashable, Sendable, Identifiable {
     public var delivery: Delivery
     public var reactions: [Reaction]
     public var isRetracted: Bool
+    public var editedAt: Date?
+    public var replyTo: PartRef?
+    public var threadRoot: MessageID?
+    /// The owner's message id of a committed message (nil for a pending
+    /// send). Opaque to renderers: hosts pass it back in ops that name a
+    /// message (`addReaction`). Filled by the data side (HomeStore).
+    public var messageID: MessageID?
+
+    public init(key: IdempotencyKey, seq: Seq?, author: ParticipantID, parts: [MessagePart], createdAt: Date,
+                delivery: Delivery, reactions: [Reaction] = [], isRetracted: Bool = false,
+                editedAt: Date? = nil, replyTo: PartRef? = nil, threadRoot: MessageID? = nil, messageID: MessageID? = nil) {
+        self.key = key
+        self.seq = seq
+        self.author = author
+        self.parts = parts
+        self.createdAt = createdAt
+        self.delivery = delivery
+        self.reactions = reactions
+        self.isRetracted = isRetracted
+        self.editedAt = editedAt
+        self.replyTo = replyTo
+        self.threadRoot = threadRoot
+        self.messageID = messageID
+    }
 
     public var id: IdempotencyKey { key }
 
@@ -37,7 +61,11 @@ extension TranscriptWindow {
                 createdAt: message.createdAt,
                 delivery: .committed,
                 reactions: message.reactions,
-                isRetracted: message.isRetracted
+                isRetracted: message.isRetracted,
+                editedAt: message.editedAt,
+                replyTo: message.replyTo,
+                threadRoot: message.threadRoot,
+                messageID: message.id
             )
         }
         let committedKeys = Set(items.map(\.key))

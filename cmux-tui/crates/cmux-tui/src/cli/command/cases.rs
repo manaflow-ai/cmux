@@ -664,6 +664,10 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
         ),
         (vec!["git", "status", "--path", "/repo"], "git.status"),
         (
+            vec!["git", "files", "--path", "/repo", "--limit", "20", "app", "tsx"],
+            "git.files.search",
+        ),
+        (
             vec![
                 "git",
                 "diff",

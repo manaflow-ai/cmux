@@ -10,18 +10,17 @@ public import QuartzCore
 /// conversation's owner (`HomeStore.perform`, see `HomeStoreBinding`).
 ///
 /// Time is event-driven: Core Animation runs every animation on the render
-/// server; the controller wakes once per cleanup due time with a one-shot
-/// sleep on the injected clock (the sleeping task holds the controller
-/// weakly). No display link, no polling: idle is 0% CPU.
+/// server; the controller wakes once per cleanup due time through the
+/// host's one-shot `HomeDeadline`. No display link, no polling, no sleep:
+/// idle is 0% CPU.
 @MainActor
 public final class HomeController {
     public let conversation: ConversationID
     public let me: ParticipantID
     let scene: HomeScene
     let builder: RowBuilder
-    private let clock: any Clock<Duration>
+    private let deadline: any HomeDeadline
     private let currentDate: @MainActor () -> Date
-    private var wakeTask: Task<Void, Never>?
     private var wakeAt: CFTimeInterval = .infinity
 
     private(set) var items: [TranscriptItem] = []
@@ -41,40 +40,117 @@ public final class HomeController {
     public var onNeedsOlder: () -> Void = {}
     /// The accessibility items changed (rows, scroll or the draft).
     public var onAccessibilityChange: () -> Void = {}
+    /// The scroll range or the offset changed by the model (rows added, pin
+    /// on send, prepend rebase, resize). Hosts with a native scroll view
+    /// resize their document and move their clip view (see `scrollGeometry`).
+    public var onScrollGeometryChange: (ScrollGeometry) -> Void = { _ in }
+    var lastPublishedGeometry: ScrollGeometry?
+    /// The conversation's summary changed (title, participants): hosts
+    /// refresh their header.
+    public var onSummaryChange: (ConversationSummary?) -> Void = { _ in }
+    /// A send the owner refused before logging it, in hosted-field mode:
+    /// the host puts `text` back into its own field if that is empty.
+    public var onRestoreDraft: (String) -> Void = { _ in }
+    /// The rows changed (not just the viewport): hosts post their platform's
+    /// layout-changed accessibility notification here.
+    public var onRowsChange: () -> Void = {}
+    let container = CALayer()
+    var hostSize: CGSize = .zero
+    var zoom: CGFloat = 1
+    var displayScale: CGFloat = Canvas.scale
+    /// The hosted field as the host gave it (host points).
+    var hostedFieldInHost: CGRect?
+    /// The latest summary from `update`.
+    public var conversationSummary: ConversationSummary? { summary }
     /// The host shows this conversation to the user (window visible, app
     /// active). Read cursors advance only while it is true.
     public var isVisibleToUser = false {
         didSet { if isVisibleToUser { reportReadIfNeeded() } }
     }
 
-    public init(conversation: ConversationID, me: ParticipantID, palette: HomePalette = .standard,
+    /// - Parameters:
+    ///   - palette: colours from the app theme (`HomePalette.themed`); there is no default.
+    ///   - deadline: the host's one-shot timer for cleanup after animations.
+    public init(conversation: ConversationID, me: ParticipantID, palette: HomePalette, deadline: any HomeDeadline,
                 calendar: Calendar = .autoupdatingCurrent, locale: Locale = .autoupdatingCurrent,
-                clock: any Clock<Duration> = ContinuousClock(), now: @escaping @MainActor () -> Date = { Date() }) {
+                now: @escaping @MainActor () -> Date = { Date() }) {
         self.conversation = conversation
         self.me = me
-        self.clock = clock
+        self.deadline = deadline
         currentDate = now
         scene = HomeScene(palette: palette)
         builder = RowBuilder(format: RowFormat(calendar: calendar, locale: locale))
+        container.actions = RowLayer.noActions
+        container.masksToBounds = true
+        container.addSublayer(scene.root)
         scene.requestWake = { [weak self] due in self?.scheduleWake(at: due) }
+        scene.offsetMovedByModel = { [weak self] in self?.publishScrollGeometryIfChanged() }
         scene.compose.restartCaret(begin: scene.now, sent: false, motion: scene.motion)
     }
 
-    public var rootLayer: CALayer { scene.root }
-    public var size: CGSize { scene.size }
+    /// The host adds this layer and sets its frame to the view's bounds.
+    public var rootLayer: CALayer { container }
+    /// The viewport in host points.
+    public var size: CGSize { hostSize }
 
     public func resize(to size: CGSize) {
-        scene.resize(to: size) { self.rows(metrics: $0) }
+        hostSize = size
+        applyZoom()
+    }
+
+    /// Text size relative to the 13 pt reference (1 = Mac default; iOS
+    /// passes Dynamic Type's body size / 13, the Mac the user's text size).
+    /// The whole transcript scales with it (fonts, paddings, radii, gaps);
+    /// rows are re-measured and redrawn sharp at the new size.
+    public var textScale: CGFloat {
+        get { zoom }
+        set {
+            let value = max(0.5, min(5, newValue))
+            guard value != zoom else { return }
+            zoom = value
+            scene.setContentsScale(displayScale * zoom)
+            applyZoom()
+        }
+    }
+
+    /// Device pixels per point of the host (2 on Mac, 3 on most iPhones).
+    /// Row bitmaps are drawn at this times `textScale`.
+    public var contentsScale: CGFloat {
+        get { displayScale }
+        set {
+            guard newValue > 0, newValue != displayScale else { return }
+            displayScale = newValue
+            scene.setContentsScale(displayScale * zoom)
+        }
+    }
+
+    private func applyZoom() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        scene.root.anchorPoint = .zero
+        scene.root.position = .zero
+        scene.root.transform = CATransform3DMakeScale(zoom, zoom, 1)
+        CATransaction.commit()
+        if let field = hostedFieldInHost { scene.hostedField = toDesign(field) }
+        let design = CGSize(width: hostSize.width / zoom, height: hostSize.height / zoom)
+        scene.resize(to: design) { self.rows(metrics: $0) }
+        publishScrollGeometryIfChanged()
         afterViewportChange()
     }
 
+    /// Host points -> the core's design points (and back).
+    func toDesign(_ r: CGRect) -> CGRect { CGRect(x: r.minX / zoom, y: r.minY / zoom, width: r.width / zoom, height: r.height / zoom) }
+    func toHost(_ r: CGRect) -> CGRect { CGRect(x: r.minX * zoom, y: r.minY * zoom, width: r.width * zoom, height: r.height * zoom) }
+    func toDesign(_ p: CGPoint) -> CGPoint { CGPoint(x: p.x / zoom, y: p.y / zoom) }
+
     /// Space the host covers at the top (toolbar, safe area); rows scroll under it.
     public var topInset: CGFloat {
-        get { scene.topInset }
+        get { scene.topInset * zoom }
         set {
-            guard newValue != scene.topInset else { return }
+            let design = newValue / zoom
+            guard design != scene.topInset else { return }
             let anchor = scene.visibleAnchor()
-            scene.topInset = newValue
+            scene.topInset = design
             scene.restore(anchor)
         }
     }
@@ -97,7 +173,7 @@ public final class HomeController {
         scene.compose.restartCaret(begin: scene.now, sent: false, motion: policy)
     }
 
-    /// Colours (for example `.standardInactive` while the window is not key).
+    /// Colours (for example `HomePalette.themed(theme, active: false)` while the window is not key).
     public var palette: HomePalette {
         get { scene.palette }
         set { scene.setPalette(newValue) }
@@ -106,8 +182,8 @@ public final class HomeController {
     /// The transcript follows its newest row (the user has not scrolled up).
     public var isPinnedToNewest: Bool { scene.pinned }
 
-    /// Nothing animates and no cleanup is pending.
-    public var isIdle: Bool { wakeTask == nil && !scene.isAnimating }
+    /// Nothing animates, no cleanup is pending and no row bitmap is being drawn.
+    public var isIdle: Bool { wakeAt == .infinity && !scene.isAnimating && !scene.bitmaps.isRendering }
 
     // MARK: State from CmuxHomeCore
 
@@ -124,7 +200,9 @@ public final class HomeController {
         var change = TranscriptChange.classify(old: items, new: newItems, me: me, typing: (oldOthersTyping, newOthersTyping),
                                                read: (Self.readByOthers(summary, me: me), Self.readByOthers(newSummary, me: me)))
         items = newItems
+        let summaryChanged = newSummary != summary
         summary = newSummary
+        if summaryChanged { onSummaryChange(newSummary) }
         typing = newTyping
         if newHasOlder != hasOlder || change == .prepend { olderRequested = false }
         hasOlder = newHasOlder
@@ -137,15 +215,19 @@ public final class HomeController {
         if change == .initial { scene.pinned = true }
         guard scene.size.width > 0 else { return }
         scene.commit(rows(metrics: scene.metrics), change: change, sendField: sendField)
+        onRowsChange()
+        publishScrollGeometryIfChanged()
         askForOlderIfNeeded()
         reportReadIfNeeded()
         onAccessibilityChange()
     }
 
     func rows(metrics: Metrics) -> [RowSpec] {
-        builder.rows(items, RowContext(me: me, now: currentDate(), metrics: metrics,
-                                       readByOthers: Self.readByOthers(summary, me: me),
-                                       othersTyping: !typing.subtracting([me]).isEmpty))
+        let names = Dictionary((summary?.participants ?? []).map { ($0.id, $0.displayName) }, uniquingKeysWith: { a, _ in a })
+        return builder.rows(items, RowContext(me: me, now: currentDate(), metrics: metrics,
+                                              readByOthers: Self.readByOthers(summary, me: me),
+                                              othersTyping: !typing.subtracting([me]).isEmpty,
+                                              names: names, showsNames: summary?.kind(me: me) == .group))
     }
 
     static func readByOthers(_ summary: ConversationSummary?, me: ParticipantID) -> Seq? {
@@ -180,20 +262,11 @@ public final class HomeController {
 
     private func scheduleWake(at due: CFTimeInterval) {
         guard due < wakeAt else { return }
-        wakeTask?.cancel()
         wakeAt = due
-        let delay = max(0, due - scene.now)
-        let clock = self.clock
-        wakeTask = Task { [weak self] in
-            // wakeup-allow: a one-shot cleanup deadline on the injected clock (the DemandTimer contract;
-            // CmuxNextWakeups is macOS-only). Armed only after a change, replaced by an earlier one, never repeats.
-            do { try await clock.sleep(for: .seconds(delay)) } catch { return }
-            self?.wakeFired(due)
-        }
+        deadline.schedule(after: .seconds(max(0, due - scene.now))) { [weak self] in self?.wakeFired(due) }
     }
 
     private func wakeFired(_ due: CFTimeInterval) {
-        wakeTask = nil
         wakeAt = .infinity
         scene.settle(at: max(scene.now, due))
     }

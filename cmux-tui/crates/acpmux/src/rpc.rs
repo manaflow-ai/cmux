@@ -198,11 +198,17 @@ pub mod method {
     pub const MUX_SET_RULES: &str = "_acpmux/set_rules";
     pub const MUX_TAG: &str = "_acpmux/tag";
     pub const MUX_WAIT: &str = "_acpmux/wait";
+    /// Start the agent children for the most recent project sessions.
+    pub const MUX_WARM: &str = "_acpmux/warm";
     pub const MUX_HISTORY: &str = "_acpmux/history";
     pub const MUX_SCHEMA: &str = "_acpmux/schema";
     pub const MUX_EXPORT: &str = "_acpmux/export";
     pub const MUX_IMPORT: &str = "_acpmux/import";
     pub const MUX_SHUTDOWN: &str = "_acpmux/shutdown";
+    /// Folder trust (`crate::trust`): the agents' levels for a folder and
+    /// acpmux's own decision; `set` records the decision, never the agents' files.
+    pub const ACP_TRUST_GET: &str = "acp.trust.get";
+    pub const ACP_TRUST_SET: &str = "acp.trust.set";
     // Cross-harness handoff: a reviewed first message from one session to a
     // new session on another harness (see hub/handoff.rs).
     pub const MUX_HANDOFF_PREPARE: &str = "_acpmux/handoff_prepare";

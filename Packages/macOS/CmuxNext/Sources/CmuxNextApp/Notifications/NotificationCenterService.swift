@@ -26,6 +26,8 @@ final class NotificationCenterService {
     @ObservationIgnored private var lastSeen: UInt64 = 0
     /// The Dock badge this service set last (nil: none).
     @ObservationIgnored var dockBadgeLabel: String?
+    /// Mirrors arrivals into the feed (feed.md section 9, step 1); nil without a feed.
+    @ObservationIgnored var feedBridge: FeedNotificationBridge?
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     /// Recent arrivals and what was decided (for `debug.notifications`).
     @ObservationIgnored private(set) var log: [String] = []
@@ -41,6 +43,7 @@ final class NotificationCenterService {
 
     func start(services: AppServices) {
         self.services = services
+        feedBridge = Self.makeFeedBridge(services.feed)
         desktop.onOpen = { [weak self] _, surface in self?.open(surface: surface.map(SurfaceID.init(rawValue:))) }
         let store = services.daemon.store
         lastSeen = store.notifications.map(\.notification.rawValue).max() ?? 0
@@ -141,6 +144,7 @@ final class NotificationCenterService {
     func acknowledge(_ tab: TabModel) {
         timeouts.removeValue(forKey: tab.id)?.cancel()
         desktop.withdraw(banners.removeValue(forKey: tab.id) ?? [])
+        feedBridge?.read(tab: tab.id)
         let surface = tab.surface
         services?.daemon.send("ack-tab-notifications") { _ = try await $0.acknowledgeNotifications(of: surface) }
     }
@@ -176,6 +180,9 @@ final class NotificationCenterService {
             acknowledge(located.tab)
             return
         }
+        // The feed (and the iPhone push) gets only what would alert on this Mac: muted
+        // workspaces, quiet hours and banners turned off are not mirrored.
+        if decision.desktop { mirrorToFeed(notification, source: source, located: located) }
         if decision.desktop { post(notification, tab: located.tab, workspace: located.workspace.id, sound: decision.sound) }
         if !decision.desktop, let sound = decision.sound { NotificationSounds.play(sound) }
         if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }

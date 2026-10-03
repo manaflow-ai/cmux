@@ -113,9 +113,35 @@ public final class AppHost {
         return box
     }
 
+    /// Why no app may run (an administrator turned apps off), or nil.
+    /// Setting a reason stops every running app; its mounts show the reason.
+    public var disabledReason: String? {
+        didSet {
+            if disabledReason == nil, let oldValue {
+                // Lifted: the next open or command starts the app again.
+                failures = failures.filter { $0.value != oldValue }
+                return
+            }
+            guard let disabledReason, oldValue == nil else { return }
+            // task-owner: stops each engine once; a later start is refused by engine(for:)
+            Task {
+                for appID in Array(engines.keys) + Array(starting.keys) where self.disabledReason != nil {
+                    await stop(appID, reason: disabledReason)
+                }
+            }
+        }
+    }
+
     private func engine(for manifest: AppManifest, directory: URL) async -> AppEngine? {
+        if let disabledReason {
+            failures[manifest.id] = disabledReason
+            return nil
+        }
         if let engine = engines[manifest.id] { return engine }
-        if let pending = starting[manifest.id] { return await pending.value }
+        if let pending = starting[manifest.id] {
+            let engine = await pending.value
+            return disabledReason == nil ? engine : nil
+        }
         let appID = manifest.id
         let configuration = AppEngineConfiguration(
             manifest: manifest, bundleDirectory: directory, grants: grantBox(manifest), settings: settings(manifest), sink: sink,
@@ -129,14 +155,28 @@ public final class AppHost {
                 try await engine.start()
                 return engine
             } catch {
-                self.failures[appID] = (error as? AppEngineError)?.message ?? String(describing: error)
+                // A start cancelled by stop() records no failure of its own.
+                if !Task.isCancelled { self.failures[appID] = (error as? AppEngineError)?.message ?? String(describing: error) }
                 return nil
             }
         }
         starting[appID] = task
         let engine = await task.value
-        starting.removeValue(forKey: appID)
-        if let engine { engines[appID] = engine }
+        // A start that was cancelled (stop) or overtaken by a policy that
+        // turned apps off does not keep running.
+        let current = starting[appID] == task
+        if current { starting.removeValue(forKey: appID) }
+        guard let engine else { return nil }
+        if let disabledReason {
+            failures[appID] = disabledReason
+            await engine.stop(reason: disabledReason)
+            return nil
+        }
+        guard current else {
+            await engine.stop(reason: "stopped")
+            return engines[appID]
+        }
+        engines[appID] = engine
         return engine
     }
 
