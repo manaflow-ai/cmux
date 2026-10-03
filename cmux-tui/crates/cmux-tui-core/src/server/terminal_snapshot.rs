@@ -152,6 +152,28 @@ impl SnapshotViewers {
     }
 }
 
+/// Longest accepted `request_id` in bytes.
+pub(crate) const MAX_REQUEST_ID_BYTES: usize = 128;
+/// The `reason` values of the channel message `snapshot_request`.
+pub(crate) const SNAPSHOT_REQUEST_REASONS: [&str; 4] =
+    ["digest_mismatch", "gap", "generation_mismatch", "attach"];
+
+fn validate_request(params: &SnapshotRequestParams) -> anyhow::Result<()> {
+    if let Some(reason) = params.reason.as_deref() {
+        anyhow::ensure!(
+            SNAPSHOT_REQUEST_REASONS.contains(&reason),
+            "invalid: reason must be one of {SNAPSHOT_REQUEST_REASONS:?}"
+        );
+    }
+    if let Some(request_id) = params.request_id.as_deref() {
+        anyhow::ensure!(
+            request_id.len() <= MAX_REQUEST_ID_BYTES,
+            "invalid: request_id is longer than {MAX_REQUEST_ID_BYTES} bytes"
+        );
+    }
+    Ok(())
+}
+
 /// Answer `snapshot-request`: one READY snapshot on the requester's attach
 /// stream for that surface.
 pub(crate) fn handle_request(
@@ -159,6 +181,7 @@ pub(crate) fn handle_request(
     client: u64,
     params: SnapshotRequestParams,
 ) -> anyhow::Result<Value> {
+    validate_request(&params)?;
     let surface = get_surface(mux, params.surface)?;
     require_pty(&surface)?;
     if let Some(version) = params.have.as_ref().and_then(|have| have.snapshot_version)
@@ -606,6 +629,22 @@ mod tests {
             request_reply(SnapshotAdmission::Collapsed, 7, Some("req-43".into()), None).unwrap();
         assert_eq!(collapsed["request_id"], "req-43");
         assert!(request_reply(SnapshotAdmission::NotAttached, 7, None, None).is_err());
+    }
+
+    #[test]
+    fn snapshot_request_accepts_only_spec_reasons_and_bounded_ids() {
+        let request = |value: Value| -> SnapshotRequestParams {
+            serde_json::from_value(value).unwrap()
+        };
+        assert!(validate_request(&request(json!({"surface": 1}))).is_ok());
+        for reason in SNAPSHOT_REQUEST_REASONS {
+            assert!(validate_request(&request(json!({"surface": 1, "reason": reason}))).is_ok());
+        }
+        assert!(validate_request(&request(json!({"surface": 1, "reason": "because"}))).is_err());
+        let long = "x".repeat(MAX_REQUEST_ID_BYTES + 1);
+        assert!(validate_request(&request(json!({"surface": 1, "request_id": long}))).is_err());
+        let ok = "x".repeat(MAX_REQUEST_ID_BYTES);
+        assert!(validate_request(&request(json!({"surface": 1, "request_id": ok}))).is_ok());
     }
 
     #[test]
