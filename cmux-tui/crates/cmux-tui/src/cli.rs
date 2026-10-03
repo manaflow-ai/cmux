@@ -636,10 +636,7 @@ fn scope_help_for(
     scope: &str,
     catalog: &'static crate::localization::Catalog,
 ) -> Cow<'static, str> {
-    if let Some(text) = code_mode::scope_help(scope) {
-        return text;
-    }
-    match scope {
+    let text = code_mode::scope_help(scope).unwrap_or_else(|| match scope {
         "shorthands" => Cow::Owned(shorthand::help(&catalog.local_server)),
         "docs" => Cow::Borrowed(docs::help()),
         "server" => Cow::Borrowed(catalog.local_server.help),
@@ -669,7 +666,8 @@ fn scope_help_for(
         "provider" => Cow::Borrowed(PROVIDER_HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
         _ => Cow::Owned(root_help(&catalog.local_server)),
-    }
+    });
+    docs::append_scope_help(scope, text)
 }
 
 const ROOT_HELP_PROCESS_PREFIX: &str = "\
