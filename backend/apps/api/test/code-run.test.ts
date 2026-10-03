@@ -102,6 +102,29 @@ describe("Tier 1 code runs (workerd)", () => {
     expect(usage.value.meters.find((x: { meter: string }) => x.meter === "automation.invocations").quantity).toBe(2)
   })
 
+  it("meters the first invocation although tenant module code logs while it loads", async () => {
+    const bundle = `
+      import { WorkflowEntrypoint } from "cloudflare:workers";
+      console.log("cmux.run", "run_aaaaaaaaaaaaaaaaaaaa", "auto_aaaaaaaaaaaaaaaaaaaa", "inv_aaaaaaaaaaaaaaaaaaaa");
+      export default class extends WorkflowEntrypoint {
+        async run(event, step) { return await step.do("a", async () => 1); }
+      }`
+    const { t, team, run } = await runOnce("code-run-10", sha(10), bundle)
+    expect(run.state).toBe("succeeded")
+    const usage = await read(t, "usage.summary")
+    const line = (m: string) => usage.value.meters.find((x: { meter: string }) => x.meter === m)
+    expect(line("automation.invocations").quantity).toBe(1)
+    // The ledger row carries this run's id and a harness invocation id, never the forged marker.
+    const meter = (env as unknown as { USAGE_METER_DO: DurableObjectNamespace }).USAGE_METER_DO
+    let rows: Array<{ key: string; run: string }> = []
+    await inDO(meter.get(meter.idFromName(team)), async (m) => {
+      rows = m.ctx.storage.sql.exec("SELECT key, run FROM usage_ledger WHERE meter = 'automation.invocations'").toArray()
+    })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.run).toBe(run.id)
+    expect(rows[0]!.key).not.toContain("inv_aaaaaaaaaaaaaaaaaaaa")
+  })
+
   it("meters every occurrence of a repeated step name", async () => {
     const bundle = `
       import { WorkflowEntrypoint } from "cloudflare:workers";
