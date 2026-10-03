@@ -229,6 +229,43 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
         await registry.accessDidEnd()
     }
 
+    @Test("Team readiness does not wait for machine details or repeat fleet discovery")
+    func teamReadinessDoesNotWaitForMachineDetails() async {
+        let catalog = SurfaceCatalog()
+        let detailsStarted = CloudLinkFirstValue<Bool>()
+        let releaseDetails = CloudLinkFirstValue<Bool>()
+        let ready = CloudLinkFirstValue<Bool>()
+        var lists = 0
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: {
+                lists += 1
+                return VMListPage(vms: [machine("new-team-vm")], limits: nil)
+            },
+            activeTeamID: { "new-team" },
+            refreshProvider: { _, _ in
+                detailsStarted.resolve(true)
+                _ = await releaseDetails.result
+                return true
+            }
+        )
+        registry.start(catalog: catalog)
+        let switching = Task {
+            await registry.teamScopeDidChange()
+            ready.resolve(true)
+        }
+        #expect(await boundedResult(detailsStarted))
+        let readyWhileDetailsBlocked = await boundedResult(ready)
+        let visible = registry.provider(machineID: "new-team-vm")?.ownerTeamID
+        releaseDetails.resolve(true)
+        await switching.value
+        #expect(readyWhileDetailsBlocked, "The team list must become usable while a machine's details are still stalled")
+        #expect(visible == "new-team")
+        #expect(lists == 1, "Background details reuse the discovered providers")
+        await registry.accessDidEnd()
+    }
+
     @Test("A saved machine can resolve its private route before the first background list")
     func privateRouteDiscoversBeforeFirstPoll() async {
         let catalog = SurfaceCatalog()
