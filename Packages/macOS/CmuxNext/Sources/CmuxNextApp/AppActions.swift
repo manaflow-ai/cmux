@@ -58,6 +58,7 @@ enum AppActions {
         context.observeRefusals()
         DestructiveConfirmation.install(services)
         ActionRouting.install(services)
+        StandaloneWindowRule.install(services)
     }
 
     static func scope(_ services: AppServices, _ invocation: ActionInvocation = ActionInvocation()) -> ActionScope {

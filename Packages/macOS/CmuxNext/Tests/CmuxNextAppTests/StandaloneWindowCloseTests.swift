@@ -54,11 +54,18 @@ struct StandaloneWindowCloseTests {
         return flag.value
     }
 
-    /// The catalog's close actions.
+    /// Every close action of the catalog, as the rule sees it.
     private static func closeActions() -> [String] {
-        ["closeTab", "closePane", "closeWorkspace", "closeWindow", "closeTabsToLeft", "closeTabsToRight", "closeOtherTabsInPane",
-         "palette.closeOtherWorkspaces", "palette.closeWorkspacesAbove", "palette.closeWorkspacesBelow",
-         "workspace.closeOthersInGroup", "tabGroup.close", "workspaceGroup.closeWorkspaces"]
+        ActionRegistry.standard().descriptors.map(\.id).filter(StandaloneWindowRule.isClose).map(\.rawValue)
+    }
+
+    @Test func theCatalogsCloseActionsAreAllCovered() {
+        let ids = Set(Self.closeActions())
+        for id in ["closeTab", "closePane", "closeWorkspace", "closeWindow", "palette.closeOtherWorkspaces",
+                   "workspace.closeOthersInGroup", "tabGroup.close", "workspaceGroup.closeWorkspaces"] {
+            #expect(ids.contains(id), "\(id)")
+        }
+        #expect(!ids.contains("reopenClosedWorkspace") && !ids.contains("recentlyClosed"))
     }
 
     @Test func everyCloseActionClosesTheKeyStandaloneWindow() async throws {
@@ -105,6 +112,32 @@ struct StandaloneWindowCloseTests {
         #expect(spy.runs["closeTab"] == nil, "a panel over a standalone window never reaches the main window")
     }
 
+    @Test func destructiveActionsAreDisabledWhileAStandaloneWindowIsKey() {
+        let kind = StandaloneWindowRule.Kind(closes: false, destroysContent: true)
+        #expect(StandaloneWindowRule.decide(kind, origin: .user, hasTarget: false, keyWindow: .standalone) == .disabled)
+        #expect(StandaloneWindowRule.decide(kind, origin: .user, hasTarget: false, keyWindow: nil) == .pass)
+        #expect(StandaloneWindowRule.decide(kind, origin: .user, hasTarget: true, keyWindow: .standalone) == .pass)
+        let plain = StandaloneWindowRule.Kind(closes: false, destroysContent: false)
+        #expect(StandaloneWindowRule.decide(plain, origin: .user, hasTarget: false, keyWindow: .standalone) == .pass)
+    }
+
+    @Test func aDestructiveContentActionIsOffAndAnAccountActionIsNot() async throws {
+        let (services, _) = try await world()
+        let registry = services.registry
+        let content = try #require(registry.descriptors.first { $0.isDestructive && !StandaloneWindowRule.contentTargets.isDisjoint(with: $0.targets) && !StandaloneWindowRule.isClose($0.id) })
+        #expect(StandaloneWindowRule.kind(content.id, registry: registry).destroysContent)
+        let spy = spy(services, [content.id.rawValue])
+        if let item = registry.makeMenuItem(for: content.id), let target = item.target as? any NSMenuItemValidation {
+            #expect(!target.validateMenuItem(item), "\(content.id) is off while a standalone window is key")
+        }
+        let refusal = registry.capturingRefusal { registry.perform(content.id, invocation: ActionInvocation()) }
+        #expect(refusal == MiscHandlerStrings.noPane)
+        #expect(spy.runs[content.id.rawValue] == nil)
+        if let other = registry.descriptors.first(where: { $0.isDestructive && StandaloneWindowRule.contentTargets.isDisjoint(with: $0.targets) }) {
+            #expect(!StandaloneWindowRule.kind(other.id, registry: registry).destroysContent, "\(other.id) is not main window content")
+        }
+    }
+
     @Test func anExplicitTargetStillRunsFromAStandaloneWindow() async throws {
         let (services, standalone) = try await world()
         let spy = spy(services, ["closeTab"])
@@ -121,5 +154,20 @@ struct StandaloneWindowCloseTests {
         let closed = closes(standalone) { services.registry.perform("closeTab", invocation: ActionInvocation(origin: .cli)) }
         #expect(spy.runs["closeTab"] == 1, "a CLI close means the focused tab of the active main window")
         #expect(!closed)
+    }
+
+    @Test func mainWindowsAndTheirPanelsAreNotStandalone() async throws {
+        let (services, _) = try await world()
+        let main = try #require(services.windows.controllers.first?.window)
+        services.keyWindowSource = { main }
+        #expect(services.keyStandaloneWindow == nil)
+        let palette = NSPanel(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: true)
+        main.addChildWindow(palette, ordered: .above)
+        defer { main.removeChildWindow(palette) }
+        services.keyWindowSource = { palette }
+        #expect(services.keyStandaloneWindow == nil)
+        let borderless = NSPanel(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: true)
+        services.keyWindowSource = { borderless }
+        #expect(services.keyStandaloneWindow == nil)
     }
 }
