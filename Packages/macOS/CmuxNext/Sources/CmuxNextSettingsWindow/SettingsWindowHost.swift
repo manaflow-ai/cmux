@@ -2,11 +2,14 @@ public import CmuxNextActions
 public import CmuxNextDesign
 public import SwiftUI
 
-/// What the Settings window needs from the App that cmux.json does not hold:
+/// What the Settings window needs from the App that cmux-next.json does not hold:
 /// live rooms and machines (daemon state), the Ghostty config and shell
 /// integration, and the shortcut writer. Reads happen in SwiftUI bodies, so
 /// an observable App store behind them updates the window.
 @MainActor public protocol SettingsWindowHost: AnyObject {
+    /// Closes the focused Settings page tab when Escape is pressed outside
+    /// shortcut recording. Window Settings uses the regular window close path.
+    func closeSettingsPane()
     /// Rooms of the local daemon; nil when it has no rooms (older daemon),
     /// so the section shows a placeholder.
     var rooms: [SettingsListRow]? { get }
@@ -16,7 +19,7 @@ public import SwiftUI
     var ghosttyConfigPath: String { get }
     /// How shell integration runs, for the Terminal section (nil: unknown).
     var shellIntegration: String? { get }
-    /// Writes recorded shortcuts to cmux.json (the palette's writer).
+    /// Writes recorded shortcuts to cmux-next.json (the palette's writer).
     var shortcutEditor: (any ShortcutRecorderEditing)? { get }
     /// Browser profiles in order (edited through the registry's
     /// `browserProfile.*` actions, so every entrypoint shares one path).
@@ -37,7 +40,7 @@ public import SwiftUI
     /// Accounts: provider sign-ins and CodeRouter accounts, drawn in the
     /// window's theme `tokens` (nil hides the section's content).
     func accountsView(tokens: ThemeTokens) -> AnyView?
-    /// The value a number setting at `path` resolves to while cmux.json
+    /// The value a number setting at `path` resolves to while cmux-next.json
     /// leaves it unset (the window opacity from the Ghostty config), shown
     /// by its slider; nil uses the descriptor's placeholder.
     func derivedNumber(at path: [String]) -> Double?
@@ -48,6 +51,7 @@ public import SwiftUI
 }
 
 extension SettingsWindowHost {
+    public func closeSettingsPane() {}
     public var themeLevels: [SettingsThemeLevel] { [] }
     public var themeNames: [String] { [] }
     public func theme(at level: SettingsThemeLevel) -> String? { nil }
@@ -78,6 +82,7 @@ public struct SettingsListRow: Identifiable, Hashable, Sendable {
 
 /// A host with sample data, for the demo and tests.
 @MainActor public final class MockSettingsWindowHost: SettingsWindowHost {
+    public private(set) var closeSettingsPaneCalls = 0
     public var rooms: [SettingsListRow]? = [
         SettingsListRow(id: "default", title: "Personal", subtitle: "3 workspaces", symbol: "person", isActive: true),
         SettingsListRow(id: "work", title: "Work", subtitle: "5 workspaces", symbol: "briefcase"),
@@ -96,4 +101,6 @@ public struct SettingsListRow: Identifiable, Hashable, Sendable {
     ]
 
     public init() {}
+
+    public func closeSettingsPane() { closeSettingsPaneCalls += 1 }
 }

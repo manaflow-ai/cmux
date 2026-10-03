@@ -11,7 +11,7 @@ nonisolated enum SettingsWindowStrings {
     static var managedByOrganization: String { text("settingsWindow.managed.device", "Managed by your organization") }
     static func managedByTeam(_ team: String) -> String { format("settingsWindow.managed.team", "Managed by %@", team) }
     static func defaultIs(_ value: String) -> String { format("settingsWindow.defaultIs", "Default: %@", value) }
-    static func writeFailed(_ reason: String) -> String { format("settingsWindow.writeFailed", "Could not write cmux.json: %@", reason) }
+    static func writeFailed(_ reason: String) -> String { format("settingsWindow.writeFailed", "Could not write cmux-next.json: %@", reason) }
     static var custom: String { text("settingsWindow.custom", "Custom") }
     static var add: String { text("settingsWindow.add", "Add") }
     static var remove: String { text("settingsWindow.remove", "Remove") }
@@ -40,6 +40,8 @@ nonisolated enum SettingsWindowStrings {
     static var shellIntegration: String { text("settingsWindow.shellIntegration", "Shell Integration") }
     static var shellIntegrationUnknown: String { text("settingsWindow.shellIntegrationUnknown", "Set by the Ghostty config") }
     static var keyboardHint: String { text("settingsWindow.keyboardHint", "Click a shortcut to record a new one. Esc cancels.") }
+    static var keymapImport: String { text("settingsWindow.keymapImport", "Import Keymap…") }
+    static var keymapExport: String { text("settingsWindow.keymapExport", "Export Keymap…") }
     static var conflict: String { text("settingsWindow.conflict", "Another action uses this shortcut in the same place.") }
     static var systemWideRefused: String { text("settingsWindow.systemWideRefused", "Another app or global shortcut holds this key, so it works only while cmux is in front.") }
     static var roomsUnavailable: String { text("settingsWindow.roomsUnavailable", "Spaces need a newer cmux-tui on this Mac.") }
@@ -59,7 +61,7 @@ nonisolated enum SettingsWindowStrings {
     static var resetAll: String { text("settingsWindow.resetAll", "Reset All Settings…") }
     static var resetAllTitle: String { text("settingsWindow.resetAllTitle", "Reset all settings?") }
     static var resetAllBody: String {
-        text("settingsWindow.resetAllBody", "Every setting and shortcut in cmux.json goes back to its default. Custom actions stay.")
+        text("settingsWindow.resetAllBody", "Every setting and shortcut in cmux-next.json goes back to its default. Custom actions stay.")
     }
     static var cancel: String { text("settingsWindow.cancel", "Cancel") }
     static var studioTitle: String { text("settingsWindow.studio.title", "Customize Appearance") }
@@ -76,7 +78,7 @@ nonisolated enum SettingsWindowStrings {
     static var tunerSaturation: String { text("settingsWindow.appearanceTuner.saturation", "Saturation") }
     static var tunerPeek: String { text("settingsWindow.appearanceTuner.peek", "Peek") }
     static var tunerDone: String { text("settingsWindow.appearanceTuner.done", "Done") }
-    static var problems: String { text("settingsWindow.problems", "Problems in cmux.json") }
+    static var problems: String { text("settingsWindow.problems", "Problems in cmux-next.json") }
     static var noProblems: String { text("settingsWindow.noProblems", "No problems.") }
     static func minutes(_ value: String) -> String { format("settingsWindow.minutes", "%@ min", value) }
     static func seconds(_ value: String) -> String { format("settingsWindow.seconds", "%@ s", value) }

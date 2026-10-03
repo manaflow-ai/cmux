@@ -95,6 +95,17 @@ struct InternalPageTabTests {
         #expect(services.settingsWindow.model == nil, "the model goes once nothing shows it")
     }
 
+    @Test func cmdWClosesTheSelectedSettingsTabThroughTheSharedAction() async throws {
+        let (services, _, pane) = try await world()
+        services.registry.perform("openSettings", invocation: ActionInvocation())
+        let key = try #require(services.pages.keys(of: .settings).first)
+        await BrowserTabTests.settle { pane.stripModel.selectedID?.rawValue == key }
+
+        #expect(services.registry.perform("closeTab", invocation: ActionInvocation()))
+        #expect(services.pages.keys(of: .settings).isEmpty)
+        #expect(!pane.orderedIDs.map(\.rawValue).contains(key))
+    }
+
     @Test func thePageViewIsTheTabContentAndTakesTheKeyboard() async throws {
         let (services, _, pane) = try await world()
         services.registry.perform("openSettings", invocation: ActionInvocation())

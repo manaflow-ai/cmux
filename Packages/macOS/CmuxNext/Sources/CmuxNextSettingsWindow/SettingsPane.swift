@@ -37,7 +37,8 @@ extension DebugSettingsModel {
     }
 }
 
-/// Escape stops a shortcut recording; it never closes the tab.
+/// Escape stops a shortcut recording, or closes the Settings page tab when
+/// the page is otherwise idle.
 final class SettingsPaneHostingView: NSHostingView<SettingsRootView> {
     private weak var model: SettingsWindowModel?
 
@@ -54,6 +55,11 @@ final class SettingsPaneHostingView: NSHostingView<SettingsRootView> {
     required init(rootView: SettingsRootView) { fatalError("init(rootView:) is not supported") }
 
     override func cancelOperation(_ sender: Any?) {
-        if let model, model.recorder != nil { model.cancelRecording() }
+        guard let model else { return }
+        if model.recorder != nil {
+            model.cancelRecording()
+        } else {
+            model.host?.closeSettingsPane()
+        }
     }
 }
