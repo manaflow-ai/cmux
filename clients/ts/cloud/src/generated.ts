@@ -52,6 +52,9 @@ export type Body = {
 } | {
   readonly type: "steps"
   readonly steps: ReadonlyArray<Step>
+} | {
+  readonly type: "code"
+  readonly ref: CodeRef
 }
 
 export type Budget = {
@@ -63,6 +66,14 @@ export type Budget = {
 
 /** 1 to 128 printable ASCII characters (idempotency key, client_msg_id). */
 export type ClientToken = string
+
+export type CodeRef = {
+  readonly commit: CommitSha
+  readonly path: string
+  readonly export?: string
+}
+
+export type CommitSha = string
 
 export type Concurrency = {
   readonly max: number
@@ -879,6 +890,15 @@ export interface CloudOps {
     readonly result: {
       readonly automation: string
     }
+  }
+  /** Pin a code automation to another commit of the team's code repository (the commit must contain <path>/dist/index.js). Later runs use it; started runs keep their commit. At most 50 code changes per team per UTC day. */
+  readonly "automation.deploy": {
+    readonly params: {
+      readonly automation: AutomationId
+      readonly commit: CommitSha
+      readonly expected_version?: number
+    }
+    readonly result: Automation
   }
   /** Read one automation. */
   readonly "automation.get": {
@@ -2240,6 +2260,7 @@ export type CloudOpName = keyof CloudOps
 export const cloudOpMeta = {
   "automation.create": { class: "mutation", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.delete": { class: "mutation", owner: "cloud:SchedulerDO", risk: "destructive" },
+  "automation.deploy": { class: "mutation", owner: "cloud:SchedulerDO", risk: "execute" },
   "automation.get": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
   "automation.list": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
   "automation.run": { class: "mutation", owner: "cloud:SchedulerDO", risk: "execute" },

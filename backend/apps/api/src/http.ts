@@ -25,6 +25,8 @@ import type { Env } from "./env.ts"
 import type { DomainReply } from "./team-domain-external.ts"
 import type { ExternalReply } from "./connection-do.ts"
 import { automationHookPath, automationHookSecret } from "./ingress/automation-hook.ts"
+import { codeRefOf } from "./code-check.ts"
+import type { CodeStorageError } from "./code-storage.ts"
 import { isProvider, providers, scopesToRequest } from "./integrations/providers.ts"
 import { signState, verifyState } from "./integrations/state.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
@@ -220,6 +222,16 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           if (refused) {
             return { ok: false, op: payload.op, error: { code: "validation.invalid", message: refused, retryable: false }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `connections:${principal.team}`, sequence: 0 }
           }
+        }
+        // Ops that pin automation code: the SchedulerDO checks the commit and its bundle in the team's repository first.
+        if (def.owner === "cloud:SchedulerDO" && codeRefOf(payload.op, frame.params)) {
+          const p = yield* principalFor(def.owner, principal)
+          const stub = env.SCHEDULER_DO.get(env.SCHEDULER_DO.idFromName(p.team!))
+          const r = yield* Effect.tryPromise({ try: () => rpc<SubmitResult | { refusal: CodeStorageError }>(stub.submitCode(p.team!, p, { t: "op", ...frame })), catch: unreachable })
+          if ("refusal" in r) {
+            return { ok: false, op: payload.op, error: { code: r.refusal.code, message: r.refusal.message, retryable: r.refusal.retryable }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `scheduler:${p.team}`, sequence: 0 }
+          }
+          return toResponse(payload.op, r.frames)
         }
         // Home: conversations are keyed by the op's params, inbox ops run on UserDO's second stream (home-routes.ts).
         // A chief's MuxDO is keyed by its agent id; the principal carries install_kind (withGrantClasses).
