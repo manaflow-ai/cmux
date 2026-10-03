@@ -48,6 +48,29 @@ nonisolated enum AppearanceSettingsSchema {
                 keywords: ["experimental", "wallpaper", "tuner", "transparency", "hue", "saturation", "labs"]
             ),
             SettingDescriptor(
+                WindowBackgroundSetting.opacityPath, section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.backgroundOpacity", "Opacity"),
+                help: SettingsText.keyed("settings.appearance.backgroundOpacity.help",
+                                        "How much of the theme color covers the material behind the window."),
+                kind: .number(SettingNumber(WindowBackgroundSetting.opacityRange, step: 0.05, unit: .fraction, placeholder: 1)),
+                default: nil, defaultLabel: ghostty,
+                keywords: ["transparency", "translucent", "background-opacity", "blur", "glass"]
+            ),
+            SettingDescriptor(
+                WindowBackgroundSetting.materialPath, section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.backgroundBlur", "Material"),
+                help: SettingsText.keyed("settings.appearance.backgroundBlur.help",
+                                        "Unset, the window follows Ghostty's background-opacity and background-blur."),
+                kind: .choice([
+                    SettingChoice(WindowMaterialChoice.frosted.rawValue, SettingsText.keyed("settings.choice.frosted", "Frosted")),
+                    SettingChoice(WindowMaterialChoice.glass.rawValue, SettingsText.keyed("settings.choice.glass", "Glass")),
+                    SettingChoice(WindowMaterialChoice.glassClear.rawValue, SettingsText.keyed("settings.choice.glassClear", "Clear Glass")),
+                    SettingChoice(WindowMaterialChoice.unblurred.rawValue, SettingsText.keyed("settings.choice.none", "None")),
+                ]),
+                default: nil, defaultLabel: ghostty,
+                keywords: ["blur", "vibrancy", "liquid glass", "background-blur", "transparency"]
+            ),
+            SettingDescriptor(
                 AppearanceTuningSetting.glassTransparencyPath, section: .appearance, group: tuning,
                 title: SettingsText.keyed("settings.appearance.glassTransparency", "Glass Transparency"),
                 help: SettingsText.keyed("settings.appearance.glassTransparency.help",
@@ -71,29 +94,6 @@ nonisolated enum AppearanceSettingsSchema {
                 kind: .number(SettingNumber(AppearanceTuningSetting.saturationRange, step: 0.05, unit: .fraction, placeholder: 1)),
                 default: .number(AppearanceTuningSetting.fallback.saturation),
                 keywords: ["tint", "color", "colour", "intensity"]
-            ),
-            SettingDescriptor(
-                WindowBackgroundSetting.opacityPath, section: .appearance, group: window,
-                title: SettingsText.keyed("settings.appearance.backgroundOpacity", "Opacity"),
-                help: SettingsText.keyed("settings.appearance.backgroundOpacity.help",
-                                        "How much of the theme color covers the material behind the window."),
-                kind: .number(SettingNumber(WindowBackgroundSetting.opacityRange, step: 0.05, unit: .fraction, placeholder: 1)),
-                default: nil, defaultLabel: ghostty,
-                keywords: ["transparency", "translucent", "background-opacity", "blur", "glass"]
-            ),
-            SettingDescriptor(
-                WindowBackgroundSetting.materialPath, section: .appearance, group: window,
-                title: SettingsText.keyed("settings.appearance.backgroundBlur", "Material"),
-                help: SettingsText.keyed("settings.appearance.backgroundBlur.help",
-                                        "Unset, the window follows Ghostty's background-opacity and background-blur."),
-                kind: .choice([
-                    SettingChoice(WindowMaterialChoice.frosted.rawValue, SettingsText.keyed("settings.choice.frosted", "Frosted")),
-                    SettingChoice(WindowMaterialChoice.glass.rawValue, SettingsText.keyed("settings.choice.glass", "Glass")),
-                    SettingChoice(WindowMaterialChoice.glassClear.rawValue, SettingsText.keyed("settings.choice.glassClear", "Clear Glass")),
-                    SettingChoice(WindowMaterialChoice.unblurred.rawValue, SettingsText.keyed("settings.choice.none", "None")),
-                ]),
-                default: nil, defaultLabel: ghostty,
-                keywords: ["blur", "vibrancy", "liquid glass", "background-blur", "transparency"]
             ),
             SettingDescriptor(
                 ["appearance", "density"], section: .appearance, group: look,
