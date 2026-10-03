@@ -21,6 +21,15 @@ const ACTIVE = [
 ]
 
 describe("grouped variant", () => {
+  test("the openItem command opens through ctx.cmux, so the call carries the command's gesture token", async () => {
+    const { host, actions } = inboxHost({ settings: { variant: "grouped" } })
+    host.mount("m", "renderInbox", section)
+    await host.settle(20)
+    const r = await command(host, "openItem", { id: fid("darkmode") }, { gesture: "g_palette" })
+    expect(r.ok).toBe(true)
+    expect(actions).toEqual([{ id: "feed.openItem", args: { item: fid("darkmode") }, gesture: "g_palette" }])
+  })
+
   test("renders the owner's groups; a click opens through feed.openItem with the tap's gesture", async () => {
     const { host, actions } = inboxHost({ settings: { variant: "grouped" } })
     expect(host.mount("m", "renderInbox", section)).toBe("")

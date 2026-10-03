@@ -36,8 +36,8 @@ export function renderPane(ctx: Record<string, unknown> = {}) {
   ])
 }
 
-export async function openSkills() {
-  await openPane()
+export async function openSkills(_args: Record<string, unknown> = {}, ctx?: CmuxCommandContext) {
+  await openPane(ctx?.gesture ?? null)
   return {}
 }
 

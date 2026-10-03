@@ -34,6 +34,10 @@ extension SidebarListView {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         switch row.key {
         case let .workspace(id):
+            guard !model.isPlaceholder(id) else {
+                self.press = nil
+                return
+            }
             if event.clickCount == 2, flags.isEmpty {
                 self.press = nil
                 inlineRename.begin(row.key)

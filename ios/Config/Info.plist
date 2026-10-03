@@ -32,6 +32,8 @@
 	<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CMUXGitSHA</key>
 	<string>$(CMUX_GIT_SHA)</string>
+	<key>CMUXCloudAPIBaseURL</key>
+	<string>$(CMUX_CLOUD_API_BASE_URL)</string>
 	<key>CMUXDogfoodReadiness</key>
 	<string>app-receipt-v1</string>
 	<key>CMUXCrashReportingEnabled</key>

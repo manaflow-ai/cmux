@@ -17,7 +17,9 @@ import WebKit
 /// `fling_stats`, `perf_stats` (`raw` adds every frame), `typing_stats`,
 /// `reset_typing`, `open_menu` (`label`: opens that composer menu, such as
 /// `Model` or `Mode`, through the same path as a click, for automation and
-/// captures), `pid` (the WebContent process, for profiling), or
+/// captures), `acp_log` (the page's acpmux wire log and its stats; `limit`
+/// keeps the newest entries), `acp_log_export` (that log as JSON Lines),
+/// `pid` (the WebContent process, for profiling), or
 /// `full_rate` (`enabled` turns full-rate rendering on or off on the live
 /// page; returns whether it is on). Every action first stops WebKit from
 /// pausing the page while another window covers it, so a tagged build can
@@ -30,7 +32,7 @@ enum DebugAgentPane {
     private static let functions: [String: String] = [
         "seed_rows": "seedRows", "fling": "startFling", "fling_stats": "flingStats",
         "perf_stats": "perfStats", "typing_stats": "typingStats", "reset_typing": "resetTyping",
-        "open_menu": "openMenu",
+        "open_menu": "openMenu", "acp_log": "acpLog", "acp_log_export": "acpLogExport",
     ]
 
     /// Runs `fn(...args)` on the page and returns its result as JSON text.
@@ -59,7 +61,7 @@ enum DebugAgentPane {
             return .object(["pane": .string(pane), "full_rate": .bool(view.rendersAtFullRate)])
         }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, open_menu, pid or full_rate")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, open_menu, acp_log, acp_log_export, pid or full_rate")])
         }
         do {
             let result = try await view.webView.callAsyncJavaScript(
@@ -99,6 +101,8 @@ enum DebugAgentPane {
             return [["raw": params["raw"]?.boolValue == true] as [String: Any]]
         case "open_menu":
             return [params["label"]?.stringValue ?? ""]
+        case "acp_log":
+            return [params["limit"]?.intValue.map { ["limit": $0] as [String: Any] } ?? [:]]
         default:
             return []
         }

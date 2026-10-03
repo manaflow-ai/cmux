@@ -24,6 +24,10 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     /// vim sequence `g g`. Takes precedence over the formatted shortcut.
     public var shortcutLabel: String?
     public var shortcutFamily: ShortcutFamily?
+    /// A two-key default (`LeaderLayer`: Cmd-J then a key), in addition to
+    /// `defaultShortcut`. cmux.json replaces it with a chord, and a single
+    /// key or an unbind there drops it (`ActionRegistry.effectiveChord`).
+    public var defaultChord: ShortcutChord?
     public var category: ActionCategory
     /// SF Symbol name.
     public var symbol: String

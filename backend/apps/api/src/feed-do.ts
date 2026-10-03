@@ -1,14 +1,12 @@
-import type { Principal } from "@cmux/ownership"
-import { feedKindSchemas, FeedList, type FeedItem } from "@cmux/protocol"
+import type { EventFrame, Principal } from "@cmux/ownership"
+import { feedKindSchemas, FeedList, type FeedItem, type PushTarget } from "@cmux/protocol"
 import { decodeParams } from "./domains/common.ts"
 import { listItems } from "./domains/feed-query.ts"
 import { feedCounts, feedDomain, nextFeedWake, visibleTo, type FeedState } from "./domains/feed.ts"
 import { isUserClient, prunableAt, pushEligible, RETENTION_MS } from "./domains/feed-state.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
-
-/** How long a Mac's `active` presence counts for the push rule (feed.md 7.3). */
-const MAC_ACTIVE_WINDOW_MS = 120_000
+import { apnsConfig, sendApns } from "./push/apns.ts"
 
 interface Presence {
   readonly active: boolean
@@ -66,6 +64,20 @@ export class FeedDO extends OwnerDO<FeedState> {
     return isUserClient(principal) && (!state.user || state.user === principal.user)
   }
 
+  /**
+   * Each live event carries the items its commit changed (every reducer change
+   * stamps `updated_at` with the commit time, the event's `at`), and, for ops
+   * that can remove items (post and adopt evict, prune drops), every id still
+   * present. Clients mirror these owner-written items; they never replay ops.
+   */
+  protected override eventExtras(event: EventFrame): Record<string, unknown> | undefined {
+    const state = this.boundEngine?.currentState
+    if (!state) return undefined
+    const items = Object.values(state.items).filter((i) => i.updated_at === event.at)
+    const removes = event.op === "feed.post" || event.op === "feed.adopt" || event.op === "feed.prune"
+    return { items, ...(removes ? { present: Object.keys(state.items) } : {}) }
+  }
+
   protected override nextWakeAt(state: FeedState): number | null {
     return nextFeedWake(state)
   }
@@ -80,19 +92,43 @@ export class FeedDO extends OwnerDO<FeedState> {
     return true
   }
 
-  private macActive(now: number): boolean {
+  private macActive(): boolean {
     return this.ctx.getWebSockets().some((ws) => {
       const p = (ws.deserializeAttachment() as { presence?: Presence } | null)?.presence
-      return Boolean(p && p.client === "mac" && p.active && now - p.at < MAC_ACTIVE_WINDOW_MS)
+      // Active until the client says otherwise (app resigns, screen sleeps or locks) or the socket closes.
+      return Boolean(p && p.client === "mac" && p.active)
     })
   }
 
   /**
-   * Push delivery is an external effect after commit (feed.md 7.3). The APNs
-   * sender belongs to the iOS lane; until it exists the decision is logged.
+   * Push delivery is an external effect after commit (feed.md 7.3): the
+   * owner already recorded the decision (`feed.push_due`); this sends to the
+   * user's devices (UserDO push targets) through APNs and drops tokens APNs
+   * rejects. Without APNs secrets the decision is only logged.
    */
-  protected sendPush(items: ReadonlyArray<FeedItem>): void {
-    for (const i of items) console.log(JSON.stringify({ msg: "feed.push.send", item: i.id, kind: i.kind, priority: i.priority }))
+  protected async sendPush(items: ReadonlyArray<FeedItem>): Promise<void> {
+    const user = this.boundEngine?.currentState.user
+    const config = apnsConfig(this.env)
+    if (items.length === 0 || !user) return
+    if (!config) {
+      for (const i of items) console.log(JSON.stringify({ msg: "feed.push.skipped", reason: "apns not configured", item: i.id }))
+      return
+    }
+    // An effect after commit never throws: a failed send must not stop this wake's expiry and prune.
+    // Delivery is at most once (feed.md 7.3): the decision is committed before the send.
+    try {
+      const users = this.env.USER_DO.get(this.env.USER_DO.idFromName(user))
+      let targets: ReadonlyArray<PushTarget> = [...(await users.pushTargets(user))]
+      for (const item of items) {
+        const results = await sendApns(config, targets, item, Date.now())
+        const dropped = new Set(results.filter((r) => r.outcome === "drop_target").map((r) => r.token))
+        for (const token of dropped) await users.dropPushTarget(user, token, results.find((r) => r.token === token)?.reason ?? "rejected")
+        targets = targets.filter((t) => !dropped.has(t.token))
+        console.log(JSON.stringify({ msg: "feed.push.sent", item: item.id, results: results.map((r) => ({ outcome: r.outcome, status: r.status, reason: r.reason })) }))
+      }
+    } catch (e) {
+      console.error(JSON.stringify({ msg: "feed.push.failed", error: String(e).slice(0, 200) }))
+    }
   }
 
   protected override async onWake(now: number): Promise<void> {
@@ -104,13 +140,13 @@ export class FeedDO extends OwnerDO<FeedState> {
     const state = engine.currentState
     const pushDue = Object.values(state.items).filter((i) => i.push_due_at !== null && i.push_due_at <= now)
     if (pushDue.length > 0) {
-      const quiet = state.prefs.push_skip_when_mac_active && this.macActive(now)
+      const quiet = state.prefs.push_skip_when_mac_active && this.macActive()
       const send = pushDue.filter((i) => pushEligible(i) && (!quiet || i.priority === "urgent")).map((i) => i.id)
       const skip = pushDue.map((i) => i.id).filter((id) => !send.includes(id))
       const r = this.submitSystem("feed.push_due", { at: now, send, skip }, `push:${now}`)
       const result = r.frames.find((f) => f.t === "result")
       const sent = result && result.t === "result" ? ((result.value as { sent?: Array<string> }).sent ?? []) : []
-      this.sendPush(sent.map((id) => engine.currentState.items[id]!).filter(Boolean))
+      await this.sendPush(sent.map((id) => engine.currentState.items[id]!).filter(Boolean))
     }
     if (due((i) => (prunableAt(i) ?? Infinity) <= now)) this.submitSystem("feed.prune", { before: now - RETENTION_MS }, `prune:${now}`)
   }

@@ -57,9 +57,9 @@ async function findItem(id: unknown): Promise<FeedItem> {
 }
 
 /** Opens the inbox as a tab (proposed op `app.pane.open`). */
-export async function openInbox() {
+export async function openInbox(_args: Record<string, unknown> = {}, ctx?: CmuxCommandContext) {
   try {
-    await cmux.call("app.pane.open", { contribution: `${cmux.app.id}#pane` })
+    await (ctx?.cmux ?? cmux).call("app.pane.open", { contribution: `${cmux.app.id}#pane` })
     return { opened: true }
   } catch (e) {
     throw commandError((e as { code?: string }).code ?? "operation.failed", t("pane.unsupported"))
@@ -71,20 +71,20 @@ export async function markAllRead() {
   return { read: true }
 }
 
-async function move(direction: 1 | -1, args: { open?: boolean }) {
+async function move(direction: 1 | -1, args: { open?: boolean }, ctx?: CmuxCommandContext) {
   if (items().length === 0) await listNow()
   const item = step(direction)
-  if (item && args.open !== false) await openFeedItem(item)
+  if (item && args.open !== false) await openFeedItem(item, ctx?.cmux)
   return { id: item?.id ?? null }
 }
 
-export const nextItem = (args: { open?: boolean } = {}) => move(1, args)
-export const previousItem = (args: { open?: boolean } = {}) => move(-1, args)
+export const nextItem = (args: { open?: boolean } = {}, ctx?: CmuxCommandContext) => move(1, args, ctx)
+export const previousItem = (args: { open?: boolean } = {}, ctx?: CmuxCommandContext) => move(-1, args, ctx)
 
-export async function openItem(args: { id?: string } = {}) {
+export async function openItem(args: { id?: string } = {}, ctx?: CmuxCommandContext) {
   const item = await findItem(args.id)
   setSelected(item.id)
-  await openFeedItem(item)
+  await openFeedItem(item, ctx?.cmux)
   return { id: item.id }
 }
 

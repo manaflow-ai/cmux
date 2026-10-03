@@ -24,6 +24,8 @@ export default defineConfig({
           JWT_PRIVATE_JWK: JSON.stringify(apiPrivate),
           // Integration test secrets: provider HTTP is faked in the tests, these only make providers "configured".
           INTEGRATIONS_KEK: kek,
+          // Home address ids (HMAC key, at least 32 characters); test-only.
+          HOME_ADDRESS_KEY: "test-home-address-key-0123456789abcdef",
           GITHUB_APP_SLUG: "cmux-test",
           GITHUB_APP_CLIENT_ID: "Iv1.test",
           GITHUB_APP_CLIENT_SECRET: "gh-client-secret",

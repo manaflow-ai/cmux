@@ -3,7 +3,8 @@ import Foundation
 extension LineTransport {
     /// Routing fields of a raw protocol line or a `cmux.protocol/2`
     /// response. Resource responses carry the request id as a decimal
-    /// string and a structured `error` object.
+    /// string and a structured `error` object `{code, message, details,
+    /// retryable}`, kept whole for the caller.
     struct Envelope: Decodable {
         var id: UInt64?
         var ok: Bool?
@@ -13,6 +14,8 @@ extension LineTransport {
         /// `stream_item` or `stream_end` of a `cmux.protocol/2` stream.
         var type: String?
         var streamID: String?
+        var errorDetails: JSONValue?
+        var retryable: Bool?
 
         enum CodingKeys: String, CodingKey {
             case id, ok, event, error, type
@@ -23,6 +26,8 @@ extension LineTransport {
         private struct ResourceError: Decodable {
             var code: String?
             var message: String?
+            var details: JSONValue?
+            var retryable: JSONValue?
         }
 
         init(from decoder: any Decoder) throws {
@@ -41,6 +46,7 @@ extension LineTransport {
             } else if let structured = try? c.decodeIfPresent(ResourceError.self, forKey: .error) {
                 error = structured.message ?? structured.code
                 errorCode = errorCode ?? structured.code
+                (errorDetails, retryable) = (structured.details, structured.retryable?.boolValue)
             }
         }
     }

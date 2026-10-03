@@ -79,8 +79,9 @@ import Testing
         var corpus = index
         let top = corpus.rank("cmd d split", frecency: FrecencyStore(), now: now).flatMap(\.ids).prefix(3)
         #expect(top.contains("shortcut:splitRight"))
-        // Every catalog action with a default shortcut or label is listed.
-        let expected = ActionCatalog.all.filter { $0.defaultShortcut != nil || $0.shortcutLabel != nil }.count
+        // Every catalog action with a default shortcut, label or chord (the
+        // Cmd-J leader's) is listed.
+        let expected = ActionCatalog.all.filter { $0.defaultShortcut != nil || $0.shortcutLabel != nil || $0.defaultChord != nil }.count
         #expect(index.items.count == expected)
     }
 

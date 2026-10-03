@@ -29,7 +29,7 @@ final class DaemonService {
     @ObservationIgnored private let scheduler = FrameBatcher(owner: "DaemonStore.drain")
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
     /// The window records of the daemon's launch snapshot, drawn before the
-    /// first connection (`WindowManager.showLaunchSnapshot`); nil without one.
+    /// first connection (`LaunchSnapshotWindow`); nil without one.
     @ObservationIgnored var launchSnapshotWindows: WindowStateDocument?
     /// The local session whose launch snapshot path each handshake records.
     @ObservationIgnored var launchSnapshotSession: String?

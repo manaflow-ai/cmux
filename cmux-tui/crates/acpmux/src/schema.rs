@@ -35,6 +35,7 @@ mod tests {
             method::MUX_SET_RULES,
             method::MUX_TAG,
             method::MUX_WAIT,
+            method::MUX_WARM,
             method::MUX_HISTORY,
             method::MUX_SCHEMA,
             method::MUX_EXPORT,

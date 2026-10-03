@@ -62,7 +62,7 @@ enum StickyColumnHandlers {
         }
         guard let refusal = content.layoutModel.setColumnSticky(column.id, sticky) else { return }
         switch refusal {
-        case .notColumns: throw ActionFailure.invalidTarget(RefusalStrings.notColumnLayout)
+        case .unknownColumn: throw ActionFailure.invalidTarget(RefusalStrings.noColumnShown(column.id.rawValue))
         case .lastScrollingColumn: throw ActionFailure.invalidTarget(RefusalStrings.lastScrollingColumn)
         case .unchanged:
             throw ActionFailure.invalidTarget(sticky == nil ? RefusalStrings.columnNotSticky : RefusalStrings.columnAlreadySticky)

@@ -30,7 +30,7 @@ extension AppActions {
         registry.bind("selectWorkspaceByNumber", invoke: { invocation in
             guard let number = invocation["index"]?.intValue, let state = services.windows.active?.state else { return }
             // Sidebar order across every machine section.
-            let all = services.windows.active?.sidebar.model.allWorkspaces.map(\.id.rawValue) ?? []
+            let all = services.windows.active?.sidebar.model.selectableWorkspaces.map(\.id.rawValue) ?? []
             guard !all.isEmpty else { return }
             let pick = number >= 9 ? all[all.count - 1] : all[min(number - 1, all.count - 1)]
             services.windows.show(workspaceID: pick, in: state)
@@ -90,7 +90,7 @@ extension AppActions {
 
     private static func selectWorkspace(_ services: AppServices, offset: Int) {
         guard let state = services.windows.active?.state else { return }
-        let ids = services.windows.active?.sidebar.model.allWorkspaces.map(\.id.rawValue) ?? []
+        let ids = services.windows.active?.sidebar.model.selectableWorkspaces.map(\.id.rawValue) ?? []
         guard !ids.isEmpty else { return }
         let current = state.workspaceID.flatMap(ids.firstIndex(of:)) ?? 0
         services.windows.show(workspaceID: ids[(current + offset + ids.count) % ids.count], in: state)

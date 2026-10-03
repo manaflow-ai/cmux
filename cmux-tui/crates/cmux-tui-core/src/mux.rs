@@ -10439,7 +10439,7 @@ impl Mux {
                         && !provider_bootstrap
                         && let Surface::Browser(browser) = thread_surface.as_ref()
                     {
-                        browser.mark_failed(err.to_string());
+                        browser.abandon_attach(err.to_string());
                     }
                     if !provider_bootstrap
                         && let Some(mux) = weak_mux.upgrade()
@@ -10458,7 +10458,7 @@ impl Mux {
             && !surface.is_dead()
             && let Surface::Browser(browser) = surface.as_ref()
         {
-            browser.mark_failed(format!("could not start browser bootstrap: {error}"));
+            browser.abandon_attach(format!("could not start browser bootstrap: {error}"));
         }
     }
 

@@ -444,9 +444,16 @@ and the live RTT show in the terminal header, so a slow path is visible.
 
 ## 10. GhosttyNextKit pipeline
 
-- Current pin for lane 14 (2026-10-02):
-  https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-8562af02889cdb085ad415c6a0ba9a379c78a0c6-ios-v2/GhosttyNextKit.xcframework.zip,
-  sha256 `7d1187486a0a2ecc64bd23854acd2ab6a5a010498e703ac7ee53c71820af6ea2`.
+- Current pin for lane 14 (2026-10-02, ios/CmuxiOS/Package.swift):
+  https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-e71a12e5ab0d1e86751ec021efec3ab5a837f344-ios-v3/GhosttyNextKit.xcframework.zip,
+  sha256 `506fa02ba8d56ac65810d8466b661f889b6338f54b6b77cd10fae1d1358963d8`.
+  `ios-v2` (`xcframework-8562af02889c…-ios-v2`) draws black on iOS: Ghostty's
+  own IOSurfaceLayer (a sublayer of the embedder's view layer) was never
+  sized, so drawFrame returned early. Never pin ios-v2. v3 sizes that layer in
+  set_size and set_content_scale. iOS draw contract: no display link; the
+  renderer thread draws on change (process_output wakes it) and
+  ghostty_surface_draw draws synchronously on main; the embedder view is a
+  plain UIView (no CAMetalLayer) and passes pixel sizes from layoutSubviews.
   It contains the remote IO mode. `next/smoke.sh --release` on the build
   host: sha256 match, all three slices link, C and Swift
   (`import GhosttyNextKit`) binaries run on macOS and in an iOS 27

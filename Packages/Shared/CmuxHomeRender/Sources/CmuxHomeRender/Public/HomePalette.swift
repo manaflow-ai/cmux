@@ -25,11 +25,28 @@ public struct HomeColor: Hashable, Sendable {
     public var cgColor: CGColor { CGColor(srgbRed: red, green: green, blue: blue, alpha: alpha) }
 
     func with(alpha: CGFloat) -> HomeColor { HomeColor(red: red, green: green, blue: blue, alpha: alpha) }
+
+    /// `self` moved toward `other` by `t` (0 = self, 1 = other).
+    func mixed(with other: HomeColor, _ t: CGFloat) -> HomeColor {
+        func m(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * t }
+        return HomeColor(red: m(red, other.red), green: m(green, other.green), blue: m(blue, other.blue), alpha: m(alpha, other.alpha))
+    }
+
+    /// Brightness scaled by `factor` (alpha kept).
+    func scaled(_ factor: CGFloat) -> HomeColor {
+        HomeColor(red: min(1, red * factor), green: min(1, green * factor), blue: min(1, blue * factor), alpha: alpha)
+    }
+
+    /// Relative luminance (sRGB weights, no linearization; enough to pick black or white text).
+    var luminance: CGFloat { 0.2126 * red + 0.7152 * green + 0.0722 * blue }
 }
 
-/// Every colour the renderer draws. Hosts pass their own (for example derived
-/// from the terminal theme); `standard` and `standardInactive` are the
-/// measured dark palette of the reference design.
+/// Every colour the renderer draws. Hosts build it from the app theme with
+/// `themed(_:active:)`: the sent bubble, caret and my tapbacks use the
+/// theme's accent, the rest mixes the theme's background and foreground in
+/// the proportions measured from the reference design. There is no default
+/// palette, so no accent colour is hard-coded here (users pick one in the
+/// host's settings, blue included).
 public struct HomePalette: Hashable, Sendable {
     public var background: HomeColor
     public var incomingBubble: HomeColor
@@ -60,46 +77,56 @@ public struct HomePalette: Hashable, Sendable {
         }
     }
 
-    /// (y in 2x pixels of a 1041 pt tall viewport, red, green), measured from bubble centers.
-    private static let measuredStops: [(CGFloat, CGFloat, CGFloat)] = [
-        (0, 43, 141), (400, 42, 140.5), (540, 41, 140), (800, 36.5, 139), (1200, 28.5, 136.6), (1490, 20, 135),
-        (1600, 15.3, 134.3), (1800, 6.9, 133.1), (1900, 2, 132.5), (1960, 0, 132), (2082, 0, 132),
-    ]
+    /// The theme colours a host passes (for example from the Ghostty theme).
+    public struct Theme: Hashable, Sendable {
+        public var background: HomeColor
+        public var foreground: HomeColor
+        /// Sent bubbles, the caret and my tapbacks.
+        public var accent: HomeColor
+        /// A send the owner refused.
+        public var failure: HomeColor
 
-    private static func stops(blue: CGFloat, transform: (CGFloat, CGFloat) -> (CGFloat, CGFloat)) -> [GradientStop] {
-        measuredStops.map { y, r, g in
-            let (red, green) = transform(r, g)
-            return GradientStop(location: y / 2082, color: .rgb255(red, green, blue))
+        public init(background: HomeColor, foreground: HomeColor, accent: HomeColor, failure: HomeColor) {
+            self.background = background
+            self.foreground = foreground
+            self.accent = accent
+            self.failure = failure
         }
     }
 
-    public static let standard = HomePalette(
-        background: .gray255(25),
-        incomingBubble: .gray255(49),
-        incomingText: .gray255(220),
-        outgoingText: .gray255(255),
-        secondaryText: .gray255(148),
-        failure: HomeColor(red: 1, green: 0.27, blue: 0.23),
-        badge: .rgb255(59, 59, 61),
-        outgoingGradient: stops(blue: 253) { ($0, $1) },
-        caret: HomeColor(red: 0.04, green: 0.52, blue: 1),
-        caretAfterSend: .gray255(127.5),
-        composeGlass: .gray255(49),
-        placeholder: .gray255(110),
-        morphUnderlay: .gray255(51),
-        typingDot: .gray255(82),
-        typingDotHighlight: .gray255(123)
-    )
+    /// Relative brightness of a sent bubble from the top to the bottom of the
+    /// viewport, measured from bubble centers of the reference (fraction of the
+    /// viewport height, factor against the top colour).
+    static let shading: [(CGFloat, CGFloat)] = [
+        (0, 1), (0.192, 0.996), (0.259, 0.991), (0.384, 0.978), (0.576, 0.951), (0.716, 0.928),
+        (0.768, 0.917), (0.865, 0.896), (0.913, 0.885), (0.941, 0.879), (1, 0.879),
+    ]
 
-    /// The palette of a window that is not key.
-    public static let standardInactive: HomePalette = {
-        var p = standard
-        p.background = .gray255(30)
-        p.incomingBubble = .gray255(59)
-        p.badge = .gray255(59)
-        p.outgoingGradient = stops(blue: 248) { (0.5 * $0 + 61, 0.67 * $1 + 57) }
-        return p
-    }()
+    /// The palette for `theme`. `active` false is the palette of a window
+    /// that is not key: lighter neutrals and an accent mixed toward grey.
+    public static func themed(_ theme: Theme, active: Bool = true) -> HomePalette {
+        let bg = theme.background, fg = theme.foreground
+        func n(_ t: CGFloat) -> HomeColor { bg.mixed(with: fg, t) }
+        let accent = active ? theme.accent : theme.accent.mixed(with: n(0.5), 0.35)
+        let gradient = shading.map { GradientStop(location: $0.0, color: accent.scaled($0.1)) }
+        return HomePalette(
+            background: active ? bg : n(0.022),
+            incomingBubble: n(active ? 0.104 : 0.148),
+            incomingText: n(0.848),
+            outgoingText: accent.luminance > 0.6 ? .gray255(0) : .gray255(255),
+            secondaryText: n(0.535),
+            failure: theme.failure,
+            badge: n(0.148),
+            outgoingGradient: gradient,
+            caret: theme.accent,
+            caretAfterSend: n(0.443),
+            composeGlass: n(0.104),
+            placeholder: n(0.37),
+            morphUnderlay: n(0.113),
+            typingDot: n(0.248),
+            typingDotHighlight: n(0.426)
+        )
+    }
 
     /// The outgoing colour at a fraction of the viewport height.
     func outgoing(at fraction: CGFloat) -> HomeColor {

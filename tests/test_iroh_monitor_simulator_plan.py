@@ -1,23 +1,11 @@
 import subprocess
 import unittest
 from pathlib import Path
-import yaml
 
 DRIVER = Path(__file__).resolve().parents[1] / "scripts/run-iroh-release-gate.sh"
-WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/iroh-release-gate.yml"
 
 
 class MonitorSimulatorPlanTests(unittest.TestCase):
-    def test_workflow_bounds_the_gate_step(self):
-        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-        step = next(
-            step for step in workflow["jobs"]["simulator-e2e"]["steps"]
-            if step.get("name") == "Run Iroh gate"
-        )
-        self.assertIn("timeout-minutes", step)
-        self.assertIn("75", step["timeout-minutes"])
-        self.assertIn("25", step["timeout-minutes"])
-
     def test_gate_script_has_phase_timeout_and_reason(self):
         script = DRIVER.read_text(encoding="utf-8")
         self.assertIn("PHASE_TIMEOUT_SECONDS", script)

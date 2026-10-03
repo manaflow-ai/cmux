@@ -63,17 +63,26 @@ final class AgentTabStore {
     private var linkedSessions: Set<String> = []
     /// A link's turn for a tab whose view is not made yet.
     private var pendingTurns: [String: String] = [:]
+    /// The tabs' git reads on the local session host (AgentPaneGitReads.swift);
+    /// nil answers the page `native.not_connected`.
+    private let git: AgentPaneGitLink?
 
     init(tag: String?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
-         linkScheme: String? = nil) {
+         linkScheme: String? = nil, git: AgentPaneGitLink? = nil) {
         actionRegistry = registry
         self.linkScheme = linkScheme
+        self.git = git
+        let resolvedHost: any AgentPaneHostProviding
         if environment["CMUX_NEXT_AGENT_PANE_MOCK"] == "1" {
-            host = MockAgentPaneHost()
+            resolvedHost = MockAgentPaneHost()
         } else {
             let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-            host = AcpmuxHost { AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin, environment: environment) }
+            resolvedHost = AcpmuxHost { AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin, environment: environment) }
         }
+        host = resolvedHost
+        // Start acpmux while the first pane is loading. The page still owns
+        // the authenticated WebSocket handshake and session selection.
+        Task { try? await resolvedHost.prewarm() }
         // Release loads only the bundled page; the dev server is for Debug
         // and tagged builds (webviews/src/agent-session/acpmux/README.md).
         #if DEBUG
@@ -223,6 +232,8 @@ final class AgentTabStore {
         model.onEditShortcut = { [weak self] kind in self?.newTabPages[key]?.handler.editShortcut(kind) }
         model.onSetDefaultKind = { [weak self] kind in self?.newTabPages[key]?.handler.setDefaultKind(kind) }
         model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
+        // A local session's folder is read by the local session host; the page refuses cloud sessions.
+        if let git { model.onGit = { request in try await git.read(request) } }
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate) else { return nil }
         view.customization = customization.current
         view.shortcuts = shortcuts

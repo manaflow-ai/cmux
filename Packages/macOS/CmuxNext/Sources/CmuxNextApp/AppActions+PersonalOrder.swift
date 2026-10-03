@@ -8,7 +8,7 @@ extension AppActions {
     /// session (the workspace's own daemon order is not touched).
     static func movePersonalWorkspace(_ services: AppServices, _ invocation: ActionInvocation, by offset: Int) {
         guard let workspace = scope(services, invocation).workspace, let sidebar = services.windows.active?.sidebar else { return }
-        let visible = sidebar.model.allWorkspaces.map(\.id)
+        let visible = sidebar.model.selectableWorkspaces.map(\.id)
         guard let position = visible.firstIndex(of: SidebarWorkspaceID(workspace.id)), visible.indices.contains(position + offset) else { return }
         let target = visible[position + offset]
         let machines = services.machines

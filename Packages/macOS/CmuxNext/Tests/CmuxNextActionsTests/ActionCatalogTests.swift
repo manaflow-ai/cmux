@@ -74,10 +74,10 @@ import Testing
         .pane: 72, // + Move Pane to New Workspace, Undo Layout Change; + 4 sticky column actions (sticky-column.md); + Open File (file.open)
         .screen: 62,
         .tab: 78, // + Show Tab (`tab.focus`), New Tab of the pane kind, New Tab Page, + Search Tabs (tab-search.md), Focus Location Bar
-        .terminal: 35, // + Set / Reset Terminal Theme
+        .terminal: 36, // + Set / Reset Terminal Theme, + Scroll to Selection (Cmd-J J, the leader layer)
         .browser: 113, // 78 - 2 profile placeholders + 18 browser profile actions (data-model.md 5) + Show History (Cmd-Y in a page) + 15 bookmark actions + Import Passwords from CSV + 2 link hints (f, F)
         .sidebar: 56, // + 26 sidebar section actions (sidebar-sections.md 6)
-        .notifications: 18,
+        .notifications: 19,
         .agents: 30, // + Resume Agent Session, Toggle Dictation, Open Agent Activity, Search Agent Chats, Continue In, Create Checkpoint, 7 tool permission controls, Quick Agent Chat
         .cloud: 48, // + cloud file and tunnel/network/firewall actions
         .remote: 7, // SSH machines (Connect to Machine…), Open Terminal on Machine Here

@@ -10,18 +10,17 @@ public import QuartzCore
 /// conversation's owner (`HomeStore.perform`, see `HomeStoreBinding`).
 ///
 /// Time is event-driven: Core Animation runs every animation on the render
-/// server; the controller wakes once per cleanup due time with a one-shot
-/// sleep on the injected clock (the sleeping task holds the controller
-/// weakly). No display link, no polling: idle is 0% CPU.
+/// server; the controller wakes once per cleanup due time through the
+/// host's one-shot `HomeDeadline`. No display link, no polling, no sleep:
+/// idle is 0% CPU.
 @MainActor
 public final class HomeController {
     public let conversation: ConversationID
     public let me: ParticipantID
     let scene: HomeScene
     let builder: RowBuilder
-    private let clock: any Clock<Duration>
+    private let deadline: any HomeDeadline
     private let currentDate: @MainActor () -> Date
-    private var wakeTask: Task<Void, Never>?
     private var wakeAt: CFTimeInterval = .infinity
 
     private(set) var items: [TranscriptItem] = []
@@ -47,12 +46,15 @@ public final class HomeController {
         didSet { if isVisibleToUser { reportReadIfNeeded() } }
     }
 
-    public init(conversation: ConversationID, me: ParticipantID, palette: HomePalette = .standard,
+    /// - Parameters:
+    ///   - palette: colours from the app theme (`HomePalette.themed`); there is no default.
+    ///   - deadline: the host's one-shot timer for cleanup after animations.
+    public init(conversation: ConversationID, me: ParticipantID, palette: HomePalette, deadline: any HomeDeadline,
                 calendar: Calendar = .autoupdatingCurrent, locale: Locale = .autoupdatingCurrent,
-                clock: any Clock<Duration> = ContinuousClock(), now: @escaping @MainActor () -> Date = { Date() }) {
+                now: @escaping @MainActor () -> Date = { Date() }) {
         self.conversation = conversation
         self.me = me
-        self.clock = clock
+        self.deadline = deadline
         currentDate = now
         scene = HomeScene(palette: palette)
         builder = RowBuilder(format: RowFormat(calendar: calendar, locale: locale))
@@ -97,7 +99,7 @@ public final class HomeController {
         scene.compose.restartCaret(begin: scene.now, sent: false, motion: policy)
     }
 
-    /// Colours (for example `.standardInactive` while the window is not key).
+    /// Colours (for example `HomePalette.themed(theme, active: false)` while the window is not key).
     public var palette: HomePalette {
         get { scene.palette }
         set { scene.setPalette(newValue) }
@@ -106,8 +108,8 @@ public final class HomeController {
     /// The transcript follows its newest row (the user has not scrolled up).
     public var isPinnedToNewest: Bool { scene.pinned }
 
-    /// Nothing animates and no cleanup is pending.
-    public var isIdle: Bool { wakeTask == nil && !scene.isAnimating }
+    /// Nothing animates, no cleanup is pending and no row bitmap is being drawn.
+    public var isIdle: Bool { wakeAt == .infinity && !scene.isAnimating && !scene.bitmaps.isRendering }
 
     // MARK: State from CmuxHomeCore
 
@@ -180,20 +182,11 @@ public final class HomeController {
 
     private func scheduleWake(at due: CFTimeInterval) {
         guard due < wakeAt else { return }
-        wakeTask?.cancel()
         wakeAt = due
-        let delay = max(0, due - scene.now)
-        let clock = self.clock
-        wakeTask = Task { [weak self] in
-            // wakeup-allow: a one-shot cleanup deadline on the injected clock (the DemandTimer contract;
-            // CmuxNextWakeups is macOS-only). Armed only after a change, replaced by an earlier one, never repeats.
-            do { try await clock.sleep(for: .seconds(delay)) } catch { return }
-            self?.wakeFired(due)
-        }
+        deadline.schedule(after: .seconds(max(0, due - scene.now))) { [weak self] in self?.wakeFired(due) }
     }
 
     private func wakeFired(_ due: CFTimeInterval) {
-        wakeTask = nil
         wakeAt = .infinity
         scene.settle(at: max(scene.now, due))
     }
