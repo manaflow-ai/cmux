@@ -58,6 +58,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     let listener = TcpListener::bind(SocketAddr::new(bind, port))?;
     let udp = UdpSocket::bind(SocketAddr::new(bind, port))?;
     udp.set_nonblocking(true)?;
+    crate::wire::grow_udp_buffers(&udp);
     eprintln!("cmux-rd host: listening on {bind}:{port} (tcp control, udp datagrams)");
     for conn in listener.incoming() {
         let stream = match conn {

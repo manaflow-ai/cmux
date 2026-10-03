@@ -184,3 +184,16 @@ pub fn harden_tcp(s: &TcpStream) {
     set(libc::IPPROTO_TCP, libc::TCP_KEEPCNT, 3);
     set(libc::IPPROTO_TCP, libc::TCP_USER_TIMEOUT, 10_000);
 }
+
+/// Larger UDP buffers so a keyframe burst (hundreds of datagrams) is not dropped by the
+/// kernel before pacing exists.
+pub fn grow_udp_buffers(s: &std::net::UdpSocket) {
+    use std::os::fd::AsRawFd;
+    let size: i32 = 4 << 20;
+    for name in [libc::SO_SNDBUF, libc::SO_RCVBUF] {
+        // SAFETY: setsockopt with a valid fd and a pointer to a local int.
+        unsafe {
+            libc::setsockopt(s.as_raw_fd(), libc::SOL_SOCKET, name, (&size as *const i32).cast(), std::mem::size_of::<i32>() as libc::socklen_t);
+        }
+    }
+}

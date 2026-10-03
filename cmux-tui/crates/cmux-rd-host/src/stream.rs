@@ -468,9 +468,8 @@ impl MediaSession {
         let mut d = Vec::with_capacity(HEADER_LEN + 4);
         header.encode_into(&mut d);
         d.extend_from_slice(&self.applier.applied().to_le_bytes());
+        // Input acks are not reported back as arrivals, so they stay out of loss and CC.
         let _ = self.out.send(stream, &d);
-        self.cc.on_sent(header.transport_seq, now_us());
-        self.loss_meter.on_sent(header.transport_seq);
     }
 
     /// Releases every key and button the viewer holds on the host and forgets held input

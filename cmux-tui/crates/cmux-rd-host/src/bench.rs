@@ -257,6 +257,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     let udp = if carrier == "udp" {
         let s = UdpSocket::bind("0.0.0.0:0")?;
         s.set_nonblocking(true)?;
+        crate::wire::grow_udp_buffers(&s);
         Some((s, addr))
     } else {
         None

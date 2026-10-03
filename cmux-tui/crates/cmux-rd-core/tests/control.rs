@@ -211,7 +211,7 @@ fn send_times_survive_sequence_wrap() {
         cc.on_sent(seq, now + i * 100);
         arrivals.push(Arrival {
             transport_seq: seq,
-            arrival_us: (now + i * 100 + 5_000 + i * 2_000) as u32,
+            arrival_us: (now + i * 100 + 25_000) as u32,
         });
         seq = seq.wrapping_add(1);
     }
@@ -242,4 +242,20 @@ fn releases_are_resent_until_acknowledged() {
     }
     s.ack(1);
     assert!(s.packet().is_none());
+}
+
+#[test]
+fn a_keyframe_burst_alone_is_not_overuse() {
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectLan);
+    let (mut seq, mut now) = (0u16, 0u64);
+    feed(&mut cc, &mut seq, &mut now, 0, 3);
+    // 300 packets serialized back to back: each arrives 40 us after the previous one.
+    let mut arrivals = Vec::new();
+    for i in 0..300u64 {
+        cc.on_sent(seq, now);
+        arrivals.push(Arrival { transport_seq: seq, arrival_us: (now + 5_000 + i * 40) as u32 });
+        seq = seq.wrapping_add(1);
+    }
+    cc.on_feedback(&arrivals, 0.0, now + 20_000);
+    assert_ne!(cc.usage(), Usage::Overuse);
 }
