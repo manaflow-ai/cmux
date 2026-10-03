@@ -6,15 +6,17 @@ use std::path::{Path, PathBuf};
 use cmux_server_core::InstallMode;
 use cmux_server_core::access::access_policy;
 use cmux_server_core::layout::Layout;
+use cmux_server_core::reexec::{self, ReexecInput, ReexecPlan};
 use serde_json::{Value, json};
 
 use super::{Args, Context, Output};
 use crate::config::ServerConfig;
 use crate::error::{Error, Result};
+use crate::exec::ExecRequest;
 use crate::pg::{PgOptions, Postgres, WalMethod, utc_stamp};
 use crate::service::Services;
 use crate::store::fetch::fetch_small;
-use crate::store::{ApplyReport, ApplyRequest, MANIFEST_LIMIT, Store};
+use crate::store::{ApplyOutcome, ApplyReport, ApplyRequest, MANIFEST_LIMIT, StagedCmux, Store};
 use crate::{access, fsx, host, sys};
 
 /// The default channel base; `<base>/<channel>/latest.json` or
@@ -123,8 +125,50 @@ fn apply_channel(
             roles: ROLES,
             now_ms: ctx.now_ms,
         };
-        Store::new(layout).apply(&request, fetcher)
+        let store = Store::new(layout);
+        match store.apply_outcome(&request, fetcher)? {
+            ApplyOutcome::Applied(report) => Ok(report),
+            ApplyOutcome::NeedsNewerCmux(staged) => {
+                Err(reexec_newer(ctx, args, layout, &store, &staged))
+            }
+        }
     })
+}
+
+/// Decision SV-R2: exec the verified staged `cmux` once with the same
+/// arguments, so an upgrade that needs a newer `cmux` goes on in it. The
+/// store lock is already released (and every file is `O_CLOEXEC`). Returns
+/// only when there is no exec: the "needs newer cmux" refusal (exit 4), or
+/// the exec's own failure.
+fn reexec_newer(
+    ctx: &Context<'_>,
+    args: &Args,
+    layout: &Layout,
+    store: &Store,
+    staged: &StagedCmux,
+) -> Error {
+    let input = ReexecInput {
+        layout,
+        package: &staged.package,
+        min_cmux_version: &staged.min_cmux_version,
+        sequence: staged.sequence,
+        manifest_sha256: &staged.manifest_sha256,
+        guard: ctx.reexec_guard.as_deref(),
+        args: &args.raw,
+    };
+    let (binary, exec_args, marker) = match reexec::plan(&input) {
+        ReexecPlan::Exec { binary, args, marker } => (binary, args, marker),
+        ReexecPlan::Refuse(why) => return Error::rejected(why),
+    };
+    // Only a file of the package that passed the streaming SHA-256 and the
+    // signed manifest runs.
+    let program = match store.verified_package_file(staged, &fsx::local(&binary)) {
+        Ok(path) => path,
+        Err(e) => return staged.refusal(&format!(" ({})", e.message)),
+    };
+    let request =
+        ExecRequest { program, args: exec_args, env: vec![(reexec::GUARD_ENV.to_owned(), marker)] };
+    ctx.exec.exec(&request)
 }
 
 /// `~/.local/bin/cmux` -> `<current>/bin/cmux`, unless something else is
