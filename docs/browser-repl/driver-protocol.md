@@ -54,6 +54,15 @@ sessions instead. The runtime sends `tab.handleEvents` whenever a page's
 `dialog`, `filechooser` or `download` listeners change, and its next call on
 the tab waits for it. A download keeps the route it started with.
 
+Each such event goes to one session, never to every session driving the
+tab: a session with a handler for it in its last `tab.handleEvents` (the
+creating session's first, then the session that registered first), else the
+creating session of a tab a session created. Only that session gets
+`dialog.opened`, `filechooser.opened` and the download's `download.*` events,
+and `dialog.respond` and `filechooser.respond` from any other session fail
+with `not_found`, leaving the dialog or chooser open. When that session
+leaves the tab, its open dialogs are dismissed and its choosers cancelled.
+
 When the last session leaves a tab, the driver releases what the sessions
 left pressed: each held key gets its key-up (last pressed first) and each
 held mouse button its button-up at the last mouse position, or the drag it

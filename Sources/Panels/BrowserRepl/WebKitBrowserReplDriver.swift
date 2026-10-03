@@ -1846,7 +1846,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 return url
             }
         }
-        guard attachment(panel).respondToFileChooser(id: id, files: urls) else {
+        // Only the session the chooser was routed to may answer it.
+        guard attachment(panel).respondToFileChooser(id: id, sessionID: sessionID, files: urls) else {
             throw Self.error("not_found", "File chooser \(id) is gone")
         }
         return nil
@@ -1859,7 +1860,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             throw Self.error("invalid", "dialogId is required")
         }
         let accept = params["accept"] as? Bool ?? false
-        guard attachment(panel).respondToDialog(id: id, accept: accept, promptText: params["promptText"] as? String) else {
+        // Only the session the dialog was routed to may answer it.
+        guard attachment(panel).respondToDialog(id: id, sessionID: sessionID, accept: accept, promptText: params["promptText"] as? String) else {
             throw Self.error("not_found", "Dialog \(id) is gone")
         }
         return nil

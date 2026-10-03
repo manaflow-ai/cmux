@@ -100,8 +100,10 @@ final class BrowserReplTabAttachment {
     weak var panel: BrowserPanel?
 
     private var sinks: [String: BrowserReplTabEventSink] = [:]
-    private var dialogs: [String: (Bool, String?) -> Void] = [:]
-    private var fileChoosers: [String: ([URL]?) -> Void] = [:]
+    /// Dialogs and file choosers waiting for the session each was routed
+    /// to; only that session answers one.
+    private var dialogs = BrowserReplRoutedRequests<(Bool, String?) -> Void>()
+    private var fileChoosers = BrowserReplRoutedRequests<([URL]?) -> Void>()
     private var nextID = 0
     private var resourceObserver: BrowserReplResourceLoadObserver?
     private var consoleHandler: BrowserReplConsoleMessageHandler?
@@ -239,9 +241,16 @@ final class BrowserReplTabAttachment {
         ownership.setHandledEvents(events, for: sessionID)
     }
 
-    /// Whether `event` goes to the attached sessions instead of cmux's UI.
+    /// Whether `event` goes to a session instead of cmux's UI.
     func routesToSessions(_ event: BrowserReplTabEvent) -> Bool {
-        isAttached && ownership.routesToSessions(event)
+        recipient(for: event) != nil
+    }
+
+    /// The one attached session `event` goes to (``BrowserReplTabOwnership/recipient(for:)``).
+    /// Only it receives the event and may answer it.
+    private func recipient(for event: BrowserReplTabEvent) -> String? {
+        guard isAttached, let sessionID = ownership.recipient(for: event), sinks[sessionID] != nil else { return nil }
+        return sessionID
     }
 
     /// Whether a session created this tab, so permission requests answer
@@ -419,6 +428,10 @@ final class BrowserReplTabAttachment {
 
     func removeSink(sessionID: String) {
         pointerReleased(sessionID: sessionID)
+        // Dialogs and choosers routed to the leaving session are answered as
+        // unhandled ones are; no other session may answer them.
+        for respond in dialogs.removeAll(ownedBy: sessionID) { respond(false, nil) }
+        for respond in fileChoosers.removeAll(ownedBy: sessionID) { respond(nil) }
         sinks.removeValue(forKey: sessionID)
         ownership.detach(sessionID: sessionID)
         if sinks.isEmpty {
@@ -505,10 +518,8 @@ final class BrowserReplTabAttachment {
         ownership = BrowserReplTabOwnership()
         // Playwright dismisses dialogs nobody handles; do the same so a page
         // is never left blocked on a dialog after its session goes away.
-        for respond in dialogs.values { respond(false, nil) }
-        dialogs.removeAll()
-        for respond in fileChoosers.values { respond(nil) }
-        fileChoosers.removeAll()
+        for respond in dialogs.removeAll() { respond(false, nil) }
+        for respond in fileChoosers.removeAll() { respond(nil) }
         releaseHeldInput()
         uninstrument()
         agentUserScript.release()
@@ -571,10 +582,19 @@ final class BrowserReplTabAttachment {
         }
     }
 
+    /// Sends an event to every attached session.
     func emit(_ name: String, _ payload: [String: Any]) {
         var body = payload
         body["targetId"] = targetID
         for sink in sinks.values { sink(name, body) }
+    }
+
+    /// Sends a routed event (dialog, file chooser, download) to the one
+    /// session it was routed to.
+    private func emit(_ name: String, _ payload: [String: Any], to sessionID: String) {
+        var body = payload
+        body["targetId"] = targetID
+        sinks[sessionID]?(name, body)
     }
 
     private func makeID(_ prefix: String) -> String {
@@ -671,7 +691,8 @@ final class BrowserReplTabAttachment {
 
     // MARK: - Dialogs
 
-    /// Routes a JavaScript dialog to the attached sessions.
+    /// Routes a JavaScript dialog to the one session that takes dialogs in
+    /// this tab; only that session sees and answers it.
     /// - Returns: `false` when no session takes dialogs in this tab; the
     ///   caller shows its native UI.
     func handleDialog(
@@ -680,7 +701,7 @@ final class BrowserReplTabAttachment {
         defaultValue: String?,
         respond: @escaping (Bool, String?) -> Void
     ) -> Bool {
-        guard routesToSessions(.dialog) else { return false }
+        guard let owner = recipient(for: .dialog) else { return false }
         let id = makeID("d")
         if let command = clipboardCommandsInFlight.last {
             // Held, the dialog would keep WebKit's Copy, Cut or Paste open.
@@ -692,16 +713,16 @@ final class BrowserReplTabAttachment {
                 "message": message,
                 "defaultValue": defaultValue ?? "",
                 "dismissedDuring": command,
-            ])
+            ], to: owner)
             return true
         }
-        dialogs[id] = respond
+        dialogs.add(id: id, owner: owner, respond: respond)
         emit("dialog.opened", [
             "dialogId": id,
             "type": type,
             "message": message,
             "defaultValue": defaultValue ?? "",
-        ])
+        ], to: owner)
         return true
     }
 
@@ -724,23 +745,25 @@ final class BrowserReplTabAttachment {
     /// The last `tab.info` answered from the page, reused while a dialog blocks it.
     var lastInfo: [String: Any]?
 
-    func respondToDialog(id: String, accept: Bool, promptText: String?) -> Bool {
-        guard let respond = dialogs.removeValue(forKey: id) else { return false }
+    /// Answers dialog `id` when `sessionID` is the session it was routed to.
+    func respondToDialog(id: String, sessionID: String, accept: Bool, promptText: String?) -> Bool {
+        guard let respond = dialogs.take(id: id, sessionID: sessionID) else { return false }
         respond(accept, promptText)
         return true
     }
 
     // MARK: - File choosers
 
-    /// Routes a file input's open panel to the attached sessions.
+    /// Routes a file input's open panel to the one session that takes file
+    /// choosers in this tab; only that session sees and answers it.
     func handleOpenPanel(
         allowsMultiple: Bool,
         frame: WKFrameInfo,
         respond: @escaping ([URL]?) -> Void
     ) -> Bool {
-        guard routesToSessions(.fileChooser) else { return false }
+        guard let owner = recipient(for: .fileChooser) else { return false }
         let id = makeID("c")
-        fileChoosers[id] = respond
+        fileChoosers.add(id: id, owner: owner, respond: respond)
         let frameID = frame.isMainFrame ? nil : BrowserReplFrameTree.frameID(of: frame)
         Task { @MainActor [weak self] in
             let element = await self?.chooserElementHandle(in: frame)
@@ -749,13 +772,14 @@ final class BrowserReplTabAttachment {
                 "frameId": frameID ?? NSNull(),
                 "element": element ?? NSNull(),
                 "multiple": allowsMultiple,
-            ])
+            ], to: owner)
         }
         return true
     }
 
-    func respondToFileChooser(id: String, files: [URL]?) -> Bool {
-        guard let respond = fileChoosers.removeValue(forKey: id) else { return false }
+    /// Answers file chooser `id` when `sessionID` is the session it was routed to.
+    func respondToFileChooser(id: String, sessionID: String, files: [URL]?) -> Bool {
+        guard let respond = fileChoosers.take(id: id, sessionID: sessionID) else { return false }
         respond(files)
         return true
     }
@@ -866,35 +890,35 @@ final class BrowserReplTabAttachment {
 
     // MARK: - Downloads
 
-    /// Downloads reported to the sessions, by id.
-    private var sessionDownloadIDs: Set<String> = []
+    /// Downloads reported to a session, by id, with that session.
+    private var sessionDownloads: [String: String] = [:]
 
-    /// Whether download `id` went to the sessions. Those stay in cmux's
+    /// Whether download `id` went to a session. Those stay in cmux's
     /// temporary download directory, so `download.path()` can read them;
     /// every other download takes the user's normal path.
     func keepsDownloadInTemporaryDirectory(id: String) -> Bool {
-        sessionDownloadIDs.contains(id)
+        sessionDownloads[id] != nil
     }
 
-    /// Reports a download to the sessions when they take downloads in this
-    /// tab; the decision holds for the download's life.
+    /// Reports a download to the one session that takes downloads in this
+    /// tab; the decision, and that session, hold for the download's life.
     func downloadDidStart(id: String, url: URL?, suggestedFilename: String) {
-        guard routesToSessions(.download) else { return }
-        sessionDownloadIDs.insert(id)
+        guard let owner = recipient(for: .download) else { return }
+        sessionDownloads[id] = owner
         emit("download.started", [
             "downloadId": id,
             "url": url?.absoluteString ?? "",
             "suggestedFilename": suggestedFilename,
-        ])
+        ], to: owner)
     }
 
     func downloadDidFinish(id: String, path: String?, error: String?) {
-        guard sessionDownloadIDs.remove(id) != nil else { return }
+        guard let owner = sessionDownloads.removeValue(forKey: id) else { return }
         if let path { downloadPaths[id] = path }
         var payload: [String: Any] = ["downloadId": id]
         if let path { payload["path"] = path }
         if let error { payload["error"] = error }
-        emit("download.finished", payload)
+        emit("download.finished", payload, to: owner)
     }
 }
 
