@@ -493,7 +493,8 @@ jobs:
     uses: ./.github/workflows/nightly-next-promote.yml
     with:
       sha: ${{ github.sha }}
-    secrets: inherit
+    secrets:
+      GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
 
   cmux-scheme-compile:
     needs: macos-placement

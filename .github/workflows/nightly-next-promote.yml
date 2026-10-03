@@ -13,8 +13,10 @@ name: Promote cmux-next to nightly-next
 # bypasses the debounce, never the green check.
 #
 # Only the GitHub App that the nightly-next ruleset allows can move the branch
-# (ruleset "nightly-next: fast-forward by the promote app only"), and the ref
-# update is never forced, so the branch only ever fast-forwards.
+# (ruleset "nightly-next: fast-forward by the promote app only"). The ref
+# update fast-forwards; the one forced case replaces a baseline build (a
+# feat-cmux-next commit plus one patch) with a feat-cmux-next commit that
+# descends from that baseline's parent.
 on:
   workflow_call:
     inputs:
@@ -22,6 +24,9 @@ on:
         description: feat-cmux-next commit to promote.
         required: true
         type: string
+    secrets:
+      GLAEDA_ROUTE_APP_KEY:
+        required: true
   workflow_dispatch:
     inputs:
       sha:
@@ -87,12 +92,25 @@ jobs:
               }
             }
 
-            // The commit's Release compile must have passed.
-            const runs = await github.paginate(github.rest.checks.listForRef, {
-              owner, repo, ref: sha, check_name: requiredCheck, filter: 'latest', per_page: 100,
+            // The commit must have been a pushed feat-cmux-next head whose
+            // cmux-next.yml push run passed the Release compile job. A check
+            // of the same name from a PR run or another app does not count.
+            const pushRuns = await github.paginate(github.rest.actions.listWorkflowRuns, {
+              owner, repo, workflow_id: 'cmux-next.yml', event: 'push', branch: source, head_sha: sha, per_page: 100,
             });
-            if (!runs.some((run) => run.status === 'completed' && run.conclusion === 'success')) {
-              core.setFailed(`${sha} has no successful "${requiredCheck}" check`);
+            let green = false;
+            for (const run of pushRuns) {
+              if (run.head_sha !== sha || run.head_branch !== source || run.event !== 'push') continue;
+              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+                owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
+              });
+              if (jobs.some((job) => job.name === requiredCheck && job.conclusion === 'success')) {
+                green = true;
+                break;
+              }
+            }
+            if (!green) {
+              core.setFailed(`${sha} has no cmux-next.yml push run on ${source} with a successful "${requiredCheck}" job`);
               return;
             }
 
@@ -126,11 +144,22 @@ jobs:
             }
             if (current) {
               const { data } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${current}...${sha}` });
-              if (data.status !== 'ahead') {
-                skip(`${sha} does not fast-forward ${target} from ${current} (compare status ${data.status}); nothing promoted.`);
+              let force = false;
+              if (data.status === 'diverged') {
+                // One exception: a hand-made baseline build, a feat-cmux-next
+                // commit plus one patch (the first build was 1e6c86ba7ae plus
+                // d43ea8aabad). Move on only when `sha` descends from that
+                // baseline's parent, so the branch never goes backward; the
+                // patch itself is dropped, so it must already be on the source.
+                const { data: head } = await github.rest.git.getCommit({ owner, repo, commit_sha: current });
+                const parent = head.parents.length === 1 ? head.parents[0].sha : null;
+                force = parent !== null && data.merge_base_commit?.sha === parent;
+              }
+              if (data.status !== 'ahead' && !force) {
+                skip(`${sha} does not move ${target} forward from ${current} (compare status ${data.status}); nothing promoted.`);
                 return;
               }
-              await writer.rest.git.updateRef({ owner, repo, ref: `heads/${target}`, sha, force: false });
+              await writer.rest.git.updateRef({ owner, repo, ref: `heads/${target}`, sha, force });
             } else {
               await writer.rest.git.createRef({ owner, repo, ref: `refs/heads/${target}`, sha });
             }
