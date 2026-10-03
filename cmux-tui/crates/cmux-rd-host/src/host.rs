@@ -18,6 +18,9 @@ pub fn run(opts: &Opts) -> Res<()> {
     // default it listens on loopback only and refuses every non-loopback peer. A private
     // single-tenant overlay needs the explicit flag below.
     let (reach, bind) = reach_and_bind(opts)?;
+    // The per-launch token from the parent (the daemon) through an inherited pipe.
+    let token_fd: i32 = opts.get("token-fd").ok_or("--token-fd N is required: the daemon passes the session token through an inherited pipe")?.parse()?;
+    let token = crate::token::Token::read_fd(token_fd)?;
     eprintln!(
         "cmux-rd host: development only. The host trusts the principal claims in each hello until the link \
          token (lane 12) authenticates them, so it serves {}.",
@@ -72,7 +75,7 @@ pub fn run(opts: &Opts) -> Res<()> {
                 continue;
             }
         }
-        match serve_viewer(stream, &udp, &mut table, &cfg) {
+        match serve_viewer(stream, &udp, &mut table, &cfg, &token) {
             Ok(reason) => eprintln!("viewer {peer} ended: {reason}"),
             Err(e) => eprintln!("viewer {peer} failed: {e}"),
         }
@@ -178,16 +181,22 @@ fn serve_viewer(
     udp: &UdpSocket,
     table: &mut SessionTable,
     cfg: &SessionCfg,
+    token: &crate::token::Token,
 ) -> Res<String> {
     stream.set_nodelay(true)?;
     crate::wire::harden_tcp(&stream);
     stream.set_nonblocking(true)?;
     let mut reader = FrameReader::default();
-    let Control::Hello { user, install, class, interactive, udp_port, max_datagram } =
+    let Control::Hello { user, install, class, interactive, udp_port, max_datagram, token: provided } =
         read_control(&mut stream, &mut reader)?
     else {
         return Err("first message must be hello".into());
     };
+    // Before anything else (no session, no frame): the exact per-launch token.
+    if !token.matches_hex(provided.as_deref()) {
+        let _ = write_control(&mut stream, &Control::Refused { reason: "BadToken".into() });
+        return Ok("refused: missing or wrong session token".into());
+    }
     if [&user, &install, &class].iter().any(|v| v.len() > MAX_CLAIM) {
         return Err("hello field too long".into());
     }

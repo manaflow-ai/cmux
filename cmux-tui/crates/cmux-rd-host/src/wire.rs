@@ -23,6 +23,9 @@ pub enum Control {
         interactive: bool,
         udp_port: Option<u16>,
         max_datagram: usize,
+        /// The per-launch session token (64 hex characters); see `token.rs`.
+        #[serde(default)]
+        token: Option<String>,
     },
     Start {
         key: String,
