@@ -34,8 +34,9 @@ import { compareCodePoints as compare, plain } from "./text.ts";
 // Shell contract: a daemon read (list, snapshot, history) that the owner
 // refuses is reported as `fetch_refused` (no reconnect); one that fails with
 // the connection, or times out, is `disconnected {daemon}` (the shell drops
-// that connection and connects again); a failed acpmux read answers with an
-// empty `sessions` or `child_events`. A `*_connected` input while that port is up counts as a
+// that connection and connects again). A failed session list answers with
+// `sessions {failed: true}`; failed child events answer with an empty
+// `child_events`. A `*_connected` input while that port is up counts as a
 // disconnect first: the core drops what it held for the old connection.
 
 /** The timer key of the one-shot outbox retry. */
@@ -76,8 +77,11 @@ export type Input =
   | { kind: "acpmux_event"; event: AcpmuxEvent }
   | { kind: "session_changed"; session: SessionSummary }
   | { kind: "permission_pending"; session_id: string; permission_id: string; request: Record<string, unknown> }
-  /** The answer to `fetch_sessions` (an empty list when the request failed). */
-  | { kind: "sessions"; sessions: SessionSummary[] }
+  /**
+   * The answer to `fetch_sessions`. `failed`: the request failed (sessions is
+   * empty); pending permissions stay for the next list or acpmux connect.
+   */
+  | { kind: "sessions"; sessions: SessionSummary[]; failed?: boolean }
   /** The answer to `fetch_child_events` (an empty list when the request failed). */
   | { kind: "child_events"; session_id: string; events: AcpmuxEvent[] }
   /** A `prompt` request returned (accepted or failed; a failed one is sent again on the next acpmux connect). */
@@ -206,7 +210,9 @@ export class Core {
         this.permission(input.session_id, input.permission_id, input.request ?? {});
         break;
       case "sessions":
-        this.sessions(input.sessions);
+        if (input.failed === true) {
+          if (this.pendingPermissions.length > 0) this.log("session list failed; pending permissions wait for the next one");
+        } else this.sessions(input.sessions);
         break;
       case "child_events": {
         const session = this.pendingChildren.get(input.session_id);
@@ -294,7 +300,7 @@ export class Core {
     }
     this.acpmuxUp = false;
     this.inbox = this.inbox.filter((item) => item.type === "catch_up" || item.type === "ready");
-    this.pendingPermissions = [];
+    // Pending permissions stay: the session list of the next acpmux connect answers them.
     if (this.typingIn) this.setTyping(this.typingIn, false);
     // The old host settled every prompt waiter when acpmux closed: the inbox moves on and
     // the prompt stays outstanding, resent on the next acpmux connect.
@@ -564,6 +570,8 @@ export class Core {
     const order = (id: string) => this.state.prompts[id].order ?? 0;
     for (const promptId of Object.keys(this.state.prompts).sort((a, b) => order(a) - order(b) || compare(a, b)))
       this.sendPrompt(promptId);
+    // Permissions that waited for a session list (a failed fetch, or the last connection's loss).
+    if (this.pendingPermissions.length > 0) this.sessions(sessions);
     this.reconcileChildren();
     if (this.daemonUp) this.inbox.push({ type: "catch_up_all" });
   }

@@ -239,10 +239,10 @@ export class MuxHost {
       }
       case "fetch_sessions":
         if (!acpmux) return;
-        void acpmux
-          .sessions()
-          .catch(() => [] as SessionSummary[])
-          .then((sessions) => this.feed({ kind: "sessions", sessions }));
+        void acpmux.sessions().then(
+          (sessions) => this.feed({ kind: "sessions", sessions }),
+          () => this.feed({ kind: "sessions", sessions: [], failed: true }),
+        );
         return;
       case "fetch_child_events":
         if (!acpmux) return;
