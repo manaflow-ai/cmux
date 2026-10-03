@@ -21,8 +21,10 @@ VM), never on a Mac: `cargo build --release`.
 ## Licensing and codecs
 
 - cmux-tui, including this crate, is GPL-3.0-or-later (Lawrence, 2026-10-03). The default
-  build links x264 (GPL-2.0-or-later, compatible) statically; building needs
-  `libx264-dev`.
+  build links x264 (GPL-2.0-or-later, compatible) statically; building needs a static
+  `libx264.a` (Ubuntu's `libx264-dev` ships one). Before a build ships, add x264 and
+  openh264 with the linked versions to THIRD_PARTY_LICENSES.md. The workspace license field
+  in cmux-tui/Cargo.toml still says MIT until the license lane changes it.
 - The default encoder is x264 `ultrafast` with `zerolatency` (no B-frames, no lookahead,
   scene-cut off, infinite GOP, ABR with a one-frame VBV that follows congestion control).
   Measured on 1080p loopback (Testbox): text scroll 39 fps, G2G p50 9 ms, 6 Mbit/s;
@@ -34,8 +36,8 @@ VM), never on a Mac: `cargo build --release`.
   coverage, so shipping H.264 encoding to users still needs a patent decision (D-RD1).
 - The encoder sits behind one trait (`encoder::H264Encoder`). Hardware encoders (VA-API,
   NVENC, and VideoToolbox on macOS hosts) are later implementations of the same trait.
-- `--profile high` (default) suits hardware decoders such as VideoToolbox; the Linux bench
-  decoder (openh264) needs `--profile baseline` on the host.
+- `--profile high` (default) is for the macOS pane's VideoToolbox decoder; the Linux bench
+  decoder (openh264) needs `--profile baseline` on the host (scripts/loopback-bench.sh sets it).
 
 ## Security (phase 1)
 

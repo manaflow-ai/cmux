@@ -406,6 +406,8 @@ Real engine, not the prototype: `cmux.rd/1` datagrams over UDP (or one TCP strea
 | openh264 screen mode | in-VPC, UDP | 19.9 / 25.3 | 0.19 (collapsed: 50 recovery keyframes) | n/a | n/a |
 | openh264 camera mode | loopback | 4.5 / 4.9 | 2.3 (collapsed) | 508 / 851 | 6.2 |
 
+Known limit (accepted, coordinator 2026-10-03): software x264 costs about ONE CORE per 1080p text-scroll stream on a 4-vCPU Cloud VM (93 % of a core in-VPC). Hosts without a hardware encoder therefore cap concurrent streams by cores. Next slice: VideoToolbox for macOS hosts as another implementation of the same `H264Encoder` trait (the earlier Mac selftest measured about 5 ms per 1080p frame in hardware), then VA-API/NVENC on GPU Linux hosts.
+
 Findings that changed the engine: a frame larger than one FEC block (a big text keyframe) must go without parity instead of failing; loss must come from transport-sequence gaps, not from a per-feedback count; congestion control takes one minimum-delay sample per feedback so a keyframe burst is not read as a queue; damage settles for 1 ms so an app that draws one change in several requests is not captured torn.
 
 ## 16. Settings (all documented, defaults tested against docs)
