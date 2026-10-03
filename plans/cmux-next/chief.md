@@ -64,9 +64,13 @@ to `memo`). Storage differences:
 - Every write carries an idempotency key, so a retried turn appends once (OptMem has no such guard;
   the DO is the lock).
 - Dates come from the chief's time zone (config `TZ`), not the server clock's.
+- Search (`recall`) is ripgrep style (Lawrence, 2026-10-02): a plain scan of the log, no index,
+  no ranking, smart case and rg's `-i -s -F -w -A -B -C` with rg's meanings (checked against the
+  real `rg` binary). Without flags the output is memo's; the newest output that fits one part is
+  kept, with memo's "Newest k of N matches" footer.
 
 MemoryDO RPC: `note(entries, key)`, `nap(block, text)`, `forget(block)`, `config(knobs)`,
-`import(entries)`, `wake(part?, T?)`, `recall(regex)`, `zoom(block)`, `state()`.
+`import(entries)`, `wake(part?, T?)`, `recall(rg args)`, `zoom(block)`, `state()`.
 
 ## 5. The turn
 

@@ -1,4 +1,5 @@
 import { type Block, blockId, cover, parseBlock, pending, pendingCount } from "./blocks.ts";
+import { parseRg, rg } from "./rg.ts";
 import type { Entry, Knob, MemoryStorage } from "./storage.ts";
 import { isRealDate, plural, pyStrip, utf8Length } from "./text.ts";
 
@@ -295,39 +296,26 @@ export class Memory {
     return ok([`Forgot ${plural(gone.length, "summary")}, from ${blockId(gone[0]!)} up. Run: ${this.tool} nap`]);
   }
 
+  /**
+   * Searches every memory ever written, word for word, ripgrep style (rg.ts):
+   * smart case, `-i -s -F -w -A -B -C`. Keeps the newest output that fits one part.
+   */
   recall(args: ReadonlyArray<string>): Output {
-    if (args.length !== 1) die(`usage: ${this.tool} recall <regex>`);
-    let pattern: RegExp;
-    try {
-      pattern = new RegExp(args[0]!, "iu");
-    } catch {
-      try {
-        pattern = new RegExp(args[0]!, "i");
-      } catch (e) {
-        return die(`bad regex: ${(e as Error).message}`);
-      }
+    const query = parseRg(args);
+    if ("error" in query) {
+      if (query.error === "regex") return die(`bad regex: ${query.message}`);
+      return die(`usage: ${this.tool} recall [-i|-s] [-F] [-w] [-A N] [-B N] [-C N] <regex>`);
     }
-    // Keep only the newest matches that fit one part: a vague pattern matches everything.
-    const cap = this.knob("PART_CHARS");
-    const out: Array<string> = [];
-    let head = 0;
-    let size = 0;
-    let hits = 0;
-    for (const e of this.storage.scan()) {
-      const line = `#${e.n} ${e.date} ${e.text}`;
-      if (!pattern.test(line)) continue;
-      hits++;
-      out.push(line);
-      size += utf8Length(line) + 1;
-      while (size > cap) size -= utf8Length(out[head++]!) + 1;
-    }
-    if (hits === 0) return ok(["No match."]);
-    const kept = out.slice(head);
+    const lines = (function* (scan: Iterable<Entry>) {
+      for (const e of scan) yield `#${e.n} ${e.date} ${e.text}`;
+    })(this.storage.scan());
+    const found = rg(lines, query, this.knob("PART_CHARS"), utf8Length);
+    if (found.hits === 0) return ok(["No match."]);
     return ok([
-      kept.join("\n"),
-      kept.length < hits
-        ? `Newest ${kept.length} of ${plural(hits, "match")}. Narrow the regex.`
-        : `${plural(hits, "match")}.`,
+      found.lines.join("\n"),
+      found.shown < found.hits
+        ? `Newest ${found.shown} of ${plural(found.hits, "match")}. Narrow the regex.`
+        : `${plural(found.hits, "match")}.`,
     ]);
   }
 
