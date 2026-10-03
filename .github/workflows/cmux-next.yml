@@ -26,6 +26,8 @@ on:
       - ghostty
       - Resources/InfoPlist.xcstrings
       - scripts/cmux-next/check-*.sh
+      - scripts/cmux-next/clear-stale-scheme-build-state.sh
+      - scripts/cmux-next/stale-pcm-retry-needed.sh
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/prefix-ghosttykit-archives.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
@@ -40,6 +42,7 @@ on:
       - scripts/download-prebuilt-ghosttykit.sh
       - .github/workflows/cmux-next.yml
       - tests/test_cmux_next_checks_workflow.py
+      - tests/test_cmux_next_stale_pcm_cleanup.sh
   push:
     branches: [main, feat-cmux-next]
     paths:
@@ -65,6 +68,8 @@ on:
       - scripts/download-prebuilt-ghosttykit.sh
       - Resources/InfoPlist.xcstrings
       - scripts/cmux-next/check-*.sh
+      - scripts/cmux-next/clear-stale-scheme-build-state.sh
+      - scripts/cmux-next/stale-pcm-retry-needed.sh
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/prefix-ghosttykit-archives.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
@@ -78,6 +83,7 @@ on:
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - .github/workflows/cmux-next.yml
       - tests/test_cmux_next_checks_workflow.py
+      - tests/test_cmux_next_stale_pcm_cleanup.sh
   workflow_dispatch:
 
 permissions:
@@ -236,6 +242,11 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-module-resources.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
+      - name: Stale scheme PCM cleanup
+        id: stale-pcm-cleanup
+        continue-on-error: true
+        run: bash tests/test_cmux_next_stale_pcm_cleanup.sh
+
       - name: Checks job structure
         id: checks-structure
         continue-on-error: true
@@ -253,6 +264,7 @@ jobs:
             ${{ steps.crash-safety.outcome }}|Crash safety
             ${{ steps.l10n.outcome }}|String tables (21 languages)
             ${{ steps.module-resources.outcome }}|Module resource bundles
+            ${{ steps.stale-pcm-cleanup.outcome }}|Stale scheme PCM cleanup
             ${{ steps.checks-structure.outcome }}|Checks job structure
         run: |
           failed=()
