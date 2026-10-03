@@ -14,7 +14,9 @@ use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::time::Duration;
 
 pub fn run(opts: &Opts) -> Res<()> {
-    let bind: IpAddr = opts.str_or("bind", "0.0.0.0").parse()?;
+    // No default: the host must listen only on a private VPC or overlay address in phase 1,
+    // because the hello's principal claims are trusted until the link token arrives.
+    let bind: IpAddr = opts.get("bind").ok_or("--bind <private VPC or overlay address> is required")?.parse()?;
     let port: u16 = opts.num_or("port", OVERLAY_PORT)?;
     let owner =
         opts.get("owner").ok_or("--owner <user> is required (the host's owner)")?.to_string();
@@ -26,6 +28,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         preset: opts.str_or("preset", "ultrafast"),
         // High for hardware decoders (VideoToolbox); the Linux bench decoder needs baseline.
         profile: opts.str_or("profile", "high"),
+        codec: opts.str_or("codec", "openh264"),
         threads: opts.num_or("threads", 2)?,
         stats_every_ms: opts.num_or("stats-ms", 1000)?,
         settle_us: opts.num_or("settle-us", 1000)?,

@@ -2,6 +2,7 @@
 //! IDR on request, ABR with a one-frame VBV whose target follows congestion control.
 
 use crate::convert::I420;
+use crate::encoder::H264Encoder;
 use crate::Res;
 use std::ffi::{c_char, c_int, CStr, CString};
 
@@ -135,6 +136,24 @@ impl X264 {
             out.extend_from_slice(unsafe { std::slice::from_raw_parts(ptr, n as usize) });
         }
         Ok(idr != 0)
+    }
+}
+
+impl H264Encoder for X264 {
+    fn encode(&mut self, pic: &I420, force_idr: bool, pts: i64, out: &mut Vec<u8>) -> Res<bool> {
+        X264::encode(self, pic, force_idr, pts, out)
+    }
+
+    fn set_bitrate(&mut self, kbps: u32) {
+        X264::set_bitrate(self, kbps);
+    }
+
+    fn kbps(&self) -> u32 {
+        X264::kbps(self)
+    }
+
+    fn name(&self) -> String {
+        self.name.clone()
     }
 }
 

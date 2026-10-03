@@ -1,4 +1,4 @@
-//! One viewer's media session: damage -> frame gate -> capture -> convert -> x264 at the
+//! One viewer's media session: damage -> frame gate -> capture -> convert -> H.264 (openh264, or x264 with the feature) at the
 //! congestion controller's bitrate -> packetize with adaptive FEC -> send; feedback drives
 //! acknowledgements, recovery, NACK resends and the bitrate; input goes through the
 //! exactly-once applier and the session table's input gate.
@@ -11,7 +11,7 @@ use crate::inject::Injector;
 use crate::wire::{
     write_control, Control, DatagramOut, FrameReader, FRAME_CONTROL, FRAME_DATAGRAM,
 };
-use crate::x264::X264;
+use crate::encoder::{self, EncCfg, H264Encoder};
 use crate::Res;
 use cmux_rd_core::cc::{CcConfig, CongestionController, PathKind};
 use cmux_rd_core::flow::{FlowAction, FrameGate, Rect};
@@ -35,6 +35,8 @@ pub struct SessionCfg {
     pub max_kbps: u32,
     pub preset: String,
     pub profile: String,
+    /// `openh264` (default) or `x264` (feature).
+    pub codec: String,
     pub threads: u16,
     pub stats_every_ms: u64,
     /// Quiet time after damage before a capture (0 disables).
@@ -44,7 +46,7 @@ pub struct SessionCfg {
 pub struct MediaSession {
     cap: Capturer,
     injector: Injector,
-    enc: X264,
+    enc: Box<dyn H264Encoder>,
     pic: I420,
     au: Vec<u8>,
     gate: FrameGate,
@@ -97,8 +99,16 @@ impl MediaSession {
     ) -> Res<Self> {
         let cap = Capturer::new(&cfg.display, true)?;
         let (w, h) = (cap.width, cap.height);
-        let enc =
-            X264::new(w, h, cfg.max_fps, cfg.start_kbps, cfg.threads, &cfg.preset, &cfg.profile)?;
+        let enc = encoder::open(&EncCfg {
+            width: w,
+            height: h,
+            fps: cfg.max_fps,
+            kbps: cfg.start_kbps,
+            threads: cfg.threads,
+            codec: &cfg.codec,
+            preset: &cfg.preset,
+            profile: &cfg.profile,
+        })?;
         // Phase 1 has no path events from the link yet; the VPC path is the deployed case.
         let path = PathKind::ViaCloudRegion;
         let cc_cfg = CcConfig {
@@ -139,7 +149,7 @@ impl MediaSession {
     }
 
     pub fn encoder_name(&self) -> String {
-        self.enc.name.clone()
+        self.enc.name()
     }
 
     /// Runs until the viewer stops, the host stops the session, or the connection fails.
