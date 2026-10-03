@@ -337,6 +337,7 @@ Binding changes from the daemon owner's review (ad349, 2026-10-03; approved with
 - B5 The moved-items cache is a non-authoritative projection, never a write target. A TUI ack on a moved item while no app holds a cloud credential is refused (`owner.unreachable`, retryable), not queued (U5).
 - B6 The actor (P8 shape) travels beside `origin`, outside the idempotency fingerprint.
 - B7 Coalescing (one pending post per terminal, latest wins) runs before the daemon commit, with a test.
+- B8 (daemon half review, feat-cmux-next-feed-daemon): `feed-local-handoff-begin` and `feed-local-handoff-done` are local-admin (trusted Unix connection) until P8 slice 3. Until then any same-uid agent on the socket can freeze items: a `handing_off` item is never pruned, refuses reads with `feed.moving`, and has no safe abort (unfreezing after a send that may have committed breaks the single writer). P8 slice 3 (handoff accepted only from a frontend or user actor) is a CONDITION for enabling the handoff in the app. The ledger pass (B4) runs on every daemon open, so notifications and acks an older daemon wrote after a downgrade still reach the local owner; read is one-way.
 
 Open points for the daemon owner (answered by B1 to B7 where noted):
 - TUI and iPhone clients without a cloud credential see only local items: a cloud item's ring needs the cloud stream. Proposal: the daemon keeps a read-only cache of moved items (id, context, read_at) fed by the app, so every client of that daemon still draws rings.

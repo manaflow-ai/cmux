@@ -2649,7 +2649,8 @@ pub struct Mux {
     /// and only for ids the committed receipts no longer retain, so a failed
     /// create cannot orphan marks the next restart would rebuild.
     notification_read_prunes: Mutex<Vec<NotificationPublicId>>,
-    /// The local feed owner's items (mux/feed_local.rs); lock before the registry.
+    /// The local feed owner's items (mux/feed_local.rs). Lock order: this, then
+    /// `workspace_registry`, then `state`; never take it while holding either.
     feed_local: Mutex<cmux_feed_core::Feed>,
     /// Shared presentation metadata (workspace groups and workspace
     /// presentation fields), replaced after each registry commit.

@@ -10,13 +10,13 @@
 //! `feed.post` commits with its `notification.create` receipt, and an
 //! `ack-tab-notifications` read commits with the persisted ack.
 //!
-//! On first open the 256-entry notification ledger migrates into items (B4):
+//! On every open the 256-entry notification ledger is folded into items (B4):
 //! an entry becomes READ when any client's `read_by` mark or a persisted ack
-//! exists. The dedupe key `notify:<daemon session>:<notification id>` and the
-//! meta marker [`FEED_LOCAL_MIGRATION_META_KEY`] make the migration
-//! idempotent.
+//! exists, also when an older daemon wrote it after a downgrade. The dedupe
+//! key `notify:<daemon session>:<notification id>` makes the pass idempotent;
+//! the meta marker [`FEED_LOCAL_MIGRATION_META_KEY`] records the first pass.
 
-use cmux_feed_core::{Changes, Context as FeedContext, Feed, Item, Notice, PostOutcome};
+use cmux_feed_core::{Changes, Context as FeedContext, Feed, Item, ItemState, Notice, PostOutcome};
 use rusqlite::{Transaction, params};
 use serde_json::json;
 
@@ -105,29 +105,46 @@ impl WorkspaceRegistry {
         Ok(items)
     }
 
-    /// Migrate the ledger once, then load the local owner's items.
+    /// Run the ledger pass, then load the local owner's items.
     pub(crate) fn open_feed_local(&mut self) -> anyhow::Result<Feed> {
         self.migrate_feed_local_from_ledger()?;
         Ok(Feed::from_items(self.feed_local_items()?))
     }
 
-    /// B4: each retained ledger entry becomes a local item, READ iff a client
-    /// read it (`read_by`) or an ack was persisted. Returns how many items it
-    /// added; a second run adds none (meta marker plus dedupe keys).
+    /// B4, on every open (at most 256 entries): each retained ledger entry
+    /// without a local item becomes one, READ iff a client read it
+    /// (`read_by`) or an ack was persisted; an existing open unread item whose
+    /// entry has such a mark becomes read. Read is one-way. This also picks
+    /// up what an older daemon wrote after a downgrade. The dedupe keys make
+    /// a rerun a no-op; the meta marker only records the first pass. Returns
+    /// how many items it added.
     pub(crate) fn migrate_feed_local_from_ledger(&mut self) -> anyhow::Result<usize> {
-        if meta_value(&self.connection, FEED_LOCAL_MIGRATION_META_KEY)?.is_some() {
-            return Ok(0);
-        }
         let live = self.live_terminal_public_ids()?;
         let entries = self.durable_notifications(&live)?;
         let acked = self.acked_notification_ids()?;
         let mut feed = Feed::from_items(self.feed_local_items()?);
         let session = self.session_id().clone();
+        let now = unix_epoch_ms()?;
         let mut changes = Changes::default();
+        let mut added = 0;
         for entry in entries {
+            let read = !entry.read_by.is_empty() || acked.contains(entry.id.as_str());
+            let key = notify_dedupe_key(&session, &entry.id);
+            if let Some(item) = feed.find_key(&key) {
+                if read && item.is_unread() && item.state == ItemState::Open {
+                    let id = item.id.clone();
+                    changes.upserts.extend(feed.read(&[id], now)?.upserts);
+                }
+                continue;
+            }
+            // A read entry past retention would be pruned at once; skip it so
+            // every open does not re-add it.
+            if read && now.saturating_sub(entry.created_at_ms) >= cmux_feed_core::RETENTION_MS {
+                continue;
+            }
             let notice = Notice {
                 id: feed_item_id(&entry.id),
-                dedupe_key: notify_dedupe_key(&session, &entry.id),
+                dedupe_key: key,
                 title: entry.title,
                 body: entry.body,
                 level: entry.level,
@@ -138,24 +155,30 @@ impl WorkspaceRegistry {
                 },
                 actor: None,
                 at_ms: entry.created_at_ms,
-                read: !entry.read_by.is_empty() || acked.contains(entry.id.as_str()),
+                read,
                 coalesce: false,
             };
             // An entry the reducer refuses (an id already taken under another
             // key) stays out; the ledger keeps it until it is evicted.
             if let Ok((PostOutcome::Created(_), posted)) = feed.post(notice) {
                 changes.upserts.extend(posted.upserts);
+                added += 1;
             }
         }
-        // Pruning is the reducer's job on the next live op; the migration
-        // keeps every retained entry so nothing read-relevant is lost.
-        let added = changes.upserts.len();
+        let marked = meta_value(&self.connection, FEED_LOCAL_MIGRATION_META_KEY)?.is_some();
+        if changes.is_empty() && marked {
+            return Ok(0);
+        }
+        // Pruning is the reducer's job on the next live op; this pass keeps
+        // every retained entry so nothing read-relevant is lost.
         let tx = self.connection.transaction()?;
         write_feed_local_changes(&tx, &changes)?;
-        tx.execute(
-            "INSERT OR REPLACE INTO meta(key, value) VALUES(?1, ?2)",
-            params![FEED_LOCAL_MIGRATION_META_KEY, added.to_string()],
-        )?;
+        if !marked {
+            tx.execute(
+                "INSERT INTO meta(key, value) VALUES(?1, ?2)",
+                params![FEED_LOCAL_MIGRATION_META_KEY, added.to_string()],
+            )?;
+        }
         tx.commit()?;
         Ok(added)
     }

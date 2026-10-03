@@ -4,7 +4,9 @@
 //! A daemon with the local feed owner never clears unread on selection or
 //! focus; each client acknowledges what its user saw. The TUI acknowledges a
 //! tab with `ack-tab-notifications` when the user focuses it (a client focus
-//! change) or types into it (the `keystroke` default of notifications.md).
+//! change the user made; a change the server causes, such as a closed tab, is
+//! absorbed without an ack) or types into it (the `keystroke` default of
+//! notifications.md).
 //! It sends nothing for a tab its tree shows as read. Against an older
 //! daemon the ack is harmless: that daemon also clears on selection.
 
@@ -22,6 +24,24 @@ impl App {
     pub(super) fn acknowledge_focused_tab(&mut self) {
         if let Some(surface) = self.active_surface() {
             self.acknowledge_viewed_tab(surface);
+        }
+    }
+
+    /// After a tree replacement: when the replacement itself moved the
+    /// client's focus (the server closed the focused tab, or a remote change
+    /// moved it), report the new focus as the baseline without acknowledging,
+    /// so only a user focus change or a keystroke acks.
+    pub(super) fn absorb_server_focus_change(
+        &mut self,
+        before: Option<crate::session::ClientFocus>,
+    ) {
+        let (Some(previous), Some(after)) = (self.reported_focus, self.current_client_focus())
+        else {
+            return;
+        };
+        if before != Some(after) && previous != after {
+            self.session.report_focus(Some(previous), after, self.client_focus_id.as_deref());
+            self.reported_focus = Some(after);
         }
     }
 
