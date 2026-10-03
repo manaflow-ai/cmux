@@ -21,5 +21,8 @@
   "dependencies": {
     "drizzle-orm": "0.45.3",
     "libpg-query": "18.1.5"
+  },
+  "exports": {
+    "./schema": "./schema/index.ts"
   }
 }
