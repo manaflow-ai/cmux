@@ -22,7 +22,8 @@ final class SidebarBridge {
     /// Item presentation for sidebar sections (SidebarBridge+Sections).
     var sectionsObservation: Task<Void, Never>?
     /// True once the sidebar shows real content: saved rows, the first
-    /// live rows, or a settled empty or unavailable state (LaunchReveal).
+    /// live rows, or a settled empty or unavailable state, which marks the
+    /// sidebar region ready for `LaunchReveal`.
     private(set) var isReadyForReveal = false
     /// The window's saved rows, shown until live data replaces them.
     private var seed = SidebarSeed()
@@ -53,6 +54,9 @@ final class SidebarBridge {
             focus.send(.focusTarget(.content, source: .keyboard))
         }
         seedFromSnapshot(state)
+        // Clear until real content (released by `markReadyForReveal`, or by
+        // the reveal deadline); a no-op once the sidebar region is ready.
+        services.launchReveal.hold(container, until: .sidebar)
         observe()
         observeSections()
     }
@@ -170,7 +174,7 @@ final class SidebarBridge {
         guard !isReadyForReveal else { return }
         isReadyForReveal = true
         DebugTimings.markLaunch("sidebar_rows_shown")
-        // LaunchReveal seam: call `markReady(.sidebar)` here once LaunchReveal lands on feat-cmux-next.
+        services.launchReveal.markReady(.sidebar)
     }
 
     /// The window's live sidebar and whether the app is still launching
