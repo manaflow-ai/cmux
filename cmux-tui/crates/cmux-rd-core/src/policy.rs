@@ -129,7 +129,8 @@ pub fn admit(
         }
         PrincipalClass::User => {}
     }
-    let owner_direct = is_owner && (principal.interactive || principal.class == PrincipalClass::Mux);
+    let owner_direct =
+        is_owner && (principal.interactive || principal.class == PrincipalClass::Mux);
     let grant = if owner_direct {
         // The owner's own unattended grant, when present, removes the consent step.
         live_grant(policy, &principal.user, mode, now_ms).ok()
@@ -146,10 +147,18 @@ pub fn admit(
     if needs_consent && console_user.is_none() {
         return Admission::Deny(Deny::ConsentUnavailable);
     }
-    Admission::Allow { needs_consent, via_grant: if owner_direct { None } else { grant.map(|g| g.id.clone()) } }
+    Admission::Allow {
+        needs_consent,
+        via_grant: if owner_direct { None } else { grant.map(|g| g.id.clone()) },
+    }
 }
 
-fn live_grant<'a>(policy: &'a HostPolicy, user: &str, mode: Mode, now_ms: u64) -> Result<&'a Grant, Deny> {
+fn live_grant<'a>(
+    policy: &'a HostPolicy,
+    user: &str,
+    mode: Mode,
+    now_ms: u64,
+) -> Result<&'a Grant, Deny> {
     let mut expired = false;
     for g in policy.grants.iter().filter(|g| g.user == user && g.mode >= mode) {
         let is_owner = g.user == policy.owner_user;

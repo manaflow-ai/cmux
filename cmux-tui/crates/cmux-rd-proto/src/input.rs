@@ -8,12 +8,25 @@ pub const MAX_TEXT_BYTES: usize = 256;
 /// travels as [`InputEvent::Text`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputEvent {
-    Key { usage: u32, down: bool },
+    Key {
+        usage: u32,
+        down: bool,
+    },
     /// Absolute pointer position in the stream's pixels.
-    Pointer { x: i32, y: i32 },
-    Button { button: u8, down: bool },
+    Pointer {
+        x: i32,
+        y: i32,
+    },
+    Button {
+        button: u8,
+        down: bool,
+    },
     /// Scroll in hundredths of a line (or of a point with `precise`).
-    Scroll { dx: i32, dy: i32, precise: bool },
+    Scroll {
+        dx: i32,
+        dy: i32,
+        precise: bool,
+    },
     Text(String),
 }
 
@@ -76,7 +89,8 @@ impl InputEvent {
                 if len > MAX_TEXT_BYTES {
                     return Err(DecodeError::Invalid("text length"));
                 }
-                let text = std::str::from_utf8(r.take(len)?).map_err(|_| DecodeError::Invalid("utf-8 text"))?;
+                let text = std::str::from_utf8(r.take(len)?)
+                    .map_err(|_| DecodeError::Invalid("utf-8 text"))?;
                 Self::Text(text.to_owned())
             }
             other => return Err(DecodeError::InputTag(other)),

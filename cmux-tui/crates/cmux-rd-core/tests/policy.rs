@@ -1,12 +1,19 @@
 //! Access policy tests required by remote-desktop.md section 11.1.
 
-use cmux_rd_core::policy::{Admission, ConsentRule, Deny, Grant, HostPolicy, Mode, Principal, PrincipalClass, admit};
+use cmux_rd_core::policy::{
+    Admission, ConsentRule, Deny, Grant, HostPolicy, Mode, Principal, PrincipalClass, admit,
+};
 use cmux_rd_core::session::{Actor, EndReason, SessionState, SessionTable};
 
 const NOW: u64 = 1_000_000;
 
 fn person(user: &str, install: &str) -> Principal {
-    Principal { user: user.into(), install: install.into(), class: PrincipalClass::User, interactive: true }
+    Principal {
+        user: user.into(),
+        install: install.into(),
+        class: PrincipalClass::User,
+        interactive: true,
+    }
 }
 
 fn with_class(user: &str, class: PrincipalClass) -> Principal {
@@ -44,13 +51,22 @@ fn agents_are_refused_control() {
     let p = policy();
     for class in [PrincipalClass::Agent, PrincipalClass::Run] {
         for mode in [Mode::View, Mode::Control] {
-            assert_eq!(admit(&p, Some(&with_class("lawrence", class)), mode, None, NOW), Admission::Deny(Deny::AgentClass));
+            assert_eq!(
+                admit(&p, Some(&with_class("lawrence", class)), mode, None, NOW),
+                Admission::Deny(Deny::AgentClass)
+            );
         }
     }
     let mux = with_class("lawrence", PrincipalClass::Mux);
-    assert_eq!(admit(&p, Some(&mux), Mode::Control, None, NOW), Admission::Deny(Deny::AgentControl));
+    assert_eq!(
+        admit(&p, Some(&mux), Mode::Control, None, NOW),
+        Admission::Deny(Deny::AgentControl)
+    );
     // A mux may open a view-only pane for its own user.
-    assert_eq!(admit(&p, Some(&mux), Mode::View, None, NOW), Admission::Allow { needs_consent: false, via_grant: None });
+    assert_eq!(
+        admit(&p, Some(&mux), Mode::View, None, NOW),
+        Admission::Allow { needs_consent: false, via_grant: None }
+    );
     // Never for another user's host.
     let other_mux = with_class("austin", PrincipalClass::Mux);
     assert_eq!(admit(&p, Some(&other_mux), Mode::View, None, NOW), Admission::Deny(Deny::NoGrant));
@@ -68,8 +84,14 @@ fn a_viewer_cannot_stop_or_join_another_viewers_session() {
     let austin = person("austin", "austin-mac");
     let owner_session = t.start("a", Some(&owner), Mode::Control, None, NOW).expect("owner");
     let austin_session = t.start("b", Some(&austin), Mode::View, None, NOW).expect("austin");
-    assert_eq!(t.stop(owner_session, &Actor::Remote(Some(austin.clone()))), Err(Deny::NotYourSession));
-    assert_eq!(t.set_mode(owner_session, Some(&austin), Mode::View, None, NOW), Err(Deny::NotYourSession));
+    assert_eq!(
+        t.stop(owner_session, &Actor::Remote(Some(austin.clone()))),
+        Err(Deny::NotYourSession)
+    );
+    assert_eq!(
+        t.set_mode(owner_session, Some(&austin), Mode::View, None, NOW),
+        Err(Deny::NotYourSession)
+    );
     // Joining = receiving media or injecting input on a session that is not yours.
     assert!(!t.may_send_media(owner_session, &austin));
     assert!(!t.may_inject_input(owner_session, &austin));
@@ -106,14 +128,20 @@ fn an_expired_grant_ends_its_sessions_and_refuses_new_ones() {
     let a = t.start("a", Some(&austin), Mode::View, None, NOW).expect("austin");
     t.expire(NOW + 1_000);
     assert_eq!(t.get(a).map(|s| s.state), Some(SessionState::Ended(EndReason::GrantRevoked)));
-    assert_eq!(t.start("a2", Some(&austin), Mode::View, None, NOW + 1_000), Err(Deny::GrantExpired));
+    assert_eq!(
+        t.start("a2", Some(&austin), Mode::View, None, NOW + 1_000),
+        Err(Deny::GrantExpired)
+    );
 }
 
 #[test]
 fn a_grant_to_another_person_without_expiry_is_not_honored() {
     let mut p = policy();
     p.grants[0].expires_at_ms = None;
-    assert_eq!(admit(&p, Some(&person("austin", "x")), Mode::View, None, NOW), Admission::Deny(Deny::GrantExpired));
+    assert_eq!(
+        admit(&p, Some(&person("austin", "x")), Mode::View, None, NOW),
+        Admission::Deny(Deny::GrantExpired)
+    );
 }
 
 #[test]
@@ -133,7 +161,12 @@ fn host_stop_ends_every_session_and_no_media_flows_after_it() {
     let ended = t
         .take_audit()
         .into_iter()
-        .filter(|e| matches!(e, cmux_rd_core::session::AuditEvent::Ended { reason: EndReason::StoppedByHost, .. }))
+        .filter(|e| {
+            matches!(
+                e,
+                cmux_rd_core::session::AuditEvent::Ended { reason: EndReason::StoppedByHost, .. }
+            )
+        })
         .count();
     assert_eq!(ended, 2);
 }
@@ -181,12 +214,27 @@ fn consent_needed_on_a_headless_host_is_refused_unless_unattended() {
     let mut p = policy();
     p.consent = ConsentRule::AskAlways;
     let owner = person("lawrence", "laptop");
-    assert_eq!(admit(&p, Some(&owner), Mode::View, None, NOW), Admission::Deny(Deny::ConsentUnavailable));
-    p.grants.push(Grant { id: "g-own".into(), user: "lawrence".into(), mode: Mode::Control, unattended: true, expires_at_ms: None });
-    assert_eq!(admit(&p, Some(&owner), Mode::Control, None, NOW), Admission::Allow { needs_consent: false, via_grant: None });
+    assert_eq!(
+        admit(&p, Some(&owner), Mode::View, None, NOW),
+        Admission::Deny(Deny::ConsentUnavailable)
+    );
+    p.grants.push(Grant {
+        id: "g-own".into(),
+        user: "lawrence".into(),
+        mode: Mode::Control,
+        unattended: true,
+        expires_at_ms: None,
+    });
+    assert_eq!(
+        admit(&p, Some(&owner), Mode::Control, None, NOW),
+        Admission::Allow { needs_consent: false, via_grant: None }
+    );
     // Team policy that forbids unattended grants brings the consent step back.
     p.unattended_allowed = false;
-    assert_eq!(admit(&p, Some(&owner), Mode::View, None, NOW), Admission::Deny(Deny::ConsentUnavailable));
+    assert_eq!(
+        admit(&p, Some(&owner), Mode::View, None, NOW),
+        Admission::Deny(Deny::ConsentUnavailable)
+    );
 }
 
 #[test]
@@ -215,13 +263,19 @@ fn asking_for_control_keeps_the_view_running_until_consent() {
     let owner = person("lawrence", "laptop");
     let id = t.start("o", Some(&owner), Mode::View, Some("austin"), NOW).expect("start");
     t.consent(id, Some(Mode::View)).expect("view consent");
-    assert_eq!(t.set_mode(id, Some(&owner), Mode::Control, Some("austin"), NOW), Ok(SessionState::Active));
+    assert_eq!(
+        t.set_mode(id, Some(&owner), Mode::Control, Some("austin"), NOW),
+        Ok(SessionState::Active)
+    );
     assert!(t.get(id).is_some_and(|s| s.pending_control));
     assert!(t.may_send_media(id, &owner));
     assert!(!t.may_inject_input(id, &owner));
     t.consent(id, Some(Mode::Control)).expect("control consent");
     assert!(t.may_inject_input(id, &owner));
     // Releasing control needs no consent.
-    assert_eq!(t.set_mode(id, Some(&owner), Mode::View, Some("austin"), NOW), Ok(SessionState::Active));
+    assert_eq!(
+        t.set_mode(id, Some(&owner), Mode::View, Some("austin"), NOW),
+        Ok(SessionState::Active)
+    );
     assert!(!t.may_inject_input(id, &owner));
 }

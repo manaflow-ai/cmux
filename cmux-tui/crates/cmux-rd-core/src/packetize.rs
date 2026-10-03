@@ -103,7 +103,13 @@ impl Packetizer {
                 out
             })
             .collect();
-        Ok(PacketizedFrame { frame, datagrams, first_transport_seq, data_shards: count, parity_shards: fec_count })
+        Ok(PacketizedFrame {
+            frame,
+            datagrams,
+            first_transport_seq,
+            data_shards: count,
+            parity_shards: fec_count,
+        })
     }
 }
 

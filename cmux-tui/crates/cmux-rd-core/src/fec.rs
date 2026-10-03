@@ -117,7 +117,8 @@ pub fn reconstruct(shards: &mut [Option<Vec<u8>>], k: usize) -> Result<(), FecEr
         })
         .collect();
     let decode = invert(&mut matrix, k).ok_or(FecError::TooFewShards)?;
-    let inputs: Vec<Vec<u8>> = present.iter().map(|&i| shards[i].clone().unwrap_or_default()).collect();
+    let inputs: Vec<Vec<u8>> =
+        present.iter().map(|&i| shards[i].clone().unwrap_or_default()).collect();
     for j in 0..k {
         if shards[j].is_some() {
             continue;
@@ -139,7 +140,8 @@ pub fn reconstruct(shards: &mut [Option<Vec<u8>>], k: usize) -> Result<(), FecEr
 
 /// Gauss-Jordan inversion of a `k x k` matrix over GF(2^8).
 fn invert(matrix: &mut [Vec<u8>], k: usize) -> Option<Vec<Vec<u8>>> {
-    let mut out: Vec<Vec<u8>> = (0..k).map(|i| (0..k).map(|j| u8::from(i == j)).collect()).collect();
+    let mut out: Vec<Vec<u8>> =
+        (0..k).map(|i| (0..k).map(|j| u8::from(i == j)).collect()).collect();
     for col in 0..k {
         let pivot = (col..k).find(|&r| matrix[r][col] != 0)?;
         matrix.swap(col, pivot);

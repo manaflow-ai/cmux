@@ -3,7 +3,9 @@
 use cmux_rd_core::fec;
 use cmux_rd_core::packetize::{Packetizer, parity_for};
 use cmux_rd_core::reassembly::{FrameLoss, Reassembler};
-use cmux_rd_proto::{DatagramHeader, FrameBody, MAX_DATAGRAM_DEFAULT, MAX_DATAGRAM_VPC, REF_NONE, flags};
+use cmux_rd_proto::{
+    DatagramHeader, FrameBody, MAX_DATAGRAM_DEFAULT, MAX_DATAGRAM_VPC, REF_NONE, flags,
+};
 use proptest::prelude::*;
 
 fn body(frame: u32, len: usize, keyframe: bool) -> FrameBody {
@@ -97,9 +99,19 @@ proptest! {
 fn a_frame_that_references_a_lost_frame_is_never_released() {
     let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
     let mut r = Reassembler::new(50_000);
-    let deliver = |r: &mut Reassembler, p: &mut Packetizer, frame: u32, keyframe: bool, skip: &[u16], now: u64| {
+    let deliver = |r: &mut Reassembler,
+                   p: &mut Packetizer,
+                   frame: u32,
+                   keyframe: bool,
+                   skip: &[u16],
+                   now: u64| {
         let out = p
-            .packetize(frame, if keyframe { flags::KEYFRAME } else { 0 }, &body(frame, 3000, keyframe), 0)
+            .packetize(
+                frame,
+                if keyframe { flags::KEYFRAME } else { 0 },
+                &body(frame, 3000, keyframe),
+                0,
+            )
             .expect("packetize");
         let mut released = Vec::new();
         for d in &out.datagrams {
@@ -131,7 +143,13 @@ fn a_frame_that_references_a_lost_frame_is_never_released() {
 fn recovery_frame_referencing_the_last_released_frame_is_released() {
     let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
     let mut r = Reassembler::new(10_000);
-    let send = |r: &mut Reassembler, p: &mut Packetizer, frame: u32, b: FrameBody, f: u8, now: u64, lose_all: bool| {
+    let send = |r: &mut Reassembler,
+                p: &mut Packetizer,
+                frame: u32,
+                b: FrameBody,
+                f: u8,
+                now: u64,
+                lose_all: bool| {
         let out = p.packetize(frame, f, &b, 0).expect("packetize");
         let mut released = Vec::new();
         if !lose_all {

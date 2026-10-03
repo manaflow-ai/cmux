@@ -18,7 +18,9 @@ pub enum DecodeError {
 impl fmt::Display for DecodeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Truncated { need, have } => write!(f, "truncated: need {need} bytes, have {have}"),
+            Self::Truncated { need, have } => {
+                write!(f, "truncated: need {need} bytes, have {have}")
+            }
             Self::Version(v) => write!(f, "unsupported version {v}"),
             Self::Kind(k) => write!(f, "unknown datagram kind {k}"),
             Self::InputTag(t) => write!(f, "unknown input event tag {t}"),

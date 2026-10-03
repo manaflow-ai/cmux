@@ -77,7 +77,13 @@ fn same_viewer(a: &Principal, b: &Principal) -> bool {
 
 impl SessionTable {
     pub fn new(policy: HostPolicy) -> Self {
-        Self { policy, sessions: BTreeMap::new(), started: BTreeMap::new(), next_id: 1, audit: Vec::new() }
+        Self {
+            policy,
+            sessions: BTreeMap::new(),
+            started: BTreeMap::new(),
+            next_id: 1,
+            audit: Vec::new(),
+        }
     }
 
     pub fn policy(&self) -> &HostPolicy {
@@ -111,19 +117,31 @@ impl SessionTable {
         }
         let decision = match admit(&self.policy, principal, mode, console_user, now_ms) {
             Admission::Deny(reason) => {
-                self.audit.push(AuditEvent::Refused { user: principal.map(|p| p.user.clone()), reason });
+                self.audit
+                    .push(AuditEvent::Refused { user: principal.map(|p| p.user.clone()), reason });
                 Err(reason)
             }
             Admission::Allow { needs_consent, via_grant } => {
                 let id = self.next_id;
                 self.next_id += 1;
                 let viewer = principal.cloned().ok_or(Deny::NoPrincipal)?;
-                self.audit.push(AuditEvent::Requested { session: id, user: viewer.user.clone(), mode });
-                let state = if needs_consent { SessionState::AwaitingConsent } else { SessionState::Active };
+                self.audit.push(AuditEvent::Requested {
+                    session: id,
+                    user: viewer.user.clone(),
+                    mode,
+                });
+                let state = if needs_consent {
+                    SessionState::AwaitingConsent
+                } else {
+                    SessionState::Active
+                };
                 if state == SessionState::Active {
                     self.audit.push(AuditEvent::Started { session: id, mode });
                 }
-                self.sessions.insert(id, Session { id, viewer, mode, state, via_grant, pending_control: false });
+                self.sessions.insert(
+                    id,
+                    Session { id, viewer, mode, state, via_grant, pending_control: false },
+                );
                 Ok(id)
             }
         };
@@ -158,7 +176,8 @@ impl SessionTable {
             }
             None => {
                 session.state = SessionState::Ended(EndReason::ConsentDenied);
-                self.audit.push(AuditEvent::Ended { session: id, reason: EndReason::ConsentDenied });
+                self.audit
+                    .push(AuditEvent::Ended { session: id, reason: EndReason::ConsentDenied });
                 Err(Deny::ConsentDenied)
             }
         }
@@ -268,11 +287,16 @@ impl SessionTable {
 
     /// May `peer` inject input into session `id` now?
     pub fn may_inject_input(&self, id: SessionId, peer: &Principal) -> bool {
-        self.may_send_media(id, peer) && self.sessions.get(&id).is_some_and(|s| s.mode == Mode::Control)
+        self.may_send_media(id, peer)
+            && self.sessions.get(&id).is_some_and(|s| s.mode == Mode::Control)
     }
 
     fn live_ids(&self) -> Vec<SessionId> {
-        self.sessions.values().filter(|s| !matches!(s.state, SessionState::Ended(_))).map(|s| s.id).collect()
+        self.sessions
+            .values()
+            .filter(|s| !matches!(s.state, SessionState::Ended(_)))
+            .map(|s| s.id)
+            .collect()
     }
 
     fn end(&mut self, id: SessionId, reason: EndReason) {

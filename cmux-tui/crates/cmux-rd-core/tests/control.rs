@@ -62,7 +62,7 @@ proptest! {
                 sent_events += 1;
             }
             let Some(packet) = sender.packet() else { break };
-            let lose = losses.get(step).copied().unwrap_or(false) && step % usize::from(MAX_SENDS) != 0;
+            let lose = losses.get(step).copied().unwrap_or(false) && !step.is_multiple_of(usize::from(MAX_SENDS));
             if !lose {
                 applied.extend(applier.accept(&packet, now));
                 if dup.get(step).copied().unwrap_or(false) {
@@ -85,20 +85,30 @@ proptest! {
 #[test]
 fn applier_skips_a_gap_after_the_timeout() {
     let mut a = InputApplier::new(200_000);
-    let later = cmux_rd_proto::InputPacket { first_seq: 3, events: vec![InputEvent::Pointer { x: 1, y: 1 }] };
+    let later = cmux_rd_proto::InputPacket {
+        first_seq: 3,
+        events: vec![InputEvent::Pointer { x: 1, y: 1 }],
+    };
     assert!(a.accept(&later, 0).is_empty());
     assert!(a.tick(199_999).is_empty());
     assert_eq!(a.tick(200_000), vec![InputEvent::Pointer { x: 1, y: 1 }]);
     assert_eq!(a.applied(), 3);
 }
 
-fn feed(cc: &mut CongestionController, seq: &mut u16, now: &mut u64, queue_growth_us: u64, n: usize) {
+fn feed(
+    cc: &mut CongestionController,
+    seq: &mut u16,
+    now: &mut u64,
+    queue_growth_us: u64,
+    n: usize,
+) {
     for _ in 0..n {
         let mut arrivals = Vec::new();
         for i in 0..10u64 {
             cc.on_sent(*seq, *now + i * 100);
             let delay = 5_000 + queue_growth_us;
-            arrivals.push(Arrival { transport_seq: *seq, arrival_us: (*now + i * 100 + delay) as u32 });
+            arrivals
+                .push(Arrival { transport_seq: *seq, arrival_us: (*now + i * 100 + delay) as u32 });
             *seq = seq.wrapping_add(1);
         }
         *now += 16_667;
@@ -119,7 +129,10 @@ fn rising_delay_lowers_the_target_and_flat_delay_raises_it() {
         let mut arrivals = Vec::new();
         for i in 0..10u64 {
             cc.on_sent(seq, now + i * 100);
-            arrivals.push(Arrival { transport_seq: seq, arrival_us: (now + i * 100 + 5_000 + (k * 10 + i) * 1_000) as u32 });
+            arrivals.push(Arrival {
+                transport_seq: seq,
+                arrival_us: (now + i * 100 + 5_000 + (k * 10 + i) * 1_000) as u32,
+            });
             seq = seq.wrapping_add(1);
         }
         now += 16_667;

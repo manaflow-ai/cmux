@@ -78,8 +78,15 @@ impl Reassembler {
 
     /// Adds one video or parity datagram received at `now_us`. Returns the
     /// frames that became ready, oldest first.
-    pub fn push(&mut self, header: &DatagramHeader, payload: &[u8], now_us: u64) -> Vec<CompleteFrame> {
-        if !matches!(header.kind, DatagramKind::Video | DatagramKind::Fec) || header.frame <= self.finished_through {
+    pub fn push(
+        &mut self,
+        header: &DatagramHeader,
+        payload: &[u8],
+        now_us: u64,
+    ) -> Vec<CompleteFrame> {
+        if !matches!(header.kind, DatagramKind::Video | DatagramKind::Fec)
+            || header.frame <= self.finished_through
+        {
             self.expire(now_us);
             return self.release_ready();
         }
@@ -112,9 +119,12 @@ impl Reassembler {
     pub fn missing(&self, now_us: u64, after_us: u64) -> Vec<(u32, Vec<u16>)> {
         self.pending
             .iter()
-            .filter(|(_, p)| now_us.saturating_sub(p.first_seen_us) >= after_us && !Self::decodable(p))
+            .filter(|(_, p)| {
+                now_us.saturating_sub(p.first_seen_us) >= after_us && !Self::decodable(p)
+            })
             .map(|(&frame, p)| {
-                let missing = (0..p.count).filter(|&i| p.shards[usize::from(i)].is_none()).collect();
+                let missing =
+                    (0..p.count).filter(|&i| p.shards[usize::from(i)].is_none()).collect();
                 (frame, missing)
             })
             .collect()
@@ -128,7 +138,9 @@ impl Reassembler {
         let expired: Vec<u32> = self
             .pending
             .iter()
-            .filter(|(_, p)| !Self::decodable(p) && now_us.saturating_sub(p.first_seen_us) > self.deadline_us)
+            .filter(|(_, p)| {
+                !Self::decodable(p) && now_us.saturating_sub(p.first_seen_us) > self.deadline_us
+            })
             .map(|(&f, _)| f)
             .collect();
         for frame in expired {
@@ -136,7 +148,8 @@ impl Reassembler {
             self.lose(frame);
         }
         // Frames older than a finished frame can never be released in order.
-        let stale: Vec<u32> = self.pending.range(..=self.finished_through).map(|(&f, _)| f).collect();
+        let stale: Vec<u32> =
+            self.pending.range(..=self.finished_through).map(|(&f, _)| f).collect();
         for frame in stale {
             self.pending.remove(&frame);
             self.lose(frame);

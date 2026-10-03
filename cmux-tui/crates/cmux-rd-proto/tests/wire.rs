@@ -1,6 +1,6 @@
 use cmux_rd_proto::{
-    Arrival, DatagramHeader, DatagramKind, DecodeError, Feedback, FrameBody, HEADER_LEN, InputEvent, InputPacket,
-    Nack, REF_NONE, flags,
+    Arrival, DatagramHeader, DatagramKind, DecodeError, Feedback, FrameBody, HEADER_LEN,
+    InputEvent, InputPacket, Nack, REF_NONE, flags,
 };
 use proptest::prelude::*;
 
@@ -20,7 +20,10 @@ fn header_golden_vector() {
     assert_eq!(bytes.len(), HEADER_LEN);
     assert_eq!(
         bytes,
-        [0x11, 0x01, 0x02, 0x00, 0x04, 0x03, 0x02, 0x01, 0x01, 0x00, 0x03, 0x00, 0x01, 0x00, 0xef, 0xbe]
+        [
+            0x11, 0x01, 0x02, 0x00, 0x04, 0x03, 0x02, 0x01, 0x01, 0x00, 0x03, 0x00, 0x01, 0x00,
+            0xef, 0xbe
+        ]
     );
     let mut datagram = bytes.to_vec();
     datagram.extend_from_slice(b"payload");
@@ -56,7 +59,8 @@ fn header_rejects_bad_input() {
 
 #[test]
 fn frame_body_ignores_padding() {
-    let body = FrameBody { t_capture_us: 42, ref_frame: REF_NONE, access_unit: vec![0, 0, 0, 1, 0x65] };
+    let body =
+        FrameBody { t_capture_us: 42, ref_frame: REF_NONE, access_unit: vec![0, 0, 0, 1, 0x65] };
     let mut bytes = body.encode();
     bytes.resize(bytes.len() + 100, 0);
     assert_eq!(FrameBody::decode(&bytes).expect("decode"), body);
@@ -77,7 +81,8 @@ fn event() -> impl Strategy<Value = InputEvent> {
         (any::<u32>(), any::<bool>()).prop_map(|(usage, down)| InputEvent::Key { usage, down }),
         (any::<i32>(), any::<i32>()).prop_map(|(x, y)| InputEvent::Pointer { x, y }),
         (any::<u8>(), any::<bool>()).prop_map(|(button, down)| InputEvent::Button { button, down }),
-        (any::<i32>(), any::<i32>(), any::<bool>()).prop_map(|(dx, dy, precise)| InputEvent::Scroll { dx, dy, precise }),
+        (any::<i32>(), any::<i32>(), any::<bool>())
+            .prop_map(|(dx, dy, precise)| InputEvent::Scroll { dx, dy, precise }),
         "[a-zA-Z0-9 ]{0,40}".prop_map(InputEvent::Text),
     ]
 }
