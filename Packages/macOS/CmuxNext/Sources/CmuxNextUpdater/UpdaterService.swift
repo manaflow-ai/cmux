@@ -71,6 +71,10 @@ public final class UpdaterService {
         // so it is not a reason to skip building it.
         if enableSparkle, identity.sparkleDisabledReason(managedPolicyDisablesUpdates: false) == nil {
             let controller = UpdateController(log: log, defaults: defaults, isDisabledByPolicy: { policy.disablesUpdates })
+            // Never prompt: download in the background and wait for a click.
+            // Set on this updater only; no defaults change, so the legacy app
+            // sharing the domain keeps its own behavior.
+            controller.installsUpdatesInBackground = true
             self.controller = controller
         } else {
             controller = nil
@@ -106,7 +110,6 @@ public final class UpdaterService {
     /// has its result (nil) or failed (the reason).
     @discardableResult
     public func checkForUpdates() -> Task<String?, Never>? {
-        presentUpdateUI?()
         switch disabledReason {
         case .managedPolicy:
             log.append("check suppressed (managed policy)")
@@ -117,6 +120,7 @@ public final class UpdaterService {
             controller.checkForUpdates()
             return nil
         case .developmentBuild, .missingPublicKey:
+            showsProbeResult = true
             return probe()
         }
     }
