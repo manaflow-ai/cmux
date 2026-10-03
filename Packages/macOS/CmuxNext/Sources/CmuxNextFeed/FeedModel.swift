@@ -35,6 +35,23 @@ public final class FeedModel {
     public var onOpenItem: (@MainActor (FeedItem) -> Void)?
     /// Opens the feed panel (the menu bar's "Open Feed").
     public var onOpenFeed: (@MainActor () -> Void)?
+    /// Refreshes integration sources such as GitHub. The owner remains the
+    /// authority for feed state; this is only a user-triggered source wakeup.
+    public var onRefresh: (@MainActor () -> Void)?
+    /// Routes a supported GitHub action to the host. Unsupported actions stay hidden.
+    public var onGitHubAction: (@MainActor (FeedItem, FeedGitHubAction, String?) -> Void)?
+    /// Host capability check keeps unsupported actions out of the detail pane.
+    public var githubActions: (@MainActor (FeedItem) -> Set<FeedGitHubAction>)?
+    /// Resolves client-only GitHub detail for an owner item without storing a
+    /// second inbox projection in the view layer.
+    public var githubDetail: (@MainActor (FeedItem) -> GitHubFeedDetail?)?
+    public var githubActionError: String?
+    public var githubActionPending = false
+    /// Whether the opt-in GitHub connection is enabled for this owner.
+    public var githubConnectionEnabled = false
+
+    /// Opens the host-owned integration settings from a user action.
+    public var onAddConnection: (@MainActor () -> Void)?
 
     private let source: any FeedSource
     private let clock: @MainActor () -> Date
@@ -169,6 +186,10 @@ public final class FeedModel {
 
     public func openFeed() {
         onOpenFeed?()
+    }
+
+    public func refresh() {
+        onRefresh?()
     }
 
     /// The user dismissed the refusal notice.

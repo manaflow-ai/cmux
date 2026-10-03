@@ -10,7 +10,6 @@ import CmuxNextBrowserImport
 import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextUpdater
-
 /// Process-wide services the window controllers share. Model state is not
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {
@@ -40,6 +39,8 @@ final class AppServices {
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
     private(set) var feed: FeedService!
     var showcase = ShowcaseState()
+    /// The wide Inbox page, backed by `feed.model`.
+    private(set) lazy var feedPage = FeedPageService(services: self)
     /// SSH machines (Connect to Machine…).
     private(set) var ssh: SSHService!
     /// Phone access; started by the account layer once signed in.
@@ -161,7 +162,6 @@ final class AppServices {
     let refusalHUD = RefusalHUD()
     /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
     private(set) var remoteTerminals: RemoteTerminalService!
-
     /// - Parameter launchReveal: The launch load-in the windows' sidebars
     ///   hold for; the app-wide one by default.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared) {
@@ -175,7 +175,7 @@ final class AppServices {
         machines = MachineRegistry(local: daemon)
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
         cloud = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)
-        feed = FeedService(auth: cloud.auth)
+        feed = FeedService(auth: cloud.auth, showcase: environment.showcase)
         ssh = SSHService(machines: machines, bundleID: environment.launch.bundleID)
         BrowserLifecycleTrace.shared.configure { tab, event in
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))

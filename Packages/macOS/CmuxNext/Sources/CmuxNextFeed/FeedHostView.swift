@@ -7,6 +7,10 @@ import SwiftUI
 /// the panel colors in this view's theme scope and again on every theme or
 /// appearance change.
 public final class FeedHostView: NSView {
+    /// Localized title used by the native Inbox page tab.
+    public static var paneTitle: String {
+        String(localized: "feed.inboxTitle", defaultValue: "Inbox", bundle: .module)
+    }
     public let model: FeedModel
     let appearanceState = FeedAppearance()
 
