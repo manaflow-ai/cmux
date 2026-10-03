@@ -28,6 +28,9 @@ Design note, 2026-10-01. Owner: the cmux-next browser-use lead. Binding inputs: 
    - Remaining risk: the site's own scripts and browser extensions can still read the field. Engine-level read masking (option 2) is the follow-up that closes this.
    - Tests (written first): an agent that installs a capture shim, a global, an init script or a service worker before the fill gets nothing; a sealed tab refuses evaluate and raw CDP; a sealed tab unseals only after a cross-site navigation plus fresh reload.
 
+9. **Passkeys (Lawrence, D1-D6).** D1 measure WebKit's native passkey flow first; D2 keep Chrome's own passkey dialog, restyle only behind a Debug setting; D3 disable Chrome profile passkeys; D4 agents refuse passkey prompts by default (a leased tab's WebAuthn request fails for the agent and goes to the user through the sign-in duplicate); D5 expose Chrome's passkey pages (chrome://settings/passkeys) through the palette; D6 land #12857 in the release lane.
+10. **Duplicates and restores never replay a POST (BR-R1).** WebKit: `RestorePostGuard` cancels a main-frame POST that a restore starts (`backForward`, `formResubmitted`, `reload`) until the restore's first commit, then loads the original's URL by GET; `WebKitTab.duplicateSeed()/applyDuplicate(_:)` carry history, scroll and the top-origin sessionStorage (one-shot seed in world `cmux.duplicate`, removed at first commit); pages that show a POST result never hibernate. CEF: `cmux_tab_duplicate` (fork API 16) reloads a POST entry as GET; `cmux_tab_restore_navigation` (API 10) covers hibernation, so browser.md's `cmux_browser_restore_navigation` (would need API 17) is dropped (lane 19 C1). With API 16 Chromium keeps the app's signal handlers; the app catches (never ignores) SIGPIPE/TERM/INT/HUP, so every exec'd child starts with defaults (C2); the app keeps its own quit deadline for a hung CefShutdown (C3).
+
 ## 1. Process model
 
 ```

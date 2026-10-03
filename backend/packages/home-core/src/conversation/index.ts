@@ -35,6 +35,7 @@ export {
 } from "./fanout.ts"
 export {
   dmConversationId,
+  importConversationId,
   encodeId,
   formatRfc3339Millis,
   parseRfc3339Millis,
@@ -58,3 +59,4 @@ export type { ApplyResult, Commit, OpRequest } from "./request.ts"
 export * from "./types.ts"
 export { conversationRedact, PRIVATE_TABLES } from "./redact.ts"
 export { MAX_LIMIT as SEARCH_MAX_LIMIT, messageText, searchConversations, snippetOf, type SearchHit, type SearchInput, type SearchResult, type SearchSource } from "./search.ts"
+export { IMPORT_OPS, MAX_IMPORT_BATCH, MAX_IMPORT_BATCH_BYTES, reduceImport } from "./import.ts"

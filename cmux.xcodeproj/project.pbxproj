@@ -54,10 +54,40 @@
 
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		CE7A00000000000000000023 /* Exceptions for "App" folder in "cmux-next" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				main.swift,
+			);
+			target = CE7A00000000000000000005 /* cmux-next */;
+		};
+		CE7A00000000000000000024 /* Exceptions for "Resources" folder in "cmux-next" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				ComputerUseHelper.icon,
+				ComputerUseHelperIcon.icns,
+				Info.plist,
+				InfoPlist.xcstrings,
+				bin,
+				cmux.entitlements,
+				coderouter-cli.json,
+				feed-tui,
+				ghostty,
+				markdown-viewer,
+				opencode-plugin.js,
+				shell-integration,
+				terminfo-overlay,
+			);
+			target = CE7A00000000000000000005 /* cmux-next */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		CE7A00000000000000000021 /* App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
+				CE7A00000000000000000023 /* Exceptions for "App" folder in "cmux-next" target */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -65,6 +95,7 @@
 		CE7A00000000000000000022 /* Resources */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
+				CE7A00000000000000000024 /* Exceptions for "Resources" folder in "cmux-next" target */,
 			);
 			path = Resources;
 			sourceTree = "<group>";

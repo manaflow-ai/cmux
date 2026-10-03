@@ -74,7 +74,13 @@ public final class HomeNativeTranscriptView: NSView {
     private func layoutField(send: Bool) {
         let f = fieldFrame
         guard field.frame != f || send else { return }
-        field.frame = f
+        let old = field.frame
+        if old.height != f.height, old.height > 0, window != nil, let curve = controller.fieldCurve(send: send) {
+            HomeFieldSpring.animate(field, from: old, to: f, curve: curve)
+        } else {
+            field.animations = [:]
+            field.frame = f
+        }
         controller.setHostedField(f, send: send)
     }
 

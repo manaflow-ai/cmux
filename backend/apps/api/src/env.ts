@@ -102,6 +102,10 @@ export interface Env {
   readonly APNS_KEY_P8?: string
   readonly APNS_KEY_ID?: string
   readonly APNS_TEAM_ID?: string
+  /** code.storage organization for team code repositories (decisions A12, C1); staging and development share one (A2). */
+  readonly CODE_STORAGE_ORG?: string
+  /** Secret: PKCS#8 PEM of that organization's ES256 key. Code automations refuse to pin without it. */
+  readonly CODE_STORAGE_PRIVATE_KEY?: string
   /** PlanetScale `cmux-next` through Hyperdrive (projection writes only). */
   readonly HYPERDRIVE?: Hyperdrive
   /** Read-only role (search-ro, pg_read_all_data) for home.search; never used for writes. */
