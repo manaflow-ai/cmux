@@ -72,6 +72,7 @@ if grep -Fq 'network-outbound (**)' "$profile"; then
   exit 1
 fi
 grep -q '(allow system-socket (socket-domain AF_UNIX))' "$profile"
+grep -q '(allow network-bind (local unix-socket (subpath ' "$profile"
 grep -q '(allow network-outbound (remote unix-socket (subpath ' "$profile"
 
 # Use an existing host-home file outside the allowlist, so a missing file cannot

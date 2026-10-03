@@ -51,6 +51,8 @@ EOF_PROFILE
 (allow file-read* (literal "/dev/random"))
 (allow file-read* (literal "/dev/urandom"))
 (allow sysctl-read)
+(allow ipc-posix-shm-read*)
+(allow ipc-posix-shm-write*)
 
 ; The script may write only its per-run temporary directory.
 EOF_PROFILE
@@ -64,9 +66,11 @@ EOF_PROFILE
   # makes sandbox-exec abort while compiling the profile.
   printf '(allow system-socket (socket-domain AF_UNIX))\n'
   printf '(allow file-read-metadata (literal "%s"))\n' "$(literal "$proxy_socket")"
+  printf '(allow network-bind (local unix-socket (subpath "%s")))\n' "$(literal "$proxy_socket")"
   printf '(allow network-outbound (remote unix-socket (subpath "%s")))\n' "$(literal "$proxy_socket")"
   if [ -n "$cloud_socket" ]; then
     printf '(allow file-read-metadata (literal "%s"))\n' "$(literal "$cloud_socket")"
+    printf '(allow network-bind (local unix-socket (subpath "%s")))\n' "$(literal "$cloud_socket")"
     printf '(allow network-outbound (remote unix-socket (subpath "%s")))\n' "$(literal "$cloud_socket")"
   fi
 } >"$profile"
