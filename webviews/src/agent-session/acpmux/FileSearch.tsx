@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import {
-  failureCode,
+  failureReason,
   matchRuns,
   OUTSIDE_REPOSITORY,
   readFileSearch,
@@ -83,7 +83,7 @@ export function FileSearch({
         },
         (error: unknown) => {
           if (ask === generation.current)
-            setState({ kind: "failed", outside: failureCode(error) === OUTSIDE_REPOSITORY });
+            setState({ kind: "failed", outside: failureReason(error) === OUTSIDE_REPOSITORY });
         },
       );
     }, debounceMs);
