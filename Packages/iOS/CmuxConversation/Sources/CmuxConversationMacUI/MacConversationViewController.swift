@@ -112,7 +112,6 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         tableView.dataSource = self
         tableView.delegate = self
         tableView.interaction = self
-        tableView.doubleAction = #selector(tableDoubleClicked)
         tableView.target = self
         tableView.setAccessibilityIdentifier("conversation.transcript")
         scrollView.documentView = tableView
@@ -811,7 +810,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     }
 
     public override func cancelOperation(_ sender: Any?) {
-        if reactionBar != nil { dismissReactionFocus(); return }
+        if reactionPicker != nil { dismissReactionFocus(); return }
         exitReplyOrEdit()
     }
 
@@ -879,21 +878,21 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         view.addSubview(focus, positioned: .above, relativeTo: scrollView)
         let frame = row.convert(row.bounds, to: focus)
         let mine = model.message.reactions.first { $0.participantID == store.meID }?.reaction
-        let bar = MacTapbackBarController(current: mine) { [weak self] reaction in
+        let picker = MacReactionPickerView(current: mine) { [weak self] reaction in
             self?.store.react(messageID: model.message.id, reaction: mine == reaction ? nil : reaction)
             self?.dismissReactionFocus()
         }
-        reactionBar = bar
-        let content = row.convert(row.contentFrame, to: focus)
+        reactionPicker = picker
+        let bubble = row.convert(row.rowLayout?.bubbleFrame ?? row.contentFrame, to: focus)
         focus.present(snapshotOf: row, from: frame, to: frame, pop: true)
-        focus.showAccessory(bar.view, anchoredAbove: CGRect(x: content.minX, y: frame.minY, width: content.width, height: content.maxY - frame.minY), trailing: model.isOutgoing)
+        focus.showReactionPicker(picker, bubble: bubble, outgoing: model.isOutgoing)
         replyFocus = focus
     }
 
-    private var reactionBar: MacTapbackBarController?
+    private var reactionPicker: MacReactionPickerView?
 
     func dismissReactionFocus() {
-        reactionBar = nil
+        reactionPicker = nil
         dismissReplyFocus(sent: false)
     }
 
@@ -908,12 +907,6 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         let index = manager.characterIndex(for: point, in: container, fractionOfDistanceBetweenInsertionPoints: nil)
         guard index < text.length else { return nil }
         return text.attribute(.macConversationLink, at: index, effectiveRange: nil) as? URL
-    }
-
-    @objc private func tableDoubleClicked() {
-        let index = tableView.clickedRow
-        guard let model = messageModel(at: index), let rowView = rowView(at: index) else { return }
-        showTapbackBar(model, in: rowView)
     }
 
     private weak var tapbackPopover: NSPopover?
@@ -952,7 +945,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         // Only stored messages can be answered or reacted to.
         if message.seq != nil {
             menu.addItem(item(String(localized: "conversation.menu.reply", defaultValue: "Reply", bundle: .module), "arrowshape.turn.up.left") { [weak self] in self?.enterReply(message) })
-            menu.addItem(item(String(localized: "conversation.menu.tapback", defaultValue: "Tapback…", bundle: .module), "heart") { [weak self] in self?.showTapbackBar(model, in: rowView) })
+            menu.addItem(item(String(localized: "conversation.menu.tapback", defaultValue: "Tapback…", bundle: .module), "heart") { [weak self] in self?.showReactionFocus(model, in: rowView) })
         }
         if store.canEdit(message) {
             menu.addItem(item(String(localized: "conversation.menu.edit", defaultValue: "Edit", bundle: .module), "pencil") { [weak self] in self?.enterEdit(message) })
@@ -1383,11 +1376,46 @@ final class MacReplyFocusView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if !snapshotView.frame.contains(point), accessoryView?.frame.contains(point) != true { onDismiss?() }
+        let onPicker = (accessoryView as? MacReactionPickerView)?.contains(point) ?? (accessoryView?.frame.contains(point) == true)
+        if !snapshotView.frame.contains(point), !onPicker { onDismiss?() }
     }
 
     // AppKit-backed layers anchor at their origin, so position == frame origin.
     private var accessoryView: NSView?
+
+    /// Measured against Messages: the capsule sits just above the bubble,
+    /// starting 45 pt outside its leading edge (outgoing) or ending 45 pt
+    /// outside its trailing edge (incoming); the emoji circle hangs beside the
+    /// bubble's top corner with two dots trailing toward it.
+    func showReactionPicker(_ picker: MacReactionPickerView, bubble: CGRect, outgoing: Bool) {
+        picker.layoutSubtreeIfNeeded()
+        let size = picker.capsuleSize
+        let outside: CGFloat = 45
+        var x = outgoing ? bubble.minX - outside : bubble.maxX + outside - size.width
+        x = min(max(8, x), bounds.width - size.width - 8)
+        let capsule = CGRect(x: x, y: max(8, bubble.minY - size.height - 4), width: size.width, height: size.height)
+        let circleCenter = CGPoint(x: outgoing ? bubble.minX - 25 : bubble.maxX + 25, y: bubble.minY + 12)
+        picker.frame = bounds
+        picker.autoresizingMask = [.width, .height]
+        picker.place(capsule: capsule, circleCenter: circleCenter, outgoing: outgoing)
+        addSubview(picker)
+        accessoryView = picker
+        picker.wantsLayer = true
+        for layer in picker.animatedLayers {
+            let pop = CASpringAnimation(keyPath: "transform.scale")
+            pop.fromValue = 0.6
+            pop.toValue = 1
+            pop.damping = 18
+            pop.stiffness = 320
+            pop.duration = pop.settlingDuration
+            layer.add(pop, forKey: "pop")
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0
+            fade.toValue = 1
+            fade.duration = 0.15
+            layer.add(fade, forKey: "fade")
+        }
+    }
 
     func showAccessory(_ content: NSView, anchoredAbove anchor: CGRect, trailing: Bool) {
         let glass: NSView
@@ -1546,6 +1574,115 @@ final class MacFlightOverlayView: NSView {
         body.add(spring("cornerRadius", min(fromBody.height, radius * 2) / 2, min(radius, toBody.height / 2)), forKey: "r")
         textLayer.add(spring("position", NSValue(point: CGPoint(x: fromText.midX, y: fromText.midY)), NSValue(point: CGPoint(x: toText.midX, y: toText.midY))), forKey: "p")
         CATransaction.commit()
+    }
+}
+
+/// Messages' reaction picker: a Liquid Glass capsule of tapbacks and a
+/// separate emoji circle with a trail of dots, over the reaction focus.
+final class MacReactionPickerView: MacFlippedView {
+    private let capsule: NSView
+    private let circle: NSView
+    private let dots = [MacFlippedView(), MacFlippedView()]
+    private let stack = NSStackView()
+    private let onPick: (ConversationReaction) -> Void
+    private let current: ConversationReaction?
+
+    init(current: ConversationReaction?, onPick: @escaping (ConversationReaction) -> Void) {
+        self.current = current
+        self.onPick = onPick
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView()
+            glass.cornerRadius = 21
+            capsule = glass
+            let round = NSGlassEffectView()
+            round.cornerRadius = 17.5
+            circle = round
+        } else {
+            capsule = NSVisualEffectView()
+            circle = NSVisualEffectView()
+        }
+        super.init(frame: .zero)
+        stack.orientation = .horizontal
+        stack.spacing = 4
+        stack.edgeInsets = NSEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
+        for (index, reaction) in ConversationReaction.allCases.enumerated() {
+            let button = NSButton(title: "", target: self, action: #selector(picked(_:)))
+            button.isBordered = false
+            button.attributedTitle = MacReactionPickerView.glyph(reaction)
+            button.tag = index
+            button.wantsLayer = true
+            button.layer?.cornerRadius = 16
+            if reaction == current { button.layer?.backgroundColor = NSColor.systemBlue.cgColor }
+            button.widthAnchor.constraint(equalToConstant: 32).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 32).isActive = true
+            button.setAccessibilityLabel(reaction.rawValue)
+            button.setAccessibilityIdentifier("conversation.tapback.\(reaction.rawValue)")
+            stack.addArrangedSubview(button)
+        }
+        if #available(macOS 26.0, *), let glass = capsule as? NSGlassEffectView {
+            glass.contentView = stack
+        } else {
+            capsule.addSubview(stack)
+        }
+        let smiley = NSImageView(image: NSImage(systemSymbolName: "face.smiling", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 17, weight: .regular)) ?? NSImage())
+        smiley.contentTintColor = .secondaryLabelColor
+        if #available(macOS 26.0, *), let glass = circle as? NSGlassEffectView {
+            glass.contentView = smiley
+        } else {
+            circle.addSubview(smiley)
+        }
+        for dot in dots {
+            dot.wantsLayer = true
+            dot.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.16).cgColor
+            addSubview(dot)
+        }
+        addSubview(circle)
+        addSubview(capsule)
+        setAccessibilityIdentifier("conversation.reactionPicker")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    var capsuleSize: CGSize {
+        CGSize(width: CGFloat(ConversationReaction.allCases.count) * 36 + 12, height: 42)
+    }
+
+    var animatedLayers: [CALayer] { [capsule, circle].compactMap(\.layer) + dots.compactMap(\.layer) }
+
+    func place(capsule frame: CGRect, circleCenter: CGPoint, outgoing: Bool) {
+        capsule.frame = frame
+        stack.frame = CGRect(origin: .zero, size: frame.size)
+        let d: CGFloat = 35
+        circle.frame = CGRect(x: circleCenter.x - d / 2, y: circleCenter.y - d / 2, width: d, height: d)
+        circle.subviews.first?.frame = circle.bounds
+        if #available(macOS 26.0, *) { (circle as? NSGlassEffectView)?.contentView?.frame = circle.bounds }
+        // Two dots trail from the circle toward the bubble's corner below it.
+        let away: CGFloat = outgoing ? -1 : 1
+        dots[0].frame = CGRect(x: circleCenter.x + away * 17 - 4, y: circleCenter.y + 19, width: 8, height: 8)
+        dots[1].frame = CGRect(x: circleCenter.x + away * 25 - 2.5, y: circleCenter.y + 30, width: 5, height: 5)
+        for dot in dots { dot.layer?.cornerRadius = dot.frame.width / 2 }
+    }
+
+    func contains(_ point: CGPoint) -> Bool {
+        capsule.frame.contains(point) || circle.frame.contains(point)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let local = convert(point, from: superview)
+        return contains(local) ? super.hitTest(point) : nil
+    }
+
+    @objc private func picked(_ sender: NSButton) {
+        onPick(ConversationReaction.allCases[sender.tag])
+    }
+
+    private static func glyph(_ reaction: ConversationReaction) -> NSAttributedString {
+        let base = NSMutableAttributedString(attributedString: MacTapbackGlyph.text(reaction))
+        let size: CGFloat = reaction == .haha ? 12.5 : 22
+        base.addAttribute(.font, value: NSFont.systemFont(ofSize: size, weight: .black), range: NSRange(location: 0, length: base.length))
+        return base
     }
 }
 
