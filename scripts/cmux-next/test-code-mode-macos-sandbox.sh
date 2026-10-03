@@ -55,7 +55,8 @@ EOF_SCRIPT
 server_pid=$!
 cleanup_server() { kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true; }
 trap 'cleanup_server; rm -rf "$tmp"' EXIT
-for _ in $(seq 1 100); do
+# Bun can take a few seconds to cold-start on a newly allocated runner.
+for _ in $(seq 1 500); do
   grep -q '^ready$' "$tmp/server.log" && break
   kill -0 "$server_pid" 2>/dev/null || { cat "$tmp/server.log" >&2; exit 1; }
   sleep 0.01
