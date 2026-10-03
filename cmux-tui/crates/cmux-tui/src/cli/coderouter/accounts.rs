@@ -96,10 +96,10 @@ pub(crate) fn account_line(account: &Value, full: bool) -> String {
 
 /// The text form of a Claude account list, one account per line.
 pub(crate) fn account_lines(accounts: Option<&Value>) -> Value {
-    let lines = accounts
+    let lines: Vec<String> = accounts
         .and_then(Value::as_array)
         .map(|accounts| accounts.iter().map(|account| account_line(account, true)).collect())
-        .unwrap_or_else(Vec::<String>::new);
+        .unwrap_or_default();
     if lines.is_empty() {
         return json!(messages().no_accounts);
     }
