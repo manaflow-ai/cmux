@@ -1,4 +1,4 @@
-#if canImport(CCmuxRdFFI)
+#if CMUX_RD_FFI
 import CCmuxRdFFI
 import Foundation
 import Testing

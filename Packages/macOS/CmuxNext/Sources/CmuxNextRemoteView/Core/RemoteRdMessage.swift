@@ -1,4 +1,4 @@
-#if canImport(CCmuxRdFFI)
+#if CMUX_RD_FFI
 public import Foundation
 
 /// A message the transport handles itself rather than the decoder.

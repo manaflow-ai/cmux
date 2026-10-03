@@ -1,4 +1,4 @@
-#if canImport(CCmuxRdFFI)
+#if CMUX_RD_FFI
 /// Why the remote desktop core refused a call (the `CMUX_RD_ERR_*` codes).
 public nonisolated enum RemoteRdCoreError: Error, Sendable, Hashable {
     /// A required buffer was missing.
