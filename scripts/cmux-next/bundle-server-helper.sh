@@ -30,14 +30,17 @@
 # file name) in both places.
 set -euo pipefail
 
-# Writes or removes the LaunchDaemon plist for the app at $1 from its final bundle id.
+# Writes or removes the LaunchDaemon plist for the app at $1 from its bundle id.
+# $2 = "build" (the Xcode phase): a Release build is built as com.cmuxterm.app and
+# may still become NIGHTLY or RC, so it keeps the helper; only the signing stamp
+# (no $2) drops the helper from a stable bundle.
 stamp() {
-  local app="$1" contents bundle_id label helper plist
+  local app="$1" phase="${2:-sign}" contents bundle_id label helper plist
   contents="$app/Contents"
   helper="$contents/Resources/libexec/cmux-server-helper"
   plist="$contents/Library/LaunchDaemons/com.cmux.server.helper.plist"
   bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$contents/Info.plist")"
-  if [[ "$bundle_id" == "com.cmuxterm.app" || ! -e "$helper" ]]; then
+  if [[ ( "$bundle_id" == "com.cmuxterm.app" && "$phase" != "build" ) || ! -e "$helper" ]]; then
     rm -f "$helper" "$plist"
     rmdir "$contents/Library/LaunchDaemons" 2>/dev/null || true
     echo "bundle-server-helper: no server helper in $bundle_id"
@@ -118,4 +121,4 @@ chmod 0755 "$helper"
 if [[ "${CODE_SIGNING_ALLOWED:-YES}" != "NO" && -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]]; then
   codesign --force --options runtime --identifier cmux-server-helper --sign "$EXPANDED_CODE_SIGN_IDENTITY" "$helper" >/dev/null
 fi
-stamp "$app"
+stamp "$app" build
