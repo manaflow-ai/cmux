@@ -179,6 +179,46 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testAgentFeedHeavyActivityScrollPacing() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_FEED_DECISION_PREVIEW": "1",
+            "CMUX_UITEST_FEED_DECISION_PREVIEW_COUNT": "400",
+            "CMUX_UITEST_FEED_DECISION_PREVIEW_SCROLL_STRESS": "1",
+        ])
+        defer { app.terminate() }
+
+        let scrollContainer = app.descendants(matching: .any)["AgentFeedScrollContainer"]
+        XCTAssertTrue(scrollContainer.waitForExistence(timeout: 10))
+        let metrics = app.descendants(matching: .any)["AgentFeedScrollStressMetrics"]
+        XCTAssertTrue(metrics.waitForExistence(timeout: 5))
+
+        for _ in 0..<14 {
+            scrollContainer.swipeUp(velocity: .fast)
+        }
+        for _ in 0..<14 {
+            scrollContainer.swipeDown(velocity: .fast)
+        }
+
+        let complete = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value CONTAINS %@", "state=complete"),
+            object: metrics
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [complete], timeout: 15), .completed)
+        let value = try XCTUnwrap(metrics.value as? String)
+        print("AgentFeedScrollStressMetrics: \(value)")
+
+        let fields: [String: String] = value.split(separator: ";").reduce(into: [:]) { fields, component in
+            let pair = component.split(separator: "=", maxSplits: 1).map(String.init)
+            guard pair.count == 2 else { return }
+            fields[pair[0]] = pair[1]
+        }
+        let frames: Int = try XCTUnwrap(fields["frames"].flatMap(Int.init), value)
+        XCTAssertGreaterThan(frames, 120, value)
+        XCTAssertNotNil(fields["frame_p95_ms"], value)
+        XCTAssertNotNil(fields["hitches"], value)
+    }
+
+    @MainActor
     func testForegroundRemovesOnlyReadDeliveredNotifications() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()
@@ -3330,6 +3370,11 @@ final class cmuxUITests: XCTestCase {
             firstRow.frame.minY,
             settingsButton.frame.maxY - 1,
             "The first workspace row \(firstRow.frame) must clear the top toolbar \(settingsButton.frame)."
+        )
+        XCTAssertLessThanOrEqual(
+            firstRow.frame.minY - settingsButton.frame.maxY,
+            32,
+            "The workspace list must not reserve an empty large-title area below the toolbar."
         )
 
         for _ in 0..<20 where !lastRow.isHittable {
