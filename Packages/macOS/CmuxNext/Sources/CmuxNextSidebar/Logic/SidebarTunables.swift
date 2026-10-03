@@ -17,7 +17,15 @@ public nonisolated enum SidebarTunables {
         help: "Upper share of a section header that drops at the end of the previous section.",
         default: 0.35, range: 0...0.8, step: 0.01, unit: .fraction, code: "SidebarTunables.sectionTopFraction")
 
+    /// Off by default: on a 1x display the eight-dot cells at the bar's
+    /// height read as hollow boxes, not as a quieter bar (PR #17096).
+    public static let placeholderBraille = Tunable<Bool>.toggle(
+        "sidebar.placeholderBraille", .sidebar, "Braille placeholder rows",
+        help: "Placeholder rows draw a static run of braille cells in the bar's color and height instead of the tonal bar.",
+        default: false, code: "SidebarTunables.placeholderBraille")
+
     public static var all: [TunableDescriptor] {
-        [groupEdgeFraction, groupExitFraction, sectionTopFraction].map(\.descriptor) + SidebarSectionTunables.all
+        [groupEdgeFraction, groupExitFraction, sectionTopFraction].map(\.descriptor) + [placeholderBraille.descriptor]
+            + SidebarSectionTunables.all
     }
 }
