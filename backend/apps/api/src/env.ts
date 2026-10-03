@@ -89,6 +89,9 @@ export interface Env {
   readonly APNS_KEY_P8?: string
   readonly APNS_KEY_ID?: string
   readonly APNS_TEAM_ID?: string
+  /** Cloudflare Realtime TURN key id (var) and its API token (secret); without both, ICE is STUN only. */
+  readonly CF_TURN_KEY_ID?: string
+  readonly CF_TURN_API_TOKEN?: string
   /** PlanetScale `cmux-next` through Hyperdrive (projection writes only). */
   readonly HYPERDRIVE?: Hyperdrive
 }

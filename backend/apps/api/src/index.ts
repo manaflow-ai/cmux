@@ -6,6 +6,7 @@ import { handleProviderHook } from "./ingress/provider-hook.ts"
 import { handleSsoDiscover } from "./sso-discover.ts"
 import { handleInviteCard, handleInvitePreview } from "./home-routes.ts"
 import { handlePairBegin, handlePairWait } from "./pair-routes.ts"
+import { handleIceServers } from "./rtc-ice.ts"
 import { handleSsoCallback, handleSsoRedeem, handleSsoStart } from "./sso-routes.ts"
 
 export { AccountIndexDO } from "./account-index-do.ts"
@@ -73,6 +74,8 @@ export default {
     // cmux server pairing: no account on the server side; each route verifies its own proof.
     if (url.pathname === "/v1/pair/begin") return handlePairBegin(request, env)
     if (url.pathname === "/v1/pair/wait") return handlePairWait(request, env)
+    // WebRTC between a user's devices: TURN credentials (signaling rides /v1/wire/user).
+    if (url.pathname === "/v1/rtc/ice-servers") return handleIceServers(request, env)
     if (url.pathname === "/v1/sso/start") return handleSsoStart(request, env)
     const ssoCallbackPath = url.pathname.match(/^\/v1\/sso\/callback\/([^/]+)$/)
     if (ssoCallbackPath) return handleSsoCallback(request, env, ssoCallbackPath[1]!)
