@@ -155,6 +155,10 @@ fn cmux_next_tab_restart_restarts_a_kept_process_end_and_rejects_unknown_tabs() 
     let new_host = outcome.result["terminal_id"].as_str().unwrap().to_string();
     assert_eq!(lifecycle(&mux, &new_host), TerminalLifecycle::Running);
     assert_eq!(lifecycle(&mux, &host), TerminalLifecycle::Tombstoned);
+    // The restarted shell keeps the tab's exit policy.
+    let record =
+        mux.workspace_registry.lock().unwrap().terminal_record(&new_host).unwrap().unwrap();
+    assert_eq!(record.on_exit, TerminalOnExit::Keep);
 
     let error = restart(&mux, 999_999, "unknown").unwrap_err();
     assert_eq!(

@@ -3,8 +3,8 @@ use crate::JournalIngress;
 use crate::resource::{NotificationPublicId, TerminalPublicId};
 use serde_json::json;
 mod patch_apply;
-use patch_apply::decorate_snapshot_result;
 pub(crate) use patch_apply::{apply_resource_patch, apply_resource_patch_unrecorded};
+use patch_apply::{apply_resource_patch_for, decorate_snapshot_result};
 
 /// Completed pure mutations keep a finite exactly-once replay window. Pruning
 /// runs in batches, so a live registry may temporarily retain the interval as
@@ -1510,7 +1510,7 @@ impl WorkspaceRegistry {
         {
             presentation_store::write_workspace_presentation(&tx, &ledger.workspace_key, update)?;
         }
-        let patch = &apply_resource_patch(&tx, patch, sqlite_revision)?;
+        let patch = &apply_resource_patch_for(&tx, operation, patch, sqlite_revision)?;
         let mut result = result.clone();
         decorate_snapshot_result(&tx, operation, &mut result)?;
         let written;
