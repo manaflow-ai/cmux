@@ -71,7 +71,7 @@ describe("MUX_HOME lock races", () => {
     const second = takeLock(path);
     expect(first).toBeDefined();
     expect(second).toBeUndefined();
-    expect(Number(realFs.readFileSync(path, "utf8").trim())).toBe(process.pid);
+    expect(Number(String(realFs.readFileSync(path, "utf8")).split("\n")[0])).toBe(process.pid);
   });
 
   test("a taker that runs while the lock file is being written does not take it", () => {
@@ -83,6 +83,6 @@ describe("MUX_HOME lock races", () => {
     const first = takeLock(path);
     const winners = [first, second].filter(Boolean).length;
     expect(winners).toBe(1);
-    expect(Number(realFs.readFileSync(path, "utf8").trim())).toBe(process.pid);
+    expect(Number(String(realFs.readFileSync(path, "utf8")).split("\n")[0])).toBe(process.pid);
   });
 });
