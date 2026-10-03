@@ -1,0 +1,1604 @@
+{
+ "icons": [
+  {
+   "name": "account",
+   "meaning": "Account / profile",
+   "sf": "person.crop.circle",
+   "family": "account"
+  },
+  {
+   "name": "account.passkey",
+   "meaning": "Passkey request",
+   "sf": "person.badge.key.fill",
+   "family": "account"
+  },
+  {
+   "name": "account.routed",
+   "meaning": "Account routed through CodeRouter",
+   "sf": "arrow.triangle.branch",
+   "family": "account"
+  },
+  {
+   "name": "account.signin",
+   "meaning": "Sign in / re-authenticate",
+   "sf": "person.badge.key",
+   "family": "account"
+  },
+  {
+   "name": "action.add",
+   "meaning": "Add / new",
+   "sf": "plus",
+   "family": "action"
+  },
+  {
+   "name": "action.close",
+   "meaning": "Close / dismiss / stop loading",
+   "sf": "xmark",
+   "family": "action"
+  },
+  {
+   "name": "action.confirm",
+   "meaning": "Confirm a pending request (approve)",
+   "sf": "checkmark.circle",
+   "family": "action"
+  },
+  {
+   "name": "action.copy",
+   "meaning": "Copy",
+   "sf": "doc.on.doc",
+   "family": "action"
+  },
+  {
+   "name": "action.delete",
+   "meaning": "Delete (destructive)",
+   "sf": "trash",
+   "family": "action"
+  },
+  {
+   "name": "action.download",
+   "meaning": "Download / install / update available",
+   "sf": "arrow.down.circle",
+   "family": "action"
+  },
+  {
+   "name": "action.edit",
+   "meaning": "Edit / rename",
+   "sf": "pencil.line",
+   "family": "action"
+  },
+  {
+   "name": "action.go",
+   "meaning": "Go to the linked setting",
+   "sf": "arrow.forward",
+   "family": "action"
+  },
+  {
+   "name": "action.hide",
+   "meaning": "Hide / third-party cookies blocked",
+   "sf": "eye.slash",
+   "family": "action"
+  },
+  {
+   "name": "action.more",
+   "meaning": "More options (menu)",
+   "sf": "ellipsis",
+   "family": "action"
+  },
+  {
+   "name": "action.pause",
+   "meaning": "Pause",
+   "sf": "pause.circle",
+   "family": "action"
+  },
+  {
+   "name": "action.pin",
+   "meaning": "Pin / keep / sticky",
+   "sf": "pin",
+   "family": "action"
+  },
+  {
+   "name": "action.reload",
+   "meaning": "Reload / refresh / reconnect",
+   "sf": "arrow.clockwise",
+   "family": "action"
+  },
+  {
+   "name": "action.remove",
+   "meaning": "Remove / declined / forget",
+   "sf": "minus.circle",
+   "family": "action"
+  },
+  {
+   "name": "action.reset",
+   "meaning": "Reset to defaults",
+   "sf": "arrow.counterclockwise",
+   "family": "action"
+  },
+  {
+   "name": "action.restart",
+   "meaning": "Restart / hard reload / ready to relaunch",
+   "sf": "arrow.clockwise.circle",
+   "family": "action"
+  },
+  {
+   "name": "action.resume",
+   "meaning": "Resume / start",
+   "sf": "play.circle",
+   "family": "action"
+  },
+  {
+   "name": "action.review",
+   "meaning": "Review / about this page",
+   "sf": "doc.text.magnifyingglass",
+   "family": "action"
+  },
+  {
+   "name": "action.show",
+   "meaning": "Show / watch / focus mode",
+   "sf": "eye",
+   "family": "action"
+  },
+  {
+   "name": "action.snooze",
+   "meaning": "Snooze a feed item",
+   "sf": "moon.zzz",
+   "family": "action"
+  },
+  {
+   "name": "action.stop",
+   "meaning": "Stop",
+   "sf": "stop.circle",
+   "family": "action"
+  },
+  {
+   "name": "action.sync",
+   "meaning": "Sync / reconnect / checking for updates",
+   "sf": "arrow.triangle.2.circlepath",
+   "family": "action"
+  },
+  {
+   "name": "action.undo",
+   "meaning": "Undo / reopen closed / revert",
+   "sf": "arrow.uturn.backward",
+   "family": "action"
+  },
+  {
+   "name": "action.watching",
+   "meaning": "Watching (on)",
+   "sf": "eye.fill",
+   "family": "action"
+  },
+  {
+   "name": "agent.activity",
+   "meaning": "Agent activity: the computer-use action log (palette, Activity page, its tab favicon).",
+   "sf": "cursorarrow.click.2",
+   "family": "agent"
+  },
+  {
+   "name": "agent.chat",
+   "meaning": "Agent chat: new agent chat action, agent tab, sidebar row.",
+   "sf": "bubble.left.and.text.bubble.right",
+   "family": "agent"
+  },
+  {
+   "name": "agent.chat.empty",
+   "meaning": "Empty new-chat hero: the prompt box waiting for input (36 px).",
+   "sf": "questionmark.square.dashed",
+   "family": "agent.chat"
+  },
+  {
+   "name": "agent.chat.list",
+   "meaning": "Agent rail: Chats (conversation list).",
+   "sf": "questionmark.square.dashed",
+   "family": "agent.chat"
+  },
+  {
+   "name": "agent.chat.new",
+   "meaning": "New conversation (agent rail and conversation list).",
+   "sf": "square.and.pencil",
+   "family": "agent.chat"
+  },
+  {
+   "name": "agent.fork",
+   "meaning": "Fork the agent conversation into a new chat (to the right/left/above/below).",
+   "sf": "arrow.triangle.branch",
+   "family": "agent"
+  },
+  {
+   "name": "agent.handoff",
+   "meaning": "Hand the conversation off to another agent or location (Continue in..., Feed handoff).",
+   "sf": "arrow.turn.up.right",
+   "family": "agent"
+  },
+  {
+   "name": "agent.question",
+   "meaning": "Agent asked a question (Feed).",
+   "sf": "text.bubble",
+   "family": "agent"
+  },
+  {
+   "name": "agent.session",
+   "meaning": "Agent session as a history kind (History page and palette rows, next to terminal/browser kinds).",
+   "sf": "sparkles",
+   "family": "agent"
+  },
+  {
+   "name": "app.cmux",
+   "meaning": "cmux internal page",
+   "sf": "terminal",
+   "family": "app"
+  },
+  {
+   "name": "app.dev",
+   "meaning": "Developer / local app",
+   "sf": "flask",
+   "family": "app"
+  },
+  {
+   "name": "app.generic",
+   "meaning": "A cmux app (App Store / Open In target) with no icon of its ",
+   "sf": "app",
+   "family": "app"
+  },
+  {
+   "name": "app.open.external",
+   "meaning": "Open in another app / popups",
+   "sf": "arrow.up.forward.app",
+   "family": "app.open"
+  },
+  {
+   "name": "app.permissions",
+   "meaning": "App permissions",
+   "sf": "checkmark.shield",
+   "family": "app"
+  },
+  {
+   "name": "app.placeholder",
+   "meaning": "Placeholder for an app or a shape/icon tunable",
+   "sf": "app.dashed",
+   "family": "app"
+  },
+  {
+   "name": "app.sample.githubprs",
+   "meaning": "Sample app icon: GitHub PRs",
+   "sf": "icon.svg",
+   "family": "app.sample"
+  },
+  {
+   "name": "app.sample.runningagents",
+   "meaning": "Sample app icon: Running agents",
+   "sf": "icon.svg",
+   "family": "app.sample"
+  },
+  {
+   "name": "apps.stack",
+   "meaning": "Apps / group selected",
+   "sf": "square.stack.3d.up",
+   "family": "apps"
+  },
+  {
+   "name": "automation",
+   "meaning": "Automations (server dashboard count, Feed automation item).",
+   "sf": "bolt.horizontal",
+   "family": "automation"
+  },
+  {
+   "name": "bookmark",
+   "meaning": "Bookmark this page (star)",
+   "sf": "star",
+   "family": "bookmark"
+  },
+  {
+   "name": "bookmark.active",
+   "meaning": "Bookmarked (on)",
+   "sf": "star.fill",
+   "family": "bookmark"
+  },
+  {
+   "name": "bookmark.manager",
+   "meaning": "Bookmark manager page",
+   "sf": "book.closed",
+   "family": "bookmark"
+  },
+  {
+   "name": "bookmarks.bar",
+   "meaning": "Bookmarks bar",
+   "sf": "menubar.rectangle",
+   "family": "bookmarks"
+  },
+  {
+   "name": "bookmarks.other",
+   "meaning": "Other bookmarks root",
+   "sf": "tray",
+   "family": "bookmarks"
+  },
+  {
+   "name": "brand.arxiv",
+   "meaning": "arXiv citation mark (neutral stand-in)",
+   "sf": "questionmark.square.dashed",
+   "family": "brand"
+  },
+  {
+   "name": "brand.github",
+   "meaning": "GitHub link mark (neutral stand-in)",
+   "sf": "questionmark.square.dashed",
+   "family": "brand"
+  },
+  {
+   "name": "browser",
+   "meaning": "Browser / web page / site",
+   "sf": "globe",
+   "family": "browser"
+  },
+  {
+   "name": "browser.incognito",
+   "meaning": "Incognito / private window",
+   "sf": "eyeglasses",
+   "family": "browser"
+  },
+  {
+   "name": "browser.new",
+   "meaning": "New browser tab / browser toggle",
+   "sf": "globe",
+   "family": "browser"
+  },
+  {
+   "name": "browser.stop",
+   "meaning": "Stop loading",
+   "sf": "xmark",
+   "family": "browser"
+  },
+  {
+   "name": "browserprofile.badge",
+   "meaning": "Browser profile badge (initial/emoji)",
+   "sf": "questionmark.square.dashed",
+   "family": "browserprofile"
+  },
+  {
+   "name": "browserprofile.dot",
+   "meaning": "Browser profile color dot on a tab",
+   "sf": "questionmark.square.dashed",
+   "family": "browserprofile",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "cloud",
+   "meaning": "cmux Cloud / cloud machine / cloud provider",
+   "sf": "cloud",
+   "family": "cloud"
+  },
+  {
+   "name": "cloud.synced",
+   "meaning": "Synced to cloud",
+   "sf": "checkmark.icloud",
+   "family": "cloud"
+  },
+  {
+   "name": "cloud.workspace",
+   "meaning": "Cloud workspace / cloud section",
+   "sf": "cloud.fill",
+   "family": "cloud"
+  },
+  {
+   "name": "code",
+   "meaning": "Code: open in VS Code, code blocks in transcript.",
+   "sf": "chevron.left.forwardslash.chevron.right",
+   "family": "code"
+  },
+  {
+   "name": "color.clear",
+   "meaning": "No color / none",
+   "sf": "circle.slash",
+   "family": "color"
+  },
+  {
+   "name": "color.swatch",
+   "meaning": "Color swatch for a named color",
+   "sf": "circle.fill",
+   "family": "color"
+  },
+  {
+   "name": "column",
+   "meaning": "Column / new column",
+   "sf": "rectangle.split.3x1",
+   "family": "column"
+  },
+  {
+   "name": "composer.add",
+   "meaning": "Composer + menu button.",
+   "sf": "questionmark.square.dashed",
+   "family": "composer"
+  },
+  {
+   "name": "composer.attach",
+   "meaning": "Attach file (composer, terminal TextBox).",
+   "sf": "paperclip",
+   "family": "composer"
+  },
+  {
+   "name": "composer.command",
+   "meaning": "+ menu: slash commands.",
+   "sf": "questionmark.square.dashed",
+   "family": "composer"
+  },
+  {
+   "name": "composer.mention",
+   "meaning": "+ menu: mention (@).",
+   "sf": "questionmark.square.dashed",
+   "family": "composer"
+  },
+  {
+   "name": "composer.send",
+   "meaning": "Send message.",
+   "sf": "questionmark.square.dashed",
+   "family": "composer"
+  },
+  {
+   "name": "computeruse.click",
+   "meaning": "Computer-use click (activity rows), clear on click.",
+   "sf": "cursorarrow.click",
+   "family": "computeruse"
+  },
+  {
+   "name": "computeruse.drag",
+   "meaning": "Computer-use drag (and tab drag).",
+   "sf": "hand.draw",
+   "family": "computeruse"
+  },
+  {
+   "name": "computeruse.observe",
+   "meaning": "Computer-use observe screen.",
+   "sf": "eye",
+   "family": "computeruse"
+  },
+  {
+   "name": "config.json",
+   "meaning": "cmux.json / JSON / advanced settings.",
+   "sf": "curlybraces",
+   "family": "config"
+  },
+  {
+   "name": "context.usage",
+   "meaning": "Context window usage ring in the composer (fills; turns attention colour at 80%).",
+   "sf": "questionmark.square.dashed",
+   "family": "context"
+  },
+  {
+   "name": "control.popup",
+   "meaning": "Popup menu indicator / collapse-expand toggle",
+   "sf": "chevron.up.chevron.down",
+   "family": "control"
+  },
+  {
+   "name": "credential.consent",
+   "meaning": "Import consent for keychain credentials (onboarding).",
+   "sf": "key.fill",
+   "family": "credential"
+  },
+  {
+   "name": "data.storage",
+   "meaning": "Cookies and site data / database",
+   "sf": "cylinder.split.1x2",
+   "family": "data"
+  },
+  {
+   "name": "database",
+   "meaning": "Database",
+   "sf": "cylinder.split.1x2",
+   "family": "database"
+  },
+  {
+   "name": "device.paired",
+   "meaning": "Paired",
+   "sf": "checkmark.seal",
+   "family": "device"
+  },
+  {
+   "name": "device.pairing",
+   "meaning": "Pairing in progress",
+   "sf": "link",
+   "family": "device"
+  },
+  {
+   "name": "device.phone",
+   "meaning": "iPhone / simulator / mobile",
+   "sf": "iphone",
+   "family": "device"
+  },
+  {
+   "name": "devices.paired",
+   "meaning": "Paired devices",
+   "sf": "laptopcomputer.and.iphone",
+   "family": "devices"
+  },
+  {
+   "name": "diff.collapse.all",
+   "meaning": "Collapse all files in the diff panel.",
+   "sf": "questionmark.square.dashed",
+   "family": "diff.collapse"
+  },
+  {
+   "name": "diff.file",
+   "meaning": "'Edited N files' card in the transcript.",
+   "sf": "questionmark.square.dashed",
+   "family": "diff"
+  },
+  {
+   "name": "diff.filetree",
+   "meaning": "Toggle the file tree panel in the diff view.",
+   "sf": "questionmark.square.dashed",
+   "family": "diff"
+  },
+  {
+   "name": "diff.split",
+   "meaning": "Split (side-by-side) diff view.",
+   "sf": "questionmark.square.dashed",
+   "family": "diff"
+  },
+  {
+   "name": "diff.viewed",
+   "meaning": "Mark a file as viewed in the diff panel (toggle).",
+   "sf": "questionmark.square.dashed",
+   "family": "diff"
+  },
+  {
+   "name": "disclosure.collapsed",
+   "meaning": "Collapsed disclosure / drill-in",
+   "sf": "chevron.right",
+   "family": "disclosure"
+  },
+  {
+   "name": "disclosure.expanded",
+   "meaning": "Expanded disclosure / expand",
+   "sf": "chevron.down",
+   "family": "disclosure"
+  },
+  {
+   "name": "extension",
+   "meaning": "Browser extension",
+   "sf": "puzzlepiece.extension",
+   "family": "extension"
+  },
+  {
+   "name": "extension.crashed",
+   "meaning": "Extension crashed",
+   "sf": "exclamationmark.triangle",
+   "family": "extension"
+  },
+  {
+   "name": "feed.choice",
+   "meaning": "Feed: multiple-choice question from an agent.",
+   "sf": "list.bullet",
+   "family": "feed"
+  },
+  {
+   "name": "feed.custom",
+   "meaning": "Feed: custom request kind (anything not covered by the other kinds).",
+   "sf": "square.grid.2x2",
+   "family": "feed"
+  },
+  {
+   "name": "feed.input",
+   "meaning": "Feed: free-text input requested from you.",
+   "sf": "rectangle.and.pencil.and.ellipsis",
+   "family": "feed"
+  },
+  {
+   "name": "field.clear",
+   "meaning": "Clear search field",
+   "sf": "xmark.circle.fill",
+   "family": "field"
+  },
+  {
+   "name": "file",
+   "meaning": "File page / file link.",
+   "sf": "doc",
+   "family": "file"
+  },
+  {
+   "name": "file.new",
+   "meaning": "Feed: file request.",
+   "sf": "doc.badge.plus",
+   "family": "file"
+  },
+  {
+   "name": "file.text",
+   "meaning": "Text file, files pane, attachment.",
+   "sf": "doc.text",
+   "family": "file"
+  },
+  {
+   "name": "file.type",
+   "meaning": "Generic file-type fallback (real rows use coloured @pierre/trees sprites).",
+   "sf": "questionmark.square.dashed",
+   "family": "file"
+  },
+  {
+   "name": "filter",
+   "meaning": "Filter",
+   "sf": "line.3.horizontal.decrease",
+   "family": "filter"
+  },
+  {
+   "name": "folder",
+   "meaning": "Folder / directory / reveal in Finder.",
+   "sf": "folder",
+   "family": "folder"
+  },
+  {
+   "name": "git.branch",
+   "meaning": "Session is on a git branch.",
+   "sf": "questionmark.square.dashed",
+   "family": "git"
+  },
+  {
+   "name": "git.pullrequest",
+   "meaning": "Pull request (session PR, workspace PR links).",
+   "sf": "arrow.triangle.pull",
+   "family": "git"
+  },
+  {
+   "name": "git.worktree",
+   "meaning": "Session runs in its own git worktree.",
+   "sf": "questionmark.square.dashed",
+   "family": "git"
+  },
+  {
+   "name": "grant",
+   "meaning": "App grants / create firewall rule.",
+   "sf": "shield.lefthalf.filled",
+   "family": "grant"
+  },
+  {
+   "name": "group.collapsed.dot",
+   "meaning": "Collapsed tab group shown as a colored dot",
+   "sf": "questionmark.square.dashed",
+   "family": "group.collapsed",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "group.new",
+   "meaning": "New group / folder / load unpacked",
+   "sf": "folder.badge.plus",
+   "family": "group"
+  },
+  {
+   "name": "history",
+   "meaning": "History",
+   "sf": "clock",
+   "family": "history"
+  },
+  {
+   "name": "history.recent",
+   "meaning": "Recently closed / history section",
+   "sf": "clock.arrow.circlepath",
+   "family": "history"
+  },
+  {
+   "name": "home",
+   "meaning": "Home",
+   "sf": "house",
+   "family": "home"
+  },
+  {
+   "name": "icon.clear",
+   "meaning": "No icon / cleared / optional",
+   "sf": "circle.dashed",
+   "family": "icon"
+  },
+  {
+   "name": "icon.missing",
+   "meaning": "Unknown / missing icon",
+   "sf": "questionmark.square.dashed",
+   "family": "icon"
+  },
+  {
+   "name": "inbox",
+   "meaning": "Feed inbox / site data.",
+   "sf": "tray.full",
+   "family": "inbox"
+  },
+  {
+   "name": "inbox.empty",
+   "meaning": "Empty inbox (Feed toast at 20 px), other bookmarks.",
+   "sf": "tray",
+   "family": "inbox"
+  },
+  {
+   "name": "integration",
+   "meaning": "Third-party integration request",
+   "sf": "arrow.triangle.pull",
+   "family": "integration"
+  },
+  {
+   "name": "keyboard",
+   "meaning": "Keyboard / shortcuts / typing",
+   "sf": "keyboard",
+   "family": "keyboard"
+  },
+  {
+   "name": "keyboard.hotkey",
+   "meaning": "Key press / hotkey",
+   "sf": "command",
+   "family": "keyboard"
+  },
+  {
+   "name": "link",
+   "meaning": "Link / pairing / attach network",
+   "sf": "link",
+   "family": "link"
+  },
+  {
+   "name": "link.external",
+   "meaning": "Opens system settings / external",
+   "sf": "arrow.up.forward",
+   "family": "link"
+  },
+  {
+   "name": "link.open.newtab",
+   "meaning": "Open link in new tab / open externally",
+   "sf": "arrow.up.forward.square",
+   "family": "link.open"
+  },
+  {
+   "name": "link.web",
+   "meaning": "Web link",
+   "sf": "questionmark.square.dashed",
+   "family": "link"
+  },
+  {
+   "name": "list.bullet.item",
+   "meaning": "Bullet in a prompt summary",
+   "sf": "circle",
+   "family": "list.bullet"
+  },
+  {
+   "name": "location",
+   "meaning": "Location (history / permission)",
+   "sf": "location",
+   "family": "location"
+  },
+  {
+   "name": "machine",
+   "meaning": "All machines scope",
+   "sf": "desktopcomputer",
+   "family": "machine"
+  },
+  {
+   "name": "machine.local",
+   "meaning": "This Mac / local machine",
+   "sf": "laptopcomputer",
+   "family": "machine"
+  },
+  {
+   "name": "machine.mac",
+   "meaning": "Mac server",
+   "sf": "macmini",
+   "family": "machine"
+  },
+  {
+   "name": "machine.remote",
+   "meaning": "Remote machine / server / SSH",
+   "sf": "server.rack",
+   "family": "machine"
+  },
+  {
+   "name": "mobile.pair",
+   "meaning": "Mobile pairing",
+   "sf": "iphone",
+   "family": "mobile"
+  },
+  {
+   "name": "mobile.pair.qr",
+   "meaning": "Pair via QR code",
+   "sf": "qrcode",
+   "family": "mobile.pair"
+  },
+  {
+   "name": "mode.build",
+   "meaning": "Composer mode toggle: Build (the agent acts).",
+   "sf": "questionmark.square.dashed",
+   "family": "mode"
+  },
+  {
+   "name": "mode.plan",
+   "meaning": "Composer mode toggle: Plan (think, propose, do not act).",
+   "sf": "questionmark.square.dashed",
+   "family": "mode"
+  },
+  {
+   "name": "nav.back",
+   "meaning": "Back",
+   "sf": "arrow.left",
+   "family": "nav"
+  },
+  {
+   "name": "nav.forward",
+   "meaning": "Forward",
+   "sf": "arrow.right",
+   "family": "nav"
+  },
+  {
+   "name": "nav.previous",
+   "meaning": "Find previous / previous in group",
+   "sf": "chevron.left",
+   "family": "nav"
+  },
+  {
+   "name": "nav.previous.match",
+   "meaning": "Previous match / select previous",
+   "sf": "chevron.up",
+   "family": "nav.previous"
+  },
+  {
+   "name": "network",
+   "meaning": "Network / remote terminal / ports",
+   "sf": "network",
+   "family": "network"
+  },
+  {
+   "name": "notification",
+   "meaning": "Notifications",
+   "sf": "bell",
+   "family": "notification"
+  },
+  {
+   "name": "overflow.more",
+   "meaning": "Overflow (more bookmarks) / next screen",
+   "sf": "chevron.right.2",
+   "family": "overflow"
+  },
+  {
+   "name": "package",
+   "meaning": "Feed: package install request; updater preparing/installing.",
+   "sf": "shippingbox",
+   "family": "package"
+  },
+  {
+   "name": "pane.split.down",
+   "meaning": "Split down / drop zone bottom",
+   "sf": "rectangle.bottomhalf.inset.filled",
+   "family": "pane.split"
+  },
+  {
+   "name": "pane.split.left",
+   "meaning": "Split left / drop zone left",
+   "sf": "rectangle.lefthalf.inset.filled",
+   "family": "pane.split"
+  },
+  {
+   "name": "pane.split.right",
+   "meaning": "Split right / drop zone right",
+   "sf": "rectangle.righthalf.inset.filled",
+   "family": "pane.split"
+  },
+  {
+   "name": "pane.split.up",
+   "meaning": "Split up / drop zone top",
+   "sf": "rectangle.tophalf.inset.filled",
+   "family": "pane.split"
+  },
+  {
+   "name": "permission.consent",
+   "meaning": "Agent consent request / decision (activity rows).",
+   "sf": "person.badge.shield.checkmark",
+   "family": "permission"
+  },
+  {
+   "name": "permission.mode",
+   "meaning": "Composer permission-mode picker (ask / auto-accept edits / bypass...).",
+   "sf": "questionmark.square.dashed",
+   "family": "permission"
+  },
+  {
+   "name": "placeholder",
+   "meaning": "Unknown kind / pane borders",
+   "sf": "square.dashed",
+   "family": "placeholder"
+  },
+  {
+   "name": "policy.reject",
+   "meaning": "A policy rejected an agent action (activity rows).",
+   "sf": "hand.raised",
+   "family": "policy"
+  },
+  {
+   "name": "profile.dot",
+   "meaning": "Space (profile) dot in the profile bar",
+   "sf": "questionmark.square.dashed",
+   "family": "profile",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "search",
+   "meaning": "Search / find",
+   "sf": "magnifyingglass",
+   "family": "search"
+  },
+  {
+   "name": "search.files",
+   "meaning": "+ menu: Search files",
+   "sf": "questionmark.square.dashed",
+   "family": "search"
+  },
+  {
+   "name": "security.dangerous",
+   "meaning": "Dangerous site",
+   "sf": "exclamationmark.triangle.fill",
+   "family": "security"
+  },
+  {
+   "name": "security.insecure",
+   "meaning": "Not secure (http / mixed content)",
+   "sf": "lock.slash",
+   "family": "security"
+  },
+  {
+   "name": "security.lock",
+   "meaning": "Secure / locked / managed",
+   "sf": "lock",
+   "family": "security"
+  },
+  {
+   "name": "server.health",
+   "meaning": "Server health",
+   "sf": "heart.text.square",
+   "family": "server"
+  },
+  {
+   "name": "settings",
+   "meaning": "Settings",
+   "sf": "gearshape",
+   "family": "settings"
+  },
+  {
+   "name": "site.info",
+   "meaning": "Site information / configuration",
+   "sf": "slider.horizontal.3",
+   "family": "site"
+  },
+  {
+   "name": "site.permission.automaticdownloads",
+   "meaning": "Site permission: automatic downloads",
+   "sf": "arrow.down.circle",
+   "family": "site.permission"
+  },
+  {
+   "name": "site.permission.autopictureinpicture",
+   "meaning": "Site permission: auto picture-in-picture",
+   "sf": "pip",
+   "family": "site.permission"
+  },
+  {
+   "name": "site.permission.backgroundsync",
+   "meaning": "Site permission: background sync",
+   "sf": "arrow.triangle.2.circlepath",
+   "family": "site.permission"
+  },
+  {
+   "name": "site.permission.bluetooth",
+   "meaning": "Site permission: Bluetooth devices",
+   "sf": "dot.radiowaves.left.and.right",
+   "family": "site.permission"
+  },
+  {
+   "name": "site.permission.camera",
+   "meaning": "Site permission: camera",
+   "sf": "video",
+   "family": "site.permission"
+  },
+  {
+   "name": "site.permission.camera.blocked",
+   "meaning": "Site permission: camera (blocked)",
+   "sf": "video.slash",
+   "family": "site.permission.camera"
+  },
+  {
+   "name": "site.permission.clipboard",
+   "meaning": "Site permission: clipboard",
+   "sf": "doc.on.clipboard",
+   "family": "site.permission"
+  },
+  {
+   "name": "site.permission.fileediting",
+   "meaning": "Site permission: file editing (File System Access)",
+   "sf": "doc.badge.gearshape",
+   "family": "site.permission"
+  },
+  {
+   "name": "site.permission.hid",
+   "meaning": "Site permission: HID devices",
+   "sf": "gamecontroller",
+   "family": "site.permission"
+  },
+  {
+   "name": "site.permission.images",
+   "meaning": "Site permission: images",
+   "sf": "photo",
+   "family": "site.permission"
+  },
+  {
+   "name": "site.permission.insecurecontent.blocked",
+   "meaning": "Site permission: insecure content (blocked)",
+   "sf": "exclamationmark.shield",
+   "family": "site.permission.insecurecontent"
+  },
+  {
+   "name": "site.permission.javascript",
+   "meaning": "Site permission: JavaScript",
+   "sf": "curlybraces",
+   "family": "site.permission"
+  },
+  {
+   "name": "site.permission.localfonts",
+   "meaning": "Site permission: local fonts",
+   "sf": "textformat",
+   "family": "site.permission"
+  },
+  {
+   "name": "site.permission.location",
+   "meaning": "Site permission: location",
+   "sf": "location",
+   "family": "site.permission"
+  },
+  {
+   "name": "site.permission.location.blocked",
+   "meaning": "Site permission: location (blocked)",
+   "sf": "location.slash",
+   "family": "site.permission.location"
+  },
+  {
+   "name": "site.permission.microphone",
+   "meaning": "Site permission: microphone",
+   "sf": "mic",
+   "family": "site.permission"
+  },
+  {
+   "name": "site.permission.microphone.blocked",
+   "meaning": "Site permission: microphone (blocked)",
+   "sf": "mic.slash",
+   "family": "site.permission.microphone"
+  },
+  {
+   "name": "site.permission.midi",
+   "meaning": "Site permission: MIDI devices",
+   "sf": "pianokeys",
+   "family": "site.permission"
+  },
+  {
+   "name": "site.permission.notifications",
+   "meaning": "Site permission: notifications",
+   "sf": "bell",
+   "family": "site.permission"
+  },
+  {
+   "name": "site.permission.notifications.blocked",
+   "meaning": "Site permission: notifications (blocked)",
+   "sf": "bell.slash",
+   "family": "site.permission.notifications"
+  },
+  {
+   "name": "site.permission.popups",
+   "meaning": "Site permission: pop-ups and redirects",
+   "sf": "arrow.up.forward.app",
+   "family": "site.permission"
+  },
+  {
+   "name": "site.permission.sensors",
+   "meaning": "Site permission: motion sensors",
+   "sf": "gyroscope",
+   "family": "site.permission"
+  },
+  {
+   "name": "site.permission.serial",
+   "meaning": "Site permission: serial ports",
+   "sf": "cable.connector.horizontal",
+   "family": "site.permission"
+  },
+  {
+   "name": "site.permission.sound",
+   "meaning": "Site permission: sound",
+   "sf": "speaker.wave.2",
+   "family": "site.permission"
+  },
+  {
+   "name": "site.permission.sound.blocked",
+   "meaning": "Site permission: sound (blocked)",
+   "sf": "speaker.slash",
+   "family": "site.permission.sound"
+  },
+  {
+   "name": "site.permission.thirdpartysignin",
+   "meaning": "Site permission: third-party sign-in",
+   "sf": "person.badge.key",
+   "family": "site.permission"
+  },
+  {
+   "name": "site.permission.usb",
+   "meaning": "Site permission: USB devices",
+   "sf": "cable.connector",
+   "family": "site.permission"
+  },
+  {
+   "name": "site.permission.windowmanagement",
+   "meaning": "Site permission: window management (multi-screen)",
+   "sf": "macwindow.on.rectangle",
+   "family": "site.permission"
+  },
+  {
+   "name": "space",
+   "meaning": "Space (room) / folder of bookmarks",
+   "sf": "person.2",
+   "family": "space"
+  },
+  {
+   "name": "state.changed",
+   "meaning": "Changed (debug)",
+   "sf": "pencil.circle",
+   "family": "state",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "state.idle",
+   "meaning": "Idle / hibernate after 1h",
+   "sf": "moon",
+   "family": "state",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "state.off",
+   "meaning": "Off / disabled / none",
+   "sf": "circle",
+   "family": "state",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "state.pinned",
+   "meaning": "Pinned",
+   "sf": "pin.fill",
+   "family": "state",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "state.selected",
+   "meaning": "Selected / done checkmark",
+   "sf": "checkmark",
+   "family": "state",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "status.attention",
+   "meaning": "Waiting/attention dot (pulse)",
+   "sf": "questionmark.square.dashed",
+   "family": "status",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "status.complete",
+   "meaning": "Completed / toggled on",
+   "sf": "checkmark.circle.fill",
+   "family": "status",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "status.critical",
+   "meaning": "Critical",
+   "sf": "exclamationmark.octagon.fill",
+   "family": "status",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "status.disconnected",
+   "meaning": "Session disconnected",
+   "sf": "questionmark.square.dashed",
+   "family": "status",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "status.dot",
+   "meaning": "Machine/section connection status dot",
+   "sf": "questionmark.square.dashed",
+   "family": "status",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "status.error",
+   "meaning": "Error / failed",
+   "sf": "exclamationmark.triangle.fill",
+   "family": "status",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "status.info",
+   "meaning": "Info / about / details",
+   "sf": "info.circle",
+   "family": "status",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "status.inprogress",
+   "meaning": "Task in progress",
+   "sf": "circle.dotted",
+   "family": "status",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "status.needsinput",
+   "meaning": "Session needs input (pending permission/question)",
+   "sf": "questionmark.square.dashed",
+   "family": "status",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "status.progress",
+   "meaning": "Busy with known progress: ring",
+   "sf": "questionmark.square.dashed",
+   "family": "status",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "status.running",
+   "meaning": "Agent/terminal busy: arc spinner",
+   "sf": "questionmark.square.dashed",
+   "family": "status",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "status.success",
+   "meaning": "Success / done / confirmed / on",
+   "sf": "checkmark.circle",
+   "family": "status",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "status.warning",
+   "meaning": "Warning / unverified",
+   "sf": "exclamationmark.triangle",
+   "family": "status",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "store",
+   "meaning": "App Store / Chrome Web Store",
+   "sf": "bag",
+   "family": "store"
+  },
+  {
+   "name": "system.requirement",
+   "meaning": "Needs a newer macOS",
+   "sf": "desktopcomputer",
+   "family": "system"
+  },
+  {
+   "name": "tab.close",
+   "meaning": "Close tab (drawn X on hover)",
+   "sf": "questionmark.square.dashed",
+   "family": "tab"
+  },
+  {
+   "name": "tab.new",
+   "meaning": "New tab / new workspace",
+   "sf": "plus.square",
+   "family": "tab"
+  },
+  {
+   "name": "tabgroup.save",
+   "meaning": "Bookmarks section / save tab group",
+   "sf": "bookmark",
+   "family": "tabgroup"
+  },
+  {
+   "name": "task.ai",
+   "meaning": "Task assigned to an AI agent (task badge).",
+   "sf": "sparkle",
+   "family": "task"
+  },
+  {
+   "name": "task.status.backlog",
+   "meaning": "Task status: backlog (dotted ring).",
+   "sf": "questionmark.square.dashed",
+   "family": "task.status",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "task.status.canceled",
+   "meaning": "Task status: canceled.",
+   "sf": "questionmark.square.dashed",
+   "family": "task.status",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "task.status.done",
+   "meaning": "Task status: completed.",
+   "sf": "questionmark.square.dashed",
+   "family": "task.status",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "task.status.started",
+   "meaning": "Task status: started (ring with half fill).",
+   "sf": "questionmark.square.dashed",
+   "family": "task.status",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "task.status.todo",
+   "meaning": "Task status: unstarted (ring).",
+   "sf": "questionmark.square.dashed",
+   "family": "task.status",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "task.status.triage",
+   "meaning": "Task status: triage (dashed ring).",
+   "sf": "questionmark.square.dashed",
+   "family": "task.status",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "team",
+   "meaning": "Team / rooms",
+   "sf": "person.2",
+   "family": "team"
+  },
+  {
+   "name": "terminal",
+   "meaning": "Terminal",
+   "sf": "terminal",
+   "family": "terminal"
+  },
+  {
+   "name": "terminal.copymode",
+   "meaning": "Terminal copy mode",
+   "sf": "character.cursor.ibeam",
+   "family": "terminal"
+  },
+  {
+   "name": "terminal.dead",
+   "meaning": "Terminal process exited",
+   "sf": "xmark.octagon",
+   "family": "terminal"
+  },
+  {
+   "name": "terminal.new",
+   "meaning": "New terminal (sidebar shortcut / on machine)",
+   "sf": "apple.terminal",
+   "family": "terminal"
+  },
+  {
+   "name": "text.description",
+   "meaning": "Logs / description",
+   "sf": "text.alignleft",
+   "family": "text"
+  },
+  {
+   "name": "text.wrap",
+   "meaning": "Word wrap",
+   "sf": "text.word.spacing",
+   "family": "text"
+  },
+  {
+   "name": "theme",
+   "meaning": "Appearance / theme",
+   "sf": "paintbrush",
+   "family": "theme"
+  },
+  {
+   "name": "theme.badge",
+   "meaning": "Per-tab theme badge dot",
+   "sf": "questionmark.square.dashed",
+   "family": "theme"
+  },
+  {
+   "name": "tool.edit",
+   "meaning": "Transcript tool row: edit a file.",
+   "sf": "questionmark.square.dashed",
+   "family": "tool"
+  },
+  {
+   "name": "tool.group",
+   "meaning": "Transcript row: a run of mixed tool calls folded into one row.",
+   "sf": "questionmark.square.dashed",
+   "family": "tool"
+  },
+  {
+   "name": "tool.read",
+   "meaning": "Transcript tool row: read a file.",
+   "sf": "questionmark.square.dashed",
+   "family": "tool"
+  },
+  {
+   "name": "tool.search",
+   "meaning": "Transcript tool row: search.",
+   "sf": "questionmark.square.dashed",
+   "family": "tool"
+  },
+  {
+   "name": "tool.shell",
+   "meaning": "Transcript tool row: shell command.",
+   "sf": "questionmark.square.dashed",
+   "family": "tool"
+  },
+  {
+   "name": "tool.web",
+   "meaning": "Transcript tool row: web fetch / browser.",
+   "sf": "questionmark.square.dashed",
+   "family": "tool"
+  },
+  {
+   "name": "tools",
+   "meaning": "Tools (cloud machine tools, Feed tool item).",
+   "sf": "wrench.and.screwdriver",
+   "family": "tools"
+  },
+  {
+   "name": "trust.invalid",
+   "meaning": "Invalid certificate (page info).",
+   "sf": "xmark.seal",
+   "family": "trust"
+  },
+  {
+   "name": "trust.source",
+   "meaning": "Prompt source verified (consent sheet).",
+   "sf": "lock.shield",
+   "family": "trust"
+  },
+  {
+   "name": "trust.verified",
+   "meaning": "Verified / paired / valid certificate / default terminal.",
+   "sf": "checkmark.seal",
+   "family": "trust"
+  },
+  {
+   "name": "tunable.agentActivity",
+   "meaning": "Debug settings section: Agent Activity",
+   "sf": "cursorarrow.click.2",
+   "family": "tunable"
+  },
+  {
+   "name": "tunable.apps",
+   "meaning": "Debug settings section: Apps",
+   "sf": "bag",
+   "family": "tunable"
+  },
+  {
+   "name": "tunable.dropOverlay",
+   "meaning": "Debug settings section: Drop Overlay",
+   "sf": "square.dashed.inset.filled",
+   "family": "tunable"
+  },
+  {
+   "name": "tunable.fades",
+   "meaning": "Debug settings section: Fades and Loops",
+   "sf": "circle.lefthalf.filled",
+   "family": "tunable"
+  },
+  {
+   "name": "tunable.feed",
+   "meaning": "Debug settings section: Feed",
+   "sf": "tray.full",
+   "family": "tunable"
+  },
+  {
+   "name": "tunable.focus",
+   "meaning": "Debug settings section: Focus and Scroll",
+   "sf": "scope",
+   "family": "tunable"
+  },
+  {
+   "name": "tunable.glass",
+   "meaning": "Debug settings section: Glass and Overlays",
+   "sf": "drop",
+   "family": "tunable"
+  },
+  {
+   "name": "tunable.hover",
+   "meaning": "Debug settings section: Hover and Marquee",
+   "sf": "cursorarrow.rays",
+   "family": "tunable"
+  },
+  {
+   "name": "tunable.palette",
+   "meaning": "Debug settings section: Palette and Panels",
+   "sf": "command",
+   "family": "tunable"
+  },
+  {
+   "name": "tunable.panes",
+   "meaning": "Debug settings section: Panes and Columns",
+   "sf": "rectangle.split.3x1",
+   "family": "tunable"
+  },
+  {
+   "name": "tunable.server",
+   "meaning": "Debug settings section: Server",
+   "sf": "server.rack",
+   "family": "tunable"
+  },
+  {
+   "name": "tunable.settingsWindow",
+   "meaning": "Debug settings section: Settings Window",
+   "sf": "gearshape",
+   "family": "tunable"
+  },
+  {
+   "name": "tunable.shape",
+   "meaning": "Debug settings section: Shape and Icons",
+   "sf": "app.dashed",
+   "family": "tunable"
+  },
+  {
+   "name": "tunable.sidebar",
+   "meaning": "Debug settings section: Sidebar and Window",
+   "sf": "sidebar.left",
+   "family": "tunable"
+  },
+  {
+   "name": "tunable.springs",
+   "meaning": "Debug settings section: Springs",
+   "sf": "waveform.path",
+   "family": "tunable"
+  },
+  {
+   "name": "tunable.status",
+   "meaning": "Debug settings section: Status Indicators",
+   "sf": "progress.indicator",
+   "family": "tunable"
+  },
+  {
+   "name": "tunable.tabDrag",
+   "meaning": "Debug settings section: Tab Drag",
+   "sf": "hand.draw",
+   "family": "tunable"
+  },
+  {
+   "name": "tunable.tabs",
+   "meaning": "Debug settings section: Tabs",
+   "sf": "rectangle.topthird.inset.filled",
+   "family": "tunable"
+  },
+  {
+   "name": "tunable.tasks",
+   "meaning": "Debug settings section: Tasks",
+   "sf": "checklist",
+   "family": "tunable"
+  },
+  {
+   "name": "unread.badge",
+   "meaning": "Unread count badge on a tab icon",
+   "sf": "questionmark.square.dashed",
+   "family": "unread"
+  },
+  {
+   "name": "unread.dot",
+   "meaning": "Unread notification dot",
+   "sf": "questionmark.square.dashed",
+   "family": "unread",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "view.grid",
+   "meaning": "Grid / apps / templates",
+   "sf": "square.grid.2x2",
+   "family": "view"
+  },
+  {
+   "name": "view.list",
+   "meaning": "List / choices / all",
+   "sf": "list.bullet",
+   "family": "view"
+  },
+  {
+   "name": "workspace",
+   "meaning": "Workspace",
+   "sf": "rectangle.stack",
+   "family": "workspace"
+  },
+  {
+   "name": "workspace.new",
+   "meaning": "New workspace / add to group / drop preview",
+   "sf": "plus.rectangle.on.rectangle",
+   "family": "workspace"
+  }
+ ]
+}
