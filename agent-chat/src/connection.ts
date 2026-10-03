@@ -69,6 +69,7 @@ export function openSessionConnection(callbacks: SessionConnection): () => void 
       callbacks.onMessage(event);
     };
     ws.onerror = () => {
+      // Error events can arrive without a timely close; release the dead socket immediately.
       if (!isCurrent()) return;
       detachSocket(ws);
       scheduleReconnect();

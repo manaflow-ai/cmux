@@ -20,7 +20,7 @@ export function App() {
       <SessionContext.Provider value={s}>
         <RepositorySlugContext.Provider value={repositorySlug}>
           <main id="main">
-            {!s.ready && s.phase === "composer" ? null : s.phase === "chat" ? <Chat /> : <Composer />}
+            {s.phase === "chat" ? <Chat /> : <Composer />}
           </main>
         </RepositorySlugContext.Provider>
       </SessionContext.Provider>
