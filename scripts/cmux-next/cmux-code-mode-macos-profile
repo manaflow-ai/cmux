@@ -13,6 +13,8 @@ script=$4
 proxy_socket=$5
 temp_dir=$6
 cloud_socket=${7:-}
+bun_home=$(dirname "$(dirname "$(dirname "$bun")")")
+script_dir=$(dirname "$script")
 
 # Seatbelt literals are quoted strings. Reject control characters and escape the
 # two characters that can terminate a literal. Paths with a newline are not
@@ -25,6 +27,11 @@ literal() {
       exit 2
       ;;
   esac
+  # macOS exposes temporary directories through /var but the kernel reports
+  # their canonical /private/var paths. Resolve existing inputs before quoting
+  # them so Seatbelt matches the paths Bun actually opens.
+  value=$(realpath "$value" 2>/dev/null || printf '%s' "$value")
+  value=$(printf '%s' "$value" | sed 's#//*#/#g')
   printf '%s' "$value" | sed 's/[\\\"]/\\&/g'
 }
 
@@ -37,6 +44,7 @@ literal() {
 EOF_PROFILE
   printf '(allow process-exec (literal "%s"))\n' "$(literal "$bun")"
   printf '(allow file-read* (literal "%s"))\n' "$(literal "$bun")"
+  printf '(allow file-read* (literal "%s"))\n' "$(literal "$script_dir")"
   printf '(allow file-read* (subpath "%s"))\n' "$(literal "$sdk")"
   printf '(allow file-read* (literal "%s"))\n' "$(literal "$script")"
   cat <<'EOF_PROFILE'
@@ -50,6 +58,14 @@ EOF_PROFILE
 (allow file-read* (literal "/dev/null"))
 (allow file-read* (literal "/dev/random"))
 (allow file-read* (literal "/dev/urandom"))
+; Bun probes the filesystem root and dtrace helper during startup.
+(allow file-read* (literal "/"))
+(allow file-write-data (literal "/dev/dtracehelper"))
+(allow file-read* (literal "/dev/dtracehelper"))
+(allow file-read-metadata (literal "/Users"))
+EOF_PROFILE
+  printf '(allow file-read* (literal "%s"))\n' "$(literal "$bun_home")"
+  cat <<'EOF_PROFILE'
 (allow sysctl-read)
 (allow ipc-posix-shm-read*)
 (allow ipc-posix-shm-write*)

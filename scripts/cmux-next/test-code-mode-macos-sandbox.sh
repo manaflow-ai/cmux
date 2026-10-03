@@ -13,7 +13,10 @@ bun="$(command -v bun || true)"
 
 root="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
 profile_helper="$root/scripts/cmux-next/cmux-code-mode-macos-profile"
-tmp="$(mktemp -d "${TMPDIR:-/tmp}/cmux-code-mode-macos-smoke.XXXXXX")"
+tmp_parent=${TMPDIR:-/tmp}
+tmp_parent=${tmp_parent%/}
+tmp="$(mktemp -d "$tmp_parent/cmux-code-mode-macos-smoke.XXXXXX")"
+tmp=$(realpath "$tmp")
 trap 'rm -rf "$tmp"' EXIT
 mkdir -m 700 "$tmp/run" "$tmp/sdk" "$tmp/host-home"
 printf '%s\n' secret >"$tmp/host-home/secret"

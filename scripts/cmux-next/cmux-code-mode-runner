@@ -30,9 +30,12 @@ else
   catalog="$root/code-mode/resource-operations-v2.json"
 fi
 
-script=$(CDPATH= cd -- "$(dirname -- "$script")" && pwd)/$(basename -- "$script")
+script=$(CDPATH= cd -P -- "$(dirname -- "$script")" && pwd -P)/$(basename -- "$script")
 
-proxy_dir=$(mktemp -d "${TMPDIR:-/tmp}/cmux-code-mode-proxy.XXXXXX")
+tmp_parent=${TMPDIR:-/tmp}
+tmp_parent=${tmp_parent%/}
+proxy_dir=$(mktemp -d "$tmp_parent/cmux-code-mode-proxy.XXXXXX")
+proxy_dir=$(realpath "$proxy_dir")
 proxy_socket="$proxy_dir/cmux.sock"
 cloud_socket="$proxy_dir/cloud.sock"
 proxy="$sdk/code-mode/proxy.mjs"
