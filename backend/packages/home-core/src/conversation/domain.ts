@@ -175,7 +175,7 @@ export const makeConversationDomain = (options: ConversationDomainOptions = {}):
   reduce: (state, op, params, ctx) => {
     const actor = actorOf(ctx.principal)
     if (!actor) return refuse("forbidden")
-    if (IMPORT_OPS.has(op)) return reduceImport(state, op, params, ctx, actor)
+    if (IMPORT_OPS.has(op)) return reduceImport(state, op, params, ctx, actor, options.participantPolicy ?? defaultParticipantPolicy)
     if (CREATE_OPS.has(op)) return reduceCreate(state, op, params, ctx, actor, options.participantPolicy ?? defaultParticipantPolicy)
     if (!state) return refuse("unknown_conversation")
     const prepared = prepare(state, op, params, ctx, actor, options)

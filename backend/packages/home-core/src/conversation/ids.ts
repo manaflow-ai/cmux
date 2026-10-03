@@ -28,6 +28,15 @@ export const encodeId = (prefix: string, unixMs: number, random: Uint8Array): st
  * hi are the two ids sorted. Participant ids are ASCII, so UTF-16 order equals
  * Rust's byte order.
  */
+/**
+ * The id of a conversation promoted from a Mac (`conversation.import`):
+ * `conv_` + base32(sha256("import\0" + user + "\0" + host + "\0" + local_id))[0..26].
+ * Bound to the importing user and the source, so an import can never land in
+ * another conversation's object (and never in a `conv_dm_` id).
+ */
+export const importConversationId = (user: string, host: string, localId: string): string =>
+  `conv_${crockford(createHash("sha256").update(`import\0${user}\0${host}\0${localId}`).digest(), 26)}`
+
 export const dmConversationId = (a: string, b: string): string => {
   const [lo, hi] = a < b ? [a, b] : [b, a]
   const digest = createHash("sha256").update(`dm\0${lo}\0${hi}`).digest()

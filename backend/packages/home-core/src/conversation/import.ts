@@ -2,8 +2,9 @@ import { summary } from "./create.ts"
 import type { OutboxItem, ReduceContext, ReduceResult, RowWrite } from "./engine-types.ts"
 import { rowsOf } from "./engine-types.ts"
 import { searchIntent, type FanOut } from "./fanout.ts"
-import { formatRfc3339Millis, parseRfc3339Millis, validToken } from "./ids.ts"
+import { formatRfc3339Millis, importConversationId, parseRfc3339Millis, validToken } from "./ids.ts"
 import { fanOutItems, projectionItems } from "./outbox.ts"
+import { stampParticipant, type ParticipantPolicy } from "./policy.ts"
 import { RejectError } from "./reject.ts"
 import { DEFAULT_SETTINGS, MAX_PARTICIPANTS, type ConversationHead, type ImportSource, type Message, type Participant, type Reaction } from "./types.ts"
 import { findParticipant, hasText, reactionEquals, validateParticipant, validateParts, validateReaction, validateTitle } from "./validate.ts"
@@ -21,6 +22,10 @@ import { findParticipant, hasText, reactionEquals, validateParticipant, validate
  * Outbox: search rows per batch; inbox bumps only at commit; no chief wakes.
  */
 export const MAX_IMPORT_BATCH = 500
+/** Serialized size cap of one batch (engine event and ledger rows hold the params). */
+export const MAX_IMPORT_BATCH_BYTES = 1024 * 1024
+/** Allowed clock skew for imported times (they may not be in the future beyond it). */
+const SKEW_MS = 5 * 60_000
 export const IMPORT_OPS = new Set(["conversation.import", "conversation.import.commit"])
 
 type Params = Readonly<Record<string, unknown>>
@@ -39,13 +44,22 @@ const parseSource = (v: unknown): ImportSource | null => {
 }
 
 /** Validates one imported message against the head (participants) and its expected seq. */
-const importMessage = (head: ConversationHead, raw: unknown, seq: number): Message => {
+const importMessage = (head: ConversationHead, raw: unknown, seq: number, previous: Message | null, findById: (id: string) => Message | undefined, nowMs: number): Message => {
   if (!isObj(raw)) return bad()
   const { id, client_msg_id, author, parts, created_at } = raw
   if (raw.seq !== seq || typeof id !== "string" || !/^msg_[A-Za-z0-9]{1,40}$/.test(id)) return bad()
   if (typeof client_msg_id !== "string" || !validToken(client_msg_id)) return bad()
   if (typeof author !== "string" || !findParticipant(head, author) || findParticipant(head, author)!.kind === "address") return bad()
-  const retracted = raw.retracted_at === undefined ? undefined : rfc(raw.retracted_at)
+  // Times: not before the previous message, not in the future, edits and reactions after creation.
+  const createdAt = rfc(created_at)
+  const createdMs = parseRfc3339Millis(createdAt)!
+  if ((previous && createdMs < parseRfc3339Millis(previous.created_at)!) || createdMs > nowMs + SKEW_MS) return bad()
+  const notBefore = (v: unknown) => {
+    const t = rfc(v)
+    if (parseRfc3339Millis(t)! < createdMs || parseRfc3339Millis(t)! > nowMs + SKEW_MS) bad()
+    return t
+  }
+  const retracted = raw.retracted_at === undefined ? undefined : notBefore(raw.retracted_at)
   const checkedParts = retracted !== undefined && Array.isArray(parts) && parts.length === 0 ? [] : validateParts(parts)
   const reactions: Array<Reaction> = []
   for (const r of Array.isArray(raw.reactions) ? raw.reactions : raw.reactions === undefined ? [] : bad()) {
@@ -54,10 +68,15 @@ const importMessage = (head: ConversationHead, raw: unknown, seq: number): Messa
     if (!Number.isInteger(index) || (index as number) < 0 || (index as number) >= checkedParts.length) return bad()
     const kind = validateReaction(r.kind)
     if (reactions.some((x) => x.author === r.author && x.part_index === index && reactionEquals(x.kind, kind))) return bad()
-    reactions.push({ author: r.author, part_index: index as number, kind, at: rfc(r.at) })
+    reactions.push({ author: r.author, part_index: index as number, kind, at: notBefore(r.at) })
   }
   const reply = raw.reply_to
-  if (reply !== undefined && (!isObj(reply) || typeof reply.message_id !== "string" || !Number.isInteger(reply.part_index))) return bad()
+  if (reply !== undefined) {
+    // As message.send: the target is an earlier message of this conversation and the part exists.
+    if (!isObj(reply) || typeof reply.message_id !== "string" || !Number.isInteger(reply.part_index)) return bad()
+    const target = findById(reply.message_id)
+    if (!target || target.seq >= seq || (reply.part_index as number) < 0 || (reply.part_index as number) >= target.parts.length) return bad()
+  }
   return {
     id,
     conversation: head.id,
@@ -66,8 +85,8 @@ const importMessage = (head: ConversationHead, raw: unknown, seq: number): Messa
     author,
     parts: checkedParts,
     ...(reply === undefined ? {} : { reply_to: { message_id: reply.message_id as string, part_index: reply.part_index as number } }),
-    created_at: rfc(created_at),
-    ...(raw.edited_at === undefined ? {} : { edited_at: rfc(raw.edited_at) }),
+    created_at: createdAt,
+    ...(raw.edited_at === undefined ? {} : { edited_at: notBefore(raw.edited_at) }),
     ...(retracted === undefined ? {} : { retracted_at: retracted }),
     reactions
   }
@@ -76,12 +95,16 @@ const importMessage = (head: ConversationHead, raw: unknown, seq: number): Messa
 /** Appends a batch: dense seq, unique ids, loop-guard counters updated as `apply` would. */
 const appendBatch = (head: ConversationHead, rawMessages: unknown, ctx: ReduceContext): { head: ConversationHead; messages: Array<Message>; writes: Array<RowWrite> } => {
   if (!Array.isArray(rawMessages) || rawMessages.length > MAX_IMPORT_BATCH) return bad()
+  if (Buffer.byteLength(JSON.stringify(rawMessages), "utf8") > MAX_IMPORT_BATCH_BYTES) return bad()
   const rows = rowsOf(ctx)
+  let previous: Message | null = head.last_seq > 0 ? (rows.range<Message>("msg", { limit: 1, desc: true })[0]?.row ?? null) : null
   let next = head
   const messages: Array<Message> = []
   const writes: Array<RowWrite> = []
   for (const raw of rawMessages) {
-    const message = importMessage(next, raw, next.last_seq + 1)
+    const findById = (id: string) => messages.find((m) => m.id === id) ?? rows.get<Message>("msg", id)?.row
+    const message = importMessage(next, raw, next.last_seq + 1, previous, findById, ctx.now)
+    previous = message
     const key = `${message.author}:${message.client_msg_id}`
     if (rows.get("msg", message.id) || rows.get("msgkey", key) || messages.some((m) => m.id === message.id || `${m.author}:${m.client_msg_id}` === key)) return bad()
     const agent = findParticipant(next, message.author)?.kind === "agent"
@@ -103,7 +126,7 @@ const searchItems = (before: ConversationHead | null, head: ConversationHead, me
   return projectionItems(before, { head, change: { kind: "conversation", conversation: summary(head, null) } }, fan, now, head.updated_at)
 }
 
-export const reduceImport = (state: ConversationHead | null, op: string, params: Params, ctx: ReduceContext, actor: string): Result => {
+export const reduceImport = (state: ConversationHead | null, op: string, params: Params, ctx: ReduceContext, actor: string, policy: ParticipantPolicy): Result => {
   // Only the promoting user, from their own session or app install.
   if (!actor.startsWith("user_") || (ctx.principal.kind !== "session" && ctx.principal.kind !== "install") || ctx.principal.agent) return refuse("forbidden")
   const now = formatRfc3339Millis(ctx.now)
@@ -141,7 +164,7 @@ export const reduceImport = (state: ConversationHead | null, op: string, params:
     if (state && params.after_seq === undefined) {
       // A repeated create: same source is a no-op, anything else is a different conversation.
       const same = source && state.import && state.import.by === actor && state.import.host === source.host && state.import.local_id === source.local_id
-      return same ? { ok: true, state, value: { conversation: summary(state, null) }, changed: false } : refuse("conversation_exists")
+      return same ? { ok: true, state, value: { last_seq: state.last_seq, state: state.state }, changed: false } : refuse("conversation_exists")
     }
     if (state) {
       if (state.import?.by !== actor) return refuse("forbidden")
@@ -152,12 +175,26 @@ export const reduceImport = (state: ConversationHead | null, op: string, params:
     }
     // First call: create the head in `importing`.
     if (typeof params.id !== "string" || !source || (params.kind !== "group" && params.kind !== "chief")) return bad()
+    // The id is derived from the importer and the source, so an import can only create its own object.
+    if (params.id !== importConversationId(actor, source.host, source.local_id)) return refuse("invalid_conversation_id")
     const raw = params.participants
     if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_PARTICIPANTS) return bad()
-    const participants: Array<Participant> = raw.map((p) => validateParticipant(p, true))
-    // Only the importer as a human, and only agents the importer owns.
-    for (const p of participants) {
-      if (p.kind === "address" || (p.kind === "human" && p.id !== actor) || (p.kind === "agent" && p.owner_user !== actor)) return refuse("forbidden")
+    // Only the importer as a human, and only agents the reach policy says the importer owns;
+    // owner_user and display names come from the policy, never from the params.
+    const participants: Array<Participant> = []
+    for (const rawParticipant of raw) {
+      const p = validateParticipant(rawParticipant, true)
+      if (p.kind === "address" || (p.kind === "human" && p.id !== actor)) return refuse("forbidden")
+      const decision = policy(ctx.principal, p, null)
+      if (!decision.ok) return refuse(decision.code)
+      const stamped = stampParticipant(p, decision)
+      if (stamped.kind === "agent" && stamped.owner_user !== actor) return refuse("forbidden")
+      participants.push(stamped)
+    }
+    // Same shape as conversation.create: a chief conversation is the owner and one of their mux agents.
+    if (params.kind === "chief") {
+      const agents = participants.filter((p) => p.kind === "agent")
+      if (participants.length !== 2 || agents.length !== 1 || agents[0]!.agent_class !== "mux") return refuse("invalid_participant")
     }
     if (!participants.some((p) => p.id === actor) || new Set(participants.map((p) => p.id)).size !== participants.length) return bad()
     const title = params.title === undefined ? "" : params.title
