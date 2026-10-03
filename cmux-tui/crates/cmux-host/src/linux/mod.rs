@@ -599,8 +599,11 @@ impl Platform for LinuxPlatform {
             Action::ArmRetry(ms) => {
                 self.retry.arm_after(std::time::Duration::from_millis(*ms)).map(|()| None)
             }
+            // Armed only when an announce can run: enabled, a non-zero
+            // interval and arping present.
             Action::ArmAnnounce => match self.cfg.announce_interval {
-                interval if interval.is_zero() => Ok(None),
+                interval if interval.is_zero() || !self.cfg.announce => Ok(None),
+                _ if spawn::which("arping").is_none() => Ok(None),
                 interval => self.announce_timer.arm_after(interval).map(|()| None),
             },
             Action::DisarmAnnounce => self.announce_timer.disarm().map(|()| None),

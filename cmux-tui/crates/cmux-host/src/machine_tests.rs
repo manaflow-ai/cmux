@@ -96,7 +96,7 @@ fn fork_of_running_machine_stops_old_host_before_identity_work() {
     let mut m = Machine::new();
     m.step(Input::Boot { adopted_daemon: true });
     let first = m.step(obs(Some("parent"), None, Some("parent")));
-    assert_eq!(names(&first), ["start-roles", "ready"]);
+    assert_eq!(names(&first), ["start-roles", "arm-announce", "ready"]);
     let actions = m.step(obs(Some("child"), None, Some("parent")));
     assert_eq!(names(&actions), ["terminate-daemon"]);
     // A wake during the stop is deferred, not a second bind.
@@ -273,7 +273,7 @@ fn shutdown_leaves_the_daemon_running() {
 fn removed_bake_file_unparks_and_rearms() {
     let mut m = parked_builder();
     let actions = m.step(obs(Some("b"), None, Some("b")));
-    assert_eq!(names(&actions), ["arm-rearm", "spawn-daemon", "start-roles"]);
+    assert_eq!(names(&actions), ["arm-rearm", "spawn-daemon", "start-roles", "arm-announce"]);
     assert!(!m.is_parked());
 }
 
@@ -300,4 +300,34 @@ fn a_role_refusing_the_park_keeps_the_machine_running() {
     assert!(!m.is_parked());
     assert_eq!(m.daemon(), &DaemonState::Running);
     assert_eq!(names(&m.step(obs(Some("b"), Some("b"), Some("b")))), ["park-roles"]);
+}
+
+/// Re-review P2-a: after the retry budget is spent, an address change
+/// gives a fresh one (the agent reads the metadata again after it).
+#[test]
+fn address_change_restores_the_retry_budget() {
+    let mut m = Machine::new();
+    run(&mut m, obs(Some("x"), None, Some("x")), &ob(Some("x"), None, Some("x")));
+    assert_eq!(m.step(Input::DaemonExited { lived_ms: 60_000 }), [Action::Recheck]);
+    for _ in 0..RETRY_ATTEMPTS {
+        m.step(obs(None, None, Some("x")));
+        m.step(Input::RetryElapsed);
+    }
+    assert!(m.step(obs(None, None, Some("x"))).is_empty(), "budget spent");
+    assert!(names(&m.step(Input::AddressesChanged)).iter().all(|n| *n == "notify"));
+    assert_eq!(m.step(obs(None, None, Some("x"))), [Action::ArmRetry(RETRY_FIRST_MS)]);
+    let back = m.step(obs(Some("x"), None, Some("x")));
+    assert!(back.contains(&Action::SpawnDaemon), "{back:?}");
+}
+
+/// Re-review P3: a bound machine after an agent restart starts the
+/// periodic announce once, not on every observation.
+#[test]
+fn agent_restart_on_bound_machine_starts_the_announce_loop_once() {
+    let mut m = Machine::new();
+    m.step(Input::Boot { adopted_daemon: true });
+    let first = m.step(obs(Some("x"), None, Some("x")));
+    assert!(first.contains(&Action::ArmAnnounce));
+    let second = m.step(obs(Some("x"), None, Some("x")));
+    assert!(!second.contains(&Action::ArmAnnounce), "{second:?}");
 }

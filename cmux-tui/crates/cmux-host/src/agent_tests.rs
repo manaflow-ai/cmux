@@ -280,4 +280,24 @@ fn failed_identity_drop_discards_the_rest_of_the_bind() {
     assert!(!ran.iter().any(|a| a == "write-bound" || a == "spawn-daemon"), "{ran:?}");
     assert_eq!(ran.iter().filter(|a| *a == "drop-failed").count(), 2, "retried once: {ran:?}");
     assert!(ran.contains(&"arm-retry".to_owned()));
+    // Re-review P2-b: READY=1 is still sent, exactly once.
+    assert_eq!(ran.iter().filter(|a| *a == "ready").count(), 1, "{ran:?}");
+}
+
+/// Re-review P2-a: an address change makes the agent read the metadata
+/// again, so a bound machine recovers after its retry budget is spent.
+#[test]
+fn address_change_rereads_metadata() {
+    let mut batches = vec![vec![Wake::Retry]; 12];
+    batches.push(vec![Wake::Address]);
+    let mut metadata: Vec<Option<&'static str>> = vec![None; 13];
+    metadata.push(Some("vm-1"));
+    let mut fake = Fake::new(batches, metadata);
+    fake.bound = Some("vm-1".to_owned());
+    let events = Events::default();
+    let mut agent = agent(fake, &events);
+    agent.run().unwrap();
+    let ran = &agent.platform().ran;
+    assert_eq!(ran.iter().filter(|a| *a == "spawn-daemon").count(), 1, "{ran:?}");
+    assert_eq!(ran.iter().filter(|a| *a == "ready").count(), 1, "{ran:?}");
 }

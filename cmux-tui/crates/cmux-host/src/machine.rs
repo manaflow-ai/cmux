@@ -243,6 +243,8 @@ pub struct Machine {
     metadata_machine: bool,
     retry_attempts: u32,
     retry_armed: bool,
+    /// The periodic announce timer is armed.
+    announce_loop: bool,
     exiting: bool,
 }
 
@@ -268,6 +270,7 @@ impl Machine {
             metadata_machine: false,
             retry_attempts: 0,
             retry_armed: false,
+            announce_loop: false,
             exiting: false,
         }
     }
@@ -339,16 +342,22 @@ impl Machine {
             }
             Input::AnnounceDone => {
                 self.announcing = false;
-                if !self.parked && self.current_id.is_some() {
-                    out.push(Action::ArmAnnounce);
-                }
+                self.arm_announce_loop(&mut out);
             }
             Input::AnnounceTick => {
+                self.announce_loop = false;
                 if !self.parked && self.current_id.is_some() {
                     self.announce(&mut out);
                 }
             }
-            Input::AddressesChanged => self.notify(Lifecycle::AddressesChanged, &mut out),
+            Input::AddressesChanged => {
+                // The agent re-reads the metadata after this (not a
+                // resume): a fresh retry budget, so a bound machine whose
+                // metadata service was down for the whole retry run comes
+                // back when its network does.
+                self.retry_attempts = 0;
+                self.notify(Lifecycle::AddressesChanged, &mut out);
+            }
             Input::ChannelChanged => self.notify(Lifecycle::ChannelChanged, &mut out),
             Input::ConfigChanged => self.notify(Lifecycle::ConfigChanged, &mut out),
             Input::RolesParked { ok } => self.roles_parked(ok, &mut out),
@@ -416,7 +425,17 @@ impl Machine {
                 }
                 self.ensure_running(out);
                 self.start_roles(out);
+                // An agent restart or an unpark on a bound machine starts
+                // the periodic announce too, not only a bind or a resume.
+                self.arm_announce_loop(out);
             }
+        }
+    }
+
+    fn arm_announce_loop(&mut self, out: &mut Vec<Action>) {
+        if !self.parked && self.current_id.is_some() && !self.announcing && !self.announce_loop {
+            self.announce_loop = true;
+            out.push(Action::ArmAnnounce);
         }
     }
 
@@ -500,6 +519,7 @@ impl Machine {
             out.push(Action::ParkHousekeeping);
             out.push(Action::DisarmRearm);
             out.push(Action::DisarmAnnounce);
+            self.announce_loop = false;
             out.push(Action::RemoveDriverFile);
         }
         self.current_id = Some(id);

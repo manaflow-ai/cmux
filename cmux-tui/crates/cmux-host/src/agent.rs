@@ -185,9 +185,13 @@ impl<P: Platform> Agent<P> {
                     resumed = true;
                     observe = true;
                 }
-                // A change of the global address set: roles rebind. Not a
-                // resume and no metadata read.
-                Wake::Address => rest.push(Input::AddressesChanged),
+                // A change of the global address set: roles rebind and the
+                // metadata is read again with a fresh retry budget. Not a
+                // resume: no Resumed event, no announce.
+                Wake::Address => {
+                    first.push(Input::AddressesChanged);
+                    observe = true;
+                }
                 Wake::ConfigFile => rest.push(Input::ConfigChanged),
                 Wake::DriverFile | Wake::BakeFile => observe = true,
                 Wake::Retry => {
@@ -242,15 +246,24 @@ impl<P: Platform> Agent<P> {
     }
 
     /// Runs one step's actions. The identity group (reseed, drop, write)
-    /// is guarded: its first failure discards the rest of the step and
-    /// answers `BindFailed`, so nothing spawns on inherited identity.
+    /// is guarded: its first failure skips the rest of the group (up to
+    /// and including `CommitBind`) and answers `BindFailed`, so nothing
+    /// spawns on inherited identity. Actions after the group (`Ready`)
+    /// still run.
     fn run_step(&mut self, actions: &[Action], exit: &mut bool) -> Vec<Input> {
         let mut follow = Vec::new();
         let binding = actions.iter().find_map(|a| match a {
             Action::CommitBind(id) => Some(id.clone()),
             _ => None,
         });
+        let mut skipping = false;
         for action in actions {
+            if skipping {
+                if matches!(action, Action::CommitBind(_)) {
+                    skipping = false;
+                }
+                continue;
+            }
             self.log.line(&describe(action));
             match action {
                 Action::Exit => *exit = true,
@@ -291,7 +304,8 @@ impl<P: Platform> Agent<P> {
                         if guarded && let Some(id) = binding.clone() {
                             self.log.line(&format!("bind-failed id={id}"));
                             follow.push(Input::BindFailed(id));
-                            return follow;
+                            skipping = true;
+                            continue;
                         }
                         if *action == Action::SpawnDaemon {
                             follow.push(Input::DaemonExited { lived_ms: 0 });

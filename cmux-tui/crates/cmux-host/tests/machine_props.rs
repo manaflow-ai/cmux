@@ -55,6 +55,8 @@ proptest! {
         // Completed binds (write-bound). A reseed whose bind was superseded
         // during the old host's stop may repeat; a bind never does.
         let mut binds: Vec<String> = Vec::new();
+        let mut readies = 0usize;
+        let mut observed = false;
         for (op, refuse) in ops {
             let stopping_before = matches!(m.daemon(), DaemonState::Stopping(_));
             let running_before = m.daemon() == &DaemonState::Running;
@@ -130,6 +132,14 @@ proptest! {
                     prop_assert_ne!(m.daemon(), &DaemonState::Running);
                 }
                 pending = answered;
+            }
+            readies += actions.iter().filter(|a| **a == Action::Ready).count();
+            observed |= matches!(op, Op::Observe(_));
+            // Re-review P2-b: READY once, on every path, from the first
+            // observation on.
+            prop_assert!(readies <= 1);
+            if observed {
+                prop_assert_eq!(readies, 1, "{:?}", actions);
             }
             let step_reseeds: Vec<&String> = actions
                 .iter()

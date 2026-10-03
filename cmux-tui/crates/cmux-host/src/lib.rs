@@ -22,6 +22,15 @@
 //! - [`status`]: `cmux host status`.
 //! - [`cli`]: the verbs; also the standalone `cmux-host` binary.
 //! - `linux`: the Linux platform (descriptors, spawn, identity, `/proc`).
+//!
+//! Known limits (security review notes):
+//! - Adoption after an agent restart trusts only the agent's root-owned pid
+//!   file in `/run/cmux-host`; there is no `/proc` fallback, so a session
+//!   host whose pid file was lost is not adopted (a second one would fail
+//!   to take the session and exit, and the backoff applies).
+//! - `/run/cmux` belongs to the work user, so that user can write
+//!   `/run/cmux/instance-id` and cause metadata reads. Each wake costs one
+//!   bounded read; the id itself always comes from the metadata service.
 
 pub mod agent;
 pub mod announce;
