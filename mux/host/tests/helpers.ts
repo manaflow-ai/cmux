@@ -15,7 +15,7 @@ export async function world() {
   const home = join(dir, "home");
   const lines: string[] = [];
   const hosts: MuxHost[] = [];
-  const host = (extra: { agentToken?: string } = {}) => {
+  const host = (extra: { agentToken?: string; clock?: FakeClock; requestTimeoutMs?: number } = {}) => {
     const h = new MuxHost({
       ...extra,
       daemonSocket: daemon.path,
@@ -47,4 +47,35 @@ export function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((r) => (resolve = r));
   return { promise, resolve };
+}
+
+/** A clock for request timeouts that only moves when the test advances it. */
+export interface FakeClock {
+  setTimeout(fn: () => void, ms: number): number;
+  clearTimeout(handle: unknown): void;
+  advance(ms: number): void;
+}
+
+export function fakeClock(): FakeClock {
+  let now = 0;
+  let next = 1;
+  const timers = new Map<number, { at: number; fn: () => void }>();
+  return {
+    setTimeout(fn, ms) {
+      const handle = next++;
+      timers.set(handle, { at: now + ms, fn });
+      return handle;
+    },
+    clearTimeout(handle) {
+      timers.delete(handle as number);
+    },
+    advance(ms) {
+      now += ms;
+      for (const [handle, timer] of [...timers].sort((a, b) => a[1].at - b[1].at)) {
+        if (timer.at > now) continue;
+        timers.delete(handle);
+        timer.fn();
+      }
+    },
+  };
 }

@@ -5,7 +5,7 @@ import { answerPermission, listAgents, spawnAgent } from "../src/agents.ts";
 import { AGENT_MUX, type Message, messageText, USER_LOCAL } from "../src/conversation-types.ts";
 import { DaemonClient, DaemonError, MissingCapabilityError } from "../src/daemon-client.ts";
 import { HostAlreadyRunningError } from "../src/host.ts";
-import { deferred, world } from "./helpers.ts";
+import { deferred, fakeClock, world } from "./helpers.ts";
 
 let cleanup: (() => Promise<void>) | undefined;
 afterEach(async () => {
@@ -331,5 +331,25 @@ describe("owner refusals", () => {
     await host.ready;
     expect(w.daemon.requests.filter((r) => r.cmd === "identify").length).toBe(1);
     expect(w.lines.some((line) => line.includes("refused") && line.includes(broken))).toBe(true);
+  }, 5000);
+});
+
+describe("request timeouts", () => {
+  test("a stuck daemon request times out on the injected clock; the host reconnects and the reply goes out", async () => {
+    const w = await setup();
+    const clock = fakeClock();
+    const host = w.host({ clock, requestTimeoutMs: 1_000 });
+    host.start();
+    await host.ready;
+    const [conv] = w.daemon.conversationIds;
+    w.daemon.hold.add("conversation-typing");
+    w.daemon.send(conv, USER_LOCAL, "hello");
+    await w.daemon.until(() => w.daemon.requests.some((r) => r.cmd === "conversation-typing"));
+    w.daemon.hold.delete("conversation-typing");
+    // The reply waits behind the stuck typing request in the serial effect queue.
+    expect(muxReplies(w.daemon.messages(conv)).length).toBe(0);
+    clock.advance(1_000);
+    await w.daemon.until(() => muxReplies(w.daemon.messages(conv)).length === 1);
+    expect(w.daemon.requests.filter((r) => r.cmd === "identify").length).toBe(2);
   }, 5000);
 });
