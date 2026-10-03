@@ -44,9 +44,9 @@ public nonisolated struct IconCatalog: Sendable, Decodable {
     }
 
     /// The style `name` draws in at `size`: its dense style below
-    /// `IconMetrics.denseThreshold`, else `requested`.
+    /// `CGFloat.iconDenseThreshold`, else `requested`.
     public func style(_ requested: IconStyle, for name: IconName, size: CGFloat) -> IconStyle {
-        if size < IconMetrics.denseThreshold, let dense = entry(for: name)?.denseStyle {
+        if size < CGFloat.iconDenseThreshold, let dense = entry(for: name)?.denseStyle {
             return dense
         }
         return requested

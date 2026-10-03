@@ -5,7 +5,7 @@ public nonisolated struct IconCatalogEntry: Hashable, Sendable, Decodable {
     /// SF Symbol drawn when the pack lacks the icon.
     public var sf: String
     public var family: String
-    /// The style rows below `IconMetrics.denseThreshold` use, when set.
+    /// The style rows below `CGFloat.iconDenseThreshold` use, when set.
     public var denseStyle: IconStyle?
 
     public init(name: IconName, meaning: String, sf: String, family: String, denseStyle: IconStyle? = nil) {

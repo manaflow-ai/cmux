@@ -3,15 +3,16 @@ public import CoreGraphics
 /// Parses the pack's path data: absolute M, L, C and Z, numbers separated by
 /// spaces or commas. Anything else (relative commands, arcs, quadratics)
 /// returns nil.
-public nonisolated enum IconPath {
-    public static func cgPath(_ d: String) -> CGPath? {
-        guard let tokens = tokens(d) else { return nil }
+public nonisolated extension CGPath {
+    /// The path for pack path data, or nil when it is not in the pack format.
+    static func icon(_ d: String) -> CGPath? {
+        guard let tokens = iconTokens(d) else { return nil }
         let path = CGMutablePath()
         var command: Character?
         var args: [CGFloat] = []
         var started = false
         for token in tokens {
-            if let letter = token.first, Self.commands.contains(letter) {
+            if let letter = token.first, iconCommands.contains(letter) {
                 guard args.isEmpty else { return nil }
                 command = letter
                 if letter == "Z" {
@@ -41,10 +42,10 @@ public nonisolated enum IconPath {
         return started && args.isEmpty ? path : nil
     }
 
-    private static let commands: Set<Character> = ["M", "L", "C", "Z"]
+    private static let iconCommands: Set<Character> = ["M", "L", "C", "Z"]
 
     /// Splits path data into command letters and number strings.
-    private static func tokens(_ d: String) -> [String]? {
+    private static func iconTokens(_ d: String) -> [String]? {
         var tokens: [String] = []
         var number = ""
         func flush() {

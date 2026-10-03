@@ -4,14 +4,14 @@ import Testing
 /// Names the pack lacks fall back to SF Symbols.
 struct IconResolverTests {
     @Test func anUnknownNameResolvesToThePlaceholderSymbol() {
-        let resolved = IconResolver.resolve(IconName("no.such.icon"), style: .line)
-        #expect(resolved == .system(IconResolver.unknownSymbol))
+        let resolved = IconPack.bundled.resolve(IconName("no.such.icon"), style: .line)
+        #expect(resolved == .system(IconResolution.unknownSymbol))
         #expect(resolved == .system("questionmark.square.dashed"))
     }
 
     @Test func aCatalogNameMissingFromThePackResolvesToItsSymbol() throws {
         let entry = try #require(IconCatalog.bundled.entry(for: .actionClose))
-        let resolved = IconResolver.resolve(.actionClose, style: .line, pack: IconPack(icons: [:]))
+        let resolved = IconPack(icons: [:]).resolve(.actionClose, style: .line)
         #expect(resolved == .system(entry.sf))
     }
 }

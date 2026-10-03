@@ -20,7 +20,7 @@ struct IconCanvas: View {
     }
 
     private static func draw(_ icon: IconLayer, in layer: GraphicsContext, accentColor: Color) {
-        guard let cgPath = IconPath.cgPath(icon.d) else { return }
+        guard let cgPath = CGPath.icon(icon.d) else { return }
         var context = layer
         let path = Path(cgPath)
         let shading: GraphicsContext.Shading

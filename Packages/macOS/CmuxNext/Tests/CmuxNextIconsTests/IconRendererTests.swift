@@ -45,7 +45,7 @@ struct IconRendererTests {
     @Test func drawsTheCloseIcon() throws {
         let layers = try #require(IconPack.bundled.drawing(for: .actionClose)?.line)
         let bitmap = try Bitmap(side: 32)
-        IconRenderer.draw(layers, in: bitmap.context, rect: CGRect(x: 0, y: 0, width: 32, height: 32), ink: Self.ink)
+        bitmap.context.drawIcon(layers, in: CGRect(x: 0, y: 0, width: 32, height: 32), ink: Self.ink)
         #expect(try bitmap.inkedPixels() > 0)
         #expect(try bitmap.alpha(x: 16, y: 16) > 0, "the x crosses the center")
     }
@@ -59,7 +59,7 @@ struct IconRendererTests {
         // Content already in the context, under the clear square.
         bitmap.context.setFillColor(CGColor(gray: 0.5, alpha: 1))
         bitmap.context.fill(CGRect(x: 10, y: 10, width: 1, height: 1))
-        IconRenderer.draw(layers, in: bitmap.context, rect: CGRect(x: 0, y: 0, width: 24, height: 24), ink: Self.ink)
+        bitmap.context.drawIcon(layers, in: CGRect(x: 0, y: 0, width: 24, height: 24), ink: Self.ink)
         #expect(try bitmap.alpha(x: 12, y: 12) == 0)
         #expect(try bitmap.alpha(x: 5, y: 5) == 255)
         #expect(try bitmap.alpha(x: 10, y: 10) == 255, "content under the icon survives its clear layers")
@@ -68,13 +68,7 @@ struct IconRendererTests {
     @Test func cropMapsTheRowViewBoxOntoTheTarget() throws {
         let layers = [IconLayer(d: "M2.5 2.5L21.5 2.5L21.5 21.5L2.5 21.5Z", op: .fill)]
         let bitmap = try Bitmap(side: 19)
-        IconRenderer.draw(
-            layers,
-            in: bitmap.context,
-            rect: CGRect(x: 0, y: 0, width: 19, height: 19),
-            ink: Self.ink,
-            crop: IconRenderer.rowCrop
-        )
+        bitmap.context.drawIcon(layers, in: CGRect(x: 0, y: 0, width: 19, height: 19), ink: Self.ink, crop: .iconRowCrop)
         #expect(try bitmap.inkedPixels() == 19 * 19)
     }
 }

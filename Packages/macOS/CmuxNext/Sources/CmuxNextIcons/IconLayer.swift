@@ -41,7 +41,7 @@ public nonisolated struct IconLayer: Hashable, Sendable, Decodable {
         }
     }
 
-    /// Path data: absolute M, L, C and Z only (`IconPath`).
+    /// Path data: absolute M, L, C and Z only (`CGPath.icon`).
     public var d: String
     public var op: Operation
     public var width: CGFloat
