@@ -414,6 +414,8 @@ fn restart_tab_relaunches_a_host_lost_tab_in_place() {
     let workspace = workspace_named(&tree, "restarted").expect("the workspace stays");
     let dead = first_tab(&workspace).expect("the tab stays").clone();
     assert_eq!(dead["dead"], true, "{dead}");
+    // A client derives the restart key from it, so a dead tab names its terminal.
+    assert!(dead["terminal_resource_id"].is_string(), "{dead}");
     let restarted = request(
         &harness.socket,
         serde_json::json!({

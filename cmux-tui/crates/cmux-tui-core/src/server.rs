@@ -11529,9 +11529,9 @@ fn pane_json(
         "tabs": pane.tabs.iter().map(|sid| {
             let surface = state.surfaces.get(sid);
             let terminal_identity = surface.and_then(|surface| surface.terminal_host_identity());
-            let terminal_resource_id = surface
-                .and_then(|surface| surface.resource_identity())
-                .and_then(|identity| match &identity.content_id {
+            // The topology's content: a dead tab may have no runtime surface.
+            let terminal_resource_id =
+                state.resource_indexes.content_ids.get(sid).and_then(|content| match content {
                     ContentPublicId::Terminal(id) => Some(id),
                     ContentPublicId::Browser(_) => None,
                 });
