@@ -6,6 +6,7 @@ import { getFiletypeFromFileName, getSingularPatch, setLanguageOverride } from "
 import { FileDiff } from "@pierre/diffs/react";
 import { editPatch, type TurnFile } from "../diff";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS, registerAgentDiffTheme } from "../diffTheme";
+import { t } from "../i18n";
 import { isHighlighted } from "../shikiLanguages";
 import { copyText } from "./clipboard";
 import { Copy } from "./icons";
@@ -100,7 +101,7 @@ export function EditDiff({ file }: { file: TurnFile }) {
             />
           ) : (
             <div key={edit.toolId + index} className="cv-edit-diff__empty">
-              No line changes
+              {t("changes.noLineChanges")}
             </div>
           ),
         )}

@@ -92,7 +92,9 @@ export function EditBlock({
       {header}
       {outsideAgentEdits && <div className="acpmux-diff-outside">{t("changes.outsideAgentEdits")}</div>}
       {!view.collapsed && edit.hunks.length === 0 && (
-        <div className="acpmux-diff-empty-edit">{file.binary ? "Binary file not shown" : "No line changes"}</div>
+        <div className="acpmux-diff-empty-edit">
+          {t(file.binary ? "changes.binaryNotShown" : "changes.noLineChanges")}
+        </div>
       )}
       {showDiff && (
         <FileDiff<HunkAnchor>
