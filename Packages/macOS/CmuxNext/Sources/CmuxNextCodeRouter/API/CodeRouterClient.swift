@@ -135,7 +135,8 @@ public struct CodeRouterClient: Sendable {
         if status == 401 { return .notSignedIn }
         let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         let code = (object?["error"] as? String).map(EmailRedaction.redactEmails(in:))
-        let message = (object?["message"] as? String).flatMap { $0.isEmpty ? nil : EmailRedaction.redactEmails(in: String($0.prefix(300))) }
+        // Redact the whole message first: a cut could split an email so the redactor misses it.
+        let message = (object?["message"] as? String).flatMap { $0.isEmpty ? nil : String(EmailRedaction.redactEmails(in: $0).prefix(300)) }
         return .http(status: status, code: code, message: message)
     }
 

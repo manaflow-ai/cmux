@@ -9,10 +9,23 @@ import Foundation
 /// run becomes `j…@b…`: at most one character on each side, and every `@`
 /// in the output follows `…`, so the output never matches an email.
 public enum EmailRedaction {
-    static let markers = ["@", "＠", "%40"]
+    /// `@`, full-width `＠`, small `﹫`, and the URL-encoded forms. Found
+    /// by literal (scalar-level) search, so an `@` followed by a combining
+    /// mark still counts.
+    static let markers = ["@", "\u{FF20}", "\u{FE6B}", "%40", "%2540"]
 
     public static func containsEmail(_ text: String) -> Bool {
-        markers.contains { text.contains($0) }
+        markers.contains { text.range(of: $0, options: .literal) != nil }
+    }
+
+    /// A non-JSON body with HTML or JSON escapes of `@` decoded first, so
+    /// `someone&#64;example.com` is redacted like `someone@example.com`.
+    public static func redactEmails(inBody text: String) -> String {
+        var decoded = text
+        for escape in ["\\u0040", "&#64;", "&#x40;", "&#X40;", "&commat;"] {
+            decoded = decoded.replacingOccurrences(of: escape, with: "@", options: .caseInsensitive)
+        }
+        return redactEmails(in: decoded)
     }
 
     /// Every email-like run inside `text` shortened; the rest unchanged.
@@ -60,7 +73,7 @@ public enum EmailRedaction {
             suffix = String(last) + suffix
             core = core.dropLast()
         }
-        let marker = markers.compactMap { core.range(of: $0) }.min { $0.lowerBound < $1.lowerBound }
+        let marker = markers.compactMap { core.range(of: $0, options: .literal) }.min { $0.lowerBound < $1.lowerBound }
         let local = marker.map { core[..<$0.lowerBound] } ?? core
         let domain = marker.map { core[$0.upperBound...] } ?? ""
         let short = initial(local) + "…@" + initial(domain) + "…"

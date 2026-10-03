@@ -3,8 +3,9 @@ import Foundation
 /// The one email scanner every account-privacy test uses (this file is
 /// shared by symlink with CmuxNextAppTests). It is deliberately independent
 /// of the production redactor and stricter than any email grammar: every
-/// `@`, full-width `＠` or URL-encoded `%40` counts as a leak unless it
-/// directly follows `…` (the redactor's `s…@e…` form).
+/// `@`, full-width `＠`, small `﹫` or URL-encoded `%40` / `%2540` counts
+/// as a leak unless it directly follows `…` (the redactor's `s…@e…` form).
+/// Scalars, not characters: an `@` with a combining mark still counts.
 nonisolated enum PrivacyScan {
     /// Each unredacted marker in `text`, with a little context.
     static func emails(in text: String) -> [String] {
@@ -12,8 +13,9 @@ nonisolated enum PrivacyScan {
         var found: [String] = []
         for index in scalars.indices {
             let scalar = scalars[index]
-            let isAt = scalar == "@" || scalar == "\u{FF20}"
-            let isEncoded = scalar == "%" && index + 2 < scalars.count && scalars[index + 1] == "4" && scalars[index + 2] == "0"
+            let isAt = scalar == "@" || scalar == "\u{FF20}" || scalar == "\u{FE6B}"
+            let rest = String(String.UnicodeScalarView(scalars[index...].prefix(5)))
+            let isEncoded = scalar == "%" && (rest.hasPrefix("%40") || rest.hasPrefix("%2540"))
             guard isAt || isEncoded, index == 0 || scalars[index - 1] != "\u{2026}" else { continue }
             let context = scalars[max(0, index - 12)..<min(scalars.count, index + 12)]
             found.append(String(String.UnicodeScalarView(context)))
@@ -37,7 +39,11 @@ nonisolated enum PrivacyScan {
     /// (so `…` counts as `…`), or the raw text when it is not JSON.
     static func emails(inJSON data: Data) -> [String] {
         guard let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
-            return emails(in: String(decoding: data, as: UTF8.self))
+            var text = String(decoding: data, as: UTF8.self)
+            for escape in [#"\u0040"#, "&#64;", "&#x40;", "&commat;"] {
+                text = text.replacingOccurrences(of: escape, with: "@", options: .caseInsensitive)
+            }
+            return emails(in: text)
         }
         var texts: [String] = []
         collectJSON(object, into: &texts)
