@@ -525,6 +525,12 @@
       "title" : "MinimumVersion",
       "type" : "string"
     },
+    "newTerminal.opensWorkspace" : {
+      "default" : false,
+      "description" : "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click.",
+      "title" : "New Terminal Opens a Workspace",
+      "type" : "boolean"
+    },
     "notifications.attention.blinkCount" : {
       "default" : 2,
       "description" : "notifications.attention.blinkCount",
