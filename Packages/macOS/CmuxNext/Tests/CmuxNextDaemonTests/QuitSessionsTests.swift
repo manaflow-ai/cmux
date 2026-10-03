@@ -7,7 +7,7 @@ import Testing
 /// running and a new connection finds the same terminals; End Sessions,
 /// Keep Layout and End Everything end every terminal and stop the daemon,
 /// and End Everything also deletes the workspaces.
-@Suite(.enabled(if: RealBinary.isBranchBuild, "needs the pinned branch cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"),
+@Suite(.enabled(if: RealBinary.isBranchBuild, "needs the same-tree cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"),
        .timeLimit(.minutes(2)), .liveDaemon)
 struct QuitSessionsTests {
     @Test func keepLeavesTheDaemonAndTerminalsForTheNextLaunch() async throws {
