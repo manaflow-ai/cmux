@@ -3282,7 +3282,11 @@ final class SocketClient {
         )
         recordOperation(operation)
 
-        let payload = capabilityWrappedCommand(Self.automationEnvelopeCommand(command)) + "\n"
+        guard let payload = SocketCommandLine.framedLine(
+            for: capabilityWrappedCommand(Self.automationEnvelopeCommand(command))
+        ) else {
+            throw CLIError(message: "Rejected socket command containing line-terminator characters")
+        }
         try writeAllNonBlocking(
             Data(payload.utf8),
             deadline: operationDeadline,
@@ -3403,9 +3407,14 @@ final class SocketClient {
         )
         recordOperation(operation)
 
+        guard let oneWayPayload = SocketCommandLine.framedLine(
+            for: capabilityWrappedCommand(Self.automationEnvelopeCommand(command))
+        ) else {
+            throw CLIError(message: "Rejected socket command containing line-terminator characters")
+        }
         do {
             try writeAllNonBlocking(
-                Data((capabilityWrappedCommand(Self.automationEnvelopeCommand(command)) + "\n").utf8),
+                Data(oneWayPayload.utf8),
                 deadline: Date.now.addingTimeInterval(writeTimeout),
                 timeoutMessage: "Command timed out",
                 failureMessage: "Failed to write to socket"
@@ -4035,8 +4044,13 @@ final class SocketClient {
             throw CLIError(message: "Failed to encode v2 stream request")
         }
 
+        guard let streamPayload = SocketCommandLine.framedLine(
+            for: capabilityWrappedCommand(requestLine)
+        ) else {
+            throw CLIError(message: "Failed to encode v2 stream request")
+        }
         try writeAll(
-            Data((capabilityWrappedCommand(requestLine) + "\n").utf8),
+            Data(streamPayload.utf8),
             timeoutMessage: "Stream request timed out",
             failureMessage: "Failed to write stream request",
             deadline: deadline
@@ -5025,6 +5039,17 @@ struct CMUXCLI {
                 return
             }
         }
+        if command == "local-zellij",
+           try LocalZellijInvocation.parse(commandArgs).canRunWithoutCmux {
+            try runLocalZellijCommand(
+                commandArgs: commandArgs,
+                client: nil,
+                jsonOutput: jsonOutput,
+                idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg),
+                windowOverride: windowId
+            )
+            return
+        }
 
         if command == "help" { print(helpOutput(commandArgs: commandArgs)); return }; if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "socket-status" { try runSocketControlStatusCommand(commandArgs: commandArgs, jsonOutput: jsonOutput, environment: processEnv); return }
@@ -5404,6 +5429,9 @@ struct CMUXCLI {
             commandArgs: commandArgs
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
+        if ["notify", "list-notifications", "dismiss-notification", "mark-notification-read", "open-notification", "clear-notifications"].contains(command) {
+            try validateNotificationCommandArguments(command: command, args: commandArgs)
+        }
         try prepareStandardInputBeforeSocket(command: command, commandArgs: commandArgs)
         let isAuthCommand = ["auth", "login", "logout"].contains(command)
         let authUsage = String(
@@ -7051,6 +7079,14 @@ struct CMUXCLI {
             )
         case "local-tmux", "tmux":
             try runLocalTmuxCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
+        case "local-zellij":
+            try runLocalZellijCommand(
                 commandArgs: commandArgs,
                 client: client,
                 jsonOutput: jsonOutput,
@@ -12954,7 +12990,11 @@ struct CMUXCLI {
             workspaceName: workspaceName,
             initialCommand: initialCommand,
             windowRaw: windowRaw ?? windowOverride,
-            noFocus: !(focus ?? Self.defaultFocusForUserOpen()),
+            // `cmux ssh` is an explicit interactive navigation command. Keep
+            // its historical behavior of selecting the connected workspace
+            // unless the caller passes `--no-focus`; script/agent callers can
+            // opt out explicitly without silently leaving the new pane behind.
+            noFocus: focus == false,
             sshOptions: agentForwarding.sshOptions,
             remoteCommand: remoteCommand,
             terminalTransport: terminalTransport,
@@ -20068,6 +20108,8 @@ struct CMUXCLI {
             return "\(help)\n\n\(newWindowHelp)\n\n\(Self.openFocusFlagsHelp)"
         case "local-tmux", "tmux":
             return LocalTmuxInvocation.usage
+        case "local-zellij":
+            return LocalZellijInvocation.usage
         case "ssh-session-list":
             return """
             Usage: cmux ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
@@ -35859,7 +35901,16 @@ export default {
             print("{}")
             return
         }
-        let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
+        guard let pidKey = SocketCommandLine.agentHookPIDKeyArgument(
+            statusKey: def.statusKey,
+            sessionId: sessionId.isEmpty ? "default" : sessionId
+        ) else {
+            // A hook session id that cannot be embedded as one socket argument
+            // has no legitimate producer; refuse the event before composing
+            // any per-session command line from it.
+            print("{}")
+            return
+        }
         var didSendFeedTelemetry = false
         func cursorCriticalTimeout() -> TimeInterval? {
             cursorShellRemainingTimeout() ?? 2.0

@@ -839,13 +839,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // duplicated payload that the jump-unread XCUITest asserts on, so they are left app-side per
     // the wave brief's escape hatch. The coordinator's `onDidFocusForJumpUnread` hook is therefore
     // left unwired (wiring it would double-record). The recorder-FREE members of the open/click
-    // cluster did move into the package this wave: the reveal-in-Finder side effect now lives in
-    // `NotificationClickPerformer` (behind `FinderRevealing`), and the entire focused-mark state
+    // cluster did move into the package this wave: the reveal-in-Finder side effect now lives in `NotificationClickPerformer` (behind `FinderRevealing`), and the entire focused-mark state
     // machine lives in `FocusedNotificationMarker` (behind `FocusedNotificationResolving`).
     /// The auth graph, injected once via `configure(...)` at app startup.
     private(set) var auth: MacAuthComposition?
     /// Explicit Cloud machine pins and stable fleet order, built by the composition root.
     private(set) var cloudMachinePinStore: CloudMachinePinStore?
+    private(set) lazy var cloudActivationCoordinator = CloudActivationCoordinator(prepare: { try await CmuxTuiSurfaceProviderRegistry.shared.prepareForActivation() }, cleanup: { await CmuxTuiSurfaceProviderRegistry.shared.cancelActivationPreparation() })
     var cloudWorkspaceCoordinator: CloudWorkspaceCoordinator?
     var cloudWorkspaceOperationController: CloudWorkspaceOperationController?
     var deviceWorkspaceCreationCoordinator: DeviceWorkspaceCreationCoordinator?
@@ -1579,9 +1579,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(self)
     }
     /// Shared native auth callback entrypoint for LaunchServices and embedded
-    /// browser handoffs. The returned value reflects completed sign-in.
+    /// browser handoffs. `delivery` must be `.trustedEmbeddedBrowser` only for
+    /// the embedded browser's policy-checked handoff; LaunchServices callbacks
+    /// are `.external`, so unsolicited stateless ones need user approval.
+    /// The returned value reflects completed sign-in.
     @MainActor
-    func handleAuthCallbackURLInProcess(_ url: URL) async -> Bool {
+    func handleAuthCallbackURLInProcess(
+        _ url: URL,
+        delivery: AuthCallbackDelivery = .external
+    ) async -> Bool {
         let callbackRouter = auth?.callbackRouter ?? AuthCallbackRouter()
         guard callbackRouter.isAuthCallbackURL(url) else {
             AuthDebugLog().log("auth.callback rejected: URL is not an accepted callback")
@@ -1591,7 +1597,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             AuthDebugLog().log("auth.callback dropped: auth graph not configured yet")
             return false
         }
-        let signedIn = await accountFlow.handleCallbackURL(url)
+        let signedIn = await accountFlow.handleCallbackURL(url, delivery: delivery)
         guard signedIn else {
             AuthDebugLog().log("auth.callback did not complete sign-in")
             return false
@@ -1620,7 +1626,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #endif
         for url in authCallbacks {
             Task { @MainActor in
-                _ = await handleAuthCallbackURLInProcess(url)
+                _ = await handleAuthCallbackURLInProcess(url, delivery: .external)
             }
         }
         let externalFileURLs = externalOpenFileURLs(from: urls)
@@ -2634,7 +2640,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             checkpointRenames: SurfaceCatalog.shared.cloudRenameCoordinator,
             operations: cloudOperations,
             telemetry: .live(),
-            isCloudEnabled: { CloudMachinesFeature.offMainIsEnabled() }
+            isCloudEnabled: { CloudMachinesFeature.offMainIsEnabled() }, isCloudAvailable: { CloudMachinesFeature.offMainIsAvailable() }
         )
         TerminalController.shared.cloudTunnel = cloudTunnel
         // Warms the New Machine sheet's plan and network catalog per signed-in

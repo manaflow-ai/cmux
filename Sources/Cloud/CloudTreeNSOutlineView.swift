@@ -9,6 +9,9 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     static let leadingMargin: CGFloat = 8
     private var dragDestinationSequenceNumber: Int?
     lazy var reorderPresentation = CloudTreeReorderPresentation(outline: self)
+    lazy var machineLift = CloudTreeMachineReorderLift(outline: self)
+    /// The last press, in outline coordinates: a lifted machine's grab point.
+    private(set) var lastMouseDownPoint: NSPoint?
 
     func trackDragDestination(sequenceNumber: Int) {
         dragDestinationSequenceNumber = sequenceNumber
@@ -70,8 +73,8 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     /// enter/exit state across tracking-area replacement, scrolling, or reloads.
     private func updateHover(at point: NSPoint?, keepingNode: Bool = false) {
         var next: CloudTreeCellView?
-        if let menuPinnedNodeID {
-            next = visibleCell(forNodeID: menuPinnedNodeID)
+        if let pinnedID = machineLift.sourceNodeID ?? menuPinnedNodeID {
+            next = visibleCell(forNodeID: pinnedID)
         } else if let point, visibleRect.contains(point) {
             // The whole row line counts, so the chevron and the indent before
             // the cell hover the row too.
@@ -169,6 +172,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         }
         updateHover(at: nil)
         reorderPresentation.clear()
+        machineLift.discard()
         NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: window)
         NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: window)
         super.viewWillMove(toWindow: newWindow)
@@ -264,6 +268,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        lastMouseDownPoint = convert(event.locationInWindow, from: nil)
         clearDragDestination()
         reorderPresentation.clear()
         onNativeDragPointerBoundary?()
@@ -423,6 +428,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     override func reloadData() {
         clearDragDestination()
         reorderPresentation.clear()
+        machineLift.discard()
         updateHover(at: nil, keepingNode: true)
         super.reloadData()
         needsLayout = true
@@ -480,27 +486,6 @@ final class CloudTreeNSOutlineView: NSOutlineView {
             ?? CloudTreeLayoutMetrics().contentLeading(level: level(forRow: row), style: treeStyle)
         frame.size.width = max(0, trailing - frame.minX)
         return frame
-    }
-
-    /// An open machine tab's rows start under the first tab, not one indent
-    /// deeper than the tab row; nil for every other row.
-    func panelContentLeading(atRow row: Int) -> CGFloat? {
-        guard let level = tabRowLevel(ofChildAt: row) else { return nil }
-        let leading = CloudTreeMachineDetailTabsView.panelContentLeading(tabRowLevel: level, style: treeStyle)
-        // Resource readings have no icon, so their text starts where the
-        // other rows' glyphs do: on the first tab's title.
-        if let node = item(atRow: row) as? CloudTreeNode, case .resource = node.kind {
-            return leading + GlobalFontMagnification.scaledSize(max(0, treeStyle.iconSlot - treeStyle.iconSize) / 2)
-        }
-        return leading
-    }
-
-    /// The level of the machine tab row that owns the row at `row`, if any.
-    func tabRowLevel(ofChildAt row: Int) -> Int? {
-        guard let item = item(atRow: row),
-              let parent = parent(forItem: item) as? CloudTreeNode,
-              case .machineDetailTabs = parent.kind else { return nil }
-        return level(forItem: parent)
     }
 
     private func redrawVisibleRows() {
