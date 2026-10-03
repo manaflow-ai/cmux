@@ -661,6 +661,7 @@ Browser subcommands:
 | `browser focus-webview`, `browser is-webview-focused` | Focus or query webview focus. |
 | `browser snapshot` | Print a DOM snapshot. |
 | `browser eval` | Evaluate JavaScript. |
+| `browser repl` | Run JavaScript with a Playwright `page` API against the workspace's browser panes in a persistent session; `browser repl guide` prints the guide. |
 | `browser wait` | Wait for selector, text, URL, load state, or JS predicate. |
 | `browser click`, `browser dblclick`, `browser hover`, `browser focus`, `browser check`, `browser uncheck`, `browser scroll-into-view` | Run element interaction. |
 | `browser type`, `browser fill` | Type into or set an input. |

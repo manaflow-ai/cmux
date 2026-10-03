@@ -242,6 +242,13 @@ import WebKit
             sslBypassState.recordObservedServerTrust(trust, for: challenge.protectionSpace)
         }
 
+        // A tab a REPL session drives has nobody to answer a prompt.
+        if let panel = owner,
+           let answer = BrowserReplTabAttachments.shared.attachment(for: panel.id)?.answerAuthenticationChallenge(challenge) {
+            completionHandler(answer.0, answer.1)
+            return
+        }
+
         if basicAuthPromptCoordinator.handle(
             challenge: challenge,
             startPrompt: { [presentAlert, owner] finishPrompt, registerCancelPrompt in
@@ -333,6 +340,16 @@ import WebKit
             fallbackPolicy: WKNavigationActionPolicy.cancel,
             label: "BrowserNavigationDelegate.navigationAction"
         ).closure
+
+        // A browser REPL session's domain policy: a tab the session created
+        // never loads a page the policy blocks (links, redirects, scripts).
+        if navigationAction.targetFrame?.isMainFrame == true,
+           let url = navigationAction.request.url,
+           let owner,
+           BrowserReplNavigationGuard.shared.cancels(panelID: owner.id, url: url) {
+            decisionHandler(.cancel)
+            return
+        }
 
         if navigationAction.targetFrame?.isMainFrame == true,
            let url = navigationAction.request.url,
@@ -458,7 +475,12 @@ import WebKit
             return
         }
 
+        let replAttachment = owner.flatMap { BrowserReplTabAttachments.shared.attachment(for: $0.id) }
         let openRequestInNewTab: (URLRequest) -> Void = { [requestNavigation, openInNewTab] request in
+            // A REPL session sees the new tab as a popup it can attach to.
+            if let replAttachment, replAttachment.handlePopup(request: request) {
+                return
+            }
             if let requestNavigation {
                 requestNavigation(request, .newTab, nil)
                 return
@@ -749,6 +771,9 @@ import WebKit
         return webView.restartNavigationForBrowserUserAgentPolicyIfNeeded(
             request: navigationAction.request,
             targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame,
+            // A history navigation restores its entry; a new request would
+            // replace it.
+            addsAutomationHeaders: navigationAction.navigationType != .backForward,
             decisionHandler: decisionHandler,
             willRestart: {
                 reportReplacementWillStart?(webView, replacedNavigation)
