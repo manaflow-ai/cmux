@@ -45,6 +45,10 @@ export type AcpmuxActivity = {
     command?: string;
     /// A finished shell call's exit status (Codex's `rawOutput.exit_code`).
     exitCode?: number;
+    /// When the call started and, once it completed or failed, when it ended (epoch ms),
+    /// for the duration a command row shows.
+    startedAt?: number;
+    endedAt?: number;
     diffs?: AcpmuxFileDiff[];
     locations?: { path: string; line?: number }[];
   };
