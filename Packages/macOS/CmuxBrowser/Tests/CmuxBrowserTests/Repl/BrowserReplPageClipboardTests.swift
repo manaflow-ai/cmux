@@ -115,6 +115,22 @@ extension BrowserReplPasteboardRedirectTests {
             #expect(texts == [action.text])
         }
 
+        /// The guard's first half is WebKit's own switch for the asynchronous
+        /// Clipboard API; the page script cannot reach a frame's initial empty
+        /// document, so without the switch such a document keeps a native
+        /// `navigator.clipboard` that writes the system clipboard. A WebKit
+        /// without the switch has no guard at all: the driver opens no
+        /// session tab there (`tabs.open` fails with `unsupported`).
+        @Test func theGuardIsSupportedOnlyWhereWebKitCanTurnTheClipboardAPIOff() {
+            #expect(BrowserReplPageClipboard.isSupported, "this WebKit can turn its asynchronous Clipboard API off")
+            #expect(
+                !BrowserReplPageClipboard.isSupported(featureKey: "CmuxNoSuchWebKitFeature"),
+                "a WebKit without the switch was reported as guarded"
+            )
+            let preferences = WKPreferences()
+            #expect(!BrowserReplPageClipboard.disableAsyncClipboardAPI(in: preferences, featureKey: "CmuxNoSuchWebKitFeature"))
+        }
+
         /// In the app an agent's click reaches the page's click handler after
         /// WebKit has reset the page's transient activation (it does after
         /// each script the driver evaluates between the press and the
