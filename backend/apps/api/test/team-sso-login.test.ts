@@ -1,8 +1,8 @@
 import { env, exports } from "cloudflare:workers"
 import { runInDurableObject } from "cloudflare:test"
 import { exportJWK, generateKeyPair, importJWK, SignJWT, type JWK } from "jose"
-import { describe, expect, it } from "vitest"
-import { withSsoSession } from "../src/policy-gate.ts"
+import { describe, expect, it, vi } from "vitest"
+import { clearSignInRules, withSsoSession } from "../src/policy-gate.ts"
 
 const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; TEAM_DO: DurableObjectNamespace }
 const worker = (exports as unknown as { default: Fetcher }).default
@@ -136,10 +136,9 @@ describe("OIDC sign-in (workerd)", () => {
     expect(await sso.ssoSession(s.team, "rtid-stack_1", "stack_1")).toBe(true)
     expect(await sso.ssoSession(s.team, "rtid-other", "stack_1")).toBe(false)
     expect(await sso.ssoSession(s.team, "rtid-stack_1", "stack_2")).toBe(false)
-    const rules = { sso_required: true, minimum_version: null, allowed_classes: [] }
     const principal = { identity: "session:u", kind: "session" as const, user: "user_u", team: s.team, stack_user_id: "stack_1" }
-    expect((await withSsoSession(env as never, { ...principal, stack_session: "rtid-stack_1" }, rules)).sso_team).toBe(s.team)
-    expect((await withSsoSession(env as never, { ...principal, stack_session: "rtid-other" }, rules)).sso_team).toBeUndefined()
+    expect((await withSsoSession(env as never, { ...principal, stack_session: "rtid-stack_1" }, s.team)).sso_team).toBe(s.team)
+    expect((await withSsoSession(env as never, { ...principal, stack_session: "rtid-other" }, s.team)).sso_team).toBeUndefined()
     expect((await redeem(code)).status).toBe(400)
     // The state is single-use.
     expect((await callback(state, "code-1")).status).toBe(400)
@@ -227,4 +226,96 @@ describe("OIDC sign-in (workerd)", () => {
     expect(s.stack.created).toBe(1)
     expect(new Set(s.stack.sessions.map((x) => x.user)).size).toBe(1)
   })
+
+  it("sso.enforce binds every user of the team's verified domain, whatever team the token names; installs too", async () => {
+    const s = await setup()
+    // Before enforcement: a domain user signs in with a password (no SSO) and registers an install.
+    const pat = await stackSession(`stack-pat-${crypto.randomUUID().slice(0, 8)}`, `pat@${DOMAIN}`)
+    expect((await op(pat, "user.ensure", {})).ok).toBe(true)
+    const patInstall = await register(pat)
+    // Alice signs in through the team's SSO; her Stack session is the one the callback recorded.
+    await ssoSignIn(s, "alice", "idp-alice")
+    const alice = await stackSession("stack_1", `alice@${DOMAIN}`, "rtid-stack_1")
+    expect((await op(alice, "user.ensure", {})).ok).toBe(true)
+    const aliceInstall = await register(alice)
+    const outsider = await stackSession(`stack-out-${crypto.randomUUID().slice(0, 8)}`, "olga@unrelated-sso.dev")
+    expect((await op(outsider, "user.ensure", {})).ok).toBe(true)
+
+    // The team has an active connection on a verified domain, so enforced SSO is accepted.
+    const on = await op(s.admin, "team.policy.update", { changes: [{ key: "sso.enforce", value: { value: true, mode: "enforced" } }], expected_version: 0, reason: "test" })
+    expect(on.error).toBeUndefined()
+    clearSignInRules()
+
+    // pat's token names pat's personal team; the domain's team still requires its SSO.
+    expect((await op(pat, "user.ensure", {})).error?.code).toBe("auth.sso_required")
+    const patWire = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${pat}` } })
+    expect(patWire.status).toBe(403)
+    expect((await mint(patInstall)).status).toBe(403)
+    // The SSO session and the install it registered pass; users of other domains and the owner are not bound.
+    expect((await op(alice, "user.ensure", {})).ok).toBe(true)
+    expect((await mint(aliceInstall)).status).toBe(200)
+    expect((await op(outsider, "user.ensure", {})).ok).toBe(true)
+    expect((await op(s.admin, "user.ensure", {})).ok).toBe(true)
+
+    // A recommended (default) value never locks anyone out.
+    const dflt = await op(s.admin, "team.policy.update", { changes: [{ key: "sso.enforce", value: { value: true, mode: "default" } }], expected_version: 1, reason: "test" })
+    expect(dflt.error).toBeUndefined()
+    clearSignInRules()
+    expect((await op(pat, "user.ensure", {})).ok).toBe(true)
+  })
+
+  it("lowering sso.sessionMaxAgeHours shortens the session records that already exist", async () => {
+    const s = await setup()
+    await ssoSignIn(s, "max", "idp-max")
+    const standing = s.stub as unknown as { ssoSession(e: string, sid: string, user: string): Promise<boolean> }
+    expect(await standing.ssoSession(s.team, "rtid-stack_1", "stack_1")).toBe(true)
+    const r = await op(s.admin, "team.policy.update", { changes: [{ key: "sso.sessionMaxAgeHours", value: { value: 1, mode: "enforced" } }], expected_version: 0, reason: "test" })
+    expect(r.error).toBeUndefined()
+    // Still young: the record stands.
+    expect(await standing.ssoSession(s.team, "rtid-stack_1", "stack_1")).toBe(true)
+    vi.useFakeTimers({ toFake: ["Date"] })
+    try {
+      vi.setSystemTime(Date.now() + 2 * 3_600_000)
+      expect(await standing.ssoSession(s.team, "rtid-stack_1", "stack_1")).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
+
+/** A Stack-signed session for any email, with Stack's refresh_token_id claim when given. */
+const stackSession = async (sub: string, email: string, refreshTokenId?: string) =>
+  new SignJWT({ email, email_verified: true, name: sub, ...(refreshTokenId ? { refresh_token_id: refreshTokenId } : {}) })
+    .setProtectedHeader({ alg: "ES256", kid: "stack-test" })
+    .setIssuer(`https://api.stack-auth.com/api/v1/projects/${testEnv.STACK_PROJECT_ID}`)
+    .setAudience(testEnv.STACK_PROJECT_ID)
+    .setSubject(sub)
+    .setIssuedAt()
+    .setExpirationTime("10m")
+    .sign(await importJWK(JSON.parse(testEnv.STACK_TEST_PRIVATE_JWK) as JWK, "ES256"))
+
+/** A full OIDC sign-in through the team's connection (the fake Stack names the first user stack_1). */
+const ssoSignIn = async (s: Awaited<ReturnType<typeof setup>>, local: string, sub: string) => {
+  const auth = authFrom(await start(`${local}@${DOMAIN}`))
+  s.idp.nextIdToken = async () => s.signIdToken({ sub, email: `${local}@${DOMAIN}`, nonce: auth.searchParams.get("nonce")! })
+  expect((await callback(auth.searchParams.get("state")!, `code-${local}`)).status).toBe(302)
+}
+
+const keys = new Map<string, { user: string; pair: CryptoKeyPair }>()
+/** Registers an install from a session; mint() later asks for its token. */
+const register = async (session: string) => {
+  const user = (await op(session, "user.ensure", {})).value.id as string
+  const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
+  const jwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey
+  const r = await op(session, "install.register", { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }, kind: "mac", name: "m", device_name: "m", platform: "macos" })
+  const install = r.value.id as string
+  keys.set(install, { user, pair })
+  return install
+}
+const mint = async (install: string) => {
+  const { user, pair } = keys.get(install)!
+  const post = (path: string, body: unknown) => worker.fetch(`https://api.test${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+  const ch = (await (await post("/v1/auth/challenge", { user, install })).json()) as { nonce: string; message_prefix: string }
+  const sig = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(`${ch.message_prefix}${ch.nonce}`)))
+  return post("/v1/auth/token", { user, install, nonce: ch.nonce, signature: b64u(sig) })
+}
