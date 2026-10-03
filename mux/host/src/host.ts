@@ -59,6 +59,8 @@ export class MuxHost {
   private readonly stoppedSignal: Promise<void>;
   private signalStop!: () => void;
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly queue: { effect: Effect; daemon?: DaemonClient; acpmux?: AcpmuxClient }[] = [];
+  private draining = false;
 
   private daemon?: DaemonClient;
   private acpmux?: AcpmuxClient;
@@ -136,13 +138,42 @@ export class MuxHost {
 
   // MARK: core
 
-  /** Steps the core and runs its effects. Never re-entered: every effect only starts I/O. */
+  /**
+   * Steps the core and queues its effects. Effects run in order, one at a
+   * time, each on the connections that were current when its step ran; a
+   * conversation write waits for the owner's answer before the next effect
+   * starts (as the old host's serial queue did), and its answer is the next
+   * input. `persist` is the first effect of its step, so the state is on
+   * disk before that step's requests go out. `log` lines are written at once.
+   */
   private feed(input: Input): void {
     if (this.stopped) return;
-    for (const effect of this.core.step(input, Date.now())) this.run(effect);
+    const ports = { daemon: this.daemon, acpmux: this.acpmux };
+    for (const effect of this.core.step(input, Date.now())) {
+      // Diagnostics are written when the core decides, not when the queue gets there.
+      if (effect.kind === "log") this.log(effect.line);
+      else this.queue.push({ effect, ...ports });
+    }
+    void this.drain();
   }
 
-  private run(effect: Effect): void {
+  private async drain(): Promise<void> {
+    if (this.draining) return;
+    this.draining = true;
+    try {
+      for (let next = this.queue.shift(); next && !this.stopped; next = this.queue.shift()) {
+        try {
+          await this.run(next.effect, next.daemon, next.acpmux);
+        } catch (error) {
+          this.log(`effect ${next.effect.kind} failed: ${String(error)}`);
+        }
+      }
+    } finally {
+      this.draining = false;
+    }
+  }
+
+  private async run(effect: Effect, daemon: DaemonClient | undefined, acpmux: AcpmuxClient | undefined): Promise<void> {
     switch (effect.kind) {
       case "persist":
         this.stateFile.save(effect.state);
@@ -167,55 +198,57 @@ export class MuxHost {
         return;
       }
       case "reconnect":
-        (effect.port === "daemon" ? this.daemon : this.acpmux)?.close();
+        (effect.port === "daemon" ? daemon : acpmux)?.close();
         return;
-    }
-    if (effect.kind === "prompt") {
-      const acpmux = this.acpmux;
-      const session = this.core.state.muxSessionId;
-      if (!acpmux || !session) return;
-      acpmux
-        .prompt(session, effect.text, { promptId: effect.prompt_id, delivery: "turn" })
-        .catch((error) =>
-          this.log(`prompt ${effect.prompt_id} failed: ${String(error)}; resent on the next acpmux connect`),
-        )
-        .finally(() => this.feed({ kind: "prompt_settled", prompt_id: effect.prompt_id }));
-      return;
-    }
-    if (effect.kind === "fetch_child_events" || effect.kind === "fetch_sessions") {
-      const acpmux = this.acpmux;
-      if (!acpmux) return;
-      if (effect.kind === "fetch_sessions")
+      case "prompt": {
+        const session = this.core.state.muxSessionId;
+        if (!acpmux || !session) return;
+        acpmux
+          .prompt(session, effect.text, { promptId: effect.prompt_id, delivery: "turn" })
+          .catch((error) =>
+            this.log(`prompt ${effect.prompt_id} failed: ${String(error)}; resent on the next acpmux connect`),
+          )
+          .finally(() => this.feed({ kind: "prompt_settled", prompt_id: effect.prompt_id }));
+        return;
+      }
+      case "fetch_sessions":
+        if (!acpmux) return;
         void acpmux
           .sessions()
           .catch(() => [] as SessionSummary[])
           .then((sessions) => this.feed({ kind: "sessions", sessions }));
-      else
+        return;
+      case "fetch_child_events":
+        if (!acpmux) return;
         void acpmux
           .events(effect.session_id, effect.after)
           .catch(() => [] as AcpmuxEvent[])
           .then((events) => this.feed({ kind: "child_events", session_id: effect.session_id, events }));
-      return;
+        return;
     }
-    const daemon = this.daemon;
-    if (!daemon) return;
+    if (!daemon || daemon.isClosed) return;
     switch (effect.kind) {
       case "conversation_op":
-        daemon
-          .op({ conversation: effect.conversation, idempotency_key: effect.idempotency_key, actor: AGENT_MUX, op: effect.op })
-          .then(
-            (result) => this.feed({ kind: "op_result", idempotency_key: effect.idempotency_key, change: result.change }),
-            (error) => {
-              // A reject carries the owner's reason; a lost connection arrives as `disconnected`.
-              if (error instanceof DaemonError)
-                this.feed({ kind: "op_result", idempotency_key: effect.idempotency_key, reason: error.message });
-            },
-          );
+        try {
+          const result = await daemon.op({
+            conversation: effect.conversation,
+            idempotency_key: effect.idempotency_key,
+            actor: AGENT_MUX,
+            op: effect.op,
+          });
+          this.feed({ kind: "op_result", idempotency_key: effect.idempotency_key, change: result.change });
+        } catch (error) {
+          // A reject carries the owner's reason; a lost connection arrives as `disconnected`.
+          if (error instanceof DaemonError)
+            this.feed({ kind: "op_result", idempotency_key: effect.idempotency_key, reason: error.message });
+        }
         return;
       case "typing":
-        daemon
-          .typing(effect.conversation, AGENT_MUX, effect.on)
-          .catch((error) => this.log(`typing ${effect.on ? "on" : "off"} failed: ${String(error)}`));
+        try {
+          await daemon.typing(effect.conversation, AGENT_MUX, effect.on);
+        } catch (error) {
+          this.log(`typing ${effect.on ? "on" : "off"} failed: ${String(error)}`);
+        }
         return;
       case "list_conversations":
         this.read(daemon, daemon.list(), (conversations) => ({ kind: "conversations_listed", conversations }));
