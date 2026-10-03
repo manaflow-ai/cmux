@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "3f5c91bf097a4f4e0c8ace671e7b0ebc74ab951a0d7c7aeca42ff8ef008f99e2",
+  "catalog_sha256": "a7f6c55815e8402b6b5d5d42db0e514d64c8ed578d91dcf485a955bd85f50ef1",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -335,6 +335,33 @@
       "class": "mutation"
     },
     "session.window.title.set": {
+      "class": "mutation"
+    },
+    "settings.domains.publish": {
+      "class": "mutation"
+    },
+    "settings.get": {
+      "class": "read"
+    },
+    "settings.list": {
+      "class": "read"
+    },
+    "settings.reset": {
+      "class": "mutation"
+    },
+    "settings.reset_all": {
+      "class": "mutation"
+    },
+    "settings.schema": {
+      "class": "read"
+    },
+    "settings.set": {
+      "class": "mutation"
+    },
+    "settings.snapshot": {
+      "class": "read"
+    },
+    "settings.team_policy.set": {
       "class": "mutation"
     },
     "sidebar_view.attach": {

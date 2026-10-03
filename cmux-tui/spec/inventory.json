@@ -115,6 +115,15 @@
     "session.terminal_defaults.update",
     "session.window.title.clear",
     "session.window.title.set",
+    "settings.domains.publish",
+    "settings.get",
+    "settings.list",
+    "settings.reset",
+    "settings.reset_all",
+    "settings.schema",
+    "settings.set",
+    "settings.snapshot",
+    "settings.team_policy.set",
     "sidebar_view.attach",
     "sidebar_view.ensure",
     "sidebar_view.get",
@@ -645,6 +654,12 @@
         "attach-byte",
         "attach-render",
         "attach-browser"
+      ]
+    },
+    {
+      "name": "settings-changed",
+      "streams": [
+        "subscribe"
       ]
     },
     {
