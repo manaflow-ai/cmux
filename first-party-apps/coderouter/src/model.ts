@@ -34,7 +34,10 @@ export interface Detected {
   provider: string
   name: string
   status: LocalStatus
-  identity?: string | null
+  /** The signed-in account's opaque handle (`acct_…`), never an email. */
+  account?: string | null
+  /** Its redacted display: a plan or organization name, or a short form such as `a…@e…`. */
+  label?: string | null
   plan?: string | null
   /** CodeRouter can hold this provider. */
   linkable: boolean
@@ -47,7 +50,9 @@ export interface Account {
   id: string
   provider: string
   name: string
-  /** An email, a label or a masked key. Never a secret. */
+  /** The account's opaque handle (`acct_…`), stable across label renames. */
+  account?: string
+  /** A user label, a masked key or a shortened email (`a…@e…`). Never an email or a secret. */
   label: string
   state: "active" | "refreshing" | "expired" | "broken" | "disabled" | string
   visibility: Visibility

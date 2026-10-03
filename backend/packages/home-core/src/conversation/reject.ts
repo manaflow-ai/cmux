@@ -30,6 +30,10 @@ export const CLOUD_REJECT_CODES = [
   "address_cannot_act",
   /** The conversation is archived (no human participant is left). */
   "archived",
+  "importing",
+  "conversation_exists",
+  "import_out_of_order",
+  "invalid_import",
   /** The actor may not run this op (not the owner, inviter, or system). */
   "forbidden",
   /** The op does not apply to this conversation kind (for example `title.set` on a dm). */

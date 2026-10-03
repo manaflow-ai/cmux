@@ -5,7 +5,7 @@ import { connectionsDomain, expiredForgets, githubRepoAllowed, lockNoticePending
 import { decodeParams } from "./domains/common.ts"
 import type { Env } from "./env.ts"
 import { aadFor, open, seal, type SealedSecret } from "./integrations/crypto.ts"
-import { ProviderError, providerForOp, providers, type Credential, type Http } from "./integrations/providers.ts"
+import { ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 
 /** The HTTP shape of one op result (http.ts OpResponse). */
@@ -320,7 +320,10 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       policy: { githubScope: policy.github.scope, requireOrgAdmin: policy.github.require_org_admin },
       ...(typeof params.code === "string" ? { code: params.code } : {}),
       ...(typeof params.installation_id === "string" ? { installation_id: params.installation_id } : {}),
-      redirectUri: frame.redirect_uri
+      redirectUri: frame.redirect_uri,
+      connection: c.id,
+      state: String(params.state),
+      scopes_requested: scopesToRequest(this.env, impl, c.scopes_requested)
     })
     if (c.account && c.account.key !== approved.account.key) throw new ProviderError("integration.state_invalid", "re-authorization must use the same provider account")
     // A disconnect may have committed while we waited on the provider.
@@ -398,6 +401,13 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     }
     const impl = providers[provider]
     if (!impl.configured(this.env)) throw new ProviderError("integration.unavailable", `${provider} is not configured`)
+    // With granular consent a user may have granted fewer scopes than were asked for.
+    // A scope the deployment may no longer use (a restricted Gmail scope with the gate closed) does not count.
+    const usable = c.scopes_granted.filter((s) => !impl.refuseScopes?.(this.env, [s]))
+    const needs = impl.scopesFor?.(op)
+    if (needs && !needs.some((s) => usable.includes(s))) {
+      throw new ProviderError("integration.unavailable", `${op} needs the ${needs.join(" or ")} permission, which this connection was not granted; reconnect and allow it`)
+    }
     try {
       const r = await impl.call(this.env, this.http, await this.usableCredential(c), op, params)
       return r.value

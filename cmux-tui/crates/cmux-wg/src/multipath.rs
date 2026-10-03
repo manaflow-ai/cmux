@@ -26,7 +26,7 @@ use std::task::{Context, Poll, Waker};
 use cmux_transport::{
     PathId, PathKind, PathView, ProbeOutcome, Selector, SelectorConfig, SelectorError, Switch,
 };
-use tokio::sync::watch;
+use tokio::sync::{broadcast, watch};
 use tokio::time::Instant;
 
 use crate::probe_schedule::{PathProbe, ProbeConfig};
@@ -35,6 +35,24 @@ use crate::underlay::{DueProbes, Origin, Received, Underlay, is_transient};
 /// Times one carrier is re-polled after a transient receive error before the
 /// poll moves on, so a burst of ICMP errors cannot starve the other paths.
 const TRANSIENT_RETRIES: usize = 8;
+
+/// Path events go out at least this often while the session carries traffic.
+const EVENT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+/// Path events a slow subscriber may fall behind before it misses some.
+const EVENT_BACKLOG: usize = 64;
+
+/// `path.changed` (transport.md 12a): the path the session uses and how it
+/// performs. Sent on every switch, and every 5 s while the session carries
+/// traffic. `path` and `kind` are `None` while datagrams go on every path.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PathEvent {
+    pub path: Option<PathId>,
+    pub kind: Option<PathKind>,
+    pub rtt_ms: f64,
+    pub jitter_ms: f64,
+    pub loss_pct: f64,
+    pub max_datagram: usize,
+}
 
 /// One path as the endpoint sees it: the selector's view plus counters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,6 +73,11 @@ struct Slot {
     received: u64,
     failed: bool,
     probe: PathProbe,
+    /// The last round trip measured, smoothed jitter (mean deviation of
+    /// successive round trips, RFC 3550 style) and smoothed probe loss.
+    last_rtt_us: Option<u64>,
+    jitter_us: f64,
+    loss_pct: f64,
 }
 
 struct Shared {
@@ -69,6 +92,9 @@ struct Shared {
     last_probe_id: u64,
     /// The selector's current path, for whoever shows or awaits it.
     current: watch::Sender<Option<PathId>>,
+    events: broadcast::Sender<PathEvent>,
+    last_event: Option<Instant>,
+    max_datagram: usize,
 }
 
 impl Shared {
@@ -76,15 +102,59 @@ impl Shared {
         self.slots.iter_mut().find(|slot| slot.id == id)
     }
 
-    /// Publish the current path after anything that may have moved it.
-    fn publish(&self) {
+    /// Publish the current path; a switch also sends a path event.
+    fn publish(&mut self) {
         let current = self.selector.current();
-        self.current.send_if_modified(|seen| std::mem::replace(seen, current) != current);
+        let switched =
+            self.current.send_if_modified(|seen| std::mem::replace(seen, current) != current);
+        if switched {
+            self.emit(Instant::now());
+        }
+    }
+
+    fn emit(&mut self, now: Instant) {
+        let path = self.selector.current();
+        let view = path.and_then(|id| self.selector.path(id));
+        let slot = path.and_then(|id| self.slots.iter().find(|slot| slot.id == id));
+        let event = PathEvent {
+            path,
+            kind: view.map(|view| view.kind),
+            rtt_ms: view.and_then(|view| view.rtt_us).map_or(0.0, |rtt| rtt as f64 / 1000.0),
+            jitter_ms: slot.map_or(0.0, |slot| slot.jitter_us / 1000.0),
+            loss_pct: slot.map_or(0.0, |slot| slot.loss_pct),
+            max_datagram: self.max_datagram,
+        };
+        // No subscriber is fine: events are for whoever listens.
+        let _ = self.events.send(event);
+        self.last_event = Some(now);
+    }
+
+    /// Apply one probe outcome to the path's statistics and the selector.
+    fn record(
+        &mut self,
+        id: PathId,
+        outcome: ProbeOutcome,
+    ) -> Result<Option<Switch>, SelectorError> {
+        if let Some(slot) = self.slot_mut(id) {
+            match outcome {
+                ProbeOutcome::Answered { rtt_us } => {
+                    if let Some(last) = slot.last_rtt_us {
+                        let deviation = rtt_us.abs_diff(last) as f64;
+                        slot.jitter_us += (deviation - slot.jitter_us) / 16.0;
+                    }
+                    slot.last_rtt_us = Some(rtt_us);
+                    slot.loss_pct -= slot.loss_pct / 8.0;
+                }
+                ProbeOutcome::Lost => slot.loss_pct += (100.0 - slot.loss_pct) / 8.0,
+            }
+        }
+        let switch = self.selector.on_probe(id, outcome);
+        self.publish();
+        switch
     }
 
     fn probe(&mut self, id: PathId, outcome: ProbeOutcome) {
-        let _ = self.selector.on_probe(id, outcome);
-        self.publish();
+        let _ = self.record(id, outcome);
     }
 
     /// Whether a path the next datagram would take is backlogged: the
@@ -147,6 +217,9 @@ impl Multipath {
             probes,
             last_probe_id: 0,
             current: watch::channel(None).0,
+            events: broadcast::channel(EVENT_BACKLOG).0,
+            last_event: None,
+            max_datagram: 0,
         }));
         (Self { shared: Arc::clone(&shared) }, MultipathControl { shared })
     }
@@ -163,7 +236,17 @@ impl MultipathControl {
             shared.selector.add_path(id, kind).expect("path ids are never reused");
             let carrier = Box::new(carrier);
             let probe = PathProbe::default();
-            shared.slots.push(Slot { id, carrier, sent: 0, received: 0, failed: false, probe });
+            shared.slots.push(Slot {
+                id,
+                carrier,
+                sent: 0,
+                received: 0,
+                failed: false,
+                probe,
+                last_rtt_us: None,
+                jitter_us: 0.0,
+                loss_pct: 0.0,
+            });
             (id, shared.waker.take())
         };
         // The driver must poll the new carrier once to register its waker.
@@ -189,8 +272,7 @@ impl MultipathControl {
         outcome: ProbeOutcome,
     ) -> Result<Option<Switch>, SelectorError> {
         let mut shared = lock(&self.shared);
-        let switch = shared.selector.on_probe(id, outcome);
-        shared.publish();
+        let switch = shared.record(id, outcome);
         if matches!(switch, Ok(Some(_))) {
             wake_driver(shared);
         }
@@ -203,6 +285,11 @@ impl MultipathControl {
         shared.publish();
         wake_driver(shared);
         switch
+    }
+
+    /// Subscribe to path events (`path.changed`).
+    pub fn path_events(&self) -> broadcast::Receiver<PathEvent> {
+        lock(&self.shared).events.subscribe()
     }
 
     /// Follow the current path (`None`: every path), for a path badge or a
@@ -263,9 +350,17 @@ impl Underlay for Multipath {
 
     fn poll_probes(&mut self, now: Instant) -> DueProbes {
         let mut shared = lock(&self.shared);
-        let Some(config) = shared.probes else { return DueProbes::default() };
+        // The driver asks only while the session carries traffic, which is
+        // when periodic path events are due.
+        if shared.last_event.is_none_or(|at| now >= at + EVENT_INTERVAL) {
+            shared.emit(now);
+        }
+        let next_event = shared.last_event.map(|at| at + EVENT_INTERVAL);
+        let Some(config) = shared.probes else {
+            return DueProbes { pings: Vec::new(), next: next_event };
+        };
         let current = shared.selector.current();
-        let mut due = DueProbes::default();
+        let mut due = DueProbes { pings: Vec::new(), next: next_event };
         let mut lost = Vec::new();
         let Shared { slots, selector, last_probe_id, .. } = &mut *shared;
         for slot in slots.iter_mut().filter(|slot| !slot.failed) {
@@ -287,6 +382,10 @@ impl Underlay for Multipath {
             shared.probe(id, ProbeOutcome::Lost);
         }
         due
+    }
+
+    fn set_max_datagram(&mut self, bytes: usize) {
+        lock(&self.shared).max_datagram = bytes;
     }
 
     fn on_pong(&mut self, path: PathId, id: u64, now: Instant) {

@@ -87,7 +87,7 @@
     "coderouter.route.test": {
       "ok": true,
       "model": "gpt-5.5-codex",
-      "account_label": "ada@example.com",
+      "account_label": "a…@e…",
       "provider_name": "ChatGPT / Codex",
       "latency_ms": 412,
       "request_id": "7b1e0c52-4f3a-4d8e-9a61-2c5d0e8f9b14"
@@ -138,7 +138,8 @@
         "provider": "codex",
         "name": "ChatGPT / Codex",
         "status": "signed_in",
-        "identity": "ada@example.com",
+        "account": "acct_k3w7qz2mfa4nq6uh5r2bt7xjyd",
+        "label": "a…@e…",
         "plan": "Pro",
         "linkable": true,
         "source": "~/.codex/auth.json"
@@ -147,7 +148,8 @@
         "provider": "claude",
         "name": "Claude Code",
         "status": "signed_in",
-        "identity": "ada@example.com",
+        "account": "acct_p6cz4e2ld7vqa3sk5rmw2xnhty",
+        "label": "a…@e…",
         "plan": "Max",
         "linkable": true,
         "source": "Keychain"
@@ -169,7 +171,8 @@
         "provider": "gemini",
         "name": "Gemini",
         "status": "signed_in",
-        "identity": "ada@example.com",
+        "account": "acct_g2hn5wq7ce3pa6xk4tvzm2rjsu",
+        "label": "a…@e…",
         "linkable": false,
         "source": "~/.gemini/oauth_creds.json"
       },
@@ -177,7 +180,8 @@
         "provider": "bedrock",
         "name": "Amazon Bedrock",
         "status": "expired",
-        "identity": "profile dev",
+        "account": null,
+        "label": "profile dev",
         "linkable": true,
         "source": "~/.aws/config"
       }

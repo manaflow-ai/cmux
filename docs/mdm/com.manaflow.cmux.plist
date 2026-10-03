@@ -301,6 +301,8 @@
 			<string>real</string>
 		</dict>
 		<dict>
+			<key>pfm_description</key>
+			<string>Unset, the window follows Ghostty's background-opacity and background-blur.</string>
 			<key>pfm_name</key>
 			<string>appearance.backgroundBlur</string>
 			<key>pfm_range_list</key>

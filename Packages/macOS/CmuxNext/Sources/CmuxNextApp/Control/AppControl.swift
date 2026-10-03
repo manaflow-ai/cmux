@@ -41,6 +41,7 @@ final class AppControl {
         let probe = frameProbe
         service.router.register(HistoryControl.methods(services: services))
         service.router.register(TabSearchControl.methods())
+        service.router.register(PaletteScopeControl.methods(services: services))
         service.router.register(BookmarkControl.methods(services: services))
         service.router.register(FeedControl.methods(services: services))
         service.router.register([
@@ -163,6 +164,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.send(call.params, services: services))
             },
+            .mainActor("debug.palette.capture") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugPaletteCapture.capture(call.params, services: services))
+            },
             .mainActor("debug.mouse") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.mouse(call.params, services: services))
@@ -170,6 +175,14 @@ final class AppControl {
             .async("debug.window.ax_set_frame") { [weak services] call in
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugAXFrame.run(call.params, services: services)
+            },
+            .mainActor("debug.home_native_fixture.open") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugHomeNativeFixture.open(services: services))
+            },
+            .mainActor("debug.window_snapshot") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugWindowSnapshot.capture(call.params, services: services))
             },
             .mainActor("debug.window_frame") { [weak services] call in
                 guard let services else { return .value(.null) }

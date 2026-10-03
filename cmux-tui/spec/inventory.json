@@ -38,6 +38,7 @@
     "git.checkpoint.pin",
     "git.checkpoint.unpin",
     "git.diff",
+    "git.files.search",
     "git.status",
     "machine.get",
     "machine.list",

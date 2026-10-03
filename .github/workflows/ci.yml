@@ -482,12 +482,31 @@ jobs:
             # are the one exception: they become native resources, so retain
             # one compile-admission job alongside web validation.
             webview_native=false
-            if [ -f /tmp/cmux-ci-changed-files.txt ] && grep -Eq '^(webviews/|Resources/markdown-viewer/webviews-app/)' /tmp/cmux-ci-changed-files.txt; then
-              webview_native=true
+            package_route=false
+            cmuxnext_route=false
+            if [ -f /tmp/cmux-ci-changed-files.txt ]; then
+              if grep -Eq '^(webviews/|Resources/markdown-viewer/webviews-app/)' /tmp/cmux-ci-changed-files.txt; then
+                webview_native=true
+              fi
+              if grep -q '^Packages/' /tmp/cmux-ci-changed-files.txt; then
+                package_route=true
+              fi
+              if grep -q '^Packages/macOS/CmuxNext/' /tmp/cmux-ci-changed-files.txt; then
+                cmuxnext_route=true
+              fi
             fi
-            echo "macos=$webview_native" >> "$GITHUB_OUTPUT"
-            echo "swift_packages=false" >> "$GITHUB_OUTPUT"
-            echo "release_build=$webview_native" >> "$GITHUB_OUTPUT"
+            if [ "$package_route" = true ] && [ "$cmuxnext_route" = false ]; then
+              # The legacy reusable macOS workflow owns focused tests for the
+              # affected package. Keep that route instead of waking the full
+              # CmuxNext suite; its package lane runs beside compile admission
+              # and fails independently on the first package error.
+              echo "swift_packages=true" >> "$GITHUB_OUTPUT"
+              echo "release_build=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "macos=$webview_native" >> "$GITHUB_OUTPUT"
+              echo "swift_packages=false" >> "$GITHUB_OUTPUT"
+              echo "release_build=$webview_native" >> "$GITHUB_OUTPUT"
+            fi
             echo "full_suite=false" >> "$GITHUB_OUTPUT"
           fi
 

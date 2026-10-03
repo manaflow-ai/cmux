@@ -33,6 +33,11 @@ public struct PaletteItem: Identifiable {
     public var rankBias: Int
     /// The registry action this row runs, if any: Cmd-K edits its shortcut.
     public var actionID: ActionID?
+    /// A scope row: Return, Tab or a click enters this scope.
+    public var enters: PaletteScopeID?
+    /// Tab drills into this scope with the row as its context (a
+    /// workspace's tabs). Nil uses the item-actions prototype setting.
+    public var drills: PaletteScopeID?
 
     public init(
         id: String,

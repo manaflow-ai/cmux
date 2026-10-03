@@ -10,7 +10,6 @@ import Security
 /// sign-out cleanup can mint a token without a Stack session.
 public actor InstallIdentity {
     private let baseURL: URL
-    private let environment: String
     private let signer: SecureEnclaveInstallSigner
     private let records: InstallRecordStore
     private let deviceName: String
@@ -20,7 +19,6 @@ public actor InstallIdentity {
     public init(baseURL: URL, bundleID: String, deviceName: String) {
         self.baseURL = baseURL
         let host = baseURL.host ?? "unknown"
-        environment = host == "cloud-api.cmux.dev" ? "production" : "staging"
         signer = SecureEnclaveInstallSigner(bundleID: bundleID, environment: host)
         records = InstallRecordStore(service: "\(bundleID).install-record.\(host)")
         self.deviceName = deviceName
@@ -66,6 +64,31 @@ public actor InstallIdentity {
         return try await client(for: user).installToken()
     }
 
+    /// The current user's owner ids, backend environment and host, with the
+    /// install token minted for them (one actor step, so an account switch
+    /// cannot pair one user's ids with another's token). For requests the
+    /// install key signs, such as presence-key registration.
+    public func ownerInstall() async throws
+        -> (user: String, install: String, environment: String, host: String, token: String) {
+        guard let user = current else { throw InstallAuthError.noSession }
+        let client = client(for: user)
+        let token = try await client.installToken()
+        guard let record = await client.currentRecord, let environment = await client.environment else {
+            throw InstallAuthError.noSession
+        }
+        return (record.user, record.install, environment, baseURL.host ?? "unknown", token)
+    }
+
+    /// ES256 with this device's install key (raw r||s or DER).
+    public func signWithInstallKey(_ message: Data) async throws -> Data {
+        try await signer.sign(message)
+    }
+
+    /// POSTs `json` to the API Worker with `bearer`.
+    public func post(_ path: String, json: Data, bearer: String) async throws -> (status: Int, body: Data) {
+        try await CredentialedTransport(baseURL: baseURL).post(path, json: json, bearer: bearer)
+    }
+
     /// The owner refused the token (401): mint again next time.
     public func invalidate(for stackUser: String? = nil) async {
         guard let user = stackUser ?? current else { return }
@@ -83,7 +106,7 @@ public actor InstallIdentity {
     private func makeClient(_ user: String, session: InstallAuthClient.SessionToken?) -> InstallAuthClient {
         let records = self.records
         return InstallAuthClient(transport: CredentialedTransport(baseURL: baseURL), signer: signer,
-                                 sessionToken: session, stackUser: user, environment: environment,
+                                 sessionToken: session, stackUser: user,
                                  deviceName: deviceName, record: records.record(for: user),
                                  onRecord: { records.setRecord($0, for: user) })
     }

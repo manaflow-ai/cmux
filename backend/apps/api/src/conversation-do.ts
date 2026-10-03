@@ -11,7 +11,21 @@ import { withAdmit } from "./home-admit.ts"
 type Head = conversation.ConversationState
 const MAX_HISTORY_PAGE = 200
 /** Ops the Worker completes (home-routes.ts); refused on the conversation socket. */
-const WORKER_DERIVED_OPS = new Set(["conversation.create", "dm.open", "invite.create", "invite.accept"])
+const WORKER_DERIVED_OPS = new Set(["conversation.create", "dm.open", "invite.create", "invite.accept", "conversation.import", "conversation.import.commit", "participants.add"])
+
+/**
+ * Reach policy with owner records: an agent participant is allowed when it is one of the
+ * caller's chiefs (principal.owned_agents, resolved by the Worker from UserDO); everything
+ * else follows home-core's default policy.
+ */
+const ownerRecordPolicy: conversation.ParticipantPolicy = (principal, participant, head) => {
+  if (participant.kind === "agent") {
+    const owned = principal.owned_agents?.find((a) => a.id === participant.id)
+    const actor = conversation.actorOf(principal)
+    if (owned && actor?.startsWith("user_")) return { ok: true, owner_user: actor, display_name: owned.display_name }
+  }
+  return conversation.defaultParticipantPolicy(principal, participant, head)
+}
 /** Accept rejects that count toward the lock (a wrong or used link), not transient ones. */
 const ACCEPT_FAILURES = new Set(["unknown_invite", "invite_not_pending", "invite_expired"])
 
@@ -33,6 +47,7 @@ export type InvitePreviewResult =
 export class ConversationDO extends OwnerDO<Head> {
   constructor(ctx: DurableObjectState, env: Env) {
     const domain = conversation.makeConversationDomain({
+      participantPolicy: ownerRecordPolicy,
       // The caller's verified address ids (HMAC with HOME_ADDRESS_KEY), for binding an email invite on accept.
       addressIdsFor: (p) => {
         if (p.email_verified !== true || !p.email || !env.HOME_ADDRESS_KEY) return []

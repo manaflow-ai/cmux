@@ -174,6 +174,8 @@ public nonisolated enum SettingsSchema {
             SettingDescriptor(
                 WindowBackgroundSetting.materialPath, section: .appearance, group: window,
                 title: SettingsText.text("settings.appearance.backgroundBlur", "Material"),
+                help: SettingsText.text("settings.appearance.backgroundBlur.help",
+                                        "Unset, the window follows Ghostty's background-opacity and background-blur."),
                 kind: .choice([
                     SettingChoice(WindowMaterialChoice.frosted.rawValue, SettingsText.text("settings.choice.frosted", "Frosted")),
                     SettingChoice(WindowMaterialChoice.glass.rawValue, SettingsText.text("settings.choice.glass", "Glass")),

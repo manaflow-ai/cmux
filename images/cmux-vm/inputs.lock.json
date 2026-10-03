@@ -1,0 +1,213 @@
+{
+  "schema": 1,
+  "image": "cmux-vm",
+  "base": {
+    "snapshot": "freestyle/ubuntu-sm",
+    "fingerprint": {
+      "kernelRelease": "6.1.102",
+      "dpkgListSha256": "d29cfb5c28434693d06beef123652d3655a22ee25fde49d5172c6404b8f0c3a8",
+      "dpkgPackageCount": 415,
+      "recordedAt": "2026-10-03T02:49:30Z"
+    },
+    "runtimes": {
+      "node": "v24.21.0",
+      "npm": "11.19.0",
+      "bun": "1.3.14",
+      "python3": "Python 3.12.3",
+      "uv": "uv 0.12.5",
+      "docker": "Docker version 29.1.3, build 29.1.3-0ubuntu3~24.04.2"
+    },
+    "basePackages": {
+      "docker.io": "29.1.3-0ubuntu3~24.04.2",
+      "containerd": "2.2.1-0ubuntu1~24.04.3",
+      "runc": "1.3.4-0ubuntu1~24.04.1",
+      "git": "1:2.43.0-1ubuntu7.3",
+      "curl": "8.5.0-2ubuntu10.15",
+      "jq": "1.7.1-3ubuntu0.24.04.2",
+      "ca-certificates": "20260601~24.04.1",
+      "wireguard-tools": "1.0.20210914-1ubuntu4",
+      "openssh-server": "1:9.6p1-3ubuntu13.19",
+      "tmux": "3.4-1ubuntu0.1",
+      "perl": "5.38.2-3.2ubuntu0.6"
+    },
+    "npmGlobals": {
+      "keep": {
+        "corepack": "0.36.0",
+        "npm": "11.19.0",
+        "typescript-language-server": "5.3.0"
+      },
+      "strip": [
+        "openclaw",
+        "bun",
+        "typescript",
+        "ts-node",
+        "@anthropic-ai/claude-code",
+        "@openai/codex",
+        "opencode-ai"
+      ]
+    }
+  },
+  "apt": {
+    "ubuntu": {
+      "uri": "https://snapshot.ubuntu.com/ubuntu/20261001T000000Z/",
+      "snapshot": "20261001T000000Z",
+      "suites": ["noble", "noble-updates", "noble-backports", "noble-security"],
+      "components": ["main", "restricted", "universe", "multiverse"],
+      "signedBy": "/usr/share/keyrings/ubuntu-archive-keyring.gpg",
+      "packages": {
+        "acl": "2.3.2-1build1.1",
+        "arping": "2.24-1build2",
+        "bubblewrap": "0.9.0-1ubuntu0.3",
+        "fuse3": "3.14.0-5build1",
+        "libfuse3-3": "3.14.0-5build1",
+        "libjson-perl": "4.10000-1",
+        "libllvm19": "1:19.1.1-1ubuntu1~24.04.2",
+        "libnet1": "1.1.6+dfsg-3.2build1",
+        "libxslt1.1": "1.1.39-0exp1ubuntu0.24.04.3",
+        "ripgrep": "14.1.0-1",
+        "ssl-cert": "1.1.2ubuntu1"
+      }
+    },
+    "pgdg": {
+      "uri": "https://apt-archive.postgresql.org/pub/repos/apt",
+      "suite": "noble-pgdg-archive",
+      "components": ["main"],
+      "keyUrl": "https://www.postgresql.org/media/keys/ACCC4CF8.asc",
+      "keySha256": "0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76",
+      "keyFingerprint": "B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8",
+      "packages": {
+        "libpq5": "17.11-1.pgdg24.04+2",
+        "postgresql-17": "17.11-1.pgdg24.04+2",
+        "postgresql-client-17": "17.11-1.pgdg24.04+2",
+        "postgresql-client-common": "293.pgdg24.04+1",
+        "postgresql-common": "293.pgdg24.04+1"
+      }
+    }
+  },
+  "programs": [
+    {
+      "name": "cmux-tui",
+      "version": "d7f8fd06326fb236daf8b4983065239b7b11e900",
+      "url": "https://files.cmux.com/cmux-tui/d7f8fd06326fb236daf8b4983065239b7b11e900/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "a049cc61e64b7ce3028fe70643555e86184648cedd8007a2c5d2a9e51430738b",
+      "size": 42320288,
+      "format": "raw",
+      "fileName": "cmux-tui",
+      "bin": { "cmux-tui": "cmux-tui" },
+      "versionArgs": ["--version"],
+      "source": "https://files.cmux.com/cmux-tui/d7f8fd06326fb236daf8b4983065239b7b11e900/manifest.json"
+    },
+    {
+      "name": "cmux-tui-hook",
+      "version": "d7f8fd06326fb236daf8b4983065239b7b11e900",
+      "url": "https://files.cmux.com/cmux-tui/d7f8fd06326fb236daf8b4983065239b7b11e900/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "3bdcb75bc74b8e917a71a7b4cb17f09bf9663f07c4bd60dbb85f550bf19556f2",
+      "size": 3052288,
+      "format": "raw",
+      "fileName": "cmux-tui-hook",
+      "bin": { "cmux-tui-hook": "cmux-tui-hook" },
+      "versionArgs": [],
+      "source": "https://files.cmux.com/cmux-tui/d7f8fd06326fb236daf8b4983065239b7b11e900/manifest.json"
+    },
+    {
+      "name": "coderouter",
+      "version": "0.3.11",
+      "url": "https://github.com/manaflow-ai/coderouter-releases/releases/download/v0.3.11/coderouter-linux-x64",
+      "sha256": "733961fcc6b24e2edb5d9efa19b152731ed86c99dd24a6d30d31106523bcbc25",
+      "size": 7039200,
+      "format": "raw",
+      "fileName": "coderouter",
+      "bin": { "coderouter": "coderouter", "cr": "coderouter" },
+      "versionArgs": ["--version"],
+      "expect": "0.3.11",
+      "checksumsUrl": "https://github.com/manaflow-ai/coderouter-releases/releases/download/v0.3.11/SHA256SUMS",
+      "checksumsName": "coderouter-linux-x64"
+    },
+    {
+      "name": "claude",
+      "version": "2.1.267",
+      "url": "https://downloads.claude.ai/claude-code-releases/2.1.267/linux-x64/claude",
+      "sha256": "0399c793ff571d5946ef923d80b4f330d05ac4b6842a6b0775468f5d389403c0",
+      "size": 217013744,
+      "format": "raw",
+      "fileName": "claude",
+      "bin": { "claude": "claude" },
+      "versionArgs": ["--version"],
+      "expect": "2.1.267"
+    },
+    {
+      "name": "codex",
+      "version": "0.160.0",
+      "url": "https://github.com/openai/codex/releases/download/rust-v0.160.0/codex-x86_64-unknown-linux-musl.tar.gz",
+      "sha256": "306865417d4ee7a927785852910a527f41e1e159add390ac5ae3accb67d44a13",
+      "size": 109304578,
+      "format": "tar.gz",
+      "bin": { "codex": "codex-x86_64-unknown-linux-musl" },
+      "versionArgs": ["--version"],
+      "expect": "0.160.0"
+    },
+    {
+      "name": "opencode",
+      "version": "1.18.30",
+      "url": "https://registry.npmjs.org/opencode-linux-x64/-/opencode-linux-x64-1.18.30.tgz",
+      "sha256": "aa31a7e68ce5c73cba302c6a4f31c2e308398db125e49d3dbea32f61862fe6de",
+      "size": 60202013,
+      "format": "tar.gz",
+      "bin": { "opencode": "package/bin/opencode" },
+      "versionArgs": ["--version"],
+      "expect": "1.18.30"
+    },
+    {
+      "name": "pi",
+      "version": "0.85.1",
+      "url": "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-0.85.1.tgz",
+      "sha256": "1f498729649bdce647d1160993b4d92bf3c614cc819213bee2f91dd34f2a7af4",
+      "size": 6986356,
+      "format": "npm",
+      "bin": { "pi": "bin/pi" },
+      "versionArgs": ["--version"],
+      "expect": "0.85.1"
+    },
+    {
+      "name": "workerd",
+      "version": "1.20260924.1",
+      "url": "https://registry.npmjs.org/@cloudflare/workerd-linux-64/-/workerd-linux-64-1.20260924.1.tgz",
+      "sha256": "609199d686177a1ba0fa85ebf0bc21deccceb153d51c00a8cb02ea7fa9d9da7c",
+      "size": 39214628,
+      "format": "tar.gz",
+      "bin": { "workerd": "package/bin/workerd" },
+      "versionArgs": ["--version"],
+      "expect": "2026-09-24"
+    },
+    {
+      "name": "gh",
+      "version": "2.101.0",
+      "url": "https://github.com/cli/cli/releases/download/v2.101.0/gh_2.101.0_linux_amd64.tar.gz",
+      "sha256": "9bca2d1c16825f109907a23307628a2f0698fbf99662b73a5cf0b020293072b8",
+      "size": 15282175,
+      "format": "tar.gz",
+      "bin": { "gh": "gh_2.101.0_linux_amd64/bin/gh" },
+      "versionArgs": ["--version"],
+      "expect": "2.101.0"
+    },
+    {
+      "name": "juicefs",
+      "version": "1.4.1",
+      "url": "https://github.com/juicedata/juicefs/releases/download/v1.4.1/juicefs-1.4.1-linux-amd64.tar.gz",
+      "sha256": "01ee09a21a9351a465e09906f113845e1c6a19bea70f530e5e2b2125b2dd3b82",
+      "size": 40259377,
+      "format": "tar.gz",
+      "bin": { "juicefs": "juicefs" },
+      "versionArgs": ["version"],
+      "expect": "1.4.1"
+    }
+  ],
+  "tools": {
+    "syft": {
+      "version": "1.52.0",
+      "url": "https://github.com/anchore/syft/releases/download/v1.52.0/syft_1.52.0_linux_amd64.tar.gz",
+      "sha256": "caeedb81fb0491615f1ebd1761e4145d41ee86dd2cc7bf80669f9f5ad9d6133d",
+      "size": 29289629
+    }
+  }
+}

@@ -79,16 +79,21 @@ export const InboxDmPeer = def({
   mcp: { expose: "never", group: "home" }
 })
 
-const ChiefName = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(60))
+const ChiefName = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100))
+const ChiefId = Schema.String.check(Schema.isPattern(/^agent_[0-9A-HJKMNP-TV-Z]{26}$/)).annotate({ identifier: "ChiefId" })
+/** A chief record in UserDO (plans/cmux-next/chief-mac.md section 9). */
 const Chief = Schema.Struct({
-  agent: AgentId,
+  id: ChiefId,
   owner_user: Schema.String,
-  name: ChiefName,
-  avatar: Schema.optionalKey(Schema.String),
-  parent: Schema.optionalKey(AgentId),
-  brain: Schema.Literals(["local", "cloud"]),
-  thread: ConversationId,
-  archived_at: Schema.optionalKey(Timestamp)
+  display_name: ChiefName,
+  is_default: Schema.Boolean,
+  brain: Schema.Literal("cloud"),
+  main_conversation: Schema.NullOr(ConversationId),
+  harness: Schema.NullOr(Schema.String),
+  rev: Schema.Number,
+  created_at: Timestamp,
+  updated_at: Timestamp,
+  archived_at: Schema.NullOr(Timestamp)
 }).annotate({ identifier: "HomeChief" })
 
 export const ChiefCreate = def({
@@ -97,16 +102,11 @@ export const ChiefCreate = def({
   class: "mutation",
   risk: "mutate-own",
   target: "chief",
-  principals: ["session"],
-  params: Schema.Struct({
-    name: ChiefName,
-    parent: Schema.optionalKey(AgentId),
-    avatar: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(1024))),
-    brain: Schema.Literals(["local", "cloud"])
-  }),
+  principals: ["session", "install"],
+  params: Schema.Struct({ display_name: Schema.optionalKey(ChiefName), is_default: Schema.optionalKey(Schema.Boolean) }),
   result: Chief,
   errors: mutationErrors,
-  docs: "Create a chief (or a subchief under parent): its agent principal and mux grant, its wake queue and its chief thread.",
+  docs: "Create a chief (the user's first chief is the default; use the idempotency key chief-default for it). Binds its wake queue and gives it the user's text confirmation level.",
   cli: { path: "chief create", visible: true },
   mcp: { expose: "never", group: "home" }
 })
@@ -117,11 +117,18 @@ export const ChiefUpdate = def({
   class: "mutation",
   risk: "mutate-own",
   target: "chief",
-  principals: ["session"],
-  params: Schema.Struct({ agent: AgentId, name: Schema.optionalKey(ChiefName), avatar: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(1024))) }),
+  principals: ["session", "install"],
+  params: Schema.Struct({
+    chief: ChiefId,
+    expected_rev: Schema.Number,
+    display_name: Schema.optionalKey(ChiefName),
+    is_default: Schema.optionalKey(Schema.Literal(true)),
+    harness: Schema.optionalKey(Schema.NullOr(Schema.String.check(Schema.isMaxLength(64)))),
+    archived: Schema.optionalKey(Schema.Literal(false))
+  }),
   result: Chief,
-  errors: [...mutationErrors, "selector.not_found"],
-  docs: "Rename a chief or change its avatar.",
+  errors: [...mutationErrors, "selector.not_found", "chief_archived", "chief_expired"],
+  docs: "Rename a chief, make it the default (clears the old default in the same commit), set its harness, or restore it within 30 days of archiving (archived: false).",
   cli: { path: "chief update", visible: true },
   mcp: { expose: "never", group: "home" }
 })
@@ -133,11 +140,26 @@ export const ChiefArchive = def({
   risk: "destructive",
   target: "chief",
   principals: ["session"],
-  params: Schema.Struct({ agent: AgentId }),
+  params: Schema.Struct({ chief: ChiefId, expected_rev: Schema.Number }),
   result: Chief,
-  errors: [...mutationErrors, "selector.not_found"],
-  docs: "Archive a chief: its thread stays readable, it stops waking.",
+  errors: [...mutationErrors, "selector.not_found", "chief_is_default"],
+  docs: "Archive a chief (not the default): it stops waking; restorable for 30 days, then a tombstone keeps its id forever.",
   cli: { path: "chief archive", visible: true },
+  mcp: { expose: "never", group: "home" }
+})
+
+export const ChiefList = def({
+  name: "chief.list",
+  owner: "cloud:UserDO",
+  class: "read",
+  risk: "read",
+  target: "chief",
+  principals: ["session", "install"],
+  params: Schema.Struct({ include_archived: Schema.optionalKey(Schema.Boolean) }),
+  result: Schema.Struct({ chiefs: Schema.Array(Chief), tombstones: Schema.Array(Schema.Struct({ id: ChiefId, owner_user: Schema.String, archived_at: Timestamp })) }),
+  errors: ["auth.forbidden"],
+  docs: "The user's chiefs (active first, the default marked), archived ones on request, and tombstones.",
+  cli: { path: "chief list", visible: true },
   mcp: { expose: "never", group: "home" }
 })
 
@@ -208,12 +230,13 @@ export const HomeSearch = def({
     kind: Schema.optionalKey(ConversationKind),
     before: Schema.optionalKey(Timestamp),
     cursor: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(512))),
-    limit: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(50)))
+    limit: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(100)))
   }),
   result: Schema.Struct({
     hits: Schema.Array(
       Schema.Struct({
         conversation: ConversationId,
+        title: Schema.NullOr(Schema.String),
         seq: Seq,
         message_id: Schema.String,
         author: ParticipantId,
@@ -240,6 +263,7 @@ export const homeInboxOps = [
   ChiefCreate,
   ChiefUpdate,
   ChiefArchive,
+  ChiefList,
   HomeSettingsSet,
   MuxAck,
   MuxConfigure,

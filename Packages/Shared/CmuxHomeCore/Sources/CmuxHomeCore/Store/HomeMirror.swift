@@ -162,6 +162,7 @@ public struct HomeMirror: Hashable, Sendable {
             merged.muted = existing.muted
         }
         merged.readCursors = existing.readCursors.merging(incoming.readCursors) { max($0, $1) }
+        merged.readCursorTimes = existing.readCursorTimes.merging(incoming.readCursorTimes) { max($0, $1) }
         if merged.lastSeq < existing.lastSeq {
             merged.lastSeq = existing.lastSeq
             merged.lastMessage = existing.lastMessage

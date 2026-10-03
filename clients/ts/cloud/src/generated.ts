@@ -52,6 +52,9 @@ export type Body = {
 } | {
   readonly type: "steps"
   readonly steps: ReadonlyArray<Step>
+} | {
+  readonly type: "code"
+  readonly ref: CodeRef
 }
 
 export type Budget = {
@@ -61,13 +64,25 @@ export type Budget = {
   readonly tool_calls?: number
 }
 
+export type ChiefId = string
+
 /** 1 to 128 printable ASCII characters (idempotency key, client_msg_id). */
 export type ClientToken = string
+
+export type CodeRef = {
+  readonly commit: CommitSha
+  readonly path: string
+  readonly export?: string
+}
+
+export type CommitSha = string
 
 export type Concurrency = {
   readonly max: number
   readonly on_limit: "queue" | "skip"
 }
+
+export type ConfirmLevel = "strict" | "destructive-only" | "off"
 
 export type Connection = {
   readonly id: ConnectionId
@@ -118,6 +133,8 @@ export type DeviceStatus = {
   readonly conflicts: ReadonlyArray<string>
   readonly reported_at: number
 }
+
+export type EmailAddress = string
 
 /** A lowercase DNS name such as acme.com. */
 export type EmailDomain = string
@@ -275,14 +292,17 @@ export type Grant = {
 export type GrantId = string
 
 export type HomeChief = {
-  readonly agent: AgentId
+  readonly id: ChiefId
   readonly owner_user: string
-  readonly name: string
-  readonly avatar?: string
-  readonly parent?: AgentId
-  readonly brain: "local" | "cloud"
-  readonly thread: ConversationId
-  readonly archived_at?: Timestamp
+  readonly display_name: string
+  readonly is_default: boolean
+  readonly brain: "cloud"
+  readonly main_conversation: ConversationId | null
+  readonly harness: string | null
+  readonly rev: number | "Infinity" | "-Infinity" | "NaN"
+  readonly created_at: Timestamp
+  readonly updated_at: Timestamp
+  readonly archived_at: Timestamp | null
 }
 
 /** rev after the op; seq and message_id for a new message; change is the committed Change. */
@@ -479,7 +499,7 @@ export type InstallId = string
 
 export type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm"
 
-export type IntegrationProvider = "github" | "linear" | "slack"
+export type IntegrationProvider = "github" | "linear" | "slack" | "google_calendar" | "gmail"
 
 export type InviteId = string
 
@@ -876,6 +896,15 @@ export interface CloudOps {
       readonly automation: string
     }
   }
+  /** Pin a code automation to another commit of the team's code repository (the commit must contain <path>/dist/index.js). Later runs use it; started runs keep their commit. At most 50 code changes per team per UTC day. */
+  readonly "automation.deploy": {
+    readonly params: {
+      readonly automation: AutomationId
+      readonly commit: CommitSha
+      readonly expected_version?: number
+    }
+    readonly result: Automation
+  }
   /** Read one automation. */
   readonly "automation.get": {
     readonly params: {
@@ -950,29 +979,97 @@ export interface CloudOps {
       readonly scheme: string
     }
   }
-  /** Archive a chief: its thread stays readable, it stops waking. */
+  /** List the calendars of a Google Calendar connection (ids for the other calendar ops). */
+  readonly "calendar.calendars.list": {
+    readonly params: {
+      readonly connection: ConnectionId
+    }
+    readonly result: unknown
+  }
+  /** Create a Google Calendar event; attendees get Google's invitation email. */
+  readonly "calendar.event.create": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly calendar_id?: string
+      readonly summary: string
+      readonly description?: string
+      readonly location?: string
+      readonly start: {
+        readonly date_time?: string
+        readonly date?: string
+        readonly time_zone?: string
+      }
+      readonly end: {
+        readonly date_time?: string
+        readonly date?: string
+        readonly time_zone?: string
+      }
+      readonly attendees?: ReadonlyArray<EmailAddress>
+    }
+    readonly result: unknown
+  }
+  /** Answer a Google Calendar invitation as the connected account; the organizer is notified. */
+  readonly "calendar.event.respond": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly calendar_id?: string
+      readonly event_id: string
+      readonly response: "accepted" | "declined" | "tentative"
+    }
+    readonly result: unknown
+  }
+  /** List events of a Google calendar (single events, ordered by start). Read at call time; nothing is stored. */
+  readonly "calendar.events.list": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly calendar_id?: string
+      readonly time_min?: string
+      readonly time_max?: string
+      readonly query?: string
+      readonly max_results?: number
+      readonly page_token?: string
+    }
+    readonly result: unknown
+  }
+  /** Archive a chief (not the default): it stops waking; restorable for 30 days, then a tombstone keeps its id forever. */
   readonly "chief.archive": {
     readonly params: {
-      readonly agent: AgentId
+      readonly chief: ChiefId
+      readonly expected_rev: number | "Infinity" | "-Infinity" | "NaN"
     }
     readonly result: HomeChief
   }
-  /** Create a chief (or a subchief under parent): its agent principal and mux grant, its wake queue and its chief thread. */
+  /** Create a chief (the user's first chief is the default; use the idempotency key chief-default for it). Binds its wake queue and gives it the user's text confirmation level. */
   readonly "chief.create": {
     readonly params: {
-      readonly name: string
-      readonly parent?: AgentId
-      readonly avatar?: string
-      readonly brain: "local" | "cloud"
+      readonly display_name?: string
+      readonly is_default?: boolean
     }
     readonly result: HomeChief
   }
-  /** Rename a chief or change its avatar. */
+  /** The user's chiefs (active first, the default marked), archived ones on request, and tombstones. */
+  readonly "chief.list": {
+    readonly params: {
+      readonly include_archived?: boolean
+    }
+    readonly result: {
+      readonly chiefs: ReadonlyArray<HomeChief>
+      readonly tombstones: ReadonlyArray<{
+        readonly id: ChiefId
+        readonly owner_user: string
+        readonly archived_at: Timestamp
+      }>
+    }
+  }
+  /** Rename a chief, make it the default (clears the old default in the same commit), set its harness, or restore it within 30 days of archiving (archived: false). */
   readonly "chief.update": {
     readonly params: {
-      readonly agent: AgentId
-      readonly name?: string
-      readonly avatar?: string
+      readonly chief: ChiefId
+      readonly expected_rev: number | "Infinity" | "-Infinity" | "NaN"
+      readonly display_name?: string
+      readonly is_default?: true
+      readonly harness?: string | null
+      readonly archived?: false
     }
     readonly result: HomeChief
   }
@@ -1000,6 +1097,32 @@ export interface CloudOps {
       readonly next_before_seq: number | null
       readonly revision: string
     }
+  }
+  /** Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. */
+  readonly "conversation.import": {
+    readonly params: {
+      readonly id?: ConversationId
+      readonly source?: {
+        readonly kind: "mac"
+        readonly host: string
+        readonly local_id: string
+      }
+      readonly kind?: "group" | "chief"
+      readonly title?: string
+      readonly participants?: ReadonlyArray<HomeParticipantInput>
+      readonly after_seq?: number
+      readonly messages: ReadonlyArray<unknown>
+      readonly read_cursors?: unknown
+    }
+    readonly result: HomeConversationCommit
+  }
+  /** Finish an import: read cursors are clamped, normal ops open, each human gets one inbox entry. */
+  readonly "conversation.import.commit": {
+    readonly params: {
+      readonly id: ConversationId
+      readonly last_seq: number
+    }
+    readonly result: HomeConversationCommit
   }
   /** Change the chief wake policy, agent turn budget or history visibility (conversation owner). */
   readonly "conversation.settings.set": {
@@ -1416,6 +1539,7 @@ export interface CloudOps {
     readonly result: {
       readonly hits: ReadonlyArray<{
         readonly conversation: ConversationId
+        readonly title: string | null
         readonly seq: number
         readonly message_id: string
         readonly author: ParticipantId
@@ -1677,6 +1801,66 @@ export interface CloudOps {
         readonly name: string
       }>
     }
+  }
+  /** Read one Gmail message (headers, plain text, attachment list) at call time; nothing is stored. */
+  readonly "mail.get": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly message_id: string
+    }
+    readonly result: unknown
+  }
+  /** Change labels of Gmail messages or a thread (archive, mark read with remove_labels UNREAD). */
+  readonly "mail.modify": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly thread_id?: string
+      readonly message_ids?: ReadonlyArray<string>
+      readonly add_labels?: ReadonlyArray<string>
+      readonly remove_labels?: ReadonlyArray<string>
+      readonly archive?: boolean
+    }
+    readonly result: unknown
+  }
+  /** Search the connected Gmail mailbox with Gmail query syntax; returns message and thread ids only. */
+  readonly "mail.search": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly query: string
+      readonly max_results?: number
+      readonly page_token?: string
+    }
+    readonly result: unknown
+  }
+  /** Send a plain-text email from the connected Gmail account. */
+  readonly "mail.send": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly to: ReadonlyArray<EmailAddress>
+      readonly cc?: ReadonlyArray<EmailAddress>
+      readonly bcc?: ReadonlyArray<EmailAddress>
+      readonly subject: string
+      readonly body: string
+      readonly thread_id?: string
+      readonly in_reply_to?: string
+    }
+    readonly result: unknown
+  }
+  /** Read one Gmail thread (every message, as mail.get) at call time; nothing is stored. */
+  readonly "mail.thread.get": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly thread_id: string
+    }
+    readonly result: unknown
+  }
+  /** Row data for Gmail threads (subject, sender, date, snippet, unread) by id, for feed rows; held in client memory only. */
+  readonly "mail.threads.peek": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly thread_ids: ReadonlyArray<string>
+    }
+    readonly result: unknown
   }
   /** Replace the parts of one of your messages (not after it was retracted). */
   readonly "message.edit": {
@@ -2077,6 +2261,44 @@ export interface CloudOps {
     readonly params: Readonly<Record<string, never>>
     readonly result: UserProfile
   }
+  /** Make an install's presence key unusable at once (device lost); its nonces are dropped. */
+  readonly "user.presence_key.revoke": {
+    readonly params: {
+      readonly install: string
+    }
+    readonly result: unknown
+  }
+  /** The level in effect, the user's own level, the lock and the presence keys (public parts and usable_from) for Settings. */
+  readonly "user.text_confirm.get": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: unknown
+  }
+  /** Make the text confirmation level safer (applies at once). A riskier level needs lower.challenge and lower. */
+  readonly "user.text_confirm.level.set": {
+    readonly params: {
+      readonly level: ConfirmLevel
+    }
+    readonly result: {
+      readonly level: ConfirmLevel
+    }
+  }
+  /** Lower the level with the signed challenge. Spends the nonce on any attempt; a refused proof commits `lowered: false` with a code. */
+  readonly "user.text_confirm.lower": {
+    readonly params: {
+      readonly level: ConfirmLevel
+      readonly nonce: string
+      readonly presence_sig: string
+      readonly app_attest?: string
+    }
+    readonly result: unknown
+  }
+  /** Owner Mac or iPhone install with an active presence key: returns the exact bytes to sign (2 minutes, one live nonce per install). */
+  readonly "user.text_confirm.lower.challenge": {
+    readonly params: {
+      readonly level: ConfirmLevel
+    }
+    readonly result: unknown
+  }
 }
 
 export type CloudOpName = keyof CloudOps
@@ -2085,6 +2307,7 @@ export type CloudOpName = keyof CloudOps
 export const cloudOpMeta = {
   "automation.create": { class: "mutation", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.delete": { class: "mutation", owner: "cloud:SchedulerDO", risk: "destructive" },
+  "automation.deploy": { class: "mutation", owner: "cloud:SchedulerDO", risk: "execute" },
   "automation.get": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
   "automation.list": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
   "automation.run": { class: "mutation", owner: "cloud:SchedulerDO", risk: "execute" },
@@ -2093,11 +2316,18 @@ export const cloudOpMeta = {
   "automation.settings.set": { class: "mutation", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.update": { class: "mutation", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.webhook.get": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
+  "calendar.calendars.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
+  "calendar.event.create": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "calendar.event.respond": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "calendar.events.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
   "chief.archive": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
   "chief.create": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "chief.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "chief.update": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "conversation.create": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "conversation.history": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
+  "conversation.import": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "conversation.import.commit": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "conversation.settings.set": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "conversation.snapshot": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
   "dm.open": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
@@ -2151,6 +2381,12 @@ export const cloudOpMeta = {
   "invite.revoke": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "linear.issue.create": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "linear.teams.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
+  "mail.get": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
+  "mail.modify": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-own" },
+  "mail.search": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
+  "mail.send": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "mail.thread.get": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
+  "mail.threads.peek": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
   "message.edit": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
   "message.retract": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
   "message.send": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
@@ -2192,6 +2428,11 @@ export const cloudOpMeta = {
   "tunnel.detach": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "tunnel.rotate-key": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "user.ensure": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "user.presence_key.revoke": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "user.text_confirm.get": { class: "read", owner: "cloud:UserDO", risk: "read" },
+  "user.text_confirm.level.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "user.text_confirm.lower": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "user.text_confirm.lower.challenge": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
 } as const satisfies Record<CloudOpName, { class: "read" | "mutation"; owner: string; risk: string }>
 
 export type CloudMutationName = { [K in CloudOpName]: (typeof cloudOpMeta)[K]["class"] extends "mutation" ? K : never }[CloudOpName]

@@ -36,7 +36,11 @@ export default defineConfig({
           LINEAR_WEBHOOK_SECRET: "lin-webhook-secret",
           SLACK_CLIENT_ID: "slack-client",
           SLACK_CLIENT_SECRET: "slack-secret",
-          SLACK_SIGNING_SECRET: "slack-signing-secret"
+          SLACK_SIGNING_SECRET: "slack-signing-secret",
+          GOOGLE_CLIENT_ID: "google-client.apps.googleusercontent.com",
+          GOOGLE_CLIENT_SECRET: "google-client-secret",
+          // The dev project in Testing mode may ask for restricted Gmail scopes.
+          GOOGLE_RESTRICTED_SCOPES: "testing"
         }
       }
     })

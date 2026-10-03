@@ -66,6 +66,27 @@ export const Step = Schema.Union([
   Schema.Struct({ type: Schema.Literal("note"), text: Text(2000) })
 ]).annotate({ identifier: "Step" })
 
+/** A full Git commit id (40 lowercase hex). Short ids and branch names never pin a run. */
+export const CommitSha = Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/)).annotate({ identifier: "CommitSha" })
+
+/**
+ * Where an automation's code lives (decisions A12, C1): a directory
+ * `automations/<slug>` of the owner team's code.storage repository at one
+ * commit. The repository is not a field: each team has exactly one, derived
+ * from the owner team by the backend, so a ref can never name another team's
+ * repository. The CLI bundles to `<path>/dist/index.js` in the same commit;
+ * `export` names the WorkflowEntrypoint class in that module.
+ */
+export const CodeRef = Schema.Struct({
+  commit: CommitSha,
+  path: Schema.String.check(Schema.isPattern(/^automations\/[a-z0-9][a-z0-9-]{0,62}$/)),
+  export: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[A-Za-z_$][A-Za-z0-9_$]{0,63}$/)))
+}).annotate({ identifier: "CodeRef" })
+export type CodeRef = typeof CodeRef.Type
+
+/** The bundle a code ref runs: one ES module the CLI builds into the same commit. */
+export const codeBundlePath = (ref: Pick<CodeRef, "path">) => `${ref.path}/dist/index.js`
+
 export const Body = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("agent_prompt"),
@@ -79,7 +100,9 @@ export const Body = Schema.Union([
     }),
     conversation: Schema.Literals(["fresh", "continue"])
   }),
-  Schema.Struct({ type: Schema.Literal("steps"), steps: Schema.Array(Step).check(Schema.isMinLength(1), Schema.isMaxLength(50)) })
+  Schema.Struct({ type: Schema.Literal("steps"), steps: Schema.Array(Step).check(Schema.isMinLength(1), Schema.isMaxLength(50)) }),
+  /** Chief-written Workflows code (decision A11) at a pinned commit; runs on Tier 1 Dynamic Workers. */
+  Schema.Struct({ type: Schema.Literal("code"), ref: CodeRef })
 ]).annotate({ identifier: "Body" })
 export type Body = typeof Body.Type
 
@@ -173,6 +196,14 @@ export const AutomationUpdateParams = Schema.Struct({
 })
 
 export const AutomationSelector = Schema.Struct({ automation: AutomationId })
+
+/** Activate another commit of a code automation (the CLI's `deploy`). */
+export const AutomationDeployParams = Schema.Struct({
+  automation: AutomationId,
+  commit: CommitSha,
+  /** Optimistic check on the automation's own version. */
+  expected_version: Schema.optionalKey(Schema.Int)
+})
 
 export const RunsListParams = Schema.Struct({
   automation: Schema.optionalKey(AutomationId),

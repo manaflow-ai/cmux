@@ -23,6 +23,15 @@ export const encodeId = (prefix: string, unixMs: number, random: Uint8Array): st
 }
 
 /**
+ * The id of a conversation promoted from a Mac (`conversation.import`):
+ * `conv_` + base32(sha256("import\0" + user + "\0" + host + "\0" + local_id))[0..26].
+ * Bound to the importing user and the source, so an import can never land in
+ * another conversation's object (and never in a `conv_dm_` id).
+ */
+export const importConversationId = (user: string, host: string, localId: string): string =>
+  `conv_${crockford(createHash("sha256").update(`import\0${user}\0${host}\0${localId}`).digest(), 26)}`
+
+/**
  * The id of the dm between two participants (home-messaging.md section 2):
  * `conv_dm_` + base32(sha256("dm\0" + lo + "\0" + hi))[0..26], where lo and
  * hi are the two ids sorted. Participant ids are ASCII, so UTF-16 order equals

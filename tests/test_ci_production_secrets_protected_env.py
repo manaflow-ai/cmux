@@ -22,14 +22,18 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKFLOWS = os.path.join(ROOT, ".github", "workflows")
 FAILURES = []
 
-# Publishing a commit-addressed cmux-tui build is not a production release:
-# cmux-next pins daemon builds from helper branches (cmux-tui-pin-*). That job
-# runs in the `artifacts` environment (policy: main, feat-cmux-next,
+# Publishing a commit- or tree-addressed cmux-tui build is not a production
+# release: cmux-next builds bundle the daemon of their own cmux-tui tree, and
+# helper branches (cmux-tui-pin-*) publish an unmerged branch's tree. Those
+# jobs run in the `artifacts` environment (policy: main, feat-cmux-next,
 # cmux-tui-pin-*), which holds only the R2 upload credentials.
 ARTIFACT_JOBS = {
-    "cmux-tui-artifacts.yml": ["publish"],
+    "cmux-tui-artifacts.yml": ["publish", "publish-tree"],
 }
 ARTIFACT_SECRETS = {"CF_R2_ACCESS_KEY_ID", "CF_R2_SECRET_ACCESS_KEY", "CF_R2_ACCOUNT_ID"}
+
+NIGHTLY_TRACK_ENVIRONMENT = "${{ needs.decide.outputs.environment }}"
+NIGHTLY_TRACK_ENVIRONMENT_RULE = "core.setOutput('environment', isNextRef ? 'release-next' : 'release');"
 
 RELEASE_JOBS = {
     "release.yml": ["build-sign-notarize"],
@@ -56,7 +60,15 @@ def main():
         document = yaml.load(open(os.path.join(WORKFLOWS, name), encoding="utf-8"), Loader=yaml.BaseLoader)
         for job in jobs:
             definition = document["jobs"].get(job, {})
-            _check(definition.get("environment") == "release", f"{name} {job} runs in the release environment")
+            environment = definition.get("environment")
+            if name == "nightly.yml" and environment == NIGHTLY_TRACK_ENVIRONMENT:
+                # nightly.yml picks the environment per track in `decide`:
+                # release-next only for branch nightly-next, release otherwise.
+                text = open(os.path.join(WORKFLOWS, name), encoding="utf-8").read()
+                _check(NIGHTLY_TRACK_ENVIRONMENT_RULE in text,
+                       f"{name} {job} environment is release except release-next for nightly-next")
+                continue
+            _check(environment == "release", f"{name} {job} runs in the release environment")
     for name, jobs in ARTIFACT_JOBS.items():
         text = open(os.path.join(WORKFLOWS, name), encoding="utf-8").read()
         document = yaml.load(text, Loader=yaml.BaseLoader)

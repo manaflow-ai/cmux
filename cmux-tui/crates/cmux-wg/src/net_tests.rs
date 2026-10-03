@@ -20,7 +20,7 @@ impl TcpPeer {
             addresses.push(IpCidr::new(address, 24)).unwrap();
         });
         let mut sockets = SocketSet::new(Vec::new());
-        let handle = sockets.add(Driver::new_socket());
+        let handle = sockets.add(Driver::new_socket(TCP_TIMEOUT));
         Self { iface, device, sockets, handle }
     }
 

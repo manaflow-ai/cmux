@@ -1,18 +1,22 @@
 import Foundation
 
 /// A Codex ChatGPT sign-in for `POST /api/coderouter/accounts` (`parseCredential`).
-/// `CustomStringConvertible` is redacted so the tokens never reach a log.
-public struct CodexCredential: Sendable, CustomStringConvertible, CustomDebugStringConvertible {
+/// `CustomStringConvertible` is redacted so the tokens and the email never
+/// reach a log. The email is only in ``body``, which the server needs and
+/// which lives for the one HTTPS request.
+public struct CodexCredential: Sendable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
     let accessToken: String
     let refreshToken: String
     let idToken: String
     let accountID: String
-    public let email: String
+    let email: String
     /// Milliseconds since 1970 (the server's unit).
     let expiresAtMilliseconds: Double
 
-    public var description: String { "CodexCredential(\(email), <redacted>)" }
+    public var description: String { "CodexCredential(<redacted>)" }
     public var debugDescription: String { description }
+    /// `dump` and the debugger show no field.
+    public var customMirror: Mirror { Mirror(self, children: [], displayStyle: .struct) }
 
     var body: [String: any Sendable] {
         ["provider": "codex", "accessToken": accessToken, "refreshToken": refreshToken, "idToken": idToken,
@@ -21,7 +25,7 @@ public struct CodexCredential: Sendable, CustomStringConvertible, CustomDebugStr
 }
 
 /// What Connect sends to CodeRouter. Redacted in descriptions.
-public enum CodeRouterCredential: Sendable, CustomStringConvertible {
+public enum CodeRouterCredential: Sendable, CustomStringConvertible, CustomReflectable {
     case codex(CodexCredential)
     case apiKey(serverProvider: String, key: String, label: String?)
     case claudeOAuthToken(String, label: String?)
@@ -37,6 +41,9 @@ public enum CodeRouterCredential: Sendable, CustomStringConvertible {
         case .bedrock(let region, _, _, _, _): "bedrock(\(region), <redacted>)"
         }
     }
+
+    /// `dump` and the debugger show the description only.
+    public var customMirror: Mirror { Mirror(self, children: [], displayStyle: .enum) }
 
     var family: LinkedAccount.Family {
         switch self {

@@ -15515,6 +15515,11 @@ Result<Json> Codec<NewFrontendBrowserTabRequest>::encode(const NewFrontendBrowse
         if (!encoded) return std::move(encoded).error();
         object.emplace("favicon_url", std::move(encoded).value());
     }
+    if (!value.idempotency_key.is_absent()) {
+        auto encoded = encode_value(value.idempotency_key);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("idempotency_key", std::move(encoded).value());
+    }
     if (!value.owner.is_absent()) {
         auto encoded = encode_value(value.owner);
         if (!encoded) return std::move(encoded).error();
@@ -15577,6 +15582,16 @@ Result<NewFrontendBrowserTabRequest> Codec<NewFrontendBrowserTabRequest>::decode
             auto decoded = decode_value<std::string>(*field_favicon_url);
             if (!decoded) return std::move(decoded).error();
             result.favicon_url = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_idempotency_key = value.find("idempotency_key");
+    if (field_idempotency_key) {
+        if (field_idempotency_key->is_null()) {
+            result.idempotency_key = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_idempotency_key);
+            if (!decoded) return std::move(decoded).error();
+            result.idempotency_key = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_owner = value.find("owner");

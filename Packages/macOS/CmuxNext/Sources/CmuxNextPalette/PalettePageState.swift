@@ -6,8 +6,14 @@ final class PageState {
     }
 
     let kind: Kind
+    /// The navigation level that shows this page (`PaletteNavLevel.id`).
+    var levelID = 0
+    /// The level's generation this page last searched for.
+    var generation = 0
+    /// Created while another level was on top: load its providers when it
+    /// is first shown.
+    var needsLoad = true
     var query = ""
-    var selectedRowID: String?
     var providerItems: [String: [PaletteItem]] = [:]
     var pendingProviders = Set<String>()
     var tasks: [Task<Void, Never>] = []
@@ -42,6 +48,19 @@ final class PageState {
         case .list(let page): page.title
         case .textInput(let spec): spec.title
         }
+    }
+
+    var symbol: String {
+        switch kind {
+        case .list(let page): page.symbol
+        case .textInput(let spec): spec.symbol
+        }
+    }
+
+    /// The page's empty-query row (Search Tabs: the previous tab).
+    var emptyQuerySelection: Int? {
+        guard case .list(let page) = kind, page.emptyQuerySelection > 0 else { return nil }
+        return page.emptyQuerySelection
     }
 
     var sectionOrders: [Int] { sections.map(\.order) }

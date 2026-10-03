@@ -8,6 +8,8 @@ import {
   cloudOpByName,
   CurrentPrincipal,
   Forbidden,
+  googleProviderOpNames,
+  googleReadOpNames,
   OwnerUnreachable,
   providerOpNames,
   providerReadOpNames,
@@ -23,12 +25,15 @@ import type { Env } from "./env.ts"
 import type { DomainReply } from "./team-domain-external.ts"
 import type { ExternalReply } from "./connection-do.ts"
 import { automationHookPath, automationHookSecret } from "./ingress/automation-hook.ts"
-import { providers } from "./integrations/providers.ts"
+import { codeRefOf } from "./code-check.ts"
+import type { CodeStorageError } from "./code-storage.ts"
+import { isProvider, providers, scopesToRequest } from "./integrations/providers.ts"
 import { signState, verifyState } from "./integrations/state.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
 import { pairApprove, pairPreview } from "./pair-routes.ts"
 import { conversationMutate, conversationRead } from "./home-routes.ts"
+import { homeSearch, type SearchParams } from "./home-search.ts"
 
 /** DO RPC stubs erase union result types; the DO methods define them. */
 const rpc = <T>(p: unknown) => p as Promise<T>
@@ -187,7 +192,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           ...(payload.expected_revision ? { expected_revision: payload.expected_revision } : {})
         }
         // Integration ops with external effects run in the ConnectionDO's own ledger (connection-do.ts).
-        if (payload.op === "integration.complete" || providerOpNames.has(payload.op)) return yield* externalOp(principal, frame)
+        if (payload.op === "integration.complete" || providerOpNames.has(payload.op) || googleProviderOpNames.has(payload.op)) return yield* externalOp(principal, frame)
         // DNS checks and the domain's DomainDO run in TeamDO, outside its reducer (team-domain-external.ts).
         if (payload.op === "domain.verify" || payload.op === "domain.release") {
           const p = yield* principalFor("cloud:TeamDO", principal)
@@ -206,13 +211,38 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           })
         }
         if (payload.op === "integration.connect") {
-          const provider = (payload.params as { provider?: string } | null)?.provider
-          const impl = provider === "github" || provider === "linear" || provider === "slack" ? providers[provider] : undefined
+          const cp = payload.params as { provider?: string; scopes?: unknown } | null
+          const provider = cp?.provider
+          const impl = isProvider(provider) ? providers[provider] : undefined
           if (impl && (!env.INTEGRATIONS_KEK || !env.DASHBOARD_ORIGIN || !impl.configured(env))) {
             return { ok: false, op: payload.op, error: { code: "integration.not_configured", message: `${provider} is not configured on this deployment`, retryable: false }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `connections:${principal.team}`, sequence: 0 }
           }
+          // A provider may refuse scopes this deployment must not ask for (restricted Gmail scopes before CASA).
+          const refused = impl?.refuseScopes?.(env, scopesToRequest(env, impl, Array.isArray(cp?.scopes) ? (cp.scopes as Array<string>) : []))
+          if (refused) {
+            return { ok: false, op: payload.op, error: { code: "validation.invalid", message: refused, retryable: false }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `connections:${principal.team}`, sequence: 0 }
+          }
+        }
+        // Ops that pin automation code: the SchedulerDO checks the commit and its bundle in the team's repository first.
+        if (def.owner === "cloud:SchedulerDO" && codeRefOf(payload.op, frame.params)) {
+          const p = yield* principalFor(def.owner, principal)
+          const stub = env.SCHEDULER_DO.get(env.SCHEDULER_DO.idFromName(p.team!))
+          const r = yield* Effect.tryPromise({ try: () => rpc<SubmitResult | { refusal: CodeStorageError }>(stub.submitCode(p.team!, p, { t: "op", ...frame })), catch: unreachable })
+          if ("refusal" in r) {
+            return { ok: false, op: payload.op, error: { code: r.refusal.code, message: r.refusal.message, retryable: r.refusal.retryable }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `scheduler:${p.team}`, sequence: 0 }
+          }
+          return toResponse(payload.op, r.frames)
         }
         // Home: conversations are keyed by the op's params, inbox ops run on UserDO's second stream (home-routes.ts).
+        // A chief's MuxDO is keyed by its agent id; the principal carries install_kind (withGrantClasses).
+        if (def.owner === "cloud:MuxDO") {
+          const p = yield* principalFor(def.owner, principal)
+          const agent = (payload.params as { agent?: unknown } | null)?.agent
+          if (typeof agent !== "string") return yield* new BadRequest({ code: "validation.invalid", message: `${payload.op} needs an agent` })
+          const stub = env.MUX_DO.get(env.MUX_DO.idFromName(agent)) as unknown as OwnerStub
+          const mux = yield* Effect.tryPromise({ try: () => rpc<SubmitResult>(stub.submit(agent, p, { t: "op", ...frame })), catch: unreachable })
+          return toResponse(payload.op, mux.frames)
+        }
         if (def.owner === "cloud:ConversationDO" || payload.op.startsWith("inbox.")) {
           const p = yield* principalFor(def.owner, principal)
           const home = yield* Effect.tryPromise({
@@ -230,8 +260,9 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const c = response.value as Connection
           const impl = providers[c.provider]
           const state = yield* Effect.promise(() => signState(env, { conn: c.id, team: c.owner, user: c.created_by, provider: c.provider }))
-          const scopes = c.scopes_requested.length > 0 ? c.scopes_requested : impl.defaultScopes
-          return { ...response, value: { connection: c, authorize_url: impl.authorizeUrl(env, state, scopes, callbackUrl()) } }
+          const scopes = scopesToRequest(env, impl, c.scopes_requested)
+          const authorizeUrl = yield* Effect.promise(() => Promise.resolve(impl.authorizeUrl(env, state, scopes, callbackUrl(), c.id)))
+          return { ...response, value: { connection: c, authorize_url: authorizeUrl } }
         }
         // A revoked server also loses its install key: TeamDO pushes the revocation to the owner's UserDO now and retries until it lands.
         if (payload.op === "server.revoke" && response.ok) {
@@ -271,7 +302,17 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           return { op: payload.op, value: r.value, stream: "pairing", revision: "0" }
         }
         const reader = yield* principalFor(def.owner, principal)
-        if (providerReadOpNames.has(payload.op)) {
+        // Home search reads the PlanetScale projection through the read-only Hyperdrive (home-search.ts).
+        if (payload.op === "home.search") {
+          const r = yield* Effect.tryPromise({ try: () => homeSearch(env, reader, (payload.params ?? {}) as SearchParams), catch: unreachable })
+          if (!r.ok) {
+            if (r.code === "auth.forbidden") return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
+            if (r.code === "search.unavailable") return yield* new OwnerUnreachable({ code: "owner.unreachable", message: r.message, retryable: true })
+            return yield* new BadRequest({ code: "validation.invalid", message: r.message })
+          }
+          return { op: payload.op, value: r.value, stream: `search:${reader.user}`, revision: "0" }
+        }
+        if (providerReadOpNames.has(payload.op) || googleReadOpNames.has(payload.op)) {
           const stub = env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(reader.team!))
           const pr = yield* Effect.tryPromise({
             try: () => rpc<{ ok: true; value: unknown } | { ok: false; code: string; message: string }>(stub.providerRead(reader.team!, reader, payload.op, payload.params)),

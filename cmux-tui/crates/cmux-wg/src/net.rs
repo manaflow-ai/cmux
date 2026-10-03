@@ -8,6 +8,7 @@
 //! datagram, a command, a stream write, the WireGuard timer tick, or the
 //! deadline smoltcp asks for.
 
+use std::collections::HashMap;
 use std::collections::hash_map::RandomState;
 use std::fmt;
 use std::hash::{BuildHasher, Hasher};
@@ -37,7 +38,7 @@ use x25519_dalek::{PublicKey, StaticSecret};
 use crate::config::{InterfaceAddress, WgConfig};
 use crate::device::VirtualDevice;
 pub use crate::error::WgError;
-use crate::pacing::Pacer;
+use crate::pacing::{Pacer, Priority};
 use crate::probing;
 use crate::stream::{Outbound, WgStream};
 use crate::timers::TimerSchedule;
@@ -62,7 +63,8 @@ const LISTENER_BACKLOG: usize = 16;
 const LISTEN_SPARES: usize = 8;
 /// Commands in flight before `connect`/`listen` callers wait.
 const COMMAND_DEPTH: usize = 64;
-/// Idle TCP connections with no ACK for this long are aborted.
+/// Connections with no ACK for this long are aborted; link connections use
+/// `net_sockets::LINK_TCP_TIMEOUT` instead.
 const TCP_TIMEOUT: Duration = Duration::from_secs(60);
 /// Probe each idle TCP connection before its receive timeout. WireGuard
 /// keepalives and application heartbeats on another lane do not elicit its ACKs.
@@ -89,6 +91,7 @@ pub struct WgNet {
     wakeups: Arc<AtomicU64>,
     routes: Arc<[IpNetwork]>,
     addresses: Arc<[InterfaceAddress]>,
+    max_datagram: usize,
     driver: Option<JoinHandle<()>>,
 }
 
@@ -153,10 +156,14 @@ impl WgNet {
         let addresses: Arc<[InterfaceAddress]> = config.addresses.clone().into();
         let (commands_tx, commands_rx) = mpsc::channel(COMMAND_DEPTH);
         let wake = Arc::new(Notify::new());
-        let driver = Driver::new(config, Box::new(underlay), commands_rx, Arc::clone(&wake))?;
+        let max_datagram = usize::from(config.mtu).saturating_sub(datagram_ops::DATAGRAM_OVERHEAD);
+        let mut underlay: Box<dyn Underlay> = Box::new(underlay);
+        underlay.set_max_datagram(max_datagram);
+        let driver = Driver::new(config, underlay, commands_rx, Arc::clone(&wake))?;
         let wakeups = Arc::clone(&driver.wakeups);
         let handle = tokio::spawn(driver.run());
-        Ok(Self { commands: commands_tx, wake, wakeups, routes, addresses, driver: Some(handle) })
+        let commands = commands_tx;
+        Ok(Self { commands, wake, wakeups, routes, addresses, max_datagram, driver: Some(handle) })
     }
 
     /// How many times the driver task has woken since it started: datagrams,
@@ -306,6 +313,9 @@ enum Command {
     Connect { remote: SocketAddr, reply: oneshot::Sender<Result<WgStream, WgError>> },
     Listen { port: u16, reply: oneshot::Sender<Result<WgListener, WgError>> },
     LastHandshake { reply: oneshot::Sender<Option<Duration>> },
+    BindDatagram { port: u16, reply: oneshot::Sender<Result<mpsc::Receiver<Datagram>, WgError>> },
+    UnbindDatagram { port: u16 },
+    SendDatagram { from_port: u16, to: SocketAddr, payload: Vec<u8>, priority: Priority },
     Rebind { rebind: Rebind, reply: oneshot::Sender<()> },
     Shutdown,
 }
@@ -367,6 +377,8 @@ struct Driver {
     /// a queued packet leave.
     pacer: Pacer,
     pace_deadline: Option<Instant>,
+    /// Bound datagram-service ports.
+    datagram_ports: HashMap<u16, mpsc::Sender<Datagram>>,
     watchdog: Watchdog,
     wakeups: Arc<AtomicU64>,
     next_port: u16,
@@ -448,6 +460,7 @@ impl Driver {
             probe_deadline: None,
             pacer: Pacer::default(),
             pace_deadline: None,
+            datagram_ports: HashMap::new(),
             watchdog: Watchdog::default(),
             wakeups: Arc::new(AtomicU64::new(0)),
             next_port: random_ephemeral_port(),
@@ -584,6 +597,11 @@ impl Driver {
                     if let Some(probe) = probing::decode(packet).filter(|_| allowed) {
                         let (tunn, scratch) = (&mut self.tunn, &mut self.scratch);
                         probing::receive(tunn, &mut *self.underlay, scratch, probe, origin.path);
+                    } else if allowed
+                        && let Some((source, destination, payload)) = crate::udp::parse(packet)
+                    {
+                        let datagram = (source, destination, payload.to_vec());
+                        self.deliver_datagram(datagram);
                     } else if allowed {
                         // TCP keepalives and their ACKs are not activity.
                         if self.pacer.received(packet, Instant::now()) {
@@ -630,7 +648,11 @@ impl Driver {
             {
                 self.underlay.send(encrypted);
             }
-            self.watchdog.on_data_sent(now, &packet);
+            // Datagrams are unreliable: the watchdog neither waits on them
+            // nor replays them.
+            if crate::udp::parse(&packet).is_none() {
+                self.watchdog.on_data_sent(now, &packet);
+            }
         }
         if fresh {
             self.schedule.on_activity(now);
@@ -697,9 +719,25 @@ impl Driver {
             Command::LastHandshake { reply } => {
                 let _ = reply.send(self.tunn.time_since_last_handshake());
             }
+            Command::BindDatagram { port, reply } => {
+                let _ = reply.send(self.bind_datagram(port));
+            }
+            Command::UnbindDatagram { port } => {
+                if self.datagram_ports.get(&port).is_some_and(|sender| sender.is_closed()) {
+                    self.datagram_ports.remove(&port);
+                }
+            }
+            Command::SendDatagram { from_port, to, payload, priority } => {
+                self.send_datagram(from_port, to, &payload, priority);
+            }
             Command::Rebind { rebind, reply } => {
                 match rebind {
-                    Rebind::Underlay(underlay) => self.underlay = underlay,
+                    Rebind::Underlay(underlay) => {
+                        self.underlay = underlay;
+                        let max = usize::from(self.config.mtu)
+                            .saturating_sub(datagram_ops::DATAGRAM_OVERHEAD);
+                        self.underlay.set_max_datagram(max);
+                    }
                     Rebind::Socket(socket) => {
                         let peer = self.underlay.peer_hint();
                         self.underlay = Box::new(SocketPath::new(socket, peer));
@@ -915,6 +953,10 @@ impl Driver {
 
 #[path = "net_timers.rs"]
 mod timer_ops;
+
+#[path = "net_datagrams.rs"]
+mod datagram_ops;
+pub use datagram_ops::{Datagram, WgDatagramSocket};
 
 #[path = "net_sockets.rs"]
 mod socket_ops;

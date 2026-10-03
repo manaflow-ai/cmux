@@ -21,13 +21,17 @@ public enum HomeOp: Hashable, Sendable {
     case setPinned(conversation: ConversationID, rank: Int?)
     case setMuted(conversation: ConversationID, muted: Bool)
     case addReaction(message: MessageID, conversation: ConversationID, reaction: Reaction.Kind, partIndex: Int)
+    /// My typing state. Ephemeral: never stored by the owner and never in the
+    /// intent log (the store sends it directly; nothing to settle).
+    case setTyping(conversation: ConversationID, on: Bool)
 
     /// The stream this op writes. Its result's `rev` is a revision of this stream.
     public var stream: HomeStream {
         switch self {
         case .sendMessage(let conversation, _),
              .setReadCursor(let conversation, _),
-             .addReaction(_, let conversation, _, _):
+             .addReaction(_, let conversation, _, _),
+             .setTyping(let conversation, _):
             .conversation(conversation)
         case .setPinned, .setMuted, .createGroup, .createChief, .startConversation, .invite:
             .inbox
@@ -41,7 +45,8 @@ public enum HomeOp: Hashable, Sendable {
              .setReadCursor(let conversation, _),
              .setPinned(let conversation, _),
              .setMuted(let conversation, _),
-             .addReaction(_, let conversation, _, _):
+             .addReaction(_, let conversation, _, _),
+             .setTyping(let conversation, _):
             conversation
         case .createGroup, .createChief, .startConversation, .invite:
             nil

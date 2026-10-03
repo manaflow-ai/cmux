@@ -119,7 +119,11 @@ export function generate(): Record<string, string> {
     "app.storage.keys": { scope: "storage:local", class: "read" },
     "net.fetch": { scope: "net:<host>", class: "runtime" },
     "clipboard.write": { scope: "clipboard:write", class: "mutation" },
-    "integration.request": { scope: "integration:<provider>", class: "runtime" }
+    "integration.request": { scope: "integration:<provider>", class: "runtime" },
+    // Mac-side app ops (AppHostCapabilities in CmuxNextApp; APP-R1 provider channel later).
+    "coderouter.status": { scope: "coderouter:read", class: "read" },
+    "coderouter.accounts.list": { scope: "coderouter:read", class: "read" },
+    "coderouter.usage.get": { scope: "coderouter:read", class: "read" }
   }
   Object.assign(scopes, hostOps)
 

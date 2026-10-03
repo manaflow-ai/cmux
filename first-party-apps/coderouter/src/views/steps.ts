@@ -31,7 +31,7 @@ export function stepSpec(step: Step, d: Core): StepSpec {
     case "detect":
       return {
         title: t("step.detect", "See what you have"),
-        sentence: t("step.detect.body", "cmux checks this Mac for sign-ins and keys. It reads only names and emails, never a key."),
+        sentence: t("step.detect.body", "cmux checks this Mac for sign-ins and keys. It shows plan names and shortened account labels, never a full email or a key."),
         summary: () => {
           const found = (d.detected() ?? []).filter((x) => x.status !== "missing").length
           return found ? t("step.detect.found", "{n} found on this Mac", { n: found }) : t("step.detect.none", "Nothing found yet")
@@ -103,7 +103,7 @@ function detectBody(d: Core) {
         found.map((x) =>
           line(
             () => x.name,
-            () => [x.identity, x.plan].filter(Boolean).join(" · ") || x.source || null,
+            () => [x.label, x.plan === x.label ? null : x.plan].filter(Boolean).join(" · ") || x.source || null,
             () => Text(localStatusWord(x)).font("caption").color(x.status === "signed_in" ? "success" : x.status === "expired" ? "warning" : "secondary")
           )
         )
@@ -124,7 +124,7 @@ export function addKeyMenu(accounts: () => readonly Account[], exclude: readonly
 function connectRow(x: Detected) {
   return line(
     () => x.name,
-    () => x.identity ?? null,
+    () => x.label ?? null,
     busyOr(`connect:${x.provider}`, () => small(t("action.connect", "Connect"), () => act.connect(x.provider, x.name)))
   )
 }
