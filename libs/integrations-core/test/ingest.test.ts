@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { catalogDigest, defaultCounts, detectKind, ImportError, importDocument, importText } from "../src/core/catalog.ts"
-import { extract as extractGraphql, toolsFromGraphql } from "../src/core/graphql.ts"
-import { deriveMcpNamespace, extractManifestFromListToolsResult, hostnameOf } from "../src/core/mcp.ts"
-import { extract as extractOpenApi } from "../src/core/openapi.ts"
-import { planToolPaths } from "../src/core/openapi-paths.ts"
+import { catalogDigest, defaultCounts, detectKind, ImportError, importDocument, importText } from "../src/catalog.ts"
+import { extract as extractGraphql, toolsFromGraphql } from "../src/graphql.ts"
+import { deriveMcpNamespace, extractManifestFromListToolsResult, hostnameOf } from "../src/mcp.ts"
+import { extract as extractOpenApi } from "../src/openapi.ts"
+import { planToolPaths } from "../src/openapi-paths.ts"
 
 const fixture = (name: string) => JSON.parse(readFileSync(join(import.meta.dir, "fixtures", name), "utf8"))
 const byPath = <T extends { path: string }>(tools: readonly T[]) => Object.fromEntries(tools.map((t) => [t.path, t]))

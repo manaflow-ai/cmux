@@ -3,7 +3,7 @@
 // team rule). Team rules cannot be loosened by a user rule; the owner enforces
 // that, and the row says so.
 
-import type { ToolEntry } from "../core/types.ts"
+import type { ToolEntry } from "@cmux/integrations-core"
 import { t } from "../l10n.ts"
 import type { Connection } from "../model/connections.ts"
 import { actionCounts, effectiveOf, setToolAction, sourceLabel, toolsOf, untrackedTools, type ToolsState } from "../model/tools.ts"
