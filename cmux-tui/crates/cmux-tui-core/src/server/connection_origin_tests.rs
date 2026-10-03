@@ -196,3 +196,31 @@ fn the_mark_holds_during_a_pending_handoff_and_a_bridge_cannot_start_one() {
 fn test_writer_for_origin() -> MessageWriter {
     MessageWriter::new(QueuedSink { outbound: Arc::new(BoundedOutbound::default()), control: None })
 }
+
+/// A bridged peer gets the remote journal view: metadata only, like any
+/// other remote client (decision 1 of the 3b-1 review).
+#[test]
+fn a_bridged_connection_gets_the_redacted_journal() {
+    let mux = Mux::new_for_test("connection-origin-journal", crate::SurfaceOptions::default());
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let bridged = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let mark = String::from_utf8(remote_bridge_mark_line()).unwrap();
+    let _ = line(&mux, bridged, &writer, &outbound, &mark);
+    let message = json!({
+        "protocol":"cmux.protocol/2","type":"request","id":"journal-bridged",
+        "operation":"session.journal.subscribe",
+        "params":{
+            "machine":"current","session":"current",
+            "stream_id":"stream_44444444444444448444444444444444",
+            "start":"beginning",
+            "filter":{"kinds":["workspace.*"],"max_sensitivity":"sensitive"},
+        },
+    });
+    let request = crate::resource_router::parse_resource_request(&message.to_string()).unwrap();
+    let refused = prepare_session_journal_stream(&mux, bridged, &writer, &request)
+        .err()
+        .expect("a bridged peer cannot ask for the sensitive journal");
+    assert!(format!("{refused:?}").contains("metadata"), "{refused:?}");
+    mux.shutdown();
+}
