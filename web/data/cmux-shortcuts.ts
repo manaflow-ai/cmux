@@ -184,7 +184,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       },
       {
         id: "nextWorkspaceGroup",
-        combos: [["⌃", "⇧", "⌘", "]"]],
+        combos: [["⌃", "⌥", "⇧", "⌘", "]"]],
         description: { en: "Next workspace group", ja: "次のワークスペースグループ" },
         note: {
           en: "cycles to the first workspace in the next non-empty group",
@@ -193,7 +193,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       },
       {
         id: "prevWorkspaceGroup",
-        combos: [["⌃", "⇧", "⌘", "["]],
+        combos: [["⌃", "⌥", "⇧", "⌘", "["]],
         description: { en: "Previous workspace group", ja: "前のワークスペースグループ" },
         note: {
           en: "cycles to the first workspace in the previous non-empty group",

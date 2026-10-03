@@ -2724,6 +2724,7 @@
         "key" : "]",
         "modifiers" : [
           "ctrl",
+          "opt",
           "shift",
           "cmd"
         ]
@@ -2754,6 +2755,7 @@
         "key" : "[",
         "modifiers" : [
           "ctrl",
+          "opt",
           "shift",
           "cmd"
         ]
