@@ -50,11 +50,13 @@ import Testing
         return file
     }
 
-    static func services(file: SidebarSnapshotFile?) -> AppServices {
+    /// Services with their own `LaunchReveal` (a manual clock, so its
+    /// deadline never fires on its own), never the app-wide one.
+    static func services(file: SidebarSnapshotFile?, reveal: LaunchReveal = LaunchReveal(clock: ManualClock())) -> AppServices {
         _ = NSApplication.shared
         var environment = AppEnvironment.current([:])
         environment.sidebarSnapshotFile = file
-        let services = AppServices(environment: environment)
+        let services = AppServices(environment: environment, launchReveal: reveal)
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         return services
@@ -212,9 +214,8 @@ import Testing
     /// A sidebar with nothing saved stays clear (held for LaunchReveal)
     /// until its first live rows arrive, then comes in.
     @Test func theSidebarIsHeldUntilItsRowsArrive() async throws {
-        let services = Self.services(file: nil)
         let reveal = LaunchReveal(clock: ManualClock())
-        services.launchReveal = reveal
+        let services = Self.services(file: nil, reveal: reveal)
         services.windows.restoreWhenLoaded()
         let controller = try #require(services.windows.controllers.first)
         #expect(controller.sidebar.container.alphaValue == 0)
@@ -229,9 +230,8 @@ import Testing
     /// Saved rows are real rows: the sidebar is ready in its first frame,
     /// never held.
     @Test func aSavedSidebarIsNeverHeld() throws {
-        let services = Self.services(file: try Self.savedFile())
         let reveal = LaunchReveal(clock: ManualClock())
-        services.launchReveal = reveal
+        let services = Self.services(file: try Self.savedFile(), reveal: reveal)
         services.windows.restoreWhenLoaded()
         let controller = try #require(services.windows.controllers.first)
         #expect(reveal.isReady(.sidebar))
@@ -242,9 +242,8 @@ import Testing
     /// An unavailable daemon is a settled state: the sidebar comes in
     /// (with its connecting header) instead of waiting for the deadline.
     @Test func anUnavailableDaemonReleasesTheSidebar() async throws {
-        let services = Self.services(file: nil)
         let reveal = LaunchReveal(clock: ManualClock())
-        services.launchReveal = reveal
+        let services = Self.services(file: nil, reveal: reveal)
         services.windows.restoreWhenLoaded()
         let controller = try #require(services.windows.controllers.first)
         #expect(!reveal.isReady(.sidebar))
@@ -258,10 +257,9 @@ import Testing
     /// Without any signal, the reveal deadline (injected clock, no wall
     /// time) still brings the held sidebar in.
     @Test func theDeadlineReleasesAHeldSidebarWithoutASignal() async throws {
-        let services = Self.services(file: nil)
         let clock = ManualClock()
         let reveal = LaunchReveal(clock: clock, deadline: .milliseconds(1500))
-        services.launchReveal = reveal
+        let services = Self.services(file: nil, reveal: reveal)
         services.windows.restoreWhenLoaded()
         let controller = try #require(services.windows.controllers.first)
         // Held, so the deadline is armed (else waiting for it never ends).

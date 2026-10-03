@@ -1,11 +1,12 @@
 public import CmuxNextDesign
 
-/// `window.rail` in cmux.json: "off" (default: no rail), "leading" (the
-/// window's leading edge, before the sidebar) or "afterSidebar" (between
-/// the sidebar and the content column).
+/// `window.rail` in cmux.json: "leading" (default: the window's leading
+/// edge, before the sidebar), "afterSidebar" (between the sidebar and the
+/// content column) or "off" (no rail; the sidebar shows its sticky
+/// sections).
 public nonisolated enum WindowRailSetting {
     public static let configPath = ["window", "rail"]
-    public static let fallback: WindowRailPlacement = .off
+    public static let fallback: WindowRailPlacement = .leading
 
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic.

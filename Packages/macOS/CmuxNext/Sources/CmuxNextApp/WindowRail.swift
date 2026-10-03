@@ -4,10 +4,12 @@ import CmuxNextDesign
 import CmuxNextSidebar
 import Observation
 
-/// The window's icon rail (`window.rail`, off by default): the sidebar's
-/// sticky sections (Home, the App Store, Settings, the account, and
-/// anything the user pins there) drawn as one column of icon buttons,
-/// while the sidebar keeps only its workspace list. It is a look of the
+/// The window's icon rail (`window.rail`, at the leading edge by default,
+/// like the Codex app's skinny strip): the sidebar's sticky sections (Home,
+/// the App Store, History, Notifications, More with the rarely used
+/// destinations, the account at the bottom, and anything the user pins
+/// there) drawn as one column of icon buttons, while the sidebar keeps only
+/// its workspace list. It is a look of the
 /// same layout document, so pinning, removing and reordering work as in
 /// the sidebar, and each item runs the action the sidebar runs. Tooltips
 /// are the item's title plus its live shortcut.
@@ -34,8 +36,9 @@ enum WindowRail {
     }
 }
 
-/// The rail's column. It paints nothing of its own: like the sidebar it
-/// sits on the window's shared backdrop. Buttons start below the top row
+/// The rail's column. It paints nothing of its own: it sits on the window's
+/// shared backdrop, one tone apart from the sidebar's inset panel beside
+/// it (`WindowSidebarPanelView`). Buttons start below the top row
 /// (and the traffic lights), so the rail's top-row space moves the window.
 final class WindowRailView: NSView {
     let column: SidebarRailColumnView

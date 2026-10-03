@@ -108,7 +108,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var inactiveTabStyle: InactiveTabStyle = PaneFocusSettings.inactiveTabStyleFallback
     /// `window.titlebar`; "minimal" when unset or invalid.
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
-    /// `window.rail`; "off" when unset or invalid.
+    /// `window.rail`; "leading" when unset or invalid.
     public var rail: WindowRailPlacement = WindowRailSetting.fallback
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback

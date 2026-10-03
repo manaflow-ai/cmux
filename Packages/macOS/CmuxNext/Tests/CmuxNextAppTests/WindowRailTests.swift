@@ -29,8 +29,9 @@ struct WindowRailTests {
     }
 
     /// The rail is a look of the sidebar's layout: it shows the sticky
-    /// sections' items (the defaults here) as icons, in band order, and
-    /// every built-in an item can name has the sidebar's action and a real
+    /// sections' items (the defaults here) as icons, in band order, with
+    /// the top section's rarely used destinations under More, and every
+    /// built-in an item can name has the sidebar's action and a real
     /// symbol.
     @Test func theRailShowsTheSidebarsStickySections() {
         let services = Coverage.boundServices()
@@ -39,9 +40,10 @@ struct WindowRailTests {
         let controller = makeWindow(services, .leading)
         let column = controller.root.rail.column
         column.layoutSubtreeIfNeeded()
-        let bands = SidebarLayoutDocument.defaults.bands(room: nil)
-        let expected = (bands.above + bands.below).flatMap(\.items).map(\.id)
-        #expect(column.layoutResult.buttons.map(\.item) == expected)
+        let ids = { (raw: [String]) in raw.map(LayoutItemID.init) }
+        #expect(column.layoutResult.buttons.map(\.item) == ids(["itm_home", "itm_app_store", "itm_history", "itm_notifications", "itm_account"]))
+        #expect(Array(column.layoutResult.overflow.prefix(2)) == ids(["itm_settings", "itm_customize"]))
+        #expect(column.layoutResult.more != nil)
         for builtIn in SidebarBuiltIn.allCases {
             #expect(SidebarBridge.builtInActions[builtIn] != nil, "\(builtIn) has no action")
             #expect(NSImage(systemSymbolName: builtIn.symbol, accessibilityDescription: nil) != nil, "\(builtIn.symbol)")
@@ -96,13 +98,13 @@ struct WindowRailTests {
         let controller = makeWindow(services, .leading)
         let column = controller.root.rail.column
         column.layoutSubtreeIfNeeded()
-        let settings = LayoutItemID("itm_settings")
-        registry.setShortcutOverride(Shortcut("s", modifiers: [.control, .option, .command]), for: "openSettings")
+        let history = LayoutItemID("itm_history")
+        registry.setShortcutOverride(Shortcut("s", modifiers: [.control, .option, .command]), for: "history.show")
         try await eventually {
             column.layoutSubtreeIfNeeded()
-            return column.itemView(settings)?.toolTip == "\(WindowRail.title(for: "openSettings", registry: registry)) (⌃⌥⌘S)"
+            return column.itemView(history)?.toolTip == "\(WindowRail.title(for: "history.show", registry: registry)) (⌃⌥⌘S)"
         }
-        registry.setShortcutOverride(nil, for: "openSettings")
+        registry.setShortcutOverride(nil, for: "history.show")
         close(controller)
         withExtendedLifetime(services) {}
     }
@@ -216,6 +218,59 @@ struct WindowRailTests {
                 close(controller)
             }
         }
+        withExtendedLifetime(services) {}
+    }
+
+    /// With the rail at the window's leading edge (the default, the Codex
+    /// app's skinny strip) the sidebar is an inset panel beside it: it
+    /// starts below the top row, reaches the bottom, rounds only its top
+    /// leading corner, and fills with the theme's sidebar step over the
+    /// window backdrop, so the rail reads one tone darker (lighter themes:
+    /// one tone lighter). The other placements keep one sheet.
+    @Test func theLeadingRailSitsBesideAnInsetSidebarPanel() throws {
+        let services = Coverage.boundServices()
+        let saved = DesignSettings.shared.rail
+        defer { DesignSettings.shared.rail = saved }
+        for placement in WindowRailPlacement.allCases {
+            let controller = makeWindow(services, placement)
+            let root = controller.root
+            let panel = root.sidebarPanel
+            if placement == .leading {
+                #expect(panel.superview === root)
+                #expect(root.subviews.first === root.backdropView, "the panel sits on the backdrop")
+                let sidebar = controller.sidebar.container.frame
+                #expect(panel.frame.minX == sidebar.minX && panel.frame.width == sidebar.width)
+                #expect(panel.frame.minX == root.rail.frame.maxX)
+                #expect(panel.frame.minY == root.bounds.minY)
+                #expect(panel.frame.maxY == root.bounds.maxY - root.rail.topInset, "starts below the top row")
+                let layer = try #require(panel.layer)
+                #expect(layer.cornerRadius == Metrics.panelCornerRadius)
+                #expect(layer.maskedCorners == [.layerMinXMaxYCorner])
+                let fill = try #require(layer.backgroundColor.flatMap { NSColor(cgColor: $0)?.usingColorSpace(.sRGB) })
+                let step = try #require(root.performWithTheme { Palette.stripStep }.usingColorSpace(.sRGB))
+                #expect(abs(fill.redComponent - step.redComponent) < 0.004 && abs(fill.greenComponent - step.greenComponent) < 0.004
+                    && abs(fill.blueComponent - step.blueComponent) < 0.004 && abs(fill.alphaComponent - step.alphaComponent) < 0.004,
+                        "\(fill) is not the strip step \(step)")
+            } else {
+                #expect(panel.superview == nil, "\(placement)")
+            }
+            close(controller)
+        }
+        withExtendedLifetime(services) {}
+    }
+
+    /// A hidden sidebar takes its panel with it: the rail and the content
+    /// column meet on the one backdrop.
+    @Test func theInsetPanelFollowsTheSidebarsWidth() {
+        let services = Coverage.boundServices()
+        let saved = DesignSettings.shared.rail
+        defer { DesignSettings.shared.rail = saved }
+        let controller = makeWindow(services, .leading)
+        controller.sidebar.container.restore(width: nil, presentation: .hidden)
+        controller.root.layoutSubtreeIfNeeded()
+        #expect(controller.root.sidebarPanel.frame.width == 0)
+        #expect(controller.root.contentHost.frame.minX == WindowRail.width)
+        close(controller)
         withExtendedLifetime(services) {}
     }
 }

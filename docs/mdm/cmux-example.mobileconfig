@@ -20,7 +20,7 @@
 			<key>history.terminalCommands</key>
 			<false/>
 			<key>window.rail</key>
-			<string>off</string>
+			<string>leading</string>
 			<key>window.titlebar</key>
 			<string>minimal</string>
 		</dict>
