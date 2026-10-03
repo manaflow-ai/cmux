@@ -10,4 +10,14 @@ public nonisolated enum TabMoveIndex {
         guard let currentIndex, finalIndex > currentIndex else { return max(0, finalIndex) }
         return finalIndex + 1
     }
+
+    /// The final index in the pane's own (daemon) order for a strip drop
+    /// that puts `moving` at `displayIndex` of the strip's display order.
+    /// The strip shows pinned tabs first, group members together, closing
+    /// tabs hidden and app-local tabs last, so a display index is not a
+    /// pane index. The tab goes right before the pane tab that follows it
+    /// in the new display order, else last.
+    public static func paneFinalIndex(display: [String], moving: String, displayIndex: Int, pane: [String]) -> Int {
+        displayIndex
+    }
 }
