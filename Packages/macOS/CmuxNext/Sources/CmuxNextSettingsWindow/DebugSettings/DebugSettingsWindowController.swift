@@ -74,9 +74,9 @@ final class DebugSettingsContentView: NSHostingView<DebugSettingsRootView> {
     }
 }
 
-/// Cmd-W closes this window (it is no cmux shell window, so the app's
-/// Close Tab shortcut must not reach the main window), Cmd-F focuses the
-/// search, Escape clears the search first and then closes.
+/// Cmd-F focuses the search, Escape clears the search first and then
+/// closes. Cmd-W closes it through the app's shared rule for standalone
+/// windows (`StandaloneWindowRule`), like every window of its own.
 final class DebugSettingsWindow: NSWindow {
     weak var model: DebugSettingsModel?
 
@@ -84,10 +84,6 @@ final class DebugSettingsWindow: NSWindow {
         guard event.type == .keyDown else { return super.performKeyEquivalent(with: event) }
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
         let key = event.charactersIgnoringModifiers?.lowercased()
-        if flags == .command, key == "w" {
-            performClose(nil)
-            return true
-        }
         if flags == .command, key == "f" {
             model?.searchFocusRequest += 1
             return true

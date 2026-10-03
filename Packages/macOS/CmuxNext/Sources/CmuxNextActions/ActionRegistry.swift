@@ -90,6 +90,8 @@ public final class ActionRegistry {
     /// Wraps every handler run with its invocation. The App routes the run
     /// to the machine that owns the invocation's explicit target.
     @ObservationIgnored public var invocationScope: (@MainActor (ActionInvocation, () -> Void) -> Void)?
+    /// The key window's claim on a run (``KeyWindowRoute``), asked first by `perform` and menu validation.
+    @ObservationIgnored public var keyWindowRoute: (@MainActor (ActionID, ActionInvocation) -> KeyWindowRoute?)?
     @ObservationIgnored public internal(set) var isCapturingRefusal = false
     @ObservationIgnored var capturedRefusal: String?
     /// The captured refusal said an explicit target names nothing.
@@ -287,6 +289,7 @@ public final class ActionRegistry {
     /// menus). Fails when a required argument is missing.
     @discardableResult
     public func perform(_ id: ActionID, invocation: ActionInvocation) -> Bool {
+        if let route = keyWindowRoute?(canonicalID(for: id), invocation) { return route.perform { refuse($0) } }
         guard let action = action(for: id), isAvailable(id, for: invocation), action.isEnabled() else { return false }
         let missing = descriptor(for: id).map { descriptor in
             descriptor.arguments.contains { $0.isRequired && invocation.arguments[$0.name] == nil && !Self.target(of: invocation, supplies: $0, for: descriptor) }
