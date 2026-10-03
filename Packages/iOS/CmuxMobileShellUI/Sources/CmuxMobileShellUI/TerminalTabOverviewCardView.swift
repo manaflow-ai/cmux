@@ -4,7 +4,7 @@ import CmuxMobileSupport
 import UIKit
 
 @MainActor
-final class TerminalTabOverviewCardView: UIControl {
+final class TerminalTabOverviewCardView: UIView {
     var onSelect: ((MobileTerminalPreview.ID) -> Void)?
     var onClose: ((MobileTerminalPreview.ID) -> Void)?
 
@@ -14,6 +14,7 @@ final class TerminalTabOverviewCardView: UIControl {
     private let bottomTitleLabel = UILabel()
     private let groupIcon = UIImageView(image: UIImage(systemName: "square.grid.3x3.fill"))
     private let closeButton = UIButton(type: .system)
+    private let selectButton = UIButton(type: .custom)
     private let lineStack = UIStackView()
     private var terminalSnapshot: UIView?
 
@@ -22,8 +23,7 @@ final class TerminalTabOverviewCardView: UIControl {
     init(item: TerminalTabOverviewItem, canClose: Bool) {
         self.item = item
         super.init(frame: .zero)
-        isAccessibilityElement = true
-        accessibilityTraits = .button
+        isAccessibilityElement = false
         configure()
         update(item: item, canClose: canClose)
     }
@@ -37,9 +37,9 @@ final class TerminalTabOverviewCardView: UIControl {
 
     func update(item: TerminalTabOverviewItem, canClose: Bool) {
         self.item = item
-        accessibilityLabel = item.title
-        accessibilityTraits = item.isSelected ? [.button, .selected] : .button
-        accessibilityIdentifier = "MobileTerminalOverviewCard-\(item.id.rawValue)"
+        selectButton.accessibilityLabel = item.title
+        selectButton.accessibilityTraits = item.isSelected ? [.button, .selected] : .button
+        selectButton.accessibilityIdentifier = "MobileTerminalOverviewCard-\(item.id.rawValue)"
         closeButton.isHidden = !canClose
         closeButton.accessibilityIdentifier = "MobileTerminalOverviewClose-\(item.id.rawValue)"
         bottomTitleLabel.text = item.title
@@ -63,14 +63,11 @@ final class TerminalTabOverviewCardView: UIControl {
         layer.shadowRadius = 12
         layer.shadowOffset = CGSize(width: 0, height: 6)
         layer.masksToBounds = false
-        addTarget(self, action: #selector(selected), for: .touchUpInside)
 
         surface.backgroundColor = .systemBackground
         surface.layer.cornerRadius = 15
         surface.layer.masksToBounds = true
-        // Let the card control own taps everywhere except its explicit close
-        // button. Without this, UIKit hit-tests the preview container and a
-        // tap on the card body never reaches UIControl.touchUpInside.
+        // The preview is visual content; the two native buttons own actions.
         surface.isUserInteractionEnabled = false
         addSubview(surface)
 
@@ -95,6 +92,9 @@ final class TerminalTabOverviewCardView: UIControl {
         groupIcon.contentMode = .scaleAspectFit
         addSubview(groupIcon)
 
+        selectButton.addTarget(self, action: #selector(selected), for: .touchUpInside)
+        addSubview(selectButton)
+
         // Card close controls use Safari's filled SF Symbol. Keeping this as
         // an image preserves the symbol's native gray circle and avoids a
         // hand-painted background behind the card preview.
@@ -107,6 +107,7 @@ final class TerminalTabOverviewCardView: UIControl {
         closeButton.accessibilityLabel = L10n.string("mobile.terminal.overview.close", defaultValue: "Close Terminal")
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         addSubview(closeButton)
+        accessibilityElements = [selectButton, closeButton]
     }
 
     private func makeLine(_ text: String, muted: Bool) -> UILabel {
@@ -132,6 +133,7 @@ final class TerminalTabOverviewCardView: UIControl {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        selectButton.frame = bounds
         surface.frame = CGRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - 36))
         preview.frame = surface.bounds
         closeButton.frame = CGRect(x: bounds.width - 38, y: 2, width: 36, height: 36)

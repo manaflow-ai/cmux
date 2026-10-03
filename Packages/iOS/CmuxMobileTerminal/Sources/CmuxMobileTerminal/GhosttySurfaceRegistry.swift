@@ -6,8 +6,7 @@ import UIKit
 /// Text" capture live in one cohesive file. Everything here is `internal`
 /// (not `private`) only so the main class file's lifecycle/snapshot paths can
 /// keep using the registry across the file boundary; nothing is exported
-/// beyond the module except `copyableTerminalText(surfaceID:)` and
-/// `focusInput(surfaceID:)`.
+/// beyond the module except the scoped text, focus and viewport reads.
 final class WeakGhosttySurfaceViewBox {
     weak var value: GhosttySurfaceView?
 
@@ -67,6 +66,26 @@ extension GhosttySurfaceView {
                     && !candidate.isDismantled
             }
         matchingView?.focusInput()
+    }
+
+    /// Returns the mounted terminal's content rectangle without its toolbars.
+    ///
+    /// Overview transitions use the same viewport geometry as the renderer,
+    /// including keyboard and composer reservations. The ancestor restriction
+    /// keeps another scene showing the same terminal out of the lookup.
+    ///
+    /// - Parameters:
+    ///   - surfaceID: The shell-level terminal identifier.
+    ///   - container: The presenting view whose coordinates the caller needs.
+    /// - Returns: The content frame, or `nil` if that terminal is not mounted
+    ///   under the supplied container.
+    @MainActor
+    public static func terminalContentFrame(surfaceID: String, in container: UIView) -> CGRect? {
+        guard let surface = registeredSurfaceViews.values.compactMap(\.value).first(where: {
+            $0.hostSurfaceID == surfaceID && !$0.isDismantled && $0.window != nil
+                && $0.isDescendant(of: container)
+        }) else { return nil }
+        return surface.convert(surface.terminalViewportRect, to: container)
     }
 
     /// Full-content capture for the "View as Text" copy sheet: the SCREEN

@@ -149,7 +149,13 @@ final class TerminalTabOverviewViewController: UIViewController {
         super.viewDidLayoutSubviews()
         layoutChrome()
         hasLaidOut = true
-        grid.frame = view.bounds
+        // The collection's edges are the usable drag area. UIKit can scroll
+        // at those edges, and a drop on the toolbar cancels naturally.
+        let gridTop = view.safeAreaInsets.top + 56
+        grid.frame = CGRect(
+            x: 0, y: gridTop, width: view.bounds.width,
+            height: max(0, bottomBar.frame.minY - gridTop - 8)
+        )
         layoutCards(animated: false)
     }
 

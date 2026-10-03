@@ -7917,6 +7917,15 @@ final class cmuxUITests: XCTestCase {
         reordered.lifetime = .keepAlways
         add(reordered)
 
+        build.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.65))
+            .press(
+                forDuration: 0.8,
+                thenDragTo: app.buttons["MobileTerminalOverviewSearch"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)),
+                withVelocity: .slow,
+                thenHoldForDuration: 0.5
+            )
+        XCTAssertGreaterThan(build.frame.midX, agent.frame.midX, "Dropping outside the grid must restore the card without reordering.")
+
         done.tap()
         XCTAssertTrue(waitForHittable(overview, timeout: 5))
         overview.tap()
@@ -7929,6 +7938,17 @@ final class cmuxUITests: XCTestCase {
         overview.tap()
         XCTAssertTrue(waitForHittable(tui, timeout: 5))
         XCTAssertGreaterThan(build.frame.midX, agent.frame.midX, "Selecting another terminal must preserve tab order.")
+
+        let closeBuild = app.buttons["MobileTerminalOverviewClose-terminal-build"]
+        XCTAssertTrue(waitForHittable(closeBuild, timeout: 5))
+        closeBuild.tap()
+        XCTAssertTrue(build.waitForNonExistence(timeout: 5))
+        let closeAgent = app.buttons["MobileTerminalOverviewClose-terminal-agent"]
+        XCTAssertTrue(waitForHittable(closeAgent, timeout: 5))
+        closeAgent.tap()
+        XCTAssertTrue(agent.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(tui.exists)
+        XCTAssertFalse(app.buttons["MobileTerminalOverviewClose-terminal-tui"].exists, "Keep the final terminal open.")
         done.tap()
         XCTAssertTrue(waitForHittable(app.buttons["MobileTerminalDropdown"], timeout: 5))
     }

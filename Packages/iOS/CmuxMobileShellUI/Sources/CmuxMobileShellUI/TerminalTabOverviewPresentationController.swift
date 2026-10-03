@@ -78,11 +78,11 @@ final class TerminalTabOverviewPresentationController: UIViewController, UIViewC
     }
 
     func animationController(forPresented presented: UIViewController, presenting: UIViewController, source: UIViewController) -> (any UIViewControllerAnimatedTransitioning)? {
-        TerminalTabOverviewZoomTransition(isOpening: true)
+        TerminalTabOverviewZoomTransition(isOpening: true, contentAnchor: view)
     }
 
     func animationController(forDismissed dismissed: UIViewController) -> (any UIViewControllerAnimatedTransitioning)? {
-        TerminalTabOverviewZoomTransition(isOpening: false)
+        TerminalTabOverviewZoomTransition(isOpening: false, contentAnchor: view)
     }
 }
 #endif

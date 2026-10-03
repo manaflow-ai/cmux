@@ -88,12 +88,12 @@ final class TerminalTabOverviewGridView: UICollectionView, UICollectionViewDataS
         let compact = items.count > 1
         let width = compact ? floor((bounds.width - 48) / 2) : min(268, bounds.width - 32)
         let height: CGFloat = compact ? 272 : 400
-        let desiredTop = safeArea.top + (compact
+        let desiredTop = safeArea.top - frame.minY + (compact
             ? (hintIsVisible ? (items.count > 2 ? 153 : 212) : 60)
             : 210)
-        let top = max(safeArea.top + 60, min(desiredTop, bounds.height - safeArea.bottom - height - 62))
+        let top = max(4, min(desiredTop, bounds.height - height - 14))
         let side = compact ? 16 : (bounds.width - width) / 2
-        let insets = UIEdgeInsets(top: top, left: side, bottom: safeArea.bottom + 72, right: side)
+        let insets = UIEdgeInsets(top: top, left: side, bottom: 16, right: side)
         let size = CGSize(width: max(0, width), height: height)
         guard flowLayout.itemSize != size || flowLayout.sectionInset != insets else { return }
         let changes = {
@@ -116,7 +116,7 @@ final class TerminalTabOverviewGridView: UICollectionView, UICollectionViewDataS
         let path = IndexPath(item: index, section: 0)
         layoutIfNeeded()
         if reveal, let frame = layoutAttributesForItem(at: path)?.frame {
-            let visibleArea = bounds.inset(by: UIEdgeInsets(top: safeAreaInsets.top + 56, left: 0, bottom: safeAreaInsets.bottom + 60, right: 0))
+            let visibleArea = bounds.insetBy(dx: 0, dy: 4)
             if !visibleArea.contains(frame) {
                 scrollToItem(at: path, at: .centeredVertically, animated: false)
                 layoutIfNeeded()
@@ -145,8 +145,13 @@ final class TerminalTabOverviewGridView: UICollectionView, UICollectionViewDataS
         let dragItem = UIDragItem(itemProvider: NSItemProvider(object: id.rawValue as NSString))
         dragItem.localObject = id
         session.localContext = self
-        isDraggingCard = true
         return [dragItem]
+    }
+
+    func collectionView(_ collectionView: UICollectionView, dragSessionWillBegin session: UIDragSession) {
+        // UIKit balances this callback with didEnd, including cancellation.
+        // Merely requesting drag items does not guarantee the lift completes.
+        isDraggingCard = true
     }
 
     func collectionView(_ collectionView: UICollectionView, dragSessionIsRestrictedToDraggingApplication session: UIDragSession) -> Bool { true }
