@@ -32,7 +32,7 @@ extension AppControl {
             // Web Settings page: `action` state (DOM summary) or snapshot (`path`, PNG).
             .async("debug.settings_web") { [weak services] call in
                 await DebugSettingsWeb.handle(call.params, services: services)
-            },
+            }.withDeadline(.fixed(.seconds(20))),
         ])
         #endif
     }
