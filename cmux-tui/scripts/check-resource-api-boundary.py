@@ -187,6 +187,11 @@ STRUCTURAL_SCOPES = frozenset({"workspace", "screen", "pane", "tab"})
 # outcome is journaled. A daemon restart must never guess that repeating one is
 # safe. Keep this set explicit so a future catalog edit cannot silently promise
 # exactly-once delivery for an effect that cmux cannot prove completed.
+# Optional `risk` of a transported operation: what it can affect beyond its
+# class. The app platform derives a permission scope from it.
+OPERATION_RISKS = frozenset(
+    {"read", "mutate-own", "mutate-shared", "execute", "send-external", "destructive"}
+)
 EXTERNALLY_EFFECTFUL_MUTATIONS = frozenset(
     {
         "browser.activate",
@@ -1524,10 +1529,18 @@ def _operation_catalog(
             _catalog_diagnostic(diagnostics, path, text, f"{operation} descriptor must be an object")
             continue
         required = {"class", "idempotency", "target", "ancestors", "params", "result", "errors"}
-        allowed = required | {"stream", "constraints"}
+        allowed = required | {"stream", "constraints", "risk"}
         if not required <= set(descriptor) or set(descriptor) - allowed:
             _catalog_diagnostic(
                 diagnostics, path, text, f"{operation} descriptor has a schema hole", operation
+            )
+        if "risk" in descriptor and descriptor["risk"] not in OPERATION_RISKS:
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                f"{operation} has invalid risk {descriptor['risk']!r}",
+                operation,
             )
         operation_class = descriptor.get("class")
         classes[operation] = str(operation_class)

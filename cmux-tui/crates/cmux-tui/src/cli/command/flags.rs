@@ -49,4 +49,9 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "clear-browser-profile",
     "clear-default-session",
     "clear-zoom",
+    "include-untracked",
+    "amend",
+    "no-verify",
+    "set-upstream",
+    "no-set-upstream",
 ];

@@ -511,6 +511,7 @@ fn tool_schemas_follow_the_catalog() {
         }
         let annotations = &tool.descriptor_json()["annotations"];
         assert_eq!(annotations["readOnlyHint"], !tool.mutation);
+        assert_eq!(annotations["openWorldHint"], tool.wire == "git.push", "{}", tool.name);
     }
     let create = v2_tools::find("workspace_create").expect("workspace_create").input_schema();
     assert_eq!(create["properties"]["initial_content"]["enum"], json!(["terminal", "empty"]));

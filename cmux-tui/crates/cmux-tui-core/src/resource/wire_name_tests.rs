@@ -10,8 +10,10 @@ fn wire_name_round_trips_through_serde() {
         "workspace.create",
         "terminal.output_read",
         "browser.close",
+        "git.commit",
         "git.diff",
         "git.files.search",
+        "git.push",
         "stream.cancel",
     ] {
         let operation: ResourceOperation =

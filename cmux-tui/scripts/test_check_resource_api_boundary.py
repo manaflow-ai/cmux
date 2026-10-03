@@ -680,7 +680,7 @@ class ContractRegistryTests(unittest.TestCase):
         catalog = json.loads(
             (SCRIPT.parents[1] / "spec/resource-operations-v2.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(len(catalog["operations"]), 192)
+        self.assertEqual(len(catalog["operations"]), 194)
         self.assertEqual(len(catalog["local_operations"]), 6)
         self.assertEqual(
             set(catalog["types"]["MachineSnapshot"]["fields"]),
@@ -893,6 +893,21 @@ class ContractRegistryTests(unittest.TestCase):
 
             self.assertTrue(any("idempotency must be required" in item for item in messages), messages)
             self.assertTrue(any("descriptor has a schema hole" in item for item in messages), messages)
+
+    def test_catalog_accepts_a_known_risk_and_rejects_an_unknown_one(self) -> None:
+        for risk, accepted in (("send-external", True), ("wild", False)):
+            with tempfile.TemporaryDirectory() as directory:
+                tui = Path(directory)
+                matching_contract(tui, ["workspace.list"])
+                catalog_path = tui / "spec/resource-operations-v2.json"
+                catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+                catalog["operations"]["workspace.list"]["risk"] = risk
+                write(catalog_path, json.dumps(catalog, indent=2) + "\n")
+
+                messages = [item.message for item in CHECKER.check_contracts(tui)]
+
+                self.assertFalse(any("schema hole" in item for item in messages), messages)
+                self.assertEqual(any("invalid risk" in item for item in messages), not accepted)
 
     def test_catalog_rejects_client_metadata_label_contract_drift(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

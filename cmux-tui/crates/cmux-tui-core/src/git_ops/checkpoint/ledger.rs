@@ -18,14 +18,14 @@ use crate::workspace_registry::{ResourcePatch, WorkspaceMutation};
 const ORIGIN: &str = "resource-api";
 
 /// The resolved identity a fingerprint binds.
-pub(super) struct Identity<'a> {
+pub(in crate::git_ops) struct Identity<'a> {
     pub repository_id: &'a str,
     pub worktree_id: &'a str,
 }
 
 /// The fingerprint of a mutation: its operation, selectors and fields, and
 /// the identity they resolved to.
-pub(super) fn fingerprint(
+pub(in crate::git_ops) fn fingerprint(
     operation: &str,
     selectors: &Value,
     fields: &Value,
@@ -74,7 +74,7 @@ fn committed(mux: &Mux, key: &str, operation: &str) -> Result<Option<Committed>,
 /// fingerprint; `idempotency.conflict` for other input, and
 /// `repository_changed` when the same operation's target now resolves to
 /// another repository or worktree.
-pub(super) fn prior(
+pub(in crate::git_ops) fn prior(
     mux: &Arc<Mux>,
     key: &str,
     operation: &'static str,
@@ -121,7 +121,7 @@ pub(super) fn created(
 /// Commits `value` as the mutation's result at a new resource revision and
 /// returns the mutation reply; `replayed` marks a reply for a retry that
 /// finished an earlier attempt.
-pub(super) fn commit(
+pub(in crate::git_ops) fn commit(
     mux: &Arc<Mux>,
     key: &str,
     operation: &'static str,

@@ -210,7 +210,8 @@ impl V2Tool {
                 "readOnlyHint": !self.mutation,
                 "destructiveHint": destructive,
                 "idempotentHint": !self.mutation,
-                "openWorldHint": false,
+                // The catalog marks operations that change state elsewhere.
+                "openWorldHint": self.descriptor["risk"] == "send-external",
             },
         })
     }
