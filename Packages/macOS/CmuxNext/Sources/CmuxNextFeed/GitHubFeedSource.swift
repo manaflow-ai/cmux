@@ -134,8 +134,8 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
             body: notificationReference(repository: notification.repository.fullName, number: number), prompt: prompt,
             priority: notification.reason == "ci_activity" ? .high : .normal, dedupeKey: dedupe,
             thread: "github:\(notification.repository.fullName)", context: FeedContext(url: url),
-            poster: FeedPoster(kind: .integration, label: "GitHub"),
-            expiresAt: now().addingTimeInterval(7 * 24 * 60 * 60), createdAt: notification.updatedAt, updatedAt: now()
+            expiresAt: now().addingTimeInterval(7 * 24 * 60 * 60), poster: FeedPoster(kind: .integration, label: "GitHub"),
+            createdAt: notification.updatedAt, updatedAt: now()
         )
         let detail = GitHubFeedDetail(
             repository: notification.repository.fullName, number: number, url: url,
@@ -152,8 +152,8 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
             body: notificationReference(repository: review.repository.fullName, number: review.number),
             prompt: .review(.init(subject: .pr, ref: review.htmlURL)), priority: .normal, dedupeKey: dedupe,
             thread: "github:\(review.repository.fullName):pr:\(review.number)", context: FeedContext(url: url),
-            poster: FeedPoster(kind: .integration, label: "GitHub"),
-            expiresAt: now().addingTimeInterval(7 * 24 * 60 * 60), createdAt: review.updatedAt, updatedAt: now()
+            expiresAt: now().addingTimeInterval(7 * 24 * 60 * 60), poster: FeedPoster(kind: .integration, label: "GitHub"),
+            createdAt: review.updatedAt, updatedAt: now()
         )
         let detail = GitHubFeedDetail(
             repository: review.repository.fullName, number: review.number, url: url,
@@ -169,8 +169,8 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
             id: stableID(dedupe), home: .local(install: "github"), title: FeedStrings.github,
             body: notificationReference(repository: review.repository.fullName, number: review.number), prompt: .notice, priority: .high,
             dedupeKey: dedupe, thread: "github:\(review.repository.fullName):pr:\(review.number)",
-            context: FeedContext(url: url), poster: FeedPoster(kind: .integration, label: "GitHub"),
-            expiresAt: now().addingTimeInterval(7 * 24 * 60 * 60), createdAt: review.updatedAt, updatedAt: now()
+            context: FeedContext(url: url), expiresAt: now().addingTimeInterval(7 * 24 * 60 * 60),
+            poster: FeedPoster(kind: .integration, label: "GitHub"), createdAt: review.updatedAt, updatedAt: now()
         )
         let detail = GitHubFeedDetail(
             repository: review.repository.fullName, number: review.number, url: url,
