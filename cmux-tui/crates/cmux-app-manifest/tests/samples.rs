@@ -1,9 +1,11 @@
-//! Every sample app (`samples/apps/*`) is a valid manifest v2 package whose
-//! interface implementations name exports its built script defines.
+//! Every sample app with a `cmux-app.v2.json` (`samples/apps/*`) is a valid
+//! manifest v2 package whose interface implementations name exports its built
+//! script defines. `cmux-app.json` stays manifest v1 for the CmuxNextApps
+//! prototype and is checked by the v1 TS validator.
 
 use std::path::{Path, PathBuf};
 
-use cmux_app_manifest::{KNOWN_INTERFACES, validate_package};
+use cmux_app_manifest::{KNOWN_INTERFACES, validate_package_file};
 use serde_json::Value;
 
 /// Module named `apps` so `verify-cmux-tui-hosted.sh --filter apps::` selects
@@ -11,12 +13,14 @@ use serde_json::Value;
 mod apps {
     use super::*;
 
+    const V2: &str = "cmux-app.v2.json";
+
     fn samples() -> Vec<PathBuf> {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../samples/apps");
         let mut dirs: Vec<PathBuf> = std::fs::read_dir(&root)
             .unwrap_or_else(|e| panic!("{}: {e}", root.display()))
             .map(|e| e.expect("entry").path())
-            .filter(|p| p.join("cmux-app.json").is_file())
+            .filter(|p| p.join(V2).is_file())
             .collect();
         dirs.sort();
         dirs
@@ -27,13 +31,7 @@ mod apps {
         let dirs = samples();
         assert!(dirs.len() >= 3, "expected the samples, found {dirs:?}");
         for dir in dirs {
-            // Samples still on manifest v1 are checked by the v1 TS validator
-            // until they move; this test covers every v2 sample.
-            let raw = std::fs::read_to_string(dir.join("cmux-app.json")).expect("manifest");
-            if serde_json::from_str::<Value>(&raw).expect("json")["manifestVersion"] == 1 {
-                continue;
-            }
-            let report = validate_package(&dir);
+            let report = validate_package_file(&dir, V2);
             assert!(report.is_valid(), "{}: {:?}", dir.display(), report.issues);
             let manifest = report.manifest.expect("manifest");
             assert_eq!(manifest["manifestVersion"], 2, "{}", dir.display());
