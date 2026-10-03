@@ -81,3 +81,15 @@ extension HomeController {
         await scene.bitmaps.settled()
     }
 }
+
+extension HomeController {
+    /// The shared field spring as a progress curve (0 -> 1) and its length,
+    /// for host views AppKit must lay out every frame (the Liquid Glass field:
+    /// its internal layers follow the model size, so the host animates the
+    /// view's frame along this curve). Nil when motion is off.
+    public func fieldCurve(send: Bool) -> (duration: Double, progress: @Sendable (Double) -> Double)? {
+        guard scene.motion.moves else { return nil }
+        let element = scene.motion(TranscriptChange.field(send: send).element)
+        return (element.settleTime, { element.value($0, from: 0, to: 1) })
+    }
+}

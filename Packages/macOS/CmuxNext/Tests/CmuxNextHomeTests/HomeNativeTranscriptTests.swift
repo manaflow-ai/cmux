@@ -150,3 +150,22 @@ import Testing
     }
 }
 
+@MainActor
+@Suite struct HomeFieldSpringTests {
+    /// The field's height change follows the shared spring: keyframes start
+    /// at the old size, end at the new one, and track the core's curve.
+    @Test func keyframesFollowTheSharedCurve() throws {
+        let view = NSView(frame: CGRect(x: 0, y: 0, width: 300, height: 79))
+        let curve: (duration: Double, progress: @Sendable (Double) -> Double) = (0.5, { min(1, $0 / 0.5) })
+        HomeFieldSpring.animate(view, from: CGRect(x: 0, y: 0, width: 300, height: 79),
+                                to: CGRect(x: 0, y: 49, width: 300, height: 30), curve: curve)
+        let size = try #require(view.animations["frameSize"] as? CAKeyframeAnimation)
+        let values = try #require(size.values as? [NSValue])
+        #expect(values.first?.sizeValue.height == 79)
+        #expect(values.last?.sizeValue.height == 30)
+        #expect(size.duration == 0.5)
+        let mid: CGFloat = values[values.count / 2].sizeValue.height
+        let midError: CGFloat = abs(mid - 54.5)
+        #expect(midError < 1, "linear test curve: halfway is halfway")
+    }
+}
