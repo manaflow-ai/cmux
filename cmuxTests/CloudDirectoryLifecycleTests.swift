@@ -87,7 +87,7 @@ struct CloudDirectoryLifecycleTests {
         try fixture.install(paths: [nil, nil], revision: 2, lifecycles: ["launching", "launching"])
 
         let presentation = try #require(CloudWorkspaceSidebarPresentation(
-            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false
+            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false, catalog: fixture.catalog
         ))
         #expect(presentation.directoryCandidates.isEmpty)
     }
@@ -99,7 +99,7 @@ struct CloudDirectoryLifecycleTests {
         try fixture.install(paths: [nil, nil], revision: 2, lifecycles: ["launching", "running"])
 
         let presentation = try #require(CloudWorkspaceSidebarPresentation(
-            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false
+            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false, catalog: fixture.catalog
         ))
         #expect(presentation.directoryCandidates.isEmpty)
     }
@@ -112,7 +112,7 @@ struct CloudDirectoryLifecycleTests {
         fixture.catalog.markCloudStateStale(on: fixture.machine, reason: "reconnecting")
 
         let presentation = try #require(CloudWorkspaceSidebarPresentation(
-            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false
+            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false, catalog: fixture.catalog
         ))
         #expect(presentation.directoryCandidates.isEmpty)
     }
@@ -279,7 +279,7 @@ struct CloudDirectoryLifecycleTests {
         for usesLastSegmentPath in [false, true] {
             let presentation = try #require(CloudWorkspaceSidebarPresentation(
                 workspace: fixture.workspace, orderedPanelIDs: fixture.panels,
-                usesLastSegmentPath: usesLastSegmentPath
+                usesLastSegmentPath: usesLastSegmentPath, catalog: fixture.catalog
             ))
             let full = "\(expected) · /home/cmux/a, /home/cmux/b"
             if usesLastSegmentPath {
@@ -315,7 +315,7 @@ struct CloudDirectoryLifecycleTests {
             let expected = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? fixture.machine.rawValue : name
             let presentation = try #require(CloudWorkspaceSidebarPresentation(
-                workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: true
+                workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: true, catalog: fixture.catalog
             ))
             #expect(presentation.directoryCandidates.isEmpty)
             #expect(fixture.workspace.cloudVMID == fixture.machine.rawValue)
@@ -374,7 +374,7 @@ struct CloudDirectoryLifecycleTests {
         info.name = "Build server"
         fixture.catalog.updateMachine(info, from: fixture.provider)
         let singleMachine = try #require(CloudWorkspaceSidebarPresentation(
-            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false
+            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false, catalog: fixture.catalog
         ))
         #expect(singleMachine.directoryCandidates == ["Build server · /home/cmux/a, /home/cmux/b"])
 
@@ -404,13 +404,13 @@ struct CloudDirectoryLifecycleTests {
             workspaceID: fixture.workspace.id, panelID: otherPanel
         ))
         let collision = try #require(CloudWorkspaceSidebarPresentation(
-            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false
+            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false, catalog: fixture.catalog
         ))
         #expect(collision.directoryCandidates == [
             "Build server (cwd-machine) · /home/cmux/a | Build server (other-machine) · /srv/other"
         ])
         let hiddenOtherMachine = try #require(CloudWorkspaceSidebarPresentation(
-            workspace: fixture.workspace, orderedPanelIDs: [fixture.panels[0]], usesLastSegmentPath: false
+            workspace: fixture.workspace, orderedPanelIDs: [fixture.panels[0]], usesLastSegmentPath: false, catalog: fixture.catalog
         ))
         #expect(hiddenOtherMachine.directoryCandidates == ["Build server · /home/cmux/a"])
     }

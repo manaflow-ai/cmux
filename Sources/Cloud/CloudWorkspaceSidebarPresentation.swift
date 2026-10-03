@@ -11,21 +11,21 @@ struct CloudWorkspaceSidebarPresentation {
 
     /// Returns durable device provenance without scanning the catalog's projection set.
     @MainActor
-    private static func deviceMachines(for workspace: Workspace) -> Set<SurfaceMachineID> {
+    private static func deviceMachines(for workspace: Workspace, catalog: SurfaceCatalog) -> Set<SurfaceMachineID> {
         var machines = Set(workspace.cloudBindingState.projectedResources.values.map(\.machine).filter(\.isDevice))
-        machines.formUnion(SurfaceCatalog.shared.projectionMachines(forWorkspace: workspace.id).filter(\.isDevice))
+        machines.formUnion(catalog.projectionMachines(forWorkspace: workspace.id).filter(\.isDevice))
         return machines
     }
 
     /// Formats a stable device-workspace label from live or restored machine identity.
     @MainActor
-    private static func deviceLabel(workspace: Workspace, machines: Set<SurfaceMachineID>) -> String? {
+    private static func deviceLabel(workspace: Workspace, machines: Set<SurfaceMachineID>, catalog: SurfaceCatalog) -> String? {
         let state = workspace.cloudBindingState
 
 
         guard !machines.isEmpty else { return nil }
         let names = machines.sorted { $0.rawValue < $1.rawValue }.map {
-            state.machineNames[$0.rawValue] ?? SurfaceCatalog.shared.machineInfo(for: $0)?.name ?? $0.rawValue
+            state.machineNames[$0.rawValue] ?? catalog.machineInfo(for: $0)?.name ?? $0.rawValue
         }
         return String.localizedStringWithFormat(
             String(localized: "sidebar.deviceWorkspace.label", defaultValue: "Workspace on %@"), names.joined(separator: " · ")
@@ -34,8 +34,8 @@ struct CloudWorkspaceSidebarPresentation {
 
     /// Returns the current device-workspace label for callers without a full presentation.
     @MainActor
-    static func deviceLabel(workspace: Workspace) -> String? {
-        deviceLabel(workspace: workspace, machines: deviceMachines(for: workspace))
+    static func deviceLabel(workspace: Workspace, catalog: SurfaceCatalog = .shared) -> String? {
+        deviceLabel(workspace: workspace, machines: deviceMachines(for: workspace, catalog: catalog), catalog: catalog)
     }
 
     static var unavailableDirectory: String {
@@ -44,24 +44,24 @@ struct CloudWorkspaceSidebarPresentation {
 
     @MainActor
     /// Builds the immutable remote sidebar identity and directory presentation.
-    init?(workspace: Workspace, orderedPanelIDs: [UUID], usesLastSegmentPath: Bool) {
+    init?(workspace: Workspace, orderedPanelIDs: [UUID], usesLastSegmentPath: Bool, catalog: SurfaceCatalog = .shared) {
         let state = workspace.cloudBindingState
 
         func machineMetadata(for id: String) -> String? {
             if let name = state.machineNames[id] { return name }
             if let name = state.machineNames[SurfaceMachineID.cloud(id).rawValue] { return name }
-            return SurfaceCatalog.shared.machineInfo(for: .cloud(id))?.name
+            return catalog.machineInfo(for: .cloud(id))?.name
         }
 
         var cloudMachineIDs = Set(state.projectedResources.values.compactMap { $0.machine.cloudMachineID })
         if let id = workspace.cloudVMID { cloudMachineIDs.insert(id) }
-        let deviceMachines = Self.deviceMachines(for: workspace)
+        let deviceMachines = Self.deviceMachines(for: workspace, catalog: catalog)
         let deviceMachineIDs = Set(deviceMachines.map(\.rawValue))
         isDeviceWorkspace = cloudMachineIDs.isEmpty && !deviceMachineIDs.isEmpty
         let machineIDs = cloudMachineIDs.union(deviceMachineIDs)
 
         guard !machineIDs.isEmpty else { return nil }
-        deviceLabel = Self.deviceLabel(workspace: workspace, machines: deviceMachines)
+        deviceLabel = Self.deviceLabel(workspace: workspace, machines: deviceMachines, catalog: catalog)
         let names = Dictionary(uniqueKeysWithValues: machineIDs.map { id in
             let name = machineMetadata(for: id)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? id
             return (id, name.isEmpty ? id : name)
@@ -102,7 +102,7 @@ struct CloudWorkspaceSidebarPresentation {
                 // A restored workspace can retain a panel projection after the
                 // provider has published a current graph without that resource.
                 // Do not turn that stale identity into a directory placeholder.
-                guard let resource = SurfaceCatalog.shared.resources[resourceID], resource.kind == .terminal else {
+                guard let resource = catalog.resources[resourceID], resource.kind == .terminal else {
                     continue
                 }
                 if resource.lifecycle == .launching {
