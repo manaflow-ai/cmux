@@ -14,7 +14,9 @@ pub(crate) use client::decode_protocol_error;
 pub use client::{Client, Config};
 pub use handles::state_ops::{
     ColumnEdge, ColumnMode, TAB_HISTORY_MAX_URLS, TabUpdateOptions, WINDOW_RECORD_MAX_BYTES,
-    WindowRecordDeleteResult, WindowRecordSnapshot, WorkspaceUpdateOptions,
+    WindowRecordDeleteResult, WindowRecordSnapshot, WorkspaceGroupCreateOptions,
+    WorkspaceGroupDeleteResult, WorkspaceGroupSnapshot, WorkspaceGroupUpdateOptions,
+    WorkspacePlaceOptions, WorkspacePlacementSnapshot, WorkspaceRef, WorkspaceUpdateOptions,
 };
 pub use handles::{
     Agent, Browser, ConnectedClient, FrontendProjection, Machine, Notification, PairingRequest,
