@@ -521,7 +521,7 @@ jobs:
         # The platform module contains the macOS discovery, socket and cwd
         # checks. Run its one test binary once instead of rebuilding it for
         # each selector.
-        run: cargo test -p cmux-tui-core --lib platform::tests:: -- --test-threads=2
+        run: 'cargo test -p cmux-tui-core --lib platform::tests:: -- --test-threads=2'
 
       - name: Mac process and PTY tests
         working-directory: cmux-tui
