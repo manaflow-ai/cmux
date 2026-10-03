@@ -18,8 +18,10 @@ public final class AgentPaneModel {
     /// Called when the page switches to or creates a session, so the App can
     /// keep it with the tab.
     @ObservationIgnored public var onSessionChange: ((String) -> Void)?
-    /// Gets each settled transcript scroll's frame intervals (milliseconds).
-    @ObservationIgnored public var onFramePacing: (([Double]) -> Void)?
+    /// Reports each settled scroll and returns the native display settings to the page.
+    @ObservationIgnored public var onFramePacing: (([Double]) -> [String: Any])?
+    /// Applies the page's adaptive rendering decision.
+    @ObservationIgnored public var onRenderRate: ((Bool) -> Void)?
     /// The new tab page this pane shows until it has a session, nil for a
     /// plain chat. Cleared once the page reports a session.
     public private(set) var newTab: AgentPaneNewTab?
@@ -126,7 +128,9 @@ public final class AgentPaneModel {
             setCheckpointAvailable(available)
             return AgentPaneReply.success()
         case .framePacing(let intervals):
-            onFramePacing?(intervals)
+            return AgentPaneReply.success(onFramePacing?(intervals) ?? [:])
+        case .renderRate(let full):
+            onRenderRate?(full)
             return AgentPaneReply.success()
         case .openTab(let kind, let text, let cwd):
             guard newTab != nil, let onOpenTab else { return Self.unsupported("tab.open") }
