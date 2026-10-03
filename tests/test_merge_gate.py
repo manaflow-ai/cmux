@@ -148,6 +148,22 @@ class MergeGateDecisionTests(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertEqual(result.failing_checks, ("ci-status",))
 
+    def test_explicit_read_permission_overrides_member_association(self) -> None:
+        result = merge_gate.evaluate_gate(
+            base(
+                comments=[
+                    override(
+                        "merge-override: ci-status is not on main. "
+                        "The change is safe because the affected path is isolated and tested.",
+                        login="read-only-member",
+                        author_permission="read",
+                        author_association="MEMBER",
+                    )
+                ]
+            )
+        )
+        self.assertFalse(result.passed)
+
     def test_short_boilerplate_override_is_rejected(self) -> None:
         result = merge_gate.evaluate_gate(
             base(comments=[override("merge-override: LGTM")])

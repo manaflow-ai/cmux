@@ -29,7 +29,7 @@ jobs:
       github.repository == 'manaflow-ai/cmux' &&
       (github.event_name != 'issue_comment' || github.event.issue.pull_request) &&
       (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'pull_request')
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
       actions: read
