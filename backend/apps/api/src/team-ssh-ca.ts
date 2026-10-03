@@ -264,7 +264,7 @@ export const revokeInstallCerts = async (deps: SshCaDeps, user: string, install:
   if (serials.length === 0 || !deps.state().team) return { ok: true, revoked: [] }
   const key = hex(await crypto.subtle.digest("SHA-256", enc.encode(`${user}|${install}|${serials.map((s) => s.serial).join(",")}`)))
   try {
-    const v = committed(deps.submitSystem("team_vm.ssh_certs_revoked", { serials, by: `system:user:${user}`, admin: true, reason: "install revoked" }, `ssh-install-revoked:${key}`)) as { revoked: Array<number> }
+    const v = committed(deps.submitSystem("team_vm.ssh_certs_revoked", { serials, by: `system:user:${user}`, admin: true, system: true, reason: "install revoked" }, `ssh-install-revoked:${key}`)) as { revoked: Array<number> }
     return { ok: true, revoked: v.revoked }
   } catch (e) {
     console.error(JSON.stringify({ msg: "install certificate revocation refused", install, code: e instanceof Refusal ? e.code : "error" }))

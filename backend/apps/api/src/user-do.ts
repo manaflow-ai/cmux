@@ -98,22 +98,29 @@ export class UserDO extends OwnerDO<UserState> {
     const engine = this.existing()
     const pending = Object.entries(engine?.currentState.ssh_revoke_pending ?? {})
     if (pending.length === 0 || (this.sshRetryAt !== null && now < this.sshRetryAt)) return
+    // Every install and team is tried on each pass: one failing team never holds back the others.
+    let failed = false
     for (const [install, n] of pending) {
-      try {
-        for (const team of n.teams) {
+      let all = true
+      for (const team of n.teams) {
+        try {
           const r = (await this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)).revokeInstallCerts(team, n.user, install)) as { ok: boolean }
           if (!r.ok) throw new Error("refused")
+        } catch (e) {
+          all = false
+          console.error(JSON.stringify({ msg: "team ssh krl notice failed", install, team, attempt: this.sshAttempts + 1, error: String(e) }))
         }
-        this.submitSystem("install.ssh_revoke_done", { install }, `ssh-revoke-done:${install}:${n.at}`)
-      } catch (e) {
-        this.sshAttempts += 1
-        this.sshRetryAt = now + Math.min(5 * 60_000, 1000 * 2 ** this.sshAttempts)
-        console.error(JSON.stringify({ msg: "team ssh krl notice failed", install, error: String(e) }))
-        return
       }
+      if (all) this.submitSystem("install.ssh_revoke_done", { install }, `ssh-revoke-done:${install}:${n.at}`)
+      else failed = true
     }
-    this.sshAttempts = 0
-    this.sshRetryAt = null
+    if (failed) {
+      this.sshAttempts += 1
+      this.sshRetryAt = now + Math.min(5 * 60_000, 1000 * 2 ** this.sshAttempts)
+    } else {
+      this.sshAttempts = 0
+      this.sshRetryAt = null
+    }
   }
 
   protected override onPrune(): void {

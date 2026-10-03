@@ -142,11 +142,12 @@ export const reduceCaInstalled = <S extends TeamSshState & AuditState>(state: S,
 }
 
 export const reduceCertsRevoked = <S extends TeamSshState & AuditState>(state: S, team: string, params: unknown, ctx: ReduceContext): Out<S> => {
-  const p = params as { serials: ReadonlyArray<{ serial: number; valid_before: number; generation: number }>; by: string; admin?: boolean; reason: string }
+  const p = params as { serials: ReadonlyArray<{ serial: number; valid_before: number; generation: number }>; by: string; admin?: boolean; system?: boolean; reason: string }
   const kept = Object.fromEntries(Object.entries(state.ssh_revoked ?? {}).filter(([, r]) => r.valid_before + KRL_GRACE_MS > ctx.now))
   const added = p.serials.filter((s) => s.valid_before + KRL_GRACE_MS > ctx.now && !kept[String(s.serial)])
   if (added.length === 0) return { ok: true, state, value: { revoked: [], krl_version: state.ssh_krl?.version ?? 0 }, changed: false }
-  if (Object.keys(kept).length + added.length > (p.admin ? MAX_REVOKED_ADMIN : MAX_REVOKED)) return reject("team_vm.ssh_revocations_full", "too many live revocations; rotate the CA with compromised = true instead")
+  // An install revocation from UserDO is never refused: issuance rate limits bound it, and a full list must not keep a revoked install's certificates usable.
+  if (!p.system && Object.keys(kept).length + added.length > (p.admin ? MAX_REVOKED_ADMIN : MAX_REVOKED)) return reject("team_vm.ssh_revocations_full", "too many live revocations; rotate the CA with compromised = true instead")
   for (const s of added) kept[String(s.serial)] = { valid_before: s.valid_before, generation: s.generation }
   const version = (state.ssh_krl?.version ?? 0) + 1
   const next: S = { ...state, ssh_revoked: kept, ssh_krl: { version, at: ctx.now } }

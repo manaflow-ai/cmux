@@ -197,7 +197,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
       }
       case "install.ssh_revoke_done": {
         // UserDO's own alarm, after every team in the notice confirmed the KRL entries.
-        if (p.kind !== "system") return reject("auth.forbidden", "internal op")
+        if (p.kind !== "system" || p.identity !== "system:user") return reject("auth.forbidden", "internal op of this UserDO")
         const install = (params as { install: string }).install
         if (!state.ssh_revoke_pending?.[install]) return { ok: true, state, value: { install }, changed: false }
         const { [install]: _done, ...rest } = state.ssh_revoke_pending

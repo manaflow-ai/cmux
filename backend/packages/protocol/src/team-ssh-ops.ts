@@ -152,6 +152,8 @@ export const teamSshInternalOps: ReadonlyArray<CloudOpDef> = [
       by: Schema.String,
       /** An owner or admin revoked (may pass the members' bound on live revocations). */
       admin: Schema.optionalKey(Schema.Boolean),
+      /** UserDO revoked the install: never refused for a full list. */
+      system: Schema.optionalKey(Schema.Boolean),
       reason: Schema.String
     }),
     "Internal: certificates found in the issued log were revoked."

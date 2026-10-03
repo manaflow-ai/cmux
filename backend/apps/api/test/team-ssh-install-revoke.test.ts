@@ -4,6 +4,8 @@ import type { Principal, ReduceContext } from "@cmux/ownership"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { makeUserDomain, type UserState } from "../src/domains/user.ts"
+import { teamDomain, type TeamState } from "../src/domains/team.ts"
+import { MAX_REVOKED_ADMIN } from "../src/domains/team-ssh.ts"
 
 /**
  * S4 backend part (plans/cmux-next/team-vm-plan.md S4): when UserDO revokes an install, every
@@ -98,6 +100,8 @@ describe("install revocation reaches the team SSH KRL (UserDO reducer)", () => {
     expect(r.state.ssh_revoke_pending).toEqual({ [INST]: { user: USER, teams: [TEAM, BOUND], at: 5_000 } })
     expect(domain.authorize!(r.state, "install.ssh_revoke_done", { install: INST }, session)).toBeTruthy()
     expect(domain.authorize!(r.state, "install.ssh_revoke_done", { install: INST }, system)).toBeUndefined()
+    // Another owner's system principal (an outbox delivery) cannot clear the notice.
+    expect(domain.reduce(r.state, "install.ssh_revoke_done", { install: INST }, ctx({ identity: "system:team:x", kind: "system" }))).toMatchObject({ ok: false, code: "auth.forbidden" })
     const done = domain.reduce(r.state, "install.ssh_revoke_done", { install: INST }, ctx(system))
     if (!done.ok) throw new Error(done.message)
     expect(done.state.ssh_revoke_pending).toEqual({})
@@ -123,6 +127,17 @@ const mutate = async (token: string, op: string, params: unknown) => {
   })
   return (await res.json()) as any
 }
+
+describe("install revocation reaches the team SSH KRL (TeamDO reducer)", () => {
+  it("an install revocation from UserDO is never refused for a full revocation list", () => {
+    const system: Principal = { identity: "system:team", kind: "system" }
+    const full = Object.fromEntries(Array.from({ length: MAX_REVOKED_ADMIN }, (_, i) => [String(i + 1), { valid_before: 9e12, generation: 1 }]))
+    const s = { team: { id: TEAM, kind: "personal", display_name: "A" }, members: {}, hosts: {}, ssh_revoked: full } as unknown as TeamState
+    const add = (extra: Record<string, unknown>) => teamDomain.reduce(s, "team_vm.ssh_certs_revoked", { serials: [{ serial: 999_999, valid_before: 9e12, generation: 1 }], by: "x", reason: "", ...extra }, ctx(system))
+    expect(add({ admin: true })).toMatchObject({ ok: false, code: "team_vm.ssh_revocations_full" })
+    expect(add({ admin: true, system: true })).toMatchObject({ ok: true })
+  })
+})
 
 describe("install revocation reaches the team SSH KRL (workerd)", () => {
   it("UserDO revokes an install; its alarm puts the install's certificates in the KRL; the install gets no new certificate", async () => {
