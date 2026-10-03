@@ -125,6 +125,23 @@ class CaseBuilder {
     return effects;
   }
 
+  /**
+   * Feeds an input given as wire text (recorded as `input_text`): each core
+   * parses it with its own JSON reader. For number text a JSON value cannot
+   * carry, like `1.0`.
+   */
+  stepText(text: string, kinds: Kind[], check?: (effects: Effect[]) => void, afterMs = 1): Effect[] {
+    const index = this.steps.length;
+    this.now += afterMs;
+    const effects = plain(this.core.step(JSON.parse(text) as Input, this.now));
+    this.steps.push({ now: this.now, input_text: text, effects });
+    const got = effects.filter((e) => e.kind !== "log").map((e) => e.kind);
+    if (got.join(",") !== kinds.join(","))
+      throw new Error(`${this.name}: step ${index}: want [${kinds.join(", ")}] got [${got.join(", ")}]`);
+    check?.(effects);
+    return effects;
+  }
+
   /** The `n`th effect of `kind`. */
   get<K extends Kind>(effects: Effect[], kind: K, n = 0): Of<K> {
     const found = effects.filter((e): e is Of<K> => e.kind === kind)[n];
@@ -572,6 +589,38 @@ function turnCases(): CorpusCase[] {
       const op = c.get(e, "conversation_op");
       c.check(op.op.kind === "message.send" && op.op.parts[0].type === "text" && op.op.parts[0].text === "good", "only the valid chunk");
     });
+    cases.push(c.end());
+  }
+
+  {
+    // JSON has one number type: `1.0` is the value 1, as JavaScript's JSON.parse reads it.
+    // A reader that keeps an integer-valued float apart (serde_json) must read it as that integer.
+    const c = new CaseBuilder("wire counts: a seq or at written as an integer-valued float (1.0, 3e0) is that integer");
+    boot(c);
+    const wire = (seq: string, kind: string, dir: string, msg: string, at = "") =>
+      `{"kind":"acpmux_event","event":{"sessionId":"${MUX_SESSION}","seq":${seq},${at ? `"at":${at},` : ""}"dir":"${dir}","kind":"${kind}","msg":${msg}}}`;
+    const text = (t: string) => `{"params":{"update":{"content":{"type":"text","text":"${t}"}}}}`;
+    c.stepText(wire("1.0", "turn_started", "mux", "{}"), ["typing"]);
+    c.stepText(wire("2.0", "agent_message_chunk", "agent", text("float "), `${T0 + 2}.0`), []);
+    c.stepText(wire("3e0", "agent_message_chunk", "agent", text("typed")), []);
+    c.stepText(wire("2.0", "agent_message_chunk", "agent", text(" replayed")), []);
+    c.stepText(wire("4.0", "turn_end", "mux", "{}"), ["persist", "conversation_op", "typing"], (e) => {
+      const op = c.get(e, "conversation_op");
+      c.check(op.idempotency_key === `turn:${MUX_SESSION}:1`, `key from seq 1, got ${op.idempotency_key}`);
+      c.check(op.op.kind === "message.send" && op.op.parts[0].type === "text" && op.op.parts[0].text === "float typed", "seq 2.0 at or below the cursor is a replay");
+      c.check(c.persisted(e).acpmuxSeq === 4, "cursor 4");
+    });
+    cases.push(c.end());
+  }
+
+  {
+    const c = new CaseBuilder("wire counts: a log_id written as an integer-valued float is that identity", { defaultConversation: "conv_a" });
+    c.step({ kind: "daemon_connected", conversation: summary("conv_a") }, []);
+    c.stepText(
+      `{"kind":"acpmux_connected","session_id":"${MUX_SESSION}","sessions":[],"events":[],"log_id":${T0 + 500}.0,"created":true}`,
+      ["persist", "list_conversations"],
+      (e) => c.check((c.persisted(e) as HostStateData & { acpmuxLog?: number }).acpmuxLog === T0 + 500, "identity recorded"),
+    );
     cases.push(c.end());
   }
 

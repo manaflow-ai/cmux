@@ -17,7 +17,14 @@ export const CORPUS_FORMAT = "cmux-chief-corpus/1";
 
 export interface CorpusStep {
   now: number;
-  input: Input;
+  /** The input as a JSON value. Absent when `input_text` is set. */
+  input?: Input;
+  /**
+   * The input as wire text, parsed by each core's own JSON reader: it pins
+   * number text a JSON value cannot carry (`1.0` is the integer 1 in both
+   * cores; JSON has one number type, so only the value counts).
+   */
+  input_text?: string;
   effects: Effect[];
 }
 
@@ -67,7 +74,9 @@ const withoutLogs = (effects: Effect[]) => plain(effects.filter((effect) => effe
 export function runCase(c: CorpusCase): string | undefined {
   const core = new Core(c.state);
   for (const [index, step] of c.steps.entries()) {
-    const got = withoutLogs(core.step(plain(step.input), step.now));
+    const input = step.input_text === undefined ? step.input : (JSON.parse(step.input_text) as Input);
+    if (input === undefined) return `${c.name}: step ${index}: no input`;
+    const got = withoutLogs(core.step(plain(input), step.now));
     const want = withoutLogs(step.effects);
     if (!jsonEqual(got, want))
       return `${c.name}: step ${index}: effects differ\n  want ${JSON.stringify(want)}\n  got  ${JSON.stringify(got)}`;
