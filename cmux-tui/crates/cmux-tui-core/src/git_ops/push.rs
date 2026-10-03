@@ -82,7 +82,10 @@ pub(super) fn dispatch(
 }
 
 /// The branch and the commit to push, checked against `expected_head`.
-fn read_tip(repository: &Repository, fields: &Map<String, Value>) -> Result<Attempt, ResourceError> {
+fn read_tip(
+    repository: &Repository,
+    fields: &Map<String, Value>,
+) -> Result<Attempt, ResourceError> {
     let text = |name: &str| fields.get(name).and_then(Value::as_str).map(str::to_string);
     let branch = match text("branch") {
         Some(branch) => {

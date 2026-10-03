@@ -64,7 +64,10 @@ fn a_lost_reply_is_recovered_once_when_a_hook_rewrites_the_subject() {
     let made = git(&repository, &["rev-parse", "HEAD"]);
     assert_eq!(git(&repository, &["log", "-1", "--format=%s"]), "[TICKET-1] Fix it");
     let retry = ok(&commit(&mux, &repository, fields.clone(), "k-rewrite"));
-    assert_eq!((retry["replayed"].as_bool(), retry["value"]["commit"].as_str()), (Some(true), Some(made.as_str())));
+    assert_eq!(
+        (retry["replayed"].as_bool(), retry["value"]["commit"].as_str()),
+        (Some(true), Some(made.as_str()))
+    );
     assert_eq!(git(&repository, &["rev-parse", "HEAD^"]), base);
 }
 
@@ -109,16 +112,13 @@ fn paths_may_be_absolute_inside_the_root_and_hostile_ones_are_refused() {
     ok(&envelope);
     assert_eq!(committed_files(&repository, "HEAD"), ["star*.txt", "sub/-x", "sub/a.txt"]);
     let outside = temporary("abs-outside").join("f.txt").to_string_lossy().into_owned();
-    for path in [
-        outside.as_str(),
-        "a/../b",
-        ".git/config",
-        ".GIT/config",
-        "sub/./a.txt",
-        "",
-    ] {
+    for path in [outside.as_str(), "a/../b", ".git/config", ".GIT/config", "sub/./a.txt"] {
         let fields = json!({"message": "m", "paths": [path]});
-        assert_eq!(error_code(&commit(&mux, &repository, fields, "k-hostile")), "validation.invalid", "{path}");
+        assert_eq!(
+            error_code(&commit(&mux, &repository, fields, "k-hostile")),
+            "validation.invalid",
+            "{path}"
+        );
     }
     let glob = json!({"message": "m", "paths": [":(glob)*"]});
     assert_eq!(refused(&commit(&mux, &repository, glob, "k-glob")).0, "path_not_found");

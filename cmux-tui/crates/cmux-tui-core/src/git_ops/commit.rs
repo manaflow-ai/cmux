@@ -124,16 +124,17 @@ pub(super) fn dispatch(
         journal.start(&fingerprint, &attempt)?;
         // A run that did not finish may have committed: the attempt stays,
         // so a retry with the same key reports that commit.
-        let (step, run) = run_commit(&git, &arguments, &attempt).map_err(|failure| match failure {
-            GitFailure::TimedOut => refused(
-                OPERATION,
-                "timed_out",
-                "git did not finish in time and was stopped; a commit may have been made, \
+        let (step, run) =
+            run_commit(&git, &arguments, &attempt).map_err(|failure| match failure {
+                GitFailure::TimedOut => refused(
+                    OPERATION,
+                    "timed_out",
+                    "git did not finish in time and was stopped; a commit may have been made, \
                  and a retry with the same key reports it",
-                Value::Null,
-            ),
-            other => run_failed(OPERATION, &other),
-        })?;
+                    Value::Null,
+                ),
+                other => run_failed(OPERATION, &other),
+            })?;
         if !run.success {
             let error = classified(&git, &step, &run, &arguments);
             // An index lock means another git may still commit; a moved HEAD
@@ -293,7 +294,12 @@ fn shortstat(text: &str) -> (u64, u64, u64) {
 
 /// A refused commit's machine reason, from the step that failed, what git
 /// printed and the hooks that ran. A failed staging step is never a hook.
-fn classified(git: &UserGit<'_>, step: &Step, run: &UserRun, arguments: &Arguments) -> ResourceError {
+fn classified(
+    git: &UserGit<'_>,
+    step: &Step,
+    run: &UserRun,
+    arguments: &Arguments,
+) -> ResourceError {
     let output = run.output();
     let (reason, message) = if output.contains("index.lock") {
         ("index_locked", "another git process holds the repository's index")
