@@ -178,12 +178,13 @@ import Testing
         #expect(services.externalOpen.pending == [.deepLink(url)])
     }
 
+    /// No focused object is refused; a named target that does not exist is not found.
     @Test func copyLinkWithoutATargetIsRefused() {
         let services = Coverage.boundServices()
         #expect(Coverage.run(services, "palette.copyWorkspaceLink") == .refused(RefusalStrings.noWorkspaceToActOn))
         #expect(Coverage.run(services, "palette.copySurfaceLink") == .refused(MiscHandlerStrings.noPane))
         let missing = ActionTargetRef(kind: .tab, id: "missing")
-        #expect(Coverage.run(services, "palette.copySurfaceLink", target: missing) == .refused("no tab missing"))
-        #expect(Coverage.run(services, "palette.copyPaneLink", target: missing) == .refused("no tab missing"))
+        #expect(Coverage.run(services, "palette.copySurfaceLink", target: missing) == .notFound("no tab missing"))
+        #expect(Coverage.run(services, "palette.copyPaneLink", target: missing) == .notFound("no tab missing"))
     }
 }
