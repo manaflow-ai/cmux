@@ -981,7 +981,7 @@ import Testing
         let narrow = Self.singlePaneWindow(columns: 93, rows: 40)
         fixture.connection.windowsByID[1] = narrow
         fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
-        fixture.connection.repaintPanesThatGrew(from: wide, to: narrow)
+        fixture.connection.repaintPanesTmuxRedrew(from: wide, to: narrow)
 
         #expect(Self.visibleRepaints(fixture.connection, pane: 7) == 1)
     }
@@ -996,7 +996,7 @@ import Testing
         let short = Self.singlePaneWindow(columns: 93, rows: 37)
         fixture.connection.windowsByID[1] = short
         fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
-        fixture.connection.repaintPanesThatGrew(from: tall, to: short)
+        fixture.connection.repaintPanesTmuxRedrew(from: tall, to: short)
 
         #expect(Self.visibleRepaints(fixture.connection, pane: 7) == 0)
     }
@@ -1412,7 +1412,7 @@ import Testing
         fixture.connection.windowsByID[1] = grownWindow
         fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
         fixture.connection.observers.notifyTopologyChanged()
-        fixture.connection.repaintPanesThatGrew(from: initialWindow, to: grownWindow)
+        fixture.connection.repaintPanesTmuxRedrew(from: initialWindow, to: grownWindow)
 
         finishPendingCommands(
             on: fixture.connection,
@@ -1569,7 +1569,7 @@ import Testing
             fixture.connection.windowsByID[1] = restoredWindow
             fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
             fixture.connection.observers.notifyTopologyChanged()
-            fixture.connection.repaintPanesThatGrew(
+            fixture.connection.repaintPanesTmuxRedrew(
                 from: shrunkenWindow,
                 to: restoredWindow
             )
