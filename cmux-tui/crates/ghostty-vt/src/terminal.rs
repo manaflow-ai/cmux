@@ -1858,8 +1858,8 @@ impl PaletteCommand {
                 let key = &token[..separator];
                 let value = token.get(separator + 1..).unwrap_or_default();
                 let key = std::str::from_utf8(key).unwrap_or_default();
-                let index = parse_protocol_decimal(key.as_bytes(), u8::MAX.into())
-                    .map(|value| value as u8);
+                let index =
+                    parse_protocol_decimal(key.as_bytes(), u8::MAX.into()).map(|value| value as u8);
                 let recognized = index.is_some()
                     || matches!(
                         key,
