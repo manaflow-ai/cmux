@@ -97,6 +97,9 @@ struct RestartTarget {
     workspace_key: String,
     /// The dead terminal's durable exit receipt.
     receipt: Option<Value>,
+    /// The dead terminal's exit policy; the restarted shell keeps it (a
+    /// `keep_on_exit` tab stays a keep tab).
+    on_exit: TerminalOnExit,
 }
 
 impl Mux {
@@ -159,7 +162,7 @@ impl Mux {
             mutation: WorkspaceMutation::local("cmux-tui-tab-restart"),
             expected_generation: None,
             expected_revision: None,
-            on_exit: TerminalOnExit::default(),
+            on_exit: target.on_exit,
             env: request.env,
         };
         let fresh = self.spawn_surface_with(
@@ -195,7 +198,14 @@ impl Mux {
         if kept.kept_tabs.contains_key(target.tab.as_str()) {
             // The restarted tab is live again; its keep-layout record must not
             // keep it after the new terminal's own exit.
-            self.forget_kept_tabs(&[target.tab.to_string()])?;
+            // The restart already committed; a failure here is reported,
+            // not returned (the next keep-layout handoff rewrites the rows).
+            if let Err(error) = self.forget_kept_tabs(&[target.tab.to_string()]) {
+                self.report_internal_diagnostic(format!(
+                    "restarted tab {} kept its keep-layout record: {error:#}",
+                    target.tab
+                ));
+            }
         }
         self.emit(MuxEvent::TreeChanged);
         self.emit_tab_changed_for_transaction(surface, transaction);
@@ -322,6 +332,11 @@ fn restart_target_locked(
         return Err(TabRestartError::NotDead(surface).into());
     }
     let view = state.surfaces.get(&surface);
+    // The layout reducer reads the view's own flag; a view the host has not
+    // yet marked dead is not restartable either.
+    if view.is_some_and(|view| !view.is_dead()) {
+        return Err(TabRestartError::NotDead(surface).into());
+    }
     let runtime = state.terminal_catalog.get(dead).or(view);
     let cwd = runtime
         .and_then(|runtime| runtime.pwd().or_else(|| runtime.presented_directory()))
@@ -333,6 +348,7 @@ fn restart_target_locked(
         size: view.map(|view| view.size()),
         workspace_key: state.workspaces[workspace].key.clone(),
         receipt: record.exit,
+        on_exit: record.on_exit,
     })
 }
 

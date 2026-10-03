@@ -14,6 +14,24 @@ pub(crate) fn apply_resource_patch(
     let patch = prune_unchanged_resource_changes(transaction, patch)?;
     // Closes by any path land in the closed history before their rows go.
     crate::state::closed_history_store::capture_closed(transaction, &patch)?;
+    apply_effective_resource_patch(transaction, &patch, revision)?;
+    Ok(patch)
+}
+
+/// [`apply_resource_patch`] for the commit of `operation`. Only `tab.restart`
+/// may move a tab to new content (`retarget_restarted_tabs`); every other
+/// writer still gets the store's refusal of a content change.
+pub(crate) fn apply_resource_patch_for(
+    transaction: &Transaction<'_>,
+    operation: &str,
+    patch: &ResourcePatch,
+    revision: i64,
+) -> anyhow::Result<ResourcePatch> {
+    if operation != "tab.restart" {
+        return apply_resource_patch(transaction, patch, revision);
+    }
+    let patch = prune_unchanged_resource_changes(transaction, patch)?;
+    crate::state::closed_history_store::capture_closed(transaction, &patch)?;
     retarget_restarted_tabs(transaction, &patch)?;
     apply_effective_resource_patch(transaction, &patch, revision)?;
     Ok(patch)
@@ -53,13 +71,12 @@ pub(crate) fn apply_resource_patch_unrecorded(
     revision: i64,
 ) -> anyhow::Result<ResourcePatch> {
     let patch = prune_unchanged_resource_changes(transaction, patch)?;
-    retarget_restarted_tabs(transaction, &patch)?;
     apply_effective_resource_patch(transaction, &patch, revision)?;
     Ok(patch)
 }
 
-/// Moves each restarted tab of `patch` to its new terminal. That is the only
-/// content change the store allows: the stored content must be a terminal
+/// Moves each restarted tab of `patch` (a `tab.restart` commit) to its new
+/// terminal. That is the only content change the store allows: the stored content must be a terminal
 /// whose host has exited, and the new content a terminal (`upsert_resource_tab`
 /// then checks that it exists); every other content change is still refused
 /// there. It runs before every other change of `patch`, so closing the dead
