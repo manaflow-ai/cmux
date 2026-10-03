@@ -411,7 +411,7 @@ struct MachinesPanelView: View {
     }
     /// Binds the shared Cloud and Devices tree above the outline's snapshot boundary.
     private var machinesList: some View {
-        var machineActions = MachineRowActions.bound(
+        var machineActions: MachineRowActions = MachineRowActions.bound(
             onDidMutate: { [weak viewModel] in
                 viewModel?.endOperation()
                 viewModel?.refresh(tree: true)
@@ -429,7 +429,7 @@ struct MachinesPanelView: View {
         let noteTreeNotice: @MainActor (String) -> Void = { [weak viewModel] description in
             viewModel?.noteTreeNotice(description)
         }
-        var nodeActions = CloudTreeNodeActions.bound(
+        var nodeActions: CloudTreeNodeActions = CloudTreeNodeActions.bound(
             navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
             catalog: { SurfaceCatalog.shared },
             selectedWorkspaceID: { tabManager?.selectedTabId },
