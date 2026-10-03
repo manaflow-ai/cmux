@@ -1,5 +1,6 @@
 // A hunk's Reject and Accept, or its decision with Undo, under its last changed line.
 import React from "react";
+import { t } from "../i18n";
 import type { FocusAfter, HunkAnchor, HunkDecision } from "./hunkReview";
 
 export function HunkActions({
@@ -27,21 +28,21 @@ export function HunkActions({
   if (decision === "requested")
     return (
       <div className="acpmux-hunk-actions" data-decision={decision}>
-        <output>Revert requested</output>
+        <output>{t("hunk.revertRequested")}</output>
       </div>
     );
   if (decision)
     return (
       <div className="acpmux-hunk-actions" data-decision={decision}>
-        <output>{decision === "accepted" ? "Accepted" : "Rejected"}</output>
+        <output>{t(decision === "accepted" ? "hunk.accepted" : "hunk.rejected")}</output>
         <button
           ref={takeFocus}
           type="button"
           className="acpmux-hunk-undo"
-          aria-label={`Undo, ${anchor.label}`}
+          aria-label={t("hunk.undoAt", { line: anchor.label })}
           onClick={() => decide(undefined)}
         >
-          Undo
+          {t("hunk.undo")}
         </button>
       </div>
     );
@@ -51,18 +52,18 @@ export function HunkActions({
         ref={takeFocus}
         type="button"
         className="acpmux-hunk-reject"
-        aria-label={`Reject change at ${anchor.label}`}
+        aria-label={t("hunk.rejectAt", { line: anchor.label })}
         onClick={() => decide("rejected")}
       >
-        Reject
+        {t("hunk.reject")}
       </button>
       <button
         type="button"
         className="acpmux-hunk-accept"
-        aria-label={`Accept change at ${anchor.label}`}
+        aria-label={t("hunk.acceptAt", { line: anchor.label })}
         onClick={() => decide("accepted")}
       >
-        Accept
+        {t("hunk.accept")}
       </button>
     </div>
   );

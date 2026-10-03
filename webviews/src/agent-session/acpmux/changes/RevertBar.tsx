@@ -1,5 +1,6 @@
 // The rejected hunks not yet sent, with an optional note, go to the agent as one prompt.
 import React, { useState } from "react";
+import { t } from "../i18n";
 import { rejectionPrompt, type TurnFile } from "../diff";
 import { rejectedHunks, type HunkReview } from "./hunkReview";
 
@@ -22,11 +23,11 @@ export function RevertBar({ files, review, onSent }: { files: TurnFile[]; review
   return (
     <div className="acpmux-revert-bar">
       <span className="acpmux-revert-count">
-        {rejected.length === 1 ? "1 change rejected" : `${rejected.length} changes rejected`}
+        {rejected.length === 1 ? t("revert.count.one") : t("revert.count.other", { n: rejected.length })}
       </span>
       <input
-        aria-label="Note for the agent"
-        placeholder="Add a note (optional)"
+        aria-label={t("revert.noteLabel")}
+        placeholder={t("revert.notePlaceholder")}
         value={note}
         onChange={(event) => setNote(event.target.value)}
         onKeyDown={(event) => {
@@ -38,7 +39,7 @@ export function RevertBar({ files, review, onSent }: { files: TurnFile[]; review
         }}
       />
       <button type="button" className="acpmux-revert-send" onClick={send}>
-        Ask agent to revert
+        {t("revert.send")}
       </button>
     </div>
   );

@@ -102,6 +102,20 @@ const en = {
   "quick.send": "send",
   "quick.openInWindow": "open in window",
   "quick.close": "close",
+  "hunk.reject": "Reject",
+  "hunk.accept": "Accept",
+  "hunk.undo": "Undo",
+  "hunk.rejectAt": "Reject change at {line}",
+  "hunk.acceptAt": "Accept change at {line}",
+  "hunk.undoAt": "Undo, {line}",
+  "hunk.accepted": "Accepted",
+  "hunk.rejected": "Rejected",
+  "hunk.revertRequested": "Revert requested",
+  "revert.count.one": "1 change rejected",
+  "revert.count.other": "{n} changes rejected",
+  "revert.noteLabel": "Note for the agent",
+  "revert.notePlaceholder": "Add a note (optional)",
+  "revert.send": "Ask agent to revert",
 } as const;
 
 export type StringKey = keyof typeof en;
@@ -207,6 +221,20 @@ const ja: Record<StringKey, string> = {
   "quick.send": "送信",
   "quick.openInWindow": "ウィンドウで開く",
   "quick.close": "閉じる",
+  "hunk.reject": "却下",
+  "hunk.accept": "承認",
+  "hunk.undo": "元に戻す",
+  "hunk.rejectAt": "{line} の変更を却下",
+  "hunk.acceptAt": "{line} の変更を承認",
+  "hunk.undoAt": "元に戻す、{line}",
+  "hunk.accepted": "承認済み",
+  "hunk.rejected": "却下済み",
+  "hunk.revertRequested": "取り消しを依頼しました",
+  "revert.count.one": "1 件の変更を却下",
+  "revert.count.other": "{n} 件の変更を却下",
+  "revert.noteLabel": "エージェントへのメモ",
+  "revert.notePlaceholder": "メモを追加（任意）",
+  "revert.send": "エージェントに取り消しを依頼",
 };
 
 const tables: Record<string, Record<StringKey, string>> = { en, ja };
