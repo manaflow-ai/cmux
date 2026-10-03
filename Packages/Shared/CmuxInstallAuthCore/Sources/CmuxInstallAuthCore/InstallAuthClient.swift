@@ -106,7 +106,7 @@ public actor InstallAuthClient {
         }
         let signature = try await signer.sign(Data((prefix + nonce).utf8))
         let reply = try await postJSON("/v1/auth/token", ["user": record.user, "install": record.install,
-                                                          "nonce": nonce, "signature": Base64URL.encode(signature)], bearer: nil)
+                                                          "nonce": nonce, "signature": (signature).base64URLEncoded], bearer: nil)
         guard let value = reply["access_token"] as? String else { throw InstallAuthError.malformedReply }
         let cap = now().addingTimeInterval(Self.maximumLifetime)
         let stated = (reply["expires_at"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) } ?? cap

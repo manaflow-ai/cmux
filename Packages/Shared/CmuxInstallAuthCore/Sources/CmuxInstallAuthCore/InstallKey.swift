@@ -31,25 +31,26 @@ public struct PublicJWK: Hashable, Sendable {
 
     public init(x963: Data) throws {
         guard x963.count == 65, x963.first == 0x04 else { throw InstallAuthError.invalidPublicKey }
-        x = Base64URL.encode(x963.subdata(in: 1..<33))
-        y = Base64URL.encode(x963.subdata(in: 33..<65))
+        x = (x963.subdata(in: 1..<33)).base64URLEncoded
+        y = (x963.subdata(in: 33..<65)).base64URLEncoded
     }
 
     public var json: [String: String] { ["kty": "EC", "crv": "P-256", "x": x, "y": y] }
 }
 
-/// base64url without padding (RFC 4648 section 5).
-public enum Base64URL {
-    public static func encode(_ data: Data) -> String {
-        data.base64EncodedString()
+extension Data {
+    /// base64url without padding (RFC 4648 section 5).
+    public var base64URLEncoded: String {
+        base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
     }
 
-    public static func decode(_ text: String) -> Data? {
+    /// Decodes base64url with or without padding.
+    public init?(base64URLEncoded text: String) {
         var base = text.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
         while base.count % 4 != 0 { base += "=" }
-        return Data(base64Encoded: base)
+        self.init(base64Encoded: base)
     }
 }
