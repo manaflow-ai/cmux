@@ -21,7 +21,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `layout.closeFocus` | string | `"previousNeighbor"` | `previousNeighbor`, `mostRecent` | Focus After Closing a Pane. Which pane gets focus when the focused pane closes. |
 | `layout.splitSizing` | string | `"even"` | `even`, `halve` | Split Sizing. Even gives every pane in the column the same size after a split. |
 | `layout.newColumnWidth` | string | `"matchCurrent"` | `matchCurrent`, `fitScreen`, `fixed` | New Column Sizing |
-| `layout.stickyColumnEdge` | string | `"right"` | `right`, `left` | Sticky Column Edge |
+| `layout.stickyColumnEdge` | string | `"nearest"` | `nearest`, `right`, `left`, `top`, `bottom` | Sticky Column Edge |
 | `layout.stickyColumnMode` | string | `"docked"` | `docked`, `overlay` | Sticky Column Mode |
 | `layout.frameOrientation` | string | `"columnMajor"` | `columnMajor`, `rowMajor` | Dock Corners |
 | `layout.minimumPaneWidth` | real | `200` | 80 to 800 | Minimum Pane Width |

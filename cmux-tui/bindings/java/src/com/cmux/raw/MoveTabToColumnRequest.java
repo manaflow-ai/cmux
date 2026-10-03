@@ -14,6 +14,7 @@ import java.util.Objects;
 public final class MoveTabToColumnRequest implements WireValue {
     private final Field<UInt64> afterColumn;
     private final Field<UInt64> pane;
+    private final Field<SplitRespawn> respawn;
     private final Field<UInt64> screen;
     private final Field<ColumnPin> sticky;
     private final UInt64 surface;
@@ -23,6 +24,7 @@ public final class MoveTabToColumnRequest implements WireValue {
     private MoveTabToColumnRequest(Builder builder) {
         this.afterColumn = builder.afterColumn;
         this.pane = builder.pane;
+        this.respawn = builder.respawn;
         this.screen = builder.screen;
         this.sticky = builder.sticky;
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
@@ -35,6 +37,7 @@ public final class MoveTabToColumnRequest implements WireValue {
 
     public Field<UInt64> afterColumn() { return afterColumn; }
     public Field<UInt64> pane() { return pane; }
+    public Field<SplitRespawn> respawn() { return respawn; }
     public Field<UInt64> screen() { return screen; }
     public Field<ColumnPin> sticky() { return sticky; }
     public UInt64 surface() { return surface; }
@@ -51,6 +54,10 @@ public final class MoveTabToColumnRequest implements WireValue {
         Object rawPane = Wire.optional(object, "pane");
         if (!Wire.isMissing(rawPane)) {
             builder.pane(rawPane == null ? null : Wire.uint64(rawPane, "MoveTabToColumnRequest.pane"));
+        }
+        Object rawRespawn = Wire.optional(object, "respawn");
+        if (!Wire.isMissing(rawRespawn)) {
+            builder.respawn(rawRespawn == null ? null : SplitRespawn.fromWire(rawRespawn));
         }
         Object rawScreen = Wire.optional(object, "screen");
         if (!Wire.isMissing(rawScreen)) {
@@ -78,6 +85,7 @@ public final class MoveTabToColumnRequest implements WireValue {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "after_column", afterColumn);
         Wire.put(object, "pane", pane);
+        Wire.put(object, "respawn", respawn);
         Wire.put(object, "screen", screen);
         Wire.put(object, "sticky", sticky);
         Wire.put(object, "surface", surface);
@@ -89,11 +97,11 @@ public final class MoveTabToColumnRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof MoveTabToColumnRequest that)) return false;
-        return Objects.equals(afterColumn, that.afterColumn) && Objects.equals(pane, that.pane) && Objects.equals(screen, that.screen) && Objects.equals(sticky, that.sticky) && Objects.equals(surface, that.surface) && Objects.equals(transaction, that.transaction) && Objects.equals(width, that.width);
+        return Objects.equals(afterColumn, that.afterColumn) && Objects.equals(pane, that.pane) && Objects.equals(respawn, that.respawn) && Objects.equals(screen, that.screen) && Objects.equals(sticky, that.sticky) && Objects.equals(surface, that.surface) && Objects.equals(transaction, that.transaction) && Objects.equals(width, that.width);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(afterColumn, pane, screen, sticky, surface, transaction, width); }
+    public int hashCode() { return Objects.hash(afterColumn, pane, respawn, screen, sticky, surface, transaction, width); }
 
     @Override
     public String toString() { return "MoveTabToColumnRequest" + toWire(); }
@@ -101,6 +109,7 @@ public final class MoveTabToColumnRequest implements WireValue {
     public static final class Builder {
         private Field<UInt64> afterColumn = Field.omitted();
         private Field<UInt64> pane = Field.omitted();
+        private Field<SplitRespawn> respawn = Field.omitted();
         private Field<UInt64> screen = Field.omitted();
         private Field<ColumnPin> sticky = Field.omitted();
         private UInt64 surface;
@@ -114,6 +123,10 @@ public final class MoveTabToColumnRequest implements WireValue {
         }
         public Builder pane(UInt64 value) {
             this.pane = Field.ofNullable(value);
+            return this;
+        }
+        public Builder respawn(SplitRespawn value) {
+            this.respawn = Field.ofNullable(value);
             return this;
         }
         public Builder screen(UInt64 value) {

@@ -40,9 +40,29 @@ import Testing
     @Test func theBandIsAtMostAQuarterOfAShortScreen() {
         let short = ScreenGeometry.compute(.columns([LayoutColumn(id: ColumnID("c0"), width: 1, root: .leaf(PaneID("p0")))]),
                                            viewport: CGSize(width: 400, height: 40), style: style, scale: 2)
-        #expect(DropZoneGeometry.dockTarget(atView: CGPoint(x: 10, y: 15), screen: "s", geometry: short, style: style) == nil)
-        #expect(DropZoneGeometry.dockTarget(atView: CGPoint(x: 10, y: 9), screen: "s", geometry: short, style: style)
+        #expect(DropZoneGeometry.dockTarget(atView: CGPoint(x: 200, y: 15), screen: "s", geometry: short, style: style) == nil)
+        #expect(DropZoneGeometry.dockTarget(atView: CGPoint(x: 200, y: 9), screen: "s", geometry: short, style: style)
                 == .newDock(screen: "s", edge: .top))
+    }
+
+    @Test func theSideBandsAreNarrowAndYieldToTheBandsInTheCorners() {
+        let g = geometry()
+        let at = { (x: CGFloat, y: CGFloat) in
+            DropZoneGeometry.dockTarget(atView: CGPoint(x: x, y: y), screen: "s", geometry: g, style: style)
+        }
+        #expect(at(0, 300) == .newDock(screen: "s", edge: .left))
+        #expect(at(style.dockDropBand / 2, 300) == .newDock(screen: "s", edge: .left))
+        #expect(at(style.dockDropBand / 2 + 1, 300) == nil, "the outer pane keeps its split zone")
+        #expect(at(1000, 300) == .newDock(screen: "s", edge: .right))
+        #expect(at(0, 0) == .newDock(screen: "s", edge: .top))
+        // A side another column holds opens no second dock there.
+        let held = geometry(dock: StickyColumn(edge: .right, mode: .docked))
+        #expect(DropZoneGeometry.dockTarget(atView: CGPoint(x: 1000, y: 300), screen: "s", geometry: held, style: style) == nil)
+    }
+
+    @Test func aSidePreviewIsAColumnDownTheScreen() {
+        let left = DropZoneGeometry.highlightRectInView(for: .newDock(screen: "s", edge: .left), offset: 90, geometry: geometry(), style: style)
+        #expect(left == CGRect(x: style.stripGap, y: 0, width: 300, height: 600))
     }
 
     @Test func thePreviewSpansTheScreenAndIgnoresTheScroll() {

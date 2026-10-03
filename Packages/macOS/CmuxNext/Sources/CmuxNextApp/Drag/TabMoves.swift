@@ -124,9 +124,12 @@ enum TabMoves {
     /// Moves the tab into a new column pinned to `edge` on `anchor`'s screen,
     /// in one daemon commit (move-tab-to-column with `sticky`,
     /// edge-docks-v1). The column that held the edge scrolls again. Top and
-    /// bottom are edge docks; `mode` nil uses `layout.stickyColumnMode`.
+    /// bottom are edge docks; `mode` nil uses `layout.stickyColumnMode`, and
+    /// `width` nil a third of the height for a band or the width of a new
+    /// column beside the anchor for a side.
     static func toNewStickyColumn(_ tab: TabModel, anchor pane: PaneModel, edge: CmuxNextLayout.StickyEdge,
-                                  mode: CmuxNextLayout.StickyMode? = nil, services: AppServices,
+                                  mode: CmuxNextLayout.StickyMode? = nil, width: Double? = nil, respawn: SplitRespawn? = nil,
+                                  services: AppServices,
                                   transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
         guard services.daemon(for: pane) === daemon, daemon.supports(DaemonCapabilities.shared.edgeDocks),
@@ -136,12 +139,19 @@ enum TabMoves {
         let pin = StickySnapshot(edge: StickySnapshot.Edge(rawValue: edge.rawValue) ?? .right, mode: overlay ? .overlay : .docked)
         // A band's size is a share of the screen height; a side column takes
         // the width a new column next to the anchor would take.
-        let spawn = edge.isBand ? nil : services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(tab.id)?.1)
-        let width = spawn?.width ?? 0.3
+        let spawn = edge.isBand || width != nil ? nil
+            : services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(tab.id)?.1)
+        let width = width ?? spawn?.width ?? 0.3
         services.registry.track(Task {
             let ok = await daemon.request("move-tab-to-column") { connection -> Void in
-                _ = try await connection.moveTabToColumn(surface, target: .pane(paneHandle), width: width, sticky: pin,
-                                                         transaction: transaction)
+                if let respawn {
+                    let move = MoveTabToColumnRequest(surface: surface, target: .pane(paneHandle), width: width, sticky: pin,
+                                                      transaction: transaction)
+                    try await MoveTabToColumnRespawnRequest(move, respawn: respawn).send(on: connection)
+                } else {
+                    _ = try await connection.moveTabToColumn(surface, target: .pane(paneHandle), width: width, sticky: pin,
+                                                             transaction: transaction)
+                }
             } != nil
             if ok { spawn?.commit() }
             completion(ok)

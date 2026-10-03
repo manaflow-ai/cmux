@@ -404,11 +404,14 @@
       "type" : "string"
     },
     "layout.stickyColumnEdge" : {
-      "default" : "right",
+      "default" : "nearest",
       "description" : "layout.stickyColumnEdge",
       "enum" : [
+        "nearest",
         "right",
-        "left"
+        "left",
+        "top",
+        "bottom"
       ],
       "title" : "Sticky Column Edge",
       "type" : "string"

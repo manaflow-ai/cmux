@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "8617c916cf0fc7d5d327154602f3c7973973019a71386cd33d601840326fa985";
+pub const ir_sha256 = "9a93a666e8f059fe58fafce71e3c8f25d47a930c49c9058ed455f3ca46b21d7b";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -4485,6 +4485,7 @@ pub fn moveTabGroupToSplit(client: anytype, request: MoveTabGroupToSplitRequest)
 pub const MoveTabToColumnRequest = struct {
     after_column: wire.Field(Id) = .absent,
     pane: wire.Field(Id) = .absent,
+    respawn: wire.Field(SplitRespawn) = .absent,
     screen: wire.Field(Id) = .absent,
     sticky: wire.Field(ColumnPin) = .absent,
     surface: Id,
@@ -4503,6 +4504,7 @@ pub fn moveTabToColumn(client: anytype, request: MoveTabToColumnRequest) !wire.D
             .since = 12,
             .capability = "tab-drag-v1",
             .fields = &.{
+                .{ .name = "respawn", .since = 12, .capability = "tab-column-respawn-v1" },
                 .{ .name = "sticky", .since = 12, .capability = "edge-docks-v1" },
             },
         },

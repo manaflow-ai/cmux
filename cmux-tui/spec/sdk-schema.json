@@ -14510,6 +14510,17 @@
       "since": 12,
       "capability": "edge-docks-v1"
      },
+     "respawn": {
+      "type": {
+       "kind": "ref",
+       "name": "SplitRespawn"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "tab-column-respawn-v1"
+     },
      "transaction": {
       "type": {
        "kind": "scalar",

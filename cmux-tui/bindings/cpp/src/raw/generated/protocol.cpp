@@ -14627,6 +14627,11 @@ Result<Json> Codec<MoveTabToColumnRequest>::encode(const MoveTabToColumnRequest&
         if (!encoded) return std::move(encoded).error();
         object.emplace("pane", std::move(encoded).value());
     }
+    if (!value.respawn.is_absent()) {
+        auto encoded = encode_value(value.respawn);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("respawn", std::move(encoded).value());
+    }
     if (!value.screen.is_absent()) {
         auto encoded = encode_value(value.screen);
         if (!encoded) return std::move(encoded).error();
@@ -14675,6 +14680,16 @@ Result<MoveTabToColumnRequest> Codec<MoveTabToColumnRequest>::decode(const Json&
             auto decoded = decode_value<Id>(*field_pane);
             if (!decoded) return std::move(decoded).error();
             result.pane = Field<Id>(std::move(decoded).value());
+        }
+    }
+    const Json* field_respawn = value.find("respawn");
+    if (field_respawn) {
+        if (field_respawn->is_null()) {
+            result.respawn = Field<SplitRespawn>::null();
+        } else {
+            auto decoded = decode_value<SplitRespawn>(*field_respawn);
+            if (!decoded) return std::move(decoded).error();
+            result.respawn = Field<SplitRespawn>(std::move(decoded).value());
         }
     }
     const Json* field_screen = value.find("screen");
@@ -27384,7 +27399,8 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand58FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand95FieldRequirements{{
     {"transaction", 12U, "tab-drag-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand100FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand100FieldRequirements{{
+    {"respawn", 12U, "tab-column-respawn-v1"},
     {"sticky", 12U, "edge-docks-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 1> kCommand102FieldRequirements{{

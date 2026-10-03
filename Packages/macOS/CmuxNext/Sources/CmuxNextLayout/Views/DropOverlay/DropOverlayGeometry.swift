@@ -9,7 +9,13 @@ public nonisolated enum DropOverlayZone: String, Sendable, Hashable, CaseIterabl
     init(_ target: DropTarget) {
         switch target {
         case .newColumn: self = .column
-        case let .newDock(_, edge): self = edge == .top ? .top : .bottom
+        case let .newDock(_, edge):
+            switch edge {
+            case .left: self = .left
+            case .right: self = .right
+            case .top: self = .top
+            case .bottom: self = .bottom
+            }
         case let .pane(_, zone):
             switch zone {
             case .center: self = .center

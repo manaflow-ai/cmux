@@ -9,10 +9,11 @@ nonisolated enum LayoutActionCatalog: ActionCatalogGroup {
 
     static func row(
         _ id: ActionID, _ title: String, _ category: ActionCategory, _ symbol: String, cli: String,
-        keywords: [String], targets: [ActionTargetKind], arguments: [ActionArgument] = [], startsTerminal: Bool = false
+        keywords: [String], targets: [ActionTargetKind], arguments: [ActionArgument] = [], startsTerminal: Bool = false,
+        defaultShortcut: Shortcut? = nil
     ) -> ActionDescriptor {
         ActionDescriptor(
-            id: id, title: title, keywords: keywords, category: category, symbol: symbol,
+            id: id, title: title, keywords: keywords, defaultShortcut: defaultShortcut, category: category, symbol: symbol,
             surfaces: [.palette], arguments: arguments, targets: targets, cliName: cli, startsTerminal: startsTerminal
         )
     }

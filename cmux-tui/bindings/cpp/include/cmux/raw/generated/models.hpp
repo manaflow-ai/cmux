@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "8617c916cf0fc7d5d327154602f3c7973973019a71386cd33d601840326fa985";
+inline constexpr std::string_view kProtocolIrSha256 = "9a93a666e8f059fe58fafce71e3c8f25d47a930c49c9058ed455f3ca46b21d7b";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -2258,9 +2258,22 @@ struct MoveTabRequest {
     friend bool operator==(const MoveTabRequest&, const MoveTabRequest&) = default;
 };
 
+struct SplitRespawn {
+    Field<std::string> cwd{};
+    Field<std::string> engine{};
+    Field<std::map<std::string, std::string, std::less<>>> env{};
+    std::string kind{};
+    Field<std::string> profile_id{};
+    Field<std::vector<std::string>> shell_args{};
+    Field<std::string> terminal_id{};
+    Field<std::string> url{};
+    friend bool operator==(const SplitRespawn&, const SplitRespawn&) = default;
+};
+
 struct MoveTabToColumnRequest {
     Field<Id> after_column{};
     Field<Id> pane{};
+    Field<SplitRespawn> respawn{};
     Field<Id> screen{};
     Field<ColumnPin> sticky{};
     Id surface{};
@@ -2275,18 +2288,6 @@ struct MoveTabToNewWorkspaceRequest {
     Id surface{};
     Field<std::string> transaction{};
     friend bool operator==(const MoveTabToNewWorkspaceRequest&, const MoveTabToNewWorkspaceRequest&) = default;
-};
-
-struct SplitRespawn {
-    Field<std::string> cwd{};
-    Field<std::string> engine{};
-    Field<std::map<std::string, std::string, std::less<>>> env{};
-    std::string kind{};
-    Field<std::string> profile_id{};
-    Field<std::vector<std::string>> shell_args{};
-    Field<std::string> terminal_id{};
-    Field<std::string> url{};
-    friend bool operator==(const SplitRespawn&, const SplitRespawn&) = default;
 };
 
 struct MoveTabToSplitRequest {

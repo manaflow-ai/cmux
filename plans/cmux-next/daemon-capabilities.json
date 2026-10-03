@@ -25,6 +25,7 @@
     "session-identity-v1",
     "state-resources-v1",
     "sticky-columns-v1",
+    "tab-column-respawn-v1",
     "tab-drag-v1",
     "tab-groups-v1",
     "tab-metadata-v1",

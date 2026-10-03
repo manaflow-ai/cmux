@@ -5,15 +5,23 @@ nonisolated extension LayoutActionCatalog {
     static func stickyColumnActions() -> [ActionDescriptor] {
         let targets: [ActionTargetKind] = [.column, .pane]
         return [
-            row("column.makeSticky", String(localized: "action.column.makeSticky", defaultValue: "Make Column Sticky", table: "LayoutActions", bundle: .module),
-                .pane, "pin", cli: "column make-sticky", keywords: ["column", "sticky", "pin", "overlay", "dock"],
-                targets: targets, arguments: [CatalogArgument.edgeChoice.optional, CatalogArgument.stickyModeChoice.optional]),
-            row("column.makeStickyLeft", String(localized: "action.column.makeStickyLeft", defaultValue: "Make Column Sticky on Left", table: "LayoutActions", bundle: .module),
-                .pane, "pin", cli: "column make-sticky-left", keywords: ["column", "sticky", "pin", "left"], targets: targets),
-            row("column.unstick", String(localized: "action.column.unstick", defaultValue: "Unstick Column", table: "LayoutActions", bundle: .module),
-                .pane, "pin.slash", cli: "column unstick", keywords: ["column", "sticky", "unpin", "scroll"], targets: targets),
-            row("column.toggleStickyOverlay", String(localized: "action.column.toggleStickyOverlay", defaultValue: "Toggle Floating Sticky Column", table: "LayoutActions", bundle: .module),
-                .pane, "square.on.square", cli: "column toggle-sticky-overlay", keywords: ["column", "sticky", "floating", "overlay", "float", "dock"], targets: targets),
+            row("column.dock", String(localized: "action.column.dock", defaultValue: "Dock Column", table: "LayoutActions", bundle: .module),
+                .pane, "pin", cli: "column dock", keywords: ["column", "dock", "sticky", "pin", "undock"], targets: targets,
+                arguments: [CatalogArgument.edgeChoice.optional, CatalogArgument.stickyModeChoice.optional],
+                // Ctrl-Cmd-P ("pin"): free in the catalog and in macOS.
+                defaultShortcut: Shortcut("p", modifiers: [.control, .command])),
+            row("column.dockLeft", String(localized: "action.column.dockLeft", defaultValue: "Dock Column Left", table: "LayoutActions", bundle: .module),
+                .pane, "rectangle.lefthalf.inset.filled", cli: "column dock-left", keywords: ["column", "dock", "sticky", "pin", "left"], targets: targets),
+            row("column.dockRight", String(localized: "action.column.dockRight", defaultValue: "Dock Column Right", table: "LayoutActions", bundle: .module),
+                .pane, "rectangle.righthalf.inset.filled", cli: "column dock-right", keywords: ["column", "dock", "sticky", "pin", "right"], targets: targets),
+            row("column.dockTop", String(localized: "action.column.dockTop", defaultValue: "Dock Column Top", table: "LayoutActions", bundle: .module),
+                .pane, "rectangle.tophalf.inset.filled", cli: "column dock-top", keywords: ["column", "dock", "sticky", "pin", "top"], targets: targets),
+            row("column.dockBottom", String(localized: "action.column.dockBottom", defaultValue: "Dock Column Bottom", table: "LayoutActions", bundle: .module),
+                .pane, "rectangle.bottomhalf.inset.filled", cli: "column dock-bottom", keywords: ["column", "dock", "sticky", "pin", "bottom"], targets: targets),
+            row("column.float", String(localized: "action.column.float", defaultValue: "Float Column", table: "LayoutActions", bundle: .module),
+                .pane, "square.on.square", cli: "column float", keywords: ["column", "float", "floating", "overlay", "sticky"], targets: targets),
+            row("column.undock", String(localized: "action.column.undock", defaultValue: "Undock Column", table: "LayoutActions", bundle: .module),
+                .pane, "pin.slash", cli: "column undock", keywords: ["column", "undock", "unpin", "unstick", "scroll"], targets: targets),
             // A column of its own, pinned in the same daemon commit: the way
             // to pin a screen's only column (that column must keep scrolling).
             row("tab.moveToNewStickyColumn", String(localized: "action.tab.moveToNewStickyColumn", defaultValue: "Move Tab to New Sticky Column", table: "LayoutActions", bundle: .module),
