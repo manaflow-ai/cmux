@@ -610,9 +610,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     nodeActions.newMachine()
                     return
                 }
-                // A Ports status row (No reachable ports, asleep, Discovering…) is
-                // text with its own button; only that button acts, so a click on the
-                // text never refreshes or wakes.
+                // A Ports status row's text never acts; only its own button refreshes or wakes.
                 guard placeholder.portStatus == nil else { return }
                 // "Asleep — open to wake": a fresh terminal on the machine is what wakes it.
                 if placeholder.opensMachine, let machine = machine(id: machineID) { openMachine(machine) }

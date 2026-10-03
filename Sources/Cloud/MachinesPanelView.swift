@@ -451,8 +451,6 @@ struct MachinesPanelView: View {
         nodeActions.setDeviceIncomingAccess = { [weak devicesModel] enabled in
             Task { await devicesModel?.preferences?.setIncomingAccessEnabled(enabled) }
         }
-        nodeActions.refreshCloudMachines = { [weak viewModel] in viewModel?.refresh(tree: true) }
-        nodeActions.refreshDevices = { [weak devicesModel] in devicesModel?.refresh() }
         // The header "+" is Cmd-Y from this window: same gates, sheet, optimistic create, and no workspace until the sheet completes.
         nodeActions.newMachine = { [weak tabManager] in
             _ = AppDelegate.shared?.performNewCloudMachineAction(
@@ -479,14 +477,11 @@ struct MachinesPanelView: View {
                 discoveryEnabled: includesDevices,
                 incomingAccessEnabled: devicesModel.preferences?.incomingAccessEnabled ?? false,
                 discoveryManaged: discoveryManaged,
-                incomingAccessManaged: incomingAccessManaged, available: DevicesFeature.isAvailable(),
-                isRefreshing: devicesModel.isRefreshing
+                incomingAccessManaged: incomingAccessManaged, available: DevicesFeature.isAvailable(), isRefreshing: devicesModel.isRefreshing
             ),
             showsCloudVPNWarning: tunnelStatus.status?.state == .off,
             canCreateCloudMachine: includesCloud,
-            cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil,
-            // Only a refresh asked for spins the header; the 45 s poll stays quiet.
-            cloudMachinesRefresh: includesCloud ? CloudTreeSectionRefresh(isRefreshing: viewModel.isRefreshingOnRequest) : nil,
+            cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil, cloudMachinesRefresh: includesCloud ? .init(isRefreshing: viewModel.isRefreshingOnRequest) : nil,
             reveal: devicesModel.revealRequest,
             creationReveal: SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: tabManager)
         )

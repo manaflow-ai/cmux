@@ -72,8 +72,6 @@ struct CloudTreeNodeActions {
     var newMachine: @MainActor () -> Void = {}
     /// Creates a workspace on the remembered or selected Cloud machine.
     var newWorkspaceOnResolvedMachine: @MainActor () -> Void = {}
-    /// The section headers' refresh icons: the fleet, and the account's other Macs.
-    var refreshCloudMachines: @MainActor () -> Void = {}, refreshDevices: @MainActor () -> Void = {}
     /// Pops up a row's context menu from its trailing "⋯" button. Bound per
     /// cell, so the button and a right-click show the same menu.
     var showRowMenu: @MainActor (_ nodeID: String) -> Void = { _ in }
