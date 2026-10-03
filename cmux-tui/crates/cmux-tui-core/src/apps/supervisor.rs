@@ -60,6 +60,9 @@ pub trait OpRouter: Send + Sync {
     /// (`workspace.changed`, `agent.changed`, …). Called once, on the first
     /// app subscription.
     fn start_events(&self, publish: Box<dyn Fn(&str) + Send + Sync>);
+    /// True when the daemon's own dispatcher owns `op`; other ops go to a
+    /// provider.
+    fn owns(&self, op: &str) -> bool;
 }
 
 pub struct Config {
@@ -71,6 +74,10 @@ pub struct Config {
     pub sources: Sources,
     /// `apps.idleStopSeconds` (default 60).
     pub idle_stop: Duration,
+    /// How long a provider may take to answer (default 30 s), and ops that
+    /// wait for the user such as a file panel (default 10 min).
+    pub provider_deadline: Duration,
+    pub provider_user_deadline: Duration,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -153,6 +160,11 @@ pub(super) struct Inner {
     pub gestures: Gestures,
     pub next_generation: u64,
     pub events_started: bool,
+    /// Provider connection per family, and calls waiting for a provider
+    /// (`provider.rs`).
+    pub providers: HashMap<String, u64>,
+    pub provider_calls: HashMap<u64, super::provider::ProviderCall>,
+    pub next_provider_request: u64,
     /// `apps-run` replay by idempotency key (`runs.rs`).
     pub run_keys: HashMap<String, super::runs::RunKey>,
     pub run_key_order: VecDeque<String>,
@@ -218,6 +230,9 @@ impl Supervisor {
                 gestures: Gestures::default(),
                 next_generation: 1,
                 events_started: false,
+                providers: HashMap::new(),
+                provider_calls: HashMap::new(),
+                next_provider_request: 0,
                 run_keys: HashMap::new(),
                 run_key_order: VecDeque::new(),
             }),
@@ -245,6 +260,7 @@ impl Supervisor {
         let outs = {
             let mut inner = self.inner.lock().unwrap();
             inner.sinks.remove(&client);
+            self.provider_disconnect_locked(&mut inner, client);
             for set in inner.followers.values_mut() {
                 set.remove(&client);
             }

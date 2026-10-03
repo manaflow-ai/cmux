@@ -79,6 +79,16 @@ enum Command {
         #[serde(default)]
         follow: bool,
     },
+    /// The Mac app serves ops the daemon does not own (app-op-routing.md).
+    #[serde(rename = "apps-provider-register")]
+    ProviderRegister { families: Vec<String> },
+    #[serde(rename = "apps-provider-result")]
+    ProviderResult {
+        request_id: u64,
+        ok: bool,
+        #[serde(default)]
+        body: Value,
+    },
 }
 
 #[derive(Deserialize)]
@@ -207,6 +217,10 @@ pub(super) fn try_handle(
             return Some(true);
         }
         Command::Logs { app, follow } => Ok(supervisor.logs(client, &app, follow)),
+        Command::ProviderRegister { families } => supervisor.register_provider(client, families),
+        Command::ProviderResult { request_id, ok, body } => {
+            supervisor.provider_result(client, request_id, ok, body)
+        }
     };
     Some(reply(writer, id, result.map(|v| if v.is_null() { json!({}) } else { v })))
 }
@@ -242,5 +256,14 @@ mod tests {
                 .is_err(),
             "apps-set needs an idempotency key"
         );
+        let register =
+            parse(json!({ "cmd": "apps-provider-register", "families": ["fs", "action"] }));
+        assert!(
+            matches!(register.command, Command::ProviderRegister { ref families } if families.len() == 2)
+        );
+        let result = parse(
+            json!({ "cmd": "apps-provider-result", "request_id": 4, "ok": false, "body": { "code": "x" } }),
+        );
+        assert!(matches!(result.command, Command::ProviderResult { request_id: 4, ok: false, .. }));
     }
 }
