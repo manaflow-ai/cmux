@@ -912,6 +912,20 @@ function AcpmuxPane() {
     setSidebar((current) => (current === "open" && !wideSidebar() ? "auto" : current));
     void callNative("chat.new").catch(() => undefined);
   }, []);
+  /// What the DEBUG automation verbs (automation.ts) read and run: this render's chat and the
+  /// same selection and changes-view paths the sidebar and the edited-files card use.
+  const automationView = useRef<{
+    snapshot: AcpmuxSnapshot;
+    selectSession: (sessionId: string) => void;
+    openDiff: OpenDiff;
+    diff: { open: boolean; paths: string[] };
+  }>(undefined);
+  automationView.current = {
+    snapshot,
+    selectSession,
+    openDiff,
+    diff: { open: diffOpen, paths: (diffFiles ?? []).map((file) => file.path) },
+  };
   // Search chats opens from the app's agentPane.searchChats action (Cmd-K by default, editable in
   // Settings and cmux.json), which calls the bridge's command("searchChats"). The host pushes the
   // live bindings through applyShortcuts, so labels follow a rebind.
@@ -1083,6 +1097,13 @@ function AcpmuxPane() {
       },
       rowCount: () => rowsRef.current.size,
       sessionId: () => directClient.current?.selectedSession,
+      automation: {
+        snapshot: () => automationView.current!.snapshot,
+        call: (method, params) => callNative(method, params),
+        selectSession: (sessionId) => automationView.current?.selectSession(sessionId),
+        openDiff: (rowId) => automationView.current?.openDiff(rowId),
+        diff: () => automationView.current?.diff ?? { open: false, paths: [] },
+      },
     });
     let cancelled = false;
     let retryTimer: number | undefined;
