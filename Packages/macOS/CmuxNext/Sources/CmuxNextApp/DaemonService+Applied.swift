@@ -10,7 +10,7 @@ extension DaemonService {
     /// called this (`ActionRunScope`), though the store runs it later.
     func whenApplied(_ transaction: ClientTransactionID, _ body: @escaping @MainActor () -> Void) {
         let run = ActionRunScope.current
-        let body = { @MainActor in ViewChangePolicy.carrying(run, body) }
+        let body = { @MainActor in ActionRunScope.carrying(run, body) }
         guard let connection else { return body() }
         let store = store
         // task-owner: one actor hop to read the connection's routed event count; finishes at once, nothing to cancel

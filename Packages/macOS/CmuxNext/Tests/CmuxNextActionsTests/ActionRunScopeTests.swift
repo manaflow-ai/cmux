@@ -10,7 +10,7 @@ import Testing
 @Suite struct ActionRunScopeTests {
     @Test func outsideAnyRunTheViewMayChange() {
         #expect(ActionRunScope.current == nil)
-        #expect(ViewChangePolicy.allowed())
+        #expect(ActionRunScope.viewChangeAllowed())
     }
 
     @Test func theRegistryBindsTheRunsPermissionForTheHandlerAndItsTasks() async {
@@ -18,10 +18,10 @@ import Testing
         var seen: [Bool] = []
         var tasks: [Task<Bool, Never>] = []
         registry.bind("splitRight", invoke: { _ in
-            seen.append(ViewChangePolicy.allowed())
-            tasks.append(Task { await Task.yield(); return ViewChangePolicy.allowed() })
+            seen.append(ActionRunScope.viewChangeAllowed())
+            tasks.append(Task { await Task.yield(); return ActionRunScope.viewChangeAllowed() })
         })
-        registry.bind("tab.focus", invoke: { _ in seen.append(ViewChangePolicy.allowed()) })
+        registry.bind("tab.focus", invoke: { _ in seen.append(ActionRunScope.viewChangeAllowed()) })
         registry.perform("splitRight", invocation: ActionInvocation(origin: .cli))
         registry.perform("splitRight", invocation: ActionInvocation(origin: .cli, focusRequested: true))
         registry.perform("splitRight", invocation: ActionInvocation(arguments: ["focus": .bool(true)], origin: .mcp))
@@ -31,13 +31,13 @@ import Testing
         var later: [Bool] = []
         for task in tasks { later.append(await task.value) }
         #expect(later == [false, true, true, true])
-        #expect(ViewChangePolicy.allowed())
+        #expect(ActionRunScope.viewChangeAllowed())
     }
 
     @Test func aRunInsideAnotherNeverGainsPermission() {
         let registry = ActionRegistry.standard()
         var inner: [Bool] = []
-        registry.bind("tab.focus", invoke: { _ in inner.append(ViewChangePolicy.allowed()) })
+        registry.bind("tab.focus", invoke: { _ in inner.append(ActionRunScope.viewChangeAllowed()) })
         registry.bind("splitRight", invoke: { _ in
             // A handler running another action with a default (user) invocation.
             registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: "t")))
@@ -49,7 +49,7 @@ import Testing
 
     @Test func aCarriedScopeKeepsItsPermissionOutsideTheRun() {
         let scope = ActionRunScope(origin: .script, allowsViewChange: false)
-        #expect(ViewChangePolicy.carrying(scope) { ViewChangePolicy.allowed() } == false)
-        #expect(ViewChangePolicy.carrying(nil) { ViewChangePolicy.allowed() })
+        #expect(ActionRunScope.carrying(scope) { ActionRunScope.viewChangeAllowed() } == false)
+        #expect(ActionRunScope.carrying(nil) { ActionRunScope.viewChangeAllowed() })
     }
 }

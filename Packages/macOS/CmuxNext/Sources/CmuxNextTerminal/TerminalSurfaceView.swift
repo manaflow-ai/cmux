@@ -124,7 +124,7 @@ public final class TerminalSurfaceView: NSView {
             return
         }
         self.surface = surface
-        TerminalFontScale.installCallback(on: self)
+        TerminalFontScale(self).installCallback()
         // Light/dark themes (default Apple System Colors) follow the app.
         GhosttyRuntime.shared.registerColorScheme(of: self)
         lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output")

@@ -75,7 +75,7 @@ extension AppActionContext {
     /// Brings the app forward unless launched with `CMUX_NEXT_NO_ACTIVATE=1`
     /// or the run may not change this client's view.
     func activateApp() {
-        guard ViewChangePolicy.allowed() else { return }
+        guard ActionRunScope.viewChangeAllowed() else { return }
         WindowActivation.activateApp()
     }
 }
