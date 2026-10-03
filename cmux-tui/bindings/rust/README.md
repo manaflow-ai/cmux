@@ -132,6 +132,29 @@ session.delete_window_record("install-a", "window-1", Some(record.value.revision
 # }
 ```
 
+Personal workspace groups and the personal sidebar order have typed calls:
+`Session::workspace_groups`, `create_workspace_group`, `update_workspace_group`,
+`move_workspace_group`, `delete_workspace_group`, `workspace_placements`, and
+`Workspace::place` (`group: Update::Set(id)` puts the workspace into a group,
+`Update::Clear` ungroups it, `index` is its final position). Group ids are
+daemon state ids (`grp_…`); a placement names its workspace by session and
+durable reference, plus `workspace_id` when it is a live workspace of this
+session. The same snapshots arrive on `session.events` as `state_upsert`
+changes of `workspace_group` and `workspace_placement`.
+
+```rust,no_run
+use cmux::{Update, WorkspaceGroupCreateOptions, WorkspacePlaceOptions};
+# fn groups(session: cmux::Session) -> cmux::Result<()> {
+let group = session.create_workspace_group(WorkspaceGroupCreateOptions::new("Work"))?.value;
+let place = WorkspacePlaceOptions { group: Update::Set(group.id.clone()), index: Some(0) };
+session.current_workspace().place(place)?;
+for placement in session.workspace_placements()? {
+    println!("{} {:?}", placement.index, placement.group_id);
+}
+# Ok(())
+# }
+```
+
 All eight creation option types expose `correlation_key`. Values contain 1 to
 128 UTF-8 bytes and remain stable across creation attempts.
 
