@@ -1,6 +1,6 @@
 # App op routing from the supervisor (app platform step 3c)
 
-Status: proposal, Rust lane of the app platform, 2026-10-02. Stacked on #17008. Binding: OWNERSHIP-PRINCIPLES.md, app-platform.md section 13.
+Status: accepted (provider channel as written; D1 decided), Rust lane of the app platform, 2026-10-02. Stacked on #17008. Binding: OWNERSHIP-PRINCIPLES.md, app-platform.md section 13.
 
 ## Problem
 
@@ -23,11 +23,11 @@ Provider channel, modeled on `url_open` (daemon asks a connected frontend) and `
 - No provider registered -> `operation.unsupported` with `reason: no_provider` (headless daemons, Cloud VMs).
 - The supervisor's checks stay first: scope, grant, sandbox, gesture (a gesture spent for `fs.pick` because it opens a panel). The provider trusts the supervisor's actor and origin and enforces its own owner rules.
 
-## D1 (decision): who calls the API Worker
+## D1: who calls the API Worker (decided, app platform lead, 2026-10-02)
 
-- A. The Mac app (recommended): cloud ops go over the same provider channel; the app already holds the install JWT and its API client. The daemon never holds a user credential. Cost: no cloud ops for apps on a daemon without a connected app (Cloud VMs, headless servers) until B.
-- B. The daemon: the app delegates a short-lived install token to the supervisor (`apps-provider-register {cloud_token, expires_at}`, refreshed by the app). Works headless after delegation, but a user credential then lives in the daemon process and its memory dumps.
-- Recommendation: A now, B later only for headless machines with their own install identity (machine enrollment), never a delegated user token.
+- Now (A): cloud ops go to the Mac app over the provider channel; the app holds the install JWT and its API client. No user credential enters the daemon. A daemon without a connected app answers cloud ops with `no_provider`.
+- End state: per identity spec D5 every daemon (Mac mini, Cloud VM) becomes an install with its own keypair and short-lived install JWT. When daemon enrollment lands, the supervisor sends cloud ops itself with the daemon's install token, actor `app:<id>` on behalf of the user; the Mac-app path stays the fallback for unenrolled daemons.
+- Never: a user token delegated from the app to the daemon.
 
 ## Work
 
