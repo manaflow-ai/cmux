@@ -242,7 +242,16 @@ public final class ConversationStore {
         let failed = messages.filter { $0.seq == nil && $0.delivery?.isFailed == true }.sorted { $0.sentAt < $1.sentAt }
         let inFlight = messages.filter { $0.seq == nil && $0.delivery?.isFailed != true }.sorted { $0.sentAt < $1.sentAt }
         for message in failed.reversed() {
-            let position = acked.firstIndex { $0.sentAt > message.sentAt } ?? acked.count
+            // A failed send stays where it failed: after the newest stored
+            // message at that moment. Comparing its local time with server times
+            // misorders it behind my own earlier sends that the server stamped
+            // later (sends go out one at a time).
+            let position: Int
+            if let anchor = failedAnchorSeq[message.id] {
+                position = acked.firstIndex { ($0.seq ?? 0) > anchor } ?? acked.count
+            } else {
+                position = acked.firstIndex { $0.sentAt > message.sentAt } ?? acked.count
+            }
             acked.insert(message, at: position)
         }
         messages = acked + inFlight
@@ -433,6 +442,7 @@ public final class ConversationStore {
               let clientID = message.clientMessageID,
               let index = indexByID[message.id] else { return }
         messages[index].delivery = .sending
+        failedAnchorSeq[message.id] = nil
         notify(.live(insertedRowIDs: [], sentByMe: true))
         let images = message.attachments.compactMap { attachment -> (data: Data, width: Int, height: Int, mimeType: String)? in
             guard let data = attachment.localData else { return nil }
@@ -445,6 +455,7 @@ public final class ConversationStore {
     public func discardFailed(rowID: String) {
         guard let index = messages.firstIndex(where: { $0.rowID == rowID }),
               messages[index].seq == nil, messages[index].delivery?.isFailed == true else { return }
+        failedAnchorSeq[messages[index].id] = nil
         messages.remove(at: index)
         sortAndReindex()
         notify(.live(insertedRowIDs: [], sentByMe: true))
@@ -453,6 +464,8 @@ public final class ConversationStore {
     /// The previous send's work; each send waits for it so the server numbers
     /// messages in the order they were sent (it assigns seq on arrival).
     private var sendTail: Task<Void, Never>?
+    /// For each failed send, the newest stored seq when it failed.
+    private var failedAnchorSeq: [String: Int] = [:]
 
     private func transmit(clientID: String, images: [(data: Data, width: Int, height: Int, mimeType: String)]) {
         let previous = sendTail
@@ -486,6 +499,7 @@ public final class ConversationStore {
         guard let index = messages.firstIndex(where: { $0.clientMessageID == clientID }),
               messages[index].seq == nil else { return }
         messages[index].delivery = .failed(reason)
+        failedAnchorSeq[messages[index].id] = messages.last { $0.seq != nil }?.seq ?? 0
         notify(.live(insertedRowIDs: [], sentByMe: true))
     }
 
