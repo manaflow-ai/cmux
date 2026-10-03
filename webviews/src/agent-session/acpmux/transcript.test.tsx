@@ -2904,8 +2904,9 @@ describe("acpmux edit diffs", () => {
       );
       const document = dom.window.document;
       const toggles = () => [...document.querySelectorAll<HTMLButtonElement>("button.cv-tool.is-toggle")];
-      // The edit with a diff opens; the one without a diff or output stays a plain row.
-      expect(toggles().map((button) => button.textContent)).toEqual(["Edit Total.swift"]);
+      // The edit with a diff reads with its counts and opens; the one without a diff or output
+      // stays a plain row under its own title.
+      expect(toggles().map((button) => button.textContent)).toEqual(["Edited Total.swift+2-1"]);
       expect(document.body.textContent).toContain("Edit notes");
       expect(document.querySelector(".cv-edit-diff")).toBeNull();
       await act(async () => toggles()[0]!.click());
