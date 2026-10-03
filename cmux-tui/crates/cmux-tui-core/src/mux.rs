@@ -4,6 +4,7 @@
 mod agent_hook_errors;
 mod conversations;
 mod exit_settle;
+pub(crate) mod feed_local;
 mod host_close;
 #[cfg(all(test, unix))]
 mod host_death_tests;
@@ -2648,6 +2649,8 @@ pub struct Mux {
     /// and only for ids the committed receipts no longer retain, so a failed
     /// create cannot orphan marks the next restart would rebuild.
     notification_read_prunes: Mutex<Vec<NotificationPublicId>>,
+    /// The local feed owner's items (mux/feed_local.rs); lock before the registry.
+    feed_local: Mutex<cmux_feed_core::Feed>,
     /// Shared presentation metadata (workspace groups and workspace
     /// presentation fields), replaced after each registry commit.
     presentation: Mutex<Arc<crate::workspace_registry::PresentationSnapshot>>,
@@ -2958,7 +2961,7 @@ impl Mux {
     pub(crate) fn from_workspace_registry(
         session: String,
         mut surface_options: SurfaceOptions,
-        registry: WorkspaceRegistry,
+        mut registry: WorkspaceRegistry,
         provider_workspace: ProviderWorkspaceState,
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
     ) -> anyhow::Result<Arc<Self>> {
@@ -2983,6 +2986,7 @@ impl Mux {
             notification_reads,
         } = restore_public_projections(&state, registry.public_projections()?)?;
         let agent_roster = restore_agent_roster(&registry)?;
+        let feed_local = Mutex::new(registry.open_feed_local()?);
         let presentation = registry.presentation_snapshot()?;
         let journal_producers = registry.journal_producer_manifests()?;
         let session_public_id = registry.session_id().clone();
@@ -3109,6 +3113,7 @@ impl Mux {
             notification_ledger: Mutex::new(notification_ledger),
             notification_reads: Mutex::new(notification_reads),
             notification_read_prunes: Mutex::new(Vec::new()),
+            feed_local,
             presentation: Mutex::new(Arc::new(presentation)),
             git_heads: Mutex::new(HashMap::new()),
             resource_machine_service: OnceLock::new(),
@@ -10920,28 +10925,6 @@ impl Mux {
         Ok(())
     }
 
-    fn clear_viewed_notification(&self, surface: Option<SurfaceId>) {
-        let Some(surface) = surface else { return };
-        let state = self.state.lock().unwrap();
-        let terminal_id = state
-            .surfaces
-            .get(&surface)
-            .or_else(|| state.terminal_runtime_by_id(surface))
-            .and_then(|surface| surface.terminal_public_id().cloned());
-        drop(state);
-        if let Some(terminal_id) = terminal_id {
-            let removed =
-                self.terminal_notifications.lock().unwrap().remove(&terminal_id).is_some();
-            // Selecting a tab is a legacy acknowledgement; persist it like
-            // `ack-tab-notifications` so a restart keeps it read.
-            if removed && self.persist_notification_acks(Some(&terminal_id), surface).is_err() {
-                self.report_internal_diagnostic("notification acknowledgement not persisted");
-            }
-        } else {
-            let _ = self.placement_notifications.lock().unwrap().remove(&surface);
-        }
-    }
-
     /// The launch snapshot file (`launch-snapshot-v1`) while its writer runs.
     pub fn launch_snapshot_path(&self) -> Option<std::path::PathBuf> {
         self.launch_snapshot_path.lock().unwrap().clone()
@@ -11119,9 +11102,9 @@ impl Mux {
             }
         }
         // Shared topology focus is only a default projection. A frontend must
-        // explicitly acknowledge a viewed notification through its selection
-        // action, so local focus in one client cannot hide attention from the
-        // others.
+        // acknowledge a viewed notification with `ack-tab-notifications`
+        // (feed-local-owner-v1: selection never clears), so local focus in one
+        // client cannot hide attention from the others.
         let mut unread_changed = false;
         match terminal_id {
             Some(terminal_id) => {
@@ -11337,21 +11320,18 @@ impl Mux {
             source,
         );
         let session_id = self.workspace_registry.lock().unwrap().session_id().clone();
-        let value = self.notification_snapshot_value(
-            &ResourceNotification {
-                id: notification_id.clone(),
-                title,
-                subtitle,
-                body,
-                level,
-                terminal_id,
-                created_at_ms,
-                source,
-                surface,
-            },
-            &session_id,
-            &[],
-        );
+        let notification = ResourceNotification {
+            id: notification_id.clone(),
+            title,
+            subtitle,
+            body,
+            level,
+            terminal_id,
+            created_at_ms,
+            source,
+            surface,
+        };
+        let value = self.notification_snapshot_value(&notification, &session_id, &[]);
         let outcome = ResourceEffectOutcome::Success(value.clone());
         let deltas = serde_json::json!([{
             "kind":"upsert",
@@ -11360,12 +11340,12 @@ impl Mux {
             "id":notification_id,
             "value":value,
         }]);
-        if let Err(error) = self.commit_resource_effect(
+        if let Err(error) = self.commit_notification_effect(
             idempotency_key,
-            OPERATION,
             &fingerprint,
             &outcome,
-            Some(&deltas),
+            &deltas,
+            &notification,
         ) {
             let _ = self.mark_resource_effect_indeterminate(idempotency_key);
             return Err(error.context("notification effect commit failed"));
@@ -16594,8 +16574,6 @@ impl Mux {
         {
             return false;
         }
-        let viewed = self.with_state(Self::active_surface_in_state);
-        self.clear_viewed_notification(viewed);
         if let Some(screen) = layout_changed {
             self.emit(MuxEvent::LayoutChanged(screen));
         } else {
@@ -17027,8 +17005,6 @@ impl Mux {
         let next = self
             .with_state(|state| state.resource_indexes.panes.get(&public_id).copied())
             .context("focused pane disappeared")?;
-        let viewed = self.with_state(Self::active_surface_in_state);
-        self.clear_viewed_notification(viewed);
         self.emit(MuxEvent::TreeChanged);
         Ok(next)
     }
@@ -18311,8 +18287,6 @@ impl Mux {
         if self.commit_ordinary_tab_selection(selectors).is_err() {
             return;
         }
-        let viewed = self.with_state(Self::active_surface_in_state);
-        self.clear_viewed_notification(viewed);
         self.emit(MuxEvent::TreeChanged);
     }
 
@@ -18346,8 +18320,6 @@ impl Mux {
         {
             return;
         }
-        let viewed = self.with_state(Self::active_surface_in_state);
-        self.clear_viewed_notification(viewed);
         self.emit(MuxEvent::TreeChanged);
     }
 
@@ -18414,8 +18386,6 @@ impl Mux {
         {
             return;
         }
-        let viewed = self.with_state(Self::active_surface_in_state);
-        self.clear_viewed_notification(viewed);
         self.emit(MuxEvent::TreeChanged);
     }
 }
@@ -28283,7 +28253,7 @@ mod tests {
     }
 
     #[test]
-    fn notification_sets_unread_and_clears_when_tab_is_viewed() {
+    fn notification_sets_unread_and_clears_only_on_explicit_ack() {
         let mux = test_mux();
         let first = mux.new_workspace(None, None).unwrap();
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
@@ -28303,14 +28273,15 @@ mod tests {
         assert!(state.unread);
 
         mux.select_tab(Some(pane), Some(1), None);
-        assert!(mux.surface_notification(first.id).is_some());
         mux.select_tab(Some(pane), Some(0), None);
+        assert!(mux.surface_notification(first.id).is_some(), "selection never clears");
+        assert!(mux.acknowledge_tab_notifications(first.id).unwrap().cleared);
         assert!(mux.surface_notification(first.id).is_none());
         assert!(mux.surface_notification(second.id).is_none());
     }
 
     #[test]
-    fn browser_notification_is_owned_by_its_placement_and_clears_when_viewed() {
+    fn browser_notification_is_owned_by_its_placement_and_clears_on_ack() {
         let mux = test_mux();
         let terminal = mux.new_workspace(None, None).unwrap();
         let pane = mux.with_state(|state| state.pane_of(terminal.id).unwrap());
@@ -28332,6 +28303,8 @@ mod tests {
         assert!(mux.surface_notification(terminal.id).is_none());
 
         mux.select_tab(Some(pane), Some(1), None);
+        assert!(mux.surface_notification(browser.id).is_some());
+        mux.acknowledge_tab_notifications(browser.id).unwrap();
         assert!(mux.surface_notification(browser.id).is_none());
     }
 
@@ -28363,6 +28336,8 @@ mod tests {
         }));
 
         mux.select_tab(None, Some(0), None);
+        assert!(mux.surface_notification(surface.id).is_some());
+        mux.acknowledge_tab_notifications(surface.id).unwrap();
         assert!(mux.surface_notification(surface.id).is_none());
     }
 

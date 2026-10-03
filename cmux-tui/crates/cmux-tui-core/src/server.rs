@@ -96,6 +96,7 @@ mod bookmarks;
 mod browser_profiles;
 mod conversation_tabs_wire;
 mod conversations;
+mod feed_local;
 mod frontend_browser_history;
 mod home;
 mod launch_snapshot;
@@ -456,6 +457,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         PERSONAL_TERMINALS_CAPABILITY,
         BROWSER_PROFILES_CAPABILITY,
         BOOKMARKS_CAPABILITY,
+        crate::mux::feed_local::FEED_LOCAL_OWNER_CAPABILITY,
         conversations::LOCAL_CONVERSATIONS_CAPABILITY,
         conversations::CONVERSATION_SEARCH_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
@@ -2065,6 +2067,11 @@ enum Command {
     MoveBookmark(bookmarks::MoveParams),
     DeleteBookmark(bookmarks::DeleteParams),
     ImportBookmarks(bookmarks::ImportParams),
+    /// The local feed owner (`feed-local-owner-v1`, server/feed_local.rs).
+    FeedLocalList(feed_local::ListParams),
+    FeedLocalRead(feed_local::ReadParams),
+    FeedLocalHandoffBegin(feed_local::BeginParams),
+    FeedLocalHandoffDone(feed_local::DoneParams),
     /// Local conversations (`local-conversations-v1`, server/conversations.rs).
     ConversationList,
     ConversationCreate(conversations::CreateParams),
@@ -14574,6 +14581,7 @@ fn handle_command_with_cancellation(
                 "surface": surface,
                 "cleared": ack.cleared,
                 "acknowledged": ack.acknowledged,
+                "refused": crate::mux::feed_local::refused_json(&ack.refused),
             }))
         }
         Command::ListNotifications { limit } => {
@@ -14681,6 +14689,20 @@ fn handle_command_with_cancellation(
         Command::MoveBrowserProfile(params) => browser_profiles::move_to(mux, params),
         Command::DeleteBrowserProfile(params) => browser_profiles::delete(mux, params),
         Command::ListBookmarks(params) => bookmarks::list(mux, params),
+        Command::FeedLocalList(params) => feed_local::list(mux, params),
+        Command::FeedLocalRead(params) => feed_local::read(mux, params),
+        Command::FeedLocalHandoffBegin(params) => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("feed handoff requires a trusted local connection");
+            }
+            feed_local::handoff_begin(mux, params)
+        }
+        Command::FeedLocalHandoffDone(params) => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("feed handoff requires a trusted local connection");
+            }
+            feed_local::handoff_done(mux, params)
+        }
         Command::CreateBookmark(params) => bookmarks::create(mux, params),
         Command::UpdateBookmark(params) => bookmarks::update(mux, params),
         Command::MoveBookmark(params) => bookmarks::move_to(mux, params),

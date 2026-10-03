@@ -239,6 +239,8 @@
       "delete-workspace-group",
       "detach-client",
       "export-layout",
+      "feed-local-list",
+      "feed-local-read",
       "focus-direction",
       "focus-pane",
       "forget-session",
@@ -417,7 +419,9 @@
       "conversation-op",
       "conversation-typing",
       "conversation-bind",
-      "conversation-agent-token"
+      "conversation-agent-token",
+      "feed-local-handoff-begin",
+      "feed-local-handoff-done"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",

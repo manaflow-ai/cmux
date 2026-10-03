@@ -102,6 +102,7 @@ pub(crate) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
     migrate_frontend_browser_add_owner(transaction)?;
     migrate_workspace_presentation_add_pinned(transaction)?;
     migrate_workspace_presentation_add_marked_unread(transaction)?;
+    super::feed_local_store::create_feed_local_schema(transaction)?;
     frontend_browser_history::create_frontend_browser_history_schema(transaction)
 }
 
@@ -1287,52 +1288,6 @@ impl WorkspaceRegistry {
             .query_map([], |row| row.get::<_, String>(0))?
             .collect::<Result<HashSet<_>, _>>()?;
         Ok(ids)
-    }
-
-    /// Durably acknowledge notifications, then drop acknowledgements of
-    /// notifications no longer retained by committed receipts. Returns how
-    /// many ids were newly acknowledged.
-    pub fn ack_notifications_durable(
-        &mut self,
-        notification_ids: &[String],
-        acked_at_ms: u64,
-        subjects: Vec<JournalSubject>,
-    ) -> anyhow::Result<usize> {
-        if notification_ids.is_empty() {
-            return Ok(0);
-        }
-        let tx = self.connection.transaction()?;
-        let mut added = 0;
-        for id in notification_ids {
-            anyhow::ensure!(
-                id.starts_with("notification_") && id.len() <= 64,
-                "bad request: invalid notification id {id}"
-            );
-            added += tx.execute(
-                "INSERT OR IGNORE INTO notification_acks(notification_id, acked_at_ms)
-                 VALUES(?1, ?2)",
-                params![id, i64::try_from(acked_at_ms)?],
-            )?;
-        }
-        tx.execute(
-            "DELETE FROM notification_acks WHERE notification_id NOT IN (
-               SELECT json_extract(outcome_json, '$.value.id')
-               FROM resource_effect_receipts
-               WHERE operation = 'notification.create' AND state = 'committed'
-                 AND json_extract(outcome_json, '$.value.id') IS NOT NULL
-             )",
-            [],
-        )?;
-        if added > 0 {
-            append_presentation_record(
-                &tx,
-                "notification.acknowledged",
-                subjects,
-                &json!({"notification_ids": notification_ids, "acked_at_ms": acked_at_ms}),
-            )?;
-        }
-        tx.commit()?;
-        Ok(added)
     }
 
     /// Replace every tab group and membership (metadata-only changes that leave tab order alone).

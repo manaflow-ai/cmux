@@ -5,10 +5,9 @@ use super::*;
 use crate::resource::ResourceError;
 use serde_json::json;
 
-/// Transient input and viewport interactions keep a finite exactly-once replay
-/// window. Cleanup runs in batches so high-frequency traffic does not pay for
-/// a pruning query on every event. A running registry may temporarily retain
-/// this many extra committed rows; startup always removes the slack.
+/// Transient input and viewport interactions keep a finite exactly-once replay window. Cleanup
+/// runs in batches so high-frequency traffic does not pay for a pruning query on every event. A
+/// running registry may keep this many extra committed rows; startup removes the slack.
 const RESOURCE_INPUT_RECEIPT_CAPACITY: usize = 4096;
 const RESOURCE_INPUT_RECEIPT_PRUNE_INTERVAL: usize = 128;
 const TRANSIENT_INPUT_EFFECT_SQL: &str = "(
@@ -122,9 +121,8 @@ pub(super) fn create_resource_effect_schema(transaction: &Transaction<'_>) -> an
     Ok(())
 }
 
-/// Adds completion ordering for pre-retention databases and enforces the
-/// startup bound. `committed_revision` cannot provide this order because
-/// receipt-only interactions deliberately do not advance the public revision.
+/// Adds completion ordering for pre-retention databases and enforces the startup bound.
+/// `committed_revision` cannot provide this order: receipt-only interactions never advance it.
 pub(super) fn initialize_resource_input_receipt_retention(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
@@ -148,11 +146,10 @@ pub(super) fn initialize_resource_input_receipt_retention(
     Ok(())
 }
 
-/// Schema 6 and earlier stored raw interactive input in effect fingerprints
-/// and intents. Those rows cannot be re-keyed without retaining the secret,
-/// so the prelaunch migration discards them before the database is vacuumed.
-/// Browser navigation is deliberately excluded because its URL is public,
-/// durable browser topology rather than transient input.
+/// Schema 6 and earlier stored raw interactive input in effect fingerprints and intents. Those
+/// rows cannot be re-keyed without retaining the secret, so the prelaunch migration discards
+/// them before the database is vacuumed. Browser navigation is deliberately excluded because
+/// its URL is public, durable browser topology rather than transient input.
 pub(super) fn delete_legacy_sensitive_effect_receipts(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
@@ -867,13 +864,15 @@ impl WorkspaceRegistry {
         Ok(serde_json::from_str(&intent_json)?)
     }
 
-    pub fn commit_resource_effect(
+    /// Commit an effect's outcome; `extra` writes in the same transaction.
+    pub(crate) fn commit_resource_effect_with(
         &mut self,
         idempotency_key: &str,
         operation: &str,
         fingerprint: &Value,
         outcome: &ResourceEffectOutcome,
         deltas: Option<&Value>,
+        extra: Option<RegistryTransactionWrite<'_>>,
     ) -> anyhow::Result<u64> {
         validate_identifier("idempotency key", idempotency_key)?;
         validate_identifier("resource operation", operation)?;
@@ -977,6 +976,7 @@ impl WorkspaceRegistry {
             "correlated resource effect could not commit its outcome"
         );
         record_resource_input_receipt_completion(&tx, idempotency_key, operation)?;
+        extra.map(|extra| extra(&tx)).transpose()?;
         tx.commit()?;
         Ok(revision)
     }

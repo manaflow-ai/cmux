@@ -1,11 +1,10 @@
 //! TUI event loop and tmux-like command handling.
 //!
-//! Runs against a [`Session`], which is either the in-process mux or a
-//! remote session attached over the control socket. All state mutations
-//! go through the session; the app only owns presentation state (render
-//! snapshots, prefix arming, the current layout, hit map, selection, and
-//! menu/prompt overlays).
+//! Runs against a [`Session`], which is either the in-process mux or a remote session attached
+//! over the control socket. All state mutations go through the session; the app only owns
+//! presentation state (render snapshots, prefix arming, layout, hit map, selection, overlays).
 
+mod feed_dismissal;
 #[cfg(test)]
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -17004,11 +17003,10 @@ impl App {
         self.reported_focus = Some(crate::session::ClientFocus { pane: pane_id, tab: tab_index });
     }
 
-    /// Report the client's focus (pane and tab; the server derives workspace
-    /// and screen at restore time) to the server's focus memory. The first
-    /// observation after adopting a tree is recorded as the baseline without
-    /// sending, so attaching never mutates the server; only later user
-    /// navigation does.
+    /// Report the client's focus (pane and tab; the server derives workspace and screen at
+    /// restore time) to the server's focus memory. The first observation after adopting a tree
+    /// is the baseline and is not sent, so attaching never mutates the server; later user
+    /// navigation does (and acknowledges the newly focused tab, app/feed_dismissal.rs).
     fn current_client_focus(&self) -> Option<crate::session::ClientFocus> {
         let screen = self.tree.active_screen()?;
         let pane = screen.panes.iter().find(|pane| pane.id == screen.active_pane)?;
@@ -17023,6 +17021,7 @@ impl App {
             Some(previous) => {
                 self.session.report_focus(Some(previous), focus, self.client_focus_id.as_deref());
                 self.reported_focus = Some(focus);
+                self.acknowledge_focused_tab();
             }
         }
     }
@@ -21011,6 +21010,7 @@ impl App {
                 Some(localization::catalog().sidebar.no_active_session.to_string());
             return;
         }
+        self.acknowledge_viewed_tab(surface_id);
         let Some(surface) = self.session.surface(surface_id) else { return };
         if surface.kind() == SurfaceKind::Browser {
             let key = input.ui_key();
@@ -46740,7 +46740,7 @@ mod tests {
         assert!(app.owner_shutdown_requested());
     }
 
-    fn test_app(session: Session) -> App {
+    pub(super) fn test_app(session: Session) -> App {
         test_app_with_events(session).0
     }
 

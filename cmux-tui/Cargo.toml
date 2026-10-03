@@ -43,6 +43,7 @@ members = [
     "crates/cmux-wg",
     "crates/cmux-transport",
     "crates/cmux-tasks-core",
+    "crates/cmux-feed-core",
     "crates/cmux-tasks",
     "crates/cmux-server-core",
     "crates/cmux-motion",
@@ -77,6 +78,7 @@ default-members = [
     "crates/cmux-wg",
     "crates/cmux-transport",
     "crates/cmux-tasks-core",
+    "crates/cmux-feed-core",
     "crates/cmux-tasks",
     "crates/cmux-server-core",
     "crates/cmux-motion",
@@ -111,6 +113,7 @@ redundant_clone = "warn"
 ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
+cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-unix-socket = { path = "crates/cmux-unix-socket" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }

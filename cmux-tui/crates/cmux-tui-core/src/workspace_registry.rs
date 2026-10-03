@@ -1,9 +1,8 @@
 //! Durable, single-writer workspace registry.
 //!
-//! The mux owns one of these behind its workspace-commit mutex. A registry
-//! transaction commits before the corresponding in-memory projection and
-//! event are published, so durable order, reply order, and event order are the
-//! same order. Runtime pane/surface ids deliberately never enter this store.
+//! The mux owns one of these behind its workspace-commit mutex. A registry transaction
+//! commits before the corresponding in-memory projection and event are published, so durable,
+//! reply and event order are the same. Runtime pane/surface ids never enter this store.
 
 use std::borrow::Cow;
 #[cfg(test)]
@@ -31,6 +30,7 @@ use crate::resource::{
 use crate::terminal_host_runtime::TerminalHostLiveness;
 
 mod effect_store;
+pub(crate) mod feed_local_store;
 mod idle_policy_store;
 mod journal_extensions;
 pub(crate) mod personal_bookmarks;

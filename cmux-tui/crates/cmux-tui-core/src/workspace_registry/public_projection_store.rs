@@ -265,7 +265,7 @@ impl WorkspaceRegistry {
         Ok(agents)
     }
 
-    fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {
+    pub(super) fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {
         let mut statement = self.connection.prepare(
             "SELECT public_id
              FROM resource_terminals
@@ -278,7 +278,7 @@ impl WorkspaceRegistry {
             .collect()
     }
 
-    fn durable_notifications(
+    pub(super) fn durable_notifications(
         &self,
         live_terminals: &HashSet<TerminalPublicId>,
     ) -> anyhow::Result<Vec<RegistryNotificationProjection>> {
