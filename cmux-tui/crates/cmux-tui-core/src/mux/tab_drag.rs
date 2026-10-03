@@ -749,6 +749,14 @@ pub(super) fn restore_dragged_tab(
     Ok(())
 }
 
+impl Mux {
+    /// The name of a workspace a tab move creates: the caller's
+    /// (`tab-workspace-name-v1`), else the default `workspace-N`.
+    pub(super) fn moved_tab_workspace_name(name: Option<&str>, state: &State) -> String {
+        name.map_or_else(|| Self::default_workspace_name(state), str::to_owned)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -973,8 +981,9 @@ mod tests {
             &WorkspaceMutation::local("tab-drag-test"),
         )
         .unwrap();
-        assert!(mux.move_tab_to_new_workspace(second, Some("missing".into()), None).is_err());
-        let workspace = mux.move_tab_to_new_workspace(second, Some("g".into()), Some(0)).unwrap();
+        assert!(mux.move_tab_to_new_workspace(second, Some("missing".into()), None, None).is_err());
+        let workspace =
+            mux.move_tab_to_new_workspace(second, Some("g".into()), Some(0), None).unwrap();
         let (order, key) = mux.with_state(|state| {
             (
                 state.workspaces.iter().map(|workspace| workspace.id).collect::<Vec<_>>(),
@@ -990,5 +999,23 @@ mod tests {
             Some("g".to_string())
         );
         assert_eq!(tabs(&mux, pane_of(&mux, second)), vec![second]);
+    }
+
+    #[test]
+    fn cmux_next_tab_to_new_workspace_takes_the_given_name() {
+        let mux = Mux::new_for_test("tab-drag-workspace-name", SurfaceOptions::default());
+        let first = mux.new_workspace(None, None).unwrap().id;
+        let origin = pane_of(&mux, first);
+        let second = mux.new_tab(Some(origin), None, None).unwrap().id;
+        let third = mux.new_tab(Some(origin), None, None).unwrap().id;
+        let too_long = "x".repeat(WORKSPACE_NAME_MAX_BYTES + 1);
+        assert!(mux.move_tab_to_new_workspace(second, None, None, Some(too_long)).is_err());
+        assert_eq!(tabs(&mux, origin), vec![first, second, third]);
+        let named =
+            mux.move_tab_to_new_workspace(second, None, None, Some("vim notes".into())).unwrap();
+        let unnamed = mux.move_tab_to_new_workspace(third, None, None, None).unwrap();
+        let name = |id| mux.with_state(|state| state.workspace_by_id(id).map(|w| w.name.clone()));
+        assert_eq!(name(named).as_deref(), Some("vim notes"));
+        assert!(name(unnamed).is_some_and(|name| name.starts_with("workspace-")));
     }
 }

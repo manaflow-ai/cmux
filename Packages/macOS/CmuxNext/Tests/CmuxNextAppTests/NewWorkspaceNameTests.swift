@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextDaemon
 import Testing
 @testable import CmuxNextApp
 
@@ -53,8 +54,9 @@ import Testing
 /// `palette.moveTabToNewWorkspace`, drag and tear-off call the same
 /// `TabMoves.toNewWorkspace`.
 @MainActor @Suite(.serialized) struct MoveTabToNewWorkspaceNameTests {
-    @Test func aTabMovedToANewWorkspaceNamesIt() async throws {
-        let harness = try await ViewChangePermissionTests.harness()
+    @Test(arguments: [false, true]) func aTabMovedToANewWorkspaceNamesIt(inCommit: Bool) async throws {
+        let daemon = try TopologyDaemon(extraCapabilities: inCommit ? [DaemonCapabilities.shared.tabWorkspaceName] : [])
+        let harness = try await ViewChangePermissionTests.harness(daemon: daemon)
         defer { harness.stop() }
         let moved = try #require(harness.services.daemon.store.workspaces.first?.screens.first?.panes.first?.tabs.last)
         let title = moved.title
@@ -64,6 +66,9 @@ import Testing
         let created = try #require(harness.services.daemon.store.workspaces.first { $0.key?.rawValue != TopologyDaemon.firstKey })
         try await ViewChangePermissionTests.waitUntil { created.name == title }
         #expect(created.name == title)
+        // A daemon with `tab-workspace-name-v1` names it in the move's own
+        // commit; an older one gets a rename after the move.
+        #expect(daemon.commands.withLock { $0.contains("rename-workspace") } == !inCommit)
     }
 }
 
