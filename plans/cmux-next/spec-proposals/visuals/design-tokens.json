@@ -998,7 +998,7 @@
   "overlay": {
    "select": "Reduce Transparency -> opaque; macOS >= 26 -> liquidGlass (NSGlassEffectView .regular, tint token:glassTint); else vibrancy (NSVisualEffectView .popover, withinWindow, tint view token:glassTint, 1/scale border token:separator)",
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OverlayMaterial.swift (OverlayMaterial.select, ReduceTransparency); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Glass.swift (Glass.makeOverlayPanel)",
-   "appliesTo": "Every floating glass surface: palette, its actions menu and shortcut recorder, hover cards, browser find bar, prompt bar and notices (Glass.makeOverlayPanel), drop overlay, drop highlight, sticky column backdrop, refusal HUD (OverlaySurfaceView)",
+   "appliesTo": "Every floating glass surface: palette, its actions menu and shortcut recorder, hover cards, browser find bar, prompt bar, notices and page info, tab group editor, restart notice (Glass.makeOverlayPanel), drop overlay, drop highlight, sticky column backdrop, refusal HUD (OverlaySurfaceView)",
    "liveUpdate": "One NSWorkspace accessibility observer switches every live surface; a theme scope repaint recolors the fallback.",
    "olderMacOS": "The vibrancy branch cannot run in the macOS app today: Packages/macOS/CmuxNext/Package.swift requires macOS 26. Ports without Liquid Glass use vibrancy where the platform has a blur, else the opaque fallback."
   },

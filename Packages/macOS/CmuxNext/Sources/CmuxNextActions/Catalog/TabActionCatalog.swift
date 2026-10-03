@@ -75,7 +75,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.renameTab", defaultValue: "Rename Tab…", bundle: .module),
                 keywords: ["tab", "title"], defaultShortcut: Shortcut("r", modifiers: [.command]), category: .tab,
                 symbol: "pencil", surfaces: [.palette, .keyboard, .contextMenu],
-                arguments: [CatalogArgument.nameString], targets: [.tab], cliName: "tab rename"
+                arguments: [CatalogArgument.nameString.renamingTarget], targets: [.tab], cliName: "tab rename"
             ),
             ActionDescriptor(
                 id: "palette.clearTabName",
@@ -165,19 +165,15 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.indexNumber], targets: [.tab], cliName: "tab select-1-9"
             ),
             ActionDescriptor(
-                id: "palette.goToTab",
-                title: String(localized: "action.palette.goToTab", defaultValue: "Go to Tab…", bundle: .module),
-                keywords: ["tab", "switch", "switcher", "surface"], category: .tab, symbol: "rectangle.stack",
-                surfaces: [.palette], arguments: [CatalogArgument.tabTab], targets: [.tab], cliName: "tab go-to"
-            ),
-            ActionDescriptor(
                 id: "tab.search",
                 title: String(localized: "action.tab.search", defaultValue: "Search Tabs…", bundle: .module),
-                keywords: ["tab", "search", "find", "switch", "switcher", "recently closed", "url", "folder", "process"],
+                // Also "Go to Tab…": `palette.goToTab` is an alias (legacyAliases).
+                keywords: ["tab", "search", "find", "switch", "switcher", "go to tab", "surface", "recently closed", "url",
+                           "folder", "process"],
                 defaultShortcut: Shortcut("a", modifiers: [.command, .shift]), category: .tab, symbol: "magnifyingglass",
-                surfaces: [.palette, .keyboard, .menu], arguments: [CatalogArgument.queryString], cliName: "tab search",
-                mainMenu: .file,
-                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+                surfaces: [.palette, .keyboard, .menu], arguments: [CatalogArgument.queryString], targets: [.tab],
+                cliName: "tab search", mainMenu: .file,
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .focusMove)
             ),
             ActionDescriptor(
                 id: "palette.moveTabToNewWorkspace",

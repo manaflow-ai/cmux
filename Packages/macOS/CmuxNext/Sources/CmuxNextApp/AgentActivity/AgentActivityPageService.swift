@@ -40,10 +40,6 @@ final class AgentActivityPageService {
         if DevTools.isEnabled, environment["CMUX_NEXT_AGENT_ACTIVITY_MOCK"] == "1" {
             return AgentActivityMockSource()
         }
-        return AgentActivitySocketSource(configuration: .init(
-            socketPath: AgentActivitySocketSource.Configuration.defaultSocketPath(),
-            authToken: environment["CMUX_CUA_SOCKET_AUTH_TOKEN"].flatMap { $0.isEmpty ? nil : $0 },
-            hostAuthToken: environment["CMUX_CUA_SOCKET_HOST_AUTH_TOKEN"].flatMap { $0.isEmpty ? nil : $0 },
-            machineName: AgentActivityPaneStrings.thisMac))
+        return AgentActivitySocketSource(configuration: .standard(machineName: AgentActivityPaneStrings.thisMac))
     }
 }

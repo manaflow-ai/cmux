@@ -9,7 +9,7 @@ public import Observation
 @Observable
 public final class OnboardingModel {
     public enum Step: String, CaseIterable, Sendable {
-        case role, firstTask, defaultBrowser, importData, theme, accounts
+        case role, firstTask, projects, defaultBrowser, importData, theme, computerUse, accounts
     }
 
     public private(set) var step: Step
@@ -17,9 +17,11 @@ public final class OnboardingModel {
     public let steps: [Step]
     public let role: RoleStepModel
     public let firstTask: FirstTaskStepModel
+    public let projects: ProjectsStepModel
     public let theme: ThemeStepModel
     public let importer: ImportStepModel
     public let defaults: DefaultAppsStepModel
+    public let computerUse: ComputerUseStepModel
     @ObservationIgnored public let services: any OnboardingServices
     /// Set once the flow ended, so a second close does not report twice.
     public private(set) var ended = false
@@ -28,10 +30,12 @@ public final class OnboardingModel {
 
     public init(services: any OnboardingServices, start: Step? = nil) {
         self.services = services
+        let computerUseSource = services.computerUsePermissions
         let steps = Step.allCases.filter { step in
             switch step {
             case .firstTask: services.canRunFirstTask
             case .accounts: services.hasAccountsStep
+            case .computerUse: computerUseSource != nil
             default: true
             }
         }
@@ -39,9 +43,11 @@ public final class OnboardingModel {
         step = start.flatMap { steps.contains($0) ? $0 : nil } ?? steps[0]
         role = RoleStepModel(services: services)
         firstTask = FirstTaskStepModel(services: services)
+        projects = ProjectsStepModel(services: services)
         theme = ThemeStepModel(services: services)
         importer = ImportStepModel(services: services)
         defaults = DefaultAppsStepModel(services: services)
+        computerUse = ComputerUseStepModel(source: computerUseSource)
     }
 
     public var index: Int { steps.firstIndex(of: step) ?? 0 }
@@ -67,6 +73,7 @@ public final class OnboardingModel {
             importer.start()
             return
         case .role: role.commit()
+        case .projects: projects.commit()
         case .theme: theme.commit()
         default: break
         }
@@ -94,12 +101,16 @@ public final class OnboardingModel {
 
     /// Starts the step's lazy work (handler state, browser detection, theme files).
     public func stepDidAppear() {
+        if step != .computerUse { computerUse.stop() }
         switch step {
+        // The role step starts the project scan, so its list is ready.
+        case .role, .projects: projects.scan()
         case .defaultBrowser: defaults.refresh()
         case .importData: importer.detect()
         case .theme: theme.load()
         case .firstTask: firstTask.refreshOutputs()
-        case .role, .accounts: break
+        case .computerUse: computerUse.start()
+        case .accounts: break
         }
     }
 
@@ -108,6 +119,8 @@ public final class OnboardingModel {
     public func finish(completed: Bool) {
         guard !ended else { return }
         ended = true
+        projects.stop()
+        computerUse.stop()
         if !completed, !theme.isCommitted { theme.revert() }
         firstTask.stop()
         services.onboardingDidEnd(completed: completed)

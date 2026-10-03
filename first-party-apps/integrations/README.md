@@ -6,7 +6,7 @@ The app is a UI over the backend's one integration model (spec `integrations.md`
 
 ## Credits
 
-The generic import (OpenAPI, GraphQL and MCP ingestion, tool paths, auth-method detection) and the policy pattern matcher and defaults are adapted from [executor](https://github.com/UsefulSoftwareCo/executor), MIT License, Copyright (c) 2026 Rhys Sullivan. `LICENSE-executor` has the full license and the list of adapted files with their upstream paths; each adapted file in `src/core/` starts with the same credit. The app shows the credit under the importer and on generic connections. No telemetry, billing or registry-fetch code was copied.
+The generic import (OpenAPI, GraphQL and MCP ingestion, tool paths, auth-method detection) and the policy pattern matcher and defaults live in the MIT package `@cmux/integrations-core` (`libs/integrations-core/`), adapted from [executor](https://github.com/UsefulSoftwareCo/executor), MIT License, Copyright (c) 2026 Rhys Sullivan. The package's `NOTICE` lists the adapted files with their upstream paths, and each adapted file starts with the same credit. `pack.ts` bundles the package into `dist/main.js`, so this app ships `LICENSE-executor` as its notice. The app shows the credit under the importer and on generic connections. No telemetry, billing or registry-fetch code was copied.
 
 ## Contributions
 
@@ -41,20 +41,7 @@ Recommendation: `connections`. It matches how people think about integrations (a
 
 ## Policy defaults (from the spec, before any rule)
 
-| Source | Op class | Default |
-| --- | --- | --- |
-| OpenAPI GET, HEAD, OPTIONS | read | Allow |
-| OpenAPI POST, PUT, PATCH | mutate-shared | Ask |
-| OpenAPI DELETE | destructive | Block |
-| GraphQL query | read | Allow |
-| GraphQL mutation | mutate-shared | Ask |
-| GraphQL mutation named `delete…`, `remove…`, `destroy…`, `purge…`, `drop…`, `erase…`, `wipe…` | destructive | Block (name heuristic; GraphQL has no marker) |
-| MCP `readOnlyHint: true` | read | Allow |
-| MCP `destructiveHint: true` | destructive | Block |
-| MCP without hints | mutate-shared | Ask (upstream runs these without approval; the MCP default for an un-annotated tool is "may write") |
-| First-class provider ops | the backend op's risk | read and mutate-own Allow, send-external and mutate-shared Ask, destructive and money Block |
-
-Rules: `{owner: team | user, pattern, action}`. Patterns: `*`, exact `ns.group.tool`, subtree `ns.group.*`, one-segment `ns.*.delete`. Inside one owner the most specific rule wins; across owners the most restrictive action wins, so a user rule never loosens a team rule. A rule replaces the default (a team may allow a destructive tool). Mapping to grants: Allow = grant with approval `none`, Ask = approval `per_call`, Block = no grant.
+Reads Allow, changes Ask, destructive Block (decided): OpenAPI GET/HEAD/OPTIONS, GraphQL queries and MCP `readOnlyHint` tools Allow; OpenAPI POST/PUT/PATCH, GraphQL mutations and un-annotated MCP tools Ask; OpenAPI DELETE, GraphQL mutations named with a destructive verb and MCP `destructiveHint` tools Block. First-class provider ops use the same mapping on the backend op's risk (read and mutate-own Allow, send-external and mutate-shared Ask, destructive and money Block). The full table, the rule patterns and the grant mapping are in `libs/integrations-core/README.md`; `defaultActionFor` there is the single source.
 
 ## Proposed operations
 
@@ -75,31 +62,19 @@ Rules: `{owner: team | user, pattern, action}`. Patterns: `*`, exact `ns.group.t
 | event | `integration.changed {connection}` (typed `integration.watch`) | | ConnectionDO outbox via the session | | `integration:read` | | no app-visible change stream today |
 | `integration.list` additions | | per connection `capabilities {revoke, share, reauth}` and `catalog` summary | ConnectionDO | read | | | the app cannot tell who it is, so it cannot hide Disconnect for teammates' connections |
 
-## Code placement (proposal)
+## Code placement
 
-Move `src/core/` into a shared package so the gateway (authoritative ingestion at connect and refresh, policy resolution at call time) and this app (local preview and display) run one implementation:
+The pure core lives in `libs/integrations-core/` (`@cmux/integrations-core`, MIT), so the gateway (authoritative ingestion at connect and refresh, policy resolution at call time) and this app (local preview and display) run one implementation. A rule set in the preview must match the tool the gateway runs, so tool paths and defaults cannot fork. The app imports it by name through `tsconfig.json` `paths`; `pack.ts` bundles it. The package README says why `libs/` (not `backend/`, which is BSL, and not a top-level `packages/`, which collides with `Packages/` on case-insensitive file systems) and how the backend adopts it.
 
-| File | Content | Upstream |
-| --- | --- | --- |
-| `types.ts` | `ToolEntry`, `AuthMethod`, `Catalog`, `ToolAction`, `OpClass` | cmux |
-| `policy.ts` | op class per format, defaults, patterns, resolution, grant mapping | executor `core/sdk/src/policies.ts` + plugin annotations |
-| `openapi.ts`, `openapi-paths.ts`, `openapi-auth.ts` | OpenAPI extraction, `group.leaf` tool paths, auth methods | executor `plugins/openapi/src/sdk/{extract,definitions,openapi-utils,preview}.ts` |
-| `graphql.ts` | introspection to tools | executor `plugins/graphql/src/sdk/{extract,introspect,plugin}.ts` |
-| `mcp.ts` | `tools/list` to tools, namespace | executor `plugins/mcp/src/sdk/{manifest,types,plugin}.ts` |
-| `catalog.ts` | one importer, digest | cmux |
-| `LICENSE-executor` | NOTICE: full MIT text, copyright, adapted-file list | |
-
-Why shared: the add flow and the gateway must agree on tool paths and defaults, or a rule set in the preview would not match the tool the gateway runs. The gateway then adds what the app must not do: YAML parsing, fetching specs with an SSRF guard, the MCP client for remote servers (no stdio), and invocation (executor `plugins/openapi/src/sdk/invoke.ts` is the next candidate to adapt, under the same NOTICE).
-
-Where: the brief names `backend/packages/integrations-core`. `backend/` is under the Business Source License, and repository policy requires every outside author's CLA grant there. MIT code may be included in a differently licensed work when its notice is kept, but whether third-party MIT code in `backend/` conflicts with the CLA rule is for the backend lead and Lawrence to decide. Recommendation: an MIT package outside the BSL directories (for example `packages/integrations-core/`) that `backend/` depends on.
+The gateway adds what the app must not do: YAML parsing, fetching specs with an SSRF guard, the MCP client for remote servers (no stdio), and invocation (executor `plugins/openapi/src/sdk/invoke.ts` is the next candidate to adapt into the package, under the same NOTICE).
 
 ## Questions for the backend lead
 
 1. Generic connections in the same `Connection` record: extend `IntegrationProvider` with `openapi | graphql | mcp`, add `catalog {kind, title, version, digest, tools, source_url}` and `auth {kind}`, account key `openapi:<host>:<namespace>`? Do they count toward `MAX_CONNECTIONS = 50`? Recommend yes to all: one list, one sharing model, one revoke.
 2. Imported tool catalogs: where do they live and how are they versioned? Proposal: content-addressed blob (R2 or DO SQLite) keyed by digest; the connection stores `{digest, source, refreshed_at}`; `integration.catalog.refresh` and a server-side scheduled check (allowed off-device) re-ingest and post a feed notice with added and removed tools; new tools start at their defaults; rules survive by address and become inert when a tool disappears.
-3. Per-tool policy vs grants vs `TeamIntegrationPolicy`: team rules in ConnectionDO next to the policy (single writer), user rules in UserDO, resolution in the gateway (most restrictive wins). Allow = approval `none`, Ask = `per_call`, Block = no grant. Should `allowed_providers` list generic kinds, and should the policy gain a host allowlist for generic APIs? The brief says destructive defaults to Block; the spec says destructive requires approval. Which?
+3. Per-tool policy vs grants vs `TeamIntegrationPolicy`: team rules in ConnectionDO next to the policy (single writer), user rules in UserDO, resolution in the gateway (most restrictive wins). Allow = approval `none`, Ask = `per_call`, Block = no grant. Should `allowed_providers` list generic kinds, and should the policy gain a host allowlist for generic APIs? (Decided: destructive defaults to Block.)
 4. Gateway execution of generic calls: `integration.call` through the same external-effect ledger as `github.issue.comment` (decided keys replay, `mutation.indeterminate` after a send), egress limited to the spec's servers, no private addresses, response size caps, redacted errors. Agree? Who owns MCP sessions to remote servers (one per connection in the ConnectionDO)?
-5. Code placement and NOTICE: see "Code placement" above. Which directory, and is the NOTICE file enough for the backend's license review?
+5. Code placement and NOTICE (decided): MIT package `libs/integrations-core/` outside the BSL directories, with `LICENSE` and `NOTICE`; the backend depends on it (steps in its README).
 6. Credential types: API key (header or query), bearer, basic, custom header sets, OAuth2 authorization code (with PKCE; dynamic client registration for MCP servers), OAuth2 client credentials. All sealed with the existing envelope. For local apps: is a `cred_…` handle always resolved by the gateway (calls go through `integration.call` or a gateway-proxied fetch), or may the Mac host inject a secret into a local request? Recommend gateway only.
 7. One MCP endpoint per user or team that exposes the whole catalog (`/v1/mcp` scoped by session or install, tools named `<namespace>__<path>` within MCP's 64-character limit, Ask tools answered through the feed or MCP elicitation, Block tools hidden): which process hosts it (API Worker route or a DO), and does it replace per-provider vendor MCP for agents?
 8. `integration.revoke` is in the app "never" list and only the creator may revoke. May an app call it with a gesture and a shell confirmation? May team admins revoke a teammate's team-shared connection?
@@ -123,4 +98,4 @@ Where: the brief names `backend/packages/integrations-core`. `backend/` is under
 
 ## Layout and checks
 
-`src/core/` pure and portable (no cmux globals); `src/model/` state and owner calls; `src/views/` scene; `src/main.ts` exports. Build: `bun first-party-apps/build.ts integrations`. Tests: `bun test first-party-apps/integrations/test` (ingestion and policy on fixtures under `test/fixtures/`, FakeHost tests per variant and flow, l10n coverage). Preview fixtures: `bun first-party-apps/integrations/preview/make-fixtures.ts`. No test makes a network call.
+`src/model/` state and owner calls; `src/views/` scene; `src/main.ts` exports; ingestion and policy come from `@cmux/integrations-core`. Build: `bun first-party-apps/build.ts integrations`. Tests: `bun test first-party-apps/integrations/test` (FakeHost tests per variant and flow, l10n coverage) and `bun test libs/integrations-core/test` (ingestion and policy on fixtures under `libs/integrations-core/test/fixtures/`). Preview fixtures: `bun first-party-apps/integrations/preview/make-fixtures.ts`. No test makes a network call.

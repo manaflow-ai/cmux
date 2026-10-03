@@ -4,8 +4,7 @@
 // backend catalog defines (protocol integrations.ts), so per-tool policy works
 // for first-class providers too.
 
-import { defaultActionFor } from "../core/policy.ts"
-import type { CatalogKind, OpClass, ToolEntry } from "../core/types.ts"
+import { defaultActionFor, type CatalogKind, type OpClass, type ToolEntry } from "@cmux/integrations-core"
 import { t } from "../l10n.ts"
 
 export type FirstClassProvider = "github" | "linear" | "slack" | "google_calendar" | "gmail"

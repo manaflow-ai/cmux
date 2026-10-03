@@ -34,7 +34,10 @@ extension AgentPaneHostError {
     static func userMessage(for error: any Error) -> String {
         switch error as? AgentPaneHostError {
         case .acpmuxNotFound:
-            String(localized: "agentPane.error.notFound", defaultValue: "acpmux was not found. Install acpmux or use a build that bundles it.", bundle: .module)
+            String(
+                format: String(localized: "agentPane.error.notInstalled", defaultValue: "acpmux was not found. Install it on your PATH or in one of these folders: %@.", bundle: .module),
+                AcpmuxEnvironment.installDirectories.joined(separator: ", ")
+            )
         case .daemonFailed(let logPath):
             String(format: String(localized: "agentPane.error.daemonFailed", defaultValue: "acpmux did not start. Its log is at %@.", bundle: .module), logPath)
         case .daemonStopped:

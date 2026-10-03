@@ -7,7 +7,14 @@ the user has, with recently closed tabs below.
 
 - Opens with Cmd-Shift-A (action `tab.search`, Tab category, File menu,
   palette row "Search Tabs…"). The optional argument `query` opens it with
-  text typed.
+  text typed. "Go to Tab…" is the same page: `palette.goToTab` is an alias
+  of `tab.search` (bindings and scripts keep working); with a tab target
+  (`--target tab:<id>`, an app's `tab.focus`) it focuses that tab.
+- Scopes: the scoped palette (plans/cmux-next/palette-scopes.md, lane 11)
+  owns the scope chip and Backspace-to-full-palette. Search Tabs ports onto
+  it; the page keeps its data source (`TabSearchSource`), ranking
+  (`TabSearchPlan`, `TabSearchRanker`) and row actions apart from the page
+  chrome for that.
 - Lists every open tab of every kind (terminal, browser, remote terminal,
   other) in every pane, workspace, window and connected machine, then a
   Recently Closed section. Closed tabs stay below open tabs for every
@@ -42,9 +49,11 @@ machine's daemon store), the location trail (recency) and the closed-items
 log. Every change goes to its owner through the existing path: Close Tab,
 Reopen (HistoryRestorer), the closed-items log. After Cmd-W the page
 re-reads its rows: a tab leaves when the strip's visible state drops it
-(a shown tab at once, a hidden tab on the daemon's echo). While the page is
-shown, an Observation of the mirror's structure (which tabs are where)
-re-reads it on every change and stops itself when the page goes.
+(a shown tab at once, a hidden tab on the daemon's echo). The closed-items
+log emits a change event (`ClosedTabTracker.changes`) after every update of
+the tabs it watches and of the closed list, once the list is current;
+`TabSearchLiveUpdates` re-reads a shown page on each event, so a closed tab
+moves to Recently Closed at once, and stops when the page goes.
 
 ## Surfaces
 
@@ -56,7 +65,7 @@ re-reads it on every change and stops itself when the page goes.
 | Right-click | exempt (`noObject`) |
 | CLI | `cmux tab search` (Rust CLI request below) |
 | MCP | `tab_search`, results only |
-| Socket | `tabs.search {query?, limit?, closed?}` (read-only results) and `action.run tab.search {query?}` with `focus: true` (opens the page) |
+| Socket | `tabs.search {query?, limit?, closed?}` (read-only results, answered off the main actor from the published control snapshot: topology plus `ControlTabSearchFacts`) and `action.run tab.search {query?}` with `focus: true` (opens the page) |
 
 `action.run tab.search` from automation without `focus: true` is refused:
 the page takes the keyboard, and automation never changes focus.
@@ -88,14 +97,9 @@ Debug Settings > Palette and Panels > "Search Tabs layout"
 ## Not done
 
 - Process names come from the agent in the tab and the terminal title; the
-  mirror has no foreground process name. A daemon field
-  (`foreground_process` per terminal) would make "process" match `vim`,
-  `htop` and so on in every shell.
-- The closed-items log is not observable: a tab just closed appears under
-  Recently Closed at the next structure change or the next open.
+  mirror has no foreground process name. The session host field
+  `foreground_process` (requested from the Rust owner through the
+  coordinator) would make "process" match `vim`, `htop` and so on.
 - `tabs.search` ranks with the `recent` layout whatever the Debug Settings
   prototype is, so scripts get stable results.
 - Favicons in rows (the palette row draws SF Symbols only).
-- `cmux-settings validate` and the shared cmux.json schema list only the
-  shipping app's shortcut ids, so it reports `tab.search` as unknown; the
-  app itself reads the key.
