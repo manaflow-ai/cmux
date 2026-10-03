@@ -2,12 +2,12 @@ import Foundation
 
 /// Strings of the feed panel (Resources/Localizable.xcstrings). Few labels
 /// by design: glyphs carry kind and state, posters carry their own text.
-public nonisolated enum FeedStrings {
+nonisolated enum FeedStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, bundle: .module)
     }
 
-    public static var title: String { t("feed.title", "Feed") }
+    static var title: String { t("feed.title", "Feed") }
     static var empty: String { t("feed.empty", "Nothing new") }
     static var menubarEmpty: String { t("menubar.empty", "No open requests") }
     static var openFeed: String { t("menubar.openFeed", "Open Feed") }
