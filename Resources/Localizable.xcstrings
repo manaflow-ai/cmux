@@ -235811,7 +235811,7 @@
       "de": {
         "stringUnit": {
           "state": "translated",
-          "value": "Dein Cloud-Maschinenplan wird geladen…"
+          "value": "Dein Cloud-Maschinentarif wird geladen…"
         }
       },
       "es": {
@@ -235847,7 +235847,7 @@
       "ko": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud 머신 플랜을 불러오는 중…"
+          "value": "Cloud 머신 요금제를 불러오는 중…"
         }
       },
       "nb": {
@@ -235901,7 +235901,7 @@
       "zh-Hant": {
         "stringUnit": {
           "state": "translated",
-          "value": "正在載入你的 Cloud 機器方案…"
+          "value": "正在載入您的 Cloud 機器方案…"
         }
       }
     }
@@ -236061,7 +236061,7 @@
       "de": {
         "stringUnit": {
           "state": "translated",
-          "value": "Die Details des Cloud-Plans werden noch geladen. Versuche es gleich noch einmal."
+          "value": "Die Details des Cloud-Tarifs werden noch geladen. Versuche es gleich noch einmal."
         }
       },
       "es": {
@@ -236097,7 +236097,7 @@
       "ko": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud 플랜 정보를 아직 불러오는 중입니다. 잠시 후 다시 시도하세요."
+          "value": "Cloud 요금제 정보를 아직 불러오는 중입니다. 잠시 후 다시 시도하세요."
         }
       },
       "nb": {
