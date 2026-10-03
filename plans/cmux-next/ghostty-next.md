@@ -475,21 +475,26 @@ and the live RTT show in the terminal header, so a slow path is visible.
 
 ## 10. GhosttyNextKit pipeline
 
-- Current pin for lane 14 (2026-10-02, ios/CmuxiOS/Package.swift):
-  https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-e71a12e5ab0d1e86751ec021efec3ab5a837f344-ios-v3/GhosttyNextKit.xcframework.zip,
-  sha256 `506fa02ba8d56ac65810d8466b661f889b6338f54b6b77cd10fae1d1358963d8`.
-  `ios-v2` (`xcframework-8562af02889c…-ios-v2`) draws black on iOS: Ghostty's
-  own IOSurfaceLayer (a sublayer of the embedder's view layer) was never
-  sized, so drawFrame returned early. Never pin ios-v2. v3 sizes that layer in
-  set_size and set_content_scale. iOS draw contract: no display link; the
-  renderer thread draws on change (process_output wakes it) and
-  ghostty_surface_draw draws synchronously on main; the embedder view is a
-  plain UIView (no CAMetalLayer) and passes pixel sizes from layoutSubviews.
-  It contains the remote IO mode. `next/smoke.sh --release` on the build
-  host: sha256 match, all three slices link, C and Swift
-  (`import GhosttyNextKit`) binaries run on macOS and in an iOS 27
-  simulator; `gh attestation verify` passes. Releases with flavor `ios-v1`
-  use the old module name GhosttyKit; never pin them.
+- Current pin for lane 14 (2026-10-03): release ios-v4,
+  https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-76db9d14f3cd66cb026d56a0bd46eecaa085ece4-ios-v4/GhosttyNextKit.xcframework.zip,
+  sha256 `e8f62d62a48eec2c685e997ba8efff2bb34712784f2d4aed988c38b691771126`.
+  New API: `ghostty_surface_set_grid(s, cols, rows, generation)` (older
+  generation refused; larger grid crops at the top-left, smaller grid pads
+  in the background color, MANUAL_MIRROR never reflows) and
+  `ghostty_surface_grid`; `ghostty_surface_restore_snapshot(s, bytes, len,
+  phase)` and `ghostty_surface_encode_snapshot(s, write_cb, userdata,
+  phase)` with phases READY=0, HISTORY=1, COMPLETE=2;
+  `ghostty_surface_snapshot_version()` (1). set_grid, restore and encode run
+  on the process_output serial queue. Also: surface calls no longer block
+  on the renderer mailbox, 72 DPI fonts on iOS, IOSurfaceLayer detach before
+  renderer free, bounded (100 ms) swap-chain release on hide. Evidence:
+  ghostty-next PR 6 (CI: 101 Zig tests incl. a byte-equal snapshot round
+  trip); `next/ios-render-smoke.sh --release` on the build host passes fill,
+  grid (10x5 grid red only inside, stale generation refused) and snapshot
+  restore. iOS draw contract (from ios-v3): no display link; the renderer
+  thread draws on change and ghostty_surface_draw draws on main; the
+  embedder view is a plain UIView passing pixel sizes from layoutSubviews.
+  Never pin ios-v1 (module GhosttyKit) or ios-v2 (draws black).
 - Status 2026-10-02: first release
   `xcframework-e699e418bf5e16bac6451dc44bd0c82907af58bc-ios-v1`
   (zip 96,269,903 bytes, sha256
@@ -516,7 +521,7 @@ and the live RTT show in the terminal header, so a slow path is visible.
   timestamps and modes), `SHA256SUMS`, and `manifest.json` (commit, upstream
   base, Zig, Xcode and SDK versions, flags, per-slice SHA-256).
 - A push to `main` publishes release `xcframework-<sha>-<flavor>` (flavor
-  `ios-v2`; asset `GhosttyNextKit.xcframework.zip`) with the zip, sums, manifest and a build provenance attestation.
+  `ios-v4` at the time of writing; asset `GhosttyNextKit.xcframework.zip`) with the zip, sums, manifest and a build provenance attestation.
   A release is never replaced. Pull requests build and upload a workflow
   artifact only. `workflow_dispatch -f verify_reproducible=true` rebuilds on
   a second runner without caches and compares slice hashes.

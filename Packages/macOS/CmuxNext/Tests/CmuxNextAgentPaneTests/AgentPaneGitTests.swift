@@ -38,6 +38,28 @@ private struct GitReadFailed: Error {}
         #expect(Self.request("git.status", ["cwd": "relative"]) == .invalidGit("git.status"))
     }
 
+    /// `file.search` from @ mentions and the files palette: the folder as
+    /// `path` or `cwd`, the query, and a limit from 1 to 200 (50 when absent).
+    @Test func aFileSearchCarriesTheFolderTheQueryAndALimit() {
+        #expect(Self.request("file.search", ["path": "/repo", "query": "app", "limit": 20])
+            == .git(.filesSearch(cwd: "/repo", query: "app", limit: 20)))
+        #expect(Self.request("file.search", ["cwd": "/repo/web", "query": ""])
+            == .git(.filesSearch(cwd: "/repo/web", query: "", limit: 50)))
+        #expect(Self.request("file.search", ["path": "/repo", "query": "x", "limit": 200]) != .invalidGit("file.search"))
+        #expect(Self.request("file.search", ["query": "x"]) == .invalidGit("file.search"))
+        #expect(Self.request("file.search", ["path": "repo", "query": "x"]) == .invalidGit("file.search"))
+        #expect(Self.request("file.search", ["path": "/repo"]) == .invalidGit("file.search"))
+        #expect(Self.request("file.search", ["path": "/repo", "query": String(repeating: "a", count: 257)])
+            == .invalidGit("file.search"))
+        for limit: Any in [0, 201, 2.5, "10", true] {
+            #expect(Self.request("file.search", ["path": "/repo", "query": "x", "limit": limit])
+                == .invalidGit("file.search"))
+        }
+        let search = AgentPaneGitRequest.filesSearch(cwd: "/repo", query: "app", limit: 20)
+        #expect(search.operation == "git.files.search")
+        #expect(search.cwd == "/repo")
+    }
+
     /// The session host's operation and params: the folder as `path`.
     @Test func theRequestNamesTheSessionHostOperation() {
         let diff = AgentPaneGitRequest.diff(cwd: "/repo", scope: .committed, includePatch: true)

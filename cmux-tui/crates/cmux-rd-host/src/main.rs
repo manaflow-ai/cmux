@@ -1,6 +1,6 @@
 //! `cmux-rd`: the Linux remote desktop host engine (phase 1, virtual X display) and its
 //! measurement tools. Subcommands:
-//!   host     --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99] [--port 4103] [--max-fps 60] [--codec openh264|x264]
+//!   host     --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99] [--port 4103] [--max-fps 60] [--codec x264|openh264] [--profile high|baseline]
 //!   bench    --addr HOST:4103 --token-fd N [--carrier udp|stream] [--samples 300] [--user USER]
 //!   testapp  --display :99 --workload marker|text|motion|idle
 //! Design: plans/cmux-next/remote-desktop.md. Wire: crate cmux-rd-proto.
