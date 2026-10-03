@@ -101,6 +101,6 @@ public nonisolated enum ActionCatalog {
     private static func makeAll() -> [ActionDescriptor] {
         var all: [ActionDescriptor] = []
         for group in groups { all += group.descriptors() }
-        return ActionSurfaceCatalog.apply(to: all)
+        return LeaderLayer.apply(to: ActionSurfaceCatalog.apply(to: all))
     }
 }

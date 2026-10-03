@@ -1,9 +1,15 @@
 import GhosttyKit
 
-/// cmux's Ghostty keybind defaults, loaded before the user's files. Stub:
-/// none yet.
+/// cmux's Ghostty keybind defaults, loaded before the user's files, so a
+/// later `keybind` line of theirs for the same trigger replaces the unbind
+/// inside Ghostty's config. Ghostty's macOS default
+/// `super+j=scroll_to_selection` is unbound: Cmd-J is cmux's leader key
+/// (`LeaderLayer` in CmuxNextActions), and Scroll to Selection moved to
+/// Cmd-J J (`terminal.scrollToSelection`). The key router arms the leader
+/// before a terminal sees the key, so a user's Ghostty `super+j` keybind
+/// runs only once the leader chords are unbound in cmux.json.
 extension GhosttyRuntime {
-    nonisolated static let cmuxDefaultKeybindLines: [String] = []
+    nonisolated static let cmuxDefaultKeybindLines = ["keybind = super+j=unbind"]
 
     /// Loads the defaults into `config`; call before the user's files.
     static func loadKeybindDefaults(into config: ghostty_config_t) {

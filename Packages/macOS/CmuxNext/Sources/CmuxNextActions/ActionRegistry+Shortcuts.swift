@@ -17,7 +17,7 @@ extension ActionRegistry {
     /// (`⌘1…9`).
     public func shortcutKeycaps(for id: ActionID) -> [String]? {
         let id = canonicalID(for: id)
-        if let chord = chordOverrides[id] {
+        if let chord = shownChord(for: id) {
             guard isDigitFamily(id, chord.second) else { return chord.keycaps }
             return chord.first.keycaps + chord.second.modifierGlyphs + ["1…9"]
         }
@@ -31,6 +31,15 @@ extension ActionRegistry {
         return shortcut.keycaps
     }
 
+    /// The chord to show for `id`: a cmux.json chord, or a default chord
+    /// when no single key or label shows instead (Scroll to Selection
+    /// reads `⌘J J`, New Agent Chat keeps `⇧⌘I`).
+    func shownChord(for id: ActionID) -> ShortcutChord? {
+        if let chord = chordOverrides[id] { return chord }
+        guard descriptor(for: id)?.shortcutLabel == nil, effectiveShortcut(for: id) == nil else { return nil }
+        return effectiveChord(for: id)
+    }
+
     /// A numbered family (`⌘1…9`) keyed by its `1`, also when cmux.json
     /// moves it (`cmd+opt+1`, or `["ctrl+b", "1"]`).
     func isDigitFamily(_ id: ActionID, _ shortcut: Shortcut) -> Bool {
@@ -40,7 +49,7 @@ extension ActionRegistry {
     /// Compact text for `id`'s shortcut (`⇧⌘P`), or nil.
     public func shortcutDisplay(for id: ActionID) -> String? {
         let id = canonicalID(for: id)
-        if let chord = chordOverrides[id] { return shortcutDisplay(chord, for: id) }
+        if let chord = shownChord(for: id) { return shortcutDisplay(chord, for: id) }
         guard let caps = shortcutKeycaps(for: id) else { return nil }
         let isSequence = shortcutOverrides[id] == nil && descriptor(for: id)?.shortcutLabel != nil
         return caps.joined(separator: isSequence ? " " : "")
@@ -101,13 +110,14 @@ extension ActionRegistry {
         var ids = descriptors.map(\.id)
         ids += actions.map(\.id).filter { descriptorIndexByID[$0] == nil }
         for id in ids {
-            if let chord = chordOverrides[id] {
+            if let chord = effectiveChord(for: id) {
                 if isDigitFamily(id, chord.second) {
                     index.chordDigitFamilies[chord.first, default: [:]][chord.second, default: []].append(id)
                 } else {
                     index.chords[chord.first, default: [:]][chord.second, default: []].append(id)
                 }
-                continue
+                // A default chord adds to the single key; a cmux.json one replaces it.
+                if chordOverrides[id] != nil { continue }
             }
             guard let shortcut = effectiveShortcut(for: id) else { continue }
             if isDigitFamily(id, shortcut) {

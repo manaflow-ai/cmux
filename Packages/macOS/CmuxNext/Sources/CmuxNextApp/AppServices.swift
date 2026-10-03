@@ -209,6 +209,7 @@ final class AppServices {
         cache.pageRequests.services = self
         keyRouter = KeyRouter(registry: registry)
         keyRouter.services = self
+        keyRouter.whichKey = WhichKeyController(registry: registry)
         cache.keyRouter = keyRouter
         cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
         cache.onBrowserEntryCreated = { [registry, unowned self] entry in
@@ -259,8 +260,9 @@ final class AppServices {
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
         (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] window in
             self?.notifications.noteMouseDown(in: window)
-            // A click anywhere ends link hints (it may move the keyboard).
+            // A click anywhere ends link hints and a waiting chord (it may move the keyboard).
             self?.linkHints.cancel()
+            self?.keyRouter.cancelChord()
         }
     }
 

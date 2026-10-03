@@ -37,7 +37,7 @@ public import AppKit
         guard editor != nil, let descriptor = registry.descriptor(for: id) else { return false }
         writeState(ShortcutRecorderState(
             actionID: descriptor.id, actionTitle: descriptor.title, currentKeycaps: registry.shortcutKeycaps(for: descriptor.id),
-            message: ShortcutRecorderStrings.recorderPrompt, hasDefault: descriptor.defaultShortcut != nil))
+            message: ShortcutRecorderStrings.recorderPrompt, hasDefault: descriptor.defaultShortcut != nil || descriptor.defaultChord != nil))
         return true
     }
 

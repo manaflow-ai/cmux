@@ -109,7 +109,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.toggleDictation",
             "toggleTerminalCopyMode", "palette.terminalToggleTextBoxInput", "cycleTextBoxSubmitAction",
             "attachTextBoxFile", "sendCtrlFToTerminal", "pasteLastScreenshot", "find", "findInDirectory", "findNext",
-            "findPrevious", "hideFind", "toggleUnread",
+            "findPrevious", "hideFind", "toggleUnread", "terminal.scrollToSelection",
         ],
         .dragGesture: [
             "space.move", "browser.extension.move", "bookmark.move",
