@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "9a93a666e8f059fe58fafce71e3c8f25d47a930c49c9058ed455f3ca46b21d7b";
+inline constexpr std::string_view kProtocolIrSha256 = "7df8134084243af1f2fb7eab1f15ab29c9fe1165237c31c95b037c0099a1b75c";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -105,6 +105,7 @@ struct ReportAgentResult;
 struct ResizeSurfaceResult;
 struct ResolveTerminalResult;
 struct ResourceSelectors;
+struct RowMarkerPoint;
 struct RunResult;
 struct Screen;
 struct ServerStatsConnections;
@@ -132,6 +133,8 @@ struct SizePolicy;
 enum class SizeReason;
 struct SizeState;
 struct SizingIdentity;
+struct SnapshotRequestHave;
+struct SnapshotRequestResult;
 enum class SplitDirection;
 struct SplitRespawn;
 struct SurfaceResult;
@@ -143,12 +146,15 @@ struct TerminalCommandHistoryResult;
 struct TerminalEventsResult;
 struct TerminalExit;
 struct TerminalExitOutcome;
+struct TerminalHistoryPage;
+struct TerminalHistoryPagesResult;
 enum class TerminalKey;
 enum class TerminalKeyAction;
 struct TerminalKeyInput;
 enum class TerminalLifecycle;
 struct TerminalModifiers;
 struct TerminalPlacement;
+struct TerminalReadRangeResult;
 struct TerminalRecord;
 struct TerminalRegistryEvent;
 struct TerminalResourceHost;
@@ -348,10 +354,13 @@ struct SetWindowTitleRequest;
 struct SetWorkspaceMetadataRequest;
 struct ShutdownDaemonRequest;
 struct SidebarPluginRequest;
+struct SnapshotRequestRequest;
 struct SplitRequest;
 struct SubscribeRequest;
 struct SwapPaneRequest;
 struct TerminalEventsRequest;
+struct TerminalHistoryRequest;
+struct TerminalReadRangeRequest;
 struct TerminalResourcesRequest;
 struct UndoLayoutRequest;
 struct UngroupScreenGroupRequest;
@@ -444,6 +453,7 @@ enum class IdMappingKind;
 struct LayoutLeaf;
 struct LayoutSplit;
 struct LayoutStack;
+enum class SnapshotRequestResultStatus;
 enum class TabBrowserSource;
 enum class TabBrowserStatus;
 enum class TabKind;
@@ -593,7 +603,10 @@ struct AttachSurfaceRequest {
     Field<std::string> expected_terminal_id{};
     Field<AttachSurfaceRequestMode> mode{};
     Field<std::uint16_t> rows{};
+    Field<std::string> snapshot{};
+    Field<std::uint16_t> snapshot_version{};
     Field<Id> surface{};
+    Field<std::uint64_t> viewer_backlog_bytes{};
     friend bool operator==(const AttachSurfaceRequest&, const AttachSurfaceRequest&) = default;
 };
 
@@ -2991,6 +3004,12 @@ struct ResolveTerminalResult {
     friend bool operator==(const ResolveTerminalResult&, const ResolveTerminalResult&) = default;
 };
 
+struct RowMarkerPoint {
+    std::uint16_t col{};
+    std::uint64_t row_marker{};
+    friend bool operator==(const RowMarkerPoint&, const RowMarkerPoint&) = default;
+};
+
 struct RunRequest {
     Field<std::vector<std::string>> argv{};
     Field<std::uint16_t> cols{};
@@ -3444,6 +3463,36 @@ struct SizeStateEvent {
     friend bool operator==(const SizeStateEvent&, const SizeStateEvent&) = default;
 };
 
+struct SnapshotRequestHave {
+    Field<std::uint64_t> generation{};
+    Field<std::uint64_t> offset{};
+    Field<std::uint16_t> snapshot_version{};
+    friend bool operator==(const SnapshotRequestHave&, const SnapshotRequestHave&) = default;
+};
+
+struct SnapshotRequestRequest {
+    Field<SnapshotRequestHave> have{};
+    Field<std::string> reason{};
+    Field<std::string> request_id{};
+    Id surface{};
+    friend bool operator==(const SnapshotRequestRequest&, const SnapshotRequestRequest&) = default;
+};
+
+enum class SnapshotRequestResultStatus {
+    accepted,
+    collapsed,
+    snapshot_throttled,
+};
+
+struct SnapshotRequestResult {
+    Field<std::string> reason{};
+    Field<std::string> request_id{};
+    Field<std::uint64_t> retry_after_ms{};
+    SnapshotRequestResultStatus status{};
+    Id surface{};
+    friend bool operator==(const SnapshotRequestResult&, const SnapshotRequestResult&) = default;
+};
+
 struct SplitRequest {
     Field<std::uint16_t> cols{};
     Field<std::string> cwd{};
@@ -3584,6 +3633,31 @@ struct TerminalEventsResult {
     friend bool operator==(const TerminalEventsResult&, const TerminalEventsResult&) = default;
 };
 
+struct TerminalHistoryPage {
+    std::string data{};
+    std::uint64_t marker{};
+    std::uint16_t rows{};
+    friend bool operator==(const TerminalHistoryPage&, const TerminalHistoryPage&) = default;
+};
+
+struct TerminalHistoryPagesResult {
+    bool done{};
+    std::uint64_t marker_epoch{};
+    Field<std::uint64_t> next_before{};
+    std::vector<TerminalHistoryPage> pages{};
+    std::uint16_t snapshot_version{};
+    Id surface{};
+    friend bool operator==(const TerminalHistoryPagesResult&, const TerminalHistoryPagesResult&) = default;
+};
+
+struct TerminalHistoryRequest {
+    Field<std::uint64_t> before{};
+    Field<std::uint64_t> marker_epoch{};
+    Field<std::uint64_t> max_bytes{};
+    Id surface{};
+    friend bool operator==(const TerminalHistoryRequest&, const TerminalHistoryRequest&) = default;
+};
+
 struct TerminalPlacement {
     bool already_exited{};
     std::optional<TerminalExit> exit{};
@@ -3600,6 +3674,21 @@ struct TerminalPlacement {
     std::uint64_t terminal_revision{};
     std::optional<Id> workspace{};
     friend bool operator==(const TerminalPlacement&, const TerminalPlacement&) = default;
+};
+
+struct TerminalReadRangeRequest {
+    Field<std::string> format{};
+    RowMarkerPoint from{};
+    Field<std::uint64_t> marker_epoch{};
+    Id surface{};
+    RowMarkerPoint to{};
+    friend bool operator==(const TerminalReadRangeRequest&, const TerminalReadRangeRequest&) = default;
+};
+
+struct TerminalReadRangeResult {
+    Id surface{};
+    std::string text{};
+    friend bool operator==(const TerminalReadRangeResult&, const TerminalReadRangeResult&) = default;
 };
 
 struct TerminalReapedEvent {
@@ -4491,6 +4580,12 @@ struct Codec<ResourceSelectors> {
 };
 
 template <>
+struct Codec<RowMarkerPoint> {
+    static Result<Json> encode(const RowMarkerPoint& value);
+    static Result<RowMarkerPoint> decode(const Json& value);
+};
+
+template <>
 struct Codec<RunResult> {
     static Result<Json> encode(const RunResult& value);
     static Result<RunResult> decode(const Json& value);
@@ -4653,6 +4748,18 @@ struct Codec<SizingIdentity> {
 };
 
 template <>
+struct Codec<SnapshotRequestHave> {
+    static Result<Json> encode(const SnapshotRequestHave& value);
+    static Result<SnapshotRequestHave> decode(const Json& value);
+};
+
+template <>
+struct Codec<SnapshotRequestResult> {
+    static Result<Json> encode(const SnapshotRequestResult& value);
+    static Result<SnapshotRequestResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<SplitDirection> {
     static Result<Json> encode(const SplitDirection& value);
     static Result<SplitDirection> decode(const Json& value);
@@ -4719,6 +4826,18 @@ struct Codec<TerminalExitOutcome> {
 };
 
 template <>
+struct Codec<TerminalHistoryPage> {
+    static Result<Json> encode(const TerminalHistoryPage& value);
+    static Result<TerminalHistoryPage> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalHistoryPagesResult> {
+    static Result<Json> encode(const TerminalHistoryPagesResult& value);
+    static Result<TerminalHistoryPagesResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<TerminalKey> {
     static Result<Json> encode(const TerminalKey& value);
     static Result<TerminalKey> decode(const Json& value);
@@ -4752,6 +4871,12 @@ template <>
 struct Codec<TerminalPlacement> {
     static Result<Json> encode(const TerminalPlacement& value);
     static Result<TerminalPlacement> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalReadRangeResult> {
+    static Result<Json> encode(const TerminalReadRangeResult& value);
+    static Result<TerminalReadRangeResult> decode(const Json& value);
 };
 
 template <>
@@ -5949,6 +6074,12 @@ struct Codec<SidebarPluginRequest> {
 };
 
 template <>
+struct Codec<SnapshotRequestRequest> {
+    static Result<Json> encode(const SnapshotRequestRequest& value);
+    static Result<SnapshotRequestRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<SplitRequest> {
     static Result<Json> encode(const SplitRequest& value);
     static Result<SplitRequest> decode(const Json& value);
@@ -5970,6 +6101,18 @@ template <>
 struct Codec<TerminalEventsRequest> {
     static Result<Json> encode(const TerminalEventsRequest& value);
     static Result<TerminalEventsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalHistoryRequest> {
+    static Result<Json> encode(const TerminalHistoryRequest& value);
+    static Result<TerminalHistoryRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalReadRangeRequest> {
+    static Result<Json> encode(const TerminalReadRangeRequest& value);
+    static Result<TerminalReadRangeRequest> decode(const Json& value);
 };
 
 template <>
@@ -6522,6 +6665,12 @@ template <>
 struct Codec<LayoutStack> {
     static Result<Json> encode(const LayoutStack& value);
     static Result<LayoutStack> decode(const Json& value);
+};
+
+template <>
+struct Codec<SnapshotRequestResultStatus> {
+    static Result<Json> encode(const SnapshotRequestResultStatus& value);
+    static Result<SnapshotRequestResultStatus> decode(const Json& value);
 };
 
 template <>

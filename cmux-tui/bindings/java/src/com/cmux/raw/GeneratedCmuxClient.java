@@ -918,6 +918,11 @@ public abstract class GeneratedCmuxClient {
         return SidebarPluginResult.fromWire(result);
     }
 
+    public final SnapshotRequestResult snapshotRequest(SnapshotRequestRequest request) throws CmuxException {
+        Object result = execute(Commands.SNAPSHOT_REQUEST, request.toWire());
+        return SnapshotRequestResult.fromWire(result);
+    }
+
     public final SurfaceResult split(SplitRequest request) throws CmuxException {
         Object result = execute(Commands.SPLIT, request.toWire());
         return SurfaceResult.fromWire(result);
@@ -935,6 +940,16 @@ public abstract class GeneratedCmuxClient {
     public final TerminalEventsResult terminalEvents(TerminalEventsRequest request) throws CmuxException {
         Object result = execute(Commands.TERMINAL_EVENTS, request.toWire());
         return TerminalEventsResult.fromWire(result);
+    }
+
+    public final TerminalHistoryPagesResult terminalHistory(TerminalHistoryRequest request) throws CmuxException {
+        Object result = execute(Commands.TERMINAL_HISTORY, request.toWire());
+        return TerminalHistoryPagesResult.fromWire(result);
+    }
+
+    public final TerminalReadRangeResult terminalReadRange(TerminalReadRangeRequest request) throws CmuxException {
+        Object result = execute(Commands.TERMINAL_READ_RANGE, request.toWire());
+        return TerminalReadRangeResult.fromWire(result);
     }
 
     public final TerminalResourcesResult terminalResources(TerminalResourcesRequest request) throws CmuxException {

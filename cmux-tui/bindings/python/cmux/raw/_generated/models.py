@@ -967,6 +967,13 @@ class ResourceSelectors:
 
 
 @dataclass(frozen=True)
+class RowMarkerPoint:
+    __cmux_schema_path__: ClassVar[str] = 'types/RowMarkerPoint'
+    col: int
+    row_marker: int
+
+
+@dataclass(frozen=True)
 class RunResult:
     __cmux_schema_path__: ClassVar[str] = 'types/RunResult'
     surface: Union[Id, None]
@@ -1193,6 +1200,24 @@ class SizingIdentity:
 
 
 @dataclass(frozen=True)
+class SnapshotRequestHave:
+    __cmux_schema_path__: ClassVar[str] = 'types/SnapshotRequestHave'
+    generation: Union[int, None, MissingType] = field(default=MISSING)
+    offset: Union[int, None, MissingType] = field(default=MISSING)
+    snapshot_version: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SnapshotRequestResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/SnapshotRequestResult'
+    surface: Id
+    status: Literal['accepted', 'collapsed', 'snapshot_throttled']
+    reason: Union[str, None, MissingType] = field(default=MISSING)
+    request_id: Union[str, None, MissingType] = field(default=MISSING)
+    retry_after_ms: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SplitRespawn:
     __cmux_schema_path__: ClassVar[str] = 'types/SplitRespawn'
     kind: str
@@ -1301,6 +1326,25 @@ class TerminalExitOutcomeUnknown:
 
 
 @dataclass(frozen=True)
+class TerminalHistoryPage:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalHistoryPage'
+    data: str
+    marker: int
+    rows: int
+
+
+@dataclass(frozen=True)
+class TerminalHistoryPagesResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalHistoryPagesResult'
+    surface: Id
+    done: bool
+    marker_epoch: int
+    pages: List[TerminalHistoryPage]
+    snapshot_version: int
+    next_before: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class TerminalKeyInput:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalKeyInput'
     consumed_mods: TerminalModifiers
@@ -1343,6 +1387,13 @@ class TerminalPlacement:
     replayed: bool
     terminal_incarnation: Union[str, None]
     terminal_revision: int
+
+
+@dataclass(frozen=True)
+class TerminalReadRangeResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalReadRangeResult'
+    surface: Id
+    text: str
 
 
 @dataclass(frozen=True)
@@ -1507,6 +1558,9 @@ class AttachSurfaceRequest:
     expected_terminal_id: Union[str, None, MissingType] = field(default=MISSING)
     mode: Union[Literal['bytes', 'render'], None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
+    snapshot: Union[str, None, MissingType] = field(default=MISSING)
+    snapshot_version: Union[int, None, MissingType] = field(default=MISSING)
+    viewer_backlog_bytes: Union[int, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3035,6 +3089,15 @@ class SidebarPluginRequest:
 
 
 @dataclass(frozen=True)
+class SnapshotRequestRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/snapshot-request/request'
+    surface: Id
+    have: Union[SnapshotRequestHave, None, MissingType] = field(default=MISSING)
+    reason: Union[str, None, MissingType] = field(default=MISSING)
+    request_id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SplitRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/split/request'
     pane: Id
@@ -3067,6 +3130,25 @@ class SwapPaneRequest:
 class TerminalEventsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/terminal-events/request'
     after_revision: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class TerminalHistoryRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/terminal-history/request'
+    surface: Id
+    before: Union[int, None, MissingType] = field(default=MISSING)
+    marker_epoch: Union[int, None, MissingType] = field(default=MISSING)
+    max_bytes: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class TerminalReadRangeRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/terminal-read-range/request'
+    surface: Id
+    from_: RowMarkerPoint = field(metadata={'wire_name': 'from'})
+    to: RowMarkerPoint
+    format: Union[str, None, MissingType] = field(default=MISSING)
+    marker_epoch: Union[int, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4016,6 +4098,7 @@ __all__ = [
     'ResizeSurfaceResult',
     'ResolveTerminalResult',
     'ResourceSelectors',
+    'RowMarkerPoint',
     'RunResult',
     'Screen',
     'ServerStatsConnections',
@@ -4039,6 +4122,8 @@ __all__ = [
     'SizePolicy',
     'SizeState',
     'SizingIdentity',
+    'SnapshotRequestHave',
+    'SnapshotRequestResult',
     'SplitRespawn',
     'SurfaceResult',
     'Tab',
@@ -4050,9 +4135,12 @@ __all__ = [
     'TerminalExitOutcomeExit',
     'TerminalExitOutcomeSignal',
     'TerminalExitOutcomeUnknown',
+    'TerminalHistoryPage',
+    'TerminalHistoryPagesResult',
     'TerminalKeyInput',
     'TerminalModifiers',
     'TerminalPlacement',
+    'TerminalReadRangeResult',
     'TerminalRecord',
     'TerminalRegistryEvent',
     'TerminalResourceHost',
@@ -4250,10 +4338,13 @@ __all__ = [
     'SetWorkspaceMetadataRequest',
     'ShutdownDaemonRequest',
     'SidebarPluginRequest',
+    'SnapshotRequestRequest',
     'SplitRequest',
     'SubscribeRequest',
     'SwapPaneRequest',
     'TerminalEventsRequest',
+    'TerminalHistoryRequest',
+    'TerminalReadRangeRequest',
     'TerminalResourcesRequest',
     'UndoLayoutRequest',
     'UngroupScreenGroupRequest',

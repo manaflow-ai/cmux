@@ -57,8 +57,8 @@
     },
     {
       "path": "AttachSurfaceRequest.java",
-      "sha256": "52f9f53809ccd42d3b50a57d897991945b273a43c19e1d046add825262e40c81",
-      "size": 5612
+      "sha256": "f6ccfc67fc40031322c5e4a280c00fe01add93ad1a736a92b5e443b6f99068ba",
+      "size": 7981
     },
     {
       "path": "AttachSurfaceRequestMode.java",
@@ -357,8 +357,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "b0be79c9c6d2389a1c30329f4802df14ce4a9c262df012961c868db4d1a1ef5d",
-      "size": 54923
+      "sha256": "80fe024e07e78c869a5f94f73da3de8ed8dfb66808e5cd73297d023b80d809ff",
+      "size": 55823
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -682,8 +682,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "51e5059e244191a272757d0d5bb9247a596d06771997932ed813443505635be9",
-      "size": 48317
+      "sha256": "2bed7b1272d7650cc820609ee3e2b89603d51b512836a966ac62c428a94ab9fe",
+      "size": 49088
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -1252,7 +1252,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "d6d02d5cdcaf9e8d1ddf1b270f184f90fa1789ef26c498b33c08bef3b70c5bb3",
+      "sha256": "06eb63a60f3ecda8ac4cf059d65bfc4e8ddf544ae2a694ec5c83eec5edd86cbd",
       "size": 4943
     },
     {
@@ -1489,6 +1489,11 @@
       "path": "ResourceSelectors.java",
       "sha256": "4e2e6307894a450e4a2ffbbc5f27c795be5ec759abaa895aa14f1a18f4fffac9",
       "size": 11972
+    },
+    {
+      "path": "RowMarkerPoint.java",
+      "sha256": "9940e27b7667dc231356c9ebe40f09db5b19cf42499d286652e114fb8c26c698",
+      "size": 2551
     },
     {
       "path": "RunRequest.java",
@@ -1826,6 +1831,26 @@
       "size": 4680
     },
     {
+      "path": "SnapshotRequestHave.java",
+      "sha256": "9a477f5413d619c14b176aceaf9c4a00aefafd1e52d4f035d45e20a19321f0f4",
+      "size": 3435
+    },
+    {
+      "path": "SnapshotRequestRequest.java",
+      "sha256": "b1c9fcd28a42ef02ae9ae7949f2675fd077df425c041e122f3b6a2c02036c6d4",
+      "size": 4041
+    },
+    {
+      "path": "SnapshotRequestResult.java",
+      "sha256": "3e70a3d25ef768c8accf125165465593db7b3c03b7605d4da3da5dc147683fe0",
+      "size": 4833
+    },
+    {
+      "path": "SnapshotRequestResultStatus.java",
+      "sha256": "b92910b5440399a03c649bfe646dc5ad46e6ddc573d1957d1091e1bec328bcfc",
+      "size": 1015
+    },
+    {
       "path": "SplitDirection.java",
       "sha256": "c519c6eece8f31cba215694c9fc1e4ccf7d827ce6aaec1f55bf35e0de9c3189d",
       "size": 888
@@ -1986,6 +2011,21 @@
       "size": 2270
     },
     {
+      "path": "TerminalHistoryPage.java",
+      "sha256": "000d7bd2edb54dd962482f58f136442cee92486fe90cb87bc3d3eab7f9b9fb42",
+      "size": 3178
+    },
+    {
+      "path": "TerminalHistoryPagesResult.java",
+      "sha256": "025ede2069f5361b5b67e1b3839b0b01183b57555e6122c268dda91adfcb064c",
+      "size": 5818
+    },
+    {
+      "path": "TerminalHistoryRequest.java",
+      "sha256": "08e9401e98999af5e863efffa501024feecadb1e9151b3f4a2691e406512a02d",
+      "size": 4125
+    },
+    {
       "path": "TerminalKey.java",
       "sha256": "8f72b2ea039793f3acac44fd4fca4e40b628ea19f3f89835f3acc0962e72be78",
       "size": 3275
@@ -2014,6 +2054,16 @@
       "path": "TerminalPlacement.java",
       "sha256": "dac1c0f9828e387d889a1a6cf097a2545f34d6f7b254f2aaef38f8d749c7553c",
       "size": 11717
+    },
+    {
+      "path": "TerminalReadRangeRequest.java",
+      "sha256": "32dad5182a93544a99d5d3fb9c3ac4347d6e0c50cf2b298b43465a46d09f44bc",
+      "size": 4735
+    },
+    {
+      "path": "TerminalReadRangeResult.java",
+      "sha256": "a6584c680e7fa0ecf7b5121a6dac7789850dc356000d5ed0d8413f83cad85c56",
+      "size": 2642
     },
     {
       "path": "TerminalReapedEvent.java",
@@ -2267,7 +2317,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "9a93a666e8f059fe58fafce71e3c8f25d47a930c49c9058ed455f3ca46b21d7b",
+  "ir_sha256": "7df8134084243af1f2fb7eab1f15ab29c9fe1165237c31c95b037c0099a1b75c",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

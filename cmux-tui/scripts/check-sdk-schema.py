@@ -29,6 +29,8 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "ClientIdentityWire": "SizingIdentity",
     "SplitRespawnRequest": "SplitRespawn",
     "crate::model::ColumnSticky": "ColumnPin",
+    "SnapshotHave": "SnapshotRequestHave",
+    "RowMarkerPoint": "RowMarkerPoint",
 }
 
 sys.path.insert(0, str(BINDINGS))
@@ -241,12 +243,22 @@ def _expand_flattened(
     expanded: dict[str, RuntimeField] = {}
     for field_name, field in parsed.items():
         if any(re.search(r"\bflatten\b", value) for value in field.attributes):
-            if not re.fullmatch(r"[A-Z][A-Za-z0-9]*", field.rust_type) or not re.search(
-                rf"(?m)^(?:pub(?:\([a-z:]+\))? )?struct {re.escape(field.rust_type)} \{{",
-                source,
+            # `module::Type` names a request struct in `server/<module>.rs`.
+            flat_source, flat_type = source, field.rust_type
+            qualified = re.fullmatch(r"([a-z_]+)::([A-Z][A-Za-z0-9]*)", field.rust_type)
+            if qualified:
+                module_path = SERVER.with_suffix("") / f"{qualified.group(1)}.rs"
+                try:
+                    flat_source = module_path.read_text(encoding="utf-8")
+                except (OSError, UnicodeError) as error:
+                    fail(f"cannot read {module_path.relative_to(ROOT)}: {error}")
+                flat_type = qualified.group(2)
+            if not re.fullmatch(r"[A-Z][A-Za-z0-9]*", flat_type) or not re.search(
+                rf"(?m)^(?:pub(?:\([a-z:]+\))? )?struct {re.escape(flat_type)} \{{",
+                flat_source,
             ):
                 fail(f"unsupported flattened Rust request type {field.rust_type!r} in {label}")
-            for flat_name, flat_field in _rust_struct_fields(source, field.rust_type).items():
+            for flat_name, flat_field in _rust_struct_fields(flat_source, flat_type).items():
                 if flat_name in expanded:
                     fail(f"duplicate flattened request field {flat_name!r} in {label}")
                 expanded[flat_name] = flat_field

@@ -118,7 +118,10 @@ use responses::{
 use screen_json::screen_json;
 use split_respawn::{SplitRespawnRequest, placement_spawn_options, shell_argv, split_tab};
 mod terminal_create;
+mod terminal_history;
 mod terminal_resources;
+mod terminal_snapshot;
+use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
 mod url_open;
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
@@ -399,6 +402,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         SIZING_VIEW_DETACH_CAPABILITY,
         TERMINAL_COLOR_OVERRIDES_CAPABILITY,
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
+        terminal_snapshot::TERMINAL_SNAPSHOT_CAPABILITY,
         CREATION_RECEIPTS_CAPABILITY,
         CREATION_ATTEMPT_KEYS_CAPABILITY,
         CREATION_SELECTOR_FALLBACKS_CAPABILITY,
@@ -2446,7 +2450,15 @@ enum Command {
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        #[serde(flatten)]
+        snapshot: terminal_snapshot::SnapshotAttachParams,
     },
+    /// One READY snapshot on the caller's snapshot attach (`terminal-snapshot-v1`).
+    SnapshotRequest(terminal_snapshot::SnapshotRequestParams),
+    /// GHOSTSNP history pages above a row marker (`terminal.history`).
+    TerminalHistory(terminal_history::TerminalHistoryParams),
+    /// Text or VT of a row-marker range (`terminal.read_range`).
+    TerminalReadRange(terminal_history::TerminalReadRangeParams),
     /// Scroll a surface's viewport by a row delta (negative is up).
     ScrollSurface {
         surface: SurfaceId,
@@ -5251,6 +5263,7 @@ pub(crate) struct ClientRegistry {
     url_opens: url_open::URLRequests,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
     loopback: loopback_forward::LoopbackForwarder,
+    pub(crate) snapshot_viewers: terminal_snapshot::SnapshotViewers,
     next_id: AtomicU64,
     resource_stream_admission: Arc<ResourceWorkerAdmission>,
     resource_wait_admission: Arc<ResourceWorkerAdmission>,
@@ -5264,6 +5277,7 @@ impl ClientRegistry {
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
             loopback: loopback_forward::LoopbackForwarder::default(),
+            snapshot_viewers: Default::default(),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
                 RESOURCE_STREAMS_SERVER_CAPACITY,
@@ -12799,25 +12813,6 @@ fn spawn_attach_notification_stream(
         .map(|_| ())
 }
 
-fn report_attach_overflow(
-    writer: &MessageWriter,
-    surface_id: SurfaceId,
-    lifecycle: &AttachLifecycle,
-    outbound_stream: &OutboundStream,
-) {
-    if lifecycle.claim_overflow_report() {
-        let _ = writer.send_terminal(&attach_overflow_json(surface_id), outbound_stream);
-    }
-}
-
-fn handle_attach_send_error(lifecycle: &AttachLifecycle, error: &std::io::Error) {
-    if error.kind() == std::io::ErrorKind::WouldBlock {
-        lifecycle.mark_overflow();
-    } else {
-        lifecycle.cancel();
-    }
-}
-
 struct MarkedClientAttach {
     lease: Option<String>,
     size_rollback: Option<crate::mux::ClientSizeRollback>,
@@ -15581,6 +15576,9 @@ fn handle_command_with_cancellation(
                 None => json!({"pane": null, "tab": null}),
             })
         }
+        Command::SnapshotRequest(params) => terminal_snapshot::handle_request(mux, client, params),
+        Command::TerminalHistory(params) => terminal_history::history(mux, params),
+        Command::TerminalReadRange(params) => terminal_history::read_range(mux, params),
         Command::ScrollSurface { surface, delta } => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
@@ -15685,6 +15683,7 @@ fn handle_command_with_cancellation(
             rows,
             expected_generation,
             expected_terminal_id,
+            snapshot,
         } => {
             let initial_size = match (cols, rows) {
                 (Some(cols), Some(rows)) => Some((cols, rows)),
@@ -15747,6 +15746,12 @@ fn handle_command_with_cancellation(
                          command; upgrade or restart the cmux-tui client"
                     );
                 }
+            }
+            if surface.kind() == SurfaceKind::Pty
+                && mode.as_deref().unwrap_or("bytes") == "bytes"
+                && snapshot.wants_snapshot()?
+            {
+                return snapshot.attach(mux, client, surface, writer, initial_size);
             }
             let lifecycle = AttachLifecycle::default();
             let outbound_stream = writer.start_stream(&attach_overflow_json(surface_id))?;
@@ -16397,15 +16402,6 @@ fn subscription_overflow_json() -> Value {
     json!({
         "event": "overflow",
         "error": "subscriber fell behind; resubscribe to continue receiving events",
-    })
-}
-
-fn attach_overflow_json(surface: SurfaceId) -> Value {
-    json!({
-        "event": "overflow",
-        "scope": "surface",
-        "surface": surface,
-        "error": "surface stream fell behind; reattach the surface",
     })
 }
 
@@ -23175,6 +23171,7 @@ mod tests {
                 rows: None,
                 expected_generation: Some(generation),
                 expected_terminal_id: Some(terminal),
+                snapshot: Default::default(),
             };
             let error = handle_command(&mux, client, command, &writer).unwrap_err();
             assert!(error.to_string().contains(expected), "{error:#}");
@@ -23186,6 +23183,7 @@ mod tests {
             rows: None,
             expected_generation: Some(mux.registry_identity().1),
             expected_terminal_id: Some(terminal),
+            snapshot: Default::default(),
         };
         handle_command(&mux, client, command, &writer).unwrap();
         disconnect_client(&mux, client, false);
@@ -23224,6 +23222,7 @@ mod tests {
                 rows: None,
                 expected_generation: None,
                 expected_terminal_id: None,
+                snapshot: Default::default(),
             },
             &writer,
         );
@@ -27708,7 +27707,7 @@ mod tests {
             serde_json::from_value::<ProtocolKeyInput>(inactive_consumed_modifier).unwrap();
         assert!(KeyInput::try_from(inactive_consumed_modifier).is_err());
 
-        let invalid_key = KeyInput { key: u32::MAX, ..input.clone() };
+        let invalid_key = KeyInput { key: sys::GhosttyKey::MAX, ..input.clone() };
         assert!(ProtocolKeyInput::try_from(&invalid_key).is_err());
         let invalid_mods = KeyInput { mods: Mods(u16::MAX), ..input.clone() };
         assert!(ProtocolKeyInput::try_from(&invalid_mods).is_err());

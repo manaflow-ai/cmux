@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '9a93a666e8f059fe58fafce71e3c8f25d47a930c49c9058ed455f3ca46b21d7b'
+IR_SHA256 = '7df8134084243af1f2fb7eab1f15ab29c9fe1165237c31c95b037c0099a1b75c'
 
 
 @dataclass(frozen=True)
@@ -103,7 +103,10 @@ COMMANDS = {
             'expected_terminal_id': CommandFieldMetadata(None, 'attach-identity-v1'),
             'mode': CommandFieldMetadata(7, None),
             'rows': CommandFieldMetadata(None, 'attach-initial-size'),
+            'snapshot': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
+            'snapshot_version': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
             'surface': CommandFieldMetadata(None, None),
+            'viewer_backlog_bytes': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
         },
     ),
     'browser-activate': CommandMetadata(
@@ -2467,6 +2470,20 @@ COMMANDS = {
             'rows': CommandFieldMetadata(None, None),
         },
     ),
+    'snapshot-request': CommandMetadata(
+        'snapshot-request',
+        'frontend',
+        12,
+        'terminal-snapshot-v1',
+        ('frontend',),
+        None,
+        {
+            'have': CommandFieldMetadata(None, None),
+            'reason': CommandFieldMetadata(None, None),
+            'request_id': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
     'split': CommandMetadata(
         'split',
         'control',
@@ -2520,6 +2537,35 @@ COMMANDS = {
         None,
         {
             'after_revision': CommandFieldMetadata(None, None),
+        },
+    ),
+    'terminal-history': CommandMetadata(
+        'terminal-history',
+        'control',
+        12,
+        'terminal-snapshot-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'before': CommandFieldMetadata(None, None),
+            'marker_epoch': CommandFieldMetadata(None, None),
+            'max_bytes': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'terminal-read-range': CommandMetadata(
+        'terminal-read-range',
+        'control',
+        12,
+        'terminal-snapshot-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'format': CommandFieldMetadata(None, None),
+            'from': CommandFieldMetadata(None, None),
+            'marker_epoch': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'to': CommandFieldMetadata(None, None),
         },
     ),
     'terminal-resources': CommandMetadata(

@@ -17,7 +17,10 @@ public final class AttachSurfaceRequest implements WireValue {
     private final Field<String> expectedTerminalId;
     private final Field<AttachSurfaceRequestMode> mode;
     private final Field<Integer> rows;
+    private final Field<String> snapshot;
+    private final Field<Integer> snapshotVersion;
     private final Field<UInt64> surface;
+    private final Field<UInt64> viewerBacklogBytes;
 
     private AttachSurfaceRequest(Builder builder) {
         this.cols = builder.cols;
@@ -25,7 +28,10 @@ public final class AttachSurfaceRequest implements WireValue {
         this.expectedTerminalId = builder.expectedTerminalId;
         this.mode = builder.mode;
         this.rows = builder.rows;
+        this.snapshot = builder.snapshot;
+        this.snapshotVersion = builder.snapshotVersion;
         this.surface = builder.surface;
+        this.viewerBacklogBytes = builder.viewerBacklogBytes;
     }
 
     public static Builder builder() { return new Builder(); }
@@ -35,7 +41,10 @@ public final class AttachSurfaceRequest implements WireValue {
     public Field<String> expectedTerminalId() { return expectedTerminalId; }
     public Field<AttachSurfaceRequestMode> mode() { return mode; }
     public Field<Integer> rows() { return rows; }
+    public Field<String> snapshot() { return snapshot; }
+    public Field<Integer> snapshotVersion() { return snapshotVersion; }
     public Field<UInt64> surface() { return surface; }
+    public Field<UInt64> viewerBacklogBytes() { return viewerBacklogBytes; }
 
     public static AttachSurfaceRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "AttachSurfaceRequest");
@@ -60,9 +69,21 @@ public final class AttachSurfaceRequest implements WireValue {
         if (!Wire.isMissing(rawRows)) {
             builder.rows(rawRows == null ? null : Wire.uint16(rawRows, "AttachSurfaceRequest.rows"));
         }
+        Object rawSnapshot = Wire.optional(object, "snapshot");
+        if (!Wire.isMissing(rawSnapshot)) {
+            builder.snapshot(rawSnapshot == null ? null : Wire.string(rawSnapshot, "AttachSurfaceRequest.snapshot"));
+        }
+        Object rawSnapshotVersion = Wire.optional(object, "snapshot_version");
+        if (!Wire.isMissing(rawSnapshotVersion)) {
+            builder.snapshotVersion(rawSnapshotVersion == null ? null : Wire.uint16(rawSnapshotVersion, "AttachSurfaceRequest.snapshot_version"));
+        }
         Object rawSurface = Wire.optional(object, "surface");
         if (!Wire.isMissing(rawSurface)) {
             builder.surface(rawSurface == null ? null : Wire.uint64(rawSurface, "AttachSurfaceRequest.surface"));
+        }
+        Object rawViewerBacklogBytes = Wire.optional(object, "viewer_backlog_bytes");
+        if (!Wire.isMissing(rawViewerBacklogBytes)) {
+            builder.viewerBacklogBytes(rawViewerBacklogBytes == null ? null : Wire.uint64(rawViewerBacklogBytes, "AttachSurfaceRequest.viewer_backlog_bytes"));
         }
         return builder.build();
     }
@@ -75,18 +96,21 @@ public final class AttachSurfaceRequest implements WireValue {
         Wire.put(object, "expected_terminal_id", expectedTerminalId);
         Wire.put(object, "mode", mode);
         Wire.put(object, "rows", rows);
+        Wire.put(object, "snapshot", snapshot);
+        Wire.put(object, "snapshot_version", snapshotVersion);
         Wire.put(object, "surface", surface);
+        Wire.put(object, "viewer_backlog_bytes", viewerBacklogBytes);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof AttachSurfaceRequest that)) return false;
-        return Objects.equals(cols, that.cols) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedTerminalId, that.expectedTerminalId) && Objects.equals(mode, that.mode) && Objects.equals(rows, that.rows) && Objects.equals(surface, that.surface);
+        return Objects.equals(cols, that.cols) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedTerminalId, that.expectedTerminalId) && Objects.equals(mode, that.mode) && Objects.equals(rows, that.rows) && Objects.equals(snapshot, that.snapshot) && Objects.equals(snapshotVersion, that.snapshotVersion) && Objects.equals(surface, that.surface) && Objects.equals(viewerBacklogBytes, that.viewerBacklogBytes);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cols, expectedGeneration, expectedTerminalId, mode, rows, surface); }
+    public int hashCode() { return Objects.hash(cols, expectedGeneration, expectedTerminalId, mode, rows, snapshot, snapshotVersion, surface, viewerBacklogBytes); }
 
     @Override
     public String toString() { return "AttachSurfaceRequest" + toWire(); }
@@ -97,7 +121,10 @@ public final class AttachSurfaceRequest implements WireValue {
         private Field<String> expectedTerminalId = Field.omitted();
         private Field<AttachSurfaceRequestMode> mode = Field.omitted();
         private Field<Integer> rows = Field.omitted();
+        private Field<String> snapshot = Field.omitted();
+        private Field<Integer> snapshotVersion = Field.omitted();
         private Field<UInt64> surface = Field.omitted();
+        private Field<UInt64> viewerBacklogBytes = Field.omitted();
 
         public Builder cols(Integer value) {
             this.cols = Field.ofNullable(value);
@@ -119,8 +146,20 @@ public final class AttachSurfaceRequest implements WireValue {
             this.rows = Field.ofNullable(value);
             return this;
         }
+        public Builder snapshot(String value) {
+            this.snapshot = Field.ofNullable(value);
+            return this;
+        }
+        public Builder snapshotVersion(Integer value) {
+            this.snapshotVersion = Field.ofNullable(value);
+            return this;
+        }
         public Builder surface(UInt64 value) {
             this.surface = Field.ofNullable(value);
+            return this;
+        }
+        public Builder viewerBacklogBytes(UInt64 value) {
+            this.viewerBacklogBytes = Field.ofNullable(value);
             return this;
         }
         public AttachSurfaceRequest build() { return new AttachSurfaceRequest(this); }

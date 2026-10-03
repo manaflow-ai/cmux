@@ -78,6 +78,9 @@ impl AttachBuilder {
             rows,
             expected_generation: Optional::Missing,
             expected_terminal_id: Optional::Missing,
+            snapshot: Optional::Missing,
+            snapshot_version: Optional::Missing,
+            viewer_backlog_bytes: Optional::Missing,
         })
     }
 }

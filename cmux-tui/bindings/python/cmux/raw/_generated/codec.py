@@ -89,6 +89,7 @@ MODEL_BY_PATH = {
     'types/ResizeSurfaceResult': models.ResizeSurfaceResult,
     'types/ResolveTerminalResult': models.ResolveTerminalResult,
     'types/ResourceSelectors': models.ResourceSelectors,
+    'types/RowMarkerPoint': models.RowMarkerPoint,
     'types/RunResult': models.RunResult,
     'types/Screen': models.Screen,
     'types/ServerStatsConnections': models.ServerStatsConnections,
@@ -112,6 +113,8 @@ MODEL_BY_PATH = {
     'types/SizePolicy': models.SizePolicy,
     'types/SizeState': models.SizeState,
     'types/SizingIdentity': models.SizingIdentity,
+    'types/SnapshotRequestHave': models.SnapshotRequestHave,
+    'types/SnapshotRequestResult': models.SnapshotRequestResult,
     'types/SplitRespawn': models.SplitRespawn,
     'types/SurfaceResult': models.SurfaceResult,
     'types/Tab': models.Tab,
@@ -123,9 +126,12 @@ MODEL_BY_PATH = {
     'types/TerminalExitOutcome/variants/exit': models.TerminalExitOutcomeExit,
     'types/TerminalExitOutcome/variants/signal': models.TerminalExitOutcomeSignal,
     'types/TerminalExitOutcome/variants/unknown': models.TerminalExitOutcomeUnknown,
+    'types/TerminalHistoryPage': models.TerminalHistoryPage,
+    'types/TerminalHistoryPagesResult': models.TerminalHistoryPagesResult,
     'types/TerminalKeyInput': models.TerminalKeyInput,
     'types/TerminalModifiers': models.TerminalModifiers,
     'types/TerminalPlacement': models.TerminalPlacement,
+    'types/TerminalReadRangeResult': models.TerminalReadRangeResult,
     'types/TerminalRecord': models.TerminalRecord,
     'types/TerminalRegistryEvent': models.TerminalRegistryEvent,
     'types/TerminalResourceHost': models.TerminalResourceHost,
@@ -323,10 +329,13 @@ MODEL_BY_PATH = {
     'commands/set-workspace-metadata/request': models.SetWorkspaceMetadataRequest,
     'commands/shutdown-daemon/request': models.ShutdownDaemonRequest,
     'commands/sidebar-plugin/request': models.SidebarPluginRequest,
+    'commands/snapshot-request/request': models.SnapshotRequestRequest,
     'commands/split/request': models.SplitRequest,
     'commands/subscribe/request': models.SubscribeRequest,
     'commands/swap-pane/request': models.SwapPaneRequest,
     'commands/terminal-events/request': models.TerminalEventsRequest,
+    'commands/terminal-history/request': models.TerminalHistoryRequest,
+    'commands/terminal-read-range/request': models.TerminalReadRangeRequest,
     'commands/terminal-resources/request': models.TerminalResourcesRequest,
     'commands/undo-layout/request': models.UndoLayoutRequest,
     'commands/ungroup-screen-group/request': models.UngroupScreenGroupRequest,
@@ -437,6 +446,7 @@ ENUM_BY_PATH = {
 
 PYTHON_FIELD_NAMES = {
     'bytes': 'bytes_data',
+    'from': 'from_',
     'self': 'is_self'
 }
 

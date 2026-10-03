@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 9a93a666e8f059fe58fafce71e3c8f25d47a930c49c9058ed455f3ca46b21d7b. */
+/* cmux-tui mux protocol 12, IR 7df8134084243af1f2fb7eab1f15ab29c9fe1165237c31c95b037c0099a1b75c. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "9a93a666e8f059fe58fafce71e3c8f25d47a930c49c9058ed455f3ca46b21d7b" as const;
+export const SDK_IR_SHA256 = "7df8134084243af1f2fb7eab1f15ab29c9fe1165237c31c95b037c0099a1b75c" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -100,6 +100,18 @@ export const COMMAND_METADATA = {
       "rows": {
         "since": null,
         "capability": "attach-initial-size"
+      },
+      "snapshot": {
+        "since": null,
+        "capability": "terminal-snapshot-v1"
+      },
+      "snapshot_version": {
+        "since": null,
+        "capability": "terminal-snapshot-v1"
+      },
+      "viewer_backlog_bytes": {
+        "since": null,
+        "capability": "terminal-snapshot-v1"
       }
     },
     "stream": {
@@ -2182,6 +2194,19 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": []
   },
+  "snapshot-request": {
+    "authority": "frontend",
+    "since": 12,
+    "capability": "terminal-snapshot-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Requires a snapshot attach (attach-surface with snapshot ghostsnp) of the same surface on this connection, else not_attached.",
+      "A request while a snapshot is pending collapses into it; at most one requested snapshot per viewer per 500 ms.",
+      "reason is digest_mismatch, gap, generation_mismatch or attach (informational).",
+      "Raw v12 form of the terminal channel message snapshot_request (sync-and-transport.md)."
+    ]
+  },
   "split": {
     "authority": "control",
     "since": 5,
@@ -2313,6 +2338,28 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Consumers apply only contiguous revisions for one registry_id and generation."
+    ]
+  },
+  "terminal-history": {
+    "authority": "control",
+    "since": 12,
+    "capability": "terminal-snapshot-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "max_bytes defaults to 1048576 and must be 1..=8388608; at least one page is returned when any exists.",
+      "A before marker of another marker_epoch or one that left scrollback is range_evicted."
+    ]
+  },
+  "terminal-read-range": {
+    "authority": "control",
+    "since": 12,
+    "capability": "terminal-snapshot-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "format is text (default; unwrapped lines joined with newline) or vt.",
+      "Rows that left scrollback, or markers of another marker_epoch, answer range_evicted."
     ]
   },
   "terminal-resources": {
@@ -6413,6 +6460,31 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "RowMarkerPoint": {
+    "additional_properties": false,
+    "constraints": [
+      "row_marker is a host row marker of the primary screen (terminal-history page markers)."
+    ],
+    "fields": {
+      "col": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "row_marker": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "RunResult": {
     "additional_properties": false,
     "fields": {
@@ -7583,6 +7655,98 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "SnapshotRequestHave": {
+    "additional_properties": false,
+    "constraints": [
+      "The snapshot state the viewer holds; a snapshot_version other than the host's is unsupported_version."
+    ],
+    "fields": {
+      "generation": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "offset": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "snapshot_version": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "SnapshotRequestResult": {
+    "additional_properties": false,
+    "constraints": [
+      "accepted: the viewer's next attach event is a READY snapshot. collapsed: a snapshot is already pending and answers this request. snapshot_throttled: the viewer got a snapshot less than 500 ms ago; retry after retry_after_ms. Every status echoes request_id."
+    ],
+    "fields": {
+      "reason": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "request_id": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "retry_after_ms": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "status": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "accepted",
+            "collapsed",
+            "snapshot_throttled"
+          ]
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "SplitDirection": {
     "kind": "enum",
     "values": [
@@ -8160,6 +8324,100 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       }
     }
   },
+  "TerminalHistoryPage": {
+    "additional_properties": false,
+    "constraints": [
+      "data is one base64 GHOSTSNP PAGE record (header, payload, CRC32C); marker is the page's first row."
+    ],
+    "fields": {
+      "data": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "marker": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "rows": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalHistoryPagesResult": {
+    "additional_properties": false,
+    "constraints": [
+      "Pages are newest first; pass next_before as before for older pages until done."
+    ],
+    "fields": {
+      "done": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "marker_epoch": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "next_before": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "pages": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "TerminalHistoryPage"
+          },
+          "kind": "array"
+        }
+      },
+      "snapshot_version": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "TerminalKey": {
     "kind": "enum",
     "values": [
@@ -8567,6 +8825,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalReadRangeResult": {
+    "additional_properties": false,
+    "fields": {
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "text": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -9376,7 +9656,8 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "constraints": [
         "cols and rows must be supplied together.",
         "Browser surfaces reject mode:render.",
-        "expected_generation and expected_terminal_id must be supplied together and match the current daemon and terminal."
+        "expected_generation and expected_terminal_id must be supplied together and match the current daemon and terminal.",
+        "snapshot \"ghostsnp\" with the host's snapshot_version starts the byte stream with a snapshot event instead of vt-state; another version gets the byte replay. viewer_backlog_bytes (terminal.viewerBacklogBytes, default 262144, clamped to 65536..8388608) bounds the viewer's backlog; overflow resyncs by snapshot."
       ],
       "fields": {
         "cols": {
@@ -9432,12 +9713,42 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint16"
           }
         },
+        "snapshot": {
+          "capability": "terminal-snapshot-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "snapshot_version": {
+          "capability": "terminal-snapshot-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
         "surface": {
           "nullable": true,
           "presence": "optional",
           "type": {
             "kind": "ref",
             "name": "Id"
+          }
+        },
+        "viewer_backlog_bytes": {
+          "capability": "terminal-snapshot-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
           }
         }
       },
@@ -17349,6 +17660,53 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "SidebarPluginResult"
     }
   },
+  "snapshot-request": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "have": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "SnapshotRequestHave"
+          }
+        },
+        "reason": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "request_id": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "SnapshotRequestResult"
+    }
+  },
   "split": {
     "request": {
       "additional_properties": false,
@@ -17561,6 +17919,107 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "TerminalEventsResult"
+    }
+  },
+  "terminal-history": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "before": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "marker_epoch": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "max_bytes": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalHistoryPagesResult"
+    }
+  },
+  "terminal-read-range": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "format": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "from": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "RowMarkerPoint"
+          }
+        },
+        "marker_epoch": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "to": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "RowMarkerPoint"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalReadRangeResult"
     }
   },
   "terminal-resources": {
