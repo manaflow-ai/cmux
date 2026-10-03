@@ -469,7 +469,7 @@ struct MachinesPanelView: View {
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
             onNotice: { [weak viewModel] description in viewModel?.noteTreeNotice(description) },
-            refresh: { [weak self] in self?.refreshMachines() },
+            refresh: { refreshMachines() },
             refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) },
             workspaceCreationHost: { [weak tabManager] in tabManager.map { CloudWorkspaceCreationHost(manager: $0) } }
         )

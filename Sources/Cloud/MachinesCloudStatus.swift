@@ -10,7 +10,7 @@ struct MachinesCloudStatus: View {
     /// Dismissal identity only; upstream details are never presented.
     let listError: String?
     let treeError: String?
-    let treeNotice: String? = nil
+    let treeNotice: String?
     let onDismissStale: (String) -> Void
     let onDismissTreeError: (String) -> Void
     /// Runs the fix the status names. The notice and the empty state route the
