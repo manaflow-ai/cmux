@@ -69,6 +69,21 @@ extension CmuxTuiSurfaceProvider {
         #endif
     }
     // MARK: Agent hooks
+    /// Selects the pane for a mirrored hook from the terminal's catalog projections.
+    static func mirroredAgentHookProjection(
+        projections: [SurfaceProjection],
+        remoteWorkspaceID: String?
+    ) -> SurfaceProjection? {
+        guard let remoteWorkspaceID = remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !remoteWorkspaceID.isEmpty else {
+            return projections.first
+        }
+        // The accepted daemon graph is authoritative while a terminal has multiple
+        // local projections. Fail closed when it names a workspace with no matching
+        // pane rather than sending the hook to an adjacent local projection.
+        return projections.first { $0.remoteWorkspaceID == remoteWorkspaceID }
+    }
+
     /// Replays the session identity of Claude agents in `cmux ssh` panes into
     /// the local hook queue, so the Mac's hook pipeline knows the remote
     /// agent's session. Runs with every accepted state and every catalog
@@ -79,8 +94,19 @@ extension CmuxTuiSurfaceProvider {
         guard machine.isSSH else { return }
         let machine = self.machine
         let catalog = self.catalog
+        func remoteWorkspaceID(for terminalID: String) -> String? {
+            for tab in state.tabs where tab.contentID == terminalID {
+                guard let pane = state.lookupIndex.pane(id: tab.paneID),
+                      let screen = state.lookupIndex.screen(id: pane.screenID) else { continue }
+                return screen.workspaceID
+            }
+            return nil
+        }
         func panel(for terminalID: String) -> SurfaceProjection? {
-            catalog.projections(of: SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)).first
+            Self.mirroredAgentHookProjection(
+                projections: catalog.projections(of: SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)),
+                remoteWorkspaceID: remoteWorkspaceID(for: terminalID)
+            )
         }
         let routable = Set(state.agents.map(\.terminalID).filter { panel(for: $0) != nil })
         let events = agentHookMirror.reconcile(agents: state.agents, routableTerminalIDs: routable)
