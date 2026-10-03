@@ -12,9 +12,11 @@ import { linkSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs
  * remove a stale lock, and it reads the lock again under the takeover lock
  * first, so it never removes a lock that another taker has just taken.
  *
- * The lock holds "<pid>\n<start time>\n". A live pid whose start time differs
- * is a reused pid, so the lock is stale. A lock with a pid only (older hosts)
- * is checked by pid.
+ * The lock holds "<pid>\n<start ms>\n" (the owner's start, epoch ms). A
+ * live pid whose OS start time is more than START_SLACK_MS away is a reused
+ * pid, so the lock is stale. `ps` runs only on that stale check (another taker
+ * wants the lock and the pid is alive), never on the holder's path. A lock
+ * with a pid only (older hosts) is checked by pid.
  */
 export function takeLock(path: string): (() => void) | undefined {
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -49,7 +51,7 @@ const ORPHAN_MS = 10_000;
 /** Writes this process's pid to a private file and links it to `path`; false if `path` exists. */
 function linkPid(path: string): boolean {
   const tmp = `${path}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
-  writeFileSync(tmp, `${process.pid}\n${ownStart()}\n`);
+  writeFileSync(tmp, `${process.pid}\n${Math.round(performance.timeOrigin)}\n`);
   try {
     linkSync(tmp, path);
     return true;
@@ -86,40 +88,39 @@ function readOwner(path: string): "held" | "stale" | "gone" {
 
 interface Owner {
   pid: number;
-  /** `ps -o lstart` of the owner; undefined in locks written by older hosts. */
-  start?: string;
+  /** The owner's start, epoch ms; undefined in locks written by older hosts. */
+  startMs?: number;
 }
 
 function parse(text: string): Owner | undefined {
   const [first = "", second = ""] = text.trim().split("\n");
   const pid = Number(first.trim());
   if (!Number.isInteger(pid) || pid <= 0) return undefined;
-  const start = second.trim();
-  return start ? { pid, start } : { pid };
+  const startMs = Number(second.trim());
+  return second.trim() && Number.isFinite(startMs) ? { pid, startMs } : { pid };
 }
 
+/** `ps` reports start times in whole seconds; the runtime's time origin is a little later than the OS start. */
+const START_SLACK_MS = 2_000;
+
+/** The stale check: a live pid holds the lock only if it is the process that wrote it. */
 function isOwnerAlive(owner: Owner): boolean {
   if (!isAlive(owner.pid)) return false;
-  if (owner.start === undefined) return true;
-  const start = processStart(owner.pid);
-  // Unknown start (ps failed): keep the old pid-only answer rather than steal a live lock.
-  return start === undefined || start === owner.start;
+  if (owner.startMs === undefined) return true;
+  const start = processStartMs(owner.pid);
+  // Unknown start (ps failed): keep the pid-only answer rather than take a live lock.
+  return start === undefined || Math.abs(start - owner.startMs) <= START_SLACK_MS;
 }
 
-let cachedOwnStart: string | undefined;
-function ownStart(): string {
-  cachedOwnStart ??= processStart(process.pid) ?? "";
-  return cachedOwnStart;
-}
-
-/** The process's start time as `ps -o lstart` prints it in the C locale and UTC. */
-function processStart(pid: number): string | undefined {
+/** The process's OS start time, epoch ms, from `ps -o lstart` in the C locale and UTC. */
+function processStartMs(pid: number): number | undefined {
   const result = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], {
     env: { ...process.env, LC_ALL: "C", TZ: "UTC" },
     encoding: "utf8",
   });
-  const start = result.status === 0 ? result.stdout.trim() : "";
-  return start || undefined;
+  const text = result.status === 0 ? result.stdout.trim().replace(/\s+/g, " ") : "";
+  const ms = text ? Date.parse(`${text} UTC`) : Number.NaN;
+  return Number.isFinite(ms) ? ms : undefined;
 }
 
 function isOld(path: string): boolean {
@@ -133,7 +134,8 @@ function isOld(path: string): boolean {
 export function lockHolder(path: string): number | undefined {
   try {
     const owner = parse(readFileSync(path, "utf8"));
-    return owner && isOwnerAlive(owner) ? owner.pid : undefined;
+    // A plain read: pid only, no `ps` (the stale check belongs to takers).
+    return owner && isAlive(owner.pid) ? owner.pid : undefined;
   } catch {
     return undefined;
   }
