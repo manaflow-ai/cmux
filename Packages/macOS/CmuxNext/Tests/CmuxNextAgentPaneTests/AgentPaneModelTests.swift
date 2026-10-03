@@ -101,6 +101,21 @@ private actor RecordingHost: AgentPaneHostProviding {
         #expect(reload["prompt"] == nil)
     }
 
+    /// A resumed chat: the page gets the adopt on every handshake until the
+    /// tab has a session (acpmux adopts one id once), then never again.
+    @Test func aSeededAdoptReachesThePageUntilTheTabHasASession() async throws {
+        let adopt = AgentPaneAdopt(harness: "claude", agentSessionId: "0a1b2c3d")
+        let model = AgentPaneModel(host: RecordingHost(), seed: AgentPaneSeedSource(AgentPaneSeed(adopt: adopt)))
+        let expected = ["harness": "claude", "agentSessionId": "0a1b2c3d"]
+        let first = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
+        #expect(first["adopt"] as? [String: String] == expected)
+        let reload = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
+        #expect(reload["adopt"] as? [String: String] == expected)
+        _ = await model.respond(to: .persistSession("s-1"))
+        let attached = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
+        #expect(attached["adopt"] == nil)
+    }
+
     /// A chat that reopens a session ignores the seed.
     @Test func aSessionTabIgnoresTheSeed() async throws {
         let model = AgentPaneModel(host: RecordingHost(), sessionId: "s-2", seed: AgentPaneSeedSource(AgentPaneSeed(cwd: "/tmp/w", draft: "hi")))

@@ -278,6 +278,52 @@ describe("direct client session state", () => {
     expect(news.map((request) => request.params.cwd)).toEqual(["/work/app", undefined]);
   });
 
+  test("a resumed chat is adopted on connect, once, without the inherited cwd", async () => {
+    const adopt = { harness: "claude", agentSessionId: "0a1b2c3d" };
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [] };
+      if (method === "session/new")
+        return {
+          sessionId: "adopted",
+          _meta: { acpmux: { agentSessionId: params._meta.acpmux.adopt?.agentSessionId } },
+        };
+      if (method === "_acpmux/attach") return { session: { sessionId: params.sessionId, status: "idle" }, events: [] };
+      return {};
+    };
+    const client = await AcpmuxDirectClient.connect(
+      { ...host, sessionId: undefined, newSession: true, cwd: "/work/app", adopt },
+      (snapshot) => snapshots.push(snapshot),
+    );
+    const news = ScriptedSocket.current.sent.filter((request) => request.method === "session/new");
+    expect(news.map((request) => request.params)).toEqual([
+      { mcpServers: [], _meta: { acpmux: { harness: "claude", adopt } } },
+    ]);
+    expect(snapshots.at(-1)?.summary?.sessionId).toBe("adopted");
+    expect(await client.ensureSession()).toBe("adopted");
+    expect(ScriptedSocket.current.sent.filter((request) => request.method === "session/new")).toHaveLength(1);
+  });
+
+  test("a daemon that can't adopt gets its fresh session removed and the pane says so", async () => {
+    ScriptedSocket.respond = ({ method }) => {
+      if (method === "_acpmux/watch") return { sessions: [] };
+      if (method === "session/new") return { sessionId: "fresh", _meta: { acpmux: { agentSessionId: "its-own" } } };
+      return {};
+    };
+    await AcpmuxDirectClient.connect(
+      { ...host, sessionId: undefined, newSession: true, adopt: { harness: "codex", agentSessionId: "01999a2b" } },
+      (snapshot) => snapshots.push(snapshot),
+    );
+    const kills = ScriptedSocket.current.sent.filter((request) => request.method === "_acpmux/kill");
+    expect(kills.map((request) => request.params)).toEqual([{ sessionId: "fresh", purge: true }]);
+    expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/attach")).toBe(false);
+    const last = snapshots.at(-1);
+    expect(last?.connection).toBe("connected");
+    expect(last?.rows.at(-1)).toMatchObject({
+      kind: "notice",
+      text: "Couldn't resume this chat: this acpmux can't resume chats",
+    });
+  });
+
   test("a chat started in a chosen project leaves the inherited cwd for the next default chat", async () => {
     let created = 0;
     ScriptedSocket.respond = ({ method, params }) => {

@@ -62,6 +62,7 @@ public final class AgentPaneModel {
                     handshake.cwd = seed.cwd
                     handshake.draft = seed.draft
                     handshake.prompt = seed.prompt
+                    handshake.adopt = seed.adopt
                 }
                 // A new tab page is a new chat on every host, the mock included: the page
                 // never falls back to the most recent session behind it.
