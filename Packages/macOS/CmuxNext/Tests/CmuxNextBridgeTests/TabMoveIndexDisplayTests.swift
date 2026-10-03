@@ -38,3 +38,23 @@ import Testing
         #expect(TabMoveIndex.paneFinalIndex(display: ["a", "b", "l"], moving: "a", displayIndex: 2, pane: ["a", "b"]) == 1)
     }
 }
+
+/// A tab dropped into a group: the strip reports the display index, the
+/// daemon takes a position inside the group. Before, the display index
+/// went unchanged, so the tab landed elsewhere in the group (or at its end).
+@Suite struct TabMoveIndexGroupTests {
+    @Test func aDropCountsOnlyTheGroupMembersBeforeIt() {
+        // Strip: a [g1 g2 g3] b. b dropped between g1 and g2 (display 2).
+        let display = ["a", "g1", "g2", "g3", "b"], members: Set = ["g1", "g2", "g3"]
+        #expect(TabMoveIndex.groupIndex(display: display, members: members, moving: "b", displayIndex: 2) == 1)
+        // Before g1 (display 1): first in the group.
+        #expect(TabMoveIndex.groupIndex(display: display, members: members, moving: "b", displayIndex: 1) == 0)
+        // After g3 (display 4): last.
+        #expect(TabMoveIndex.groupIndex(display: display, members: members, moving: "b", displayIndex: 4) == 3)
+    }
+
+    @Test func aTabFromTheLeftDoesNotCountItself() {
+        // Strip: a [g1 g2] b. a dropped between g1 and g2: a's final index is 1.
+        #expect(TabMoveIndex.groupIndex(display: ["a", "g1", "g2", "b"], members: ["g1", "g2"], moving: "a", displayIndex: 1) == 1)
+    }
+}

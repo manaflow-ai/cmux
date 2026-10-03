@@ -43,6 +43,18 @@ nonisolated enum NewWorkspaceName {
         }
     }
 
+    /// The name for a workspace made from the last tab of another one
+    /// (coordinator decision 2026-10-03): the old workspace's name when the
+    /// user named it, else the tab's name.
+    static func forLastTab(workspaceName: String, workspaceTitle: String?, tab: Tab) -> String? {
+        forTab(tab)
+    }
+
+    /// True for a name the daemon gave (`workspace-N`, its default).
+    static func isDefaultWorkspaceName(_ name: String) -> Bool {
+        false
+    }
+
     /// The name for a workspace made from a tab group: its name, else its
     /// first tab's.
     static func forGroup(name: String?, firstTab: Tab?) -> String? {
