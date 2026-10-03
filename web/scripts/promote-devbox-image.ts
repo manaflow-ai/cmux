@@ -37,6 +37,8 @@
  *               unless the bake itself already holds that slug, then
  *               `<prefix>-md`); "none" keeps the shared pointer untouched
  *               and prefixes them with the bake's own slug instead.
+ *   --derive-concurrency <n>  how many ladder sizes derive at once (default 6
+ *               in derive-devbox-sizes.ts; 1 restores serial derives).
  *   --skip-verify   record validationStatus "unknown" instead of verifying.
  *               The entry is appended but NOT flagged as any default.
  *   --dry-run   print the manifest diff without writing it.
@@ -53,13 +55,14 @@
  *               merge main, take main's manifest, replay, commit.
  *
  * Steps: bakePreflight (stale checkout guard) -> bake script (--out) ->
- * verify-devbox-image.ts (boots one VM, deletes it) -> manifest write ->
- * slug pointer. A failed verify writes nothing and exits 1.
+ * verify-devbox-image.ts and derive-devbox-sizes.ts CONCURRENTLY (both only
+ * read the master snapshot) -> manifest write -> slug pointer. A failure in
+ * either writes nothing and exits 1.
  *
  * Run it from web/ with FREESTYLE_API_KEY in the environment of the Freestyle
  * account the deployment uses, then commit the manifest diff in a PR.
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -108,6 +111,8 @@ if (kinds.includes("desktop") && !withDesktop) {
 }
 const pointerSlug = argValue("--pointer-slug") ?? "cmux-devbox";
 const skipVerify = hasFlag("--skip-verify");
+/** Passed through to the size derive, which runs the ladder concurrently. */
+const deriveConcurrency = argValue("--derive-concurrency");
 const sizesArg = argValue("--sizes") ?? VM_IMAGE_SIZE_NAMES.join(",");
 const sizeNames = sizesArg === "none" ? [] : sizesArg.split(",").map((name) => name.trim()).filter(Boolean);
 for (const name of sizeNames) {
@@ -123,6 +128,34 @@ const slug = argValue("--slug") ?? `cmux-${tag}`;
 
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
 const workDir = mkdtempSync(path.join(tmpdir(), "cmux-devbox-promote-"));
+
+/**
+ * Runs a child and streams its output line by line under a label, so two
+ * phases can run at once and still be readable. Verify and the size derive
+ * both only read the master snapshot, so they overlap; verify costs nothing
+ * in wall clock once it does.
+ */
+function runStreaming(label: string, args: string[]): Promise<number> {
+  console.log(`\n===== ${label}: bun ${args.join(" ")} =====`);
+  return new Promise((resolve, reject) => {
+    const child = spawn("bun", args, { cwd: webRoot, env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+    for (const stream of [child.stdout, child.stderr]) {
+      let pending = "";
+      stream.setEncoding("utf8");
+      stream.on("data", (chunk: string) => {
+        pending += chunk;
+        const lines = pending.split("\n");
+        pending = lines.pop() ?? "";
+        for (const line of lines) console.log(`[${label}] ${line}`);
+      });
+      stream.on("end", () => {
+        if (pending.length > 0) console.log(`[${label}] ${pending}`);
+      });
+    }
+    child.on("error", reject);
+    child.on("close", (code) => resolve(code ?? 1));
+  });
+}
 
 function run(label: string, args: string[]): number {
   console.log(`\n===== ${label}: bun ${args.join(" ")} =====`);
@@ -244,8 +277,12 @@ if (bakeResultPath) {
   imageId = bake.imageId;
 }
 
-// 2. Verify: the only path to validationStatus "passed".
+// 2. Verify and derive: both only read the master snapshot, so they run at
+// once. Verify is the only path to validationStatus "passed"; the derive
+// boots and checks every ladder size. Neither writes anything the other
+// reads, and the manifest is written only if both pass.
 let validationNotes: string;
+let sizes: Array<{ imageId: string; size: VmImageSize }> | undefined;
 if (skipVerify) {
   entry = { ...entry, validationStatus: "unknown" };
   validationNotes = "NOT VERIFIED (promote --skip-verify); verify before flagging as a default.";
@@ -254,54 +291,52 @@ if (skipVerify) {
   // verify reads the baked stamp and fails on a mismatch, so a base image can
   // never land as the desktop default.
   const expectedKind: DevboxImageKind = entry.kind ?? (withDesktop ? "desktop" : "base");
-  const verifyStatus = run("verify", ["scripts/verify-devbox-image.ts", provider, imageId, "--expect-kind", expectedKind]);
+  const sizesOut = path.join(workDir, "sizes.json");
+  const sizesResultPath = argValue("--sizes-result");
+  // "none" means "leave the shared pointer slugs alone", never a literal
+  // prefix: a branch bake's sizes are slugged under its own slug.
+  const derivePrefix = pointerSlug === "none" ? (argValue("--slug") ?? slug) : pointerSlug;
+  const [verifyStatus, deriveStatus] = await Promise.all([
+    runStreaming("verify", ["scripts/verify-devbox-image.ts", provider, imageId, "--expect-kind", expectedKind]),
+    !sizesResultPath && sizeNames.length > 0
+      ? runStreaming("derive sizes", [
+          "scripts/derive-devbox-sizes.ts",
+          imageId,
+          derivePrefix,
+          "--sizes",
+          sizeNames.join(","),
+          "--out",
+          sizesOut,
+          ...(hasFlag("--replace-slug") ? ["--replace-slug"] : []),
+          ...(deriveConcurrency ? ["--concurrency", deriveConcurrency] : []),
+        ])
+      : Promise.resolve(0),
+  ]);
   if (verifyStatus !== 0) {
     console.error(`verify failed (exit ${verifyStatus}) for ${provider} ${imageId}; nothing promoted`);
     process.exit(verifyStatus);
+  }
+  if (deriveStatus !== 0) {
+    console.error(`derive sizes failed (exit ${deriveStatus}); nothing promoted`);
+    process.exit(deriveStatus);
   }
   entry = { ...entry, validationStatus: "passed" };
   validationNotes =
     `Validated ${new Date().toISOString().slice(0, 10)} with verify-devbox-image.ts by promote-devbox-image.ts` +
     (withDesktop ? " (toolchain, agent pins, daemon contract, desktop on 5901/6901)." : " (toolchain, agent pins, daemon contract).");
-}
-
-// 2b. Sizes: derive the ladder from the verified bake, each booted and checked
-// (or adopt a derive run's result: the snapshots exist and were checked then).
-let sizes: Array<{ imageId: string; size: VmImageSize }> | undefined;
-const sizesResultPath = argValue("--sizes-result");
-if (!skipVerify && sizesResultPath) {
-  const derived = JSON.parse(readFileSync(sizesResultPath, "utf8")) as { master?: string; sizes: Record<string, { imageId: string; size: VmImageSize }> };
-  if (derived.master !== imageId) {
-    throw new Error(`--sizes-result ${sizesResultPath} was derived from ${derived.master ?? "(unknown)"}, not ${imageId}`);
+  if (sizesResultPath || sizeNames.length > 0) {
+    const resultPath = sizesResultPath ?? sizesOut;
+    const derived = JSON.parse(readFileSync(resultPath, "utf8")) as { master?: string; sizes: Record<string, { imageId: string; size: VmImageSize }> };
+    if (derived.master !== imageId) {
+      throw new Error(`sizes result ${resultPath} was derived from ${derived.master ?? "(unknown)"}, not ${imageId}`);
+    }
+    const rows = Object.values(derived.sizes);
+    const missing = sizeNames.filter((name) => !rows.some((row) => row.size.name === name));
+    if (missing.length > 0) throw new Error(`sizes result ${resultPath} lacks sizes ${missing.join(", ")}`);
+    sizes = rows.filter((row) => sizeNames.includes(row.size.name)).map((row) => ({ imageId: row.imageId, size: row.size }));
+    if (sizesResultPath) console.log(`adopting derived sizes ${sizesResultPath}: ${sizes.map((row) => `${row.size.name}=${row.imageId}`).join(", ")}`);
+    validationNotes += ` Sizes derived and re-booted by derive-devbox-sizes.ts: ${sizes.map((row) => `${row.size.name}=${row.imageId}`).join(", ")}.`;
   }
-  const rows = Object.values(derived.sizes);
-  const missing = sizeNames.filter((name) => !rows.some((row) => row.size.name === name));
-  if (missing.length > 0) throw new Error(`--sizes-result ${sizesResultPath} lacks sizes ${missing.join(", ")}`);
-  sizes = rows.filter((row) => sizeNames.includes(row.size.name)).map((row) => ({ imageId: row.imageId, size: row.size }));
-  console.log(`adopting derived sizes ${sizesResultPath}: ${sizes.map((row) => `${row.size.name}=${row.imageId}`).join(", ")}`);
-  validationNotes += ` Sizes derived and re-booted by derive-devbox-sizes.ts: ${sizes.map((row) => `${row.size.name}=${row.imageId}`).join(", ")}.`;
-} else if (!skipVerify && sizeNames.length > 0) {
-  const sizesOut = path.join(workDir, "sizes.json");
-  // "none" means "leave the shared pointer slugs alone", never a literal
-  // prefix: a branch bake's sizes are slugged under its own slug.
-  const derivePrefix = pointerSlug === "none" ? (argValue("--slug") ?? slug) : pointerSlug;
-  const deriveStatus = run("derive sizes", [
-    "scripts/derive-devbox-sizes.ts",
-    imageId,
-    derivePrefix,
-    "--sizes",
-    sizeNames.join(","),
-    "--out",
-    sizesOut,
-    ...(hasFlag("--replace-slug") ? ["--replace-slug"] : []),
-  ]);
-  if (deriveStatus !== 0) {
-    console.error(`derive sizes failed (exit ${deriveStatus}); nothing promoted`);
-    process.exit(deriveStatus);
-  }
-  const derived = JSON.parse(readFileSync(sizesOut, "utf8")) as { sizes: Record<string, { imageId: string; size: VmImageSize }> };
-  sizes = Object.values(derived.sizes).map((row) => ({ imageId: row.imageId, size: row.size }));
-  validationNotes += ` Sizes derived and re-booted by derive-devbox-sizes.ts: ${sizes.map((row) => `${row.size.name}=${row.imageId}`).join(", ")}.`;
 }
 
 // 3. Manifest: append and flip defaults (pure edit), then re-check invariants.
