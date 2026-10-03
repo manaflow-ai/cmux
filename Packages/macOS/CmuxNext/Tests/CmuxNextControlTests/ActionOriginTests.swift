@@ -49,6 +49,20 @@ import Testing
         #expect(invocation == nil)
     }
 
+    /// `action.list` and `action.describe` say which actions focus by purpose.
+    @Test func describeReportsWhetherTheActionFocuses() async throws {
+        let registry = ActionRegistry.standard()
+        let router = ControlRouter(identity: testIdentity(), executor: RegistryControlBridge(registry: registry), settings: nil)
+        router.updateCatalog(RegistryControlBridge.catalog(from: registry))
+        let focus = try await router.handle(ControlRequest(id: "1", method: "action.describe", params: ["action": "app show-tab"])).get()
+        #expect(focus["action"]?["focuses"] == true)
+        let split = try await router.handle(ControlRequest(id: "2", method: "action.describe", params: ["action": "splitRight"])).get()
+        #expect(split["action"]?["focuses"] == false)
+        let list = try await router.handle(ControlRequest(id: "3", method: "action.list", params: [:])).get()
+        let focusing = list["actions"]?.arrayValue?.filter { $0["focuses"] == true }.compactMap { $0["id"]?.stringValue } ?? []
+        #expect(focusing.contains("tab.focus") && focusing.contains("focusLeft") && !focusing.contains("newTab"))
+    }
+
     /// Import Passwords from CSV is a person's: the socket refuses it even
     /// when the caller claims to be the user, and the handler never runs.
     @Test func thePasswordCSVImportIsRefusedOverTheSocket() async {

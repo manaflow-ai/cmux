@@ -21,7 +21,14 @@ use super::presentation_store::{
 };
 use super::{JournalSubject, WorkspaceRegistry, new_uuid_v4};
 
-pub(super) fn create_screen_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+pub(crate) fn create_screen_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    // A registry written by the state-resources daemon before the two
+    // screen storages were merged keeps screen rows in `screen_state` and
+    // groups keyed by the public workspace id. Move them here once.
+    let legacy_groups = table_has_column(transaction, "screen_groups", "workspace_id")?;
+    if legacy_groups {
+        transaction.execute_batch("ALTER TABLE screen_groups RENAME TO screen_groups_state_v1;")?;
+    }
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS screen_presentation (
            screen_id TEXT PRIMARY KEY NOT NULL,
@@ -51,7 +58,40 @@ pub(super) fn create_screen_schema(transaction: &Transaction<'_>) -> anyhow::Res
            updated_at_ms INTEGER NOT NULL CHECK(updated_at_ms >= 0)
          );",
     )?;
+    if legacy_groups {
+        transaction.execute_batch(
+            "INSERT OR IGNORE INTO screen_groups(group_id, workspace_key, name, color, collapsed)
+             SELECT g.group_id, w.workspace_key, g.name, g.color, g.collapsed
+             FROM screen_groups_state_v1 AS g
+             JOIN resource_workspaces AS w ON w.public_id = g.workspace_id;
+             DROP TABLE screen_groups_state_v1;
+             DELETE FROM screen_group_members
+             WHERE group_id NOT IN (SELECT group_id FROM screen_groups);",
+        )?;
+    }
+    if table_exists(transaction, "screen_state")? {
+        transaction.execute_batch(
+            "INSERT OR IGNORE INTO screen_presentation(screen_id, color, icon, pinned)
+             SELECT screen_id, color, icon, pinned FROM screen_state;
+             DROP TABLE screen_state;",
+        )?;
+    }
     Ok(())
+}
+
+fn table_exists(connection: &Connection, table: &str) -> anyhow::Result<bool> {
+    Ok(connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+        [table],
+        |row| row.get::<_, bool>(0),
+    )?)
+}
+
+fn table_has_column(connection: &Connection, table: &str, column: &str) -> anyhow::Result<bool> {
+    let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
+    let columns =
+        statement.query_map([], |row| row.get::<_, String>(1))?.collect::<Result<Vec<_>, _>>()?;
+    Ok(columns.iter().any(|name| name == column))
 }
 
 /// Color, icon, and pin of one screen. A record with no field set is not
@@ -161,7 +201,7 @@ fn validate_screen_group(group: &ScreenGroupRecord) -> anyhow::Result<()> {
 
 /// Replace every screen presentation, group, and membership row in the
 /// caller's transaction.
-pub(super) fn write_screen_state(
+pub(crate) fn write_screen_state(
     transaction: &Transaction<'_>,
     state: &ScreenPresentationState,
 ) -> anyhow::Result<()> {
@@ -219,7 +259,7 @@ pub(super) fn write_screen_state(
     )
 }
 
-pub(super) fn read_screen_state(
+pub(crate) fn read_screen_state(
     connection: &Connection,
 ) -> anyhow::Result<ScreenPresentationState> {
     let mut state = ScreenPresentationState::default();
@@ -285,7 +325,7 @@ pub(super) fn read_screen_state(
     Ok(state)
 }
 
-pub(super) fn read_saved_screen_groups(
+pub(crate) fn read_saved_screen_groups(
     connection: &Connection,
 ) -> anyhow::Result<Vec<SavedScreenGroupRecord>> {
     let mut statement = connection.prepare(
@@ -408,5 +448,96 @@ impl WorkspaceRegistry {
         }
         tx.commit()?;
         Ok(removed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A registry the state-resources daemon wrote (screen rows in
+    /// `screen_state`, groups keyed by the public workspace id) opens with
+    /// its screens and groups in this storage, and opening it again changes
+    /// nothing.
+    #[test]
+    fn state_resource_screen_rows_move_into_screen_storage_once() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE resource_workspaces (
+                   public_id TEXT PRIMARY KEY NOT NULL,
+                   workspace_key TEXT UNIQUE NOT NULL,
+                   deleted_revision INTEGER
+                 );
+                 INSERT INTO resource_workspaces(public_id, workspace_key) VALUES('ws_a', 'key-a');
+                 CREATE TABLE screen_state (
+                   screen_id TEXT PRIMARY KEY NOT NULL,
+                   pinned INTEGER NOT NULL DEFAULT 0,
+                   color TEXT,
+                   icon TEXT
+                 );
+                 INSERT INTO screen_state VALUES('screen_1', 1, 'red', NULL);
+                 CREATE TABLE screen_groups (
+                   group_id TEXT PRIMARY KEY NOT NULL,
+                   workspace_id TEXT NOT NULL,
+                   name TEXT NOT NULL DEFAULT '',
+                   color TEXT NOT NULL,
+                   collapsed INTEGER NOT NULL DEFAULT 0
+                 );
+                 INSERT INTO screen_groups VALUES('sgrp_1', 'ws_a', 'Agents', 'blue', 1);
+                 INSERT INTO screen_groups VALUES('sgrp_gone', 'ws_gone', 'Gone', 'red', 0);
+                 CREATE TABLE screen_group_members (
+                   screen_id TEXT PRIMARY KEY NOT NULL,
+                   group_id TEXT NOT NULL
+                 );
+                 INSERT INTO screen_group_members VALUES('screen_2', 'sgrp_1');
+                 INSERT INTO screen_group_members VALUES('screen_3', 'sgrp_gone');",
+            )
+            .unwrap();
+        for _ in 0..2 {
+            let tx = connection.transaction().unwrap();
+            create_screen_schema(&tx).unwrap();
+            tx.commit().unwrap();
+        }
+        let groups = connection
+            .prepare("SELECT group_id, workspace_key, name, color, collapsed, saved_id FROM screen_groups")
+            .unwrap()
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(
+            groups,
+            vec![("sgrp_1".into(), "key-a".into(), "Agents".into(), "blue".into(), 1, None)]
+        );
+        let members = connection
+            .prepare("SELECT screen_id, group_id FROM screen_group_members")
+            .unwrap()
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(members, vec![("screen_2".to_string(), "sgrp_1".to_string())]);
+        let presentation = connection
+            .query_row("SELECT screen_id, color, pinned FROM screen_presentation", [], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })
+            .unwrap();
+        assert_eq!(presentation, ("screen_1".to_string(), Some("red".to_string()), 1));
+        assert!(!table_exists(&connection, "screen_state").unwrap());
+        assert!(!table_exists(&connection, "screen_groups_state_v1").unwrap());
     }
 }

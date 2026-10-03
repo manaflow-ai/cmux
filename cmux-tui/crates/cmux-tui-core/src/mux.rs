@@ -15,15 +15,21 @@ mod registry_viewport;
 mod resource_content;
 mod resource_topology;
 mod screen_changed;
-mod screen_groups;
+pub(crate) mod screen_groups;
 mod session_paths;
 mod sticky_columns;
-mod tab_drag;
-mod tab_groups;
+pub(crate) mod tab_drag;
+pub(crate) mod tab_groups;
+pub(crate) mod tab_strip;
+
+pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
+pub(crate) use tab_strip::StripRequest;
 mod terminal_directory;
 mod terminal_move_topology;
+mod terminal_progress;
 mod terminal_reap;
 mod terminal_work;
+mod topology_result;
 
 use agent_hook_errors::{
     AGENT_HOOK_RETRY_ERROR, AgentHookTerminalGone, AgentHookTerminalUnavailable,
@@ -63,6 +69,7 @@ use std::sync::{
     TryLockResult, Weak,
 };
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use topology_result::persist_public_topology_result;
 
 use anyhow::Context;
 use ghostty_vt::KittyGraphicsLimits;
@@ -133,7 +140,7 @@ pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) 
 /// log, so the core does not need to know how diagnostics are persisted.
 pub type DiagnosticReporter = Arc<dyn Fn(&str) + Send + Sync + 'static>;
 
-struct SignaledMutex<T> {
+pub(crate) struct SignaledMutex<T> {
     value: Mutex<T>,
     release_epoch: Mutex<u64>,
     released: Condvar,
@@ -168,7 +175,7 @@ impl<T> SignaledMutex<T> {
     }
 
     #[track_caller]
-    fn lock(&self) -> LockResult<SignaledMutexGuard<'_, T>> {
+    pub(crate) fn lock(&self) -> LockResult<SignaledMutexGuard<'_, T>> {
         let site = std::panic::Location::caller();
         let waited_from = Instant::now();
         let blocker = self.stats.wait_started();
@@ -245,7 +252,7 @@ impl<T> SignaledMutex<T> {
     }
 }
 
-struct SignaledMutexGuard<'a, T> {
+pub(crate) struct SignaledMutexGuard<'a, T> {
     value: Option<MutexGuard<'a, T>>,
     owner: &'a SignaledMutex<T>,
     site: crate::diagnostics::LockSite,
@@ -602,7 +609,7 @@ impl fmt::Display for ProviderWorkspaceAuthorityUpdateError {
 impl std::error::Error for ProviderWorkspaceAuthorityUpdateError {}
 
 #[derive(Default)]
-struct ProviderWorkspaceState {
+pub(crate) struct ProviderWorkspaceState {
     managed: bool,
     mux_generation: Option<Box<str>>,
     authority_generation: u64,
@@ -2535,13 +2542,13 @@ pub struct Mux {
     /// Serializes durable workspace commits, their in-memory projection, and
     /// publication of revisioned workspace deltas. Lock order is always
     /// registry, then state.
-    workspace_registry: SignaledMutex<WorkspaceRegistry>,
-    session_public_id: SessionPublicId,
-    machine_public_id: crate::resource::MachinePublicId,
+    pub(crate) workspace_registry: SignaledMutex<WorkspaceRegistry>,
+    pub(crate) session_public_id: SessionPublicId,
+    pub(crate) machine_public_id: crate::resource::MachinePublicId,
     /// Control-socket admission counters, shared with the accept loop.
     connection_stats: Arc<crate::diagnostics::ConnectionStats>,
     started_at: Instant,
-    state: Mutex<State>,
+    pub(crate) state: Mutex<State>,
     subscribers: MuxEventBroadcaster,
     config_reload: Mutex<ConfigReloadState>,
     config_reload_changed: Condvar,
@@ -2962,7 +2969,7 @@ impl Mux {
         )
     }
 
-    fn from_workspace_registry(
+    pub(crate) fn from_workspace_registry(
         session: String,
         mut surface_options: SurfaceOptions,
         registry: WorkspaceRegistry,
@@ -3212,6 +3219,7 @@ impl Mux {
             }
             std::thread::sleep(Duration::from_millis(25));
         }
+        mux.close_ephemeral_workspaces()?;
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
         Ok(mux)
@@ -4628,7 +4636,7 @@ impl Mux {
         Ok(())
     }
 
-    fn registry_projection(&self, state: &State) -> Vec<RegistryWorkspace> {
+    pub(crate) fn registry_projection(&self, state: &State) -> Vec<RegistryWorkspace> {
         state
             .workspaces
             .iter()
@@ -4642,7 +4650,7 @@ impl Mux {
             .collect()
     }
 
-    fn ordinary_resource_selectors() -> crate::ResourceSelectors {
+    pub(crate) fn ordinary_resource_selectors() -> crate::ResourceSelectors {
         crate::ResourceSelectors {
             machine: Some("current".into()),
             session: Some("current".into()),
@@ -4650,7 +4658,7 @@ impl Mux {
         }
     }
 
-    fn ordinary_workspace_selectors(
+    pub(crate) fn ordinary_workspace_selectors(
         &self,
         workspace: WorkspaceId,
     ) -> Option<crate::ResourceSelectors> {
@@ -4689,7 +4697,7 @@ impl Mux {
         })
     }
 
-    fn commit_ordinary_topology_operation(
+    pub(crate) fn commit_ordinary_topology_operation(
         self: &Arc<Self>,
         operation: ResourceOperation,
         selectors: crate::ResourceSelectors,
@@ -4749,7 +4757,7 @@ impl Mux {
         }
     }
 
-    fn ordinary_created_surface(
+    pub(crate) fn ordinary_created_surface(
         &self,
         commit: &ResourcePatchCommit,
     ) -> anyhow::Result<Arc<Surface>> {
@@ -4768,7 +4776,7 @@ impl Mux {
     /// Report an agent state for a selected terminal resource and reconcile
     /// any durable hook projections waiting for that terminal.
     #[allow(clippy::too_many_arguments)]
-    fn commit_resource_mutation_plan(
+    pub(crate) fn commit_resource_mutation_plan(
         &self,
         mutation: &WorkspaceMutation,
         operation: &str,
@@ -4807,8 +4815,7 @@ impl Mux {
                     &plan.result,
                     &plan.deltas,
                     plan.workspace_ledger.as_ref(),
-                    plan.tab_groups.as_ref(),
-                    plan.screen_state.as_ref(),
+                    plan.state_write.take(),
                 )
             });
         let (commit, workspace_revision) = match committed {
@@ -6050,11 +6057,11 @@ impl Mux {
         )
     }
 
-    fn publish_resource_event(&self) {
+    pub(crate) fn publish_resource_event(&self) {
         self.publish_journal_event();
     }
 
-    fn publish_journal_event(&self) {
+    pub(crate) fn publish_journal_event(&self) {
         self.journal_kernel.notify_commit();
         let mut epoch = self.journal_event_epoch.lock().unwrap();
         *epoch = epoch.wrapping_add(1);
@@ -7633,7 +7640,7 @@ impl Mux {
         }
     }
 
-    fn rebuild_split_screen_index(state: &mut State) {
+    pub(crate) fn rebuild_split_screen_index(state: &mut State) {
         fn index_node(
             node: &Node,
             workspace_index: usize,
@@ -14051,15 +14058,19 @@ impl Mux {
             expected_revision,
             mutation,
             true,
+            false,
         )
     }
 
+    /// Stage an empty workspace for a resource effect. `ephemeral` marks it
+    /// in the same transaction, so no reader sees it without the flag.
     fn create_empty_workspace_for_resource_effect(
         &self,
         name: Option<String>,
         requested_key: Option<String>,
         public_id: WorkspacePublicId,
         mutation: &WorkspaceMutation,
+        ephemeral: bool,
     ) -> anyhow::Result<WorkspacePlacement> {
         self.create_empty_workspace_with_mutation_inner(
             name,
@@ -14069,6 +14080,7 @@ impl Mux {
             None,
             mutation,
             false,
+            ephemeral,
         )
     }
 
@@ -14082,6 +14094,7 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
         project_resource: bool,
+        ephemeral: bool,
     ) -> anyhow::Result<WorkspacePlacement> {
         if let Some(name) = name.as_deref() {
             Self::validate_workspace_name(name)?;
@@ -14099,11 +14112,14 @@ impl Mux {
         let ws_id = self.next_id();
         let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
-        let fingerprint = serde_json::json!({
+        let mut fingerprint = serde_json::json!({
             "op": "create-workspace",
             "name": requested_name,
             "requested_key": requested_key,
         });
+        if ephemeral {
+            fingerprint["ephemeral"] = Value::Bool(true);
+        }
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             let workspace = commit.result["workspace"]
                 .as_u64()
@@ -14164,7 +14180,11 @@ impl Mux {
                     &result,
                 )?
             } else {
-                registry.commit_for_resource_effect(
+                let marked = workspace_public_id.as_str().to_string();
+                let mark = move |tx: &rusqlite::Transaction<'_>| {
+                    crate::state::store::mark_workspace_ephemeral(tx, &marked)
+                };
+                registry.commit_for_resource_effect_with(
                     mutation,
                     &fingerprint,
                     expected_generation,
@@ -14174,6 +14194,9 @@ impl Mux {
                     &desired,
                     Some(&workspace_public_id),
                     &result,
+                    ephemeral.then_some(
+                        &mark as crate::workspace_registry::RegistryTransactionWrite<'_>,
+                    ),
                 )?
             };
             let committed_workspace = commit.result["workspace"]
@@ -14423,7 +14446,7 @@ impl Mux {
         self.new_screen_with_cwd(workspace, None, size)
     }
 
-    fn new_screen_with_cwd(
+    pub(crate) fn new_screen_with_cwd(
         self: &Arc<Self>,
         workspace: Option<WorkspaceId>,
         cwd: Option<String>,
@@ -15042,7 +15065,7 @@ impl Mux {
         self.new_browser_tab_with_fields(url, pane, size, Map::new())
     }
 
-    fn new_browser_tab_with_fields(
+    pub(crate) fn new_browser_tab_with_fields(
         self: &Arc<Self>,
         url: String,
         pane: Option<PaneId>,
@@ -16199,6 +16222,7 @@ impl Mux {
             }
             let previous_active = state.active_pane();
             let key = state.workspaces[index].key.clone();
+            registry.read_state(|db| crate::state::home_store::refuse_close_key(db, &key))?;
             let mut desired = self.registry_projection(&state);
             desired.remove(index);
             let desired_active_workspace = if state.active_workspace == index {
@@ -17883,6 +17907,7 @@ impl Mux {
                     None,
                     WorkspacePublicId::random()?,
                     &WorkspaceMutation::local("cmux-tui-layout-workspace"),
+                    false,
                 )?
                 .workspace,
                 true,
@@ -18772,58 +18797,6 @@ impl Mux {
     }
 }
 
-fn persist_public_topology_result(
-    operation: &str,
-    result: &mut Value,
-    changes: &Value,
-) -> anyhow::Result<()> {
-    let Some((resource, identity_field)) = public_topology_result_target(operation) else {
-        return Ok(());
-    };
-    let id = result
-        .get(identity_field)
-        .and_then(Value::as_str)
-        .with_context(|| format!("{operation} result omitted its {identity_field} identity"))?;
-    let value = changes
-        .as_array()
-        .context("public topology changes are not an array")?
-        .iter()
-        .rev()
-        .find(|change| {
-            change["kind"] == "upsert"
-                && change["resource"] == resource
-                && change["id"].as_str() == Some(id)
-        })
-        .and_then(|change| change.get("value"))
-        .cloned()
-        .with_context(|| {
-            format!("{operation} changes omitted the committed {resource} value for {id}")
-        })?;
-    result
-        .as_object_mut()
-        .context("public topology result is not an object")?
-        .insert("public_value".to_string(), value);
-    Ok(())
-}
-
-fn public_topology_result_target(operation: &str) -> Option<(&'static str, &'static str)> {
-    match operation {
-        "workspace.rename" | "workspace.move" | "workspace.focus" | "workspace.layout.apply" => {
-            Some(("workspace", "workspace"))
-        }
-        "screen.rename" | "screen.focus" | "screen.layout.undo" => Some(("screen", "screen")),
-        "pane.rename"
-        | "pane.focus"
-        | "pane.focus_direction"
-        | "pane.swap"
-        | "pane.zoom"
-        | "pane.split_ratio.set"
-        | "pane.viewport_width.set" => Some(("pane", "pane")),
-        "tab.rename" | "tab.move" | "tab.focus" => Some(("tab", "tab")),
-        _ => None,
-    }
-}
-
 /// Render raw terminal output bytes to plain text by replaying them through
 /// a fresh terminal emulator sized to the recorded geometry, then formatting
 /// the full page list without escapes ([`ghostty_vt::Terminal::plain_text`]).
@@ -19527,7 +19500,7 @@ fn unique_surface_runtimes(state: &State) -> Vec<Arc<Surface>> {
         .collect()
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
@@ -20597,6 +20570,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    mod column_update;
     mod sticky_columns;
 
     use crate::layout::{DEFAULT_VIEWPORT_PANE_WIDTH, VirtualRect};
@@ -22051,7 +22025,11 @@ mod tests {
             assert_eq!(batch.revision, revision);
             for (sequence, change) in batch.changes.as_array().unwrap().iter().enumerate() {
                 assert_eq!(change["sequence"], sequence);
-                assert!(matches!(change["kind"].as_str(), Some("upsert" | "delete")));
+                // A close also records closed history as a state change.
+                assert!(matches!(
+                    change["kind"].as_str(),
+                    Some("upsert" | "delete" | "state_upsert" | "state_delete")
+                ));
                 assert!(change["resource"].is_string());
                 assert!(change["id"].is_string());
                 assert!(change.get("event").is_none());
@@ -34376,72 +34354,7 @@ mod tests {
         mux.shutdown();
     }
 
-    #[test]
-    fn authority_rotation_waits_for_an_authorized_lifecycle_mutation() {
-        const MUX_GENERATION: &str = "0123456789abcdef0123456789abcdef";
-        const AUTHORITY_ONE: &str = "locked-authority-one-0000000000000000001";
-        const AUTHORITY_TWO: &str = "locked-authority-two-0000000000000000002";
-
-        let mux = Mux::new_provider_managed_pending_for_test(
-            "authority-lock-test",
-            SurfaceOptions::default(),
-            MUX_GENERATION,
-        );
-        mux.install_or_rotate_provider_workspace_authority(
-            MUX_GENERATION,
-            0,
-            1,
-            ProviderWorkspaceAuthority::new(AUTHORITY_ONE).unwrap(),
-        )
-        .unwrap();
-        let workspace = mux.create_empty_workspace(Some("managed".into()), None, None).unwrap();
-        let (locked_tx, locked_rx) = std::sync::mpsc::sync_channel(1);
-        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
-        let release_rx = Arc::new(Mutex::new(release_rx));
-        *mux.workspace_close_after_selector_resolution.lock().unwrap() =
-            Some(Arc::new(move || {
-                locked_tx.send(()).unwrap();
-                release_rx.lock().unwrap().recv().unwrap();
-            }));
-
-        let close = std::thread::spawn({
-            let mux = mux.clone();
-            let key = workspace.key.clone();
-            move || {
-                mux.close_provider_managed_workspace_authorized(
-                    workspace.workspace,
-                    &key,
-                    AUTHORITY_ONE,
-                )
-                .unwrap()
-            }
-        });
-        locked_rx.recv().unwrap();
-        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
-        let (rotated_tx, rotated_rx) = std::sync::mpsc::sync_channel(1);
-        let rotate = std::thread::spawn({
-            let mux = mux.clone();
-            move || {
-                started_tx.send(()).unwrap();
-                let result = mux.install_or_rotate_provider_workspace_authority(
-                    MUX_GENERATION,
-                    1,
-                    2,
-                    ProviderWorkspaceAuthority::new(AUTHORITY_TWO).unwrap(),
-                );
-                rotated_tx.send(()).unwrap();
-                result
-            }
-        });
-        started_rx.recv().unwrap();
-        assert!(rotated_rx.recv_timeout(Duration::from_millis(50)).is_err());
-        release_tx.send(()).unwrap();
-        assert_eq!(close.join().unwrap(), Some(2));
-        rotate.join().unwrap().unwrap();
-        rotated_rx.recv().unwrap();
-        mux.authorize_provider_workspace_authority(AUTHORITY_TWO).unwrap();
-        *mux.workspace_close_after_selector_resolution.lock().unwrap() = None;
-    }
+    mod authority_rotation_tests;
 }
 #[test]
 fn initial_bootstrap_lock_serializes_concurrent_callers() {

@@ -367,12 +367,6 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         })
         self.assertEqual(groups, ("preflight", "ci", "quality-determinism"))
 
-    def test_host_free_cli_test_sources_reach_the_determinism_lints(self):
-        for path in ("cmuxCLITests/ProbeTests.swift", "cmuxCLITestSupport/ProbeSupport.swift"):
-            with self.subTest(path=path):
-                _, groups = route_decision([path], macos="true")
-                self.assertIn("quality-determinism", groups)
-
     def test_native_edit_keeps_source_contracts_without_history_or_cli_guards(self):
         outputs = route(["Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteContentView.swift", "CLAUDE.md"], macos="true")
         self.assertEqual(outputs, {
@@ -388,7 +382,6 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "skills/cmux-cloud-vm/references/agent-workflows.md",
             "skills/cmux-cloud-vm/references/commands.md",
             "skills/cmux-cloud-vm/references/guest.md",
-            "tests/test_cloud_vm_skill_coverage.py",
         ]
         expected = {name: "true" if name == "linux_guard_tests" else "false"
                     for name in JOBS}
@@ -473,11 +466,11 @@ class LinuxGuardRoutingTests(unittest.TestCase):
 
     def test_manifest_and_guard_inputs_keep_their_coverage(self):
         for path, selected in (
-            ("Packages/macOS/CmuxSettings/Package.swift", "linux_guard_history"),
+            ("Packages/macOS/CmuxUpdater/Package.swift", "linux_guard_history"),
             ("cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved", "linux_guard_history"),
             ("cmux.xcodeproj/project.pbxproj", "linux_guard_history"),
             ("ios/cmux.xcworkspace/contents.xcworkspacedata", "linux_guard_history"),
-            ("Packages/macOS/CmuxSettings/.gitignore", "linux_guard_history"),
+            ("Packages/macOS/CmuxUpdater/.gitignore", "linux_guard_history"),
             ("tests/test_check_package_resolved_policy.py", "linux_guard_history"),
             ("scripts/check-package-resolved-policy.py", "linux_guard_history"),
             ("Resources/bin/start-cmux-profiling", "linux_guard_cli"),

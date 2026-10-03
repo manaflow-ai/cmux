@@ -16,37 +16,36 @@ struct BranchDaemonTests {
         }
     }
 
-    @Test func workspaceGroupsCreateMoveCollapse() async throws {
-        try await BranchDaemonHarness.with { h in
+    /// Workspace groups are personal: the home session's v2
+    /// `workspace_group.*` and `workspace.place` (the shared group commands
+    /// are not used), mirrored through `personal-changed`.
+    @Test func personalWorkspaceGroupsCreatePlaceCollapse() async throws {
+        try await BranchDaemonHarness.with(sessionEvents: true) { h in
+            try await h.store.waitUntil("state resources") { h.store.servesStateResources }
             let a = try await h.connection.createWorkspace(name: "a")
             let b = try await h.connection.createWorkspace(name: "b")
-            let agents = try await h.connection.createGroup(name: "Agents", color: "blue")
-            let infra = try await h.connection.createGroup(name: "Infra", id: "infra")
-            #expect(agents.name == "Agents")
-            #expect(agents.color == "blue")
-            #expect(infra.id == "infra")
-
-            let moved = try await h.connection.moveWorkspace(b.key, toGroup: agents.id, index: 0)
-            #expect(moved.group == agents.id)
-            _ = try await h.connection.moveWorkspace(a.key, toGroup: agents.id, index: 0)
-            let collapsed = try await h.connection.updateGroup(agents.id, collapsed: true)
-            #expect(collapsed.collapsed)
-            try await h.connection.moveGroup(infra.id, to: 0)
-
-            let tree = try await h.tree()
-            #expect(tree.groups.map(\.id) == [infra.id, agents.id])
-            #expect(tree.groups.first { $0.id == agents.id }?.collapsed == true)
-            #expect(tree.workspaces.filter { $0.group == agents.id }.map(\.name) == ["a", "b"])
-
-            // The store mirrors groups and sections through the event stream.
-            try await h.store.waitUntil("store sees the collapsed group") {
-                h.store.group(agents.id)?.collapsed == true
-                    && h.store.sidebarSections.last?.workspaces.map(\.name) == ["a", "b"]
+            let agents = try await h.connection.state.createWorkspaceGroup(name: "Agents", room: nil, color: "blue")
+            let infra = try await h.connection.state.createWorkspaceGroup(name: "Infra", room: nil, color: nil)
+            try await h.store.waitUntil("workspaces mirrored") {
+                h.store.workspace(key: a.key)?.resourceID != nil && h.store.workspace(key: b.key)?.resourceID != nil
             }
-
-            _ = try await h.connection.moveWorkspace(a.key, toGroup: nil)
-            try await h.connection.deleteGroup(agents.id)
-            #expect(try await h.tree().workspaces.allSatisfy { $0.group == nil })
+            let session = try #require(await h.store.registryID)
+            for key in [b.key, a.key] {
+                let resource = await h.store.personalStateID(session: session, key: key)
+                #expect(resource != nil)
+                try await h.connection.state.placePersonalWorkspace(session: session, key: key, resource: resource,
+                                                              group: .set(WorkspaceGroupID(rawValue: agents.id)), index: 0)
+            }
+            try await h.connection.state.updateWorkspaceGroup(agents.id, collapsed: true)
+            try await h.connection.state.moveWorkspaceGroup(infra.id, to: 0)
+            try await h.store.waitUntil("personal groups mirrored") {
+                let groups = h.store.personal.groups
+                let members = h.store.personal.workspaces.filter { $0.group?.rawValue == agents.id }.map(\.workspaceKey)
+                return groups.first { $0.id.rawValue == agents.id }?.collapsed == true
+                    && Set(members) == [a.key, b.key]
+            }
+            try await h.connection.state.deleteWorkspaceGroup(agents.id)
+            try await h.store.waitUntil("group deleted") { h.store.personal.group(WorkspaceGroupID(rawValue: agents.id)) == nil }
         }
     }
 

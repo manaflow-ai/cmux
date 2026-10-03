@@ -347,7 +347,13 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     func syncHistory() {
         apply(.historyChanged(canGoBack: webView.canGoBack, canGoForward: webView.canGoForward))
+        let list = webView.backForwardList
+        apply(.historyListed(back: list.backList.suffix(Self.historyListLimit).map(\.url.absoluteString),
+                             forward: list.forwardList.prefix(Self.historyListLimit).map(\.url.absoluteString)))
     }
+
+    /// URLs kept on each side of the current entry (the daemon's tab record holds 20).
+    static let historyListLimit = 20
 
     func syncSecurity() {
         guard !isClosed, state.phase == .committed || state.phase == .finished else { return }

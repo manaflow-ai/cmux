@@ -44,6 +44,10 @@ public enum DaemonEvent: Sendable, Hashable {
     case notification(DaemonNotification)
     case agentChanged(AgentStatus)
 
+    /// A `session.events` item: the state resources the daemon owns
+    /// (state-ownership.md 2), which `DaemonStore.session` mirrors.
+    case sessionState(SessionStreamItem)
+
     // Registries and clients.
     case frontendProjectionChanged(ProjectionChange)
     case terminalRegistryChanged(revision: UInt64)
@@ -60,4 +64,16 @@ public enum DaemonEvent: Sendable, Hashable {
     case overflow(String)
     case daemonShutdown
     case unknown(name: String, payload: JSONValue)
+}
+
+extension DaemonEvent {
+    /// Applies even when a tree snapshot covers its sequence: connection
+    /// lifecycle, and `session.events` items, which `list-workspaces` does
+    /// not carry.
+    var outlivesSnapshot: Bool {
+        switch self {
+        case .connected, .disconnected, .daemonShutdown, .sessionState: true
+        default: false
+        }
+    }
 }

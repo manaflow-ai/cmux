@@ -112,8 +112,14 @@ enum ScreenGroupCommands {
         "cmux-next-\(label)-\(UUID().uuidString.lowercased())"
     }
 
+    /// Closes the group's screens: one `close-screen` each on a daemon with
+    /// state resources (its closed history records each screen; there is no
+    /// v2 group close), else `close-screen-group`.
     static func close(_ ref: ScreenGroupRef, services: AppServices) {
-        for screen in ref.members { services.closedScreens.record(screen, in: ref.workspace) }
+        if ref.daemon.supports(DaemonCapabilities.shared.stateResources) {
+            return ScreenCommands.close(ref.members, in: ref.workspace, daemon: ref.daemon, services: services)
+        }
+        for screen in ref.members { services.closedScreens.record(screen, in: ref.workspace, daemon: ref.daemon.store) }
         let group = ref.group.id
         ref.daemon.send("close-screen-group") { _ = try await $0.closeScreenGroup(group) }
     }

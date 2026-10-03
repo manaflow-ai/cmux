@@ -1,5 +1,9 @@
 # Agent recovery
 
+`cmux recover` was a Swift CLI verb and was removed in the Rust CLI cutover
+([plans/cmux-next/cli.md](../plans/cmux-next/cli.md)); the Rust `cmux` has no
+recovery verb yet. This page records how it worked.
+
 `cmux recover` is the cmux front end for Subrouter's local recovery index. It
 lists interrupted Claude sessions and their bounded context without changing
 the current workspace:

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
@@ -102,7 +103,9 @@ final class LocationTrailService {
     /// Shows the tab: its window comes forward, its workspace and tab are
     /// selected and its pane takes focus.
     private func focus(_ location: HistoryLocation) -> Bool {
-        services.revealTab(location.key.tab)
+        // A run without view-change permission (automation) moves nothing.
+        guard ViewChangePolicy.allowed() else { return false }
+        return services.revealTab(location.key.tab)
     }
 
     // MARK: Clearing
