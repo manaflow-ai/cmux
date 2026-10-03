@@ -73,6 +73,7 @@ tokio.workspace = true
 windows-sys.workspace = true
 
 [dev-dependencies]
+cmux-config.workspace = true
 cmux-pty.workspace = true
 tempfile = "3"
 rusqlite.workspace = true

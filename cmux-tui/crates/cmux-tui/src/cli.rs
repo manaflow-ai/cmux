@@ -18,6 +18,7 @@ mod mcp;
 mod raw;
 mod resolve;
 mod scope_help;
+mod settings;
 mod screen_help;
 mod shorthand;
 mod surface;
@@ -211,6 +212,9 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             CommandPlan::AgentHooks(plan) => command::run_agent_hooks(global, plan),
             CommandPlan::Protocol(request) if global.all_sessions => {
                 federation::run_all_sessions(&global, *request)
+            }
+            CommandPlan::Protocol(request) if settings::handles(&request) => {
+                settings::run(global, *request)
             }
             CommandPlan::Protocol(request) => wire::run(global, *request),
             CommandPlan::SessionResetState(plan) => command::run_session_reset_state(global, plan),

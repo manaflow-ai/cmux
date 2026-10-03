@@ -17,6 +17,7 @@ cmux-layout-reducer.workspace = true
 cmux-pty.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true
+cmux-config.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
@@ -35,6 +36,7 @@ zeroize.workspace = true
 url.workspace = true
 
 [dev-dependencies]
+tempfile = "3"
 proptest = { version = "1", default-features = false, features = ["std"] }
 
 [target.'cfg(windows)'.dependencies]

@@ -19,6 +19,7 @@ mod resource_topology;
 mod screen_changed;
 pub(crate) mod screen_groups;
 mod session_paths;
+pub(crate) mod settings;
 mod sticky_columns;
 pub(crate) mod tab_drag;
 pub(crate) mod tab_groups;
@@ -1007,6 +1008,8 @@ pub enum MuxEvent {
         personal_revision: u64,
     },
     BookmarksChanged(personal::BookmarksChange),
+    /// cmux.json or a managed layer changed (`settings-v1`; mux/settings.rs).
+    SettingsChanged(cmux_config::Change),
     Conversation(Arc<crate::conversation_store::ConversationEvent>),
     /// A durable terminal-registry mutation committed. Consumers use this as
     /// a barrier, then fetch `terminal-events` or a fresh snapshot.
@@ -2742,6 +2745,8 @@ pub struct Mux {
     terminal_reaper_events: Mutex<Option<MuxEventReceiver>>,
     /// The launch snapshot file while its writer runs (`launch-snapshot-v1`).
     launch_snapshot_path: Mutex<Option<std::path::PathBuf>>,
+    /// The settings owner (cmux.json), started on first use (mux/settings.rs).
+    settings: settings::SettingsSlot,
     /// Parallel terminal host launches and reaps (`terminal_work`).
     terminal_work: terminal_work::TerminalWorkPool,
     /// Hosts launched ahead of their creation, by reserved terminal id.
@@ -3178,6 +3183,7 @@ impl Mux {
             ),
             terminal_reaper_events: Mutex::new(None),
             launch_snapshot_path: Mutex::new(None),
+            settings: settings::SettingsSlot::default(),
             terminal_work: terminal_work::TerminalWorkPool::default(),
             #[cfg(unix)]
             prelaunched_terminals: Mutex::new(HashMap::new()),

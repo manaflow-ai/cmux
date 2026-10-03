@@ -259,13 +259,17 @@ fn app_browser_tabs_take_page_commands_and_daemon_browsers_stay_with_the_mux() {
 }
 
 #[test]
-fn settings_set_takes_json_or_a_plain_string() {
-    let (_, params) =
-        call(parse(&args(&["settings", "set", "layout.panePadding", "4"])).unwrap().unwrap());
-    assert_eq!(params, json!({ "path": "layout.panePadding", "value": 4 }));
-    let (_, params) =
-        call(parse(&args(&["settings", "set", "window.titlebar", "minimal"])).unwrap().unwrap());
-    assert_eq!(params, json!({ "path": "window.titlebar", "value": "minimal" }));
+fn only_settings_open_stays_an_app_command() {
+    // Every other settings verb goes to the daemon's settings owner.
+    assert_eq!(parse(&args(&["settings", "set", "layout.panePadding", "4"])).unwrap(), None);
+    assert_eq!(parse(&args(&["settings", "list"])).unwrap(), None);
+    let (method, params) =
+        call(parse(&args(&["settings", "open", "appearance.density"])).unwrap().unwrap());
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "openSettings");
+    assert_eq!(params["args"]["setting"], "appearance.density");
+    let (_, params) = call(parse(&args(&["settings", "open"])).unwrap().unwrap());
+    assert!(params.get("args").is_none());
 }
 
 #[test]

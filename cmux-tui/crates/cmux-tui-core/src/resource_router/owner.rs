@@ -13,6 +13,8 @@ pub(super) enum OperationOwner {
     State,
     Git,
     Connection,
+    /// Settings (cmux.json): the config owner (resource_router/config.rs).
+    Config,
 }
 
 pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
@@ -176,7 +178,17 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::WorkspaceLogAppend
         | ResourceOperation::WorkspaceLogList
         | ResourceOperation::WorkspaceLogClear => OperationOwner::State,
-        ResourceOperation::SessionEvents
+        ResourceOperation::SettingsSchema
+        | ResourceOperation::SettingsList
+        | ResourceOperation::SettingsGet
+        | ResourceOperation::SettingsSnapshot
+        | ResourceOperation::SettingsSet
+        | ResourceOperation::SettingsReset
+        | ResourceOperation::SettingsResetAll => OperationOwner::Config,
+        // App-only: the connection decides whether the hosting app sent it.
+        ResourceOperation::SettingsDomainsPublish
+        | ResourceOperation::SettingsTeamPolicySet
+        | ResourceOperation::SessionEvents
         | ResourceOperation::SessionJournalSubscribe
         | ResourceOperation::SessionJournalProducerList
         | ResourceOperation::SessionJournalProducerPut

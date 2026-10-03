@@ -151,12 +151,12 @@ impl Selectors {
 }
 
 #[derive(Default)]
-struct Flags {
+pub(in crate::cli) struct Flags {
     values: BTreeMap<String, Option<String>>,
 }
 
 impl Flags {
-    fn take(&mut self, name: &str) -> Option<String> {
+    pub(in crate::cli) fn take(&mut self, name: &str) -> Option<String> {
         self.values.remove(name).flatten()
     }
 
@@ -216,6 +216,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         "room" => state::parse_room(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "closed" => state::parse_closed(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "git" => git::parse_git(&strs(&tokens.words[1..]), &mut tokens.flags)?,
+        "settings" => super::settings::parse(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "notify" => parse_notify(&tokens.words[1..], &mut tokens.flags)?,
         "agent" => parse_agent(&tokens.words[1..], &mut tokens.flags)?,
         "sidebar" => parse_sidebar(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
@@ -1975,6 +1976,15 @@ fn parse_raw(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageEr
         return Err(UsageError::new("--params-json must be a JSON object"));
     }
     finalize_request(wire_operation, params, flags)
+}
+
+/// A request with only the session route (`settings.*`, cli/settings.rs).
+pub(in crate::cli) fn routed_request(
+    operation: ResourceOperation,
+    flags: &mut Flags,
+    params: Map<String, Value>,
+) -> Result<CommandPlan, UsageError> {
+    request(operation, &Selectors::default(), flags, params)
 }
 
 fn request(

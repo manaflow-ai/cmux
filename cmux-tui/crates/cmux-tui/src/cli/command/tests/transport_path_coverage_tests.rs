@@ -9,9 +9,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
     // The case list is shared with `cmux mcp`'s parity test (command/cases.rs).
     let cases = cases::safe_operation_cases();
 
-    assert_eq!(cases.len(), 180);
+    assert_eq!(cases.len(), 187);
     let catalog = operation_catalog();
-    assert_eq!(catalog["operations"].as_object().unwrap().len(), 191);
+    assert_eq!(catalog["operations"].as_object().unwrap().len(), 200);
     let mut seen = std::collections::BTreeSet::new();
     let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
     for (args, expected) in &cases {
@@ -55,6 +55,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         ),
         (vec!["terminal", TERMINAL, "write", "--bytes-base64", "AA=="], "terminal.input.write"),
         (vec!["git", "checkpoint", "get", "--path", "/repo", "--key", "k1"], "git.checkpoint.get"),
+        (vec!["settings", "get", "--path-json", r#"["a","b.c"]"#], "settings.get"),
+        (vec!["settings", "set", "--path-json", r#"["a","b.c"]"#, "1"], "settings.set"),
+        (vec!["settings", "reset", "--path-json", r#"["a","b.c"]"#], "settings.reset"),
         (
             vec![
                 "terminal",
@@ -97,6 +100,10 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // The hosting app creates its home workspace; the
                         // CLI never offers it (workspace-kind-v1).
                         | "workspace.ensure_home"
+                        // Value domains and the team policy come only from
+                        // the hosting app (settings-host-v1).
+                        | "settings.domains.publish"
+                        | "settings.team_policy.set"
             )
         })
         .map(String::as_str)
