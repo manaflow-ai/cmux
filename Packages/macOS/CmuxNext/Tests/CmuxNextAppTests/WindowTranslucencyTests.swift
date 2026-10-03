@@ -109,4 +109,43 @@ struct WindowTranslucencyTests {
         window.close()
         withExtendedLifetime((config, room, workspace)) {}
     }
+
+    /// Liquid Glass at 0.85 reads as 0.85 (the #16937 dogfood measured the
+    /// Silver desktop at about 163 of 231 under Catppuccin Mocha): the glass
+    /// view carries the theme tint at the configured opacity, the way
+    /// Ghostty.app tints its glass, and no second tint layer paints under or
+    /// over it. Untinted glass draws its own dark material, and the root's
+    /// 0.85 tint over that dimmed the desktop twice.
+    @Test(arguments: [-1, -2])
+    func glassCarriesTheOnlyTintAtTheConfiguredOpacity(blur: Int) throws {
+        let room = ThemeScope(level: .room)
+        room.setOverride(ThemeSpec("Catppuccin Mocha")!, input: Self.mocha(opacity: 0.85, blur: blur), animated: false)
+        let model = SidebarModel()
+        let root = WindowRootView(sidebar: SidebarContainerView(model: model),
+                                  rail: WindowRailView(model: model, registry: ActionBindingCoverageTests.boundServices().registry),
+                                  reduceTransparency: { false },
+                                  applyWindowBlur: { _, _ in })
+        let window = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 1100, height: 720),
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        root.applyBackdrop(to: window)
+        window.contentView = root
+        room.adopt(window)
+        root.layoutSubtreeIfNeeded()
+
+        #expect(root.backdrop.material == .glass(blur == -2 ? .clear : .regular))
+        #expect(root.layer?.backgroundColor == nil)
+        let glass = try #require(root.backdropView.materialView as? NSGlassEffectView)
+        let glassTint = try #require(glass.tintColor)
+        #expect(abs(glassTint.alphaComponent - 0.85) < 0.001, "the glass takes the configured opacity")
+        let painted = root.backdropView.subviews.filter {
+            $0 !== glass && !$0.isHidden && ($0.layer?.backgroundColor?.alpha ?? 0) > 0
+        }
+        #expect(painted.isEmpty, "a tint layer next to the glass dims the desktop twice")
+        let tint = try #require(root.backdropView.tintColor)
+        #expect(abs(tint.alpha - 0.85) < 0.001, "the effective tint is the configured opacity")
+        window.close()
+        withExtendedLifetime(room) {}
+    }
 }
