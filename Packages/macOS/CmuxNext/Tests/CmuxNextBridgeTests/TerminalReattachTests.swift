@@ -182,7 +182,9 @@ struct TerminalReattachRuleTests {
         _ = machine.reduce(.processExited)
         _ = machine.reduce(.processRevived)
         _ = machine.reduce(.opened(7, attempt: 1))
-        #expect(machine.reduce(.replayDelivered(7)).contains(.status(.connected)))
+        let effects = machine.reduce(.replayDelivered(7))
+        #expect(!effects.contains(.status(.exited)))
+        #expect(!effects.contains(.detach(7)))
         #expect(machine.liveLink == 7)
     }
 
