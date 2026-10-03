@@ -23,7 +23,7 @@ public struct ClassicSessionPane: Codable, Equatable, Sendable {
 }
 
 /// The classic split tree. A pane is a leaf; a split preserves its axis and divider.
-public indirect enum ClassicSessionLayout: Codable, Equatable, Sendable {
+public nonisolated indirect enum ClassicSessionLayout: Codable, Equatable, Sendable {
     case pane(ClassicSessionPane)
     case split(orientation: Orientation, ratio: Double, first: ClassicSessionLayout, second: ClassicSessionLayout)
 

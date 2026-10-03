@@ -1,7 +1,7 @@
 public import Foundation
 
 /// Read-only access to classic cmux's saved session file.
-public struct ClassicSessionImporter: Sendable {
+public nonisolated struct ClassicSessionImporter: Sendable {
     public static let stableBundleIdentifier = "com.cmuxterm.app"
     public let fileURL: URL
 

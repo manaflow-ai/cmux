@@ -1,7 +1,7 @@
 public import Foundation
 
 /// One workspace eligible for import into cmux-next.
-public struct ClassicSessionWorkspace: Codable, Equatable, Sendable {
+public nonisolated struct ClassicSessionWorkspace: Codable, Equatable, Sendable {
     public let name: String
     public let workingDirectory: String
     public let layout: ClassicSessionLayout

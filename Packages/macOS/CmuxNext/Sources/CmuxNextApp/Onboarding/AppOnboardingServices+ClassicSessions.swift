@@ -73,10 +73,13 @@ extension AppOnboardingServices {
 
     private func restoreClassicTitles(_ layout: ClassicSessionLayout, workspaceID: String, connection: DaemonConnection) async throws {
         let tree = try await connection.listWorkspaces()
-        guard let workspace = tree.workspaces.first(where: { $0.id.rawValue == workspaceID }),
+        guard let workspace = tree.workspaces.first(where: { $0.key?.rawValue == workspaceID }),
               let screen = workspace.screens.first else { return }
-        let surfaces = screen.layout.paneIDs.flatMap { paneID in
-            screen.panes.first(where: { $0.handle == paneID })?.tabs.map(\.surface) ?? []
+        let paneIDs = screen.layout.paneIDs
+        let panes = screen.panes
+        let surfaces: [SurfaceID] = paneIDs.flatMap { paneID in
+            guard let pane = panes.first(where: { $0.id == paneID }) else { return [] }
+            return pane.tabs.map(\.surface)
         }
         for (surface, tab) in zip(surfaces, classicTabs(layout)) {
             if let title = tab.title, !title.isEmpty { try await connection.renameTab(surface, to: title) }
