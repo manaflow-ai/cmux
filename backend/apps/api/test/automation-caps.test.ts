@@ -294,3 +294,59 @@ describe("slice 4 capabilities (workerd)", { timeout: 60_000 }, () => {
     expect(notCap).toMatchObject({ ok: false, error: { code: "validation.invalid" } })
   })
 })
+
+describe("egress gateway bypass classes (workerd)", () => {
+  const gateway = (hosts: ReadonlyArray<string>) => (exports as unknown as { AutomationEgress: (o: { props: unknown }) => Fetcher }).AutomationEgress({ props: { team: "team_bypass00000000000000", hosts } })
+  it("refuses IP literals in every form, punycode look-alikes, trailing dots, userinfo and other ports", async () => {
+    const seen: Array<string> = []
+    egressTest.upstream = async (url) => {
+      seen.push(url)
+      return new Response("ok")
+    }
+    try {
+      const g = gateway(["api.example.com", "xn--bcher-kva.example"])
+      for (const url of [
+        "https://127.0.0.1/", "https://2130706433/", "https://0x7f000001/", "https://0177.0.0.1/", "https://[::1]/", "https://[fd00::1]/",
+        "https://169.254.169.254/latest/meta-data/", "https://10.0.0.1/", "https://api.example.com./",
+        "https://api.example.com:444/", "http://api.example.com/", "https://api.example.com.evil.org/", "https://bücher.example.org/", "https://localhost/"
+      ]) {
+        const r = await g.fetch(url)
+        expect(r.status, url).toBe(403)
+      }
+      // userinfo: the runtime strips it before the gateway, or the gateway refuses it; it never reaches the upstream URL.
+      const u = await g.fetch("https://user:pw@api.example.com/")
+      expect([200, 403]).toContain(u.status)
+      expect(seen.every((x) => !x.includes("@"))).toBe(true)
+      seen.length = 0
+      // The URL parser turns an IDN into punycode, which then matches its punycode allowlist entry exactly.
+      expect((await g.fetch("https://bücher.example/")).status).toBe(200)
+      expect(seen).toEqual(["https://xn--bcher-kva.example/"])
+    } finally {
+      egressTest.upstream = undefined
+    }
+  })
+
+  it("never follows a redirect: a 302 to a denied host comes back to tenant code, and the next hop is checked again", async () => {
+    const seen: Array<string> = []
+    egressTest.upstream = async (url, init) => {
+      seen.push(url)
+      expect(init.redirect).toBe("manual")
+      return new Response(null, { status: 302, headers: { location: "https://169.254.169.254/" } })
+    }
+    try {
+      const g = gateway(["api.example.com"])
+      const r = await g.fetch("https://api.example.com/start", { redirect: "manual" })
+      expect(r.status).toBe(302)
+      expect((await g.fetch(r.headers.get("location")!)).status).toBe(403)
+      expect(seen).toEqual(["https://api.example.com/start"])
+    } finally {
+      egressTest.upstream = undefined
+    }
+  })
+
+  it("refuses our own and Cloudflare-hosted zones even when listed", async () => {
+    for (const h of ["files.cmux.com", "cloud-api.cmux.dev", "x.workers.dev", "x.pages.dev", "pub-1.r2.dev", "acct.r2.cloudflarestorage.com", "app.manaflow.ai"]) {
+      expect(hostAllowed(h, [h]), h).toBe(false)
+    }
+  })
+})
