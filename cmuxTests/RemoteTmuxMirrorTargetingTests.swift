@@ -407,7 +407,7 @@ struct RemoteTmuxMirrorTargetingTests {
         ])
     }
 
-    @Test func multiPaneMirrorSurfaceTitlesUseWindowName() throws {
+    @Test func multiPaneMirrorSurfaceTitlesUsePaneTitles() throws {
         let harness = try MirrorTitleHarness()
         defer { harness.tearDown() }
         harness.publishListWindows([
@@ -422,23 +422,26 @@ struct RemoteTmuxMirrorTargetingTests {
                 "%8 61 21 59 19 0 off :2 \"cmuxs-Mac-mini.local\"",
             ],
         ])
-        #expect(try harness.surfaceTitles() == ["editor", "logs", "logs [1]", "logs [2]"])
+        #expect(try harness.surfaceTitles() == [
+            "cmuxs-Mac-mini.local", "cmuxs-Mac-mini.local",
+            "cmuxs-Mac-mini.local", "cmuxs-Mac-mini.local",
+        ])
     }
 
-    @Test func singlePaneMirrorSurfaceTitleStillUsesWindowName() throws {
+    @Test func singlePaneMirrorSurfaceTitleUsesPaneTitle() throws {
         let harness = try MirrorTitleHarness()
         defer { harness.tearDown() }
         harness.publishListWindows(["@1 f92f,80x24,0,0,0 f92f,80x24,0,0,0 [] editor"])
         try harness.drainThroughPaneRects([1: ["%0 0 0 80 24 1 off :0 \"cmuxs-Mac-mini.local\""]])
-        #expect(try harness.surfaceTitles() == ["editor"])
+        #expect(try harness.surfaceTitles() == ["cmuxs-Mac-mini.local"])
     }
 
-    @Test func singlePaneToMultiPaneTransitionKeepsWindowNameInSurfaceTitles() throws {
+    @Test func singlePaneToMultiPaneTransitionKeepsPaneTitles() throws {
         let harness = try MirrorTitleHarness()
         defer { harness.tearDown() }
         harness.publishListWindows(["@2 f92f,80x24,0,0,4 f92f,80x24,0,0,4 [] logs"])
         try harness.drainThroughPaneRects([2: ["%4 0 0 80 24 1 off :0 \"cmuxs-Mac-mini.local\""]])
-        #expect(try harness.surfaceTitles() == ["logs"])
+        #expect(try harness.surfaceTitles() == ["cmuxs-Mac-mini.local"])
 
         harness.connection.handleMessageForTesting(.layoutChange(
             windowId: 2, layout: "abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5}", visibleLayout: nil, zoomed: false
@@ -448,7 +451,7 @@ struct RemoteTmuxMirrorTargetingTests {
             "%5 61 0 59 40 0 off :1 \"cmuxs-Mac-mini.local\"",
         ]])
 
-        #expect(try harness.surfaceTitles() == ["logs", "logs [1]"])
+        #expect(try harness.surfaceTitles() == ["cmuxs-Mac-mini.local", "cmuxs-Mac-mini.local"])
     }
 
     @Test func deliberatelyNamedTmuxPanesUseTheirTitlesOnMirrorSurfaces() throws {
@@ -463,7 +466,34 @@ struct RemoteTmuxMirrorTargetingTests {
             harness.paneRectLine(paneID: 8, index: 2, title: "run: publish"),
         ]])
 
-        #expect(try harness.surfaceTitles() == ["logs", "run: build", "run: publish"])
+        #expect(try harness.surfaceTitles() == ["cmuxs-Mac-mini.local", "run: build", "run: publish"])
+    }
+
+    @Test func cmuxPaneRenameTargetsItsTmuxPaneAndRemoteRenameReturnsToCmux() throws {
+        let harness = try MirrorTitleHarness()
+        defer { harness.tearDown() }
+        harness.publishListWindows([
+            "@2 abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5} abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5} [] logs",
+        ])
+        try harness.drainThroughPaneRects([2: [
+            harness.paneRectLine(paneID: 4, index: 0, title: "shell-a"),
+            harness.paneRectLine(paneID: 5, index: 1, title: "shell-b"),
+        ]])
+
+        let mirror = try #require(harness.workspace.remoteTmuxWindowMirrors.values.first)
+        let panePanel = try #require(mirror.panel(forPane: 5))
+        #expect(harness.workspace.setPanelCustomTitle(
+            panelId: panePanel.id,
+            title: "build",
+            propagateToCloud: false
+        ))
+        #expect(try harness.finishCommands().contains("select-pane -t @2.%5 -T 'build'"))
+
+        harness.connection.handleMessageForTesting(.subscriptionChanged(
+            name: "cmux_title_5",
+            value: harness.paneTitleMetadata(title: "tests")
+        ))
+        #expect(try harness.surfaceTitles() == ["shell-a", "tests"])
     }
 
     @Test func liveTmuxPaneRetitleUpdatesTheMirroredSurfaceTitle() throws {
@@ -477,7 +507,9 @@ struct RemoteTmuxMirrorTargetingTests {
             harness.paneRectLine(paneID: 5, index: 1, title: "cmuxs-Mac-mini.local"),
             harness.paneRectLine(paneID: 8, index: 2, title: "cmuxs-Mac-mini.local"),
         ]])
-        #expect(try harness.surfaceTitles() == ["logs", "logs [1]", "logs [2]"])
+        #expect(try harness.surfaceTitles() == [
+            "cmuxs-Mac-mini.local", "cmuxs-Mac-mini.local", "cmuxs-Mac-mini.local",
+        ])
 
         var topologyChanges = 0
         let observer = harness.connection.addObserver(onTopologyChanged: {
@@ -489,7 +521,9 @@ struct RemoteTmuxMirrorTargetingTests {
             value: harness.paneTitleMetadata(title: "run: db-migration")
         ))
 
-        #expect(try harness.surfaceTitles() == ["logs", "run: db-migration", "logs [2]"])
+        #expect(try harness.surfaceTitles() == [
+            "cmuxs-Mac-mini.local", "run: db-migration", "cmuxs-Mac-mini.local",
+        ])
         #expect(topologyChanges == 0)
     }
 
@@ -512,7 +546,9 @@ struct RemoteTmuxMirrorTargetingTests {
             harness.paneRectLine(paneID: 8, index: 2, title: "cmuxs-Mac-mini.local"),
         ]])
 
-        #expect(try harness.surfaceTitles() == ["logs", "run: db-migration", "logs [2]"])
+        #expect(try harness.surfaceTitles() == [
+            "cmuxs-Mac-mini.local", "run: db-migration", "cmuxs-Mac-mini.local",
+        ])
     }
 
     @MainActor private struct MirrorTitleHarness {
