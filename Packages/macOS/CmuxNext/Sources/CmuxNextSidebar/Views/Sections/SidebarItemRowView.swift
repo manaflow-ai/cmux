@@ -91,6 +91,8 @@ final class SidebarItemRowView: NSView {
 
     /// The unread badge draws (tests).
     var isBadgeShown: Bool { !badge.isHidden }
+    /// The glyph's frame (tests).
+    var glyphFrame: CGRect { icon.frame }
     /// The badge's frame while it draws (tests).
     var badgeFrame: CGRect? { badge.isHidden ? nil : badge.frame }
 

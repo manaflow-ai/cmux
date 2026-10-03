@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import Testing
 @testable import CmuxNextSidebar
 
@@ -140,6 +141,21 @@ import Testing
             view.layoutSubtreeIfNeeded()
             #expect(!view.isBadgeShown, "\(style)")
         }
+    }
+
+    /// Rail buttons are sized like the Codex rail: tiles at least 32pt,
+    /// 40pt apart, around a glyph box bigger than the sidebar's.
+    @Test func railButtonsAreSizedLikeTheCodexRail() throws {
+        let metrics = SidebarRailColumnView.metrics(width: 48, topInset: 0)
+        #expect(metrics.buttonSize >= 32)
+        #expect(metrics.buttonSize + metrics.buttonGap >= 40)
+        let view = SidebarRailView()
+        view.frame = NSRect(x: 0, y: 0, width: 48, height: 600)
+        view.update(.init(document: .defaults, room: nil, infos: [:], toolTips: [:], metrics: metrics))
+        view.layoutSubtreeIfNeeded()
+        let home = try #require(view.itemView(LayoutItemID("itm_home")))
+        home.layoutSubtreeIfNeeded()
+        #expect(home.glyphFrame.width >= Metrics.iconSize + Metrics.space3)
     }
 
     @Test func eachSectionLineIsALayer() {

@@ -16,7 +16,7 @@ extension AppThemeGlobalStateTests {
 /// is clear, so everything reads as the same color. At opacity 1 the
 /// surfaces draw the token or stay clear. One designed exception: beside
 /// the leading rail the sidebar is an inset panel (Leo, 2026-10-03) whose
-/// fill is the theme's translucent `sidebarStep` over this same backdrop
+/// fill is the theme's translucent `stripStep` over this same backdrop
 /// (`WindowSidebarPanelView`; WindowRailTests checks its fill).
 @MainActor
 @Suite(.serialized)

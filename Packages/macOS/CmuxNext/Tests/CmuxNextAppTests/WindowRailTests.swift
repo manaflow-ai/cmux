@@ -247,10 +247,10 @@ struct WindowRailTests {
                 #expect(layer.cornerRadius == Metrics.panelCornerRadius)
                 #expect(layer.maskedCorners == [.layerMinXMaxYCorner])
                 let fill = try #require(layer.backgroundColor.flatMap { NSColor(cgColor: $0)?.usingColorSpace(.sRGB) })
-                let step = try #require(root.performWithTheme { Palette.sidebarStep }.usingColorSpace(.sRGB))
+                let step = try #require(root.performWithTheme { Palette.stripStep }.usingColorSpace(.sRGB))
                 #expect(abs(fill.redComponent - step.redComponent) < 0.004 && abs(fill.greenComponent - step.greenComponent) < 0.004
                     && abs(fill.blueComponent - step.blueComponent) < 0.004 && abs(fill.alphaComponent - step.alphaComponent) < 0.004,
-                        "\(fill) is not the sidebar step \(step)")
+                        "\(fill) is not the strip step \(step)")
             } else {
                 #expect(panel.superview == nil, "\(placement)")
             }
