@@ -244,23 +244,34 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         let coordinator = MachineCreateCoordinator.shared
 #if DEBUG
         let requestedAt = ProcessInfo.processInfo.systemUptime
-        let wasReady = dataCache?.readyData != nil
+        let wasReady = CloudMenuModel.shared.fleetPage != nil
 #endif
-        // The cache is warmed at sign-in, so this returns at once; only a
-        // cold cache joins the same in-flight preload.
-        guard let cachedData = await dataCache?.data(), cachedData.hasPlan else {
+        // Cmd-Y uses the shared menu owner so creation and the Cloud menu wait
+        // on one authoritative fleet read. The owner retries briefly and the
+        // bounded wait below turns a stalled startup read into an actionable
+        // retry instead of an invisible no-op.
+        guard let page = await CloudMenuModel.shared.fleetPageForPresentation(),
+              let limits = page.limits else {
             finishSelection(selectionID, request: nil)
+            presentPlanLoadFailure(preferredWindow: preferredWindow) { [weak self] in
+                guard let self else { return }
+                Task { @MainActor in
+                    _ = await self.presentNewMachineFetchingPlan(
+                        preferredWindow: preferredWindow,
+                        onReservation: onReservation
+                    )
+                }
+            }
+            return nil
+        }
+        let plan = MachineSnapshotBuilder.planSnapshot(activeCount: page.vms.count, limits: limits)
+        guard !Self.shouldPresentUpgrade(for: plan) else {
+            finishSelection(selectionID, request: nil)
+            ProUpgradePresenter.present(source: .newMachineAtLimit)
             return nil
         }
         guard !Task.isCancelled, !isPresenting else {
             finishSelection(selectionID, request: nil)
-            return nil
-        }
-        let limits = cachedData.limits
-        let plan = cachedData.plan
-        guard !Self.shouldPresentUpgrade(for: plan) else {
-            finishSelection(selectionID, request: nil)
-            ProUpgradePresenter.present(source: .newMachineAtLimit)
             return nil
         }
         let request = await withTaskCancellationHandler(operation: {
@@ -273,11 +284,11 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
                 let model = NewMachineModel(
                     mode: .newMachine,
                     plan: plan,
-                    memoryOptionsMb: limits?.memoryOptionsMb ?? [],
-                    lockedMemoryOptionsMb: limits?.lockedMemoryOptionsMb,
-                    memoryUpgradePlanId: limits?.memoryUpgradePlanId,
-                    memoryUpgradePlansByMb: limits?.memoryUpgradePlansByMb,
-                    vcpusByMemoryMb: limits?.vcpusByMemoryMb,
+                    memoryOptionsMb: limits.memoryOptionsMb,
+                    lockedMemoryOptionsMb: limits.lockedMemoryOptionsMb,
+                    memoryUpgradePlanId: limits.memoryUpgradePlanId,
+                    memoryUpgradePlansByMb: limits.memoryUpgradePlansByMb,
+                    vcpusByMemoryMb: limits.vcpusByMemoryMb,
                     selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
                     submit: { [weak self] request in
                         guard let self, self.pendingSelectionID == selectionID else { return false }
@@ -325,6 +336,22 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             )
             return didStart ? cancellation : nil
         })
+    }
+
+    private func presentPlanLoadFailure(preferredWindow: NSWindow?, retry: @escaping @MainActor () -> Void) {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "machines.new.planUnavailable.title", defaultValue: "Cloud machines are unavailable")
+        alert.informativeText = String(localized: "machines.new.planUnavailable.message", defaultValue: "cmux couldn’t load the machine plan. Retry when the Cloud service is reachable.")
+        alert.addButton(withTitle: String(localized: "machines.unavailable.retry", defaultValue: "Retry"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+        let response: (NSApplication.ModalResponse) -> Void = { result in
+            if result == .alertFirstButtonReturn { retry() }
+        }
+        if let window = NSApp.cmuxMainWindowForModalPresentation(preferring: preferredWindow) {
+            alert.beginSheetModal(for: window, completionHandler: response)
+        } else {
+            response(alert.runModal())
+        }
     }
 
     /// Completes only the active sheet selection; late cancellation cannot dismiss a newer sheet.
