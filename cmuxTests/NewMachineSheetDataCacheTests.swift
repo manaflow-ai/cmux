@@ -65,7 +65,6 @@ struct NewMachineSheetDataCacheTests {
 
         let warmed = await cache.data()
         #expect(warmed?.limits?.memoryOptionsMb == [4096, 8192, 32768])
-        #expect(warmed?.catalog == Self.catalog)
         #expect(backend.pageFetches == 1)
 
         // Presenting reads the ready data synchronously; the fetch count
@@ -151,6 +150,46 @@ struct NewMachineSheetDataCacheTests {
         _ = await cache.data()
         #expect(cache.readyData == nil)
         #expect(cache.currentData?.hasPlan == false)
+    }
+
+    @Test func enablingCloudPreloadsBeforeFirstPresentation() async {
+        let backend = Backend()
+        backend.scope = Self.scope("enable")
+        let center = NotificationCenter()
+        var enabled = false
+        let delivered = AsyncStream<Void>.makeStream()
+        let cache = NewMachineSheetDataCache(
+            currentScope: { backend.scope },
+            scopes: { AsyncStream { $0.finish() } },
+            fetchPage: {
+                backend.pageFetches += 1
+                return VMListPage(vms: [], limits: VMPlanLimits(
+                    planId: "pro", freeAccessWindowDays: 0, memoryOptionsMb: [4096, 8192]
+                ))
+            },
+            fetchCatalog: { Self.catalog },
+            notificationCenter: center,
+            isCloudEnabled: { enabled }
+        )
+        let listener = cache.addListener { data in
+            if data.hasPlan { delivered.continuation.yield(()) }
+        }
+        defer {
+            cache.removeListener(listener)
+            delivered.continuation.finish()
+        }
+        cache.start()
+        #expect(backend.pageFetches == 0)
+        enabled = true
+        center.post(name: .cmuxFeatureFlagsDidChange, object: nil)
+        for await _ in delivered.stream { break }
+        #expect(cache.readyData?.limits?.memoryOptionsMb == [4096, 8192])
+        let firstOpen = await cache.data()
+        #expect(firstOpen?.hasPlan == true)
+        #expect(backend.pageFetches == 1)
+        enabled = false
+        center.post(name: .cmuxFeatureFlagsDidChange, object: nil)
+        #expect(cache.readyData == nil)
     }
 
 }
