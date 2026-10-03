@@ -8,6 +8,7 @@ import {
   settleOptimisticPrompt,
 } from "./direct";
 import type { EventRecord } from "./direct";
+import { AcpWireLog } from "./wire";
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { isNewChat } from "./EmptyState";
 
@@ -601,6 +602,42 @@ describe("direct client session state", () => {
     await settle();
     expect(latest().sessionId).toBe("b");
     expect(unread()).toEqual({ b: false });
+    client.close();
+  });
+
+  test("the wire log records each request, its reply and a dropped socket", async () => {
+    const wire = new AcpWireLog();
+    const client = await AcpmuxDirectClient.connect(
+      host,
+      (snapshot) => snapshots.push(snapshot),
+      undefined,
+      undefined,
+      wire,
+    );
+    ScriptedSocket.current.notify("session/update", {
+      sessionId: "a",
+      update: { sessionUpdate: "agent_message_chunk" },
+    });
+    const requests = wire.entries().filter((entry) => entry.kind === "request");
+    const methods = requests.map((entry) => entry.method);
+    expect(methods.slice(0, 3)).toEqual(["initialize", "_acpmux/watch", "_acpmux/attach"]);
+    // Every request that was answered pairs with its reply and its latency.
+    const replies = wire.entries().filter((entry) => entry.kind === "response");
+    expect(replies.length).toBeGreaterThanOrEqual(3);
+    expect(replies.map((entry) => entry.method)).toEqual(
+      replies.map((reply) => requests.find((request) => request.id === reply.id)?.method),
+    );
+    expect(replies.every((entry) => typeof entry.latencyMs === "number")).toBe(true);
+    expect(wire.entries().at(-1)).toMatchObject({ dir: "in", kind: "notification", method: "session/update" });
+    const lifecycle = () =>
+      wire
+        .entries()
+        .filter((entry) => entry.kind === "lifecycle")
+        .map((entry) => entry.event);
+    expect(lifecycle()).toEqual(["connecting", "open", "connected"]);
+    expect(JSON.stringify(wire.entries())).not.toContain("token=t");
+    ScriptedSocket.current.drop();
+    expect(lifecycle().slice(3)).toEqual(["close", "reconnect scheduled"]);
     client.close();
   });
 

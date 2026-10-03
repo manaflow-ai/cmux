@@ -21,6 +21,7 @@ import { paneContext } from "./paneContext";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
+import { acpWire } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { ScrollPacing } from "./pacing";
 import { Composer } from "./Composer";
@@ -1066,6 +1067,7 @@ function AcpmuxPane() {
         setSnapshot((current) => ({ ...current, rows, connection: "debug", isWorking: false, canLoadOlder: false }));
       },
       rowCount: () => rowsRef.current.size,
+      sessionId: () => directClient.current?.selectedSession,
     });
     let cancelled = false;
     let retryTimer: number | undefined;
@@ -1084,6 +1086,7 @@ function AcpmuxPane() {
       if (connecting) return;
       connecting = true;
       try {
+        acpWire.lifecycle("handshake", { reconnect });
         const host = await callNative<{
           protocolVersion: number;
           transport?: string;
@@ -1231,6 +1234,7 @@ function AcpmuxPane() {
         if (prompt) void send(prompt).catch(() => setDraft(prompt));
       } catch (error) {
         if (!cancelled) {
+          acpWire.lifecycle("handshake failed", { message: String(error) });
           setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));
           setHostError(error instanceof Error ? error.message : String(error));
           // Back off so a host without a daemon is not asked four times a second.

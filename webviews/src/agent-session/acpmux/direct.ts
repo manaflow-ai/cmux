@@ -9,6 +9,7 @@ import { supportsPermissionGroups, type PermissionDecision } from "./permissions
 import { AcpmuxRpcError, supportsHandoff } from "./handoff/protocol";
 import { sessionEnforcement } from "./handoff/review";
 import type { HandoffReviewInput } from "./handoff/review";
+import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -315,6 +316,8 @@ export class AcpmuxDirectClient {
     listener: Listener,
     onLost?: () => void,
     private readonly openSocket: OpenSocket = (url) => new WebSocket(url),
+    /// Every message on the socket and its lifecycle, for the ACP inspector (wire.ts).
+    private readonly wire: AcpWireLog = acpWire,
   ) {
     this.host = host;
     this.listener = listener;
@@ -327,8 +330,9 @@ export class AcpmuxDirectClient {
     listener: Listener,
     onLost?: () => void,
     openSocket?: OpenSocket,
+    wire?: AcpWireLog,
   ): Promise<AcpmuxDirectClient> {
-    const client = new AcpmuxDirectClient(host, listener, onLost, openSocket);
+    const client = new AcpmuxDirectClient(host, listener, onLost, openSocket, wire);
     await client.open();
     return client;
   }
@@ -338,20 +342,32 @@ export class AcpmuxDirectClient {
     this.opening = true;
     const url = new URL(this.host.endpoint);
     url.searchParams.set("token", this.host.token);
+    this.wire.lifecycle("connecting", {
+      endpoint: redactEndpoint(this.host.endpoint),
+      sessionId: this.selectedSessionId,
+    });
     await new Promise<void>((resolve, reject) => {
       const socket = this.openSocket(url);
       this.socket = socket;
       let opened = false;
       socket.onopen = () => {
         opened = true;
+        this.wire.lifecycle("open");
         resolve();
       };
       socket.onerror = () => {
+        this.wire.lifecycle("error", { message: opened ? "WebSocket error" : "Unable to connect" });
         this.opening = false;
         reject(new Error("Unable to connect to acpmux WebSocket"));
       };
-      socket.onclose = () => {
+      socket.onclose = (event?: CloseEvent) => {
         if (this.socket !== socket) return;
+        this.wire.lifecycle("close", {
+          code: event?.code,
+          reason: event?.reason || undefined,
+          wasClean: event?.wasClean,
+          established: opened,
+        });
         if (!opened) {
           this.opening = false;
           reject(new Error("acpmux WebSocket closed before connect"));
@@ -364,6 +380,7 @@ export class AcpmuxDirectClient {
         this.emit("disconnected");
         if (!this.hasConnected || this.closed) return;
         if (this.onLost) {
+          this.wire.lifecycle("lost", { message: "asking for a fresh handshake" });
           const onLost = this.onLost;
           this.close();
           onLost();
@@ -411,8 +428,10 @@ export class AcpmuxDirectClient {
       }
       this.hasConnected = true;
       this.reconnectDelay = 250;
+      this.wire.lifecycle("connected", { sessionId: this.selectedSessionId, sessions: this.sessions.length });
       this.emit("connected");
     } catch (error) {
+      this.wire.lifecycle("connect failed", { message: error instanceof Error ? error.message : String(error) });
       this.socket?.close();
       throw error;
     } finally {
@@ -451,6 +470,7 @@ export class AcpmuxDirectClient {
     if (this.reconnectTimer !== undefined || this.closed) return;
     const delay = this.reconnectDelay;
     this.reconnectDelay = Math.min(delay * 2, 30_000);
+    this.wire.lifecycle("reconnect scheduled", { delayMs: delay });
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = undefined;
       void this.open().catch(() => this.scheduleReconnect());
@@ -458,6 +478,7 @@ export class AcpmuxDirectClient {
   }
 
   private receive(raw: string): void {
+    this.wire.received(raw);
     let message: Reply | Notification;
     try {
       message = JSON.parse(raw) as Reply | Notification;
@@ -632,7 +653,9 @@ export class AcpmuxDirectClient {
           }, deadline)
         : undefined;
       this.pending.set(id, { resolve, reject, timer });
-      this.socket!.send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
+      const text = JSON.stringify({ jsonrpc: "2.0", id, method, params });
+      this.wire.sent(text, method, id);
+      this.socket!.send(text);
     });
   }
 
@@ -1045,6 +1068,10 @@ export class AcpmuxDirectClient {
   snapshot(): void {
     this.emit();
   }
+  /** The session this pane shows, if any. */
+  get selectedSession(): string | undefined {
+    return this.selectedSessionId;
+  }
   /** A `session/new` in flight, so a Send during the first prompt's start joins it. */
   private creating?: Promise<string | undefined>;
   async ensureSession(): Promise<string | undefined> {
@@ -1118,10 +1145,14 @@ export class AcpmuxDirectClient {
     return this.handoff.refresh();
   }
   async cancel(): Promise<void> {
-    if (this.selectedSessionId)
-      this.socket?.send(
-        JSON.stringify({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: this.selectedSessionId } }),
-      );
+    if (!this.selectedSessionId || !this.socket) return;
+    const text = JSON.stringify({
+      jsonrpc: "2.0",
+      method: "session/cancel",
+      params: { sessionId: this.selectedSessionId },
+    });
+    this.wire.sent(text, "session/cancel");
+    this.socket.send(text);
   }
   async permission(permissionId: string, optionId: string): Promise<void> {
     if (this.selectedSessionId)
