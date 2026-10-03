@@ -1,8 +1,6 @@
 import AppKit
-
 // Right-click: resolve the target, let the App build the menu from the
 // action registry.
-
 extension SidebarListView {
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let contextMenuProvider else { return nil }

@@ -1,21 +1,16 @@
 import AppKit
 import CmuxNextDesign
 import QuartzCore
-
 // Mouse selection, click-to-collapse, and keyboard navigation.
-
 extension SidebarListView {
     // MARK: - Mouse
-
     struct Press {
         var key: SidebarRowKey
         var point: NSPoint
         var deferredClick: WorkspaceID?
         var cancelled = false
     }
-
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
     override func mouseDown(with event: NSEvent) {
         hoverCards.dismiss(.click)
         if inlineRename.isActive { inlineRename.end(commit: true) }
@@ -74,7 +69,6 @@ extension SidebarListView {
         }
         self.press = press
     }
-
     override func mouseDragged(with event: NSEvent) {
         guard let press, !press.cancelled else { return }
         if drag == nil {
@@ -86,7 +80,6 @@ extension SidebarListView {
         }
         updateDrag(windowPoint: event.locationInWindow)
     }
-
     override func mouseUp(with event: NSEvent) {
         defer { press = nil }
         if drag != nil {
@@ -119,20 +112,16 @@ extension SidebarListView {
         }
         reload(animated: true)
     }
-
     // MARK: - Group header single vs double click
-
     struct PendingGroupToggle {
         let group: GroupID
         let task: Task<Void, Never>
     }
-
     /// Whether `point` (list coordinates) is on the group's chevron/folder.
     func isOnDisclosure(_ point: NSPoint, group: GroupID) -> Bool {
         guard let view = rowViews[.group(group)] as? GroupHeaderRowView else { return false }
         return view.disclosureFrame.contains(convert(point, to: view))
     }
-
     /// A single click on a group header's title toggles after the system
     /// double-click interval, so a double-click can rename instead.
     func scheduleGroupToggle(_ group: GroupID) {
@@ -149,14 +138,11 @@ extension SidebarListView {
         }
         pendingGroupToggle = PendingGroupToggle(group: group, task: task)
     }
-
     func cancelPendingGroupToggle() {
         pendingGroupToggle?.task.cancel()
         pendingGroupToggle = nil
     }
-
     // MARK: - Keyboard
-
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])
         if event.keyCode == 53 { // Escape

@@ -1,12 +1,9 @@
 import AppKit
 import CmuxNextDesign
 import QuartzCore
-
 // External tab drags driven by the App TabDragSession.
-
 extension SidebarListView {
     // MARK: - External tab drag
-
     final class ExternalDrag {
         var proposal: SidebarTabDrop?
         var windowPoint: NSPoint
@@ -14,13 +11,11 @@ extension SidebarListView {
         var springTarget: WorkspaceID?
         var springGroupTarget: GroupID?
         var springTask: Task<Void, Never>?
-
         init(windowPoint: NSPoint, sourceMachine: MachineID?) {
             self.windowPoint = windowPoint
             self.sourceMachine = sourceMachine
         }
     }
-
     /// Updates an external tab drag at a window point. Returns the proposal
     /// and its highlight rect in this view's coordinates, or nil when the
     /// point is outside the list or no drop is possible there.
@@ -39,7 +34,6 @@ extension SidebarListView {
             setHovered(nil)
         }
         autoscroll.update(windowPoint: windowPoint)
-
         if let baseY = DropResolver.baseY(forDisplayY: point.y, gapY: displayed.gapY, gapHeight: displayed.gapShift) {
             let base = SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: false))
             let proposal = DropResolver.resolveTabDrop(y: baseY, base: base, sections: model.sections, sourceMachine: sourceMachine)
@@ -52,7 +46,6 @@ extension SidebarListView {
         guard let proposal = external.proposal, let rect = highlightRect(for: proposal) else { return nil }
         return (proposal, rect)
     }
-
     func externalDragExited() {
         guard let external else { return }
         external.springTask?.cancel()
@@ -60,7 +53,6 @@ extension SidebarListView {
         autoscroll.stop()
         reload(animated: true)
     }
-
     /// Ends an external drag and returns what it would do. The App commits
     /// the proposal (one daemon command) and updates the model.
     func externalDragEnded() -> SidebarTabDrop? {
@@ -68,7 +60,6 @@ extension SidebarListView {
         externalDragExited()
         return proposal
     }
-
     func highlightRect(for proposal: SidebarTabDrop) -> NSRect? {
         switch proposal {
         case let .intoWorkspace(id):
@@ -79,7 +70,6 @@ extension SidebarListView {
             return displayed.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: displayed.gapHeight) }
         }
     }
-
     /// Spring loading: hovering a row for `springLoadDelay` selects
     /// it so the user can keep dragging into that workspace's panes.
     func updateSpringLoad(_ external: ExternalDrag) {

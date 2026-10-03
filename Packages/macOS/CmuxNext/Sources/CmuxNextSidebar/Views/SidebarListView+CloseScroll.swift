@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextDesign
-
 /// Sidebar scroll after a close, create or selection change
 /// (plans/cmux-next/close-focus.md): `ListViewport.settle` decides the
 /// offset; this file only reads geometry and applies it.
@@ -51,7 +50,6 @@ extension SidebarListView {
                                   padding: SidebarLayout.revealPadding)
         if abs(target - clip.bounds.minY) > 0.25 { scrollClip(to: target, animated: animated) }
     }
-
     func scrollClip(to y: CGFloat, animated: Bool) {
         enclosingScrollView?.scrollContent(toY: y, animated: animated) { [weak self] in self?.realizeVisibleRows() }
     }
