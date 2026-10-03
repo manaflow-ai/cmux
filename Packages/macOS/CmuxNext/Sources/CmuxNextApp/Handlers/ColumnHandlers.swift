@@ -57,9 +57,6 @@ enum ColumnHandlers {
     }
 
     private static func setWidth(_ width: Double, of column: LayoutColumn, in content: WorkspaceContentController, _ ctx: AppActionContext) {
-        if content.layoutModel.screens.contains(where: { $0.implicitColumnID == column.id }) {
-            return ctx.refuse(RefusalStrings.loneColumnFillsScreen)
-        }
         guard abs(column.width - width) > 0.001 else { return ctx.refuse(RefusalStrings.columnAlreadyHasWidth) }
         content.layoutModel.setColumnWidth(column.id, width: width, transaction: .make(), phase: .ended)
     }

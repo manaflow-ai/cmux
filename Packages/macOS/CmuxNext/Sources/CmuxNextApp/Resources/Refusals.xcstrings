@@ -15066,133 +15066,133 @@
         }
       }
     },
-    "handlers.refusal.loneColumnFillsScreen": {
+    "handlers.refusal.addSecondColumnFirst": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "a lone column fills the screen"
+            "value": "Add a second column first"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "列が1つだけなので画面いっぱいに表示されます"
+            "value": "先に2つ目の列を追加してください"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "عمود وحيد يملأ الشاشة"
+            "value": "أضف عمودًا ثانيًا أولًا"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "jedina kolona ispunjava ekran"
+            "value": "Prvo dodajte drugu kolonu"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "en enkelt kolonne fylder skærmen"
+            "value": "Tilføj først en kolonne mere"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "eine einzelne Spalte füllt den Bildschirm"
+            "value": "Füge zuerst eine zweite Spalte hinzu"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "una sola columna ocupa toda la pantalla"
+            "value": "Primero añade una segunda columna"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "une colonne seule remplit l’écran"
+            "value": "Ajoutez d’abord une deuxième colonne"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "una sola colonna riempie lo schermo"
+            "value": "Aggiungi prima una seconda colonna"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ជួរឈរតែមួយពេញអេក្រង់"
+            "value": "បន្ថែមជួរឈរទីពីរជាមុនសិន"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "열이 하나뿐이면 화면을 채웁니다"
+            "value": "먼저 두 번째 열을 추가하세요"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "én kolonne fyller skjermen"
+            "value": "Legg til en kolonne til først"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "jedyna kolumna wypełnia ekran"
+            "value": "Najpierw dodaj drugą kolumnę"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "uma coluna sozinha ocupa a tela"
+            "value": "Adicione uma segunda coluna primeiro"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "единственная колонка занимает весь экран"
+            "value": "Сначала добавьте вторую колонку"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "คอลัมน์เดียวเต็มหน้าจอ"
+            "value": "เพิ่มคอลัมน์ที่สองก่อน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "tek sütun ekranı doldurur"
+            "value": "Önce ikinci bir sütun ekleyin"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "єдина колонка займає весь екран"
+            "value": "Спочатку додайте другу колонку"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "một cột duy nhất lấp đầy màn hình"
+            "value": "Hãy thêm cột thứ hai trước"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "只有一列时它占满屏幕"
+            "value": "请先添加第二列"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "只有一欄時它占滿螢幕"
+            "value": "請先新增第二欄"
           }
         }
       }

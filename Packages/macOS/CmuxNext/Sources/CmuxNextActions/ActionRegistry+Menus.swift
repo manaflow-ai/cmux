@@ -70,7 +70,8 @@ final class ActionMenuTarget: NSObject, NSMenuItemValidation {
     /// so a chord the key router gave to a page or text field cannot fire
     /// the menu item afterwards. Clicks in an open menu are not gated.
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        guard let registry, let payload = Self.payload(of: menuItem), registry.canPerform(payload.id) else { return false }
+        guard let registry, let payload = Self.payload(of: menuItem),
+              registry.canPerform(payload.id, invocation: ActionInvocation(target: payload.target)) else { return false }
         if let gate = registry.menuKeyEquivalentGate, !menuItem.keyEquivalent.isEmpty, registry.isDispatchingKeyDown() {
             return gate(payload.id)
         }

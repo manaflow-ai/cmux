@@ -58,7 +58,7 @@ extension ActionRegistry {
                 item.representedObject = ActionMenuPayload(id: descriptor.id, target: target)
                 // Context menus are built per click, so a disabled entry can
                 // say why (Chromium in a build without CEF).
-                if let reason = unavailableReason(for: descriptor.id) {
+                if let reason = unavailableReason(for: descriptor.id, invocation: ActionInvocation(target: target)) {
                     item.subtitle = reason
                     item.toolTip = reason
                 }
