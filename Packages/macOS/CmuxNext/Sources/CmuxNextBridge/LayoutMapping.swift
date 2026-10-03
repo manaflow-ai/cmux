@@ -50,21 +50,28 @@ public struct LayoutMapping {
         return node(screen.layout, paneIDs: paneIDs, handles: &handles).map(ScreenLayout.splits)
     }
 
-    /// Daemon `columns[].sticky` as the layout's sticky column.
+    /// Daemon `columns[].sticky` or `columns[].dock` as the layout's dock.
     public nonisolated static func sticky(_ snapshot: StickySnapshot) -> StickyColumn {
-        StickyColumn(edge: snapshot.edge == .left ? .left : .right, mode: snapshot.mode == .overlay ? .overlay : .docked)
+        let edge: StickyEdge = switch snapshot.edge {
+        case .left: .left
+        case .right: .right
+        case .top: .top
+        case .bottom: .bottom
+        }
+        return StickyColumn(edge: edge, mode: snapshot.mode == .overlay ? .overlay : .docked)
     }
 
-    /// The layout's sticky column as the daemon's `sticky` value. Nil for a
-    /// top or bottom dock: those travel in `dock` (`edge-docks-v1`), never as
-    /// a left or right sticky column.
-    public nonisolated static func snapshot(_ sticky: StickyColumn) -> StickySnapshot? {
-        let mode: StickySnapshot.Mode = sticky.mode == .overlay ? .overlay : .docked
-        switch sticky.edge {
-        case .left: return StickySnapshot(edge: .left, mode: mode)
-        case .right: return StickySnapshot(edge: .right, mode: mode)
-        case .top, .bottom: return nil
+    /// The layout's dock as the daemon's value. Top and bottom need a daemon
+    /// that serves `edge-docks-v1`; `StickyColumnHandlers.apply` and the
+    /// intent sender check that before sending.
+    public nonisolated static func snapshot(_ sticky: StickyColumn) -> StickySnapshot {
+        let edge: StickySnapshot.Edge = switch sticky.edge {
+        case .left: .left
+        case .right: .right
+        case .top: .top
+        case .bottom: .bottom
         }
+        return StickySnapshot(edge: edge, mode: sticky.mode == .overlay ? .overlay : .docked)
     }
 
     /// Converts one daemon layout node. Nil when nothing in it can be shown.

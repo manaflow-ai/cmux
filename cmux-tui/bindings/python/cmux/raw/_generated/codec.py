@@ -30,6 +30,7 @@ MODEL_BY_PATH = {
     'types/ClientInfo': models.ClientInfo,
     'types/ClientSize': models.ClientSize,
     'types/CloseTerminalResult': models.CloseTerminalResult,
+    'types/ColumnPin': models.ColumnPin,
     'types/CopyResult': models.CopyResult,
     'types/DeadPane': models.DeadPane,
     'types/DeclarativeLayout/variants/leaf': models.DeclarativeLayoutLeaf,

@@ -590,7 +590,7 @@ impl Mux {
                             mux,
                             state,
                             members[0],
-                            TabDragDestination::Column { pane, after_column, width },
+                            TabDragDestination::Column { pane, after_column, width, sticky: None },
                             &ids,
                             false,
                         )?;

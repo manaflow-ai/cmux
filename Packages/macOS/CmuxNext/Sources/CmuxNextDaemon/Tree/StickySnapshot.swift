@@ -1,8 +1,13 @@
 import Foundation
 
-/// A column pinned to a viewport edge (`sticky-columns-v1`).
+/// A column pinned to a viewport edge: left or right (`sticky-columns-v1`,
+/// `columns[].sticky`), top or bottom (`edge-docks-v1`, `columns[].dock`).
 public struct StickySnapshot: Sendable, Hashable, Decodable {
-    public enum Edge: String, Sendable, Hashable, Decodable { case left, right }
+    public enum Edge: String, Sendable, Hashable, Decodable {
+        case left, right, top, bottom
+
+        public var isBand: Bool { self == .top || self == .bottom }
+    }
     public enum Mode: String, Sendable, Hashable, Decodable { case docked, overlay }
     public var edge: Edge
     public var mode: Mode

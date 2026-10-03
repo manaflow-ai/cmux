@@ -134,7 +134,7 @@ fn sticky_column_flags_cleared_by_a_close_stay_cleared_after_restart() {
     });
     let moved =
         mux.new_browser_tab("about:blank#third".into(), Some(from), Some((80, 24))).unwrap();
-    mux.move_tab_to_column(moved.id, from, None, None, None).unwrap();
+    mux.move_tab_to_column(moved.id, from, None, None, None, None).unwrap();
     let (first, last) = mux.with_state(|state| {
         let columns = &state.workspaces[0].screens[0].layout_columns;
         assert_eq!(columns.len(), 3);
@@ -171,4 +171,83 @@ fn sticky_column_flags_cleared_by_a_close_stay_cleared_after_restart() {
     mux.shutdown();
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+/// `edge-docks-v1`: a top or bottom dock survives a restart through
+/// `resource_column_docks`, never through `viewport_json`.
+#[test]
+fn edge_dock_persists_across_restart_outside_the_viewport_record() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-edge-dock-restart-{}", WorkspacePublicId::random().unwrap()));
+    let session = "edge-dock-restart";
+    let (fixture_snapshot, fixture_topology) = resource_restore_fixture();
+    {
+        let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+        registry
+            .commit_resource_patch(
+                &WorkspaceMutation::new("seed-edge-dock-restart", "test").unwrap(),
+                "session.restore_fixture",
+                &serde_json::json!({"fixture":"nested-columns"}),
+                None,
+                Some(0),
+                &resource_restore_patch(&fixture_snapshot, &fixture_topology),
+                &serde_json::json!({"restored":true}),
+                &serde_json::json!([{"event":"session.restored"}]),
+            )
+            .unwrap();
+    }
+    let bottom = ColumnSticky { edge: StickyEdge::Bottom, mode: StickyMode::Overlay };
+    let mux = open_restart_mux(&root, session);
+    let pane = mux.with_state(|state| {
+        state.workspaces[0].screens[0].layout_columns[1].root.first_visible_pane()
+    });
+    assert_eq!(mux.set_column_sticky(pane, Some(bottom), None).unwrap().sticky, Some(bottom));
+    mux.shutdown();
+    drop(mux);
+
+    {
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let topology = registry.resource_topology_snapshot().unwrap();
+        let screen = topology
+            .screens
+            .iter()
+            .find(|screen| screen.public_id == restore_screen_id(1))
+            .unwrap();
+        assert_eq!(screen.viewport.columns[1].sticky, Some(bottom));
+        let stored = serde_json::to_value(&screen.viewport).unwrap();
+        assert!(stored["columns"][1].get("sticky").is_none(), "a band never enters viewport_json");
+    }
+
+    let mux = open_restart_mux(&root, session);
+    mux.with_state(|state| {
+        let screen = &state.workspaces[0].screens[0];
+        assert_eq!(screen.layout_columns[1].sticky, Some(bottom));
+        assert!(screen.layout_columns[1].root.contains(pane));
+    });
+    // Unpinning removes the row: the next restart reads an ordinary column.
+    mux.set_column_sticky(pane, None, None).unwrap();
+    mux.shutdown();
+    drop(mux);
+    let mux = open_restart_mux(&root, session);
+    mux.with_state(|state| {
+        assert_eq!(state.workspaces[0].screens[0].layout_columns[1].sticky, None)
+    });
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn edge_dock_is_never_serialized_into_the_viewport_record() {
+    let mut column: RegistryViewportColumn = serde_json::from_value(serde_json::json!({
+        "id": "split_00000000000000000000000000000003",
+        "width": 0.5,
+        "layout": {"kind": "leaf", "pane": "pane_00000000000000000000000000000001"},
+        "auto_layout": null,
+    }))
+    .unwrap();
+    for edge in [StickyEdge::Top, StickyEdge::Bottom] {
+        column.sticky = Some(ColumnSticky { edge, mode: StickyMode::Docked });
+        assert!(serde_json::to_value(&column).unwrap().get("sticky").is_none());
+    }
 }

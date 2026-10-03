@@ -1,5 +1,17 @@
 # cmux next: layout model (proposal)
 
+> **Resume note (parked 2026-10-02, layout model lead).** State: rows reducer step 2 is on
+> branch `feat-cmux-next-layoutmodel` (3d3ff9ba033), hosted --full run 37079769607 green except
+> `conversation_conformance_corpus_local_cases` (cmux-conversation, not touched: base failure);
+> it waits for the coordinator's cmux-tui landing window. Dock daemon work (edge-docks-v1:
+> four-edge StickyEdge, `resource_column_docks` side table, `columns[].dock`, `sticky` on
+> move-tab-to-column, spec + SDK schema + bindings, app decode/mapping) is WIP on
+> `feat-cmux-next-docks`; focused daemon tests pass on nx-remote, the full cmux-tui-core run,
+> clippy and fmt were interrupted. Next: rerun `cargo test/clippy -p cmux-tui-core` on
+> nx-remote, build the app package, then the edge drop targets (DropTarget.newDock through
+> TabDropProposal to MoveTabToColumnRequest with `sticky`), review subagent, hosted --full.
+
+
 Status: decided 2026-10-02 (section "Decisions"); was a proposal by the layout model lead (rows work continues inside this lane).
 Not the spec: the coordinator writes the spec from this ("spec proposal: layout model").
 Builds on rows.md (columns of rows, approved), sticky-column.md (left and right sticky columns,

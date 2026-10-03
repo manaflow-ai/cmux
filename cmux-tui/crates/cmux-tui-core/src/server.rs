@@ -129,6 +129,9 @@ pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
 /// `set-column-sticky` and the optional `Screen.columns[].sticky` field: at
 /// most one viewport column per edge stays pinned while the others scroll.
 pub const STICKY_COLUMNS_CAPABILITY: &str = "sticky-columns-v1";
+/// Top and bottom docks: `set-column-sticky` and `move-tab-to-column` accept
+/// edges `top` and `bottom`, sent back as `Screen.columns[].dock`.
+pub const EDGE_DOCKS_CAPABILITY: &str = "edge-docks-v1";
 pub const TAB_WORKSPACE_MOVE_CAPABILITY: &str = "tab-workspace-move-v1";
 pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
@@ -380,6 +383,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         VIEWPORT_SPLITS_CAPABILITY,
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
         STICKY_COLUMNS_CAPABILITY,
+        EDGE_DOCKS_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
         TAB_WORKSPACE_MOVE_CAPABILITY,
         CLEAR_HISTORY_CAPABILITY,
@@ -1993,6 +1997,8 @@ enum Command {
         after_column: Option<SplitId>,
         #[serde(default)]
         width: Option<f32>,
+        #[serde(default)]
+        sticky: Option<crate::model::ColumnSticky>,
         #[serde(default)]
         transaction: Option<String>,
     },
@@ -14641,12 +14647,20 @@ fn handle_command_with_cancellation(
             let outcome = split_tab(mux, surface, pane, edge, ratio, respawn, transaction)?;
             Ok(tab_drag_outcome_json(&outcome))
         }
-        Command::MoveTabToColumn { surface, pane, screen, after_column, width, transaction } => {
+        Command::MoveTabToColumn {
+            surface,
+            pane,
+            screen,
+            after_column,
+            width,
+            sticky,
+            transaction,
+        } => {
             validate_client_transaction(transaction.as_deref())?;
             get_surface(mux, surface)?;
             let anchor = column_anchor(mux, pane, screen)?;
             let outcome =
-                mux.move_tab_to_column(surface, anchor, after_column, width, transaction)?;
+                mux.move_tab_to_column(surface, anchor, after_column, width, sticky, transaction)?;
             Ok(tab_drag_outcome_json(&outcome))
         }
         Command::MoveTabToNewWorkspace { surface, group, index, transaction } => {

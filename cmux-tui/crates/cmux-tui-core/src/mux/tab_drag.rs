@@ -14,7 +14,7 @@
 
 use super::*;
 use crate::layout::DEFAULT_VIEWPORT_PANE_WIDTH;
-use crate::model::{LayoutColumn, LayoutUndoTabRestore};
+use crate::model::{ColumnSticky, LayoutColumn, LayoutUndoTabRestore};
 use cmux_layout_reducer::{Edge, LayoutOpKind, NewTab, TabContent};
 
 /// The fresh tab a split of a pane's only tab leaves in that pane
@@ -99,8 +99,9 @@ pub enum TabDragDestination {
     Split { pane: PaneId, edge: TabDropEdge, ratio: Option<f32> },
     /// A new strip column on the screen containing `pane`, after the column
     /// `after_column` (default: after the last column), `width` wide as a
-    /// fraction of the frontend viewport.
-    Column { pane: PaneId, after_column: Option<SplitId>, width: f32 },
+    /// fraction of the frontend viewport, pinned to an edge with `sticky`
+    /// (a drop on a screen edge: a sticky column or a top or bottom dock).
+    Column { pane: PaneId, after_column: Option<SplitId>, width: f32, sticky: Option<ColumnSticky> },
 }
 
 impl From<TabDropEdge> for Edge {
@@ -131,7 +132,7 @@ impl TabDragDestination {
                 new_pane: ids.pane,
                 respawn: None,
             },
-            Self::Column { pane, after_column, width } => LayoutOpKind::MoveTabToColumn {
+            Self::Column { pane, after_column, width, .. } => LayoutOpKind::MoveTabToColumn {
                 tab,
                 anchor: pane,
                 after_column,
@@ -152,11 +153,12 @@ impl TabDragDestination {
                 "edge": format!("{edge:?}"),
                 "ratio": ratio,
             }),
-            Self::Column { pane, after_column, width } => serde_json::json!({
+            Self::Column { pane, after_column, width, sticky } => serde_json::json!({
                 "kind": "column",
                 "pane": pane,
                 "after_column": after_column,
                 "width": width,
+                "sticky": sticky,
             }),
         }
     }
@@ -279,6 +281,7 @@ impl Mux {
         pane: PaneId,
         after_column: Option<SplitId>,
         width: Option<f32>,
+        sticky: Option<ColumnSticky>,
         transaction: Option<String>,
     ) -> anyhow::Result<TabDragOutcome> {
         let width = width.unwrap_or(DEFAULT_VIEWPORT_PANE_WIDTH);
@@ -289,7 +292,7 @@ impl Mux {
         }
         self.commit_tab_drag(
             surface,
-            TabDragDestination::Column { pane, after_column, width },
+            TabDragDestination::Column { pane, after_column, width, sticky },
             transaction,
         )
     }
@@ -540,7 +543,7 @@ pub(crate) fn apply_tab_drag(
                     screen.zellij_auto_layout = None;
                 }
             }
-            TabDragDestination::Column { after_column, width, .. } => {
+            TabDragDestination::Column { after_column, width, sticky, .. } => {
                 let anchor = match after_column {
                     Some(column) => screen
                         .layout_columns
@@ -568,6 +571,17 @@ pub(crate) fn apply_tab_drag(
                     ),
                     "column anchor disappeared from its layout"
                 );
+                if sticky.is_some() {
+                    // The same rules as `set-column-sticky`: one column per
+                    // edge (the old holder scrolls again), one column scrolls.
+                    let index = screen.layout_columns.iter().position(|c| c.id == ids.split);
+                    let index = index.context("new column disappeared")?;
+                    let flags: Vec<_> = screen.layout_columns.iter().map(|c| c.sticky).collect();
+                    let flags = super::sticky_columns::reduce_column_sticky(&flags, index, sticky)?;
+                    for (column, flag) in screen.layout_columns.iter_mut().zip(flags) {
+                        column.sticky = flag;
+                    }
+                }
             }
         }
         screen.active_pane = ids.pane;
@@ -865,7 +879,7 @@ mod tests {
         let second = mux.new_tab(Some(origin), None, None).unwrap().id;
         let third = mux.new_tab(Some(origin), None, None).unwrap().id;
 
-        let column = mux.move_tab_to_column(third, origin, None, None, None).unwrap();
+        let column = mux.move_tab_to_column(third, origin, None, None, None, None).unwrap();
         assert!(column.undoable);
         let columns = mux.with_state(|state| {
             let (workspace, screen) = state.screen_of(origin).unwrap();
@@ -873,7 +887,7 @@ mod tests {
         });
         assert_eq!(columns, 2);
         assert_eq!(tabs(&mux, column.pane), vec![third]);
-        assert!(mux.move_tab_to_column(second, origin, None, Some(3.0), None).is_err());
+        assert!(mux.move_tab_to_column(second, origin, None, Some(3.0), None, None).is_err());
 
         // A cross-pane move on one screen is undoable too.
         let (moved, undoable) =
