@@ -1,7 +1,7 @@
 public import Foundation
 
 /// A terminal tab copied from a classic cmux session.
-public struct ClassicSessionTab: Codable, Equatable, Sendable {
+public nonisolated struct ClassicSessionTab: Codable, Equatable, Sendable {
     public let workingDirectory: String?
     public let title: String?
 
@@ -12,7 +12,7 @@ public struct ClassicSessionTab: Codable, Equatable, Sendable {
 }
 
 /// A pane and its tabs, in the order shown by classic cmux.
-public struct ClassicSessionPane: Codable, Equatable, Sendable {
+public nonisolated struct ClassicSessionPane: Codable, Equatable, Sendable {
     public let tabs: [ClassicSessionTab]
     public let selectedTab: Int
 
@@ -27,6 +27,6 @@ public nonisolated indirect enum ClassicSessionLayout: Codable, Equatable, Senda
     case pane(ClassicSessionPane)
     case split(orientation: Orientation, ratio: Double, first: ClassicSessionLayout, second: ClassicSessionLayout)
 
-    public enum Orientation: String, Codable, Sendable { case horizontal, vertical }
+    public nonisolated enum Orientation: String, Codable, Sendable { case horizontal, vertical }
 }
 
