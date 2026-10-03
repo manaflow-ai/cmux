@@ -149,7 +149,7 @@ fn push(
         .lines()
         .find(|line| line.split('\t').nth(1).is_some_and(|spec| spec.ends_with(&suffix)));
     let Some(line) = line.filter(|line| run.success && !line.starts_with('!')) else {
-        return Err(classified(git, line, &run));
+        return Err(classified(&git.for_classification(), line, &run));
     };
     let mut parts = line.split('\t');
     let flag = parts.next().unwrap_or_default();

@@ -79,7 +79,11 @@ impl Journal {
                 prune(&directory, SystemTime::now());
                 Place::Disk(directory.join(format!("{name}.json")))
             }
-            None => Place::Memory(format!("{:p}\0{name}", std::ptr::from_ref(mux))),
+            None => {
+                // The registry's identity names this session instance.
+                let (registry, generation) = mux.registry_identity();
+                Place::Memory(format!("{registry}\0{generation}\0{name}"))
+            }
         };
         Ok(Self { place, key: key.to_string(), operation })
     }

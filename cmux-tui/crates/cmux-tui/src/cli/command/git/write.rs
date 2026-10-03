@@ -5,7 +5,7 @@
 use cmux_tui_core::resource::ResourceOperation as Op;
 use serde_json::{Map, Value};
 
-use super::super::{CommandPlan, Flags, Selectors, UsageError, request};
+use super::super::{CommandPlan, Flags, Selectors, UsageError, WireOperation, request};
 
 /// `git commit --message <text> [--all [--include-untracked]] [--amend]
 /// [--no-verify] [--expected-head <commit>] [<path>...]`.
@@ -25,16 +25,7 @@ pub(super) fn commit(
         return Err(UsageError::new("--include-untracked needs --all"));
     }
     if !paths.is_empty() {
-        // Paths name files from where the command runs, as in git.
-        let current = std::env::current_dir()
-            .map_err(|error| UsageError::new(format!("current directory: {error}")))?;
-        let paths = paths.iter().map(|path| {
-            let mut joined = current.join(path).to_string_lossy().into_owned();
-            if path.ends_with('/') && !joined.ends_with('/') {
-                joined.push('/');
-            }
-            Value::String(joined)
-        });
+        let paths = paths.iter().map(|path| Value::String((*path).to_string()));
         params.insert("paths".into(), Value::Array(paths.collect()));
     }
     for (set, field) in [
@@ -83,4 +74,33 @@ fn expected_head(flags: &mut Flags, params: &mut Map<String, Value>) {
     if let Some(head) = flags.take("expected-head") {
         params.insert("expected_head".into(), Value::String(head));
     }
+}
+
+/// Commit paths name files from where `cmux` runs. A request to this
+/// machine's daemon (`machine` is `current`) gets them joined with the
+/// current directory; a request to another machine gets them as given,
+/// relative to the repository root there. Call after the global route is
+/// applied.
+pub(in crate::cli) fn localize_commit_paths(
+    operation: &WireOperation,
+    params: &mut Value,
+) -> Result<(), String> {
+    if !matches!(operation, WireOperation::Typed(Op::GitCommit))
+        || params.get("machine").and_then(Value::as_str) != Some("current")
+    {
+        return Ok(());
+    }
+    let Some(paths) = params.get_mut("paths").and_then(Value::as_array_mut) else {
+        return Ok(());
+    };
+    let current = std::env::current_dir().map_err(|error| format!("current directory: {error}"))?;
+    for path in paths.iter_mut() {
+        let Some(text) = path.as_str() else { continue };
+        let mut joined = current.join(text).to_string_lossy().into_owned();
+        if text.ends_with('/') && !joined.ends_with('/') {
+            joined.push('/');
+        }
+        *path = Value::String(joined);
+    }
+    Ok(())
 }

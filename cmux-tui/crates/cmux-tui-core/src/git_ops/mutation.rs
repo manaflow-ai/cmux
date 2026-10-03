@@ -136,14 +136,24 @@ pub(super) fn run_failed(operation: &str, failure: &GitFailure) -> ResourceError
     }
 }
 
-/// `extra.output`: what git and its hooks printed, cut at 16 KiB.
+/// `extra.output`: what git and its hooks printed, at most 16 KiB: its
+/// start and its end when it is longer.
 pub(super) fn output_extra(output: &str) -> Value {
+    const MARKER: &str = "\n[...]\n";
     let output = output.trim();
-    let mut end = output.len().min(MAX_STDERR_BYTES);
-    while !output.is_char_boundary(end) {
-        end -= 1;
+    if output.len() <= MAX_STDERR_BYTES {
+        return json!({"output": output});
     }
-    json!({"output": &output[..end]})
+    let half = (MAX_STDERR_BYTES - MARKER.len()) / 2;
+    let mut head = half;
+    while !output.is_char_boundary(head) {
+        head -= 1;
+    }
+    let mut tail = output.len() - half;
+    while !output.is_char_boundary(tail) {
+        tail += 1;
+    }
+    json!({"output": format!("{}{MARKER}{}", &output[..head], &output[tail..])})
 }
 
 /// Rewrites a shared git refusal that carries its reason in `extra.code`

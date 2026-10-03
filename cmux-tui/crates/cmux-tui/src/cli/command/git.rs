@@ -92,3 +92,4 @@ mod checkpoint;
 #[cfg(test)]
 mod tests;
 mod write;
+pub(in crate::cli) use write::localize_commit_paths;

@@ -12,7 +12,9 @@
 //!   `SSH_ASKPASS_REQUIRE=never` stop every credential and passphrase prompt.
 //! - git's own messages are in English (`LC_MESSAGES=C`) so failures can be
 //!   classified; the user's other locale settings stay.
-//! - One deadline covers every run of an operation. Past it the session gets
+//! - One deadline covers every user run of an operation (reads through the
+//!   read runner keep their own 20 s bound each; an operation makes a
+//!   handful of them). Past it the session gets
 //!   SIGTERM, so git removes its lock files, and SIGKILL after a short grace.
 //! - Output is bounded: the first and the last 8 KiB of stderr are kept. A hook that leaves a background process holding the
 //!   output pipes does not hold the reply: the pipes are read for a short
@@ -79,7 +81,17 @@ pub(super) struct UserGit<'a> {
     pub deadline: Instant,
 }
 
+/// The budget of the queries that classify a refusal (which hooks exist),
+/// so a run stopped at the deadline is still classified.
+const CLASSIFY_BUDGET: Duration = Duration::from_secs(5);
+
 impl UserGit<'_> {
+    /// The same repository with a fresh, short budget for classifying a
+    /// refusal.
+    pub(super) fn for_classification(&self) -> UserGit<'_> {
+        UserGit { root: self.root, deadline: Instant::now() + CLASSIFY_BUDGET }
+    }
+
     /// Runs `git <arguments>`.
     pub(super) fn run<S: AsRef<OsStr>>(&self, arguments: &[S]) -> Result<UserRun, GitFailure> {
         self.run_with(arguments, &[])

@@ -166,3 +166,50 @@ fn the_attempt_journal_drops_old_entries_and_keeps_at_most_its_cap() {
     let newest = format!("{:04}.json", MAX_ENTRIES + 39);
     assert!(left.contains(&newest), "the newest entry went");
 }
+
+/// `log.showSignature` with the ssh format prints "No signature" into every
+/// log; the operation's own parses never see it.
+#[test]
+fn signature_display_in_the_user_config_never_reaches_a_parse() {
+    let repository = repository("signature");
+    write(&repository, "a.txt", "a\n");
+    let base = commit_all(&repository, "base");
+    git(&repository, &["config", "gpg.format", "ssh"]);
+    git(&repository, &["config", "log.showSignature", "true"]);
+    write(&repository, "a.txt", "a2\n");
+    git(&repository, &["add", "a.txt"]);
+    let mux = session("signature");
+    let fields = json!({"message": "Signed view"});
+    LOSE_REPLY.with(|lose| lose.set(true));
+    assert_eq!(refused(&commit(&mux, &repository, fields.clone(), "k-sig")).0, "store_failed");
+    let made = git(&repository, &["rev-parse", "HEAD"]);
+    let retry = ok(&commit(&mux, &repository, fields, "k-sig"));
+    assert_eq!(retry["value"]["commit"], made.as_str());
+    assert_eq!(retry["value"]["summary"], "Signed view");
+    assert_eq!(git(&repository, &["rev-parse", "HEAD^"]), base);
+    let amend = ok(&commit(&mux, &repository, json!({"message": "Again", "amend": true}), "k-sig-amend"));
+    assert_eq!(amend["value"]["parent"], base.as_str());
+}
+
+/// A lost reply, then a terminal commit on top: a retry without
+/// expected_head names the first commit and never commits again.
+#[test]
+fn a_retry_after_head_moved_on_never_commits_twice() {
+    let repository = repository("moved-on");
+    write(&repository, "a.txt", "a\n");
+    commit_all(&repository, "base");
+    write(&repository, "a.txt", "a2\n");
+    git(&repository, &["add", "a.txt"]);
+    let mux = session("moved-on");
+    let fields = json!({"message": "First"});
+    LOSE_REPLY.with(|lose| lose.set(true));
+    assert_eq!(refused(&commit(&mux, &repository, fields.clone(), "k-on")).0, "store_failed");
+    let made = git(&repository, &["rev-parse", "HEAD"]);
+    write(&repository, "a.txt", "a3\n");
+    let terminal = commit_all(&repository, "Terminal");
+    write(&repository, "a.txt", "a4\n");
+    git(&repository, &["add", "a.txt"]);
+    let (reason, extra) = refused(&commit(&mux, &repository, fields, "k-on"));
+    assert_eq!((reason.as_str(), extra["attempt_commit"].as_str()), ("head_moved", Some(made.as_str())));
+    assert_eq!(git(&repository, &["rev-parse", "HEAD"]), terminal);
+}

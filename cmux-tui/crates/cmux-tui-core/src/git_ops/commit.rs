@@ -67,7 +67,7 @@ impl Attempt {
         if Some(head) == self.head.as_deref() {
             return None;
         }
-        let reflog = ["log", "-g", "-1", "--format=%H%n%gs%n%P", "HEAD", "--"];
+        let reflog = ["log", "-g", "-1", "--no-show-signature", "--format=%H%n%gs%n%P", "HEAD", "--"];
         let output = repository.run(&reflog, MAX_SMALL_OUTPUT_BYTES).ok()?;
         let text = String::from_utf8_lossy(&output.stdout).into_owned();
         let mut lines = text.lines();
@@ -77,6 +77,28 @@ impl Attempt {
             && subject.starts_with(&format!("{}:", self.reflog_action()))
             && parents == self.parents;
         ours.then(|| head.to_string())
+    }
+}
+
+impl Attempt {
+    /// The commit this attempt made, found in HEAD's reflog (its newest
+    /// 1000 entries), wherever HEAD went since.
+    fn made(&self, repository: &Repository) -> Option<String> {
+        let reflog = [
+            "log",
+            "-g",
+            "--no-show-signature",
+            "--max-count=1000",
+            "--format=%H%x00%gs",
+            "HEAD",
+            "--",
+        ];
+        let output = repository.run(&reflog, 1024 * 1024).ok()?;
+        let prefix = format!("{}:", self.reflog_action());
+        String::from_utf8_lossy(&output.stdout).lines().find_map(|line| {
+            let (commit, subject) = line.split_once('\0')?;
+            subject.starts_with(&prefix).then(|| commit.to_string())
+        })
     }
 }
 
@@ -103,13 +125,25 @@ pub(super) fn dispatch(
         let git = UserGit { root: &repository.root, deadline };
         let journal = Journal::open(mux, &target.identity(), &key, OPERATION)?;
         let head = repository.commit("HEAD");
-        if let Some(attempt) = journal.attempt::<Attempt>(&fingerprint)
-            && let Some(commit) = attempt.recovered(repository, head.as_deref())
-        {
-            let value = described(repository, &commit)?;
-            let reply = ledger::commit(mux, &key, OPERATION, &fingerprint, &value, true)?;
-            journal.finish();
-            return Ok(reply);
+        if let Some(attempt) = journal.attempt::<Attempt>(&fingerprint) {
+            if let Some(commit) = attempt.recovered(repository, head.as_deref()) {
+                let value = described(repository, &commit)?;
+                let reply = ledger::commit(mux, &key, OPERATION, &fingerprint, &value, true)?;
+                journal.finish();
+                return Ok(reply);
+            }
+            // The attempt committed and HEAD moved on since: never commit
+            // again under this key.
+            if head != attempt.head
+                && let Some(made) = attempt.made(repository)
+            {
+                let message = format!(
+                    "the first attempt with this key made {made}, and HEAD moved since; \
+                     nothing was committed again"
+                );
+                let extra = json!({"attempt_commit": made, "head": head});
+                return Err(refused(OPERATION, "head_moved", message, extra));
+            }
         }
         if let Some(expected) = &arguments.expected_head
             && head.as_deref() != Some(expected.as_str())
@@ -136,7 +170,7 @@ pub(super) fn dispatch(
                 other => run_failed(OPERATION, &other),
             })?;
         if !run.success {
-            let error = classified(&git, &step, &run, &arguments);
+            let error = classified(&git.for_classification(), &step, &run, &arguments);
             // An index lock means another git may still commit; a moved HEAD
             // may be this attempt's commit. Both keep the attempt.
             let locked = error.details["reason"] == "index_locked";
@@ -180,7 +214,7 @@ fn planned_parents(
     if !amend {
         return Ok(vec![head.to_string()]);
     }
-    let arguments = ["log", "-1", "--format=%P", "--end-of-options", head];
+    let arguments = ["log", "-1", "--no-show-signature", "--format=%P", "--end-of-options", head];
     let output = repository
         .run(&arguments, MAX_SMALL_OUTPUT_BYTES)
         .map_err(|failure| read_failed(OPERATION, &failure))?;
@@ -252,7 +286,8 @@ fn described(repository: &Repository, commit: &str) -> Result<Value, ResourceErr
             .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
             .map_err(|failure| read_failed(OPERATION, &failure))
     };
-    let summary = run(&["log", "-1", "--format=%s", "--end-of-options", commit])?;
+    let summary =
+        run(&["log", "-1", "--no-show-signature", "--format=%s", "--end-of-options", commit])?;
     let stat = run(&["diff-tree", "--root", "--no-commit-id", "--shortstat", commit])?;
     let (files_changed, additions, deletions) = shortstat(&stat);
     let mut value = json!({

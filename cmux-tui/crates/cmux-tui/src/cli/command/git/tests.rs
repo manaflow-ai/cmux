@@ -216,18 +216,9 @@ fn git_files_joins_the_query_and_takes_a_limit() {
 
 #[test]
 fn git_commit_names_a_message_and_what_to_stage() {
-    let here = std::env::current_dir().unwrap();
-    let absolute = |path: &str| here.join(path).to_string_lossy().into_owned();
     assert_eq!(
-        sent(&["git", "commit", "--path", "/repo", "--message", "Fix", "a.rs", "b/", "/abs/c"]),
-        (
-            "git.commit".into(),
-            json!({
-                "path": "/repo",
-                "message": "Fix",
-                "paths": [absolute("a.rs"), format!("{}/", absolute("b")), "/abs/c"],
-            })
-        )
+        sent(&["git", "commit", "--path", "/repo", "--message", "Fix", "a.rs", "b/"]),
+        ("git.commit".into(), json!({"path": "/repo", "message": "Fix", "paths": ["a.rs", "b/"]}))
     );
     assert_eq!(
         sent(&[
@@ -272,4 +263,22 @@ fn git_push_names_a_remote_branch_and_upstream_choice() {
     );
     assert!(rejects(&["git", "push", "--set-upstream", "--no-set-upstream"]).contains("not both"));
     assert!(rejects(&["git", "push", "--force"]).contains("--force"));
+}
+
+#[test]
+fn commit_paths_join_the_current_directory_only_for_this_machine() {
+    use super::super::WireOperation;
+    use cmux_tui_core::resource::ResourceOperation as Op;
+    let here = std::env::current_dir().unwrap();
+    let absolute = |path: &str| here.join(path).to_string_lossy().into_owned();
+    let commit = WireOperation::Typed(Op::GitCommit);
+    let mut local = json!({"machine": "current", "paths": ["a.rs", "b/", "/abs/c"]});
+    super::localize_commit_paths(&commit, &mut local).unwrap();
+    assert_eq!(local["paths"], json!([absolute("a.rs"), format!("{}/", absolute("b")), "/abs/c"]));
+    let mut remote = json!({"machine": "builder", "paths": ["a.rs"]});
+    super::localize_commit_paths(&commit, &mut remote).unwrap();
+    assert_eq!(remote["paths"], json!(["a.rs"]));
+    let mut other = json!({"machine": "current", "paths": ["a.rs"]});
+    super::localize_commit_paths(&WireOperation::Typed(Op::GitDiff), &mut other).unwrap();
+    assert_eq!(other["paths"], json!(["a.rs"]));
 }
