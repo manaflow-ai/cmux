@@ -7,6 +7,7 @@ extension HomeScene {
     /// Applies new rows (nil: the rows did not change, only the field moved).
     /// `sendField` is the field rect the send morph flies from.
     func commit(_ rows: [RowSpec]?, change: TranscriptChange, sendField: CGRect? = nil) {
+        commitCount += 1
         let begin = now
         let animate = motion.moves && change.animates
         CATransaction.begin()

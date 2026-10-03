@@ -37,6 +37,8 @@ final class HomeScene {
     /// Called after the scene moved the offset itself (pin on send, rebase on
     /// prepend, resize); not called for `hostScroll(to:)`.
     var offsetMovedByModel: () -> Void = {}
+    /// Layout passes (`commit` calls); tests prove an unchanged update is free.
+    var commitCount = 0
     private var hostScrolling = false
     /// Asks for `settle` at a layer time (event-driven cleanup).
     var requestWake: (CFTimeInterval) -> Void = { _ in }

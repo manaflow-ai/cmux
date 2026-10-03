@@ -15,6 +15,9 @@ public final class HomeNativeTranscriptView: NSView {
     let rowHost = HomeRowHostView()
     let field = HomeFieldView()
     let header = HomeGlassHeaderView()
+    /// False while the owner is unreachable (H17: offline Send is off; the
+    /// text stays a draft). The wiring sets it from `HomeStore.connection`.
+    public var isSendEnabled = true
     /// A user-chosen sent-bubble colour; nil follows the theme.
     public var accentOverride: NSColor? { didSet { applyTheme() } }
     private var observers: [any NSObjectProtocol] = []
@@ -93,6 +96,7 @@ public final class HomeNativeTranscriptView: NSView {
     }
 
     private func send() {
+        guard isSendEnabled else { return }
         let frame = fieldFrame
         guard controller.sendHosted(text: field.text, from: frame) != nil else { return }
         field.text = ""

@@ -196,3 +196,53 @@ import Testing
         #expect(view.controller.topInset == headerHeight)
     }
 }
+
+/// The local conversation owner refuses create, invite, pin and mute
+/// (`unsupported_on_local_owner`) until the cloud owner lands, so the native
+/// transcript offers none of them: no menu, no header action, and the only
+/// ops it can emit are sends and read cursors.
+@MainActor
+@Suite struct HomeLocalOwnerActionTests {
+    @Test func noUnsupportedActionsOnALocalConversation() {
+        let me = ParticipantID("user_me")
+        let id = ConversationID("conv_local")
+        let view = HomeNativeTranscriptView(conversation: id, me: me)
+        #expect(view.menu == nil)
+        #expect(view.header.menu == nil)
+        #expect(view.header.name.action == nil, "the name pill opens nothing")
+        var ops: [HomeOp] = []
+        view.controller.onIntent = { ops.append($0.op) }
+        view.controller.sendHosted(text: "hi", from: .zero)
+        for op in ops {
+            switch op {
+            case .sendMessage, .setReadCursor: break
+            default: Issue.record("unsupported op on a local conversation: \(op)")
+            }
+        }
+        #expect(!ops.isEmpty)
+    }
+}
+
+@MainActor
+@Suite struct HomeOfflineSendTests {
+    /// H17: offline, Return keeps the text as a draft and emits nothing.
+    @Test func offlineReturnKeepsTheDraft() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 628, height: 600), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let view = HomeNativeTranscriptView(conversation: ConversationID("conv_off"), me: ParticipantID("user_me"))
+        window.contentView = view
+        view.layoutSubtreeIfNeeded()
+        var sent = 0
+        view.controller.onIntent = { _ in sent += 1 }
+        view.isSendEnabled = false
+        view.field.text = "later"
+        let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                     windowNumber: window.windowNumber, context: nil, characters: "\r",
+                                     charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)
+        if let event { view.field.textView.keyDown(with: event) }
+        #expect(sent == 0)
+        #expect(view.field.text == "later")
+    }
+}
