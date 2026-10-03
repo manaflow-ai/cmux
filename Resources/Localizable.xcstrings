@@ -115454,6 +115454,31 @@
         }
       }
     },
+    "cli.vm.list.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux vm ls" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使い方: cmux vm ls" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "用法：cmux vm ls" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Verwendung: cmux vm ls" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Utilisation : cmux vm ls" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "الاستخدام: cmux vm ls" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Uso: cmux vm ls" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "用法：cmux vm ls" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "사용법: cmux vm ls" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Upotreba: cmux vm ls" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Brug: cmux vm ls" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Uso: cmux vm ls" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការប្រើប្រាស់៖ cmux vm ls" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Bruk: cmux vm ls" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Użycie: cmux vm ls" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Uso: cmux vm ls" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Использование: cmux vm ls" } },
+        "th": { "stringUnit": { "state": "translated", "value": "การใช้งาน: cmux vm ls" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Kullanım: cmux vm ls" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Використання: cmux vm ls" } }
+      }
+    },
     "cli.vm.list.planMeter.unlimited": {
       "extractionState": "manual",
       "localizations": {
