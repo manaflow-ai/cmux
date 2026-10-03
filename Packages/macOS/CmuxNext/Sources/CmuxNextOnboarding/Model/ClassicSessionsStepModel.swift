@@ -1,5 +1,5 @@
-import Foundation
-import Observation
+public import Foundation
+public import Observation
 
 /// The classic cmux session import step. Workspaces are checked by default because
 /// importing topology is reversible and does not execute saved commands.

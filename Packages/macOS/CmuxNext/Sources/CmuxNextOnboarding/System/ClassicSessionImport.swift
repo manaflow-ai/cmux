@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Read-only access to classic cmux's saved session file.
 public struct ClassicSessionImporter: Sendable {

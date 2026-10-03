@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A terminal tab copied from a classic cmux session.
 public struct ClassicSessionTab: Codable, Equatable, Sendable {

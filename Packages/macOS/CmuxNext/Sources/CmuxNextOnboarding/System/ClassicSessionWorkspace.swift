@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// One workspace eligible for import into cmux-next.
 public struct ClassicSessionWorkspace: Codable, Equatable, Sendable {
