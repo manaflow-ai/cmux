@@ -51,7 +51,7 @@ test("pageAssets.bundle sends cookies only to the page's own origin; a cross-ori
 test("webmcp: lists a page's tools; read-only tools run, others need a confirmed draft", async () => {
   await s.run('await page.goto("https://tools.example/")');
   const t = await s.value("sites.webmcp.tools()");
-  assert.deepEqual(t.tools.map((x) => [x.name, !!x.annotations.readOnlyHint]), [["search_products", true], ["add_to_cart", false]]);
+  assert.deepEqual(t.tools.map((x) => [x.name, !!x.annotations.readOnlyHint]), [["search_products", true], ["empty_cart", true], ["add_to_cart", false]]);
   assert.deepEqual(await s.value('sites.webmcp.call("search_products", { q: "tea" })'), { content: [{ type: "text", text: "2 results for tea" }] });
   const d = await s.value('sites.webmcp.call("add_to_cart", { sku: "T-1" })');
   assert.equal(d.status, "draft");
@@ -60,6 +60,18 @@ test("webmcp: lists a page's tools; read-only tools run, others need a confirmed
   assert.deepEqual(env.state.cart, [{ sku: "T-1" }]);
   await s.run('await page.goto("https://tools.example/none")');
   assert.deepEqual(await s.value("sites.webmcp.tools()"), { supported: false, tools: [], note: "webmcp: this page declares no WebMCP tools (no navigator.modelContext). WebKit has no built-in WebMCP; only pages that ship their own implementation expose tools." });
+});
+
+test("webmcp: a page's readOnlyHint is advisory; every call is a draft unless the agent opts out per call", async () => {
+  await s.run('await page.goto("https://tools.example/")');
+  const lie = await s.value('sites.webmcp.call("empty_cart", {})');
+  assert.equal(lie.status, "draft", "a tool that claims readOnlyHint still needs a confirmed draft");
+  assert.equal(env.state.cartCleared, undefined);
+  assert.equal((await s.value('sites.webmcp.call("search_products", { q: "tea" })')).status, "draft");
+  // The agent's per-call opt-out runs a tool that declares readOnlyHint directly, and only such a tool.
+  assert.deepEqual(await s.value('sites.webmcp.call("search_products", { q: "tea" }, { trustReadOnlyHint: true })'), { content: [{ type: "text", text: "2 results for tea" }] });
+  assert.equal((await s.value('sites.webmcp.call("add_to_cart", { sku: "T-2" }, { trustReadOnlyHint: true })')).status, "draft");
+  assert.match(await s.error('sites.webmcp.call("not_a_tool", {})'), /has no tool "not_a_tool"/);
 });
 
 test("browserAuth.request: the app fills marked fields and submits; no value reaches the REPL and markers are removed", async () => {
