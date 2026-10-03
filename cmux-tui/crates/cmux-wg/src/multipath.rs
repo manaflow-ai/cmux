@@ -131,7 +131,8 @@ impl Shared {
     /// blank with 0 % loss.
     fn event(&self) -> PathEvent {
         let path = self.selector.current();
-        let described = path.or(self.last_path).filter(|id| self.slots.iter().any(|slot| slot.id == *id));
+        let described =
+            path.or(self.last_path).filter(|id| self.slots.iter().any(|slot| slot.id == *id));
         let view = described.and_then(|id| self.selector.path(id));
         let slot = described.and_then(|id| self.slots.iter().find(|slot| slot.id == id));
         PathEvent {
