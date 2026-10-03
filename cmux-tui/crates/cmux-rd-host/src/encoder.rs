@@ -28,8 +28,10 @@ pub struct EncCfg<'a> {
     /// `openh264` (default) or `x264` (needs the `x264` feature).
     pub codec: &'a str,
     /// x264 only.
+    #[cfg_attr(not(feature = "x264"), allow(dead_code))]
     pub preset: &'a str,
     /// x264 only (`high` for hardware decoders, `baseline` for the Linux bench).
+    #[cfg_attr(not(feature = "x264"), allow(dead_code))]
     pub profile: &'a str,
 }
 
