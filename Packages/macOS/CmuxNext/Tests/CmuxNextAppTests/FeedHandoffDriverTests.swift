@@ -18,6 +18,7 @@ struct FeedHandoffDriverTests {
     final class Daemon {
         var items: [FeedLocalItem]
         var servesCapability = true
+        var failBegin: Set<String> = []
         var calls: [String] = []
 
         init(_ items: [FeedLocalItem]) { self.items = items }
@@ -31,6 +32,9 @@ struct FeedHandoffDriverTests {
                 },
                 begin: { [unowned self] id in
                     self.calls.append("begin \(id)")
+                    if self.failBegin.contains(id) {
+                        throw DaemonError.command(cmd: "feed-local-handoff-begin", message: "moved", code: "feed.invalid_state")
+                    }
                     return try self.transition(id, from: .open, to: .handingOff, home: nil)
                 },
                 done: { [unowned self] id, home in
@@ -62,11 +66,16 @@ struct FeedHandoffDriverTests {
         var calls: [(op: String, key: String, params: [String: Any])] = []
         var loseNextAdoptReply = false
         var refuse: String?
+        /// The install `feed.get` reports as the poster of an existing item.
+        var existingInstall: String?
 
         func handle(_ body: [String: Any]) async throws -> [String: Any] {
             let op = body["op"] as? String ?? ""
             let params = body["params"] as? [String: Any] ?? [:]
             calls.append((op, body["idempotency_key"] as? String ?? "", params))
+            if op == "feed.get" {
+                return ["ok": true, "value": ["item": ["id": params["item"] as Any, "poster": ["install": existingInstall as Any]]]]
+            }
             if op == "feed.adopt" {
                 if let refuse { throw FeedServiceError.owner(code: refuse, message: "") }
                 if loseNextAdoptReply {
@@ -98,7 +107,7 @@ struct FeedHandoffDriverTests {
 
     private func driver(_ daemon: Daemon, _ owner: Owner, prefs: NotificationPreferences = NotificationPreferences(),
                         muted: Set<String> = [], signedIn: Bool = true, install: String? = install,
-                        enabled: Bool = true) -> FeedHandoffDriver {
+                        enabled: Bool = true, since: UInt64 = 0) -> FeedHandoffDriver {
         var utc = Calendar(identifier: .gregorian)
         utc.timeZone = TimeZone(identifier: "UTC")!
         return FeedHandoffDriver(
@@ -108,6 +117,7 @@ struct FeedHandoffDriverTests {
             isSignedIn: { signedIn },
             installID: { install },
             policy: { FeedHandoffPolicy(preferences: prefs, mutedWorkspaces: muted, calendar: utc) },
+            since: { _ in since },
             now: { Date(timeIntervalSince1970: Double(Self.noon) / 1000 + 60) })
     }
 
@@ -146,12 +156,25 @@ struct FeedHandoffDriverTests {
         let ids = owner.adopts.map { $0.item["id"] as? String }
         #expect(ids[0] != nil && ids[0] == ids[1], "the cloud id is derived, so a retry names the same item")
         #expect(daemon.state("feeditem_2") == .moved)
+        let bodies = owner.adopts.map { try? JSONSerialization.data(withJSONObject: $0.item, options: [.sortedKeys]) }
+        #expect(bodies[0] != nil && bodies[0] == bodies[1], "a retry sends the same body under the same key")
+    }
+
+    @Test func aConflictOnAnItemThisInstallAlreadyAdoptedCompletesTheMove() async {
+        let daemon = Daemon([Self.item("feeditem_c", state: .handingOff)])
+        let owner = Owner()
+        owner.refuse = "idempotency.conflict"
+        owner.existingInstall = Self.install
+        let driver = driver(daemon, owner)
+        driver.run()
+        await driver.drain()
+        #expect(owner.calls.map { $0.op } == ["feed.adopt", "feed.get"])
+        #expect(daemon.state("feeditem_c") == .moved)
     }
 
     @Test func theAdoptBodyIsAFullCloudItemHomedOnThisInstall() throws {
         let item = Self.item("feeditem_a1", body: "token ghp_abcdefghijklmnopqrstuvwxyz0123")
-        let body = FeedHandoffDriver.adoptBody(item, install: Self.install, content: ("T", item.body),
-                                               now: Date(timeIntervalSince1970: Double(Self.noon) / 1000 + 60))
+        let body = FeedHandoffDriver.adoptBody(item, install: Self.install, content: ("T", item.body))
         #expect(body["op"] as? String == "feed.adopt")
         #expect(body["idempotency_key"] as? String == "adopt:feeditem_a1")
         let cloud = try #require((body["params"] as? [String: Any])?["item"] as? [String: Any])
@@ -226,6 +249,72 @@ struct FeedHandoffDriverTests {
         #expect(owner.adopts.count == 2, "an owner refusal of one item does not stop the others")
         #expect(daemon.state("a") == .handingOff)
         #expect(daemon.state("b") == .handingOff)
+        driver.run()
+        await driver.drain()
+        #expect(owner.adopts.count == 2, "an item refused for good is not resent until the next launch")
+    }
+
+    @Test func aRateLimitStopsThePass() async {
+        let daemon = Daemon([Self.item("a"), Self.item("b")])
+        let owner = Owner()
+        owner.refuse = "feed.rate_limited"
+        let driver = driver(daemon, owner)
+        driver.run()
+        await driver.drain()
+        #expect(owner.adopts.count == 1)
+        #expect(daemon.state("b") == .open)
+    }
+
+    @Test func theClientCapsAdoptsPerMinute() async {
+        let daemon = Daemon((0...FeedHandoffDriver.maxAdoptsPerMinute).map { Self.item("i\($0)") })
+        let owner = Owner()
+        let driver = driver(daemon, owner)
+        driver.run()
+        await driver.drain()
+        #expect(owner.adopts.count == FeedHandoffDriver.maxAdoptsPerMinute)
+        #expect(daemon.items.filter { $0.state == .open }.count == 1)
+    }
+
+    @Test func aBeginRefusalSkipsOnlyThatItem() async {
+        let daemon = Daemon([Self.item("a"), Self.item("b")])
+        daemon.failBegin = ["a"]
+        let owner = Owner()
+        let driver = driver(daemon, owner)
+        driver.run()
+        await driver.drain()
+        #expect(owner.adopts.map { $0.key } == ["adopt:b"])
+    }
+
+    @Test func aNoticeThatDidNotAlertHereStaysLocalUntilOneDoes() async {
+        let daemon = Daemon([Self.item("a")])
+        let owner = Owner()
+        let driver = driver(daemon, owner)
+        driver.noteArrival(terminal: "term_a", alerted: false)
+        driver.run()
+        await driver.drain()
+        #expect(owner.calls.isEmpty)
+        driver.noteArrival(terminal: "term_a", alerted: true)
+        driver.run()
+        await driver.drain()
+        #expect(owner.adopts.map { $0.key } == ["adopt:a"])
+    }
+
+    @Test func itemsFromBeforeTheFirstHandoffStayLocal() async {
+        let daemon = Daemon([Self.item("old", at: Self.noon - 1), Self.item("new", at: Self.noon)])
+        let owner = Owner()
+        let driver = driver(daemon, owner, since: Self.noon)
+        driver.run()
+        await driver.drain()
+        #expect(owner.adopts.map { $0.key } == ["adopt:new"])
+    }
+
+    @Test func aReadItemNeverPushesAndTextIsCutInUTF16Units() throws {
+        var item = Self.item("r")
+        item.readAtMs = Self.noon
+        let body = FeedHandoffDriver.adoptBody(item, install: Self.install, content: (String(repeating: "😀", count: 150), ""))
+        let cloud = try #require((body["params"] as? [String: Any])?["item"] as? [String: Any])
+        #expect(cloud["push_due_at"] is NSNull)
+        #expect((cloud["title"] as? String)?.utf16.count == 200)
     }
 
     // MARK: (c) B5: a refused moved item is read in the cloud
@@ -263,6 +352,17 @@ struct FeedHandoffDriverTests {
         await driver.drain()
         #expect(daemon.state("feeditem_h1") == .moved)
         #expect(owner.reads == [[FeedHandoffDriver.cloudID(install: Self.install, local: "feeditem_h1")]])
+    }
+
+    @Test func aMovingRefusalThatArrivesAfterTheMoveReadsAtOnce() async {
+        let daemon = Daemon([Self.item("feeditem_h2", state: .handingOff)])
+        let owner = Owner()
+        let driver = driver(daemon, owner)
+        driver.run()
+        await driver.drain()
+        driver.acknowledged([.init(item: "feeditem_h2", code: "feed.moving")])
+        await driver.drain()
+        #expect(owner.reads == [[FeedHandoffDriver.cloudID(install: Self.install, local: "feeditem_h2")]])
     }
 
     // MARK: (d) without feed-local-owner-v1 the step-1 bridge stays

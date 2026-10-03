@@ -200,6 +200,8 @@ final class NotificationCenterService {
         // workspaces, quiet hours and banners turned off are not mirrored. With the
         // local feed owner the driver's pass applies the same rules to the daemon's items.
         if Self.feedPath(driver: feedDriver) == .handoff {
+            // A notice that did not alert here (pane in view, app active, banners off) stays local.
+            feedDriver?.noteArrival(terminal: located.tab.terminalResourceID?.rawValue, alerted: decision.desktop)
             feedDriver?.run()
         } else if decision.desktop {
             mirrorToFeed(notification, source: source, located: located)

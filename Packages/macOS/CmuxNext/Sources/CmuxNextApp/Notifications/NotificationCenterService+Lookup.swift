@@ -119,7 +119,18 @@ extension NotificationCenterService {
             },
             isSignedIn: { [weak feed] in feed?.isSignedIn ?? false },
             installID: { [weak feed] in feed?.installID },
-            policy: { [weak self] in self?.feedHandoffPolicy() ?? FeedHandoffPolicy(preferences: .init(), mutedWorkspaces: []) })
+            policy: { [weak self] in self?.feedHandoffPolicy() ?? FeedHandoffPolicy(preferences: .init(), mutedWorkspaces: []) },
+            since: Self.handoffSince)
+    }
+
+    /// The first time the driver ran for `install` (ms). Persisted per Mac,
+    /// so open items the step-1 bridge may already have posted stay local.
+    static func handoffSince(_ install: String) -> UInt64 {
+        let key = "feed.handoff.since.\(install)"
+        if let stored = UserDefaults.standard.object(forKey: key) as? NSNumber { return stored.uint64Value }
+        let now = UInt64(Date().timeIntervalSince1970 * 1000)
+        UserDefaults.standard.set(NSNumber(value: now), forKey: key)
+        return now
     }
 
     /// The handoff rules under the current settings. Muted workspaces are

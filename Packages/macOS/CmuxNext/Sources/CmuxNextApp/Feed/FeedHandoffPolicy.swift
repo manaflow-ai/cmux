@@ -8,8 +8,8 @@ import Foundation
 ///
 /// An item is handed off only when `feed.mirrorNotifications` allows its
 /// source (agents on; terminal off, title or full) and the alert policy would
-/// have alerted for it: its workspace is not muted, it did not arrive in
-/// quiet hours, and banners are on for its source. The text is the item's
+/// have alerted for it: its workspace is not muted, its newest text did not
+/// arrive in quiet hours, and banners are on for its source. The text is the item's
 /// own title and body, scrubbed of known secret shapes; title mode drops the
 /// body.
 nonisolated struct FeedHandoffPolicy: Sendable {
@@ -52,7 +52,7 @@ nonisolated struct FeedHandoffPolicy: Sendable {
 
     private func arrivedInQuietHours(_ item: FeedLocalItem) -> Bool {
         guard let quiet = preferences.quietHours else { return false }
-        let date = Date(timeIntervalSince1970: Double(item.createdAtMs) / 1000)
+        let date = Date(timeIntervalSince1970: Double(item.updatedAtMs) / 1000)
         let parts = calendar.dateComponents([.hour, .minute], from: date)
         return quiet.contains(minuteOfDay: (parts.hour ?? 0) * 60 + (parts.minute ?? 0))
     }

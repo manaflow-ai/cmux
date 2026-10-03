@@ -1,5 +1,4 @@
 import CmuxNextDaemon
-import CryptoKit
 import Foundation
 
 /// The single owner of the local feed handoff (plans/cmux-next/feed.md
@@ -12,8 +11,9 @@ import Foundation
 /// No queue lives in memory: each pass lists the daemon's `handing_off`
 /// items first (B3), then its open unread ones. A failure leaves the item
 /// `handing_off`, and the next pass (the next launch, the next notification)
-/// sends the same key again; FeedDO's ledger makes that retry safe. Passes
-/// run on events only (activation, a new local item), never on a timer.
+/// sends the same key with the same body (a pure function of the frozen
+/// item); FeedDO's ledger makes that retry safe. Passes run on events only
+/// (activation, a new local item), never on a timer.
 ///
 /// Active only when `enabled` (off in shipped builds, `isEnabledByDefault`),
 /// the local daemon serves `feed-local-owner-v1`, the user is signed in, and
@@ -41,8 +41,10 @@ final class FeedHandoffDriver {
     static let home = "cloud"
     /// Client cap on adopts: terminal spam must not use up the owner's per-poster limit.
     static let maxAdoptsPerMinute = 30
-    /// Items read while they were moving, read in the cloud once they moved (bounded).
-    static let maxPendingReads = 500
+    /// Bound of each in-memory id set (hints only; the daemon holds the state).
+    static let maxTracked = 500
+    /// Owner codes that say "not now" for every item: the pass stops.
+    static let stopCodes: Set<String> = ["feed.rate_limited", "feed.full", "rate_limited", "owner.unavailable"]
 
     private let enabled: Bool
     private let daemon: Daemon
@@ -50,21 +52,33 @@ final class FeedHandoffDriver {
     private let isSignedIn: @MainActor () -> Bool
     private let installID: @MainActor () -> String?
     private let policy: @MainActor () -> FeedHandoffPolicy
+    /// The first time the driver ran for an install (ms, persisted by the
+    /// caller): older open items stay local, so nothing the step-1 bridge
+    /// already posted is adopted a second time.
+    private let since: @MainActor (_ install: String) -> UInt64
     private let now: @MainActor () -> Date
     /// The running pass, and whether an event asked for another one meanwhile.
     private var pass: Task<Void, Never>?
     private var again = false
-    /// Cloud reads in flight; each removes itself when it settles.
+    /// Cloud requests in flight; each removes itself when it settles.
     private var running: [UUID: Task<Void, Never>] = [:]
     /// Local ids the user read while they were handing off (`feed.moving`).
     private var readAfterMove: Set<String> = []
+    /// Local ids this run moved (an ack refusal may arrive after the move).
+    private var recentlyMoved: Set<String> = []
+    /// Items the owner refused for good this run: not resent until the next launch.
+    private var refused: Set<String> = []
+    /// Terminals (`term_…`) whose newest notification did not alert on this
+    /// Mac (pane in view, app active, banners off): their item stays local.
+    private var withheld: Set<String> = []
     private var minute: (start: Date, count: Int)?
     /// Recent handoffs and failures (for `debug.notifications`).
     private(set) var log: [String] = []
     private static let logLimit = 32
 
-    init(enabled: Bool = FeedHandoffDriver.isEnabledByDefault, daemon: Daemon, owner: @escaping Owner, isSignedIn: @escaping @MainActor () -> Bool,
-         installID: @escaping @MainActor () -> String?, policy: @escaping @MainActor () -> FeedHandoffPolicy,
+    init(enabled: Bool = FeedHandoffDriver.isEnabledByDefault, daemon: Daemon, owner: @escaping Owner,
+         isSignedIn: @escaping @MainActor () -> Bool, installID: @escaping @MainActor () -> String?,
+         policy: @escaping @MainActor () -> FeedHandoffPolicy, since: @escaping @MainActor (String) -> UInt64 = { _ in 0 },
          now: @escaping @MainActor () -> Date = Date.init) {
         self.enabled = enabled
         self.daemon = daemon
@@ -72,11 +86,24 @@ final class FeedHandoffDriver {
         self.isSignedIn = isSignedIn
         self.installID = installID
         self.policy = policy
+        self.since = since
         self.now = now
     }
 
     /// Whether the driver replaces the step-1 bridge right now.
     var isActive: Bool { enabled && daemon.serves() && isSignedIn() && installID() != nil }
+
+    /// A notification arrived for `terminal`: whether it alerted on this Mac
+    /// (the arrival decision). A withheld terminal's item stays local until
+    /// a later notification there alerts.
+    func noteArrival(terminal: String?, alerted: Bool) {
+        guard let terminal else { return }
+        if alerted {
+            withheld.remove(terminal)
+        } else if withheld.count < Self.maxTracked {
+            withheld.insert(terminal)
+        }
+    }
 
     /// Runs one pass (at activation and on each new local item). A pass that
     /// is running finishes first; one more pass follows it.
@@ -99,18 +126,21 @@ final class FeedHandoffDriver {
     }
 
     /// The daemon refused to read these items on an ack (B5): moved items
-    /// are read in the cloud at once (one call; nothing queues while signed
-    /// out or offline), items still moving once their move completes.
-    func acknowledged(_ refused: [AckTabNotificationsRequest.Refused]) {
-        for item in refused where item.code == "feed.moving" && readAfterMove.count < Self.maxPendingReads {
-            readAfterMove.insert(item.item)
+    /// are read in the cloud at once (nothing queues while signed out or
+    /// offline), items still moving once their move completes.
+    func acknowledged(_ refusals: [AckTabNotificationsRequest.Refused]) {
+        var moved = refusals.filter { $0.code == "owner.unreachable" }.map(\.item)
+        for refusal in refusals where refusal.code == "feed.moving" {
+            if recentlyMoved.contains(refusal.item) {
+                moved.append(refusal.item)
+            } else if readAfterMove.count < Self.maxTracked {
+                readAfterMove.insert(refusal.item)
+            }
         }
-        let moved = refused.filter { $0.code == "owner.unreachable" }.map(\.item)
-        guard !moved.isEmpty else { return }
-        readInCloud(moved)
+        if !moved.isEmpty { readInCloud(moved) }
     }
 
-    /// Waits until no pass or cloud read is in flight (tests).
+    /// Waits until no pass or cloud request is in flight (tests).
     func drain() async {
         while let task = pass ?? running.values.first { await task.value }
     }
@@ -120,12 +150,14 @@ final class FeedHandoffDriver {
     private func handOffAll() async {
         guard let install = installID() else { return }
         do {
-            for item in try await daemon.list(.handingOff, false) {
-                guard await adopt(item, install: install, content: policy().frozenContent(for: item)) else { return }
+            for item in try await daemon.list(.handingOff, false) where !refused.contains(item.id) {
+                guard await adopt(item, install: install) else { return }
             }
             let policy = policy()
+            let floor = since(install)
             for item in try await daemon.list(.open, true) {
-                guard let content = policy.content(for: item) else { continue }
+                guard item.createdAtMs >= floor, !(item.context.terminal.map { withheld.contains($0) } ?? false),
+                      policy.content(for: item) != nil else { continue }
                 guard spendBudget() else {
                     note("pass stopped: over \(Self.maxAdoptsPerMinute) adopts per minute")
                     return
@@ -137,7 +169,7 @@ final class FeedHandoffDriver {
                     note("begin \(item.id) refused: \(Self.describe(error))")
                     continue
                 }
-                guard await adopt(frozen, install: install, content: content) else { return }
+                guard await adopt(frozen, install: install) else { return }
             }
         } catch {
             note("pass stopped: \(Self.describe(error))")
@@ -145,13 +177,18 @@ final class FeedHandoffDriver {
     }
 
     /// Sends `feed.adopt` for a frozen item, then records the move. Returns
-    /// false when the pass should stop (the owner or the daemon is unreachable).
-    private func adopt(_ item: FeedLocalItem, install: String, content: (title: String, body: String)) async -> Bool {
-        let body = Self.adoptBody(item, install: install, content: content, now: now())
+    /// false when the pass should stop (owner or daemon unreachable, a limit).
+    private func adopt(_ item: FeedLocalItem, install: String) async -> Bool {
+        let body = Self.adoptBody(item, install: install, content: policy().frozenContent(for: item))
         do {
             _ = try await owner("v1/ops", body)
+        } catch FeedServiceError.owner(let code, _) where code == "idempotency.conflict" {
+            // An earlier attempt with other text committed: confirm the cloud item is ours.
+            guard await adoptedEarlier(item, install: install) else { return false }
         } catch FeedServiceError.owner(let code, _) {
             note("adopt \(item.id) refused: \(code)")
+            if Self.stopCodes.contains(code) || code.hasPrefix("auth.") { return false }
+            if refused.count < Self.maxTracked { refused.insert(item.id) }
             return true
         } catch {
             note("adopt \(item.id) failed: \(Self.describe(error))")
@@ -164,8 +201,25 @@ final class FeedHandoffDriver {
             return Self.isItemRefusal(error)
         }
         note("moved \(item.id)")
+        if recentlyMoved.count >= Self.maxTracked { recentlyMoved.removeAll() }
+        recentlyMoved.insert(item.id)
         if readAfterMove.remove(item.id) != nil { readInCloud([item.id]) }
         return true
+    }
+
+    /// Whether FeedDO already holds `item` from this install (`feed.get` on the derived id).
+    private func adoptedEarlier(_ item: FeedLocalItem, install: String) async -> Bool {
+        let id = Self.cloudID(install: install, local: item.id)
+        do {
+            let reply = try await owner("v1/read", ["op": "feed.get", "params": ["item": id]])
+            let cloud = (reply["value"] as? [String: Any])?["item"] as? [String: Any]
+            let poster = cloud?["poster"] as? [String: Any]
+            if poster?["install"] as? String == install { return true }
+            note("adopt \(item.id): conflict with another item")
+        } catch {
+            note("adopt \(item.id): conflict, get failed: \(Self.describe(error))")
+        }
+        return false
     }
 
     private func spendBudget() -> Bool {
@@ -184,15 +238,18 @@ final class FeedHandoffDriver {
             note("read \(local.count) moved: signed out (not queued)")
             return
         }
-        let items = local.prefix(256).map { Self.cloudID(install: install, local: $0) }
-        let body: [String: Any] = ["op": "feed.read", "params": ["items": Array(items)],
-                                   "idempotency_key": UUID().uuidString, "origin": "user"]
         note("read moved \(local.joined(separator: ","))")
-        let id = UUID()
-        // task-owner: FeedHandoffDriver.running: one feed.read; a failure only leaves the cloud copy unread (U5: nothing queues).
-        running[id] = Task { [weak self, owner] in
-            do { _ = try await owner("v1/ops", body) } catch { self?.note("read failed: \(Self.describe(error))") }
-            self?.running[id] = nil
+        let ids = local.map { Self.cloudID(install: install, local: $0) }
+        for start in stride(from: 0, to: ids.count, by: 256) {
+            let chunk = Array(ids[start..<min(start + 256, ids.count)])
+            let body: [String: Any] = ["op": "feed.read", "params": ["items": chunk],
+                                       "idempotency_key": UUID().uuidString, "origin": "user"]
+            let id = UUID()
+            // task-owner: FeedHandoffDriver.running: one feed.read; a failure only leaves the cloud copy unread (U5: nothing queues).
+            running[id] = Task { [weak self, owner] in
+                do { _ = try await owner("v1/ops", body) } catch { self?.note("read failed: \(Self.describe(error))") }
+                self?.running[id] = nil
+            }
         }
     }
 
@@ -201,68 +258,6 @@ final class FeedHandoffDriver {
         if log.count > Self.logLimit { log.removeFirst(log.count - Self.logLimit) }
     }
 
-    // MARK: Wire
-
-    /// The FeedDO id of a local item: stable per install and local id, so
-    /// every retry and every later read names the same cloud item.
-    nonisolated static func cloudID(install: String, local: String) -> String {
-        let digest = SHA256.hash(data: Data("\(install)\n\(local)".utf8))
-        return "fi_" + digest.map { String(format: "%02x", $0) }.joined().prefix(20)
-    }
-
-    /// `feed.adopt {item}` for a frozen local item: the full cloud item,
-    /// homed on this install, with `content` (already filtered and scrubbed).
-    nonisolated static func adoptBody(_ item: FeedLocalItem, install: String, content: (title: String, body: String),
-                                      now: Date) -> [String: Any] {
-        let nowMs = Int(now.timeIntervalSince1970 * 1000)
-        let created = min(Int(item.createdAtMs), nowMs)
-        let updated = max(created, min(Int(item.updatedAtMs), nowMs))
-        let high = item.level == "error"
-        var context: [String: Any] = [:]
-        for (key, value) in [("workspace", item.context.workspace), ("tab", item.context.tab), ("terminal", item.context.terminal)] {
-            if let value, !value.isEmpty { context[key] = String(value.prefix(128)) }
-        }
-        let title = content.title.isEmpty ? "cmux" : String(content.title.prefix(200))
-        let cloud: [String: Any] = [
-            "id": cloudID(install: install, local: item.id),
-            "home": "local:\(install)",
-            "type": "notice",
-            "kind": "notice",
-            "title": title,
-            "body": String(content.body.prefix(4096)),
-            "priority": high ? "high" : "normal",
-            "dedupe_key": String(item.dedupeKey.prefix(200)),
-            "thread": orNull(item.context.tab.map { String("tab:\($0)".prefix(200)) }),
-            "context": context,
-            "attachments": [Any](),
-            "actions": [Any](),
-            "open": NSNull(),
-            // A fixed label: never the tab title, which can hold a command line.
-            "poster": ["kind": "system", "scope": "inst:\(install)", "label": String(item.source.prefix(80)), "install": install],
-            "state": "open",
-            "answer": NSNull(),
-            "cancel": NSNull(),
-            "needs_mac": false,
-            "expires_at": created + 7 * 24 * 3_600_000,
-            "read_at": orNull(item.readAtMs.map { min(Int($0), nowMs) }),
-            "seen_at": NSNull(),
-            "archived_at": NSNull(),
-            "snoozed_until": NSNull(),
-            // The owner's default delays (feed.md 7.3); it never pushes earlier than the adopt.
-            "push_due_at": created + (high ? 20_000 : 120_000),
-            "pushed_at": NSNull(),
-            "count": Int(item.count),
-            "order": 0,
-            "revision": 1,
-            "created_at": created,
-            "updated_at": updated,
-            "closed_at": NSNull(),
-        ]
-        return ["op": "feed.adopt", "params": ["item": cloud], "idempotency_key": "adopt:\(item.id)", "origin": "script"]
-    }
-
-    nonisolated private static func orNull(_ value: Any?) -> Any { value ?? NSNull() }
-
     /// A daemon refusal about one item (it moved, vanished or changed state),
     /// as opposed to a lost connection.
     nonisolated static func isItemRefusal(_ error: any Error) -> Bool {
@@ -270,7 +265,7 @@ final class FeedHandoffDriver {
         return ["feed.invalid_state", "feed.moving", "not_found", "owner.unreachable"].contains(code ?? "")
     }
 
-    nonisolated private static func describe(_ error: any Error) -> String {
+    nonisolated static func describe(_ error: any Error) -> String {
         if case let FeedServiceError.owner(code, _) = error { return code }
         if case let DaemonError.command(_, _, code?, _, _) = error { return code }
         return String(describing: error).prefix(120).description
