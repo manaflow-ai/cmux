@@ -113,6 +113,8 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     public func reconnect() { send(.reconnect) }
     /// The daemon reports the terminal's process ended.
     public func processExited() { send(.processExited) }
+    /// The daemon reports the terminal running again after a dead report.
+    public func processRevived() { send(.processRevived) }
     public func close() { send(.close) }
 
     // MARK: Diagnostics
