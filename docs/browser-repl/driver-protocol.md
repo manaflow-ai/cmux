@@ -108,8 +108,9 @@ All input is delivered as native, trusted events (`isTrusted === true`).
 Playwright (`KeyboardEvent.key` values plus `Meta+a` style parsed by the runtime).
 
 When sessions share a tab, a session's `input.mouse` `down` owns the pointer
-until its `up` (or until the session leaves the tab); another session's
-`input.mouse` waits meanwhile, at most 10 s, then fails with `timeout`
+until its `up` (or until the session leaves the tab), and an `input.drag`
+owns it from its press to its release; another session's `input.mouse` or
+`input.drag` waits meanwhile, at most 10 s, then fails with `timeout`
 naming the session that holds the mouse.
 
 ## Capture

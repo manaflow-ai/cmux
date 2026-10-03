@@ -140,11 +140,26 @@ final class BrowserReplTabAttachment {
         do {
             try await pointer.waitForPointer(sessionID: sessionID)
         } catch let held as BrowserReplPointerOwner.Held {
-            throw WebKitBrowserReplDriver.error(
-                "timeout",
-                "Session \(held.owner) holds the mouse on this tab: it pressed a button and has not released it within \(held.timeout); call page.mouse.up() in that session or reset it"
-            )
+            throw Self.pointerHeldError(held)
         }
+    }
+
+    /// Runs a whole drag as one press of `sessionID`: it waits for another
+    /// session's press to end, and no other session's mouse input reaches
+    /// the page until the drag ends.
+    func performPointerGesture<T>(sessionID: String, _ gesture: () async throws -> T) async throws -> T {
+        do {
+            return try await pointer.performGesture(sessionID: sessionID, gesture)
+        } catch let held as BrowserReplPointerOwner.Held {
+            throw Self.pointerHeldError(held)
+        }
+    }
+
+    private static func pointerHeldError(_ held: BrowserReplPointerOwner.Held) -> BrowserReplDriverError {
+        WebKitBrowserReplDriver.error(
+            "timeout",
+            "Session \(held.owner) holds the mouse on this tab: it pressed a button and has not released it within \(held.timeout); call page.mouse.up() in that session or reset it"
+        )
     }
 
     func pointerPressed(sessionID: String) { pointer.pressed(sessionID: sessionID) }

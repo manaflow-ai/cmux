@@ -42,6 +42,22 @@ public final class BrowserReplPointerOwner {
         }
     }
 
+    /// Runs `gesture`, a press-to-release sequence in one call (a drag), as
+    /// one press of `sessionID`: waits like ``waitForPointer(sessionID:clock:)``,
+    /// holds the pointer while `gesture` runs, and releases it when
+    /// `gesture` returns or throws. Another session's mouse input waits
+    /// meanwhile, so its events never interleave with the gesture's.
+    public func performGesture<T, C: Clock>(
+        sessionID: String,
+        clock: C = ContinuousClock(),
+        _ gesture: () async throws -> T
+    ) async throws -> T where C.Duration == Duration {
+        try await waitForPointer(sessionID: sessionID, clock: clock)
+        pressed(sessionID: sessionID)
+        defer { released(sessionID: sessionID) }
+        return try await gesture()
+    }
+
     /// `sessionID` pressed a button; it owns the pointer until it releases.
     public func pressed(sessionID: String) {
         owner = sessionID

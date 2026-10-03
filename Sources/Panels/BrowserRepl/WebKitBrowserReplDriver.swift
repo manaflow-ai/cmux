@@ -1778,20 +1778,24 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 trail.append(CGPoint(x: previous.x + (next.x - previous.x) * t, y: previous.y + (next.y - previous.y) * t))
             }
         }
-        try await withWindow(panel) { [self] webView, window in
-            let flags = modifiers.union(webView.browserNativeInputDeliveryOwner.activeModifierFlags)
-            attachment.mouseState.reset()
-            _ = attachment.mouseState.eventType(forType: "move", button: .left)
-            try await self.deliverMouse(.mouseMoved, button: .left, at: first, clickCount: 0, flags: flags, webView: webView, window: window, attachment: attachment)
-            _ = attachment.mouseState.eventType(forType: "down", button: .left)
-            try await self.deliverMouse(.leftMouseDown, button: .left, at: first, clickCount: 1, flags: flags, webView: webView, window: window, attachment: attachment)
-            for point in trail {
-                try await self.deliverMouse(.leftMouseDragged, button: .left, at: point, clickCount: 1, flags: flags, webView: webView, window: window, attachment: attachment)
+        // The drag holds the tab's pointer like a press does (input.mouse), so
+        // another session's mouse input never interleaves with it.
+        try await attachment.performPointerGesture(sessionID: sessionID) {
+            try await withWindow(panel) { [self] webView, window in
+                let flags = modifiers.union(webView.browserNativeInputDeliveryOwner.activeModifierFlags)
+                attachment.mouseState.reset()
+                _ = attachment.mouseState.eventType(forType: "move", button: .left)
+                try await self.deliverMouse(.mouseMoved, button: .left, at: first, clickCount: 0, flags: flags, webView: webView, window: window, attachment: attachment)
+                _ = attachment.mouseState.eventType(forType: "down", button: .left)
+                try await self.deliverMouse(.leftMouseDown, button: .left, at: first, clickCount: 1, flags: flags, webView: webView, window: window, attachment: attachment)
+                for point in trail {
+                    try await self.deliverMouse(.leftMouseDragged, button: .left, at: point, clickCount: 1, flags: flags, webView: webView, window: window, attachment: attachment)
+                }
+                _ = attachment.mouseState.eventType(forType: "up", button: .left)
+                try await self.deliverMouse(.leftMouseUp, button: .left, at: last, clickCount: 1, flags: flags, webView: webView, window: window, attachment: attachment)
             }
-            _ = attachment.mouseState.eventType(forType: "up", button: .left)
-            try await self.deliverMouse(.leftMouseUp, button: .left, at: last, clickCount: 1, flags: flags, webView: webView, window: window, attachment: attachment)
+            attachment.mousePosition = last
         }
-        attachment.mousePosition = last
         return nil
     }
 
