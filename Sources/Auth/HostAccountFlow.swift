@@ -263,9 +263,23 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         // A failed refresh keeps a known answer for the same account; it
         // only resets when there is nothing known to keep.
         let keepsKnownPlan = billingPlanIdentityID == identityID
+        #if DEBUG
+        // Test the Free and Pro Cloud screens without a second account:
+        //   defaults write <bundle id> cmux.debug.billingPlan free   (or pro)
+        //   defaults delete <bundle id> cmux.debug.billingPlan       (use the server)
+        if let forced = UserDefaults.standard.string(forKey: "cmux.debug.billingPlan"),
+           forced == "free" || forced == "pro" {
+            isProActive = forced == "pro"
+            canManageBilling = false
+            billingPlanIdentityID = identityID
+            return
+        }
+        #endif
         var request = URLRequest(url: AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan"))
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        // URLSession's default is 60 s; a plan check that slow is a failure.
+        request.timeoutInterval = 15
 
         if let tokens = try? await coordinator.currentTokens() {
             request.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")

@@ -105,7 +105,7 @@ struct CloudMachinesEnablementView: View {
         }
         switch coordinator.state {
         case .disabled, .cancelled, .enabled:
-            return String(localized: "cloud.enable.title", defaultValue: "Use Cloud Machines")
+            return String(localized: "cloud.enable.title.enable", defaultValue: "Enable Cloud Machines")
         case .enabling:
             return String(localized: "cloud.enable.loading.title", defaultValue: "Setting up Cloud Machines…")
         case .failed(.requiresPro):
