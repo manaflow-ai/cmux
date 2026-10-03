@@ -6,6 +6,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
+extension AppThemeGlobalStateTests {
 /// Every window kind x every shortcut (plans/cmux-next/windows.md): an
 /// explicit row per kind, so a new kind fails here until its row exists;
 /// every kind shows a close button above its content, renders through
@@ -153,4 +154,5 @@ struct WindowKindMatrixTests {
         let pixel = Self.pixel(rep, fromBottomRight: 40)
         #expect(Self.matches(pixel, token), "main: \(pixel) vs \(token)")
     }
+}
 }

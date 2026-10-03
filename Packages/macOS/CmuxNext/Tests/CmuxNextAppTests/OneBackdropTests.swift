@@ -8,6 +8,7 @@ import CmuxNextSettings
 import CmuxNextSettingsWindow
 import Testing
 
+extension AppThemeGlobalStateTests {
 /// One backdrop per window (plans/cmux-next/windows.md, Lawrence R31): with
 /// a see-through theme (background-opacity < 1, blur on) the main window
 /// has exactly one translucent backdrop, the root's material and tint,
@@ -160,4 +161,5 @@ struct OneBackdropTests {
             #expect(filled.isEmpty, "\(kind): surfaces with their own fill over the backdrop: \(filled)")
         }
     }
+}
 }
