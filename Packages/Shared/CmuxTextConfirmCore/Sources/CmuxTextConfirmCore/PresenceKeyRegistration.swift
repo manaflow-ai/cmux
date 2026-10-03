@@ -31,6 +31,27 @@ public protocol AppAttestKeyAttester: Sendable {
     func attest(keyID: String, clientDataHash: Data) async throws -> Data
 }
 
+/// An attestation made but not yet accepted by the owner. App Attest
+/// attests a key once, so a retry after a lost answer resends this one
+/// instead of spending a new key.
+public struct PendingAttestation: Codable, Hashable, Sendable {
+    public var thumbprint: String
+    public var keyID: String
+    public var attestation: Data
+
+    public init(thumbprint: String, keyID: String, attestation: Data) {
+        self.thumbprint = thumbprint
+        self.keyID = keyID
+        self.attestation = attestation
+    }
+}
+
+/// Where the pending attestation lives between attempts (per owner and host).
+public protocol PendingAttestationStore: Sendable {
+    func load() -> PendingAttestation?
+    func save(_ pending: PendingAttestation?)
+}
+
 /// POST with a bearer token. Transport failures throw.
 public protocol PresenceKeyTransport: Sendable {
     func post(_ path: String, json: Data, bearer: String) async throws -> (status: Int, body: Data)
@@ -54,12 +75,17 @@ public struct PresenceKeyRegistration: Sendable {
 
     let transport: any PresenceKeyTransport
     let attester: (any AppAttestKeyAttester)?
+    let pending: (any PendingAttestationStore)?
 
-    /// - Parameter attester: required on iOS (the owner refuses an iOS
-    ///   registration without an attestation); nil on macOS.
-    public init(transport: any PresenceKeyTransport, attester: (any AppAttestKeyAttester)?) {
+    /// - Parameters:
+    ///   - attester: required on iOS (the owner refuses an iOS registration
+    ///     without an attestation); nil on macOS.
+    ///   - pending: keeps an attestation across a lost answer (iOS).
+    public init(transport: any PresenceKeyTransport, attester: (any AppAttestKeyAttester)?,
+                pending: (any PendingAttestationStore)? = nil) {
         self.transport = transport
         self.attester = attester
+        self.pending = pending
     }
 
     /// The public JWK of an uncompressed P-256 point (X9.63, 65 bytes).
@@ -94,15 +120,26 @@ public struct PresenceKeyRegistration: Sendable {
         var keyID: String?
         if platform == "ios" {
             guard let attester else { throw TextConfirmError.attestationUnavailable }
-            let id = try await attester.generateKey()
-            let attestation = try await attester.attest(keyID: id, clientDataHash: Data(SHA256.hash(data: Data(thumbprint.utf8))))
-            body["attestation"] = attestation.textConfirmBase64URL
-            body["key_id"] = id
-            keyID = id
+            let attested: PendingAttestation
+            if let kept = pending?.load(), kept.thumbprint == thumbprint {
+                attested = kept
+            } else {
+                let id = try await attester.generateKey()
+                let hash = Data(SHA256.hash(data: Data(thumbprint.utf8)))
+                attested = PendingAttestation(thumbprint: thumbprint, keyID: id,
+                                              attestation: try await attester.attest(keyID: id, clientDataHash: hash))
+                pending?.save(attested)
+            }
+            body["attestation"] = attested.attestation.textConfirmBase64URL
+            body["key_id"] = attested.keyID
+            keyID = attested.keyID
         }
         let json = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
+        // A transport failure keeps the pending attestation for the retry.
         let (status, reply) = try await transport.post(Self.path, json: json, bearer: try await install.token())
         let object = (try? JSONSerialization.jsonObject(with: reply)) as? [String: Any]
+        // An answer, accepted or refused, ends this attestation's use.
+        pending?.save(nil)
         guard (200..<300).contains(status), object?["ok"] as? Bool == true else {
             let code = (object?["error"] as? [String: Any])?["code"] as? String ?? "http.\(status)"
             throw TextConfirmRefusal(code: code)

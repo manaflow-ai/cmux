@@ -3,9 +3,11 @@ import Foundation
 import Testing
 @testable import CmuxTextConfirmCore
 
-/// Records the one POST and answers with a fixed status and body.
+/// Records each POST and answers with a fixed status and body (or fails).
 final class RecordingTransport: PresenceKeyTransport, @unchecked Sendable {
+    struct Lost: Error {}
     var posts: [(path: String, body: [String: Any], bearer: String)] = []
+    var failures = 0
     let status: Int
     let reply: Data
 
@@ -16,6 +18,10 @@ final class RecordingTransport: PresenceKeyTransport, @unchecked Sendable {
 
     func post(_ path: String, json: Data, bearer: String) async throws -> (status: Int, body: Data) {
         posts.append((path, try JSONSerialization.jsonObject(with: json) as! [String: Any], bearer))
+        if failures > 0 {
+            failures -= 1
+            throw Lost()
+        }
         return (status, reply)
     }
 }
@@ -23,11 +29,21 @@ final class RecordingTransport: PresenceKeyTransport, @unchecked Sendable {
 /// A fake App Attest: the "attestation" is the client-data hash it was given.
 final class FakeKeyAttester: AppAttestKeyAttester, @unchecked Sendable {
     var hashes: [Data] = []
-    func generateKey() async throws -> String { "attest-key-1" }
+    var generated = 0
+    func generateKey() async throws -> String {
+        generated += 1
+        return "attest-key-\(generated)"
+    }
     func attest(keyID: String, clientDataHash: Data) async throws -> Data {
         hashes.append(clientDataHash)
         return clientDataHash
     }
+}
+
+final class MemoryPendingStore: PendingAttestationStore, @unchecked Sendable {
+    var value: PendingAttestation?
+    func load() -> PendingAttestation? { value }
+    func save(_ pending: PendingAttestation?) { value = pending }
 }
 
 @Suite struct PresenceKeyRegistrationTests {
@@ -45,7 +61,8 @@ final class FakeKeyAttester: AppAttestKeyAttester, @unchecked Sendable {
     }
 
     @Test func thumbprintIsRFC7638OverTheCanonicalMembers() throws {
-        // Vector from an independent implementation of the backend's jwkThumbprint.
+        // Vector from Node: createHash("sha256").update(`{"crv":"P-256","kty":"EC","x":"<x>","y":"<y>"}`)
+        // .digest("base64url"), the backend's jwkThumbprint, with x = bytes 1...32, y = bytes 33...64.
         let x963 = Data([0x04]) + Data(1...64)
         #expect(try PresenceKeyRegistration.thumbprint(x963: x963) == "t1ZI8tOt77KZ9YepYcUiqtqXcpIYInMJhkFb6casAFo")
         #expect(throws: PresenceKeyError.invalidPublicKey) { try PresenceKeyRegistration.thumbprint(x963: Data(1...64)) }
@@ -106,5 +123,34 @@ final class FakeKeyAttester: AppAttestKeyAttester, @unchecked Sendable {
             try await PresenceKeyRegistration(transport: transport, attester: FakeKeyAttester())
                 .register(presenceKey: presenceKey.publicKey.x963Representation, platform: "ios", install: install())
         }
+    }
+
+    @Test func aLostAnswerResendsTheSameAttestationAndAnAnswerClearsIt() async throws {
+        let transport = RecordingTransport()
+        transport.failures = 1
+        let attester = FakeKeyAttester()
+        let store = MemoryPendingStore()
+        let registration = PresenceKeyRegistration(transport: transport, attester: attester, pending: store)
+        let x963 = presenceKey.publicKey.x963Representation
+
+        await #expect(throws: RecordingTransport.Lost.self) {
+            try await registration.register(presenceKey: x963, platform: "ios", install: install())
+        }
+        #expect(store.value?.keyID == "attest-key-1")
+        let result = try await registration.register(presenceKey: x963, platform: "ios", install: install())
+        #expect(attester.generated == 1)
+        #expect(result.appAttestKeyID == "attest-key-1")
+        #expect(transport.posts[0].body["attestation"] as? String == transport.posts[1].body["attestation"] as? String)
+        #expect(store.value == nil)
+    }
+
+    @Test func aRefusalClearsThePendingAttestation() async {
+        let transport = RecordingTransport(status: 403, reply: #"{"ok":false,"error":{"code":"auth.forbidden"}}"#)
+        let store = MemoryPendingStore()
+        await #expect(throws: TextConfirmRefusal(code: "auth.forbidden")) {
+            try await PresenceKeyRegistration(transport: transport, attester: FakeKeyAttester(), pending: store)
+                .register(presenceKey: presenceKey.publicKey.x963Representation, platform: "ios", install: install())
+        }
+        #expect(store.value == nil)
     }
 }

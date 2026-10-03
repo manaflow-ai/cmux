@@ -66,15 +66,17 @@ public actor InstallIdentity {
         return try await client(for: user).installToken()
     }
 
-    /// The current user's owner ids and backend environment, after a token
-    /// mint (which registers the install when needed). For requests the
+    /// The current user's owner ids, backend environment and host, with the
+    /// install token minted for them (one actor step, so an account switch
+    /// cannot pair one user's ids with another's token). For requests the
     /// install key signs, such as presence-key registration.
-    public func ownerInstall() async throws -> (user: String, install: String, environment: String) {
+    public func ownerInstall() async throws
+        -> (user: String, install: String, environment: String, host: String, token: String) {
         guard let user = current else { throw InstallAuthError.noSession }
         let client = client(for: user)
-        _ = try await client.installToken()
+        let token = try await client.installToken()
         guard let record = await client.currentRecord else { throw InstallAuthError.noSession }
-        return (record.user, record.install, environment)
+        return (record.user, record.install, environment, baseURL.host ?? "unknown", token)
     }
 
     /// ES256 with this device's install key (raw r||s or DER).
