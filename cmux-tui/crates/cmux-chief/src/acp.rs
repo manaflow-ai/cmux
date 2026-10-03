@@ -46,22 +46,80 @@ pub struct SessionSummary {
 }
 
 /// One recorded acpmux event (`_acpmux/event`, attach replays, `events`).
+/// It reads leniently, as the TypeScript core does: a missing (or null) seq
+/// is 0 (folded, never deduped), a missing msg is `{}`, and a seq or at that
+/// is not a non-negative integer up to 2^53 - 1 marks the event invalid
+/// (both cores drop it with a log) instead of failing the parse.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", from = "RawAcpmuxEvent")]
 pub struct AcpmuxEvent {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
-    /// A missing seq reads as 0 (folded, never deduped), as in TypeScript.
-    #[serde(default)]
     pub seq: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub at: Option<u64>,
-    #[serde(default)]
     pub dir: String,
-    #[serde(default)]
     pub kind: String,
-    #[serde(default)]
     pub msg: Map<String, Value>,
+    /// False when seq or at was present but not a valid count.
+    #[serde(skip)]
+    pub valid: bool,
+}
+
+/// The wire shape of an event before its counts are checked.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawAcpmuxEvent {
+    #[serde(default)]
+    session_id: Option<String>,
+    #[serde(default)]
+    seq: Option<Value>,
+    #[serde(default)]
+    at: Option<Value>,
+    #[serde(default)]
+    dir: Option<Value>,
+    #[serde(default)]
+    kind: Option<Value>,
+    #[serde(default)]
+    msg: Option<Value>,
+}
+
+/// JavaScript's `Number.MAX_SAFE_INTEGER`.
+const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
+
+/// An absent or null count is `Ok(None)`; a non-negative safe integer is
+/// `Ok(Some)`; anything else is `Err`.
+fn count(value: Option<Value>) -> Result<Option<u64>, ()> {
+    match value {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Number(number)) => {
+            number.as_u64().filter(|n| *n <= MAX_SAFE_INTEGER).map(Some).ok_or(())
+        }
+        Some(_) => Err(()),
+    }
+}
+
+impl From<RawAcpmuxEvent> for AcpmuxEvent {
+    fn from(raw: RawAcpmuxEvent) -> Self {
+        let text = |value: Option<Value>| match value {
+            Some(Value::String(text)) => text,
+            _ => String::new(),
+        };
+        let (seq, at) = (count(raw.seq), count(raw.at));
+        let valid = seq.is_ok() && at.is_ok();
+        Self {
+            session_id: raw.session_id,
+            seq: seq.ok().flatten().unwrap_or(0),
+            at: at.ok().flatten(),
+            dir: text(raw.dir),
+            kind: text(raw.kind),
+            msg: match raw.msg {
+                Some(Value::Object(msg)) => msg,
+                _ => Map::new(),
+            },
+            valid,
+        }
+    }
 }
 
 impl AcpmuxEvent {
@@ -124,6 +182,9 @@ impl TurnFolder {
     }
 
     pub fn apply(&mut self, event: &AcpmuxEvent) -> Vec<TurnOutput> {
+        if !event.valid {
+            return Vec::new();
+        }
         if event.seq > 0 {
             if event.seq <= self.last_seq {
                 return Vec::new();
@@ -264,7 +325,15 @@ mod tests {
 
     fn event(seq: u64, kind: &str, msg: Value) -> AcpmuxEvent {
         let Value::Object(msg) = msg else { panic!() };
-        AcpmuxEvent { session_id: None, seq, at: None, dir: "mux".into(), kind: kind.into(), msg }
+        AcpmuxEvent {
+            session_id: None,
+            seq,
+            at: None,
+            dir: "mux".into(),
+            kind: kind.into(),
+            msg,
+            valid: true,
+        }
     }
 
     fn chunk(seq: u64, text: &str) -> AcpmuxEvent {

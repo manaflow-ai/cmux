@@ -84,6 +84,10 @@ pub enum Input {
         events: Vec<AcpmuxEvent>,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         cursor_reset: bool,
+        /// The log's identity: the `at` of its seq 1 event (absent for an
+        /// empty log).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        log_id: Option<u64>,
     },
     AcpmuxEvent {
         event: AcpmuxEvent,
@@ -254,6 +258,9 @@ pub struct Core {
     outbox_inflight: Option<String>,
     /// When the armed outbox timer fires (cleared when it fires).
     outbox_timer_at: Option<u64>,
+    /// True while `acpmux_connected` folds the replay of a reset log: its
+    /// promptless turns are history.
+    reset_replay: bool,
 }
 
 impl Core {
@@ -274,8 +281,8 @@ impl Core {
             Input::OpResult { idempotency_key, reason, change } => {
                 self.op_result(&idempotency_key, reason.as_deref(), change);
             }
-            Input::AcpmuxConnected { session_id, sessions, events, cursor_reset } => {
-                self.acpmux_connected(session_id, sessions, &events, cursor_reset);
+            Input::AcpmuxConnected { session_id, sessions, events, cursor_reset, log_id } => {
+                self.acpmux_connected(session_id, sessions, &events, cursor_reset, log_id);
             }
             Input::AcpmuxEvent { event } => {
                 if event.session_id.is_some() && event.session_id == self.mux_session {
@@ -632,29 +639,57 @@ impl Core {
 
     // MARK: acpmux
 
+    /// Reply keys and the log identity. The log identity is the `at` of the
+    /// log's seq 1 event (`log_id`, else a replayed seq 1 event). A reset is
+    /// a log whose turn seqs may repeat keys already used:
+    /// - same session: `cursor_reset` (acpmux refused the saved cursor) or a
+    ///   known identity that differs from host.json's `acpmuxLog`; the epoch
+    ///   becomes max(identity, else now; previous epoch + 1), so a repeated
+    ///   import of the same bundle still gets a new epoch;
+    /// - a session host.json does not know (a lost or replaced host.json)
+    ///   with a non-empty log: earlier epochs are unknown, so the epoch is now.
+    ///
+    /// Keys are `turn:<session>:<seq>` while no reset happened (the identity
+    /// equals host.json's), else `turn:<session>:<epoch>:<seq>`. The replay
+    /// of a reset posts no promptless turn; turns of prompts the core no
+    /// longer holds never post (`turn_conversation`).
     fn acpmux_connected(
         &mut self,
         session_id: String,
         sessions: Vec<SessionSummary>,
         events: &[AcpmuxEvent],
         cursor_reset: bool,
+        log_id: Option<u64>,
     ) {
         if self.acpmux_up {
             self.disconnected(Port::Acpmux);
         }
+        let identity = log_id.or_else(|| {
+            events.first().filter(|first| first.valid && first.seq == 1).and_then(|first| first.at)
+        });
+        let mut reset = false;
         if self.state.mux_session_id.as_deref() != Some(session_id.as_str()) {
             self.state.mux_session_id = Some(session_id.clone());
             self.state.acpmux_seq = 0;
             self.state.acpmux_epoch = None;
+            self.state.acpmux_log = None;
+            if identity.is_some() {
+                reset = true;
+                self.state.acpmux_epoch = Some(self.now);
+            }
             self.dirty = true;
-        } else if cursor_reset {
-            // The log is shorter than the saved cursor (a re-imported
-            // session): replay it all. Its turn seqs restart, so reply keys
-            // get an epoch from now on: the `at` of the first replayed event
-            // (else now). Turns of prompts the core no longer holds post
-            // nothing (apply_mux_event).
+        } else if cursor_reset || (identity.is_some() && identity != self.state.acpmux_log) {
+            reset = true;
             self.state.acpmux_seq = 0;
-            self.state.acpmux_epoch = Some(events.first().and_then(|e| e.at).unwrap_or(self.now));
+            let candidate = identity.unwrap_or(self.now);
+            self.state.acpmux_epoch = Some(match self.state.acpmux_epoch {
+                Some(previous) => candidate.max(previous + 1),
+                None => candidate,
+            });
+            self.dirty = true;
+        }
+        if identity.is_some() && identity != self.state.acpmux_log {
+            self.state.acpmux_log = identity;
             self.dirty = true;
         }
         self.mux_session = Some(session_id);
@@ -663,9 +698,11 @@ impl Core {
             self.session_info.insert(session.session_id.clone(), session);
         }
         self.folder = TurnFolder::new(self.state.acpmux_seq);
+        self.reset_replay = reset;
         for event in events {
             self.apply_mux_event(event);
         }
+        self.reset_replay = false;
         self.acpmux_up = true;
         // Prompts acpmux may have dropped with an old connection, in id order.
         let outstanding: Vec<String> = self.state.prompts.keys().cloned().collect();
@@ -679,6 +716,22 @@ impl Core {
     }
 
     fn apply_mux_event(&mut self, event: &AcpmuxEvent) {
+        if !event.valid {
+            self.log(format!(
+                "dropping acpmux event {}: seq and at must be non-negative integers",
+                event.kind
+            ));
+            return;
+        }
+        // A new log's first event names it (acpmuxLog), so a later connect
+        // can compare.
+        if event.seq == 1
+            && let Some(at) = event.at
+            && self.state.acpmux_log.is_none()
+        {
+            self.state.acpmux_log = Some(at);
+            self.dirty = true;
+        }
         for output in self.folder.apply(event) {
             match output {
                 TurnOutput::Accepted { prompt_id, .. } => self.accept(&prompt_id),
@@ -694,6 +747,12 @@ impl Core {
                         && let Some(error) = error
                     {
                         text = format!("(turn failed: {error})");
+                    }
+                    if conversation.is_none() && turn.prompt_id.is_none() && self.reset_replay {
+                        self.log(format!(
+                            "turn {} replayed after a reset has no prompt; reply not posted",
+                            turn.turn_seq
+                        ));
                     }
                     if conversation.is_none()
                         && let Some(prompt_id) = &turn.prompt_id
@@ -744,12 +803,12 @@ impl Core {
     }
 
     /// Where a turn's typing and reply go: its prompt's conversation, the
-    /// default one for a turn without a prompt, and none for a prompt the
-    /// core no longer holds (answered, or lost): a replayed old turn posts
-    /// nothing.
+    /// default one for a turn without a prompt (none while replaying a reset
+    /// log), and none for a prompt the core no longer holds (answered, or
+    /// lost): a replayed old turn posts nothing.
     fn turn_conversation(&self, prompt_id: Option<&str>) -> Option<String> {
         let Some(prompt_id) = prompt_id.filter(|id| !id.is_empty()) else {
-            return self.default_conversation();
+            return if self.reset_replay { None } else { self.default_conversation() };
         };
         let entry = self.state.prompts.get(prompt_id)?;
         Some(entry.conversation.clone())
@@ -1066,8 +1125,17 @@ impl Core {
         request: &Value,
     ) {
         let Some(session) = session.filter(|s| self.is_child(s)).cloned() else { return };
-        self.child(&session);
-        self.edit_work(session_id, &session.name, WorkStatus::Waiting, session.preview.as_deref());
+        let known = self.state.children.contains_key(session_id);
+        // A child first seen waiting already got a waiting card: no second,
+        // identical edit.
+        if known || self.child(&session).status != WorkStatus::Waiting {
+            self.edit_work(
+                session_id,
+                &session.name,
+                WorkStatus::Waiting,
+                session.preview.as_deref(),
+            );
+        }
         let prompt_id = format!("perm:{session_id}:{permission_id}");
         let conversation = self.child_conversation(session_id);
         let text = child_permission_prompt(&session, request);

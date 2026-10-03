@@ -150,9 +150,10 @@ pub fn work_status(status: SessionStatus) -> WorkStatus {
     }
 }
 
-/// A child turn ended: it left `running` for `ready` or `idle`.
+/// A child turn ended: it left `running` or `waiting` (a permission,
+/// answered or denied) for `ready` or `idle`.
 pub fn turn_ended(before: Option<SessionStatus>, after: SessionStatus) -> bool {
-    before == Some(SessionStatus::Running)
+    matches!(before, Some(SessionStatus::Running | SessionStatus::Waiting))
         && matches!(after, SessionStatus::Ready | SessionStatus::Idle)
 }
 
