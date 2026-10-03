@@ -117,6 +117,18 @@ struct CloudDirectoryLifecycleTests {
         #expect(presentation.directoryCandidates.isEmpty)
     }
 
+    @Test("A missing terminal cwd uses another accepted terminal cwd on the machine")
+    func missingDirectoryUsesMachineFallback() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        try fixture.install(paths: [nil, "/home/cmux"], revision: 2, lifecycles: ["running", "running"])
+
+        let presentation = try #require(CloudWorkspaceSidebarPresentation(
+            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false, catalog: fixture.catalog
+        ))
+        #expect(presentation.directoryCandidates == ["cwd-machine · /home/cmux"])
+    }
+
     @Test("An unconfirmed Cloud terminal withholds its requested cwd until the machine's state is current")
     func unconfirmedCloudDirectoryIsWithheld() throws {
         let fixture = try CloudDirectoryTestFixture()

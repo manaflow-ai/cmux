@@ -93,6 +93,21 @@ struct CloudWorkspaceSidebarPresentation {
 
         var entries: [(identity: String, directory: String?)] = []
         var seen = Set<String>()
+        let catalogSnapshot = catalog.snapshot
+        func acceptedMachineDirectory(for machineID: String) -> String? {
+            let machine = SurfaceMachineID(rawValue: machineID)
+            let resources = catalogSnapshot.resources(on: machine).filter { $0.kind == .terminal }
+            let workspaceDirectory = resources
+                .flatMap { resource in
+                    resource.remoteWorkspaces
+                        .filter { $0.id == (workspace.cloudVMBinding?.remoteWorkspaceID ?? "") }
+                        .compactMap(\.detail)
+                }
+                .first(where: { !$0.isEmpty })
+            return workspaceDirectory ?? resources
+                .compactMap(\.detail)
+                .first(where: { !$0.isEmpty })
+        }
         for panelID in orderedPanelIDs {
             let projectedMachine = state.projectedResources[panelID]?.machine
             guard let machineID = projectedMachine.flatMap({ $0.isDevice ? $0.rawValue : $0.cloudMachineID })
@@ -112,6 +127,7 @@ struct CloudWorkspaceSidebarPresentation {
                 guard workspace.terminalPanel(for: panelID) != nil else { continue }
             }
             let directory = workspace.reportedPanelDirectory(panelId: panelID)
+                ?? acceptedMachineDirectory(for: machineID)
             // Missing provider data is a normal loading state. Never turn it
             // into an error-looking directory label in the workspace row.
             guard let directory else { continue }
