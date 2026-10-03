@@ -97,6 +97,20 @@ def _profile_plist(
     }
 
 
+def _appstore_app_profile_plist() -> dict[str, object]:
+    profile = _profile_plist()
+    entitlements = profile["Entitlements"]
+    assert isinstance(entitlements, dict)
+    # Like the real App Store app profile: the Network Extensions capability
+    # the host app needs to save and start the CloudVPN packet tunnel.
+    entitlements["com.apple.developer.networking.networkextension"] = [
+        "app-proxy-provider",
+        "packet-tunnel-provider",
+        "hotspot-provider",
+    ]
+    return profile
+
+
 def _extension_profile_plist() -> dict[str, object]:
     profile = _profile_plist(
         APPSTORE_EXTENSION_BUNDLE_ID,
@@ -126,6 +140,9 @@ def _cloud_vpn_profile_plist() -> dict[str, object]:
         "app-proxy-provider",
         "packet-tunnel-provider",
     ]
+    # Like the real App Store CloudVPN profile: a team wildcard that the signed
+    # extension narrows to the host app's exact group.
+    entitlements["keychain-access-groups"] = [f"{TEAM_ID}.*", "com.apple.token"]
     return profile
 
 
@@ -160,7 +177,7 @@ def write_plist(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(plist_bytes(value))
 
-APPSTORE_PROFILE = plistlib.loads({_plist_bytes(_profile_plist())!r})
+APPSTORE_PROFILE = plistlib.loads({_plist_bytes(_appstore_app_profile_plist())!r})
 BETA_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(BETA_BUNDLE_ID, "cmux Beta Distribution Test", "00000000-0000-0000-0000-000000000002"))!r})
 EXTENSION_PROFILE = plistlib.loads({_plist_bytes(_extension_profile_plist())!r})
 APPSTORE_CLOUD_VPN_PROFILE = plistlib.loads({_plist_bytes(_cloud_vpn_profile_plist())!r})
@@ -582,6 +599,10 @@ if "--force" in args:
         if override_group and target.name.endswith(".app"):
             entitlements = plistlib.loads((target / "FakeSignedEntitlements.plist").read_bytes())
             entitlements["keychain-access-groups"] = [override_group]
+            (target / "FakeSignedEntitlements.plist").write_bytes(plist_bytes(entitlements))
+        if os.environ.get("CMUX_FAKE_SIGNED_NO_PACKET_TUNNEL") == "1" and target.name.endswith(".app"):
+            entitlements = plistlib.loads((target / "FakeSignedEntitlements.plist").read_bytes())
+            entitlements["com.apple.developer.networking.networkextension"] = ["app-proxy-provider"]
             (target / "FakeSignedEntitlements.plist").write_bytes(plist_bytes(entitlements))
     sys.exit(0)
 sys.exit(0)
@@ -1053,6 +1074,31 @@ def test_upload_keychain_group_failure_does_not_dump_entitlements(
     )
 
 
+def test_upload_appstore_rejects_host_without_packet_tunnel(tmp: Path, fakebin: Path) -> None:
+    env = _base_env(tmp, fakebin)
+    env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
+    env["CMUX_FAKE_SIGNED_NO_PACKET_TUNNEL"] = "1"
+    result = _run(
+        [
+            "bash",
+            str(ROOT / "ios" / "scripts" / "upload-app-store.sh"),
+            "--signing",
+            "manual",
+            "--export-only",
+            "--build-number",
+            "20260710041751",
+        ],
+        env=env,
+        tmp=tmp,
+    )
+    _check(result.returncode != 0, "App Store lane rejects a host app without packet-tunnel-provider")
+    _check(
+        "signed App Store app lacks com.apple.developer.networking.networkextension[packet-tunnel-provider]"
+        in result.stderr,
+        "App Store lane names the missing host Network Extension entitlement (ITMS-90525)",
+    )
+
+
 def test_upload_strips_framework_without_valid_executable(tmp: Path, fakebin: Path) -> None:
     env = _base_env(tmp, fakebin)
     env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
@@ -1400,6 +1446,10 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
         cloud_vpn_entitlements.get("com.apple.developer.networking.networkextension")
         == ["packet-tunnel-provider"],
         "CloudVPN signature carries the packet-tunnel-provider entitlement",
+    )
+    _check(
+        cloud_vpn_entitlements.get("keychain-access-groups") == [APPSTORE_APP_ID],
+        "CloudVPN signature carries the host app's exact keychain group",
     )
     _check(
         info.get("CFBundleShortVersionString") == APPSTORE_MARKETING_VERSION,
@@ -1940,6 +1990,7 @@ def main() -> None:
         )
         test_bump_ios_version_accepts_trailing_appstore_lane(tmp / "version-bump-test", fakebin)
         test_upload_appstore_lane_uses_production_bundle_id(tmp / "upload-test", fakebin)
+        test_upload_appstore_rejects_host_without_packet_tunnel(tmp / "upload-no-packet-tunnel-test", fakebin)
         test_official_testflight_workflow_publishes_generated_notes()
         test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp / "upload-live-test", fakebin)
         test_profile_installer_accepts_production_profile_by_default(tmp / "profile-test", fakebin)
