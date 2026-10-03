@@ -32,6 +32,15 @@ public final class HomeViewController: UIViewController {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// The team refuses this app version: Home shows an update-required
+    /// banner naming the minimum version until this is nil again.
+    public var updateRequired: HomeUpdateRequired? {
+        didSet {
+            guard updateRequired != oldValue, isViewLoaded else { return }
+            list.setUpdateRequired(updateRequired)
+        }
+    }
+
     /// Applies new presentation options while Home is on screen.
     public func apply(_ options: HomeUIOptions) {
         guard options != self.options else { return }
@@ -52,6 +61,7 @@ public final class HomeViewController: UIViewController {
         list.onSelect = { [weak self] id in self?.openConversation(id, focus: nil) }
         performer.onFailure = { [weak self] rejection in self?.showFailure(rejection) }
 
+        list.setUpdateRequired(updateRequired)
         configureBarItems()
         configureSearch()
         compose.flow = options.composeFlow

@@ -13493,6 +13493,399 @@
           }
         }
       }
+    },
+    "home.updateRequired.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتطلب فريقك cmux %@ أو أحدث. حدّث cmux لتستمر الإشعارات والردود في العمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vaš tim zahtijeva cmux %@ ili noviji. Ažurirajte cmux da bi obavještenja i odgovori nastavili raditi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dit team kræver cmux %@ eller nyere. Opdater cmux, så notifikationer og svar bliver ved med at virke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dein Team erfordert cmux %@ oder neuer. Aktualisiere cmux, damit Mitteilungen und Antworten weiter funktionieren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your team requires cmux %@ or newer. Update cmux to keep notifications and replies working."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tu equipo requiere cmux %@ o posterior. Actualiza cmux para que las notificaciones y las respuestas sigan funcionando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Votre équipe exige cmux %@ ou une version ultérieure. Mettez à jour cmux pour que les notifications et les réponses continuent de fonctionner."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il tuo team richiede cmux %@ o versioni successive. Aggiorna cmux per continuare a ricevere notifiche e inviare risposte."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームでは cmux %@ 以降が必要です。通知と返信を引き続き使うには cmux をアップデートしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្រុមរបស់អ្នកតម្រូវឱ្យមាន cmux %@ ឬថ្មីជាងនេះ។ សូមធ្វើបច្ចុប្បន្នភាព cmux ដើម្បីឱ្យការជូនដំណឹង និងការឆ្លើយតបនៅតែដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "팀에서 cmux %@ 이상이 필요합니다. 알림과 답장을 계속 사용하려면 cmux를 업데이트하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teamet ditt krever cmux %@ eller nyere. Oppdater cmux for at varsler og svar skal fortsette å virke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Twój zespół wymaga cmux %@ lub nowszego. Zaktualizuj cmux, aby powiadomienia i odpowiedzi nadal działały."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sua equipe exige o cmux %@ ou posterior. Atualize o cmux para que as notificações e respostas continuem funcionando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вашей команде нужна версия cmux %@ или новее. Обновите cmux, чтобы уведомления и ответы продолжали работать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทีมของคุณต้องใช้ cmux %@ ขึ้นไป อัปเดต cmux เพื่อให้การแจ้งเตือนและการตอบกลับยังใช้งานได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekibiniz cmux %@ veya daha yeni bir sürüm gerektiriyor. Bildirimlerin ve yanıtların çalışmaya devam etmesi için cmux'ı güncelleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваша команда вимагає cmux %@ або новішої версії. Оновіть cmux, щоб сповіщення й відповіді й надалі працювали."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhóm của bạn yêu cầu cmux %@ trở lên. Hãy cập nhật cmux để thông báo và trả lời tiếp tục hoạt động."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的团队要求使用 cmux %@ 或更高版本。请更新 cmux，以继续使用通知和回复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的團隊要求使用 cmux %@ 或更新版本。請更新 cmux，以繼續使用通知與回覆。"
+          }
+        }
+      }
+    },
+    "home.updateRequired.bodyNoVersion": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتطلب فريقك إصدارًا أحدث من cmux. حدّث cmux لتستمر الإشعارات والردود في العمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vaš tim zahtijeva noviju verziju cmuxa. Ažurirajte cmux da bi obavještenja i odgovori nastavili raditi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dit team kræver en nyere version af cmux. Opdater cmux, så notifikationer og svar bliver ved med at virke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dein Team erfordert eine neuere Version von cmux. Aktualisiere cmux, damit Mitteilungen und Antworten weiter funktionieren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your team requires a newer version of cmux. Update cmux to keep notifications and replies working."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tu equipo requiere una versión más reciente de cmux. Actualiza cmux para que las notificaciones y las respuestas sigan funcionando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Votre équipe exige une version plus récente de cmux. Mettez à jour cmux pour que les notifications et les réponses continuent de fonctionner."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il tuo team richiede una versione più recente di cmux. Aggiorna cmux per continuare a ricevere notifiche e inviare risposte."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームでは新しいバージョンの cmux が必要です。通知と返信を引き続き使うには cmux をアップデートしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្រុមរបស់អ្នកតម្រូវឱ្យមាន cmux កំណែថ្មីជាងនេះ។ សូមធ្វើបច្ចុប្បន្នភាព cmux ដើម្បីឱ្យការជូនដំណឹង និងការឆ្លើយតបនៅតែដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "팀에서 최신 버전의 cmux가 필요합니다. 알림과 답장을 계속 사용하려면 cmux를 업데이트하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teamet ditt krever en nyere versjon av cmux. Oppdater cmux for at varsler og svar skal fortsette å virke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Twój zespół wymaga nowszej wersji cmux. Zaktualizuj cmux, aby powiadomienia i odpowiedzi nadal działały."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sua equipe exige uma versão mais recente do cmux. Atualize o cmux para que as notificações e respostas continuem funcionando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вашей команде нужна более новая версия cmux. Обновите cmux, чтобы уведомления и ответы продолжали работать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทีมของคุณต้องใช้ cmux เวอร์ชันที่ใหม่กว่า อัปเดต cmux เพื่อให้การแจ้งเตือนและการตอบกลับยังใช้งานได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekibiniz cmux'ın daha yeni bir sürümünü gerektiriyor. Bildirimlerin ve yanıtların çalışmaya devam etmesi için cmux'ı güncelleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваша команда вимагає новішої версії cmux. Оновіть cmux, щоб сповіщення й відповіді й надалі працювали."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhóm của bạn yêu cầu phiên bản cmux mới hơn. Hãy cập nhật cmux để thông báo và trả lời tiếp tục hoạt động."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的团队要求使用更新版本的 cmux。请更新 cmux，以继续使用通知和回复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的團隊要求使用較新版本的 cmux。請更新 cmux，以繼續使用通知與回覆。"
+          }
+        }
+      }
+    },
+    "home.updateRequired.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يلزم التحديث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Potrebno ažuriranje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdatering påkrævet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Update erforderlich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Required"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Actualización necesaria"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mise à jour requise"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiornamento necessario"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートが必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ត្រូវការធ្វើបច្ចុប្បន្នភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "업데이트 필요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdatering kreves"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wymagana aktualizacja"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Atualização necessária"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Требуется обновление"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ต้องอัปเดต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme Gerekli"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Потрібне оновлення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cần cập nhật"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "需要更新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "需要更新"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

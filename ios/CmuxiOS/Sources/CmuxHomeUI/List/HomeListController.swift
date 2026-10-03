@@ -33,6 +33,7 @@ final class HomeListController: NSObject, UICollectionViewDelegate {
     private var models: [ConversationID: ConversationRowModel] = [:]
     private var density: HomeListDensity = .comfortable
     private var isOnline = true
+    private var updateRequired: HomeUpdateRequired?
     private var hasApplied = false
     private let time = HomeTimeFormatting()
 
@@ -94,6 +95,19 @@ final class HomeListController: NSObject, UICollectionViewDelegate {
         dataSource.apply(snapshot, animatingDifferences: animate)
     }
 
+    /// Shows or clears the update-required banner (above the offline one).
+    func setUpdateRequired(_ requirement: HomeUpdateRequired?) {
+        guard requirement != updateRequired else { return }
+        updateRequired = requirement
+        updateBanner()
+        // A changed minimum version re-renders the visible banner.
+        let visible = collectionView.indexPathsForVisibleSupplementaryElements(ofKind: UpdateRequiredBannerView.elementKind)
+        for indexPath in visible {
+            let banner = collectionView.supplementaryView(forElementKind: UpdateRequiredBannerView.elementKind, at: indexPath)
+            if let requirement { (banner as? UpdateRequiredBannerView)?.configure(requirement) }
+        }
+    }
+
     /// Re-renders timestamps (after the clock crosses a day, for example).
     func refreshVisibleContent() {
         guard let dataSource else { return }
@@ -146,11 +160,13 @@ final class HomeListController: NSObject, UICollectionViewDelegate {
         let topOffset = -collectionView.adjustedContentInset.top
         let wasAtTop = collectionView.contentOffset.y <= topOffset + 1
         let configuration = UICollectionViewCompositionalLayoutConfiguration()
-        if !isOnline {
-            let banner = NSCollectionLayoutBoundarySupplementaryItem(
+        var kinds: [String] = []
+        if updateRequired != nil { kinds.append(UpdateRequiredBannerView.elementKind) }
+        if !isOnline { kinds.append(OfflineBannerView.elementKind) }
+        configuration.boundarySupplementaryItems = kinds.map { kind in
+            NSCollectionLayoutBoundarySupplementaryItem(
                 layoutSize: NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .estimated(80)),
-                elementKind: OfflineBannerView.elementKind, alignment: .top)
-            configuration.boundarySupplementaryItems = [banner]
+                elementKind: kind, alignment: .top)
         }
         layout.configuration = configuration
         if wasAtTop, hasApplied {
@@ -184,6 +200,10 @@ final class HomeListController: NSObject, UICollectionViewDelegate {
         }
         let bannerRegistration = UICollectionView.SupplementaryRegistration<OfflineBannerView>(
             elementKind: OfflineBannerView.elementKind) { _, _, _ in }
+        let updateRegistration = UICollectionView.SupplementaryRegistration<UpdateRequiredBannerView>(
+            elementKind: UpdateRequiredBannerView.elementKind) { [weak self] banner, _, _ in
+            if let requirement = self?.updateRequired { banner.configure(requirement) }
+        }
 
         let dataSource = UICollectionViewDiffableDataSource<Section, Item>(collectionView: collectionView) {
             collectionView, indexPath, item in
@@ -194,8 +214,10 @@ final class HomeListController: NSObject, UICollectionViewDelegate {
                 collectionView.dequeueConfiguredReusableCell(using: pinRegistration, for: indexPath, item: id)
             }
         }
-        dataSource.supplementaryViewProvider = { collectionView, _, indexPath in
-            collectionView.dequeueConfiguredReusableSupplementary(using: bannerRegistration, for: indexPath)
+        dataSource.supplementaryViewProvider = { collectionView, kind, indexPath in
+            kind == UpdateRequiredBannerView.elementKind
+                ? collectionView.dequeueConfiguredReusableSupplementary(using: updateRegistration, for: indexPath)
+                : collectionView.dequeueConfiguredReusableSupplementary(using: bannerRegistration, for: indexPath)
         }
         return dataSource
     }
