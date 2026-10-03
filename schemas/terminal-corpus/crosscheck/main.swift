@@ -56,19 +56,26 @@ let terminalFields: [(Range<Int>, String)] = [
     (0..<4, "grid"), (4..<12, "pixel size"), (12..<20, "scroll region"), (20..<21, "status display"),
     (21..<25, "screens"), (25..<29, "previous codepoint"), (29..<30, "cursor is-default"),
     (30..<31, "cursor default style"), (31..<32, "cursor default blink"), (32..<33, "shell redraw"),
-    (33..<34, "modify-other-keys"), (34..<38, "mouse"), (38..<39, "password input"),
+    (33..<34, "modify-other-keys"), (34..<37, "mouse"), (38..<39, "password input"),
     (39..<47, "current modes"), (47..<55, "saved modes"), (55..<63, "default modes"),
     (63..<71, "background"), (71..<79, "foreground"), (79..<87, "cursor color"),
     (87..<103, "scrollback limits"),
 ]
 
-/// The one documented normalization: the TERMINAL pixel size (payload bytes
-/// 4..<12). The host terminal has no font, so it reports no pixel size; the
-/// surface reports its font's. Every other byte must match.
+/// The two documented normalizations, both in the TERMINAL record; every
+/// other byte must match:
+/// - pixel size (payload bytes 4..<12): the host terminal has no font, so it
+///   reports no pixel size; the surface reports its font's.
+/// - mouse shape (payload byte 37): presentation state. The surface sets its
+///   pointer shape when an app turns on mouse tracking; libghostty-vt never
+///   does. A viewer sets it again from the restored modes.
 func normalizedRecords(_ data: [UInt8]) -> [(UInt16, [UInt8])] {
     records(data).map { tag, bytes in
         var payload = Array(bytes.dropFirst(10))
-        if tag == 1 && payload.count >= 12 { for i in 4..<12 { payload[i] = 0 } }
+        if tag == 1 && payload.count >= 38 {
+            for i in 4..<12 { payload[i] = 0 }
+            payload[37] = 0
+        }
         return (tag, payload)
     }
 }
@@ -95,7 +102,7 @@ func compare(_ label: String, _ phone: [UInt8], _ host: [UInt8]) -> (Bool, Strin
             diffs.append("\(name)#\(i) missing")
         }
     }
-    if diffs.isEmpty { return (true, "\(label) equal after pixel-size normalization (\(host.count) B)") }
+    if diffs.isEmpty { return (true, "\(label) equal after pixel-size and mouse-shape normalization (\(host.count) B)") }
     return (false, "\(label) DIFFERS phone \(phone.count) B host \(host.count) B: \(diffs.prefix(8).joined(separator: ", "))")
 }
 
