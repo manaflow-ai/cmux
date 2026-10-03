@@ -1222,3 +1222,66 @@ fn a_fresh_daemon_with_the_bundle_path_lists_coderouter_installed_by_default() {
     );
     assert_eq!(app_entry(&again.list(), "cmux/coderouter")["installed"], false);
 }
+
+/// Gate for the switch to the daemon supervisor: every bundled first-party
+/// app (`first-party-apps/<name>/BUNDLED`) loads through the supervisor's
+/// loader and the manifest v2 validator, preferring `cmux-app.v2.json`, and
+/// is installed by default. No first-party app may vanish at the switch.
+#[test]
+fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
+    let tree = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../first-party-apps");
+    let mut bundled: Vec<(String, PathBuf)> = std::fs::read_dir(&tree)
+        .expect("first-party-apps")
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|dir| dir.join("BUNDLED").is_file())
+        .map(|dir| {
+            let file = super::catalog::manifest_file(&dir, true);
+            let manifest: Value =
+                serde_json::from_str(&std::fs::read_to_string(dir.join(file)).expect("manifest"))
+                    .expect("json");
+            (manifest["id"].as_str().unwrap_or_default().to_string(), dir)
+        })
+        .collect();
+    bundled.sort();
+    assert!(!bundled.is_empty(), "no bundled first-party app found in {}", tree.display());
+    let root = temp_dir();
+    let supervisor = Supervisor::new(
+        Config {
+            state_dir: Some(root.0.join("state")),
+            host_binary: None,
+            host_args: Vec::new(),
+            sources: Sources {
+                first_party: Some(tree.clone()),
+                bundled: vec![],
+                local: None,
+                defaults: None,
+            },
+            idle_stop: Duration::from_secs(60),
+            provider_deadline: Duration::from_secs(30),
+            provider_user_deadline: Duration::from_secs(600),
+        },
+        Box::new(Arc::new(FakeRouter::default())),
+        Box::new(Arc::new(FakeFetcher::default())),
+    );
+    let catalog = super::catalog::load(&Sources {
+        first_party: Some(tree),
+        bundled: vec![],
+        local: None,
+        defaults: None,
+    });
+    let list = supervisor.list();
+    for (id, dir) in bundled {
+        let why = catalog.rejected.iter().find(|(d, _)| *d == dir).map(|(_, issue)| issue.clone());
+        assert!(
+            catalog.packages.contains_key(&id),
+            "{id} ({}) does not load: {why:?}",
+            dir.display()
+        );
+        let entry = app_entry(&list, &id);
+        assert_eq!(
+            (entry["installed"].clone(), entry["source"].clone()),
+            (json!(true), json!("default")),
+            "{id}"
+        );
+    }
+}

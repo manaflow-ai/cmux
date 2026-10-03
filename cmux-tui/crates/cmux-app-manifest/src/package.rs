@@ -22,13 +22,24 @@ impl PackageReport {
 
 /// Validates `dir/cmux-app.json` and the files it references.
 pub fn validate_package(dir: &Path) -> PackageReport {
-    let path = dir.join("cmux-app.json");
+    validate_package_file(dir, "cmux-app.json")
+}
+
+/// Validates `dir/<manifest_file>` (for example `cmux-app.v2.json`, which
+/// first-party bundles carry next to their v1 file during the switch) and
+/// the files it references.
+pub fn validate_package_file(dir: &Path, manifest_file: &str) -> PackageReport {
+    let path = dir.join(manifest_file);
     let raw = match std::fs::read(&path) {
         Ok(raw) => raw,
         Err(_) => {
             return PackageReport {
                 manifest: None,
-                issues: vec![Issue::error("", "manifest.missing", "cmux-app.json not found")],
+                issues: vec![Issue::error(
+                    "",
+                    "manifest.missing",
+                    format!("{manifest_file} not found"),
+                )],
             };
         }
     };
