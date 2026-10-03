@@ -111,7 +111,6 @@ struct WorkspaceGroupTests {
             originalIds[0],
             originalIds[2],
             group.anchorWorkspaceId,
-            originalIds[1],
             originalIds[3],
         ])
     }
@@ -157,7 +156,6 @@ struct WorkspaceGroupTests {
         #expect(manager.tabs.first { $0.id == originalIds[0] }?.groupId == nil)
         #expect(manager.tabs.map(\.id) == [
             group.anchorWorkspaceId,
-            originalIds[1],
             originalIds[2],
             originalIds[0],
             originalIds[3],
@@ -217,7 +215,6 @@ struct WorkspaceGroupTests {
 
         #expect(groupMemberIds == [
             group.anchorWorkspaceId,
-            originalIds[1],
             originalIds[2],
         ])
         #expect(!visibleWorkspaceIds.contains(originalIds[1]))
@@ -369,7 +366,7 @@ struct WorkspaceGroupTests {
             originalIds[2],
         ]))
         let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
-        let draggedId = originalIds[1]
+        let draggedId = originalIds[2]
         let targetId = originalIds[0]
         let usesTopLevelRows = manager.sidebarReorderUsesTopLevelRows(
             forDraggedWorkspaceId: draggedId,
@@ -406,7 +403,6 @@ struct WorkspaceGroupTests {
             originalIds[0],
             draggedId,
             group.anchorWorkspaceId,
-            originalIds[2],
             originalIds[3],
         ])
     }
@@ -422,7 +418,7 @@ struct WorkspaceGroupTests {
             originalIds[2],
         ]))
         let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
-        let draggedId = originalIds[1]
+        let draggedId = originalIds[2]
         let rootAfterGroupId = originalIds[3]
         let reorderIds = manager.sidebarReorderWorkspaceIds(
             forDraggedWorkspaceId: draggedId,
@@ -453,12 +449,10 @@ struct WorkspaceGroupTests {
         #expect(manager.tabs.first { $0.id == draggedId }?.groupId == nil)
         #expect(manager.tabs.filter { $0.groupId == groupId }.map(\.id) == [
             group.anchorWorkspaceId,
-            originalIds[2],
         ])
         #expect(manager.tabs.map(\.id) == [
             originalIds[0],
             group.anchorWorkspaceId,
-            originalIds[2],
             draggedId,
             rootAfterGroupId,
         ] + Array(originalIds.dropFirst(4)))
@@ -475,7 +469,7 @@ struct WorkspaceGroupTests {
             originalIds[2],
         ]))
         let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
-        let draggedId = originalIds[1]
+        let draggedId = originalIds[2]
         let rootAfterGroupId = originalIds[3]
         manager.setPinned(try #require(manager.tabs.first { $0.id == draggedId }), pinned: true)
         let reorderIds = manager.sidebarReorderWorkspaceIds(
@@ -517,7 +511,6 @@ struct WorkspaceGroupTests {
             draggedId,
             originalIds[0],
             group.anchorWorkspaceId,
-            originalIds[2],
             rootAfterGroupId,
         ] + Array(originalIds.dropFirst(4)))
     }
@@ -560,7 +553,6 @@ struct WorkspaceGroupTests {
         #expect(manager.tabs.map(\.id) == [
             group.anchorWorkspaceId,
             originalIds[1],
-            originalIds[0],
             originalIds[2],
         ])
     }
@@ -584,8 +576,8 @@ struct WorkspaceGroupTests {
 
         #expect(Array(manager.tabs.map(\.id).prefix(3)) == [
             pinnedGroup.anchorWorkspaceId,
-            originalIds[2],
             unpinnedGroup.anchorWorkspaceId,
+            originalIds[1],
         ])
     }
 
@@ -607,8 +599,8 @@ struct WorkspaceGroupTests {
 
         #expect(Array(manager.tabs.map(\.id).prefix(3)) == [
             group.anchorWorkspaceId,
-            originalIds[2],
             originalIds[0],
+            originalIds[1],
         ])
     }
 
@@ -630,8 +622,8 @@ struct WorkspaceGroupTests {
 
         #expect(Array(manager.tabs.map(\.id).prefix(3)) == [
             group.anchorWorkspaceId,
-            originalIds[2],
             originalIds[0],
+            originalIds[1],
         ])
     }
 
@@ -655,7 +647,6 @@ struct WorkspaceGroupTests {
         #expect(manager.tabs.filter { $0.groupId == groupId }.map(\.id) == [
             group.anchorWorkspaceId,
             originalIds[3],
-            originalIds[1],
             originalIds[2],
         ])
     }
@@ -682,7 +673,6 @@ struct WorkspaceGroupTests {
             originalIds[1],
             group.anchorWorkspaceId,
             originalIds[3],
-            originalIds[2],
         ])
         #expect(!group.isPinned)
         #expect(pinnedChild.groupId == groupId)
@@ -752,9 +742,9 @@ struct WorkspaceGroupTests {
 
         #expect(Array(manager.tabs.map(\.id).prefix(4)) == [
             secondGroup.anchorWorkspaceId,
-            originalIds[2],
             firstGroup.anchorWorkspaceId,
-            originalIds[0],
+            originalIds[1],
+            originalIds[3],
         ])
         #expect(Array(manager.workspaceGroups.map(\.id).prefix(2)) == [
             secondGroupId,
@@ -776,7 +766,6 @@ struct WorkspaceGroupTests {
         #expect(manager.tabs.map(\.id) == [
             originalIds[0],
             group.anchorWorkspaceId,
-            originalIds[1],
             originalIds[3],
             originalIds[2],
         ])
@@ -797,7 +786,6 @@ struct WorkspaceGroupTests {
             originalIds[1],
             group.anchorWorkspaceId,
             originalIds[0],
-            originalIds[2],
             originalIds[3],
         ])
     }
@@ -825,7 +813,6 @@ struct WorkspaceGroupTests {
         #expect(inserted.groupId == groupId)
         #expect(manager.tabs.filter { $0.groupId == groupId }.map(\.id) == [
             group.anchorWorkspaceId,
-            originalIds[1],
             originalIds[2],
             inserted.id,
             originalIds[3],
@@ -853,7 +840,6 @@ struct WorkspaceGroupTests {
         #expect(manager.tabs.filter { $0.groupId == groupId }.map(\.id) == [
             group.anchorWorkspaceId,
             inserted.id,
-            originalIds[1],
             originalIds[2],
         ])
     }
@@ -1063,7 +1049,7 @@ struct WorkspaceGroupTests {
         #expect(selectedIds == [realMemberId])
         #expect(manager.selectedTabId == realMemberId)
         #expect(lastSelectionIndex == manager.tabs.firstIndex { $0.id == realMemberId })
-        #expect(manager.tabs.count == 2)
+        #expect(manager.tabs.count == 3)
     }
 
     @Test func usedGeneratedAnchorHeaderStillFocusesAnchor() throws {
@@ -1381,9 +1367,7 @@ struct WorkspaceGroupTests {
 
     @Test func renamingGroupUpdatesAnchorDisplayTitle() throws {
         let manager = makeTabManager()
-        let groupId = try #require(
-            manager.createWorkspaceGroup(name: "Group 1", childWorkspaceIds: [manager.tabs[0].id])
-        )
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Group 1"))
         let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
         let anchor = try #require(manager.tabs.first { $0.id == group.anchorWorkspaceId })
 
@@ -1405,10 +1389,9 @@ struct WorkspaceGroupTests {
     // group name. Guards against the derivation over-reaching to every member.
     @Test func renamingGroupLeavesNonAnchorMemberTitleAlone() throws {
         let manager = makeTabManager()
-        let memberId = manager.tabs[1].id
-        let groupId = try #require(
-            manager.createWorkspaceGroup(name: "Group 1", childWorkspaceIds: [memberId])
-        )
+        let memberId = manager.tabs[0].id
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Group 1"))
+        manager.addWorkspaceToGroup(workspaceId: memberId, groupId: groupId)
         let member = try #require(manager.tabs.first { $0.id == memberId })
         let memberTitle = member.title
 

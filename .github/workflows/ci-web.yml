@@ -349,13 +349,13 @@ jobs:
         env:
           DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
           DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-        run: bunx drizzle-kit migrate --config drizzle.config.ts
+        run: bun scripts/db-migrate.mjs
 
       - name: Re-apply migrations
         env:
           DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
           DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-        run: bunx drizzle-kit migrate --config drizzle.config.ts
+        run: bun scripts/db-migrate.mjs
 
       - name: Database behavior tests
         env:

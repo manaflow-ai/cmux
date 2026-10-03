@@ -130,9 +130,12 @@ final class CloudTuiManualMirrorSession {
         case .none:
             return nil
         case .failure:
+            let detail = interruption == .staleDaemon
+                ? interruption?.localizedDescription
+                : diagnosticFailure?.label
             var presentation = CloudTerminalReconnectOverlayPolicy.presentation(
                 isManagedCloudWorkspace: true, isRemoteTerminalSurface: true,
-                connectionState: .error, detail: diagnosticFailure?.label
+                connectionState: .error, detail: detail
             )
             presentation?.diagnosticReference = diagnosticReference
             return presentation
@@ -745,6 +748,7 @@ final class CloudTuiManualMirrorSession {
         case .rejected: diagnosticError = .protocol
         case .unresolved: diagnosticError = .notFound
         case .transportClosed: diagnosticError = .network
+        case .staleDaemon: diagnosticError = .unsupported
         }
         finishDiagnostics(error: diagnosticError)
         transition(to: .disconnected, reason: reason)
@@ -843,6 +847,21 @@ final class CloudTuiManualMirrorSession {
                 return
             }
             serverCapabilities = Set(capabilities)
+            if commandBuilder.isStaleReplayDaemon(capabilities: capabilities) {
+                // This daemon can attach, but it cannot preserve incomplete VT
+                // sequences across replay boundaries. Retrying the same VM
+                // forever only recreates the garbled pane, so leave the pane
+                // intact and wait for an explicit retry after an upgrade.
+                // Reset the connection-scoped relay state before publishing the
+                // failure so phones cannot observe the old host or geometry.
+                sizingRelay.connectionStarted(capabilities: serverCapabilities)
+                publishSharingSnapshot()
+                automaticReconnectSuppressed = true
+                fenceAttachment(error: CloudDiagnosticFailure.unsupported, reason: .staleDaemon)
+                startPresentationEpisode(elapsed: presentationPolicy.failureGrace)
+                synchronizePresentation()
+                return
+            }
             sizingRelay.connectionStarted(capabilities: serverCapabilities)
             // A new connection attaches a fresh view.
             sharingOwnViewDetached = false

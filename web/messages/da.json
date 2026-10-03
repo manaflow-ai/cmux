@@ -403,6 +403,7 @@
       "label": "Kontomenu",
       "settings": "Indstillinger",
       "billing": "Fakturering",
+      "switchAccount": "Skift konto",
       "signOut": "Log ud",
       "signingOut": "Logger ud…",
       "signOutError": "Kunne ikke logge ud. Prøv igen.",
@@ -426,7 +427,7 @@
         "memberReadOnly": "Kun teamadministratorer kan ændre denne plan.",
         "grantedBody": "cmux-teamet har givet {team} adgang til Team. Der er intet abonnement at administrere.",
         "seatsUsed": "{members} af {seats} brugt",
-        "overSeat": "{team} har {members} medlemmer og {seats} betalte pladser. Man kan stadig blive medlem; tilføj pladser, så alle er dækket.",
+        "overSeat": "{team} har {members} medlemmer og {seats} betalte pladser. Pladser følger antallet af medlemmer, så abonnementet opdateres af sig selv.",
         "addSeats": "Tilføj pladser"
       },
       "teamList": {
@@ -489,11 +490,11 @@
           ],
           "pro": [
             "Cloud-agenter på Cloud VMs",
-            "24 GB RAM og 6 vCPU'er delt mellem VM'er",
+            "Op til 5 Cloud VMs, op til 4 vCPU'er og 8 GB RAM pr. VM",
             "cmux-appen til iOS"
           ],
           "max": [
-            "64 GB RAM og 16 vCPU'er delt mellem VM'er",
+            "Op til 5 Cloud VMs, op til 16 vCPU'er og 32 GB RAM pr. VM",
             "Større maskinstørrelser",
             "Alt i Pro"
           ],
@@ -541,6 +542,11 @@
         "team": "Opret et team",
         "banner": "Du bruger nu {plan}.",
         "bannerLink": "Plan og fakturering"
+      },
+      "appStore": {
+        "title": "Faktureret via App Store",
+        "body": "Din plan blev købt i cmux-appen til iPhone og faktureres af Apple. Skift eller opsig den under dine App Store-abonnementer.",
+        "manage": "Administrer i App Store"
       }
     },
     "mobileDevices": {
@@ -942,7 +948,7 @@
         "featurePrioritySupport": "Prioriteret support",
         "chooseFree": "Fortsæt med Gratis",
         "chooseTeam": "Opgrader til Team (${price}/plads/måned)",
-        "upgradeLater": "Pladser er fleksible: Du kan invitere flere personer, end du betaler for, og tilføje pladser senere.",
+        "upgradeLater": "Pladser følger antallet af medlemmer: hvert medlem faktureres, og totalen opdateres, når folk kommer til eller forlader teamet.",
         "inviteTitle": "Inviter personer til {team}",
         "inviteDescription": "Valgfrit. Du kan også invitere personer senere fra teamets side Medlemmer.",
         "inviteByEmail": "Inviter via e-mail",
@@ -1125,6 +1131,80 @@
       "revokeApiKeyConfirmTitle": "Tilbagekald denne API-nøgle?",
       "apiKeyUsageDetail": "Sidste 30 dage: {completions} fuldførelser · {tokens} tokens ({input} input / {output} output) · {value} API-ækvivalent",
       "apiKeyUsageUnavailable": "Brug er ikke tilgængelig",
+      "revokeApiKeyConfirmBody": "Klienter, der bruger denne nøgle, mister straks godkendelsen."
+    },
+    "cloud": {
+      "title": "Cloud-maskiner og Mac-adgang",
+      "description": "Angiv hver maskines udgående netværk, og gennemse de Mac-computere, der har WireGuard-adgang til dit private Cloud VM-netværk. Parringer af iPhone og Iroh administreres separat.",
+      "macAccessTitle": "Mac-adgang",
+      "machines": {
+        "title": "Maskiner",
+        "empty": "Du har ingen Cloud-maskiner.",
+        "personal": "personlig",
+        "team": "team",
+        "status": {
+          "provisioning": "starter",
+          "running": "kører",
+          "failed": "mislykkedes",
+          "paused": "sat på pause",
+          "destroyed": "slettet"
+        }
+      },
+      "network": {
+        "open": "Netværk",
+        "title": "Udgående netværk for {name}",
+        "description": "Vælg, hvad denne maskine kan nå. Ændringer træder i kraft med det samme uden genstart.",
+        "loading": "Indlæser netværkspolitikken…",
+        "loadError": "Netværkspolitikken for denne maskine kunne ikke indlæses.",
+        "saveError": "Denne netværkspolitik kunne ikke anvendes.",
+        "unsupported": "Denne maskine understøtter ikke styring af udgående netværk.",
+        "retry": "Prøv igen",
+        "appliedLabel": "Status:",
+        "applied": {
+          "applied": "anvendt",
+          "pending": "anvendes",
+          "failed": "kunne ikke anvendes"
+        },
+        "unsaved": "ikke-gemte ændringer",
+        "refresh": "Opdater",
+        "modeLabel": "Udgående adgang",
+        "mode": {
+          "full": {
+            "label": "Fuld internetadgang",
+            "description": "Enhver offentlig adresse."
+          },
+          "allowlist": {
+            "label": "Tilladelsesliste",
+            "description": "Kun de forudindstillinger, domæner og IP-intervaller, du angiver."
+          },
+          "none": {
+            "label": "Intet internet",
+            "description": "Kun cmux-værterne herunder."
+          }
+        },
+        "presetsTitle": "Forudindstillinger",
+        "presetsNote": "Hver forudindstilling tilføjer præcise værtsnavne. En tjeneste, der bruger andre underdomæner, kan kræve flere domæner.",
+        "domainsTitle": "Domæner",
+        "domainsNote": "Kun præcise værtsnavne, kun HTTPS på port 443. Jokertegn understøttes endnu ikke.",
+        "domainInput": "Domæne",
+        "rangesTitle": "IP-intervaller",
+        "rangesNote": "Udbyderens firewall håndhæver disse uden for maskinen. Lad porten være tom for at tillade alle porte. En port kræver en protokol.",
+        "cidrInput": "IP-interval (CIDR)",
+        "portInput": "Port",
+        "protocolInput": "Protokol",
+        "anyProtocol": "alle",
+        "noteInput": "Note (valgfri)",
+        "allPorts": "alle porte",
+        "dnsLabel": "Tillad DNS",
+        "dnsNote": "Lader værktøjer slå de navne op, som dine IP-intervaller peger på. Domæner kræver ikke DNS. Åben DNS er en udgående kanal: En proces kan sende data ud i de navne, den slår op.",
+        "requiredTitle": "Altid tilladt",
+        "requiredNote": "cmux skal bruge disse værter i alle tilstande for at installere og opdatere CLI'en på maskinen.",
+        "add": "Tilføj",
+        "remove": "Fjern",
+        "discard": "Kassér ændringer",
+        "close": "Luk",
+        "apply": "Anvend"
+      },
       "revokeApiKeyConfirmBody": "Klienter, der bruger denne nøgle, mister straks godkendelsen.",
       "apiKeysEmptyTitle": "Ingen API-nøgler endnu",
       "apiKeysEmptyHint": "Opret en for at godkende en CodeRouter-klient.",
@@ -2032,9 +2112,9 @@
         "automation": {
           "ampIntegration": "Slår cmux-hooks til Amp til eller fra. Når de er slået fra, forbliver det medfølgende plugin installeret, men inaktivt.",
           "suppressSubagentNotifications": "Skjul synlige fuldførelsesnotifikationer og statusændringer fra indlejrede Codex- eller Claude-underagenter, mens deres hændelser bevares i Feed-telemetri.",
-          "agentAutoResume": "Sender `continue` med backoff til en agent startet af cmux, hvis tur sluttede med en upstream-fejl, der kan prøves igen (model uden kapacitet, overbelastet eller mistet forbindelse). Ture, der venter på et menneske, genoptages aldrig.",
           "workspaceAutoNaming": "Valgfri AI-baseret automatisk navngivning af arbejdsområder og faner ud fra agentens samtaleindhold. Når den er aktiveret, opsummerer cmux understøttede agentsessioner til korte titler med hver agents egen binær; manuelle omdøbninger vinder altid.",
           "autoNamingAgent": "Hvilken agent der genererer automatiske navne for hver session. \"auto\" (standard) navngiver hver session med dens egen agent; et hvilket som helst agent-slug (claude, codex, grok, opencode, pi, omp, …) tilsidesætter navngivningen for alle sessioner, også andre agenters. Agenter, der ikke kan styres eller ikke er installeret, falder tilbage til sessionens egen agent, så navngivningen aldrig fejler.",
+          "agentAutoResume": "Sender `continue` med backoff til en agent startet af cmux, hvis tur sluttede med en upstream-fejl, der kan prøves igen (model uden kapacitet, overbelastet eller mistet forbindelse). Ture, der venter på et menneske, genoptages aldrig.",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
@@ -2087,6 +2167,7 @@
           "compactStatusIcons": "SF Symbol-navne, der erstatter compactAgentStatus-glyffen for hver tilstand, for eksempel {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Tilstande uden værdi beholder det indbyggede symbol, og et navn, der ikke kan vises, falder tilbage til det.",
           "notificationMessageLineLimit": "Det maksimale antal linjer, der vises for den seneste notifikation under hver arbejdsområdetitel.",
           "rightMaxWidth": "Maksimal bredde i punkter for højre sidepanel. Hvis den udelades, bruges den indbyggede dynamiske grænse.",
+          "showAgentUsage": "Føjer kodeagentens forbrug til statusposten for Claude Code eller Codex: model og brugt kontekstvindue, og for Claude Code et anslået API-forbrug (hovedtråd og underagenter) til Anthropics offentliggjorte listepriser. Beløbet er et skøn og ikke din abonnementsregning; batch- og prioritetsniveauer, partnerpriser, hurtig tilstand og gebyrer for serverværktøjer er ikke medregnet.",
           "beta": {
             "conversations": {
               "enabled": "Vis den samlede samtalevisning i sidebjælkens vælger."
@@ -2838,12 +2919,18 @@
       "limitsTitle": "Abonnementsgrænser",
       "limitsDesc": "Abonnementsgrænser tæller maskiner, ikke en fælles pulje af CPU eller hukommelse. Hver maskine får ressourcerne for sin størrelse.",
       "limitsFree": "Gratis konti kan ikke oprette maskiner.",
-      "limitsPaid": "Pro- og Max-konti kan have op til 50 aktive maskiner. En maskine er aktiv, mens den kører eller starter.",
-      "limitsTeam": "Teamkonti kan have op til 50 aktive maskiner pr. betalt plads.",
-      "limitsMax": "Maskiner større end 24 GB kræver cmux Max.",
+      "limitsPaid": "Pro- og Max-konti kan have op til 5 aktive maskiner. En maskine er aktiv, mens den kører eller starter.",
+      "limitsTeam": "Teamkonti kan have op til 5 aktive maskiner pr. betalt plads.",
+      "limitsMax": "Maskiner større end 8 GB kræver cmux Max. Max-maskiner går op til 32 GB og 16 vCPU'er.",
       "limitsPricing": "Se prissiden for aktuelle priser. Der er ingen forbrugsmåling og ingen fakturering for overforbrug.",
+      "agentUpdatesTitle": "Hold kodeagenter opdateret",
+      "agentUpdatesDesc": "Når denne indstilling er slået til, opdaterer maskinen Claude Code, Codex, OpenCode, pi og agent-browser. Den tjekker efter maskinen er oprettet og hver gang du forbinder, højst én gang hver 24. time. Opdateringen kører frakoblet, så den blokerer aldrig forbindelsen.",
+      "agentUpdatesSource": "Hvert værktøj kommer fra dets officielle GitHub-release og verificeres mod release-filens sha256-digest. npm bruges ikke. En release installeres først, når den har været offentlig i 3 dage, og en opdatering installerer aldrig en ældre version. En kørende agent beholder de filer, den startede med, og en mislykket opdatering lader den nuværende version blive.",
+      "agentUpdatesStatus": "Resultatet af det seneste tjek ligger i /etc/cmux/agent-updates.state, og opdateringsloggen er /var/log/cmux-agent-updates.log. Et mislykket tjek kører igen ved næste forbindelse.",
+      "agentUpdatesToggle": "Arket New Machine slår dette til som standard. For at ændre det på en eksisterende maskine skal du højreklikke på maskinen og vælge Keep Agents Up to Date eller køre cmux vm agent-updates. cmux vm new beholder billedets versioner, medmindre du angiver --agent-updates latest. Når du slår opdateringer fra, beholdes de versioner, der allerede er installeret.",
+      "agentUpdatesNetwork": "Opdateringer bruger kun github.com, api.github.com, objects.githubusercontent.com og release-assets.githubusercontent.com. cmux tillader disse værter i alle netværkstilstande, også Allowlist og No internet, så en netværkspolitik blokerer aldrig opdateringer.",
       "resizeTitle": "Ændr størrelse",
-      "resizeDesc": "Du kan gøre en maskine større uden tab af data. Højreklik på maskinen, og vælg Resize machine, eller brug cmux vm resize. En størrelsesændring kan kun gøre en maskine større. Disken vokser i trin á 4 GB op til 256 GB, hukommelsen op til 64 GB og CPU op til 32 vCPU. Dit abonnement fastsætter det reelle maksimum.",
+      "resizeDesc": "Du kan gøre en maskine større uden tab af data. Højreklik på maskinen, og vælg Resize machine, eller brug cmux vm resize. En størrelsesændring kan kun gøre en maskine større. Disken vokser i trin á 4 GB op til 256 GB, hukommelsen op til 32 GB og CPU op til 16 vCPU. Dit abonnement fastsætter det reelle maksimum.",
       "pauseTitle": "Pause og genoptagelse",
       "pauseDesc": "cmux vm pause stopper maskinens beregning. Disken, arbejdsområderne og terminalhistorikken bevares. Kørende processer stopper. cmux vm resume starter maskinen igen. Hvis du åbner en maskine på pause eller kører en kommando på den, starter den også.",
       "pauseIdle": "Maskiner sættes ikke på pause af sig selv, når de er inaktive. En maskine kører, indtil du sætter den på pause eller sletter den.",
@@ -2994,7 +3081,7 @@
       "errPlan": "Cloud-VM'er kræver et betalt abonnement",
       "fixPlan": "Gratis konti kan ikke oprette maskiner. Opgrader på prissiden.",
       "errSize": "En størrelse kræver et større abonnement",
-      "fixSize": "Maskiner større end 24 GB kræver cmux Max. Vælg en mindre størrelse, eller opgrader.",
+      "fixSize": "Maskiner større end 8 GB kræver cmux Max. Vælg en mindre størrelse, eller opgrader.",
       "errLimit": "Grænsen for aktive maskiner er nået",
       "fixLimit": "Sæt en maskine på pause, eller slet den, og prøv igen.",
       "errLocked": "Maskinen er låst",
@@ -5099,7 +5186,8 @@
   "pricing": {
     "billingUnavailable": "Betaling er ikke tilgængelig lige nu. Prøv igen senere.",
     "signedOutNotice": "Du er ikke logget ind. Log ind for at se dit nuværende abonnement eller gendanne et tidligere køb.",
-    "signedOutSignIn": "Log ind"
+    "signedOutSignIn": "Log ind",
+    "manageInAppStore": "Administrer i App Store"
   },
   "platforms": {
     "macos": "macOS",
@@ -5265,6 +5353,60 @@
     "signedOutTitle": "Log ind for at godkende coderouter",
     "signedOutBody": "Et kommandolinjeprogram venter på, at du logger ind. Log ind med din cmux-konto for at færdiggøre forbindelsen af denne terminal. Hvis du ikke startede denne anmodning, så luk denne side.",
     "signInButton": "Log ind"
+  },
+  "cmuxSignIn": {
+    "signInTitle": "Log ind på cmux",
+    "signInSubtitle": "Én konto til appen, cloud og dashboardet.",
+    "signUpTitle": "Opret din cmux-konto",
+    "signUpSubtitle": "Én konto til appen, cloud og dashboardet.",
+    "continueWithProvider": "Fortsæt med {provider}",
+    "signInWithPasskey": "Log ind med en adgangsnøgle",
+    "orContinueWith": "Eller fortsæt med",
+    "emailLabel": "E-mail",
+    "emailPlaceholder": "dig@firma.dk",
+    "continueWithEmail": "Fortsæt med e-mail",
+    "emailCodeTab": "E-mail",
+    "emailPasswordTab": "E-mail og adgangskode",
+    "passwordLabel": "Adgangskode",
+    "repeatPasswordLabel": "Gentag adgangskode",
+    "signInButton": "Log ind",
+    "createAccountButton": "Opret konto",
+    "forgotPassword": "Glemt adgangskode?",
+    "noAccount": "Har du ikke en konto?",
+    "signUpLink": "Tilmeld dig",
+    "haveAccount": "Har du allerede en konto?",
+    "signInLink": "Log ind",
+    "checkEmailTitle": "Tjek din e-mail",
+    "checkEmailBody": "Indtast den 6-tegns kode, vi sendte til {email}.",
+    "codeLabel": "Kode",
+    "back": "Tilbage",
+    "resendCode": "Send koden igen",
+    "chooseAccountTitle": "Vælg en konto",
+    "chooseAccountSubtitle": "for at fortsætte til cmux",
+    "useAnotherAccount": "Brug en anden konto",
+    "forgetAccount": "Fjern {account} fra denne liste",
+    "signedOut": "Logget ud",
+    "signingInAs": "Logger ind som {account}…",
+    "sessionEnded": "Denne konto er logget ud. Log ind igen for at fortsætte.",
+    "redirecting": "Logger dig ind…",
+    "lastUsed": "senest brugt",
+    "legal": "Ved at fortsætte accepterer du {terms} og {privacy}.",
+    "termsOfService": "Servicevilkår",
+    "privacyPolicy": "Privatlivspolitik",
+    "signUpDisabled": "Der kan ikke oprettes nye konti lige nu.",
+    "noMethods": "Login er ikke tilgængeligt lige nu. Prøv igen senere.",
+    "embeddedDisabled": "Login-knapper er slået fra på indlejrede sider. Åbn denne side i sin egen fane.",
+    "errorInvalidEmail": "Indtast en gyldig e-mailadresse.",
+    "errorPasswordRequired": "Indtast din adgangskode.",
+    "errorPasswordTooShort": "Brug mindst {min} tegn.",
+    "errorPasswordTooLong": "Brug højst {max} tegn.",
+    "errorPasswordsDontMatch": "Adgangskoderne er ikke ens.",
+    "errorWrongPassword": "E-mail eller adgangskode er forkert.",
+    "errorInvalidCode": "Koden er ikke gyldig. Tjek din e-mail, og prøv igen.",
+    "errorInvalidTotp": "Totrinskoden er ikke gyldig.",
+    "errorSignUpNotAllowed": "Der kan ikke oprettes nye konti lige nu.",
+    "errorPasskey": "Login med adgangsnøgle blev ikke fuldført. Prøv igen, eller brug en anden metode.",
+    "errorGeneric": "Noget gik galt. Prøv igen."
   },
   "MobileRelease106": {
     "title": "Nyt i 1.0.6",

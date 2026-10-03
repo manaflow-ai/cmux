@@ -25,17 +25,10 @@ extension WorkspaceListView {
             displayPairedMacs: displayPairedMacsForPicker,
             foregroundMacDeviceID: store?.connectedMacDeviceID ?? store?.activeTicket?.macDeviceID,
             foregroundInstanceTag: store?.connectedMacInstanceTag,
-            locallyServedMachineIDs: sshComputerMachineIDs,
             aliasesFor: {
                 store?.pairedMacAliasIDs(for: $0, instanceTag: $1) ?? []
             }
         )
-    }
-
-    /// SSH computers' ids, so they are selectable before listing a workspace.
-    var sshComputerMachineIDs: Set<String> {
-        guard let store else { return [] }
-        return Set(store.sshComputers.hosts.map { store.sshComputerDeviceID(hostID: $0.id) })
     }
 
     var activeFilter: MobileWorkspaceListFilter {
@@ -89,17 +82,11 @@ extension WorkspaceListView {
             names[mac.macDeviceID] = mac.resolvedName
             names[mac.id] = mac.resolvedName
         }
-        if let buildScope = MobileIOSBuildScope.current() {
-            names = names.mapValues(buildScope.computerDisplayName)
-        }
-        // After the build-scope mapping: the dev tag suffix identifies which
-        // cmux Mac build a row belongs to, and an SSH host is not a cmux build.
-        if let store {
-            for host in store.sshComputers.hosts {
-                names[store.sshComputerDeviceID(hostID: host.id)] = host.name
-            }
-        }
-        return names
+        guard let buildScope = MobileIOSBuildScope.current() else { return names }
+        return buildScope.computerDisplayNames(
+            names,
+            isExternalHost: { store?.externalHostOwnsHost($0) == true }
+        )
     }
 
     func macBuildLabelsByID() -> [String: String] {
@@ -142,8 +129,42 @@ extension WorkspaceListView {
         }
     }
 
+    /// The Cloud machine the computers picker is scoped to, when it is one.
+    var scopedExternalHostID: String? {
+        guard case .machine(let id) = macSelectionScope.visibleSelection,
+              store?.externalHostOwnsHost(id) == true else { return nil }
+        return id
+    }
+
+    /// Whether the list's plus control renders at all: it creates on the
+    /// scoped computer when that is allowed, and otherwise still opens the
+    /// menu of Cloud machines. Hiding it entirely on a phone with no Mac
+    /// connected would leave a Cloud-only account no way to create from the
+    /// list.
+    var showsNewWorkspaceControl: Bool {
+        if canCreateWorkspaceForMacSelection || !newWorkspaceComputerTargets.isEmpty {
+            return true
+        }
+        guard createWorkspaceOnCloudMachine != nil else { return false }
+        if store?.externalHostSummaries.contains(where: { !$0.isHidden }) == true {
+            return true
+        }
+        // Keep the entrypoint alive while the host summary catches up with a
+        // catalog that is already rendering Cloud rows.
+        return workspaces.contains { workspace in
+            guard let hostID = workspace.macDeviceID,
+                  store?.externalHostOwnsHost(hostID) == true else { return false }
+            return store?.externalHostIsHidden(hostID) != true
+        }
+    }
+
     var canCreateWorkspaceForMacSelection: Bool {
-        macSelectionScope.canCreateWorkspace(base: canCreateWorkspace)
+        // A Cloud machine is not the foreground Mac pairing, so the Mac rule
+        // below would always deny it; its own liveness is the gate.
+        if let scopedExternalHostID {
+            return store?.externalHostIsConnected(scopedExternalHostID) == true
+        }
+        return macSelectionScope.canCreateWorkspace(base: canCreateWorkspace)
     }
 
     #if os(iOS)
@@ -185,6 +206,7 @@ extension WorkspaceListView {
                 addDevice: showAddDevice
             )
         )
+        .equatable()
     }
 
     var showsDevicesButton: Bool {
@@ -205,41 +227,106 @@ extension WorkspaceListView {
 }
 
 #if os(iOS)
-struct WorkspaceMacTitlePicker: View {
+struct WorkspaceMacTitlePicker: View, Equatable {
     let value: WorkspaceMacTitlePickerValue
     let actions: WorkspaceMacTitlePickerActions
 
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.value == rhs.value
+    }
+
     var body: some View {
-        WorkspaceMacTitlePickerLabel(
-            title: value.title,
-            isLoading: value.isLoading,
-            width: value.labelWidth,
-            truncationMode: {
-                switch value.selection {
-                case .machine:
-                    // Device names repeat their prefix ("MacBook Pro …"),
-                    // so the distinguishing suffix must survive.
-                    return .middle
-                case .automatic, .all:
-                    return .tail
+        Menu {
+            Button {
+                actions.select(.all)
+            } label: {
+                menuRow(
+                    title: L10n.string(
+                        "mobile.workspaces.macPicker.allConnections",
+                        defaultValue: "All Computers"
+                    ),
+                    subtitle: nil,
+                    isSelected: value.selection == .all
+                )
+            }
+            .accessibilityAddTraits(value.selection == .all ? .isSelected : [])
+            .accessibilityIdentifier("MobileWorkspaceMacPickerAll")
+            ForEach(value.machines) { machine in
+                let selection = WorkspaceMacSelection.machine(machine.id)
+                Button {
+                    actions.select(selection)
+                } label: {
+                    menuRow(
+                        title: machine.name,
+                        subtitle: machine.buildLabel.map {
+                            MacAppInstanceDisplayFormatter().localizedBuildLabel($0)
+                        },
+                        isSelected: value.selection == selection
+                    )
                 }
-            }(),
-            usesCompactLabelTreatment: value.usesCompactLabelTreatment,
-            statusLine: value.statusLine
-        )
-        .accessibilityHidden(true)
-        .overlay {
-            WorkspaceMacTitlePickerMenuButton(
-                value: WorkspaceMacTitlePickerMenuValue(
-                    selection: value.selection,
-                    machines: value.machines,
-                    canAddDevice: value.canAddDevice
-                ),
-                actions: actions,
-                accessibilityLabel: value.title,
-                accessibilityValue: value.statusLine.map(WorkspaceConnectionStatusLineView.text) ?? ""
+                .accessibilityAddTraits(value.selection == selection ? .isSelected : [])
+                .accessibilityIdentifier(machineMenuAccessibilityIdentifier(machine.id))
+            }
+            if value.canAddDevice {
+                Divider()
+                Button(action: { actions.addDevice?() }) {
+                    Label(
+                        L10n.string("mobile.connections.add", defaultValue: "Add Computer"),
+                        systemImage: "plus"
+                    )
+                }
+                .accessibilityIdentifier("MobileWorkspaceMacPickerAdd")
+            }
+        } label: {
+            WorkspaceMacTitlePickerLabel(
+                title: value.title,
+                isLoading: value.isLoading,
+                width: value.labelWidth,
+                truncationMode: {
+                    switch value.selection {
+                    case .machine:
+                        // Device names repeat their prefix ("MacBook Pro …"),
+                        // so the distinguishing suffix must survive.
+                        return .middle
+                    case .automatic, .all:
+                        return .tail
+                    }
+                }(),
+                usesCompactLabelTreatment: value.usesCompactLabelTreatment,
+                statusLine: value.statusLine
             )
+            // Put the identity and status on the final combined label element.
+            // UIKit's toolbar bridge can otherwise omit the outer SwiftUI
+            // identifier from the native accessibility tree used by CUA.
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(value.title)
+            .accessibilityValue(
+                value.statusLine.map(WorkspaceConnectionStatusLineView.text) ?? ""
+            )
+            .accessibilityIdentifier("MobileWorkspaceMacPicker")
         }
+        .buttonStyle(.plain)
+        .tint(.primary)
+        .accessibilityIdentifier("MobileWorkspaceMacPicker")
+    }
+
+    /// Menu rows must stay a bare Text/Text/Image tuple: UIMenu bridging reads
+    /// the first Text as the title, the second as the subtitle, and the Image
+    /// as the item icon. Wrapping them in a stack drops the subtitle entirely.
+    @ViewBuilder
+    private func menuRow(title: String, subtitle: String?, isSelected: Bool) -> some View {
+        Text(title)
+        if let subtitle {
+            Text(subtitle)
+        }
+        if isSelected {
+            Image(systemName: "checkmark")
+        }
+    }
+
+    private func machineMenuAccessibilityIdentifier(_ id: String) -> String {
+        let stableID = id.replacingOccurrences(of: "\u{1F}", with: "-")
+        return "MobileWorkspaceMacPickerMachine-\(stableID)"
     }
 }
 

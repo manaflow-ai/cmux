@@ -270,16 +270,8 @@ private func makeHiddenWebViewDiscardBlockerSnapshot(
 
 @MainActor
 private func withHiddenWebViewDiscardPolicyEnabled(_ body: () -> Void) {
-    let defaults = UserDefaults.standard
-    let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-    defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-    defer {
-        if let previousEnabled {
-            defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        } else {
-            defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        }
-    }
+    let previousValues = enableHiddenWebViewDiscardTimerPolicy()
+    defer { restoreHiddenWebViewDiscardPolicy(previousValues) }
     body()
 }
 
@@ -329,22 +321,15 @@ struct BrowserHiddenWebViewDiscardMediaPlaybackTests {
 
 @MainActor
 final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
-    private var previousEnabled: Any?
+    private var previousPolicyValues: [String: Any] = [:]
 
     override func setUp() {
         super.setUp()
-        let defaults = UserDefaults.standard
-        previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        previousPolicyValues = enableHiddenWebViewDiscardTimerPolicy()
     }
 
     override func tearDown() {
-        let defaults = UserDefaults.standard
-        if let previousEnabled {
-            defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        } else {
-            defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        }
+        restoreHiddenWebViewDiscardPolicy(previousPolicyValues)
         super.tearDown()
     }
 

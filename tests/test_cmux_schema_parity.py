@@ -63,7 +63,6 @@ NOT_IN_CMUX_JSON = frozenset({
     # "#RRGGBB" app.accentColor value.
     "app.accentColorCustomHex",
     "app.fileDropDefaultBehavior",
-    "app.installUpdatesAutomatically",
     "app.systemWideHotkeyEnabled",
     "app.titlebarControlsStyle",
     "app.workspaceButtonFade",

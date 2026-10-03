@@ -299,6 +299,24 @@ import Testing
         #expect(await hiddenStore.load(scope: store.pairedMacScopeKey(scope)).isEmpty)
     }
 
+    @Test func hiddenMarkerMatchesTaggedSnapshotKeyByCanonicalIdentity() async throws {
+        let store = MobileShellComposite(
+            isSignedIn: false,
+            pairedMacStore: DelayedTeamPairedMacStore(recordsByTeam: [:], blockedTeams: []),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { nil },
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+        let taggedMarker = MobilePairedMac.pairingID(
+            macDeviceID: "MAC-A",
+            instanceTag: "Nightly"
+        )
+        let taggedKey = MacPairingKey(macDeviceID: "mac-a", instanceTag: "nightly")
+
+        #expect(store.isHiddenMacPairingKey(taggedKey, hiddenIDs: [taggedMarker]))
+        #expect(!store.isHiddenMacPairingKey(taggedKey, hiddenIDs: ["mac-a"]))
+    }
+
     @Test func pairingIDMarkerMatchingExistingRowSurvivesMigration() async throws {
         let hiddenStore = InMemoryPairedMacHiddenStore()
         let pairedStore = DelayedTeamPairedMacStore(

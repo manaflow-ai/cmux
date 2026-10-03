@@ -3,7 +3,7 @@ import { renderToReadableStream } from "react-dom/server";
 import { renderSettled } from "./helpers/render-settled";
 import { readInitialMain } from "./helpers/render-stream";
 
-import { stripeSubscriptions } from "../db/schema";
+import { appleSubscriptions, stripeSubscriptions } from "../db/schema";
 import { createNextNavigationMock } from "./helpers/next-navigation-mock";
 import { withAccountMutationLeaseSupport } from
   "./helpers/account-mutation-db-mock";
@@ -39,6 +39,19 @@ mock.module("next/headers", () => ({
 let stackConfigured = false;
 let currentUser: unknown = null;
 let stripeSubscriptionRows: Array<Record<string, unknown>> = [];
+let appleRows: Array<Record<string, unknown>> = [];
+function rowsFor(table: unknown): Array<Record<string, unknown>> {
+  if (table === stripeSubscriptions) return stripeSubscriptionRows;
+  if (table === appleSubscriptions) return appleRows;
+  return [];
+}
+function appleMaxRow() {
+  return {
+    originalTransactionId: "otx-apple", planId: "max", status: "active", environment: "Production",
+    bundleId: "com.cmux.app", expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), gracePeriodExpiresAt: null,
+    autoRenewEnabled: true,
+  };
+}
 
 const proUser = {
   id: "user-pro",
@@ -62,8 +75,8 @@ mock.module("../db/client", () => ({
   cloudDb: () => withAccountMutationLeaseSupport({
     select: () => ({
       from: (table: unknown) => ({
-        where: () => Object.assign(Promise.resolve(table === stripeSubscriptions ? stripeSubscriptionRows : []), {
-          limit: async () => (table === stripeSubscriptions ? stripeSubscriptionRows : []),
+        where: () => Object.assign(Promise.resolve(rowsFor(table)), {
+          limit: async () => rowsFor(table),
         }),
       }),
     }),
@@ -79,6 +92,7 @@ describe("app pricing page", () => {
     stackConfigured = false;
     currentUser = null;
     stripeSubscriptionRows = [];
+    appleRows = [];
     proUser.update.mockClear();
   });
 
@@ -111,11 +125,11 @@ describe("app pricing page", () => {
     expect(html).toContain("For individuals");
     expect(html).toContain("For teams and businesses");
     expect(html).toContain("Get Max");
-    expect(html).toContain("Up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs");
+    expect(html).toContain("Up to 5 Cloud VMs, up to 16 vCPUs and 32 GB RAM per VM");
     expect(html).toContain("Largest Cloud VM");
     expect(html).toContain("$60/user/mo");
     expect(html).toContain(
-      "Up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs",
+      "Up to 5 Cloud VMs, up to 4 vCPUs and 8 GB RAM per VM",
     );
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');
@@ -317,6 +331,26 @@ describe("app pricing page", () => {
     // Apple 3.1.1: no external billing/purchase links inside App Store builds.
     expect(html).not.toContain("/api/billing/portal");
     expect(html).toContain("Current plan");
+  });
+
+  test("sends an App Store subscriber to the App Store instead of Stripe checkout or portal", async () => {
+    stackConfigured = true;
+    currentUser = { ...proUser, clientReadOnlyMetadata: {} };
+    appleRows = [{ ...appleMaxRow(), planId: "pro" }];
+
+    const element = await AppPricingPage({
+      searchParams: Promise.resolve({ cmux_app: "1", cmux_scheme: "cmux-dev-test" }),
+    });
+    const html = (await renderSettled(element));
+
+    expect(html).toContain('href="https://apps.apple.com/account/subscriptions"');
+    // The settled personal plans (the streamed placeholder carries checkout links).
+    const card = Array.from(html.matchAll(/aria-labelledby="individual-pricing-category"[\s\S]*?<\/section>/g), (match) => match[0])
+      .find((section) => section.includes("Manage in the App Store")) ?? "";
+    expect(card.match(/Manage in the App Store/g)).toHaveLength(2);
+    expect(card).not.toContain("/api/billing/portal");
+    expect(card).not.toContain("/api/billing/checkout");
+    expect(card).not.toContain("Get Max");
   });
 
   test("renders Manage billing for Stripe-managed Pro users", async () => {

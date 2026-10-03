@@ -74,6 +74,8 @@ struct RightSidebarPanelView: View {
     let onOpenFilePreview: (String) -> Void
     let onOpenAsPane: (RightSidebarMode) -> Void
     let onClose: () -> Void
+    let cloudActivationCoordinator: CloudActivationCoordinator = AppDelegate.shared?.cloudActivationCoordinator
+        ?? CloudActivationCoordinator.unconfigured()
     /// Live data context for the Custom mode's JS/Swift sidebar (built by the
     /// window's ContentView, which owns the unread model this view never sees).
     let customSidebarDataContext: (Date) -> [String: SwiftValue]
@@ -95,8 +97,6 @@ struct RightSidebarPanelView: View {
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @AppStorage(RightSidebarBetaFeatureSettings.feedEnabledKey)
     private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
-    @AppStorage(RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-    private var cloudMachinesBetaEnabled = RightSidebarBetaFeatureSettings.defaultCloudMachinesEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     /// The right rail's OWN worker client. Never share the left sidebar's:
     /// the remote host swaps files in place on one client, so a shared client
@@ -114,7 +114,7 @@ struct RightSidebarPanelView: View {
         _ = managedPolicyRevision
         return RightSidebarMode.availableModes(
             feedEnabled: feedEnabled,
-            machinesEnabled: CloudMachinesFeature.isEnabled
+            machinesEnabled: CloudMachinesFeature.isAvailable
         )
     }
 
@@ -206,7 +206,6 @@ struct RightSidebarPanelView: View {
             else { fileExplorerState.cloudTeamPickerPresentation.isPresented = false }
         }
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
-        .onChange(of: cloudMachinesBetaEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onReceive(NotificationCenter.default.publisher(for: RightSidebarTabPreferences.didChangeNotification)) { _ in
             refreshModeAvailabilityAndFocusIfNeeded()
         }
@@ -224,44 +223,50 @@ struct RightSidebarPanelView: View {
 
             HStack(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
                 let displayedModes = availableModes
-                ForEach(modeBarItems) { item in
-                    let shortcut = item.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) } ?? .unbound
-                    ModeBarButton(
-                        item: item,
-                        isSelected: item.isSelected(
-                            mode: fileExplorerState.mode
-                        ),
-                        badgeCount: item.mode == .feed ? feedPendingCount : 0,
-                        shortcutHint: shortcut,
-                        showsShortcutHint: ShortcutHintTitlebarPolicy.shouldShow(
-                            shortcut: shortcut,
-                            alwaysShowShortcutHints: alwaysShowShortcutHints,
-                            modifierPressed: modeShortcutHintMonitor.isModifierPressed,
-                            modifierHoldHintsEnabled: showModifierHoldHints
-                        )
-                    ) {
-                        let mode = item.mode
-                        if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-                            mode: mode,
-                            focusFirstItem: true,
-                            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-                        ) != true {
-                            selectMode(mode)
+                // The selected tab keeps its full label; the others share the
+                // rest and truncate, then drop to their icon.
+                RightSidebarModeBarTabsLayout(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
+                    ForEach(modeBarItems) { item in
+                        let shortcut = item.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) } ?? .unbound
+                        ModeBarButton(
+                            item: item,
+                            isSelected: item.isSelected(
+                                mode: fileExplorerState.mode
+                            ),
+                            badgeCount: item.mode == .feed ? feedPendingCount : 0,
+                            shortcutHint: shortcut,
+                            showsShortcutHint: ShortcutHintTitlebarPolicy.shouldShow(
+                                shortcut: shortcut,
+                                alwaysShowShortcutHints: alwaysShowShortcutHints,
+                                modifierPressed: modeShortcutHintMonitor.isModifierPressed,
+                                modifierHoldHintsEnabled: showModifierHoldHints
+                            )
+                        ) {
+                            let mode = item.mode
+                            if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                                mode: mode,
+                                focusFirstItem: true,
+                                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                            ) != true {
+                                selectMode(mode)
+                            }
                         }
-                    }
-                    .onDrag {
-                        draggingModeBarMode = item.mode
-                        return RightSidebarModeDragPayload.provider(for: item.mode)
-                    }
-                    .onDrop(
-                        of: [RightSidebarModeDragPayload.dropContentType],
-                        delegate: RightSidebarModeBarDropDelegate(
-                            targetMode: item.mode,
-                            displayedModes: displayedModes,
-                            draggingMode: $draggingModeBarMode
+                        .onDrag {
+                            draggingModeBarMode = item.mode
+                            return RightSidebarModeDragPayload.provider(for: item.mode)
+                        }
+                        .onDrop(
+                            of: [RightSidebarModeDragPayload.dropContentType],
+                            delegate: RightSidebarModeBarDropDelegate(
+                                targetMode: item.mode,
+                                displayedModes: displayedModes,
+                                draggingMode: $draggingModeBarMode
+                            )
                         )
-                    )
+                        .layoutValue(key: RightSidebarModeBarTabSelectedKey.self, value: item.isSelected(mode: fileExplorerState.mode))
+                    }
                 }
+                .layoutPriority(1)
                 Spacer(minLength: 0)
                 if fileExplorerState.mode.canOpenAsPane, fileExplorerState.mode.isAvailable() {
                     openAsPaneButton(mode: fileExplorerState.mode)
@@ -466,7 +471,8 @@ struct RightSidebarPanelView: View {
                     machinePinStore: AppDelegate.shared?.cloudMachinePinStore,
                     devicesModel: devicesModel,
                     tabManager: tabManager,
-                    teamPickerPresentation: fileExplorerState.cloudTeamPickerPresentation
+                    teamPickerPresentation: fileExplorerState.cloudTeamPickerPresentation,
+                    activationCoordinator: cloudActivationCoordinator
                 )
             case .customSidebar:
                 customSidebarPanel
