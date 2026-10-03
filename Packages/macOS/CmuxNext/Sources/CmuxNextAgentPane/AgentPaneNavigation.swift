@@ -28,6 +28,7 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         view?.applyTheme()
         view?.applyShortcuts()
+        view?.applyPreviewFeatures()
         view?.replayCustomization()
     }
 

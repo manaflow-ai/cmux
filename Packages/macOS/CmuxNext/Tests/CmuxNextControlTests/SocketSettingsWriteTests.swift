@@ -18,7 +18,11 @@ import Testing
         try Data("{}".utf8).write(to: url)
         let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(managed), managedWatchFiles: [])
-        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), settings: settings.file, settingsWriter: settings)
+        // The full package suite runs other main-actor tests in parallel. Give
+        // this file-backed round trip enough room to cross the actor boundary
+        // without changing the production two-second socket deadline.
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), settings: settings.file, settingsWriter: settings,
+                                   configuration: .init(requestDeadline: .seconds(10)))
         return (router, settings, directory)
     }
 

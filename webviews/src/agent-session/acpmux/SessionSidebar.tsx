@@ -1,4 +1,4 @@
-import React, { createContext, memo, useContext, useMemo, useState } from "react";
+import React, { createContext, memo, useContext, useEffect, useMemo, useState } from "react";
 import {
   groupMark,
   sessionMark,
@@ -58,6 +58,7 @@ export function SessionSidebar({
   onSelect,
   onNewChat,
   account,
+  preview = false,
 }: {
   sessions: AcpmuxSessionEntry[];
   selectedId?: string;
@@ -66,8 +67,15 @@ export function SessionSidebar({
   onSelect: (sessionId: string) => void;
   onNewChat?: () => void;
   account?: SidebarAccount;
+  /** Preview features are on (`labs.previewFeatures`): the rail offers the Pull requests view. */
+  preview?: boolean;
 }) {
-  const [view, setView] = useState<SidebarView>("sessions");
+  const [picked, setView] = useState<SidebarView>("sessions");
+  // Pull requests turned off while shown falls back to the session list, and stays there.
+  const view = picked === "pulls" && !preview ? "sessions" : picked;
+  useEffect(() => {
+    if (!preview) setView((current) => (current === "pulls" ? "sessions" : current));
+  }, [preview]);
   // Kept here so expanded projects and a search survive a trip to another rail view.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
@@ -88,12 +96,14 @@ export function SessionSidebar({
             icon="agent.chat.list"
           />
           <RailButton label="History" current={view === "history"} onClick={() => setView("history")} icon="history" />
-          <RailButton
-            label="Pull requests"
-            current={view === "pulls"}
-            onClick={() => setView("pulls")}
-            icon="git.pullrequest"
-          />
+          {preview && (
+            <RailButton
+              label="Pull requests"
+              current={view === "pulls"}
+              onClick={() => setView("pulls")}
+              icon="git.pullrequest"
+            />
+          )}
           <RailButton
             label="Closed sessions"
             title="More: closed sessions"

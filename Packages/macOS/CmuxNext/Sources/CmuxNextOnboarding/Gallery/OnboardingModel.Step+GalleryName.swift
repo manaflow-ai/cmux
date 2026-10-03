@@ -7,6 +7,7 @@ extension OnboardingModel.Step {
         case .role: "Role"
         case .firstTask: "First Task"
         case .projects: "Projects"
+        case .classicSessions: "Classic Sessions"
         case .chats: "Chats"
         case .defaultBrowser: "Default Browser"
         case .importData: "Import"

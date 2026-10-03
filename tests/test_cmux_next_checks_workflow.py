@@ -180,5 +180,19 @@ class GodfileScopes(unittest.TestCase):
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
 
 
+class PathRoutingStructure(unittest.TestCase):
+    def test_path_route_gates_mac_jobs_and_keeps_webviews_on_one_compile(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        route = jobs["path_route"]
+        self.assertIn("native", route["outputs"])
+        self.assertIn("macos", route["outputs"])
+        self.assertIn("needs.path_route.outputs.macos", jobs["macos-placement"]["if"])
+        self.assertIn("needs.path_route.outputs.native", jobs["swift-test"]["if"])
+        self.assertIn("needs.path_route.outputs.native", jobs["release-compile"]["if"])
+        self.assertIn("needs.path_route.outputs.macos", jobs["cmux-scheme-compile"]["if"])
+        route_script = route["steps"][-1]["run"]
+        self.assertIn("webviews/*", route_script)
+        self.assertIn("web/*", route_script)
+
 if __name__ == "__main__":
     unittest.main()
