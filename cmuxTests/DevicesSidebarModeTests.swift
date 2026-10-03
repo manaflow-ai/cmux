@@ -21,7 +21,7 @@ struct DevicesSidebarModeTests {
         return defaults
     }
 
-    @Test("Cloud off prevents discovery and hosting even with both preferences on")
+    @Test("Cloud off prevents discovery and hosting while the Cloud sidebar stays available")
     func cloudOffDisablesDevices() {
         let defaults = makeDefaults()
         defaults.set(false, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
@@ -29,7 +29,7 @@ struct DevicesSidebarModeTests {
         defaults.set(true, forKey: DevicesCatalogSection().incomingAccessEnabled.userDefaultsKey)
         #expect(!DevicesFeature.isDiscoveryEnabled(defaults: defaults))
         #expect(!MobileRemoteControlPolicy.allowsIncomingAccess(defaults: defaults))
-        #expect(!RightSidebarMode.availableModes(defaults: defaults).contains(.machines))
+        #expect(RightSidebarMode.availableModes(defaults: defaults).contains(.machines))
     }
 
     @Test("Enabling Cloud alone does not opt a fresh install into Mac discovery or hosting")
