@@ -60,7 +60,7 @@ impl WgNet {
             None => Multipath::new(selector),
         };
         control.add_path(kind, path);
-        let net = Self::start_with_underlay(config, underlay)?;
+        let net = Self::start_with_underlay(config, underlay.with_fixed_paths())?;
         Ok((net, control))
     }
 }
