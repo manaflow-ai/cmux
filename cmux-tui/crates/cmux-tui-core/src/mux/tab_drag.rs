@@ -546,7 +546,7 @@ pub(crate) fn apply_tab_drag(
                     screen.zellij_auto_layout = None;
                 }
             }
-            TabDragDestination::Column { after_column, width, sticky, .. } => {
+            TabDragDestination::Column { after_column, width, .. } => {
                 let anchor = match after_column {
                     Some(column) => screen
                         .layout_columns
