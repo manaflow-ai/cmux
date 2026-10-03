@@ -938,6 +938,7 @@ export class AcpmuxDirectClient {
           }
         }
         this.rows.delete("typing");
+        const checkpoint = event.kind === "turn_result" ? readTurnCheckpoint(msg) : undefined;
         if (event.kind === "turn_result")
           this.rows.set(`summary-${event.seq}`, {
             id: `summary-${event.seq}`,
@@ -948,7 +949,7 @@ export class AcpmuxDirectClient {
             ...this.turnTotals(event.at),
             status: String(msg.status ?? "completed"),
             error: msg.errorText,
-            ...(readTurnCheckpoint(msg) ? { checkpoint: readTurnCheckpoint(msg) } : {}),
+            ...(checkpoint ? { checkpoint } : {}),
           });
         this.streamingAssistant = undefined;
         this.streamingAssistantMessageId = undefined;

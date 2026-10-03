@@ -99,30 +99,11 @@ pub(super) fn read(
     fields: &Map<String, Value>,
 ) -> Result<Value, ResourceError> {
     let scope = fields.get("scope").and_then(Value::as_str).unwrap_or("uncommitted");
+    pathspecs(fields)?;
     let comparison = comparison(repository, scope)?;
     let mut value = report(repository, &comparison, fields)?;
     value["scope"] = json!(scope);
     Ok(value)
-}
-
-/// The tree in `from` against the working tree as `index` lists it (or the
-/// repository's own index): one checkpoint against now, read the way a
-/// scope is, with the caller's operation in errors.
-pub(in crate::git_ops) fn against_worktree(
-    repository: &Repository,
-    from: String,
-    fields: &Map<String, Value>,
-    operation: &'static str,
-) -> Result<Value, ResourceError> {
-    let comparison = Comparison {
-        operation,
-        revisions: Some(vec![from]),
-        cached: false,
-        untracked: false,
-        head: repository.commit("HEAD"),
-        base: None,
-    };
-    report(repository, &comparison, fields)
 }
 
 /// One tree against another.

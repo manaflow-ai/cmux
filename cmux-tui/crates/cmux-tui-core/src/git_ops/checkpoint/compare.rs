@@ -4,33 +4,33 @@
 //! takes when the turn ends (or the working tree while the turn runs).
 //!
 //! A checkpoint's files are its worktree tree with its untracked tree laid
-//! over it; that tree is built in a temporary index. The working tree side
-//! reads a private copy of the repository's index with every untracked,
-//! nonignored file added as intent-to-add, so new files diff like tracked
-//! ones and files untracked at both ends compare by content. Neither the
-//! user's index, HEAD nor the worktree changes; only tree objects are
+//! over it; that tree is built in a temporary index. The working tree side is
+//! captured the way a checkpoint is (raw bytes, the same eligibility rules:
+//! no ignored, credential-like or oversized untracked files), but never
+//! published, so both sides compare like with like. Neither the user's
+//! index, HEAD, refs nor the worktree changes; only unreferenced objects are
 //! written.
 
 use std::ffi::OsStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
+use super::capture::{self, Include, Request, Stamp};
+use super::record::{Limits, now_ms, rfc3339};
 use super::scan::{self, failed};
-use super::store::{Scratch, Store, io_failed};
-use super::{not_found, target, writer};
+use super::store::{Scratch, Store, io_failed, mint};
+use super::{Target, not_found, target, writer};
 use crate::Mux;
+use crate::git_ops::diff;
 use crate::git_ops::write_run::{Bound, WriteGit};
-use crate::git_ops::{MAX_SMALL_OUTPUT_BYTES, Repository, diff, parse};
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
 
 const OPERATION: &str = "git.checkpoint.diff";
-/// Untracked files added to the private index; the rest are counted in
-/// `untracked_skipped`.
-const MAX_UNTRACKED_FILES: usize = 2000;
-/// Paths per `add -N` run, well inside argument limits.
-const ADD_BATCH: usize = 256;
+/// Building a files tree writes nothing a reader depends on, so it may stop.
+const TREE_DEADLINE: Duration = Duration::from_secs(30);
 
 pub(super) fn diff(
     mux: &Arc<Mux>,
@@ -63,12 +63,9 @@ pub(super) fn diff(
             diff::between(repository, from_tree, to_tree, &request.fields, OPERATION)?
         }
         None => {
-            let (live, skipped) = live_index(&git, repository, &scratch)?;
-            let mut value = diff::against_worktree(&live, from_tree, &request.fields, OPERATION)?;
-            if skipped > 0 {
-                value["untracked_skipped"] = json!(u32::try_from(skipped).unwrap_or(u32::MAX));
-            }
-            value
+            let live = live_files(&git, &target, &scratch)?;
+            let to_tree = files_tree(&git, &scratch, "live", &live)?;
+            diff::between(repository, from_tree, to_tree, &request.fields, OPERATION)?
         }
     };
     drop(scratch);
@@ -92,7 +89,7 @@ fn files_tree(
     let untracked = format!("{object}:untracked");
     let run = |index: Option<&std::path::Path>, arguments: &[&str], stdin: &[u8]| {
         let arguments = arguments.iter().map(OsStr::new).collect::<Vec<_>>();
-        git.run(index, &arguments, stdin, Bound::Unbounded, 64 * 1024 * 1024)
+        git.run(index, &arguments, stdin, Bound::Deadline(TREE_DEADLINE), 64 * 1024 * 1024)
             .map_err(|failure| scan::git(OPERATION, &failure))
     };
     run(Some(&index), &["read-tree", worktree.as_str()], &[])?;
@@ -111,38 +108,32 @@ fn files_tree(
     Ok(tree)
 }
 
-/// A private copy of the repository's index with the untracked, nonignored
-/// files added as intent-to-add, and how many were left out past
-/// [`MAX_UNTRACKED_FILES`].
-fn live_index(
+/// The working tree now, captured as a checkpoint would be (every eligible
+/// untracked file, default limits) but never published: its object id.
+fn live_files(
     git: &WriteGit<'_>,
-    repository: &Repository,
+    target: &Target,
     scratch: &Scratch,
-) -> Result<(Repository, usize), ResourceError> {
-    let read = |arguments: &[&str], limit| {
-        repository.run(arguments, limit).map_err(|failure| scan::git(OPERATION, &failure))
+) -> Result<String, ResourceError> {
+    let checkpoint_id = mint("live");
+    let created_at = rfc3339(now_ms());
+    let stamp = Stamp {
+        checkpoint_id: &checkpoint_id,
+        repository_id: &target.repository_id,
+        worktree_id: &target.worktree_id,
+        created_at: &created_at,
+        reason: "live",
     };
-    let index = scratch.path.join("live.index");
-    let own = read(&["rev-parse", "--path-format=absolute", "--git-path", "index"], 64 * 1024)?;
-    let own = String::from_utf8_lossy(&own.stdout).trim().to_string();
-    match std::fs::copy(&own, &index) {
-        Ok(_) => {}
-        // Before the first `git add` there is no index: start empty.
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(io_failed(OPERATION, &error)),
-    }
-    let listed = read(&["ls-files", "--others", "--exclude-standard", "-z"], 8 * 1024 * 1024)?;
-    let mut untracked = parse::file_list(&listed.stdout);
-    if listed.truncated {
-        untracked.pop();
-    }
-    let skipped = untracked.len().saturating_sub(MAX_UNTRACKED_FILES);
-    untracked.truncate(MAX_UNTRACKED_FILES);
-    for batch in untracked.chunks(ADD_BATCH) {
-        let mut arguments = vec![OsStr::new("add"), OsStr::new("-N"), OsStr::new("--")];
-        arguments.extend(batch.iter().map(OsStr::new));
-        git.run(Some(&index), &arguments, &[], Bound::Unbounded, MAX_SMALL_OUTPUT_BYTES)
-            .map_err(|failure| scan::git(OPERATION, &failure))?;
-    }
-    Ok((repository.with_index(index), skipped))
+    let request =
+        Request { include: Include::Eligible, exclude: Vec::new(), limits: Limits::default() };
+    let captured = capture::capture(
+        git,
+        &target.repository,
+        &target.layout,
+        scratch,
+        &request,
+        &stamp,
+        OPERATION,
+    )?;
+    Ok(captured.object_id)
 }

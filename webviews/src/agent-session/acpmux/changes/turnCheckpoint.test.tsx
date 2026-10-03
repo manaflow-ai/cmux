@@ -76,7 +76,8 @@ test("a turn summary's checkpoints read as acpmux recorded them", () => {
     from: "ckpt_a",
     to: "ckpt_b",
   });
-  expect(readTurnCheckpoint({ checkpointId: "ckpt_a" })).toEqual({ from: "ckpt_a" });
+  // An ended turn without its end checkpoint would compare with later work: unavailable.
+  expect(readTurnCheckpoint({ checkpointId: "ckpt_a" })).toEqual({ from: null, reason: "no_end_checkpoint" });
   expect(readTurnCheckpoint({ checkpointId: null, checkpointError: "timed_out" })).toEqual({
     from: null,
     reason: "timed_out",

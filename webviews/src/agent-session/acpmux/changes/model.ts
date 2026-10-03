@@ -68,18 +68,18 @@ export type ChangesSource = {
 /// says why when acpmux sent one.
 export type TurnCheckpoint = { from: string | null; to?: string; reason?: string };
 
-/// The turn's checkpoints from a `turn_result` message, or undefined when acpmux recorded
-/// none (an acpmux that predates checkpoints: the view reads the turn from its transcript).
+/// The ended turn's checkpoints from its `turn_result` message, or undefined when acpmux
+/// recorded none (an acpmux that predates checkpoints: the view reads the turn from its
+/// transcript). An ended turn needs both ends: without the end checkpoint its changes are
+/// unavailable, since the working tree now also holds later turns and the user's edits.
 export function readTurnCheckpoint(message: unknown): TurnCheckpoint | undefined {
   if (!message || typeof message !== "object" || !("checkpointId" in message)) return undefined;
   const raw = message as Record<string, unknown>;
   const from = text(raw.checkpointId);
-  if (!from) {
-    const reason = text(raw.checkpointError);
-    return reason ? { from: null, reason } : { from: null };
-  }
   const to = text(raw.endCheckpointId);
-  return to ? { from, to } : { from };
+  if (from && to) return { from, to };
+  const reason = text(raw.checkpointError) ?? (from ? "no_end_checkpoint" : undefined);
+  return reason ? { from: null, reason } : { from: null };
 }
 
 /// The checked-out branch and the base the Branch scope compares it with, from `git.status`,
