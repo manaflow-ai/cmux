@@ -15,7 +15,8 @@ export function MessageCard({ item, message }: { item: AcpmuxActivity; message: 
   const to = message.to ?? t("message.unknown");
   const preview = message.text.split("\n").find((line) => line.trim()) ?? "";
   const failed = isFailed(tool);
-  const output = failed ? tool.output?.replace(/\n$/, "") : undefined;
+  // What the send printed (a delivery receipt, or why it failed), under the opened message.
+  const output = tool.output?.replace(/\n$/, "");
   return (
     <div className={`cv-message${failed ? " is-failed" : ""}`}>
       <button

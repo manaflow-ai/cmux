@@ -179,3 +179,24 @@ describe("as the scripts read them", () => {
     expect(input("SendMessage", { type: "shutdown" })?.text).toBe('{\n  "type": "shutdown"\n}');
   });
 });
+
+describe("commands that do more than send", () => {
+  test("stay command rows, so their output stays reachable", () => {
+    expect(
+      commandMessage(`cd webviews && bun test | tail -5; tell-coordinator --to leo "tests: green"`),
+    ).toBeUndefined();
+    expect(commandMessage(`git push && tell-coordinator "pushed"`)).toBeUndefined();
+    expect(commandMessage(`./scripts/reload.sh --tag x && cmux send --surface surface:1 "go"`)).toBeUndefined();
+    expect(commandMessage(`tell-coordinator "done"; git status`)).toBeUndefined();
+  });
+
+  test("setup steps and piped text still make a card", () => {
+    expect(commandMessage(`cd ~/x && export A=1 && tell-coordinator "hi"`)?.text).toBe("hi");
+    expect(commandMessage(`echo "from a pipe" | tell-coordinator -`)).toMatchObject({ text: "from a pipe" });
+    expect(commandMessage(`echo x || tell-coordinator "y"`)).toBeUndefined();
+  });
+
+  test("emptying a mailbox sends nothing", () => {
+    expect(commandMessage(`: > ~/.cache/coordinator-inbox/leo.jsonl`)).toBeUndefined();
+  });
+});
