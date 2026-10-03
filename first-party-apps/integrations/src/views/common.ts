@@ -110,7 +110,7 @@ export const aboutLine = () =>
     .lineLimit(2)
     .padding({ top: 8, leading: 12, bottom: 10, trailing: 12 })
 
-export const methodBadge = (method: string | undefined) => (method ? Text(method.toUpperCase()).font("caption2").monospaced().color("secondary").frame({ width: 52 }) : null)
+export const methodBadge = (method: string | undefined) => (method ? Text(method.toUpperCase()).font("caption2").monospaced().color("secondary").frame({ width: 44 }) : null)
 
 export const providerName = (id: string) => providerInfo(id).name
 
