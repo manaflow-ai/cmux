@@ -6,6 +6,10 @@ extension CmuxConfigSnapshot {
 
     /// Absent is off; a value that is not a bool is off plus a diagnostic.
     static func parsePreviewFeatures(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
-        (false, nil)
+        guard let value = root.value(at: previewFeaturesPath) else { return (false, nil) }
+        guard let on = value.boolValue else {
+            return (false, SettingsDiagnostic(kind: .invalidValue, path: "labs.previewFeatures", message: "expected true or false"))
+        }
+        return (on, nil)
     }
 }

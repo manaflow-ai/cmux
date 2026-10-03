@@ -54,6 +54,9 @@ final class AgentTabStore {
     /// The app shortcuts every agent page shows, kept current on rebinds.
     private var shortcuts = AgentPaneShortcuts()
     private var shortcutObservation: Task<Void, Never>?
+    /// `labs.previewFeatures`, pushed to every page like the shortcuts.
+    private var previewFeatures = false
+    private var previewObservation: Task<Void, Never>?
     private weak var actionRegistry: ActionRegistry?
     private var checkpointFocusTab: String?
     /// This build's URL scheme, handed to every page for the links it copies.
@@ -67,8 +70,10 @@ final class AgentTabStore {
     /// nil answers the page `native.not_connected`.
     private let git: AgentPaneGitLink?
 
+    /// `settings`, when given, is followed for `labs.previewFeatures`
+    /// (AppDelegate makes it before any agent tab).
     init(tag: String?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
-         linkScheme: String? = nil, git: AgentPaneGitLink? = nil) {
+         linkScheme: String? = nil, git: AgentPaneGitLink? = nil, settings: SettingsController? = nil) {
         actionRegistry = registry
         self.linkScheme = linkScheme
         self.git = git
@@ -118,6 +123,20 @@ final class AgentTabStore {
                 shortcuts = value
                 for view in views.values { view.shortcuts = value }
                 for view in standaloneViews.allObjects { view.shortcuts = value }
+            }
+        }
+        if let settings { follow(settings) }
+    }
+
+    /// Follows `labs.previewFeatures` in cmux.json.
+    func follow(_ settings: SettingsController) {
+        // task-owner: lives as long as the tabs; event-driven (Observation)
+        previewObservation = Task { [weak self] in
+            for await on in Observations({ settings.snapshot.previewFeatures }) {
+                guard let self else { return }
+                previewFeatures = on
+                for view in views.values { view.previewFeatures = on }
+                for view in standaloneViews.allObjects { view.previewFeatures = on }
             }
         }
     }
@@ -237,6 +256,7 @@ final class AgentTabStore {
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate) else { return nil }
         view.customization = customization.current
         view.shortcuts = shortcuts
+        view.previewFeatures = previewFeatures
         views[key] = view
         customization.start()
         return view
@@ -255,6 +275,7 @@ final class AgentTabStore {
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate) else { return nil }
         view.customization = customization.current
         view.shortcuts = shortcuts
+        view.previewFeatures = previewFeatures
         standaloneViews.add(view)
         customization.start()
         return view

@@ -33,6 +33,10 @@ public final class AgentPaneView: NSView {
             if shortcuts != oldValue { applyShortcuts() }
         }
     }
+    /// `labs.previewFeatures`: pushed like ``shortcuts``.
+    public var previewFeatures = false {
+        didSet { if previewFeatures != oldValue { applyPreviewFeatures() } }
+    }
     private let navigation = AgentPaneNavigation()
     /// The composer's mic; nothing runs until the user starts it.
     let dictation: AgentPaneDictation

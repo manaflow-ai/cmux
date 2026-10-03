@@ -45,7 +45,6 @@ const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { AcpmuxApp } = await import("./App");
 
-
 /// Preview features (Settings > Advanced > Labs, `labs.previewFeatures`, off by default): the
 /// session coverage label and the sidebar's Pull requests placeholder show only once the app turns
 /// them on, and leave again when it turns them off.

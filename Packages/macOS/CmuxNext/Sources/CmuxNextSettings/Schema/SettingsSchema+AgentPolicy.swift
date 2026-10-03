@@ -96,6 +96,7 @@ extension SettingsSchema {
         "notifications.attention.persist",
         "notifications.attention.showOnTab",
         "notifications.attention.showOnSidebar",
+        "labs.previewFeatures",
     ]
 
     /// Keys an agent may not set or reset, with the reason.
