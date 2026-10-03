@@ -5592,9 +5592,9 @@ Params:
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `surface` | `Id` | required | A PTY surface this connection attached with `snapshot:"ghostsnp"` |
-| `reason` | `string` | optional | `digest_mismatch`, `gap`, `generation_mismatch` or `attach`; informational |
+| `reason` | `string` | optional | `digest_mismatch`, `gap`, `generation_mismatch` or `attach`; any other value is `invalid` |
 | `have` | `{generation?, offset?, snapshot_version?}` | optional | A `snapshot_version` other than the host's is `unsupported_version` |
-| `request_id` | `string` | optional | Echoed; repeats while a snapshot is pending collapse |
+| `request_id` | `string` | optional | At most 128 bytes; echoed; repeats while a snapshot is pending collapse |
 
 Result:
 

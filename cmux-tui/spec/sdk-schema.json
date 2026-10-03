@@ -17243,8 +17243,8 @@
    "constraints": [
     "Requires a snapshot attach (attach-surface with snapshot ghostsnp) of the same surface on this connection, else not_attached.",
     "A request while a snapshot is pending collapses into it; at most one requested snapshot per viewer per 500 ms.",
-    "reason is digest_mismatch, gap, generation_mismatch or attach (informational).",
-    "Raw v12 form of the terminal channel message snapshot_request (sync-and-transport.md)."
+    "Raw v12 form of the terminal channel message snapshot_request (sync-and-transport.md).",
+    "reason, when present, is digest_mismatch, gap, generation_mismatch or attach; request_id is at most 128 bytes; otherwise invalid."
    ]
   },
   "terminal-history": {
