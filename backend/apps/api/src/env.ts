@@ -64,6 +64,17 @@ export interface Env {
   /** Secret: 32-byte base64 key that wraps credential data keys. Integrations refuse to connect without it. */
   readonly INTEGRATIONS_KEK?: string
   /**
+   * AWS KMS for credential data keys (integrations-plan.md G6). With all four set, new seals wrap the
+   * data key with this KMS key; INTEGRATIONS_KEK still opens older rows and derives PKCE keys.
+   */
+  readonly INTEGRATIONS_KMS_KEY_ARN?: string
+  readonly INTEGRATIONS_KMS_REGION?: string
+  /** Secrets: the IAM user's access key, allowed only kms:Encrypt and kms:Decrypt with our encryption context. */
+  readonly INTEGRATIONS_KMS_ACCESS_KEY_ID?: string
+  readonly INTEGRATIONS_KMS_SECRET_ACCESS_KEY?: string
+  /** Earlier KMS key ARNs (comma separated) whose rows stay readable after a key change. */
+  readonly INTEGRATIONS_KMS_PREVIOUS_KEY_ARNS?: string
+  /**
    * Secret: the Stack server key for STACK_PROJECT_ID (set on cmux-api-staging and cmux-api by the backend
    * lead). Enterprise SSO creates Stack users and sessions with it; use it only with that project.
    */

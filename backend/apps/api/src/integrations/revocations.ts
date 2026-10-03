@@ -1,6 +1,6 @@
 import type { IntegrationProvider } from "@cmux/protocol"
 import type { Env } from "../env.ts"
-import { aadFor, open, type SealedSecret } from "./crypto.ts"
+import { openCredential } from "./credentials.ts"
 import { permanentStopFailure } from "./gmail-stop.ts"
 import type { Credential, Http, ProviderImpl } from "./provider-core.ts"
 
@@ -107,7 +107,7 @@ export const drainRevocations = async (
         if (r.stop_alias && !r.stop_done) stopFailed?.(r.connection, r.stop_alias, "no INTEGRATIONS_KEK to open the credential")
         outcome = "done"
       } else {
-        const credential = JSON.parse(await open(env.INTEGRATIONS_KEK, JSON.parse(r.sealed) as SealedSecret, aadFor(r.connection, r.owner, r.provider, Number(r.generation)))) as Credential
+        const credential = await openCredential(env, http, { connection: r.connection, owner: r.owner, provider: r.provider, generation: Number(r.generation) }, r.sealed)
         // The watch is per mailbox, not per connection: stop it only when no other connection uses that mailbox.
         // The stop runs before the revoke (the token dies with the grant) and is retried until it succeeds or
         // STOP_BEFORE_REVOKE_MS passes; then the failure is recorded and the revoke goes ahead.

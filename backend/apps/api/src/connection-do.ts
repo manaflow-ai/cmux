@@ -4,7 +4,7 @@ import { cloudOpByName, PENDING_CONNECTION_TTL_MS, type Connection, type Integra
 import { connectionsDomain, expiredForgets, githubRepoAllowed, lockNoticePending, lockOf, mayUse, pendingExpiries, policyOf, providerAllowed, type ConnectionsState } from "./domains/connections.ts"
 import { decodeParams } from "./domains/common.ts"
 import type { Env } from "./env.ts"
-import { aadFor, open, seal, type SealedSecret } from "./integrations/crypto.ts"
+import { createFallbackTable, loadCredential, nextResealAt, resealFallbacks, storeCredential } from "./integrations/credentials.ts"
 import type { ExternalReply, ProviderEvent } from "./integrations/external.ts"
 import { createWatchTable, nextWatchAt, recordStopFailure, watchOf } from "./integrations/gmail-push.ts"
 import { onDisconnect, onGmailPush, runWatchWork, startWatchSafely, stopWatchWith, watchSoon, type GooglePush, type WatchHost } from "./integrations/google-watches.ts"
@@ -54,6 +54,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     sql.exec(`CREATE TABLE IF NOT EXISTS refused_system_ops (key TEXT PRIMARY KEY, code TEXT NOT NULL, at INTEGER NOT NULL)`)
     createRevocationTable(sql)
     createWatchTable(sql)
+    createFallbackTable(sql)
   }
 
   protected read(state: ConnectionsState, op: string, _params: unknown, principal: Principal): ReadResult {
@@ -92,7 +93,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const forget = expiredForgets(state).find((p) => !skip.has(`forget:${p.connection}`))
     if (forget) times.push(forget.at)
     if (lockNoticePending(state)) times.push(Math.max(_now, this.noticeRetryAt ?? _now))
-    for (const t of [nextRevocationAt(this.ctx.storage.sql), nextWatchAt(this.ctx.storage.sql)]) if (t !== null) times.push(t)
+    for (const t of [nextRevocationAt(this.ctx.storage.sql), nextWatchAt(this.ctx.storage.sql), nextResealAt(this.ctx.storage.sql)]) if (t !== null) times.push(t)
     return times.length === 0 ? null : Math.min(...times)
   }
 
@@ -161,6 +162,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     if (entity) await this.deliverLockNotice(entity, now)
     await this.revokeAtProviders(now)
     await runWatchWork(this.watchHost(), engine.currentState.connections, now)
+    await resealFallbacks(this.ctx.storage.sql, this.env, this.http, engine.currentState.connections, now)
     const skip = this.skipped()
     for (const p of pendingExpiries(engine.currentState)) {
       if (p.at > now) break
@@ -206,29 +208,8 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     return this.env.ACCOUNT_INDEX_DO.get(this.env.ACCOUNT_INDEX_DO.idFromName(account))
   }
 
-  private async sealCredential(c: Connection, credential: Credential) {
-    const kek = this.env.INTEGRATIONS_KEK
-    if (!kek) throw new ProviderError("integration.unavailable", "integrations are not configured (no INTEGRATIONS_KEK)")
-    const row = this.ctx.storage.sql.exec<{ generation: number }>(`SELECT generation FROM credentials WHERE connection = ?`, c.id).toArray()[0]
-    const generation = (row?.generation ?? 0) + 1
-    const sealed = await seal(kek, JSON.stringify(credential), aadFor(c.id, c.owner, c.provider, generation))
-    this.ctx.storage.sql.exec(
-      `INSERT INTO credentials (connection, generation, sealed, updated_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT (connection) DO UPDATE SET generation = excluded.generation, sealed = excluded.sealed, updated_at = excluded.updated_at`,
-      c.id,
-      generation,
-      JSON.stringify(sealed),
-      Date.now()
-    )
-  }
-
-  private async openCredential(c: Connection): Promise<Credential> {
-    const kek = this.env.INTEGRATIONS_KEK
-    if (!kek) throw new ProviderError("integration.unavailable", "integrations are not configured (no INTEGRATIONS_KEK)")
-    const row = this.ctx.storage.sql.exec<{ generation: number; sealed: string }>(`SELECT generation, sealed FROM credentials WHERE connection = ?`, c.id).toArray()[0]
-    if (!row) throw new ProviderError("needs_reauth", "no stored credential")
-    return JSON.parse(await open(kek, JSON.parse(row.sealed) as SealedSecret, aadFor(c.id, c.owner, c.provider, Number(row.generation)))) as Credential
-  }
+  private sealCredential = (c: Connection, credential: Credential) => storeCredential(this.ctx.storage.sql, this.env, this.http, c, credential)
+  private openCredential = (c: Connection): Promise<Credential> => loadCredential(this.ctx.storage.sql, this.env, this.http, c)
 
   /**
    * An op with an external effect: `integration.complete` or a provider op.
@@ -342,7 +323,10 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     // Route webhooks first (idempotent), then seal, then commit. If the commit is refused (a
     // disconnect landed in between), undo both so no credential or route outlives it.
     await this.index(approved.account.key).add(c.owner, c.id)
-    await this.sealCredential(c, approved.credential)
+    await this.sealCredential(c, approved.credential).catch(async (e) => {
+      await this.index(approved.account.key).remove(c.owner, c.id).catch(() => undefined)
+      throw e instanceof ProviderError ? new ProviderError(e.code, `${e.message}; start again from Connect`, e.retryable) : e
+    })
     const res = this.submitSystem("connection.activate", {
         connection: c.id,
         account: approved.account,
