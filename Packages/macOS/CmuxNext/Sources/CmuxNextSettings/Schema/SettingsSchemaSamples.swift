@@ -11,6 +11,9 @@ nonisolated enum SettingsSchemaSamples {
         case .toggle:
             return ([.bool(true), .bool(false)], [.string("true"), .number(1), .null])
         case .choice(let choices):
+            if descriptor.path == BackdropSelectionSetting().configPath {
+                return (BackdropSelectionSetting.acceptedSamples, BackdropSelectionSetting.refusedSamples)
+            }
             return (choices.map { .string($0.value) }, [.string("__not_a_choice__"), .number(1), .bool(true)])
         case .choiceOrNumber(let choices, let number):
             return (choices.map { .string($0.value) } + numbers(number).accept,

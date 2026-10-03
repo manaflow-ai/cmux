@@ -25,7 +25,7 @@ public final class WindowMaterialView: NSView {
     public private(set) var materialView: NSView?
     private let tintView = NSView()
     private let artView = NSView()
-    private var loadedArt: BackdropArt?
+    private var loadedSelection: BackdropSelection?
     private var artImage: NSImage?
 
     /// Creates an opaque backdrop (no material view, no tint).
@@ -70,9 +70,9 @@ public final class WindowMaterialView: NSView {
     /// - Parameter tint: The theme background; its alpha is replaced by
     ///   the backdrop's tint opacity.
     public func apply(_ backdrop: WindowBackdrop, tint: NSColor) {
-        if loadedArt != backdrop.art {
-            loadedArt = backdrop.art
-            artImage = backdrop.art?.image()
+        if loadedSelection != backdrop.selection {
+            loadedSelection = backdrop.selection
+            artImage = backdrop.selection?.image() ?? backdrop.art?.image()
             artView.layer?.contents = artImage
         }
         // The solid sheet and Reduce Transparency must never expose art.
@@ -87,13 +87,28 @@ public final class WindowMaterialView: NSView {
                 addSubview(materialView, positioned: .below, relativeTo: tintView)
             }
         }
-        let color = tint.withAlphaComponent(backdrop.tintOpacity)
+        let alpha = backdrop.tintOpacity * (1 - backdrop.tuning.glassTransparency)
+        let color = tunedTint(tint, tuning: backdrop.tuning).withAlphaComponent(alpha)
         let glass = materialView as? NSGlassEffectView
         glass?.tintColor = color
         // Glass tints itself; a tint view over it would dim the desktop twice.
         let shows = material != .opaque && glass == nil
         tintView.isHidden = !shows
         tintView.layer?.backgroundColor = shows ? color.cgColor : nil
+    }
+
+    private func tunedTint(_ tint: NSColor, tuning: AppearanceTuning) -> NSColor {
+        guard let rgb = tint.usingColorSpace(.deviceRGB) else { return tint }
+        var hue: CGFloat = 0
+        var saturation: CGFloat = 0
+        var brightness: CGFloat = 0
+        var alpha: CGFloat = 0
+        rgb.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+        let shifted = (hue + CGFloat(tuning.hue - 0.5)).truncatingRemainder(dividingBy: 1)
+        return NSColor(deviceHue: shifted < 0 ? shifted + 1 : shifted,
+                       saturation: min(max(saturation * CGFloat(tuning.saturation), 0), 1),
+                       brightness: brightness,
+                       alpha: alpha)
     }
 
     private static func makeMaterialView(_ material: WindowMaterial) -> NSView? {

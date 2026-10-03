@@ -100,6 +100,13 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var windowBackground = WindowBackgroundOverride()
     /// `appearance.backdropArt`; nil disables the bundled painting.
     public var backdropArt: BackdropArt?
+    /// `appearance.background`; nil leaves the desktop untouched.
+    public var backdropSelection: BackdropSelection?
+    /// `appearance.experimentalControls`; off unless explicitly enabled.
+    public var experimentalAppearance = false
+    /// `appearance.glassTransparency`, `appearance.hue` and
+    /// `appearance.saturation`; identity values when unset or invalid.
+    public var appearanceTuning = AppearanceTuningSetting.fallback
     /// `appearance.statusIndicator.*`.
     public var statusIndicator = StatusIndicatorSettings()
     /// `status.*`.
@@ -200,7 +207,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.focusRing = PaneRingConfigParser.focusRing(root, diagnostics: &snapshot.diagnostics)
         snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)
         snapshot.windowBackground = WindowBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
-        snapshot.backdropArt = BackdropArtSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.backdropSelection = BackdropSelectionSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art }
+        snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusBehavior = StatusIndicatorConfigParser.behavior(root, diagnostics: &snapshot.diagnostics)
         let (borders, bordersDiagnostic) = BordersSetting.parse(root)

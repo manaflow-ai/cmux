@@ -98,11 +98,15 @@ public nonisolated enum SettingsSchemaExport {
         // Kinds whose valid values only the app knows (theme names, installed
         // fonts, system sounds): another validator checks them against the
         // value domain the app publishes, not a fixed rule.
-        switch descriptor.kind {
-        case .theme: row["validation"] = "domain:theme"
-        case .fontFamily: row["validation"] = "domain:font_family"
-        case .sound: row["validation"] = "domain:sound"
-        default: row["validation"] = "portable"
+        if descriptor.path == BackdropSelectionSetting().configPath {
+            row["validation"] = "domain:backdrop_selection"
+        } else {
+            switch descriptor.kind {
+            case .theme: row["validation"] = "domain:theme"
+            case .fontFamily: row["validation"] = "domain:font_family"
+            case .sound: row["validation"] = "domain:sound"
+            default: row["validation"] = "portable"
+            }
         }
         return row
     }

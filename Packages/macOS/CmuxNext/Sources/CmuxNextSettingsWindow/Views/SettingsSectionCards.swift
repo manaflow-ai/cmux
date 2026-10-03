@@ -16,6 +16,7 @@ struct SettingsSectionCards: View {
             anchored(.theme) {
                 ThemeCard()
                 ThemePickerCard(model: model)
+                BackdropPickerCard(model: model)
                 BackdropArtAttributionView()
             }
         case .terminal: anchored(.terminal) { TerminalInfoCard(model: model) }

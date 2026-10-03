@@ -22,15 +22,36 @@ public final class ThemeScope {
 
     /// Art is inherited independently of color themes, so every window
     /// follows the app's one selection even with room or terminal themes.
-    public var backdropArt: BackdropArt? { selectedBackdropArt ?? parent?.backdropArt }
-    private var selectedBackdropArt: BackdropArt?
+    public var backdropSelection: BackdropSelection? { selectedBackdropSelection ?? parent?.backdropSelection }
+    public var backdropArt: BackdropArt? {
+        if case .art(let art) = backdropSelection { return art }
+        return nil
+    }
+    public var appearanceTuning: AppearanceTuning { selectedAppearanceTuning ?? parent?.appearanceTuning ?? .identity }
+    private var selectedBackdropSelection: BackdropSelection?
+    private var selectedAppearanceTuning: AppearanceTuning?
 
     /// Changes art and repaints this scope and its descendants without a
     /// Ghostty reload or changing any terminal colors.
     /// - Parameter art: The painting to show; nil restores inherited art.
     public func setBackdropArt(_ art: BackdropArt?) {
-        guard selectedBackdropArt != art else { return }
-        selectedBackdropArt = art
+        setBackdropSelection(art.map(BackdropSelection.art))
+    }
+
+    /// Changes the selected bundled or system image and repaints descendants.
+    public func setBackdropSelection(_ selection: BackdropSelection?) {
+        guard selectedBackdropSelection != selection else { return }
+        selectedBackdropSelection = selection
+        repaintBackdropArt()
+    }
+
+    /// Changes live tuning without changing theme colors or persisted settings.
+    public func setAppearanceTuning(_ tuning: AppearanceTuning) {
+        let clamped = AppearanceTuning(glassTransparency: tuning.glassTransparency,
+                                       hue: tuning.hue,
+                                       saturation: tuning.saturation)
+        guard selectedAppearanceTuning != clamped else { return }
+        selectedAppearanceTuning = clamped
         repaintBackdropArt()
     }
 
