@@ -168,15 +168,19 @@ function placeDiffs(diffs: AcpmuxFileDiff[] | undefined, locations: any): Acpmux
 }
 
 /// A tool call folded with an update to it. ACP updates carry only the fields that changed;
-/// content, when present, replaces the call's content.
+/// content, when present, replaces the call's content. `at` is the event's time: the call
+/// starts at its first event and ends at the first that reports it completed or failed.
 export function mergeToolItem(
   previous: AcpmuxActivity | undefined,
   update: any,
   callId: string,
   output: string,
+  at?: number,
 ): AcpmuxActivity {
   const before = previous?.tool;
   const title = update.title ?? update.name;
+  const status = String(update.status ?? before?.status ?? "in_progress");
+  const ended = status === "completed" || status === "failed";
   return {
     kind: "tool",
     text: String(title ?? previous?.text ?? callId),
@@ -184,12 +188,14 @@ export function mergeToolItem(
       id: callId,
       title: String(update.title ?? before?.title ?? callId),
       kind: update.kind ?? before?.kind,
-      status: String(update.status ?? before?.status ?? "in_progress"),
+      status,
       inputSummary: update.rawInput ? JSON.stringify(update.rawInput) : before?.inputSummary,
       output:
         output || formattedOutput(update.rawOutput) || (update.content === undefined ? before?.output : undefined),
       command: shellCommand(update.rawInput) ?? before?.command,
       exitCode: exitCode(update.rawOutput) ?? before?.exitCode,
+      startedAt: before?.startedAt ?? at,
+      endedAt: before?.endedAt ?? (ended ? at : undefined),
       locations: Array.isArray(update.locations) ? update.locations : before?.locations,
       diffs:
         update.content === undefined
@@ -1004,7 +1010,7 @@ export class AcpmuxDirectClient {
       const existing = this.rows.get(id);
       const items = [...(existing?.items ?? [])];
       const itemIndex = items.findIndex((item) => item.tool?.id === callId);
-      const item = mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text);
+      const item = mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text, event.at);
       if (itemIndex >= 0) items[itemIndex] = item;
       else items.push(item);
       this.rows.set(id, {

@@ -9,7 +9,7 @@ public import Observation
 @Observable
 public final class OnboardingModel {
     public enum Step: String, CaseIterable, Sendable {
-        case role, firstTask, projects, chats, defaultBrowser, importData, theme, computerUse, accounts
+        case role, firstTask, projects, classicSessions, chats, defaultBrowser, importData, theme, computerUse, accounts
     }
 
     public private(set) var step: Step
@@ -18,6 +18,7 @@ public final class OnboardingModel {
     public let role: RoleStepModel
     public let firstTask: FirstTaskStepModel
     public let projects: ProjectsStepModel
+    public let classicSessions: ClassicSessionsStepModel
     public let chats: ChatsStepModel
     public let theme: ThemeStepModel
     public let importer: ImportStepModel
@@ -36,6 +37,7 @@ public final class OnboardingModel {
             switch step {
             // Resumed chats open as agent tabs, as the first task's chat does.
             case .firstTask, .chats: services.canRunFirstTask
+            case .classicSessions: services.canImportClassicSessions
             case .accounts: services.hasAccountsStep
             case .computerUse: computerUseSource != nil
             default: true
@@ -46,6 +48,7 @@ public final class OnboardingModel {
         role = RoleStepModel(services: services)
         firstTask = FirstTaskStepModel(services: services)
         projects = ProjectsStepModel(services: services)
+        classicSessions = ClassicSessionsStepModel(services: services)
         chats = ChatsStepModel(services: services)
         theme = ThemeStepModel(services: services)
         importer = ImportStepModel(services: services)
@@ -77,6 +80,7 @@ public final class OnboardingModel {
             return
         case .role: role.commit()
         case .projects: projects.commit()
+        case .classicSessions: classicSessions.commit()
         case .chats: chats.commit()
         case .theme: theme.commit()
         default: break
@@ -108,9 +112,10 @@ public final class OnboardingModel {
         if step != .computerUse { computerUse.stop() }
         switch step {
         // The role step starts the project and chat scans, so their lists are ready.
-        case .role, .projects, .chats:
+        case .role, .projects, .classicSessions, .chats:
             projects.scan()
             if steps.contains(.chats) { chats.scan() }
+            if steps.contains(.classicSessions) { classicSessions.scan() }
         case .defaultBrowser: defaults.refresh()
         case .importData: importer.detect()
         case .theme: theme.load()
