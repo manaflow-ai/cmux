@@ -229,15 +229,6 @@ public final class GhosttyRuntime {
     /// surfaces may carry 0 instead (`GhosttyRuntimeSurfacePolicy`).
     public var backgroundOpacity: Double { configuredBackgroundOpacity }
 
-    /// Sets the config's `background-blur` radius behind `window`
-    /// (`ghostty_set_window_background_blur`), as Ghostty does for its
-    /// translucent windows; radius 0 clears it. libghostty does nothing
-    /// while the applied config is opaque.
-    public func applyBackgroundBlur(to window: NSWindow) {
-        guard let app else { return }
-        ghostty_set_window_background_blur(app, Unmanaged.passUnretained(window).toOpaque())
-    }
-
     /// `ghostty_config_get` (ghostty.h:1321) for one key.
     static func configGet<T: BitwiseCopyable>(_ config: ghostty_config_t, _ value: inout T, key: String) -> Bool {
         withUnsafeMutablePointer(to: &value) { valuePointer in

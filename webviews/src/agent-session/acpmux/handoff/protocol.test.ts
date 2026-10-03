@@ -92,3 +92,11 @@ describe("acpmux handoff protocol v1", () => {
     expect(malformed.handoff).toBeUndefined();
   });
 });
+
+test("RPC errors preserve code and group recovery data for permission clients", () => {
+  const data = { reason: "stale_revision", group: { groupId: "g", revision: 4 } };
+  const error = new AcpmuxRpcError({ code: -32000, message: "Changed", data });
+  expect(error.code).toBe(-32000);
+  expect(error.data).toBe(data);
+  expect(error.reason).toBe("stale_revision");
+});

@@ -324,6 +324,15 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 keywords: ["machines", "pane"], category: .pane, symbol: "cloud", surfaces: [.palette],
                 targets: [.pane], cliName: "pane open-cloud-as"
             ),
+            // A file in a tab of the pane or in the text editor: the agent pane's changed
+            // files (#16723), the palette with a path, and `cmux file open`.
+            ActionDescriptor(
+                id: "file.open",
+                title: String(localized: "action.file.open", defaultValue: "Open File…", bundle: .module),
+                keywords: ["file", "editor", "preview", "path"], category: .pane, symbol: "doc",
+                surfaces: [.palette], arguments: [CatalogArgument.pathString, CatalogArgument.whereChoice],
+                targets: [.pane], cliName: "file open"
+            ),
         ]
     }
 }
