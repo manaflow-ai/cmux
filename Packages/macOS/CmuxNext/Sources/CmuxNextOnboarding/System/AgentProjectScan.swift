@@ -65,7 +65,7 @@ public nonisolated struct AgentProjectScan: Sendable {
         for folder in gitRepositories() {
             let path = folder.standardizedFileURL.path
             if byFolder[path] == nil {
-                byFolder[path] = AgentProject(folder: folder, sessions: 0, lastActive: modified(folder), apps: [])
+                byFolder[path] = AgentProject(folder: folder, sessions: 0, lastActive: Self.modified(folder), apps: [])
             }
         }
         return byFolder.values
