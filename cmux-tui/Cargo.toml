@@ -19,6 +19,7 @@ members = [
     "crates/acpmux",
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
+    "crates/cmux-chief",
     "bindings/rust",
     "bindings/rust-sidebar",
     "bindings/rust-daemon-client",
