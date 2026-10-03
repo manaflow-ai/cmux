@@ -31,7 +31,7 @@ final class AgentActivityPageTab: BrowserTab {
         state.phase = .finished
         self.state = state
         model = AgentActivityModel(source: source)
-        contentView = AgentActivityHostView(model: model)
+        contentView = AgentActivityHostView(model: model, source: source)
         model.start()
     }
 

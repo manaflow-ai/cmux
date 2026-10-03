@@ -48,6 +48,7 @@ public struct AppearanceStudioView: View {
                 VStack(alignment: .leading, spacing: Metrics.space4) {
                     ThemeCard()
                     ThemePickerCard(model: model)
+                    BackdropArtAttributionView()
                 }
                 .padding(.horizontal, Metrics.space4)
                 .padding(.bottom, Metrics.space4)

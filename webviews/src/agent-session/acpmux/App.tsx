@@ -26,6 +26,7 @@ import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { acpWire } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { ScrollPacing } from "./pacing";
+import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { Composer } from "./Composer";
 import { ComposerPickers } from "./ComposerPickers";
 import { EmptyState, isNewChat, projectName } from "./EmptyState";
@@ -63,7 +64,8 @@ import { Markdown } from "./conversation/Markdown";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
 import { Undo } from "./conversation/icons";
-import { DATE, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
+import { DATE, PREVIEW, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
+import { PreviewCard } from "./conversation/PreviewCard";
 import { DateLine } from "./conversation/DateLine";
 import { SearchChats } from "./SearchChats";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
@@ -252,6 +254,17 @@ const WorkingRow = memo(
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.row.durationMs === b.row.durationMs,
 );
 
+/// Asks the host for a browser tab on a turn's local web page; a host without one (the quick
+/// panel) refuses, and the card's address still opens outside the pane.
+const openPreview = (url: string) => void callNative("browser.open", { url }).catch(() => undefined);
+/// A turn's local web page, live (conversation/PreviewCard.tsx).
+const PreviewRow = memo(
+  function PreviewRow({ row }: RowProps) {
+    return row.text ? <PreviewCard url={row.text} onOpen={openPreview} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.text === b.row.text,
+);
+
 const SummaryRow = memo(
   function SummaryRow({ row }: RowProps) {
     return <TurnFooter row={row} />;
@@ -410,6 +423,7 @@ const defaultRegistry: NativeRegistry = {
   [DATE]: DateRow,
   [THINKING]: ThinkingRow,
   [WORKING]: WorkingRow,
+  [PREVIEW]: PreviewRow,
   editedFiles: EditedFilesRow,
   turnSummary: SummaryRow,
   notice: NoticeRow,
@@ -681,13 +695,11 @@ export function VirtualTranscript({
     if (node) scrolledTo.current = scrollPosition(node, layout.totalHeight);
   }, [layout, range.first, height]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
-  // Each settled scroll's frame pacing goes to the host, which picks the pane's rendering rate.
+  // The page picks adaptive rendering; the host supplies the display interval and applies it.
+  const renderRate = useMemo(() => new AdaptiveRenderRate(), []);
   const pacing = useMemo(
-    () =>
-      new ScrollPacing((intervals) => {
-        callNative("pane.framePacing", { intervals }).catch(() => {});
-      }),
-    [],
+    () => new ScrollPacing((intervals) => void reportScrollPacing(intervals, callNative, renderRate)),
+    [renderRate],
   );
   useEffect(() => () => pacing.stop(), [pacing]);
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => {

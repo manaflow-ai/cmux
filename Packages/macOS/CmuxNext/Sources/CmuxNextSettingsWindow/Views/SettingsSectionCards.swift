@@ -16,6 +16,7 @@ struct SettingsSectionCards: View {
             anchored(.theme) {
                 ThemeCard()
                 ThemePickerCard(model: model)
+                BackdropArtAttributionView()
             }
         case .terminal: anchored(.terminal) { TerminalInfoCard(model: model) }
         case .keyboard: KeyboardSectionView(model: model)
