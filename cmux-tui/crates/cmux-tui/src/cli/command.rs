@@ -121,7 +121,7 @@ pub(super) struct ProviderAuthorityPlan {
 }
 
 #[derive(Default)]
-struct Selectors {
+pub(in crate::cli) struct Selectors {
     values: BTreeMap<&'static str, String>,
 }
 
@@ -1977,17 +1977,7 @@ fn parse_raw(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageEr
     }
     finalize_request(wire_operation, params, flags)
 }
-
-/// A request with only the session route (`settings.*`, cli/settings.rs).
-pub(in crate::cli) fn routed_request(
-    operation: ResourceOperation,
-    flags: &mut Flags,
-    params: Map<String, Value>,
-) -> Result<CommandPlan, UsageError> {
-    request(operation, &Selectors::default(), flags, params)
-}
-
-fn request(
+pub(in crate::cli) fn request(
     operation: ResourceOperation,
     selectors: &Selectors,
     flags: &mut Flags,
