@@ -71,7 +71,7 @@ enum ServerHelperClient {
     /// connection error resumes the continuation exactly once.
     private static func call(label: String, requirement: String, fixID: String, revert: Bool) async throws -> String? {
         let connection = NSXPCConnection(machServiceName: label, options: .privileged)
-        connection.remoteObjectInterface = NSXPCInterface(with: ServerHelperProtocol.self)
+        connection.remoteObjectInterface = NSXPCInterface(with: (any ServerHelperProtocol).self)
         connection.setCodeSigningRequirement(requirement)
         connection.resume()
         defer { connection.invalidate() }
