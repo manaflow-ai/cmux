@@ -9,8 +9,9 @@ name: Promote cmux-next to nightly-next
 # feat-cmux-next. Those calls are debounced: at most one nightly-next build
 # starts per NIGHTLY_NEXT_MIN_INTERVAL_HOURS (default 2), measured from the
 # newest nightly.yml run on nightly-next; a skipped push waits for the next
-# push or a manual run. Run workflow (dispatch) promotes on demand and
-# bypasses the debounce, never the green check.
+# push or a manual run. On demand: Run workflow on nightly.yml, ref
+# feat-cmux-next, input promote_nightly_next_sha (a dispatched caller bypasses
+# the debounce, never the green check).
 #
 # Only the GitHub App that the nightly-next ruleset allows can move the branch
 # (ruleset "nightly-next: fast-forward by the promote app only"). The ref
@@ -26,13 +27,6 @@ on:
     secrets:
       GLAEDA_ROUTE_APP_KEY:
         required: true
-  workflow_dispatch:
-    inputs:
-      sha:
-        description: feat-cmux-next commit to promote (40 hex). Empty means the feat-cmux-next head.
-        required: false
-        default: ''
-        type: string
 
 permissions:
   contents: read
