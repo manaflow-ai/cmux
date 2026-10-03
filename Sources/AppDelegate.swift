@@ -2910,6 +2910,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             resolvedLineFormat = "osc8"
         case "url":
             resolvedLineFormat = "url"
+        case "reference":
+            resolvedLineFormat = "reference"
         default:
             resolvedLineFormat = "grid"
         }
@@ -2937,6 +2939,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             shellCommand = "clear\r\(mouseReportingCommand)for i in $(seq 1 48); do printf '\\033]8;;%s\\033\\\\%s\\033]8;;\\033\\\\\\n' '\(escapedURL)' '\(escapedDisplayToken)'; done\r"
         case "url":
             displayToken = "https://github.com"
+            let shellBlockLine = singleQuotedShellLiteral(displayToken)
+            shellCommand = "clear\r\(mouseReportingCommand)for i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
+        case "reference":
+            // A GitHub reference is not a path and not a URL ghostty matches,
+            // so the fixture prints the token on its own and lets cmux's own
+            // recognizer be the only thing that can act on it.
+            let rawReferenceToken = env["CMUX_UI_TEST_TERMINAL_CMD_CLICK_REFERENCE_TOKEN"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            displayToken = rawReferenceToken.isEmpty ? "#847" : rawReferenceToken
             let shellBlockLine = singleQuotedShellLiteral(displayToken)
             shellCommand = "clear\r\(mouseReportingCommand)for i in $(seq 1 48); do printf '%s\\n' '\(shellBlockLine)'; done\r"
         case "log":
