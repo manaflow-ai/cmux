@@ -1,4 +1,6 @@
-import type { AcpmuxRow } from "./model";
+import { debugAnswer, debugChangesRow, type DebugDecision } from "./debugActions";
+import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
+import type { PermissionDecision } from "./permissions/protocol";
 import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "./perf";
 import { openPicker, pickerLabels } from "./pickerOpeners";
 import { syntheticRows } from "./synthetic";
@@ -8,7 +10,10 @@ import { acpWire, type AcpWireLog } from "./wire";
 // method. The first measurement call turns on measurement (acpmuxPerf.enabled);
 // until then the pane pays nothing for it. openMenu opens a composer menu for
 // automation and captures. `acpLog` and `acpLogExport` read the pane's ACP
-// wire log (wire.ts), which is always kept.
+// wire log (wire.ts), which is always kept. sendPrompt, selectSession,
+// answerPermission and openChanges drive the chat through the same paths as
+// the composer, the session list, a permission card and an edited-files card,
+// so automation reaches them when the window is not key and keys can't.
 
 export type FlingOptions = { nominal_ms?: number; wait?: boolean };
 
@@ -25,7 +30,43 @@ export type AcpmuxDebug = {
   acpLog(options?: { limit?: number }): Record<string, unknown>;
   /** The wire log as JSON Lines. */
   acpLogExport(): string;
+  /** Sends `text` as the composer's Send does, into the open chat or a new one. */
+  sendPrompt(text: string): Promise<Record<string, unknown>>;
+  /** Switches to the session, as picking it in the session list does; resolves once it shows. */
+  selectSession(sessionId: string): Promise<Record<string, unknown>>;
+  /** Answers a pending permission (debugActions.ts picks which, and with what). */
+  answerPermission(options?: DebugAnswerOptions): Promise<Record<string, unknown>>;
+  /** Opens the Changes view of a turn (the newest that changed files by default), at `path`. */
+  openChanges(options?: { row_id?: string; path?: string }): Promise<Record<string, unknown>>;
 };
+
+export type DebugAnswerOptions = {
+  permission_id?: string;
+  group_id?: string;
+  option_id?: string;
+  decision?: DebugDecision;
+};
+
+/// The pane's own paths that the chat actions call.
+export type DebugChatHost = {
+  snapshot(): AcpmuxSnapshot | undefined;
+  /// Resolves once the prompt is written; rejects while acpmux is not connected.
+  send(text: string): Promise<unknown>;
+  select(sessionId: string): void;
+  answer(permissionId: string, optionId: string): Promise<unknown>;
+  respondGroup(groupId: string, revision: number, decision: PermissionDecision): Promise<unknown>;
+  openChanges(rowId: string, path?: string): void;
+};
+
+/// Resolves true once `done()` holds, checking each frame, or false after `ms`.
+async function until(done: () => boolean, ms: number): Promise<boolean> {
+  const start = performance.now();
+  while (!done()) {
+    if (performance.now() - start > ms) return false;
+    await nextFrame();
+  }
+  return true;
+}
 
 const WARMUP_FRAMES = 30;
 
@@ -34,7 +75,12 @@ function nextFrame(): Promise<number> {
 }
 
 export function createAcpmuxDebug(
-  host: { replaceRows(rows: AcpmuxRow[]): void; rowCount(): number; sessionId?(): string | undefined },
+  host: {
+    replaceRows(rows: AcpmuxRow[]): void;
+    rowCount(): number;
+    sessionId?(): string | undefined;
+    chat?: DebugChatHost;
+  },
   wire: AcpWireLog = acpWire,
 ): AcpmuxDebug {
   let timestamps: number[] = [];
@@ -151,6 +197,54 @@ export function createAcpmuxDebug(
 
     acpLogExport() {
       return wire.exportJsonl({ sessionId: host.sessionId?.() });
+    },
+
+    async sendPrompt(text) {
+      const chat = host.chat;
+      if (!chat) return { error: "this page has no chat" };
+      if (!text.trim()) return { error: "empty prompt" };
+      try {
+        await chat.send(text);
+      } catch (error) {
+        return { error: String(error instanceof Error ? error.message : error) };
+      }
+      return { sent: true, session: chat.snapshot()?.sessionId ?? null };
+    },
+
+    async selectSession(sessionId) {
+      const chat = host.chat;
+      if (!chat) return { error: "this page has no chat" };
+      // The list may not hold every session (it pages), so an unlisted id is still tried.
+      const listed = chat.snapshot()?.sessions.some((session) => session.sessionId === sessionId) ?? false;
+      chat.select(sessionId);
+      const shown = await until(() => chat.snapshot()?.sessionId === sessionId, 5000);
+      return { selected: sessionId, listed, shown };
+    },
+
+    async answerPermission(options = {}) {
+      const chat = host.chat;
+      const snapshot = chat?.snapshot();
+      if (!chat || !snapshot) return { error: "this page has no chat" };
+      const answer = debugAnswer(snapshot, options);
+      if ("error" in answer) return answer;
+      try {
+        if (answer.kind === "group") await chat.respondGroup(answer.groupId, answer.revision, answer.decision);
+        else await chat.answer(answer.permissionId, answer.optionId);
+      } catch (error) {
+        return { error: String(error instanceof Error ? error.message : error) };
+      }
+      return { answered: answer };
+    },
+
+    async openChanges(options = {}) {
+      const chat = host.chat;
+      const snapshot = chat?.snapshot();
+      if (!chat || !snapshot) return { error: "this page has no chat" };
+      const row = debugChangesRow(snapshot.rows, options.row_id);
+      if (!row) return { error: options.row_id ? `no row ${options.row_id}` : "no turn in this chat changed files" };
+      chat.openChanges(row.id, options.path);
+      const open = await until(() => document.querySelector(".acpmux-diff-panel") !== null, 2000);
+      return { row: row.id, open };
     },
   };
 }

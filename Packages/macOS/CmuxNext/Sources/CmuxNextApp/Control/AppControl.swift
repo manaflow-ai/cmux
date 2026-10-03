@@ -186,7 +186,9 @@ final class AppControl {
                 await DebugExtensions.devTools(call.params, services)
             },
             // React agent pane: synthetic transcript, fling and frame/typing
-            // timing through the page's cmuxAcpmuxDebug, WebContent pid.
+            // timing through the page's cmuxAcpmuxDebug, WebContent pid, and
+            // chat actions (send a prompt, select a session, answer a
+            // permission, open Changes) for automation.
             .async("debug.agent_pane") { [weak services] call in
                 await DebugAgentPane.handle(call.params, services)
             }.withDeadline(.fixed(DebugAgentPane.deadline)),

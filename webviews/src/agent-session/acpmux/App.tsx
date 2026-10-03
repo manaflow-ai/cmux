@@ -1061,6 +1061,21 @@ function AcpmuxPane() {
       },
       rowCount: () => rowsRef.current.size,
       sessionId: () => directClient.current?.selectedSession,
+      // The same paths as the composer's Send, the session list, a permission card and an
+      // edited-files card.
+      chat: {
+        snapshot: () => snapshotRef.current,
+        send: async (text) => {
+          if (!window.cmuxAcpmuxActions?.["chat.send"]) throw new Error("acpmux is not connected");
+          await callNative("chat.send", { text });
+          promptLanded.current();
+        },
+        select: selectSession,
+        answer: (permissionId, optionId) => callNative("chat.permission", { permissionId, optionId }),
+        respondGroup: (groupId, revision, decision) =>
+          callNative("chat.permission_group.respond", { groupId, revision, decision }),
+        openChanges: (rowId, path) => openDiff(rowId, path),
+      },
     });
     let cancelled = false;
     let retryTimer: number | undefined;
@@ -1270,7 +1285,7 @@ function AcpmuxPane() {
       directClient.current = undefined;
       delete window.cmuxAcpmuxActions;
     };
-  }, []);
+  }, [selectSession, openDiff]);
   const ComposerChips =
     ((window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
       | React.ComponentType<{ snapshot: AcpmuxSnapshot }>

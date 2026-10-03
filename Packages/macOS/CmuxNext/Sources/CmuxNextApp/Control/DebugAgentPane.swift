@@ -21,7 +21,16 @@ import WebKit
 /// keeps the newest entries), `acp_log_export` (that log as JSON Lines),
 /// `pid` (the WebContent process, for profiling), or
 /// `full_rate` (`enabled` turns full-rate rendering on or off on the live
-/// page; returns whether it is on). Every action first stops WebKit from
+/// page; returns whether it is on).
+///
+/// Chat actions drive the pane through the same paths as its controls, so
+/// automation can verify the chat path while the window is not key and
+/// `debug.key` cannot reach the page: `send_prompt` (`text`, as the
+/// composer's Send), `select_session` (`session_id`, as the session list;
+/// returns once it shows), `answer_permission` (the newest pending request
+/// by default; `permission_id` or `group_id`, `option_id`, or `decision`:
+/// `allow`, `deny`, `allow_once` or `allow_chat`), and `open_changes`
+/// (`row_id`, the newest turn that changed files by default; `path`). Every action first stops WebKit from
 /// pausing the page while another window covers it, so a tagged build can
 /// be measured behind the user's windows.
 @MainActor
@@ -33,6 +42,8 @@ enum DebugAgentPane {
         "seed_rows": "seedRows", "fling": "startFling", "fling_stats": "flingStats",
         "perf_stats": "perfStats", "typing_stats": "typingStats", "reset_typing": "resetTyping",
         "open_menu": "openMenu", "acp_log": "acpLog", "acp_log_export": "acpLogExport",
+        "send_prompt": "sendPrompt", "select_session": "selectSession",
+        "answer_permission": "answerPermission", "open_changes": "openChanges",
     ]
 
     /// Runs `fn(...args)` on the page and returns its result as JSON text.
@@ -61,7 +72,7 @@ enum DebugAgentPane {
             return .object(["pane": .string(pane), "full_rate": .bool(view.rendersAtFullRate)])
         }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, open_menu, acp_log, acp_log_export, pid or full_rate")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, open_menu, acp_log, acp_log_export, send_prompt, select_session, answer_permission, open_changes, pid or full_rate")])
         }
         do {
             let result = try await view.webView.callAsyncJavaScript(
@@ -103,9 +114,26 @@ enum DebugAgentPane {
             return [params["label"]?.stringValue ?? ""]
         case "acp_log":
             return [params["limit"]?.intValue.map { ["limit": $0] as [String: Any] } ?? [:]]
+        case "send_prompt":
+            return [params["text"]?.stringValue ?? ""]
+        case "select_session":
+            return [params["session_id"]?.stringValue ?? ""]
+        case "answer_permission":
+            return [strings(params, ["permission_id", "group_id", "option_id", "decision"])]
+        case "open_changes":
+            return [strings(params, ["row_id", "path"])]
         default:
             return []
         }
+    }
+
+    /// The string parameters among `keys`, as the page function's options object.
+    private static func strings(_ params: [String: JSONValue], _ keys: [String]) -> [String: Any] {
+        var options: [String: Any] = [:]
+        for key in keys {
+            if let value = params[key]?.stringValue { options[key] = value }
+        }
+        return options
     }
 
     /// The agent page shown in `pane`, or in the first window whose focused
