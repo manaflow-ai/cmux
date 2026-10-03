@@ -126,7 +126,9 @@ export const pairPreview = async (env: Env, principal: Principal, params: unknow
  * server.pair.approve: register the server's install key under the approver
  * (narrow grant), add the host to the team, then push the result to the
  * waiting server. Each step is keyed by the code, so a retry finishes a
- * partial approval and never makes a second install or host.
+ * partial approval and never makes a second install or host. When the
+ * approver loses the role after the install is registered, TeamDO refuses the
+ * host and revokes that install in one commit, and the code is spent.
  */
 export const pairApprove = async (
   env: Env,
@@ -143,13 +145,16 @@ export const pairApprove = async (
   if (params.team !== principal.team) return fail(op, frame.idempotency_key, "auth.forbidden", "pairing into another team is not supported yet")
   const name = typeof params.name === "string" && params.name.length >= 1 && params.name.length <= 80 ? params.name : null
   if (!name) return fail(op, frame.idempotency_key, "validation.invalid", "name must be 1 to 80 characters")
-  if (!(await pairLimited(env, principal))) return fail(op, frame.idempotency_key, "auth.forbidden", "too many pairing requests, try again in a minute", true)
   const team = principal.team!
   // Role first: an approver who may not add servers writes nothing anywhere.
   if (!(await env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).canEnrollServer(team, principal))) {
     return fail(op, frame.idempotency_key, "auth.forbidden", "only team owners and admins may add a server")
   }
   const stub = pairingStub(env, code)
+  // A retry of this approver's own claim spends no unit; every other attempt (a guess at a code) spends one.
+  if (!(await stub.claimedBy(code, principal.user!, Date.now())) && !(await pairLimited(env, principal))) {
+    return fail(op, frame.idempotency_key, "auth.forbidden", "too many pairing requests, try again in a minute", true)
+  }
   // Claim before any write: concurrent approvals by different users cannot both register an install and a host.
   const claimed = await stub.claim(code, principal.user!, Date.now())
   if (!claimed.ok) {
@@ -173,7 +178,11 @@ export const pairApprove = async (
     { install, name, platform: rec.info.platform, wg_public_key: rec.wg_public_key },
     `pair:${code}:${rec.thumbprint}:host`
   )
-  if (!enrolled.ok) return fail(op, frame.idempotency_key, enrolled.code, enrolled.message)
+  if (!enrolled.ok) {
+    // TeamDO refused in the same commit as the role check and revoked the install; the code is spent.
+    if (enrolled.refused) await stub.abort(code, principal.user!, Date.now())
+    return fail(op, frame.idempotency_key, enrolled.code, enrolled.message)
+  }
   const result: PairingResult = { host: enrolled.host, team, user: principal.user!, install }
   const c = await stub.complete(code, rec.thumbprint, result, Date.now())
   if (!c.ok) return fail(op, frame.idempotency_key, "validation.invalid", c.message)
