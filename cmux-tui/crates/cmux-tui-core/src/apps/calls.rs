@@ -14,11 +14,9 @@ use super::egress;
 use super::grants::{Decision, GestureCheck, Grant, OpClass, ScopeTable, needs_gesture};
 use super::host::HostProcess;
 use super::mirror::Origin;
+use super::provider;
 use super::supervisor::{HostKey, Inner, Supervisor};
 
-/// Host ops whose owner is the cmux app or the config layer, not the daemon.
-const CLIENT_OWNED: &[&str] =
-    &["action.run", "action.list", "app.settings.set", "integration.request"];
 /// Calls one host may have in flight (the VM caps itself at 64 too, but the
 /// VM is untrusted).
 const MAX_INFLIGHT: usize = 64;
@@ -115,6 +113,16 @@ impl Supervisor {
                 options.get("idempotencyKey").and_then(Value::as_str).filter(|k| !k.is_empty());
             format!("app:{}:{}", key.app, own.map_or_else(mint_key, str::to_string))
         });
+        // Ops the daemon does not own go to their provider (the Mac app), or
+        // fail at once when none is connected (APP-R1).
+        let supervisor_op = op.starts_with("app.storage.") || op == "net.fetch";
+        if !supervisor_op && !self.router.owns(&op) {
+            if !self.route_to_provider_locked(inner, key, cb, &op, params, origin, idempotency_key)
+            {
+                reject(provider::unavailable(&op));
+            }
+            return;
+        }
         inner.hosts.get_mut(key).expect("host").inflight += 1;
         let work =
             Work { app: key.app.clone(), op, params, idempotency_key, origin, grant, generation };
@@ -168,14 +176,6 @@ impl Supervisor {
                 .fetch(request)
                 .map(egress::response_json)
                 .map_err(|e| error(e.code, e.message));
-        }
-        if CLIENT_OWNED.contains(&op.as_str()) {
-            return Err(error(
-                "operation.unsupported",
-                format!(
-                    "{op} is answered by the cmux app, not the daemon, and is not wired for apps yet"
-                ),
-            ));
         }
         self.router.route(&app, &op, params, idempotency_key, origin)
     }

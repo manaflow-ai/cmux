@@ -1,3 +1,9 @@
+> RESUME NOTE (parked 2026-10-02, Rust lane of the app platform)
+> State: branch feat-cmux-next-apps-routing (pushed, no PR, no base push) on top of #17008 e7a28e4e95f. Daemon-side provider channel done: apps/provider.rs, routing in calls.rs, apps-provider-register/-result, APP-R1 errors; testbox: 43/43 supervisor tests twice, workspace clippy and fmt clean, god files ok.
+> Next: one focused security review of the provider channel; COORDINATION.md line; send the exact provider messages (provider.rs header) to the app platform lead for the Swift lane; open the PR only after #16872 and #17008 land.
+> Open runs: hosted --filter apps:: on #17008 e7a28e4e95f, run 37081571961 (result not read yet). #16872 head 72246ecb390 and #17008 head e7a28e4e95f wait for the landing window (order 16872, then 17008).
+> Later queue: build-time scopes (fold fs.* and the routed ops into scopes.json), then power assertions.
+
 # App op routing from the supervisor (app platform step 3c)
 
 Status: accepted (provider channel as written; D1 decided), Rust lane of the app platform, 2026-10-02. Stacked on #17008. Binding: OWNERSHIP-PRINCIPLES.md, app-platform.md section 13.

@@ -34,6 +34,8 @@ mod mirror;
 #[cfg(all(test, unix))]
 mod mirror_tests;
 #[cfg(unix)]
+mod provider;
+#[cfg(unix)]
 mod routing;
 #[cfg(unix)]
 mod runs;
@@ -84,6 +86,8 @@ impl AppsSlot {
                         host_binary: host::resolve_binary(),
                         host_args: Vec::new(),
                         idle_stop: std::time::Duration::from_secs(idle),
+                        provider_deadline: std::time::Duration::from_secs(30),
+                        provider_user_deadline: std::time::Duration::from_secs(600),
                     },
                     Box::new(routing::MuxRouter::new(mux)),
                     Box::new(egress::HttpFetcher),
