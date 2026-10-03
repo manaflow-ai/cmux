@@ -1,0 +1,370 @@
+{
+  "version": 1,
+  "about": "JSONC parse/edit cases shared by cmux-config (Rust) and CmuxNextSettings (Swift). Ops: parse (expect_value | expect_values | error), set and remove (expect exact text | expect_contains + expect_values | expect_value | error), key_path (expect_path).",
+  "cases": [
+    {
+      "name": "parsesCommentsAndTrailingCommas",
+      "op": "parse",
+      "source": "{\n  // Appearance of the chrome.\n  \"appearance\": {\n    \"density\": \"compact\", /* trailing block */\n  },\n  \"shortcuts\": {\n    \"bindings\": {\n      \"splitRight\": \"cmd+\\\\\", // keep this note\n    },\n  },\n  \"unknownKey\": [1, 2, 3,],\n}",
+      "expect_values": [
+        {
+          "path": [
+            "appearance",
+            "density"
+          ],
+          "value": "compact"
+        },
+        {
+          "path": [
+            "shortcuts",
+            "bindings",
+            "splitRight"
+          ],
+          "value": "cmd+\\"
+        },
+        {
+          "path": [
+            "unknownKey"
+          ],
+          "value": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "name": "stringsKeepCommentMarkers",
+      "op": "parse",
+      "source": "{\"url\": \"https://cmux.com/*not a comment*/\", \"x\": \"a // b\"}",
+      "expect_value": {
+        "url": "https://cmux.com/*not a comment*/",
+        "x": "a // b"
+      }
+    },
+    {
+      "name": "emptyDocumentIsEmptyObject",
+      "op": "parse",
+      "source": "",
+      "expect_value": {}
+    },
+    {
+      "name": "commentOnlyDocumentIsEmptyObject",
+      "op": "parse",
+      "source": "// nothing yet\n",
+      "expect_value": {}
+    },
+    {
+      "name": "bomIsSkipped",
+      "op": "parse",
+      "source": "﻿{\"a\": 1}",
+      "expect_value": {
+        "a": 1
+      }
+    },
+    {
+      "name": "unterminatedCommentFails",
+      "op": "parse",
+      "source": "{\"a\": 1 /* open",
+      "error": "unterminated_comment"
+    },
+    {
+      "name": "unterminatedStringFails",
+      "op": "parse",
+      "source": "{\"a\": \"open",
+      "error": "unterminated_string"
+    },
+    {
+      "name": "replacingAValueKeepsEverythingElse",
+      "op": "set",
+      "source": "{\n  // Appearance of the chrome.\n  \"appearance\": {\n    \"density\": \"compact\", /* trailing block */\n  },\n  \"shortcuts\": {\n    \"bindings\": {\n      \"splitRight\": \"cmd+\\\\\", // keep this note\n    },\n  },\n  \"unknownKey\": [1, 2, 3,],\n}",
+      "path": [
+        "appearance",
+        "density"
+      ],
+      "value": "comfortable",
+      "expect": "{\n  // Appearance of the chrome.\n  \"appearance\": {\n    \"density\": \"comfortable\", /* trailing block */\n  },\n  \"shortcuts\": {\n    \"bindings\": {\n      \"splitRight\": \"cmd+\\\\\", // keep this note\n    },\n  },\n  \"unknownKey\": [1, 2, 3,],\n}"
+    },
+    {
+      "name": "insertingKeepsCommentsAndTrailingCommaStyle",
+      "op": "set",
+      "source": "{\n  // Appearance of the chrome.\n  \"appearance\": {\n    \"density\": \"compact\", /* trailing block */\n  },\n  \"shortcuts\": {\n    \"bindings\": {\n      \"splitRight\": \"cmd+\\\\\", // keep this note\n    },\n  },\n  \"unknownKey\": [1, 2, 3,],\n}",
+      "path": [
+        "shortcuts",
+        "bindings",
+        "tabGroup.create"
+      ],
+      "value": "cmd+shift+g",
+      "expect_contains": [
+        "// keep this note",
+        "// Appearance of the chrome.",
+        "\"tabGroup.create\": \"cmd+shift+g\","
+      ],
+      "expect_values": [
+        {
+          "path": [
+            "shortcuts",
+            "bindings",
+            "tabGroup.create"
+          ],
+          "value": "cmd+shift+g"
+        },
+        {
+          "path": [
+            "shortcuts",
+            "bindings",
+            "splitRight"
+          ],
+          "value": "cmd+\\"
+        },
+        {
+          "path": [
+            "unknownKey"
+          ],
+          "value": [
+            1,
+            2,
+            3
+          ]
+        }
+      ]
+    },
+    {
+      "name": "insertingAfterLastMemberWithSameLineComment",
+      "op": "set",
+      "source": "{\n  \"a\": 1 // note\n}\n",
+      "path": [
+        "b"
+      ],
+      "value": 2,
+      "expect": "{\n  \"a\": 1, // note\n  \"b\": 2\n}\n"
+    },
+    {
+      "name": "insertingAfterTrailingCommaKeepsItsComment",
+      "op": "set",
+      "source": "{\n  \"a\": 1, // keep\n}\n",
+      "path": [
+        "b"
+      ],
+      "value": 2,
+      "expect": "{\n  \"a\": 1, // keep\n  \"b\": 2,\n}\n"
+    },
+    {
+      "name": "creatingNestedObjects",
+      "op": "set",
+      "source": "{\n  \"app\": {}\n}\n",
+      "path": [
+        "appearance",
+        "metrics",
+        "sidebarWidth"
+      ],
+      "value": 240,
+      "expect_contains": [
+        "\n  \"appearance\": {\n    \"metrics\": {\n      \"sidebarWidth\": 240\n    }\n  }"
+      ],
+      "expect_values": [
+        {
+          "path": [
+            "appearance",
+            "metrics",
+            "sidebarWidth"
+          ],
+          "value": 240
+        },
+        {
+          "path": [
+            "app"
+          ],
+          "value": {}
+        }
+      ]
+    },
+    {
+      "name": "settingIntoEmptyObject",
+      "op": "set",
+      "source": "{}",
+      "path": [
+        "x"
+      ],
+      "value": true,
+      "expect_value": {
+        "x": true
+      }
+    },
+    {
+      "name": "settingIntoEmptyFile",
+      "op": "set",
+      "source": "",
+      "path": [
+        "app",
+        "appearance"
+      ],
+      "value": "dark",
+      "expect": "{\n  \"app\": {\n    \"appearance\": \"dark\"\n  }\n}\n"
+    },
+    {
+      "name": "settingAfterCommentOnlyFile",
+      "op": "set",
+      "source": "// mine",
+      "path": [
+        "a"
+      ],
+      "value": 1,
+      "expect": "// mine\n{\n  \"a\": 1\n}\n"
+    },
+    {
+      "name": "replacingAScalarWithAnObjectPath",
+      "op": "set",
+      "source": "{\"a\": \"x\"}",
+      "path": [
+        "a",
+        "b"
+      ],
+      "value": 1,
+      "expect_value": {
+        "a": {
+          "b": 1
+        }
+      }
+    },
+    {
+      "name": "replacingWithAnObjectIndentsIt",
+      "op": "set",
+      "source": "{\n  \"a\": 1\n}\n",
+      "path": [
+        "a"
+      ],
+      "value": {
+        "y": [
+          1,
+          0.5
+        ],
+        "x": "q\""
+      },
+      "expect": "{\n  \"a\": {\n    \"x\": \"q\\\"\",\n    \"y\": [\n      1,\n      0.5\n    ]\n  }\n}\n"
+    },
+    {
+      "name": "removingAMiddleMember",
+      "op": "remove",
+      "source": "{\"a\":1,\"b\":2,\"c\":3}",
+      "path": [
+        "b"
+      ],
+      "expect": "{\"a\":1,\"c\":3}"
+    },
+    {
+      "name": "removingTheLastMember",
+      "op": "remove",
+      "source": "{\"a\":1,\"b\":2,\"c\":3}",
+      "path": [
+        "c"
+      ],
+      "expect": "{\"a\":1,\"b\":2}"
+    },
+    {
+      "name": "removingTheOnlyMember",
+      "op": "remove",
+      "source": "{\"a\":1}",
+      "path": [
+        "a"
+      ],
+      "expect": "{}"
+    },
+    {
+      "name": "removingKeepsTheCommentAbove",
+      "op": "remove",
+      "source": "{\n  \"a\": 1,\n  // about b\n  \"b\": 2\n}\n",
+      "path": [
+        "b"
+      ],
+      "expect": "{\n  \"a\": 1\n  // about b\n}\n"
+    },
+    {
+      "name": "removingAMissingKeyIsANoOp",
+      "op": "remove",
+      "source": "{\n  \"a\": 1,\n  // about b\n  \"b\": 2\n}\n",
+      "path": [
+        "missing"
+      ],
+      "expect": "{\n  \"a\": 1,\n  // about b\n  \"b\": 2\n}\n"
+    },
+    {
+      "name": "removingANestedMemberLeavesItsObject",
+      "op": "remove",
+      "source": "{\n  // Appearance of the chrome.\n  \"appearance\": {\n    \"density\": \"compact\", /* trailing block */\n  },\n  \"shortcuts\": {\n    \"bindings\": {\n      \"splitRight\": \"cmd+\\\\\", // keep this note\n    },\n  },\n  \"unknownKey\": [1, 2, 3,],\n}",
+      "path": [
+        "shortcuts",
+        "bindings",
+        "splitRight"
+      ],
+      "expect_values": [
+        {
+          "path": [
+            "shortcuts",
+            "bindings"
+          ],
+          "value": {}
+        }
+      ]
+    },
+    {
+      "name": "rejectsNonObjectRoot",
+      "op": "set",
+      "source": "[1]",
+      "path": [
+        "a"
+      ],
+      "value": 1,
+      "error": "root_is_not_object"
+    },
+    {
+      "name": "keyPathPlain",
+      "op": "key_path",
+      "dotted": "appearance.metrics.sidebarWidth",
+      "expect_path": [
+        "appearance",
+        "metrics",
+        "sidebarWidth"
+      ]
+    },
+    {
+      "name": "keyPathBindingKeepsActionIdWhole",
+      "op": "key_path",
+      "dotted": "shortcuts.bindings.tabGroup.create",
+      "expect_path": [
+        "shortcuts",
+        "bindings",
+        "tabGroup.create"
+      ]
+    },
+    {
+      "name": "keyPathDirectShortcut",
+      "op": "key_path",
+      "dotted": "shortcuts.tabGroup.create",
+      "expect_path": [
+        "shortcuts",
+        "tabGroup.create"
+      ]
+    },
+    {
+      "name": "keyPathReservedShortcutKey",
+      "op": "key_path",
+      "dotted": "shortcuts.showModifierHoldHints",
+      "expect_path": [
+        "shortcuts",
+        "showModifierHoldHints"
+      ]
+    },
+    {
+      "name": "keyPathWhen",
+      "op": "key_path",
+      "dotted": "shortcuts.when.splitRight",
+      "expect_path": [
+        "shortcuts",
+        "when",
+        "splitRight"
+      ]
+    }
+  ]
+}
