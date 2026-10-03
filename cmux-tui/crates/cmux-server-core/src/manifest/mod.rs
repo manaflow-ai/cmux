@@ -35,6 +35,14 @@ use crate::layout::Layout;
 use crate::platform::HostPath;
 
 pub const SCHEMA: u32 = 1;
+
+/// The version scale of `min_cmux_version`: the release version of the
+/// `cmux` binary, which is the cmux-tui crate's version (the binary built
+/// as `cmux` for the app bundle and as a store package's `bin/cmux`). The
+/// `cmux server` mount passes that crate's `CARGO_PKG_VERSION`; the
+/// standalone `cmux-server` binary reports this constant, and a cmux-tui
+/// test keeps the two equal. Nothing stamps a version at build time.
+pub const CMUX_VERSION: &str = "0.1.0";
 pub const SIGNATURE_LEN: usize = 64;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

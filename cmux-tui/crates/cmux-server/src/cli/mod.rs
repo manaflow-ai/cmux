@@ -56,7 +56,7 @@ impl Context<'_> {
 
 /// The version this binary reports to the manifest check.
 pub fn running_version() -> &'static str {
-    option_env!("CMUX_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
+    cmux_server_core::manifest::CMUX_VERSION
 }
 
 /// Entry point. `args` excludes the program name and may start with
