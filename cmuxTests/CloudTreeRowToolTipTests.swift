@@ -129,7 +129,7 @@ struct CloudTreeRowToolTipTests {
         #expect(toolTip.contains(":1"))
     }
 
-    @Test("A port row uses its process detail without suggesting a directly reachable private URL")
+    @Test("A titled port row uses its process name for hover text")
     func portRowHasToolTip() throws {
         let node = Self.portNode()
         let cell = Self.cell(presence: [])
@@ -287,7 +287,7 @@ struct CloudTreeRowToolTipTests {
         #expect(cell.accessibilityLabel()?.isEmpty == false)
     }
 
-    @Test("A port without a process name stays quiet while remaining labelled")
+    @Test("A port without a process name has no hover text and keeps its port label")
     func barePortRowExplainsOpenAction() {
         let cell = Self.cell(presence: [])
         cell.configure(

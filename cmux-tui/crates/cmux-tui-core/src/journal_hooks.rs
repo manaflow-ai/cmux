@@ -53,8 +53,6 @@ use crate::{JournalHookManifest, JournalSensitivity, Mux};
 const HOOK_SCAN_PAGE_SIZE: usize = 256;
 const MIN_DELIVERY_WORKERS: usize = 4;
 const MAX_DELIVERY_WORKERS: usize = 32;
-const IDLE_WAIT: Duration = Duration::from_secs(30);
-const ACTIVE_WAIT: Duration = Duration::from_secs(1);
 pub(crate) const SHUTDOWN_WAIT: Duration = Duration::from_secs(2);
 
 #[derive(Default)]
@@ -429,6 +427,12 @@ fn run_dispatcher(mux: Weak<Mux>, claim: &mut DispatcherClaim, runtime: Arc<Jour
     let mut completed = Vec::<DeliveryCompletion>::new();
     let mut catch_up_reader = None;
     let mut epoch = 0;
+    // Spacing for retries after a registry failure; the dispatcher otherwise
+    // waits for a journal commit, a worker completion (workers wake the
+    // journal), shutdown, or the next scheduled retry. It used to wake every
+    // second while any hook was enabled.
+    let mut failure_backoff =
+        crate::backoff::Backoff::new(Duration::from_millis(100), Duration::from_secs(5));
 
     loop {
         let Some(mux) = mux.upgrade() else { return };
@@ -456,7 +460,7 @@ fn run_dispatcher(mux: Weak<Mux>, claim: &mut DispatcherClaim, runtime: Arc<Jour
             } else {
                 let journal = mux.shared_journal_handle();
                 drop(mux);
-                epoch = journal.wait(epoch, ACTIVE_WAIT);
+                epoch = journal.wait(epoch, failure_backoff.next_delay());
                 continue;
             }
         }
@@ -466,7 +470,7 @@ fn run_dispatcher(mux: Weak<Mux>, claim: &mut DispatcherClaim, runtime: Arc<Jour
             Err(_) => {
                 let journal = mux.shared_journal_handle();
                 drop(mux);
-                epoch = journal.wait(epoch, ACTIVE_WAIT);
+                epoch = journal.wait(epoch, failure_backoff.next_delay());
                 continue;
             }
         };
@@ -490,12 +494,15 @@ fn run_dispatcher(mux: Weak<Mux>, claim: &mut DispatcherClaim, runtime: Arc<Jour
             continue;
         }
 
+        let mut start_failed = false;
         if active.len() < workers.capacity {
             let capacity = workers.capacity - active.len();
             // The query includes executing rows so a replacement dispatcher
             // can retry them. Ask for the complete worker window, otherwise
             // active rows can consume the limit and leave idle workers empty.
-            if let Ok(deliveries) = mux.pending_journal_hook_deliveries(workers.capacity) {
+            let pending = mux.pending_journal_hook_deliveries(workers.capacity);
+            start_failed |= pending.is_err();
+            if let Ok(deliveries) = pending {
                 let mut per_hook = HashMap::<HookVersion, usize>::new();
                 for key in &active {
                     *per_hook.entry(key.hook.clone()).or_default() += 1;
@@ -523,7 +530,9 @@ fn run_dispatcher(mux: Weak<Mux>, claim: &mut DispatcherClaim, runtime: Arc<Jour
                 if !selected.is_empty() {
                     let deliveries =
                         selected.iter().map(|(_, delivery)| delivery.clone()).collect::<Vec<_>>();
-                    if let Ok(attempts) = mux.start_journal_hook_deliveries(&deliveries) {
+                    let started = mux.start_journal_hook_deliveries(&deliveries);
+                    start_failed |= started.is_err();
+                    if let Ok(attempts) = started {
                         for ((key, delivery), attempt) in selected.into_iter().zip(attempts) {
                             active.insert(key.clone());
                             if runtime.is_cancelled() || mux.daemon_shutdown_requested() {
@@ -557,10 +566,22 @@ fn run_dispatcher(mux: Weak<Mux>, claim: &mut DispatcherClaim, runtime: Arc<Jour
             }
         }
 
-        let wait = if hooks.is_empty() && active.is_empty() { IDLE_WAIT } else { ACTIVE_WAIT };
+        // A one-shot deadline for the next scheduled retry, or none. A retry
+        // that is already due but waits for a worker or a per-hook slot
+        // starts when a completion wakes the journal, so a past deadline
+        // must not become an immediate re-loop.
+        let now = Instant::now();
+        if !start_failed {
+            failure_backoff.reset();
+        }
+        let deadline = match mux.next_journal_hook_attempt_deadline() {
+            _ if start_failed => Some(now + failure_backoff.next_delay()),
+            Ok(deadline) => deadline.filter(|deadline| *deadline > now),
+            Err(_) => Some(now + failure_backoff.next_delay()),
+        };
         let journal = mux.shared_journal_handle();
         drop(mux);
-        epoch = journal.wait(epoch, wait);
+        epoch = journal.wait_until(epoch, deadline);
     }
 }
 

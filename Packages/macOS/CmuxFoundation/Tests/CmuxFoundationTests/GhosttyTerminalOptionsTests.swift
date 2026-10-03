@@ -22,6 +22,7 @@ struct GhosttyTerminalOptionsTests {
         #expect(!options.backgroundBlurEnabled)
         #expect(options.optionAsAlt == .automatic)
         #expect(options.scrollbackLimitBytes == 50_000_000)
+        #expect(options.middleClickPaste)
     }
 
     @Test("A later file overrides an earlier one, and invalid values are skipped")
@@ -77,6 +78,18 @@ struct GhosttyTerminalOptionsTests {
         #expect(blur("macos-glass-regular"))
     }
 
+    @Test("middle-click-action reads as whether a middle click pastes")
+    func middleClickActionFolding() {
+        func pastes(_ values: [String]) -> Bool {
+            GhosttyTerminalOptions(directives: ["middle-click-action": values]).middleClickPaste
+        }
+        #expect(!pastes(["ignore"]))
+        #expect(pastes(["ignore", "primary-paste"]))
+        // An unknown value leaves the earlier one in place, and an empty one resets to pasting.
+        #expect(!pastes(["ignore", "paste"]))
+        #expect(pastes(["ignore", ""]))
+    }
+
     @Test("Each change writes its key with Ghostty's spelling")
     func changeConfigValues() {
         #expect(GhosttyTerminalOptionChange.fontSize(14.5).key.rawValue == "font-size")
@@ -92,6 +105,9 @@ struct GhosttyTerminalOptionsTests {
         #expect(GhosttyTerminalOptionChange.optionAsAlt(.both).configValues == ["true"])
         #expect(GhosttyTerminalOptionChange.optionAsAlt(.automatic).configValues == [""])
         #expect(GhosttyTerminalOptionChange.scrollbackLimitBytes(25_000_000).configValues == ["25000000"])
+        #expect(GhosttyTerminalOptionChange.middleClickPaste(false).key.rawValue == "middle-click-action")
+        #expect(GhosttyTerminalOptionChange.middleClickPaste(false).configValues == ["ignore"])
+        #expect(GhosttyTerminalOptionChange.middleClickPaste(true).configValues == ["primary-paste"])
     }
 
     @Test("A font change clears inherited families before setting its own")
@@ -147,6 +163,7 @@ struct GhosttyTerminalOptionsTests {
         font-family = Menlo
         font-family = Monaco
         macos-option-as-alt = left
+        middle-click-action = primary-paste
         """
         let changes: [GhosttyTerminalOptionChange] = [
             .fontFamilies(["SF Mono"]),
@@ -159,6 +176,7 @@ struct GhosttyTerminalOptionsTests {
             .backgroundBlurEnabled(true),
             .optionAsAlt(.automatic),
             .scrollbackLimitBytes(1_000_000),
+            .middleClickPaste(false),
         ]
         var cmuxConfig = "theme = Dracula\n"
         var expected = GhosttyTerminalOptions.defaults
@@ -171,6 +189,7 @@ struct GhosttyTerminalOptionsTests {
         #expect(options == expected)
         #expect(options.fontFamily == "SF Mono")
         #expect(options.optionAsAlt == .automatic)
+        #expect(!options.middleClickPaste)
     }
 
     @Test("A multi-line write replaces every earlier assignment in place")

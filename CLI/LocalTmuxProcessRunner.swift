@@ -13,18 +13,29 @@ struct LocalTmuxProcessResult: Sendable {
 }
 
 /// Runs short-lived tmux control commands without inheriting cmux socket secrets.
+/// local-zellij runs zellij through it with its own failure messages.
 struct LocalTmuxProcessRunner {
     let executablePath: String
     let environment: [String: String]
+    private let runFailedMessage: () -> String
+    private let timedOutMessage: () -> String
 
     private let maxCapturedOutputBytes = 8 * 1024 * 1024
     private let commandTimeout: TimeInterval = 30
 
     init(
         executablePath: String,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        runFailedMessage: @escaping () -> String = {
+            String(localized: "cli.localTmux.error.runFailed", defaultValue: "local-tmux could not run tmux")
+        },
+        timedOutMessage: @escaping () -> String = {
+            String(localized: "cli.localTmux.error.timedOut", defaultValue: "local-tmux command timed out")
+        }
     ) {
         self.executablePath = executablePath
+        self.runFailedMessage = runFailedMessage
+        self.timedOutMessage = timedOutMessage
         var sanitized = environment
         sanitized.removeValue(forKey: "TMUX")
         sanitized.removeValue(forKey: "CMUX_SOCKET_PASSWORD")
@@ -52,8 +63,7 @@ struct LocalTmuxProcessRunner {
         do {
             try process.run()
         } catch {
-            let message = String(localized: "cli.localTmux.error.runFailed", defaultValue: "local-tmux could not run tmux")
-            throw CLIError(message: message, exitCode: 127)
+            throw CLIError(message: runFailedMessage(), exitCode: 127)
         }
 
         let stdoutFileHandle = stdoutPipe.fileHandleForReading
@@ -164,7 +174,7 @@ struct LocalTmuxProcessRunner {
             )
         }
         if didTimeout {
-            let timeoutMessage = String(localized: "cli.localTmux.error.timedOut", defaultValue: "local-tmux command timed out")
+            let timeoutMessage = timedOutMessage()
             stderrData.append(contentsOf: Data("\n\(timeoutMessage)\n".utf8))
         }
 

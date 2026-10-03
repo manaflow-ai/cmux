@@ -5025,6 +5025,17 @@ struct CMUXCLI {
                 return
             }
         }
+        if command == "local-zellij",
+           try LocalZellijInvocation.parse(commandArgs).canRunWithoutCmux {
+            try runLocalZellijCommand(
+                commandArgs: commandArgs,
+                client: nil,
+                jsonOutput: jsonOutput,
+                idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg),
+                windowOverride: windowId
+            )
+            return
+        }
 
         if command == "help" { print(helpOutput(commandArgs: commandArgs)); return }; if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "socket-status" { try runSocketControlStatusCommand(commandArgs: commandArgs, jsonOutput: jsonOutput, environment: processEnv); return }
@@ -5404,6 +5415,9 @@ struct CMUXCLI {
             commandArgs: commandArgs
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
+        if ["notify", "list-notifications", "dismiss-notification", "mark-notification-read", "open-notification", "clear-notifications"].contains(command) {
+            try validateNotificationCommandArguments(command: command, args: commandArgs)
+        }
         try prepareStandardInputBeforeSocket(command: command, commandArgs: commandArgs)
         let isAuthCommand = ["auth", "login", "logout"].contains(command)
         let authUsage = String(
@@ -7051,6 +7065,14 @@ struct CMUXCLI {
             )
         case "local-tmux", "tmux":
             try runLocalTmuxCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
+        case "local-zellij":
+            try runLocalZellijCommand(
                 commandArgs: commandArgs,
                 client: client,
                 jsonOutput: jsonOutput,
@@ -20017,6 +20039,8 @@ struct CMUXCLI {
             return "\(help)\n\n\(newWindowHelp)\n\n\(Self.openFocusFlagsHelp)"
         case "local-tmux", "tmux":
             return LocalTmuxInvocation.usage
+        case "local-zellij":
+            return LocalZellijInvocation.usage
         case "ssh-session-list":
             return """
             Usage: cmux ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
