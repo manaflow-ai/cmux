@@ -2,7 +2,8 @@
 // main sidebar; agent history (the pane's project-grouped session list) is a layer opened from the
 // rail, and opening a row there jumps to the tab already showing it instead of opening a copy.
 // Dots at the bottom switch spaces, and links from a terminal open in the mini window
-// until Cmd-O promotes them into the workspace.
+// until Cmd-O promotes them into the workspace. Rows are minimal unless `sidebar.rowDetail` (the
+// sliders button, or `?rowDetail=everything&rowDetailItems=agents,-branch`) asks for more.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AcpmuxApp } from "../App";
 import { mockSessions, sessionSummary } from "../mockFixture";
@@ -17,6 +18,7 @@ import {
   HistoryIcon,
   PlusIcon,
   PromoteIcon,
+  SlidersIcon,
   StackIcon,
   TerminalIcon,
 } from "./icons";
@@ -35,6 +37,24 @@ import {
   type Space,
   type Spaces,
 } from "./spaces";
+import { RowAge } from "./RowAge";
+import { RowAgents } from "./RowAgents";
+import { RowBranch } from "./RowBranch";
+import { RowDetailSettings } from "./RowDetailSettings";
+import { RowPreview } from "./RowPreview";
+import { RowPullRequest } from "./RowPullRequest";
+import { StatusHeader } from "./StatusHeader";
+import {
+  groupByStatus,
+  ROW_DETAIL_ITEMS,
+  rowDetailItems,
+  rowDetailLevel,
+  workspaceDetail,
+  type RowDetailItem,
+  type RowDetailItems,
+  type RowDetailLevel,
+  type WorkspaceDetail,
+} from "./rowDetail";
 import {
   newTerminalWorkspace,
   openSessionIds,
@@ -82,6 +102,15 @@ const spaceFromURL = switchSpace(seedSpaces, params.get("space") ?? seedSpaces.a
 const initialSpaces = terminalStyle
   ? withStack(spaceFromURL, terminalFirst(activeSpace(spaceFromURL).stack))
   : spaceFromURL;
+/** `sidebar.rowDetail` and `sidebar.rowDetailItems`, seeded from `?rowDetail=everything&rowDetailItems=agents,-branch`. */
+const seedLevel = rowDetailLevel(params.get("rowDetail"));
+const seedOverrides: Partial<RowDetailItems> = Object.fromEntries(
+  (params.get("rowDetailItems") ?? "")
+    .split(",")
+    .filter(Boolean)
+    .map((token) => [token.replace(/^-/, ""), !token.startsWith("-")])
+    .filter(([item]) => ROW_DETAIL_ITEMS.includes(item as RowDetailItem)),
+);
 
 export function WorkspaceShell() {
   const [spaces, setSpaces] = useState<Spaces>(initialSpaces);
@@ -97,6 +126,14 @@ export function WorkspaceShell() {
   const active = stack.workspaces.find((workspace) => workspace.id === stack.activeId)!;
   const activeTab = active.tabs.find((tab) => tab.id === active.activeTabId)!;
   const openIds = useMemo(() => new Set(spaces.spaces.flatMap((each) => [...openSessionIds(each.stack)])), [spaces]);
+  const [level, setLevel] = useState<RowDetailLevel>(seedLevel);
+  const [overrides, setOverrides] = useState(seedOverrides);
+  const [settingsOpen, setSettingsOpen] = useState(() => params.has("rowDetailSettings"));
+  const items = rowDetailItems(level, overrides, terminalStyle ? "terminal" : undefined);
+  const details = useMemo(() => {
+    const now = Date.now();
+    return new Map(stack.workspaces.map((workspace) => [workspace.id, workspaceDetail(workspace, historyById, now)]));
+  }, [stack]);
 
   const showSpaces = useCallback((next: Spaces) => {
     setSpaces(next);
@@ -159,6 +196,25 @@ export function WorkspaceShell() {
     return () => document.removeEventListener("keydown", onKey);
   }, [historyOpen]);
 
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const onKey = (event: KeyboardEvent) => event.key === "Escape" && setSettingsOpen(false);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [settingsOpen]);
+
+  const row = (workspace: Workspace) => (
+    <WorkspaceRow
+      key={workspace.id}
+      workspace={workspace}
+      active={workspace.id === stack.activeId}
+      flash={workspace.id === flash}
+      detail={details.get(workspace.id)!}
+      items={items}
+      onSelect={(tabId) => show(selectTab(stack, workspace.id, tabId))}
+    />
+  );
+
   return (
     <div
       className="proto-window"
@@ -195,6 +251,17 @@ export function WorkspaceShell() {
         >
           <PlusIcon />
         </button>
+        <button
+          type="button"
+          className={`proto-rail-button proto-rail-settings${settingsOpen ? " is-active" : ""}`}
+          aria-label="Row detail"
+          aria-expanded={settingsOpen}
+          aria-controls="proto-row-detail"
+          title="Row detail"
+          onClick={() => setSettingsOpen((open) => !open)}
+        >
+          <SlidersIcon />
+        </button>
       </nav>
 
       <nav className="proto-stack" aria-label="Workspaces">
@@ -202,19 +269,36 @@ export function WorkspaceShell() {
           <span>{space.name}</span>
           <ProfileChip id={space.browserProfile} />
         </div>
-        <ul key={space.id} className="proto-stack-list">
-          {stack.workspaces.map((workspace) => (
-            <WorkspaceRow
-              key={workspace.id}
-              workspace={workspace}
-              active={workspace.id === stack.activeId}
-              flash={workspace.id === flash}
-              onSelect={(tabId) => show(selectTab(stack, workspace.id, tabId))}
-            />
-          ))}
-        </ul>
+        {items.groupByStatus ? (
+          // Grouped by each workspace's most urgent agent, in this space's stack order.
+          <div key={space.id} className="proto-stack-list">
+            {groupByStatus(stack.workspaces, (workspace) => details.get(workspace.id)!.status).map((group) => (
+              <section key={group.status} className="proto-stack-group">
+                <StatusHeader group={group} />
+                <ul>{group.items.map(row)}</ul>
+              </section>
+            ))}
+          </div>
+        ) : (
+          <ul key={space.id} className="proto-stack-list">
+            {stack.workspaces.map(row)}
+          </ul>
+        )}
         <SpaceDots spaces={spaces} onSelect={(id) => showSpaces(switchSpace(spaces, id))} />
       </nav>
+
+      {settingsOpen && (
+        <RowDetailSettings
+          level={level}
+          items={items}
+          locked={terminalStyle}
+          onLevel={(next) => {
+            setLevel(next);
+            setOverrides({});
+          }}
+          onItem={(item, on) => setOverrides((current) => ({ ...current, [item]: on }))}
+        />
+      )}
 
       {historyOpen && (
         <>
@@ -297,33 +381,64 @@ function WorkspaceRow({
   workspace,
   active,
   flash,
+  detail,
+  items,
   onSelect,
 }: {
   workspace: Workspace;
   active: boolean;
   flash: boolean;
+  detail: WorkspaceDetail;
+  items: RowDetailItems;
   onSelect: (tabId: string) => void;
 }) {
   const lead = workspaceLead(workspace);
   const KindIcon = KIND_ICONS[lead.kind];
   const session = lead.sessionId ? historyById.get(lead.sessionId) : undefined;
   const mark = session && sessionMark(session, active);
+  const preview = items.preview ? detail.preview : undefined;
+  const branch = items.branch ? detail.branch : undefined;
+  const pullRequest = items.pullRequest ? detail.pullRequest : undefined;
+  const agents = items.agents && detail.agents.length > 0 ? detail.agents : undefined;
+  const meta = branch || pullRequest || agents;
+  const trailing =
+    mark && mark !== "unread" ? (
+      <span className={`acpmux-session-mark acpmux-session-mark-${mark}`} aria-label={mark}>
+        {MARKS[mark]}
+      </span>
+    ) : (
+      !active && workspace.tabs.length > 1 && <span className="proto-workspace-count">{workspace.tabs.length}</span>
+    );
   return (
     <li>
       <button
         type="button"
-        className={`proto-workspace${active && workspace.activeTabId === lead.id ? " is-active" : active ? " is-current" : ""}${flash ? " is-flash" : ""}${lead.kind === "agent" ? " is-agent" : ""}`}
+        className={`proto-workspace${active && workspace.activeTabId === lead.id ? " is-active" : active ? " is-current" : ""}${flash ? " is-flash" : ""}${lead.kind === "agent" ? " is-agent" : ""}${preview || meta ? " is-detailed" : ""}`}
         aria-current={active ? "true" : undefined}
         onClick={() => onSelect(lead.id)}
       >
         <KindIcon />
-        <span className="proto-workspace-title">{lead.title}</span>
-        {mark && mark !== "unread" ? (
-          <span className={`acpmux-session-mark acpmux-session-mark-${mark}`} aria-label={mark}>
-            {MARKS[mark]}
+        {preview || meta ? (
+          <span className="proto-workspace-body">
+            <span className="proto-workspace-line">
+              <span className="proto-workspace-title">{lead.title}</span>
+              {preview && <RowAge age={preview.age} />}
+              {trailing}
+            </span>
+            {preview && <RowPreview text={preview.text} />}
+            {meta && (
+              <span className="proto-row-meta">
+                {branch && <RowBranch branch={branch} />}
+                {pullRequest && <RowPullRequest pullRequest={pullRequest} />}
+                {agents && <RowAgents agents={agents} />}
+              </span>
+            )}
           </span>
         ) : (
-          !active && workspace.tabs.length > 1 && <span className="proto-workspace-count">{workspace.tabs.length}</span>
+          <>
+            <span className="proto-workspace-title">{lead.title}</span>
+            {trailing}
+          </>
         )}
       </button>
       {active && workspace.tabs.length > 1 && (

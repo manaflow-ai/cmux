@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { AcpmuxSnapshot } from "./model";
 import { ComposerContext } from "./ComposerContext";
@@ -51,6 +51,8 @@ type Props = {
   leading?: React.ReactNode;
   /// Buttons before Send, such as the dictation mic.
   accessory?: React.ReactNode;
+  /// Also receives the prompt field's handle, for dictation, which writes into it as typing does.
+  prompt?: React.RefObject<MarkdownFieldHandle | null>;
   /// Opens the host's file and image picker; the + menu offers it only when set.
   onAttach?(): void;
   /// Searches the session's files; the + menu offers Search files only when set.
@@ -77,6 +79,7 @@ export function Composer({
   draft,
   leading,
   accessory,
+  prompt,
   onAttach,
   searchFiles,
   onProject,
@@ -93,6 +96,13 @@ export function Composer({
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState<string | undefined>();
   const field = useRef<MarkdownFieldHandle>(null);
+  const fieldRef = useCallback(
+    (handle: MarkdownFieldHandle | null) => {
+      field.current = handle;
+      if (prompt) prompt.current = handle;
+    },
+    [prompt],
+  );
   const pendingCaret = useRef<number | undefined>(undefined);
   // Send becomes Stop in place once the turn starts; a second click of a
   // double-click, or a click right after Enter, must not cancel the new turn.
@@ -321,7 +331,7 @@ export function Composer({
         )}
         {/* An editable prompt that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
         <MarkdownField
-          ref={field}
+          ref={fieldRef}
           className="acpmux-composer-prompt"
           value={text}
           placeholder={COMPOSER_LABELS.placeholder}

@@ -45,6 +45,33 @@
   background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 74%, var(--agent-text));
 }
 
+/* Dictation: the mic steps like the bar's other quiet controls; while listening its red deepens. The notice's buttons step too. */
+.acpmux-mic:hover {
+  background: var(--acpmux-composer-hover);
+  color: var(--agent-text);
+}
+.acpmux-mic:active {
+  background: var(--acpmux-composer-press);
+}
+.acpmux-mic[data-state="listening"]:hover,
+.acpmux-mic[data-state="finalizing"]:hover {
+  background: color-mix(in srgb, var(--agent-danger) 24%, transparent);
+  color: var(--agent-danger);
+}
+.acpmux-mic[data-state="listening"]:active,
+.acpmux-mic[data-state="finalizing"]:active {
+  background: color-mix(in srgb, var(--agent-danger) 32%, transparent);
+}
+.acpmux-dictation-settings:hover,
+.acpmux-dictation-dismiss:hover {
+  background: var(--acpmux-menu-press);
+  color: var(--agent-text);
+}
+.acpmux-dictation-settings:active,
+.acpmux-dictation-dismiss:active {
+  background: color-mix(in srgb, var(--agent-text) 26%, var(--acpmux-base));
+}
+
 /* Menu rows follow the pointer through their active row (the keyboard highlight); a press steps further. */
 .acpmux-menu-item:active,
 .acpmux-slash-row:active {
@@ -73,6 +100,13 @@
   }
   .acpmux-send {
     transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
+  }
+  .acpmux-mic,
+  .acpmux-dictation-settings,
+  .acpmux-dictation-dismiss {
+    transition:
+      background-color var(--agent-motion-hover) var(--agent-ease-out),
+      color var(--agent-motion-hover) var(--agent-ease-out);
   }
   .acpmux-menu-item,
   .acpmux-slash-row,

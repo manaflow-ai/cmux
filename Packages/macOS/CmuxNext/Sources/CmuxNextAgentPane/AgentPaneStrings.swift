@@ -15,6 +15,11 @@ extension AgentPaneModel {
     static var openFileFailedMessage: String {
         String(localized: "agentPane.error.openFile", defaultValue: "The file could not be opened.", bundle: .module)
     }
+
+    /// A git read of the changes view failed or has no session host.
+    static var gitFailedMessage: String {
+        String(localized: "agentPane.error.git", defaultValue: "The changes could not be read.", bundle: .module)
+    }
 }
 
 extension AgentPaneView {

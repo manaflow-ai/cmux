@@ -26,6 +26,22 @@
 .acpmux-composer-plus .acpmux-picker-button{justify-content:center;width:32px;padding:0;color:var(--agent-muted)}
 .acpmux-composer-plus .acpmux-picker-button:hover{color:var(--agent-text)}
 .acpmux-composer-actions{flex:none;display:flex;align-items:center;gap:4px;margin-left:auto}
+/* Dictation (DictationButton, DictationNotice): the mic before Send, as quiet as the bar's other controls; while listening it
+   takes the theme's red (--agent-danger, ANSI 1) and shows the input level in the same circle. Hover and press are in composerStates.css. */
+.acpmux-mic{flex:none;display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted);cursor:default}
+.acpmux-mic:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
+.acpmux-mic[data-state=starting]{color:var(--agent-text)}
+.acpmux-mic[data-state=listening],.acpmux-mic[data-state=finalizing]{color:var(--agent-danger);background:color-mix(in srgb,var(--agent-danger) 16%,transparent)}
+.acpmux-mic-meter{display:flex;align-items:center;gap:2px;height:18px}
+.acpmux-mic-meter span{width:2px;height:18px;border-radius:1px;background:currentColor;transform-origin:center}
+.acpmux-mic[data-state=finalizing] .acpmux-mic-meter{opacity:.55}
+@keyframes acpmux-mic-wait{50%{opacity:.45}}
+@media (prefers-reduced-motion:no-preference){.acpmux-mic[data-state=starting]{animation:acpmux-mic-wait calc(var(--agent-motion-in) * 10) var(--agent-ease-out) infinite}.acpmux-mic-meter span{transition:transform var(--agent-motion-hover) var(--agent-ease-out)}}
+.acpmux-dictation-notice{display:flex;align-items:center;gap:8px;margin:0 max(16px,calc((100% - 736px)/2)) 8px;padding:6px 6px 6px 12px;border-radius:12px;background:var(--acpmux-composer-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge);color:var(--agent-text);font-size:12px;line-height:18px}
+.acpmux-dictation-notice span{flex:1}
+.acpmux-dictation-settings,.acpmux-dictation-dismiss{height:24px;padding:0 10px;border:0;border-radius:12px;background:var(--acpmux-menu-hover);color:var(--agent-text);font:inherit;cursor:default}
+.acpmux-dictation-dismiss{width:24px;padding:0;background:none;color:var(--acpmux-composer-dim)}
+.acpmux-dictation-settings:focus-visible,.acpmux-dictation-dismiss:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 .acpmux-chips{flex:1;min-width:0;display:flex;align-items:center;gap:4px}
 .acpmux-chips-spacer{flex:1}
 /* A registry composerChips override that still draws native selects. */

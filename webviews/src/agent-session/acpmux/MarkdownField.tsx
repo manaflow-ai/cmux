@@ -15,6 +15,7 @@ import { baseKeymap, chainCommands } from "@milkdown/kit/prose/commands";
 import { keymap } from "@milkdown/kit/prose/keymap";
 import { splitListItem } from "@milkdown/kit/prose/schema-list";
 import { Plugin, TextSelection } from "@milkdown/kit/prose/state";
+import type { Node as ProseNode } from "@milkdown/kit/prose/model";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import { $prose, getMarkdown, replaceAll } from "@milkdown/kit/utils";
 
@@ -29,7 +30,19 @@ export type MarkdownFieldHandle = {
   caret(): number;
   /// Replaces the prompt as typing would: the composer hears it through `onChange`.
   type(markdown: string): void;
+  /// The prompt as plain text (blocks joined by newlines) and the selection's offsets into it,
+  /// for dictation, which splices words at the cursor.
+  text(): PlainPrompt;
+  /// Rewrites the plain text to `value` as one undoable edit of the span that changed, then
+  /// selects `selectionStart...selectionEnd`; the composer hears it through `onChange`.
+  writeText(value: string, selectionStart: number, selectionEnd: number): void;
+  /// Whether the prompt has focus.
+  focused(): boolean;
+  /// The field's element, which composition events from the prompt pass through.
+  element(): HTMLElement | null;
 };
+
+export type PlainPrompt = { value: string; selectionStart: number; selectionEnd: number };
 
 /// The field's handle, also on its element as `acpmuxMarkdownField` for tests and tools that
 /// drive the prompt the way a textarea's value would be set.
@@ -80,6 +93,22 @@ function caretOf(view: EditorView): number {
   const end = start + first.content.size;
   if (selection.from < start || selection.from > end) return first.textContent.length + 1;
   return doc.textBetween(start, selection.from, "\n", "\n").length;
+}
+
+/** The text before `pos`, blocks joined by newlines. */
+const plainOffset = (doc: ProseNode, pos: number) => doc.textBetween(0, pos, "\n", "\n").length;
+
+/** The position in a textblock where the plain text reaches `offset`. */
+function plainPosition(doc: ProseNode, offset: number): number {
+  let low = 0;
+  let high = doc.content.size;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (plainOffset(doc, middle) >= offset) high = middle;
+    else low = middle + 1;
+  }
+  const resolved = doc.resolve(low);
+  return resolved.parent.inlineContent ? low : TextSelection.near(resolved, 1).from;
 }
 
 /// The composer's prompt, edited inline as formatted markdown (spec S5, Milkdown): typing
@@ -217,6 +246,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
   // Aria and role follow the composer's state on the editable element.
   useLayoutEffect(applyAttributes);
 
+  const wrapper = useRef<HTMLDivElement | null>(null);
   const handle = useRef<MarkdownFieldHandle>(undefined);
   useImperativeHandle(
     ref,
@@ -245,6 +275,46 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
             current.dispatch(current.state.tr.setSelection(TextSelection.near(current.state.doc.resolve(end), -1)));
           }
         },
+        text: () => {
+          const current = view.current;
+          if (!current) return { value: known.current, selectionStart: 0, selectionEnd: 0 };
+          const { doc, selection } = current.state;
+          return {
+            value: doc.textBetween(0, doc.content.size, "\n", "\n"),
+            selectionStart: plainOffset(doc, selection.from),
+            selectionEnd: plainOffset(doc, selection.to),
+          };
+        },
+        writeText: (value, selectionStart, selectionEnd) => {
+          const current = view.current;
+          if (!current) return;
+          const { doc } = current.state;
+          const old = doc.textBetween(0, doc.content.size, "\n", "\n");
+          // Only the span that changed is replaced, so formatting around it stays.
+          let head = 0;
+          while (head < old.length && head < value.length && old[head] === value[head]) head += 1;
+          let tail = 0;
+          while (
+            tail < old.length - head &&
+            tail < value.length - head &&
+            old[old.length - 1 - tail] === value[value.length - 1 - tail]
+          )
+            tail += 1;
+          const tr = current.state.tr;
+          if (old !== value) {
+            const from = plainPosition(doc, head);
+            const to = Math.max(from, plainPosition(doc, old.length - tail));
+            const inserted = value.slice(head, value.length - tail);
+            if (inserted) tr.insertText(inserted, from, to);
+            else tr.delete(from, to);
+          }
+          const anchor = plainPosition(tr.doc, selectionStart);
+          const focus = plainPosition(tr.doc, selectionEnd);
+          tr.setSelection(TextSelection.create(tr.doc, anchor, focus));
+          current.dispatch(tr);
+        },
+        focused: () => view.current?.hasFocus() ?? false,
+        element: () => wrapper.current,
       }),
     [],
   );
@@ -253,6 +323,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     <div
       className={`acpmux-md-field ${className ?? ""}`}
       ref={(element: MarkdownFieldElement | null) => {
+        wrapper.current = element;
         // A getter: the handle is made after this element attaches.
         if (element)
           Object.defineProperty(element, "acpmuxMarkdownField", { get: () => handle.current, configurable: true });

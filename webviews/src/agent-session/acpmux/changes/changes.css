@@ -68,3 +68,22 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 .acpmux-fh-dir{transition:color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
 /* Why a file did not open, under the changes header until the next open. */
 .acpmux-diff-notice{padding:7px 14px;border-bottom:1px solid var(--agent-border);color:var(--agent-text);background:color-mix(in srgb,var(--agent-danger) 14%,transparent);font-size:12px}
+/* Hunk review: each hunk's Reject and Accept under its last changed line, and the bar that sends the rejected ones back. */
+.acpmux-hunk-actions{display:flex;justify-content:flex-end;align-items:center;gap:6px;padding:6px 12px;border-top:1px solid var(--agent-border);background:var(--agent-surface-elevated);font:12px system-ui,-apple-system,sans-serif;color:var(--agent-muted)}
+.acpmux-hunk-undo,.acpmux-hunk-reject,.acpmux-hunk-accept,.acpmux-revert-send{height:24px;padding:0 10px;border:0;border-radius:12px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease),color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+.acpmux-hunk-reject{background:color-mix(in srgb,var(--acpmux-del) 30%,var(--agent-surface-elevated))}
+.acpmux-hunk-accept{background:color-mix(in srgb,var(--acpmux-add) 30%,var(--agent-surface-elevated))}
+.acpmux-hunk-undo:hover,.acpmux-revert-send:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
+.acpmux-hunk-reject:hover{background:color-mix(in srgb,var(--acpmux-del) 42%,var(--agent-surface-elevated))}
+.acpmux-hunk-accept:hover{background:color-mix(in srgb,var(--acpmux-add) 42%,var(--agent-surface-elevated))}
+.acpmux-hunk-undo:active,.acpmux-revert-send:active{background:var(--acpmux-step-pressed-on-page);color:var(--agent-text)}
+.acpmux-hunk-reject:active{background:color-mix(in srgb,var(--acpmux-del) 54%,var(--agent-surface-elevated))}
+.acpmux-hunk-accept:active{background:color-mix(in srgb,var(--acpmux-add) 54%,var(--agent-surface-elevated))}
+.acpmux-hunk-undo:focus-visible,.acpmux-hunk-reject:focus-visible,.acpmux-hunk-accept:focus-visible,.acpmux-revert-send:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
+.acpmux-hunk-actions[data-decision=rejected] output{color:var(--acpmux-del)}
+.acpmux-hunk-actions[data-decision=accepted] output{color:var(--acpmux-add)}
+.acpmux-revert-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--agent-border);background:var(--agent-surface-elevated)}
+.acpmux-revert-count{white-space:nowrap;color:var(--agent-text)}
+.acpmux-revert-bar input{flex:1;min-width:0;height:28px;padding:0 10px;border:1px solid var(--agent-border);border-radius:14px;background:var(--agent-input-bg);color:var(--agent-text);font:inherit}
+.acpmux-revert-bar input:focus-visible{outline:none;border-color:color-mix(in srgb,var(--agent-accent) 55%,transparent)}
+.acpmux-revert-send{height:28px;padding:0 12px;border-radius:14px}
