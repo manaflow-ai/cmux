@@ -104,6 +104,7 @@ final class SidebarRailView: NSView {
 
     private func makeItem(_ id: LayoutItemID) -> SidebarItemRowView {
         let view = SidebarItemRowView()
+        view.showsUnreadDot = true
         view.onPress = { [weak self] in self?.onActivate?(id) }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }

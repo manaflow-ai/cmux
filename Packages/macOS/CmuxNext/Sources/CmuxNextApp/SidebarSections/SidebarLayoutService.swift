@@ -155,7 +155,9 @@ final class SidebarLayoutService {
     /// it reads the owner's layout rather than one with the user's edits in
     /// flight.
     private func migrateIfNeeded() {
-        guard !migrationSent, pending.isEmpty else { return }
+        // With the rail off the sidebar shows the sections itself, where the
+        // pre-rail layout is the better one.
+        guard !migrationSent, pending.isEmpty, railShown() else { return }
         let ops = mirror.railMigrationOps
         guard !ops.isEmpty else { return }
         migrationSent = true

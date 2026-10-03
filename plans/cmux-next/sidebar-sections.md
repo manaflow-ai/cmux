@@ -323,9 +323,11 @@ layout (section 1) gives:
 | bottom | Account |
 
 Settings sits under More like in the Codex app, where it is reached from a menu rather than the
-strip; ⌘, opens it anyway. Unread items show a dot on their icon (no count; the tooltip and
-VoiceOver carry it). With `window.rail` "off" the same layout shows as sidebar bands (the top band
-four rows tall, then scrolling).
+strip; ⌘, opens it anyway. Home's button takes the selected tile while the window shows the home
+workspace, and Notifications shows a dot while anything is unread (no count; VoiceOver carries
+it). Only the rail draws the dot: the sidebar's own icon looks keep hiding unread items. With
+`window.rail` "off" the same layout shows as sidebar bands (the top band four rows tall, then
+scrolling), and a stored pre-rail layout is not migrated.
 
 Migration: a stored layout whose sections equal the pre-rail default (top: Home, App Store,
 CodeRouter; bottom line: Settings, Account; `SidebarLayoutDocument.preRailDefaults`) is moved to the
@@ -333,3 +335,7 @@ new default once per app session with ordinary ops through the owner (add Histor
 move Settings up, add Customize Appearance, set `max_rows` 4). Any other stored layout is the user's
 and is left alone. The Rust store's defaults must match `SidebarLayoutDocument.defaults` when #16842
 lands, and the shared fixture (`sidebar-layout-cases.json`) already expects the new default.
+The ops go out one by one, so an owner that refuses one of them leaves a layout that is neither
+old nor new, which is never retried; two clients migrating at once see `duplicate_id` refusals.
+Both wait on #16842 (no store serves the layout yet): the owner should take the migration as one
+batch, or run it itself.
