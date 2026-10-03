@@ -2,6 +2,7 @@ import CmuxNextDaemon
 import CmuxNextSidebar
 import Testing
 @testable import CmuxNextBridge
+@testable import CmuxNextDaemon
 
 @MainActor
 struct SidebarMappingTests {
