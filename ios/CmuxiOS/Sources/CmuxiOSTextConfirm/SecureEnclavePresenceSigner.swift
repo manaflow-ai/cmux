@@ -9,7 +9,7 @@ import Security
 /// install key. The enclave's key blob is kept in the Keychain (this device
 /// only); the private key never leaves the enclave.
 public struct SecureEnclavePresenceSigner: PresenceSigner {
-    public enum Failure: Error { case secureEnclaveUnavailable, accessControl, keychain(OSStatus) }
+    public enum Failure: Error { case secureEnclaveUnavailable, accessControl, alreadyExists, keychain(OSStatus) }
 
     private let service: String
     private let reason: String
@@ -22,9 +22,17 @@ public struct SecureEnclavePresenceSigner: PresenceSigner {
     /// True once this device has a presence key.
     public var exists: Bool { (try? readBlob()) != nil }
 
-    /// Creates the key (first run). Returns the public point (X9.63) to register.
+    /// The public point (X9.63) of the existing key; no Face ID needed.
+    public func publicKey() throws -> Data? {
+        guard let blob = try readBlob() else { return nil }
+        return try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob).publicKey.x963Representation
+    }
+
+    /// Creates the key (first run). Refuses when one exists: replacing a
+    /// registered key needs a revoke and a new registration first.
     public func create() throws -> Data {
         guard SecureEnclave.isAvailable else { throw Failure.secureEnclaveUnavailable }
+        guard try readBlob() == nil else { throw Failure.alreadyExists }
         var error: Unmanaged<CFError>?
         guard let access = SecAccessControlCreateWithFlags(
             nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, [.privateKeyUsage, .userPresence], &error) else {
@@ -60,7 +68,6 @@ public struct SecureEnclavePresenceSigner: PresenceSigner {
     }
 
     private func writeBlob(_ data: Data) throws {
-        SecItemDelete(query as CFDictionary)
         var q = query
         q[kSecValueData as String] = data
         q[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
