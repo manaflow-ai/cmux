@@ -61,7 +61,8 @@ pub fn event_name(event: &Lifecycle) -> &'static str {
 
 impl Roles {
     pub fn new(roles: Vec<Box<dyn Role>>, base: Result<(Layout, InstallMode), String>) -> Self {
-        let slots = roles.into_iter().map(|role| Slot { role, running: false, last_error: None }).collect();
+        let slots =
+            roles.into_iter().map(|role| Slot { role, running: false, last_error: None }).collect();
         Self { slots, base }
     }
 
@@ -73,7 +74,10 @@ impl Roles {
             Err(err) => {
                 for slot in &mut self.slots {
                     slot.last_error = Some(format!("no install layout: {err}"));
-                    errors.push(format!("role {} not started: no install layout: {err}", slot.role.name()));
+                    errors.push(format!(
+                        "role {} not started: no install layout: {err}",
+                        slot.role.name()
+                    ));
                 }
                 return errors;
             }

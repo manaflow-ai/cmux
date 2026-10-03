@@ -84,12 +84,7 @@ fn bake_id_parks_and_stops_terminal_hosts_after_the_host_exits() {
     let park = m.step(Input::RolesParked { ok: true });
     assert_eq!(
         names(&park),
-        [
-            "park-housekeeping",
-            "disarm-rearm",
-            "remove-driver-file",
-            "terminate-daemon"
-        ]
+        ["park-housekeeping", "disarm-rearm", "remove-driver-file", "terminate-daemon"]
     );
     let exited = m.step(Input::DaemonExited { lived_ms: 1 });
     assert_eq!(names(&exited), ["disarm-stop-deadline", "stop-terminal-hosts"]);

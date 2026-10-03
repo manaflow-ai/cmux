@@ -145,7 +145,8 @@ mod tests {
     #[test]
     fn roles_are_object_safe_and_send() {
         assert_send::<Box<dyn Role>>();
-        let env = LayoutEnv { home: Some("/home/u".to_owned()), uid: Some(1000), ..LayoutEnv::default() };
+        let env =
+            LayoutEnv { home: Some("/home/u".to_owned()), uid: Some(1000), ..LayoutEnv::default() };
         let layout = layout(InstallMode::System, Platform::Linux, &env).unwrap();
         let ctx = RoleContext { instance_id: None, layout, mode: InstallMode::System };
         let mut roles: Vec<Box<dyn Role>> = vec![Box::new(Count(0))];
