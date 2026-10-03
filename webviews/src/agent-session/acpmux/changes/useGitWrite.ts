@@ -42,12 +42,12 @@ export type GitWrite = {
 };
 
 /// `onChanged` runs after each write that succeeds (and after Refresh, with no op), so the view
-/// reloads its scope. `refreshKey` changes when the view reloads its scope, so the status is
-/// read again with it.
+/// reloads its scope. The status is read when the view opens, after each write and on Refresh;
+/// not on a scope reload, so Commit and Push keep the HEAD the reader saw and a view that went
+/// stale refuses with `head_moved` instead of acting on a state nobody looked at.
 export function useGitWrite(
   source: ChangesSource | undefined,
   onChanged: (op?: GitWriteOp) => void,
-  refreshKey: unknown,
   mintKey?: () => string,
 ): GitWrite {
   const available = !!(source?.status && source.commit && source.push);
@@ -83,10 +83,10 @@ export function useGitWrite(
     }
   }, [source]);
 
-  // The status is read when the view opens and each time it reloads its scope.
+  // The status is read when the view opens.
   useEffect(() => {
     if (available) void readStatus();
-  }, [available, readStatus, refreshKey]);
+  }, [available, readStatus]);
 
   const run = useCallback(
     async (op: GitWriteOp, params: Record<string, unknown>): Promise<boolean> => {

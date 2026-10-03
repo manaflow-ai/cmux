@@ -85,14 +85,10 @@ export function DiffPanel({
   // Commit and Push read the branch state again whenever the scope loads again.
   const [commitOpen, setCommitOpen] = useState(false);
   // A commit closes the form and reloads the scope; a push changes only the branch state.
-  const git = useGitWrite(
-    source,
-    (op) => {
-      if (op === "commit") setCommitOpen(false);
-      if (op !== "push") retry();
-    },
-    load.state === "loaded" ? load.changeSet : load.state,
-  );
+  const git = useGitWrite(source, (op) => {
+    if (op === "commit") setCommitOpen(false);
+    if (op !== "push") retry();
+  });
   const commitMessage = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (commitOpen) commitMessage.current?.focus();

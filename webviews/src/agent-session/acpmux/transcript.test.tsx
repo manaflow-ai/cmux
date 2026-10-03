@@ -2221,8 +2221,9 @@ describe("acpmux turn diff", () => {
           )!,
         );
       };
-      // Last turn comes from the transcript: no skipped files and no branch.
-      expect([banner(), branch(), statuses]).toEqual([null, null, 0]);
+      // Last turn comes from the transcript: no skipped files and no branch. The one status read
+      // is Commit and Push's, for the HEAD and the ahead count, when the view opens.
+      expect([banner(), branch(), statuses]).toEqual([null, null, 1]);
       await pick("Uncommitted");
       // Only the message is announced, not the buttons beside it.
       expect(banner()?.getAttribute("role")).toBeNull();
@@ -2231,7 +2232,7 @@ describe("acpmux turn diff", () => {
       expect(banner()?.querySelector(".acpmux-changes-banner-body")?.textContent).toBe(
         "The Changes tab skipped 1,234 untracked files to stay responsive. If these files are generated, clean them up and refresh",
       );
-      expect([branch(), statuses]).toEqual([null, 0]);
+      expect([branch(), statuses]).toEqual([null, 1]);
       const action = (label: string) =>
         [...banner()!.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === label)!;
       // The cleanup command is a dry run that lists the untracked files the scope left out.
@@ -2251,13 +2252,13 @@ describe("acpmux turn diff", () => {
       expect(branch()?.querySelector(".acpmux-branch-from")?.textContent).toBe("feat-retry");
       expect(branch()?.querySelector(".acpmux-branch-to")?.textContent).toBe("origin/main");
       expect(branch()?.textContent).toBe("feat-retry compared with origin/main");
-      expect(statuses).toBe(1);
+      expect(statuses).toBe(2);
       // A refresh asks for the branch again too.
       await click(panel.querySelector<HTMLElement>('[data-tool="options"]')!);
       await click(
         [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === "Refresh")!,
       );
-      expect([diffs.length, statuses]).toEqual([4, 2]);
+      expect([diffs.length, statuses]).toEqual([4, 3]);
       // A status asked before a refresh never names the branch after it.
       const pending: ((branch: string) => void)[] = [];
       host.cmuxAcpmuxActions["git.status"] = () =>
