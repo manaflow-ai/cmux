@@ -30,6 +30,8 @@ const BINARY_PROBE_BYTES: usize = 8000;
 
 /// What a scope compares.
 struct Comparison {
+    /// The operation errors name.
+    operation: &'static str,
     /// The `git diff` revisions; `None` when there is nothing tracked to
     /// compare (committed, before the first commit).
     revisions: Option<Vec<String>>,
@@ -97,16 +99,66 @@ pub(super) fn read(
     fields: &Map<String, Value>,
 ) -> Result<Value, ResourceError> {
     let scope = fields.get("scope").and_then(Value::as_str).unwrap_or("uncommitted");
+    let comparison = comparison(repository, scope)?;
+    let mut value = report(repository, &comparison, fields)?;
+    value["scope"] = json!(scope);
+    Ok(value)
+}
+
+/// The tree in `from` against the working tree as `index` lists it (or the
+/// repository's own index): one checkpoint against now, read the way a
+/// scope is, with the caller's operation in errors.
+pub(in crate::git_ops) fn against_worktree(
+    repository: &Repository,
+    from: String,
+    fields: &Map<String, Value>,
+    operation: &'static str,
+) -> Result<Value, ResourceError> {
+    let comparison = Comparison {
+        operation,
+        revisions: Some(vec![from]),
+        cached: false,
+        untracked: false,
+        head: repository.commit("HEAD"),
+        base: None,
+    };
+    report(repository, &comparison, fields)
+}
+
+/// One tree against another.
+pub(in crate::git_ops) fn between(
+    repository: &Repository,
+    from: String,
+    to: String,
+    fields: &Map<String, Value>,
+    operation: &'static str,
+) -> Result<Value, ResourceError> {
+    let comparison = Comparison {
+        operation,
+        revisions: Some(vec![from, to]),
+        cached: false,
+        untracked: false,
+        head: repository.commit("HEAD"),
+        base: None,
+    };
+    report(repository, &comparison, fields)
+}
+
+/// The changed files a comparison finds, with counts and bounded patches.
+fn report(
+    repository: &Repository,
+    comparison: &Comparison,
+    fields: &Map<String, Value>,
+) -> Result<Value, ResourceError> {
     let include_patch = fields.get("include_patch").and_then(Value::as_bool).unwrap_or(false);
     let max_patch_bytes = limit(fields, "max_patch_bytes", 262_144);
     let max_files = limit(fields, "max_files", 500);
     let paths = pathspecs(fields)?;
-    let comparison = comparison(repository, scope)?;
 
-    let mut files = tracked(repository, &comparison, &paths)?;
+    let mut files = tracked(repository, comparison, &paths)?;
     let mut untracked_skipped = 0;
     if comparison.untracked {
-        let listing = git(repository, &untracked_args(&paths), MAX_LISTING_BYTES)?;
+        let listing = git(repository, comparison.operation, &untracked_args(&paths), MAX_LISTING_BYTES)?;
         let mut names = parse::file_list(&listing.stdout);
         if listing.truncated {
             // The last name may be cut short.
@@ -130,11 +182,10 @@ pub(super) fn read(
         } else {
             returned_paths(&files).chunks(PATCH_BATCH).map(<[String]>::to_vec).collect()
         };
-        attach_patches(repository, &comparison, &batches, &mut files, max_patch_bytes)?;
+        attach_patches(repository, comparison, &batches, &mut files, max_patch_bytes)?;
     }
 
     let mut value = json!({
-        "scope":scope,
         "root":repository.root.to_string_lossy(),
         "files":files.iter().map(ChangedFile::to_json).collect::<Vec<_>>(),
         "additions":clamp(additions),
@@ -158,7 +209,14 @@ fn comparison(repository: &Repository, scope: &str) -> Result<Comparison, Resour
     let head = repository.commit("HEAD");
     let empty_tree = || repository.empty_tree().map_err(|failure| git_failed(OPERATION, &failure));
     let compare = |revisions: Vec<String>, cached: bool, untracked: bool, base: Option<String>| {
-        Comparison { revisions: Some(revisions), cached, untracked, head: head.clone(), base }
+        Comparison {
+            operation: OPERATION,
+            revisions: Some(revisions),
+            cached,
+            untracked,
+            head: head.clone(),
+            base,
+        }
     };
     Ok(match scope {
         "uncommitted" => {
@@ -172,6 +230,7 @@ fn comparison(repository: &Repository, scope: &str) -> Result<Comparison, Resour
         "staged" => compare(Vec::new(), true, false, None),
         "committed" => match &head {
             None => Comparison {
+                operation: OPERATION,
                 revisions: None,
                 cached: false,
                 untracked: false,
@@ -229,8 +288,10 @@ fn tracked(
     if comparison.revisions.is_none() {
         return Ok(Vec::new());
     }
-    let statuses = listing(repository, &diff_args(comparison, &["--name-status", "-z"], paths))?;
-    let counts = listing(repository, &diff_args(comparison, &["--numstat", "-z"], paths))?;
+    let operation = comparison.operation;
+    let statuses =
+        listing(repository, operation, &diff_args(comparison, &["--name-status", "-z"], paths))?;
+    let counts = listing(repository, operation, &diff_args(comparison, &["--numstat", "-z"], paths))?;
     let counts = parse::numstat(&counts.stdout);
     // An unmerged path is listed once per side; keep its first entry.
     let mut seen = HashSet::new();
@@ -254,11 +315,15 @@ fn tracked(
 }
 
 /// A file listing, which must be complete to pair its entries.
-fn listing(repository: &Repository, arguments: &[&str]) -> Result<GitOutput, ResourceError> {
-    let output = git(repository, arguments, MAX_LISTING_BYTES)?;
+fn listing(
+    repository: &Repository,
+    operation: &'static str,
+    arguments: &[&str],
+) -> Result<GitOutput, ResourceError> {
+    let output = git(repository, operation, arguments, MAX_LISTING_BYTES)?;
     if output.truncated {
         return Err(ResourceError::operation_failed(
-            OPERATION,
+            operation,
             "too many changed files to list; narrow the read with paths",
             json!({"code":"too_many_changes"}),
         ));
@@ -285,7 +350,7 @@ fn attach_patches(
             break;
         }
         let arguments = diff_args(comparison, &["--patch"], batch);
-        let output = git(repository, &arguments, MAX_PATCH_OUTPUT_BYTES)?;
+        let output = git(repository, comparison.operation, &arguments, MAX_PATCH_OUTPUT_BYTES)?;
         let sections = parse::patches(&output.stdout);
         if output.truncated {
             incomplete = true;
@@ -416,8 +481,9 @@ fn limit(fields: &Map<String, Value>, name: &str, default: u64) -> usize {
 
 fn git(
     repository: &Repository,
+    operation: &'static str,
     arguments: &[&str],
     max_stdout: usize,
 ) -> Result<GitOutput, ResourceError> {
-    repository.run(arguments, max_stdout).map_err(|failure| git_failed(OPERATION, &failure))
+    repository.run(arguments, max_stdout).map_err(|failure| git_failed(operation, &failure))
 }

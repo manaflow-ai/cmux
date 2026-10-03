@@ -285,6 +285,10 @@
       "scope": "git:write",
       "class": "mutation"
     },
+    "git.checkpoint.diff": {
+      "scope": "git:read",
+      "class": "read"
+    },
     "git.checkpoint.get": {
       "scope": "git:read",
       "class": "read"
