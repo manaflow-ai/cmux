@@ -84,7 +84,7 @@ extension BrowserReplPasteboardRedirectTests {
             try await Self.withStandInSystemPasteboard { standIn in
                 let standInBefore = standIn.changeCount
                 let webView = try await Self.load(Self.page) { webView in
-                    BrowserReplPageClipboard.install(on: webView, shim: shim) { _, items in
+                    BrowserReplPageClipboard(shim: shim).install(on: webView) { _, items in
                         routed.append(items)
                         return true
                     }
@@ -131,7 +131,7 @@ extension BrowserReplPasteboardRedirectTests {
             try await Self.withStandInSystemPasteboard { standIn in
                 let standInBefore = standIn.changeCount
                 let webView = try await Self.load(Self.page) { webView in
-                    BrowserReplPageClipboard.install(on: webView, shim: shim) { _, items in
+                    BrowserReplPageClipboard(shim: shim).install(on: webView) { _, items in
                         routed.append(items)
                         return true
                     }
@@ -173,7 +173,7 @@ extension BrowserReplPasteboardRedirectTests {
             var written: [String?] = []
             try await Self.withStandInSystemPasteboard { standIn in
                 _ = try await Self.load(Self.page) { webView in
-                    BrowserReplPageClipboard.install(on: webView, shim: shim) { _, _ in true }
+                    BrowserReplPageClipboard(shim: shim).install(on: webView) { _, _ in true }
                 }
                 let webView = try await Self.load(Self.page) { _ in }
                 for button in ["write-text", "exec-copy"] {

@@ -137,20 +137,20 @@ enum BrowserReplNativeInput {
     /// tab (editing commands, not composed text), when focus is in a frame
     /// the agent cannot inspect, or when WebKit's editor state, which gates
     /// marked text, is not current within `stateTimeout`. The sequence is
-    /// ``BrowserReplTextCommit``; `checkTarget` throws to refuse the focused
+    /// `BrowserReplTextCommitTarget.commit(_:checkTarget:)`; `checkTarget` throws to refuse the focused
     /// element, and then nothing is inserted.
     static func insertText(
         _ text: String,
         into webView: WKWebView,
         stateTimeout: Duration = .milliseconds(500),
-        checkTarget: @MainActor () async throws -> Void = {}
+        checkTarget: @MainActor @Sendable () async throws -> Void = {}
     ) async throws {
         guard let client = webView as? any NSTextInputClient else { return }
         let target = WebViewTextTarget(webView: webView, client: client, stateTimeout: stateTimeout)
-        try await BrowserReplTextCommit.commit(text, into: target, checkTarget: checkTarget)
+        try await target.commit(text, checkTarget: checkTarget)
     }
 
-    /// A web view's text input client as ``BrowserReplTextCommit`` drives it.
+    /// A web view's text input client as `commit(_:checkTarget:)` drives it.
     @MainActor
     private final class WebViewTextTarget: BrowserReplTextCommitTarget {
         let webView: WKWebView

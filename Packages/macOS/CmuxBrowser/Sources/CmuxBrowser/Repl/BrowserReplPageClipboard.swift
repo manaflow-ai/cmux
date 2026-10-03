@@ -37,7 +37,14 @@ import ObjectiveC
 /// writes the system clipboard. Measured on macOS 27.0 (26A428); there is no
 /// WebKit setting or UI-process hook that closes it.
 @MainActor
-public enum BrowserReplPageClipboard {
+public struct BrowserReplPageClipboard {
+    /// The source of `Resources/browser-repl/page-clipboard.js`.
+    public let shim: String
+
+    public init(shim: String) {
+        self.shim = shim
+    }
+
     /// The page-world script message handler `page-clipboard.js` posts to.
     public static let messageHandlerName = "cmuxBrowserReplClipboard"
     /// At most this many items in one write.
@@ -49,31 +56,29 @@ public enum BrowserReplPageClipboard {
 
     /// Installs the guard on `webView`, once per user content controller:
     /// switches WebKit's asynchronous Clipboard API off and adds
-    /// `page-clipboard.js` in the page's world of every frame with its
+    /// ``shim`` in the page's world of every frame with its
     /// message handler. It stays for the web view's life; documents loaded
     /// from now on get the script, and the API is off in every document at
     /// once.
     ///
     /// - Parameters:
-    ///   - shim: the source of `Resources/browser-repl/page-clipboard.js`.
     ///   - onWrite: receives the web view a page wrote from and its items
     ///     (`[["type": String, "base64": String]]`); returns whether a tab's
     ///     clipboard took them. A refusal rejects the page's write.
     /// - Returns: whether WebKit's asynchronous Clipboard API is off.
     @discardableResult
-    public static func install(
+    public func install(
         on webView: WKWebView,
-        shim: String,
         onWrite: @escaping @MainActor (_ webView: WKWebView, _ items: [[String: Any]]) -> Bool
     ) -> Bool {
-        let off = disableAsyncClipboardAPI(in: webView.configuration.preferences)
+        let off = Self.disableAsyncClipboardAPI(in: webView.configuration.preferences)
         let controller = webView.configuration.userContentController
-        if objc_getAssociatedObject(controller, &installedKey) == nil {
-            objc_setAssociatedObject(controller, &installedKey, true as NSNumber, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-            controller.addScriptMessageHandler(Handler(onWrite: onWrite), contentWorld: .page, name: messageHandlerName)
+        if objc_getAssociatedObject(controller, &Self.installedKey) == nil {
+            objc_setAssociatedObject(controller, &Self.installedKey, true as NSNumber, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            controller.addScriptMessageHandler(Handler(onWrite: onWrite), contentWorld: .page, name: Self.messageHandlerName)
             controller.addUserScript(
                 WKUserScript(
-                    source: userScriptSource(shim: shim),
+                    source: Self.userScriptSource(shim: shim),
                     injectionTime: .atDocumentStart,
                     forMainFrameOnly: false,
                     in: .page

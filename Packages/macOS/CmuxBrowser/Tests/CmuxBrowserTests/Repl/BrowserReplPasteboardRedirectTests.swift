@@ -24,12 +24,12 @@ struct BrowserReplPasteboardRedirectTests {
     struct Lookups {
         @Test func otherCodeGetsTheSystemPasteboardDuringAndAfterACommand() async throws {
             let system = NSPasteboard(name: .general)
-            #expect(BrowserReplPasteboardRedirect.install())
+            #expect(BrowserReplPasteboardRedirect.shared.install())
             let tab = NSPasteboard.withUniqueName()
             defer { tab.releaseGlobally() }
 
             var during: [NSPasteboard] = []
-            let outcome = await BrowserReplPasteboardRedirect.run(on: tab, timeout: .seconds(5), endWebContent: { true }) { done in
+            let outcome = await BrowserReplPasteboardRedirect.shared.run(on: tab, timeout: .seconds(5), endWebContent: { true }) { done in
                 // The terminal or any other cmux code looking up the general
                 // pasteboard while WebKit's command is in flight.
                 during.append(NSPasteboard(name: .general))
@@ -40,7 +40,7 @@ struct BrowserReplPasteboardRedirectTests {
             #expect(during.count == 2)
             #expect(during.allSatisfy { $0 === system }, "a lookup by other code during a REPL command got the tab's pasteboard")
             #expect(NSPasteboard(name: .general) === system)
-            #expect(BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: false) == nil)
+            #expect(BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: false) == nil)
         }
 
         /// At the timeout the command's web content is ended and the
@@ -48,19 +48,19 @@ struct BrowserReplPasteboardRedirectTests {
         /// another browser pane afterwards reaches their own clipboard, and
         /// the page that outlived the timeout can no longer write anything.
         @Test func atTheTimeoutTheWebContentIsEndedAndTheRedirectEnds() async throws {
-            #expect(BrowserReplPasteboardRedirect.install())
+            #expect(BrowserReplPasteboardRedirect.shared.install())
             let tab = NSPasteboard.withUniqueName()
             defer { tab.releaseGlobally() }
             var finish: (@MainActor () -> Void)?
             var ended = 0
             var finished = 0
             var redirectedWhenEnded: NSPasteboard?
-            let outcome = await BrowserReplPasteboardRedirect.run(
+            let outcome = await BrowserReplPasteboardRedirect.shared.run(
                 on: tab,
                 timeout: .milliseconds(50),
                 endWebContent: {
                     ended += 1
-                    redirectedWhenEnded = BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true)
+                    redirectedWhenEnded = BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true)
                     return true
                 },
                 whenFinished: { finished += 1 }
@@ -71,14 +71,14 @@ struct BrowserReplPasteboardRedirectTests {
             #expect(ended == 1)
             #expect(redirectedWhenEnded === tab, "the redirect ended before the web content did, so a late write could reach the system pasteboard")
             #expect(
-                BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true) == nil,
+                BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) == nil,
                 "the redirect outlived its command's timeout"
             )
             #expect(finished == 1, "ending the web content finishes the command")
             try #require(finish != nil)
             finish?()
             #expect(finished == 1)
-            #expect(BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true) == nil)
+            #expect(BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) == nil)
         }
 
         /// When the web content can no longer be ended (its process came to
@@ -88,7 +88,7 @@ struct BrowserReplPasteboardRedirectTests {
         /// system pasteboard. Later commands, from any tab, wait and name the
         /// tab they waited for.
         @Test func whenTheWebContentCannotBeEndedTheRedirectLastsUntilWebKitFinishesWithinTheGrace() async throws {
-            #expect(BrowserReplPasteboardRedirect.install())
+            #expect(BrowserReplPasteboardRedirect.shared.install())
             let first = NSPasteboard.withUniqueName()
             let second = NSPasteboard.withUniqueName()
             defer {
@@ -97,7 +97,7 @@ struct BrowserReplPasteboardRedirectTests {
             }
             var finishFirst: (@MainActor () -> Void)?
             var firstFinished = 0
-            let firstOutcome = await BrowserReplPasteboardRedirect.run(
+            let firstOutcome = await BrowserReplPasteboardRedirect.shared.run(
                 on: first,
                 tab: "tab A",
                 timeout: .milliseconds(50),
@@ -110,13 +110,13 @@ struct BrowserReplPasteboardRedirectTests {
             #expect(firstOutcome == .timedOutStillRunning)
             #expect(firstFinished == 0)
             #expect(
-                BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true) === first,
+                BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) === first,
                 "a late write of a command whose web content still runs could reach the system pasteboard"
             )
-            #expect(BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: false) == nil)
+            #expect(BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: false) == nil)
 
             var secondStarted = false
-            let secondOutcome = await BrowserReplPasteboardRedirect.run(on: second, tab: "tab B", timeout: .milliseconds(50), endWebContent: { true }) { done in
+            let secondOutcome = await BrowserReplPasteboardRedirect.shared.run(on: second, tab: "tab B", timeout: .milliseconds(50), endWebContent: { true }) { done in
                 secondStarted = true
                 done()
             }
@@ -131,10 +131,10 @@ struct BrowserReplPasteboardRedirectTests {
             try #require(finishFirst != nil)
             finishFirst?()
             #expect(firstFinished == 1)
-            #expect(BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true) == nil)
+            #expect(BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) == nil)
             #expect(first.types?.isEmpty ?? true, "the abandoned command's pasteboard kept its late write")
 
-            let thirdOutcome = await BrowserReplPasteboardRedirect.run(on: second, timeout: .seconds(5), endWebContent: { true }) { done in
+            let thirdOutcome = await BrowserReplPasteboardRedirect.shared.run(on: second, timeout: .seconds(5), endWebContent: { true }) { done in
                 secondStarted = true
                 done()
             }
@@ -146,7 +146,7 @@ struct BrowserReplPasteboardRedirectTests {
         /// it starts, so its tab is not ended for the time the earlier one
         /// took. Time is a manual clock, so the order never depends on load.
         @Test func aCommandThatWaitedGetsItsOwnTimeout() async throws {
-            #expect(BrowserReplPasteboardRedirect.install())
+            #expect(BrowserReplPasteboardRedirect.shared.install())
             let first = NSPasteboard.withUniqueName()
             let second = NSPasteboard.withUniqueName()
             defer {
@@ -155,15 +155,15 @@ struct BrowserReplPasteboardRedirectTests {
             }
             let clock = ManualClock()
             let firstRun = Task { @MainActor in
-                await BrowserReplPasteboardRedirect.run(on: first, timeout: .seconds(5), clock: clock, endWebContent: { true }) { _ in }
+                await BrowserReplPasteboardRedirect.shared.run(on: first, timeout: .seconds(5), clock: clock, endWebContent: { true }) { _ in }
             }
-            try await settle { BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true) === first }
+            try await settle { BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) === first }
 
             clock.advance(by: .seconds(1))
             var secondEnded = false
             var finishSecond: (@MainActor () -> Void)?
             let secondRun = Task { @MainActor in
-                await BrowserReplPasteboardRedirect.run(
+                await BrowserReplPasteboardRedirect.shared.run(
                     on: second,
                     timeout: .seconds(5),
                     clock: clock,
@@ -182,7 +182,7 @@ struct BrowserReplPasteboardRedirectTests {
             clock.advance(by: .seconds(4))
             #expect(await firstRun.value == .timedOut)
             try await settle { finishSecond != nil }
-            #expect(BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true) === second)
+            #expect(BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) === second)
 
             // 7 s: past a deadline shared with the wait, inside its own.
             clock.advance(by: .seconds(2))
@@ -197,13 +197,13 @@ struct BrowserReplPasteboardRedirectTests {
         /// at the cancellation, so the timeout the error names is the one
         /// that happened.
         @Test func aCancelledCallerDoesNotEndTheWebContentBeforeTheTimeout() async throws {
-            #expect(BrowserReplPasteboardRedirect.install())
+            #expect(BrowserReplPasteboardRedirect.shared.install())
             let tab = NSPasteboard.withUniqueName()
             defer { tab.releaseGlobally() }
             let clock = ManualClock()
             var ended = false
             let run = Task { @MainActor in
-                await BrowserReplPasteboardRedirect.run(
+                await BrowserReplPasteboardRedirect.shared.run(
                     on: tab,
                     timeout: .seconds(5),
                     clock: clock,
@@ -213,16 +213,16 @@ struct BrowserReplPasteboardRedirectTests {
                     }
                 ) { _ in }
             }
-            try await settle { BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true) === tab }
+            try await settle { BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) === tab }
             run.cancel()
             await settleTurns()
             #expect(!ended, "a cancelled caller ended the web content before the timeout")
-            #expect(BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true) === tab)
+            #expect(BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) === tab)
 
             clock.advance(by: .seconds(5))
             #expect(await run.value == .timedOut)
             #expect(ended)
-            #expect(BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true) == nil)
+            #expect(BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) == nil)
         }
 
         /// A command whose web content could not be ended at the timeout
@@ -232,14 +232,14 @@ struct BrowserReplPasteboardRedirectTests {
         /// copies and pastes reach the system pasteboard again and nothing
         /// the page writes later does.
         @Test func aCommandStillRunningAfterItsTimeoutIsEndedOneTimeoutLater() async throws {
-            #expect(BrowserReplPasteboardRedirect.install())
+            #expect(BrowserReplPasteboardRedirect.shared.install())
             let tab = NSPasteboard.withUniqueName()
             defer { tab.releaseGlobally() }
             let clock = ManualClock()
             var asked = 0
             var finished = 0
             let run = Task { @MainActor in
-                await BrowserReplPasteboardRedirect.run(
+                await BrowserReplPasteboardRedirect.shared.run(
                     on: tab,
                     tab: "tab A",
                     timeout: .seconds(5),
@@ -255,7 +255,7 @@ struct BrowserReplPasteboardRedirectTests {
             clock.advance(by: .seconds(5))
             #expect(await run.value == .timedOutStillRunning)
             #expect(asked == 1)
-            #expect(BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true) === tab)
+            #expect(BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) === tab)
 
             await clock.waitForSleepers(1)
             clock.advance(by: .seconds(4))
@@ -264,7 +264,7 @@ struct BrowserReplPasteboardRedirectTests {
             clock.advance(by: .seconds(1))
             try await settle { asked == 2 }
             #expect(
-                BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true) == nil,
+                BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) == nil,
                 "the redirect outlived the command's second timeout"
             )
             #expect(finished == 1)
@@ -282,7 +282,7 @@ struct BrowserReplPasteboardRedirectTests {
         }
 
         @Test func whenFinishedRunsOnceWhenWebKitFinishesOrAtOnceWhenTheCommandDoesNotStart() async throws {
-            #expect(BrowserReplPasteboardRedirect.install())
+            #expect(BrowserReplPasteboardRedirect.shared.install())
             let tab = NSPasteboard.withUniqueName()
             let other = NSPasteboard.withUniqueName()
             defer {
@@ -291,7 +291,7 @@ struct BrowserReplPasteboardRedirectTests {
             }
             var finished = 0
             var finish: (@MainActor () -> Void)?
-            let outcome = await BrowserReplPasteboardRedirect.run(
+            let outcome = await BrowserReplPasteboardRedirect.shared.run(
                 on: tab,
                 timeout: .milliseconds(50),
                 grace: .seconds(60),
@@ -304,7 +304,7 @@ struct BrowserReplPasteboardRedirectTests {
             #expect(finished == 0, "a timeout is not WebKit finishing the command")
 
             var busyFinished = 0
-            let busy = await BrowserReplPasteboardRedirect.run(
+            let busy = await BrowserReplPasteboardRedirect.shared.run(
                 on: other,
                 timeout: .milliseconds(50),
                 endWebContent: { true },
@@ -357,7 +357,7 @@ struct BrowserReplPasteboardRedirectTests {
             tab.clearContents()
             tab.setString("tab text", forType: .string)
 
-            let outcome = await BrowserReplPasteboardRedirect.perform("Paste", in: webView, pasteboard: tab, timeout: .seconds(10))
+            let outcome = await BrowserReplPasteboardRedirect.shared.perform("Paste", in: webView, pasteboard: tab, timeout: .seconds(10))
             if tab.changeCount >= NSPasteboard.general.changeCount {
                 // A system clipboard this young could match the tab's change
                 // count, which WebKit's access check compares; Paste then
@@ -374,7 +374,7 @@ struct BrowserReplPasteboardRedirectTests {
             let trustedEvent = event == "true:tab text"
             #expect(pastedTabText, "WebKit's paste did not read the tab's pasteboard")
             #expect(trustedEvent, "the page did not get a trusted paste event with the tab's data")
-            #expect(BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true) == nil)
+            #expect(BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) == nil)
         }
 
         /// WebKit's late-read refusal compares change counts; a Paste whose
@@ -386,7 +386,7 @@ struct BrowserReplPasteboardRedirectTests {
             tab.clearContents()
             tab.setString("tab text", forType: .string)
             var finished = false
-            let outcome = await BrowserReplPasteboardRedirect.perform(
+            let outcome = await BrowserReplPasteboardRedirect.shared.perform(
                 "Paste",
                 in: webView,
                 pasteboard: tab,
@@ -396,7 +396,7 @@ struct BrowserReplPasteboardRedirectTests {
             )
             #expect(outcome == .unavailable)
             #expect(finished)
-            #expect(BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true) == nil)
+            #expect(BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) == nil)
         }
 
         private final class Terminations: NSObject, WKNavigationDelegate {
@@ -427,7 +427,7 @@ struct BrowserReplPasteboardRedirectTests {
             tab.clearContents()
             tab.setString("tab text", forType: .string)
 
-            let outcome = await BrowserReplPasteboardRedirect.perform("Paste", in: webView, pasteboard: tab, timeout: .milliseconds(300))
+            let outcome = await BrowserReplPasteboardRedirect.shared.perform("Paste", in: webView, pasteboard: tab, timeout: .milliseconds(300))
             if tab.changeCount >= NSPasteboard.general.changeCount {
                 #expect(outcome == .unavailable)
                 return
@@ -435,7 +435,7 @@ struct BrowserReplPasteboardRedirectTests {
             #expect(outcome == .timedOut)
             #expect(terminations.count == 1, "the page that outlived the paste's timeout kept its web content process")
             #expect(
-                BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true) == nil,
+                BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) == nil,
                 "the redirect outlived the paste's timeout"
             )
         }
@@ -460,7 +460,7 @@ struct BrowserReplPasteboardRedirectTests {
                 _ = try await webView.evaluateJavaScript("document.getElementById('i').focus(); true")
                 var asked = 0
                 let finished = BrowserReplLatch()
-                outcome = await BrowserReplPasteboardRedirect.perform(
+                outcome = await BrowserReplPasteboardRedirect.shared.perform(
                     "Paste",
                     in: webView,
                     pasteboard: tab,
@@ -473,7 +473,7 @@ struct BrowserReplPasteboardRedirectTests {
                     },
                     whenWebKitFinishes: { finished.signal() }
                 )
-                #expect(BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true) === tab)
+                #expect(BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) === tab)
                 // The handler loops 1.5 s, but a loaded machine has run it
                 // past 10 s; the bound only turns a hang into a failure.
                 let clock = ContinuousClock()
@@ -482,7 +482,7 @@ struct BrowserReplPasteboardRedirectTests {
                 late = try await webView.evaluateJavaScript("window.late ?? 'unset'") as? String
             }
             #expect(outcome == .timedOutStillRunning)
-            #expect(BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true) == nil)
+            #expect(BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) == nil)
             // Bools, so a failure never prints the values.
             let readThePersonsClipboard = late == "the person's clipboard"
             #expect(!readThePersonsClipboard, "a paste handler that outlived the timeout read the system pasteboard")
@@ -503,7 +503,7 @@ struct BrowserReplPasteboardRedirectTests {
             tab.setString("tab text", forType: .string)
             var asked = 0
             let finished = BrowserReplLatch()
-            let outcome = await BrowserReplPasteboardRedirect.perform(
+            let outcome = await BrowserReplPasteboardRedirect.shared.perform(
                 "Paste",
                 in: webView,
                 pasteboard: tab,
@@ -522,7 +522,7 @@ struct BrowserReplPasteboardRedirectTests {
             try #require(ended, "the command was not ended within 60 s")
             #expect(terminations.count == 1, "the web content outlived the command's grace")
             #expect(asked == 2, "ending the web content after the grace asked the caller again")
-            #expect(BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true) == nil)
+            #expect(BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) == nil)
         }
 
         /// Proof for WebKit's Copy and Cut of rich content (formatting, a
@@ -546,7 +546,7 @@ struct BrowserReplPasteboardRedirectTests {
             tab.clearContents()
             let systemBefore = NSPasteboard.general.changeCount
 
-            let outcome = await BrowserReplPasteboardRedirect.perform(command, in: webView, pasteboard: tab, timeout: .seconds(10))
+            let outcome = await BrowserReplPasteboardRedirect.shared.perform(command, in: webView, pasteboard: tab, timeout: .seconds(10))
             #expect(outcome == .completed)
             #expect(NSPasteboard.general.changeCount == systemBefore, "WebKit's \(command) wrote the system pasteboard")
             let types = Set(tab.types ?? [])
@@ -568,7 +568,7 @@ struct BrowserReplPasteboardRedirectTests {
         /// count), which catches a write that bypasses the lookup.
         @Test(arguments: ["Copy", "Cut"])
         func aCopyOrCutThePageFinishesAfterTheTimeoutNeverReachesTheSystemPasteboard(command: String) async throws {
-            #expect(BrowserReplPasteboardRedirect.install())
+            #expect(BrowserReplPasteboardRedirect.shared.install())
             let standIn = NSPasteboard.withUniqueName()
             defer { standIn.releaseGlobally() }
             standIn.clearContents()
@@ -594,7 +594,7 @@ struct BrowserReplPasteboardRedirectTests {
                 defer { tab.releaseGlobally() }
                 tab.clearContents()
                 let finished = BrowserReplLatch()
-                let outcome = await BrowserReplPasteboardRedirect.perform(
+                let outcome = await BrowserReplPasteboardRedirect.shared.perform(
                     command,
                     in: webView,
                     pasteboard: tab,
@@ -602,10 +602,13 @@ struct BrowserReplPasteboardRedirectTests {
                     whenWebKitFinishes: { finished.signal() }
                 )
                 #expect(outcome == .timedOut)
-                // Let the page's handler run to its end, and WebKit with it.
+                // WebKit reports the command done (or its process ended) after
+                // the page's writes on the same connection; one more round trip
+                // to the page flushes anything after that.
                 let clock = ContinuousClock()
-                _ = await finished.wait(until: clock.now.advanced(by: .seconds(10)), clock: clock)
-                try await Task.sleep(for: .milliseconds(300))
+                let webKitFinished = await finished.wait(until: clock.now.advanced(by: .seconds(300)), clock: clock)
+                try #require(webKitFinished, "WebKit did not finish the command within 300 s")
+                _ = try? await webView.evaluateJavaScript("0")
                 let tabUntouched = tab.types?.isEmpty ?? true
                 #expect(tabUntouched, "a write after the timeout landed on the tab's pasteboard")
             }
@@ -697,9 +700,11 @@ final class ManualClock: Clock, @unchecked Sendable {
         for sleeper in due { sleeper.continuation.resume() }
     }
 
-    /// Waits until `count` sleeps are pending.
+    /// Waits until `count` sleeps are pending, for at most 30 s of real
+    /// time, so code that never sleeps fails the test instead of hanging it.
     func waitForSleepers(_ count: Int) async {
-        for _ in 0..<1_000 {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(30))
+        while ContinuousClock.now < deadline {
             if lock.withLock({ sleepers.count }) >= count { return }
             await Task.yield()
         }

@@ -3,8 +3,8 @@ public import Foundation
 /// Host names as the domain policy and secret scopes compare them: lower
 /// case, without a trailing dot, internationalized labels in their ASCII
 /// (Punycode) form, IPv6 in brackets.
-public enum BrowserReplHostName {
-    public static func normalize(_ raw: String) -> String {
+enum BrowserReplHostName {
+    static func normalize(_ raw: String) -> String {
         var host = raw.trimmingCharacters(in: .whitespaces)
         if host.contains(":"), !host.hasPrefix("[") { host = "[\(host)]" }
         if host.hasPrefix("[") { return host.lowercased() }
@@ -19,7 +19,7 @@ public enum BrowserReplHostName {
     }
 
     /// The normalized host of `url`, or nil when it has none.
-    public static func host(of url: URL) -> String? {
+    static func host(of url: URL) -> String? {
         guard let raw = url.host(percentEncoded: false), !raw.isEmpty else { return nil }
         return normalize(raw)
     }
@@ -27,7 +27,7 @@ public enum BrowserReplHostName {
     /// Whether `host` (normalized) is an IP address: bracketed IPv6, or a
     /// name whose last label is a number, which URL parsers read as IPv4
     /// (`127.1`, `0x7f.0.0.1`, `2130706433`).
-    public static func isIPAddress(_ host: String) -> Bool {
+    static func isIPAddress(_ host: String) -> Bool {
         if host.hasPrefix("[") { return true }
         guard let last = host.split(separator: ".").last, !last.isEmpty else { return false }
         let label = last.lowercased()

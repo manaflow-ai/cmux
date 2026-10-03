@@ -68,7 +68,12 @@ public import WebKit
 /// system pasteboard's change count. Writes a page's own scripts make (the
 /// asynchronous Clipboard API, `execCommand("copy")`) are not commands and
 /// are not redirected; ``BrowserReplPageClipboard`` handles those.
-public enum BrowserReplPasteboardRedirect {
+public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
+    /// The redirect: one per process, since the hook it installs is.
+    public static let shared = BrowserReplPasteboardRedirect()
+
+    private init() {}
+
     /// How one command ended.
     public enum Outcome: Equatable, Sendable {
         /// WebKit reported the command done within the timeout; the tab's
@@ -98,23 +103,24 @@ public enum BrowserReplPasteboardRedirect {
         case unavailable
     }
 
-    nonisolated(unsafe) private static var target: NSPasteboard?
-    private static let lock = NSLock()
-    @MainActor private static var installed = false
+    /// Guarded by `lock`; read by the hook on any thread.
+    private var target: NSPasteboard?
+    private let lock = NSLock()
+    @MainActor private var installed = false
     /// The command WebKit has not reported done, within or past its timeout.
-    @MainActor private static var unfinished: Command?
+    @MainActor private var unfinished: Command?
 
     /// Installs the process-wide `+[NSPasteboard pasteboardWithName:]` hook
     /// once. Returns `false` when the method is missing.
     @MainActor
-    public static func install() -> Bool {
+    public func install() -> Bool {
         if installed { return true }
         let selector = NSSelectorFromString("pasteboardWithName:")
         guard let method = class_getClassMethod(NSPasteboard.self, selector) else { return false }
         typealias Lookup = @convention(c) (AnyObject, Selector, NSString) -> NSPasteboard
         let original = unsafeBitCast(method_getImplementation(method), to: Lookup.self)
         let replacement: @convention(block) @Sendable (AnyObject, NSString) -> NSPasteboard = { cls, name in
-            redirectedLookup(of: name as String) ?? original(cls, selector, name)
+            self.redirectedLookup(of: name as String) ?? original(cls, selector, name)
         }
         method_setImplementation(method, imp_implementationWithBlock(replacement))
         installed = true
@@ -145,7 +151,7 @@ public enum BrowserReplPasteboardRedirect {
     ///   - whenWebKitFinishes: called once, when WebKit reports the command
     ///     done or its process is ended, or at once when it did not start.
     @MainActor
-    public static func perform(
+    public func perform(
         _ command: String,
         in webView: WKWebView,
         pasteboard: NSPasteboard,
@@ -156,8 +162,8 @@ public enum BrowserReplPasteboardRedirect {
         mayEndWebContent: @escaping @MainActor () -> Bool = { true },
         whenWebKitFinishes: @escaping @MainActor () -> Void = {}
     ) async -> Outcome {
-        guard webView.responds(to: editCommandSelector),
-              webView.responds(to: endWebContentSelector),
+        guard webView.responds(to: Self.editCommandSelector),
+              webView.responds(to: Self.endWebContentSelector),
               command != "Paste" || pasteboard.changeCount < (systemChangeCount ?? NSPasteboard.general.changeCount),
               mayEndWebContent()
         else {
@@ -175,15 +181,15 @@ public enum BrowserReplPasteboardRedirect {
                 // web content is ended regardless.
                 askedToEnd += 1
                 guard askedToEnd > 1 || mayEndWebContent() else { return false }
-                return endWebContent(of: webView)
+                return self.endWebContent(of: webView)
             },
             whenFinished: whenWebKitFinishes
         ) { done in
             typealias Completion = @convention(block) (Bool) -> Void
             typealias Function = @convention(c) (AnyObject, Selector, NSString, NSString?, Completion) -> Void
-            let function = unsafeBitCast(webView.method(for: editCommandSelector), to: Function.self)
+            let function = unsafeBitCast(webView.method(for: Self.editCommandSelector), to: Function.self)
             let completion: Completion = { _ in MainActor.assumeIsolated { done() } }
-            function(webView, editCommandSelector, command as NSString, "" as NSString, completion)
+            function(webView, Self.editCommandSelector, command as NSString, "" as NSString, completion)
         }
     }
 
@@ -192,11 +198,11 @@ public enum BrowserReplPasteboardRedirect {
     /// process's messages before this returns and reports the termination to
     /// the navigation delegate. Returns `false` when the SPI is missing.
     @MainActor
-    public static func endWebContent(of webView: WKWebView) -> Bool {
-        guard webView.responds(to: endWebContentSelector) else { return false }
+    public func endWebContent(of webView: WKWebView) -> Bool {
+        guard webView.responds(to: Self.endWebContentSelector) else { return false }
         typealias Function = @convention(c) (AnyObject, Selector) -> Void
-        let function = unsafeBitCast(webView.method(for: endWebContentSelector), to: Function.self)
-        function(webView, endWebContentSelector)
+        let function = unsafeBitCast(webView.method(for: Self.endWebContentSelector), to: Function.self)
+        function(webView, Self.endWebContentSelector)
         return true
     }
 
@@ -215,7 +221,7 @@ public enum BrowserReplPasteboardRedirect {
     /// `invoke`'s argument is called or the web content is ended, or at once
     /// when the command does not start.
     @MainActor
-    public static func run<C: Clock>(
+    public func run<C: Clock>(
         on pasteboard: NSPasteboard,
         tab: String = "",
         timeout: Duration,
@@ -240,7 +246,7 @@ public enum BrowserReplPasteboardRedirect {
         unfinished = command
         setTarget(pasteboard)
         let deadline = clock.now.advanced(by: timeout)
-        invoke { finish(command) }
+        invoke { self.finish(command) }
         if await command.finished.wait(until: deadline, clock: clock, honoringCancellation: false) { return .completed }
         // Past the timeout. Until this turn ends nothing else runs on the
         // main thread, so WebKit handles no more of the page's pasteboard
@@ -268,19 +274,19 @@ public enum BrowserReplPasteboardRedirect {
     /// of the system's, or `nil` for the system's: the tab's pasteboard for
     /// a lookup of the general pasteboard by WebKit while a command is in
     /// flight.
-    public static func redirectTarget(forLookupOf name: String, fromWebKit: Bool) -> NSPasteboard? {
+    public func redirectTarget(forLookupOf name: String, fromWebKit: Bool) -> NSPasteboard? {
         guard fromWebKit, name == NSPasteboard.Name.general.rawValue else { return nil }
         lock.lock()
         defer { lock.unlock() }
         return target
     }
 
-    private static func redirectedLookup(of name: String) -> NSPasteboard? {
+    private func redirectedLookup(of name: String) -> NSPasteboard? {
         lock.lock()
         let inFlight = target != nil
         lock.unlock()
         guard inFlight, name == NSPasteboard.Name.general.rawValue else { return nil }
-        return redirectTarget(forLookupOf: name, fromWebKit: lookupComesFromWebKit())
+        return redirectTarget(forLookupOf: name, fromWebKit: Self.lookupComesFromWebKit())
     }
 
     /// Whether the nearest caller outside this module (past the hook's own
@@ -306,7 +312,7 @@ public enum BrowserReplPasteboardRedirect {
     }
 
     @MainActor
-    private static func finish(_ command: Command) {
+    private func finish(_ command: Command) {
         guard !command.finished.isSignaled else { return }
         endRedirect(to: command.pasteboard)
         if unfinished === command { unfinished = nil }
@@ -318,13 +324,13 @@ public enum BrowserReplPasteboardRedirect {
         command.whenFinished()
     }
 
-    private static func setTarget(_ pasteboard: NSPasteboard?) {
+    private func setTarget(_ pasteboard: NSPasteboard?) {
         lock.lock()
         target = pasteboard
         lock.unlock()
     }
 
-    private static func endRedirect(to pasteboard: NSPasteboard) {
+    private func endRedirect(to pasteboard: NSPasteboard) {
         lock.lock()
         if target === pasteboard { target = nil }
         lock.unlock()

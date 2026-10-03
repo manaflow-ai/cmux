@@ -18,9 +18,8 @@ public protocol BrowserReplTextCommitTarget: AnyObject {
 /// sees `compositionstart`, `beforeinput`/`input` and `compositionend`;
 /// otherwise as one plain insert. Text with a line break or a tab is never
 /// composed (those are editing commands, not composed text).
-@MainActor
-public enum BrowserReplTextCommit {
-    /// Commits `text` into `target`.
+extension BrowserReplTextCommitTarget {
+    /// Commits `text` into this target.
     ///
     /// `checkTarget` runs last before the first commit step, after the wait
     /// for the editor state, because the page can move focus during that
@@ -33,18 +32,17 @@ public enum BrowserReplTextCommit {
     /// - Parameter checkTarget: Decides whether the text may go to the
     ///   element that has focus; it throws to refuse, and then nothing is
     ///   committed.
-    public static func commit(
+    public func commit(
         _ text: String,
-        into target: some BrowserReplTextCommitTarget,
-        checkTarget: @MainActor () async throws -> Void
+        checkTarget: @MainActor @Sendable () async throws -> Void
     ) async throws {
         let composable = !text.contains { $0.isNewline || $0 == "\t" }
         var composes = false
-        if composable, !target.hasMarkedText {
-            composes = await target.prepareComposition()
+        if composable, !hasMarkedText {
+            composes = await prepareComposition()
         }
         try await checkTarget()
-        if composes { target.setMarkedText(text) }
-        target.insertText(text)
+        if composes { setMarkedText(text) }
+        insertText(text)
     }
 }

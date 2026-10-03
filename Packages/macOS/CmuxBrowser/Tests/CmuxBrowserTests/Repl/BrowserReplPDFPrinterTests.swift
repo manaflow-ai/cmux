@@ -36,12 +36,11 @@ struct BrowserReplPDFPrinterTests {
     @Test func printsAPaginatedPDFOfAWebViewInNoWindow() async throws {
         let webView = await longPage()
         #expect(webView.window == nil)
-        let data = try await BrowserReplPDFPrinter.pdf(
-            of: webView,
+        let data = try await BrowserReplPDFPrinter(
             paper: CGSize(width: 612, height: 792),
             margins: NSEdgeInsets(top: 36, left: 36, bottom: 36, right: 36),
             printBackground: false
-        )
+        ).pdf(of: webView)
         #expect(pageCount(data) > 1)
     }
 
@@ -61,12 +60,11 @@ struct BrowserReplPDFPrinterTests {
             MainActor.assumeIsolated { sheets.append(window) }
         }
         defer { NotificationCenter.default.removeObserver(observer) }
-        let data = try await BrowserReplPDFPrinter.pdf(
-            of: webView,
+        let data = try await BrowserReplPDFPrinter(
             paper: CGSize(width: 612, height: 792),
             margins: NSEdgeInsets(),
             printBackground: true
-        )
+        ).pdf(of: webView)
         #expect(pageCount(data) > 1)
         #expect(sheets.isEmpty)
         #expect(window.attachedSheet == nil)

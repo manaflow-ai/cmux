@@ -155,8 +155,7 @@ enum BrowserReplCapture {
         if options["landscape"] as? Bool == true { paper = CGSize(width: paper.height, height: paper.width) }
         let margin = options["margin"] as? [String: Any] ?? [:]
         do {
-            return try await BrowserReplPDFPrinter.pdf(
-                of: webView,
+            return try await BrowserReplPDFPrinter(
                 paper: paper,
                 margins: NSEdgeInsets(
                     top: points(margin["top"]) ?? 0,
@@ -165,7 +164,7 @@ enum BrowserReplCapture {
                     right: points(margin["right"]) ?? 0
                 ),
                 printBackground: options["printBackground"] as? Bool ?? false
-            )
+            ).pdf(of: webView)
         } catch is BrowserReplPDFPrinter.Failure {
             throw WebKitBrowserReplDriver.error("invalid", "Printing to PDF failed")
         }

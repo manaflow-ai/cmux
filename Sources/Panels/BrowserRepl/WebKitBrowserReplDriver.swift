@@ -519,11 +519,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let workspace = try workspace()
         // A tab the session opens gets the page clipboard guard; without its
         // script no page may run in such a tab.
-        if BrowserReplTabAttachments.shared.pageClipboardShim == nil {
+        if BrowserReplTabAttachments.shared.pageClipboard == nil {
             guard let shim = bundle.readResource("page-clipboard.js") else {
                 throw Self.error("unsupported", "The browser REPL page clipboard script is not bundled")
             }
-            BrowserReplTabAttachments.shared.pageClipboardShim = shim
+            BrowserReplTabAttachments.shared.pageClipboard = BrowserReplPageClipboard(shim: shim)
         }
         let rawURL = params["url"] as? String
         // Open blank and attach first, then navigate like tab.navigate, so the
@@ -1660,7 +1660,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             // the page is answered at once instead of held for the session,
             // so it cannot keep the command open.
             attachment.clipboardCommandsInFlight.append(name.lowercased())
-            let outcome = await BrowserReplPasteboardRedirect.perform(
+            let outcome = await BrowserReplPasteboardRedirect.shared.perform(
                 name,
                 in: webView,
                 pasteboard: pasteboard,
@@ -1735,11 +1735,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         guard !text.isEmpty else { return nil }
         // A secret from the native session: typed only when the focused
         // frame's own origin is on the secret's domains, checked on every
-        // call right before the text is committed (BrowserReplTextCommit),
+        // call right before the text is committed (BrowserReplTextCommitTarget.commit),
         // after the wait for WebKit's editor state, during which the page
         // can move focus. What remains is the cross-process gap between the
         // check's last reply and the insert reaching the web process.
-        let checkTarget: @MainActor () async throws -> Void = {
+        let checkTarget: @MainActor @Sendable () async throws -> Void = {
             guard let name = params["secretName"] as? String else { return }
             let frames = await BrowserReplFrameTree.frames(of: panel.webView)
             try await BrowserReplSecretGuard.checkSecretTarget(

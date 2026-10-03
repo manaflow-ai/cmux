@@ -40,13 +40,13 @@ struct BrowserReplTextCommitTests {
 
     @Test func aRichTextEditorGetsMarkedTextThenTheInsert() async throws {
         let target = FakeTextTarget()
-        try await BrowserReplTextCommit.commit("pw", into: target, checkTarget: allowOnly(target))
+        try await target.commit("pw", checkTarget: allowOnly(target))
         #expect(target.log == ["prepare", "marked https://allowed.example pw", "insert https://allowed.example pw"])
     }
 
     @Test func aLineBreakIsInsertedWithoutAComposition() async throws {
         let target = FakeTextTarget()
-        try await BrowserReplTextCommit.commit("a\nb", into: target, checkTarget: allowOnly(target))
+        try await target.commit("a\nb", checkTarget: allowOnly(target))
         #expect(target.log == ["insert https://allowed.example a\nb"])
     }
 
@@ -57,7 +57,7 @@ struct BrowserReplTextCommitTests {
         let target = FakeTextTarget()
         target.originAfterPreparation = "https://evil.example"
         await #expect(throws: Refused(origin: "https://evil.example")) {
-            try await BrowserReplTextCommit.commit("pw", into: target, checkTarget: allowOnly(target))
+            try await target.commit("pw", checkTarget: allowOnly(target))
         }
         #expect(!target.log.contains { $0.hasPrefix("insert") || $0.hasPrefix("marked") })
     }
@@ -67,7 +67,7 @@ struct BrowserReplTextCommitTests {
         target.focusedOrigin = "https://evil.example"
         target.richText = false
         await #expect(throws: Refused(origin: "https://evil.example")) {
-            try await BrowserReplTextCommit.commit("pw", into: target, checkTarget: allowOnly(target))
+            try await target.commit("pw", checkTarget: allowOnly(target))
         }
         #expect(!target.log.contains { $0.hasPrefix("insert") || $0.hasPrefix("marked") })
     }

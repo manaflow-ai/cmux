@@ -83,9 +83,9 @@ final class BrowserReplTabAttachments {
         attachments[panelID]?.sessionIDs ?? []
     }
 
-    /// `Resources/browser-repl/page-clipboard.js`, which the driver loads
-    /// before it opens a session's first tab.
-    var pageClipboardShim: String?
+    /// The page clipboard guard with `Resources/browser-repl/page-clipboard.js`,
+    /// which the driver loads before it opens a session's first tab.
+    var pageClipboard: BrowserReplPageClipboard?
 
     /// The live attachment whose panel shows `webView`.
     func attachment(showing webView: WKWebView) -> BrowserReplTabAttachment? {
@@ -491,8 +491,8 @@ final class BrowserReplTabAttachment {
     /// also after the session leaves: a page loaded while the session drove
     /// the tab never gets the system clipboard. Writes after that fail.
     private func guardPageClipboard(_ webView: WKWebView) {
-        guard let shim = BrowserReplTabAttachments.shared.pageClipboardShim else { return }
-        BrowserReplPageClipboard.install(on: webView, shim: shim) { webView, items in
+        guard let pageClipboard = BrowserReplTabAttachments.shared.pageClipboard else { return }
+        pageClipboard.install(on: webView) { webView, items in
             guard let attachment = BrowserReplTabAttachments.shared.attachment(showing: webView) else { return false }
             attachment.clipboardItems = items
             return true

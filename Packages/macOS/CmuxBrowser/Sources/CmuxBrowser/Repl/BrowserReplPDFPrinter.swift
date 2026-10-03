@@ -11,17 +11,25 @@ public import WebKit
 /// window holding the web view, typically the user's, is never the target
 /// of a print session, and a web view in no window prints too.
 @MainActor
-public enum BrowserReplPDFPrinter {
+public struct BrowserReplPDFPrinter {
     /// Printing failed or produced no PDF.
     public struct Failure: Error, Equatable, Sendable {}
 
-    /// Prints `webView` on `paper` (points) with `margins` (points).
-    public static func pdf(
-        of webView: WKWebView,
-        paper: CGSize,
-        margins: NSEdgeInsets,
-        printBackground: Bool
-    ) async throws -> Data {
+    /// Paper size in points.
+    public let paper: CGSize
+    /// Margins in points.
+    public let margins: NSEdgeInsets
+    /// Whether backgrounds print.
+    public let printBackground: Bool
+
+    public init(paper: CGSize, margins: NSEdgeInsets, printBackground: Bool) {
+        self.paper = paper
+        self.margins = margins
+        self.printBackground = printBackground
+    }
+
+    /// Prints `webView` on ``paper`` with ``margins``.
+    public func pdf(of webView: WKWebView) async throws -> Data {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-\(UUID().uuidString).pdf")
         defer { try? FileManager.default.removeItem(at: url) }
         let printInfo = (NSPrintInfo.shared.copy() as? NSPrintInfo) ?? NSPrintInfo()
@@ -48,7 +56,7 @@ public enum BrowserReplPDFPrinter {
         operation.view?.frame = webView.bounds.isEmpty
             ? NSRect(origin: .zero, size: paper)
             : webView.bounds
-        let host = hostWindow()
+        let host = Self.hostWindow()
         defer { host.close() }
         let succeeded: Bool = await withCheckedContinuation { continuation in
             let completion = Completion { continuation.resume(returning: $0) }
