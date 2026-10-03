@@ -33,7 +33,7 @@ def shell_prompt() -> str:
     out = []
     for n in range(40):
         out.append(f"{OSC}133;A{ST}")
-        out.append(f"{OSC}7;file://host/Users/dev/project{n % 3}{ST}")
+        out.append(f"{OSC}7;file://localhost/Users/dev/project{n % 3}{ST}")
         out.append(f"{OSC}2;dev@host: ~/project{n % 3}{BEL}")
         out.append(f"{CSI}1;32mdev@host{CSI}0m:{CSI}1;34m~/project{n % 3}{CSI}0m$ ")
         out.append(f"{OSC}133;B{ST}")

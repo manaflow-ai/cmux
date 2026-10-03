@@ -7,7 +7,7 @@
       "file": "shell-prompt.vt",
       "cols": 120,
       "rows": 40,
-      "bytes": 22530,
+      "bytes": 22730,
       "features": [
         "semantic-prompts",
         "osc7",
