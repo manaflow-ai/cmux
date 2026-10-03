@@ -216,9 +216,18 @@ fn git_files_joins_the_query_and_takes_a_limit() {
 
 #[test]
 fn git_commit_names_a_message_and_what_to_stage() {
+    let here = std::env::current_dir().unwrap();
+    let absolute = |path: &str| here.join(path).to_string_lossy().into_owned();
     assert_eq!(
-        sent(&["git", "commit", "--path", "/repo", "--message", "Fix", "a.rs", "b/"]),
-        ("git.commit".into(), json!({"path": "/repo", "message": "Fix", "paths": ["a.rs", "b/"]}))
+        sent(&["git", "commit", "--path", "/repo", "--message", "Fix", "a.rs", "b/", "/abs/c"]),
+        (
+            "git.commit".into(),
+            json!({
+                "path": "/repo",
+                "message": "Fix",
+                "paths": [absolute("a.rs"), format!("{}/", absolute("b")), "/abs/c"],
+            })
+        )
     );
     assert_eq!(
         sent(&[

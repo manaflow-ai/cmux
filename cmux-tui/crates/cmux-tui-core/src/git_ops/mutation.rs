@@ -18,7 +18,7 @@ use serde_json::{Map, Value, json};
 
 use super::checkpoint::ledger::{self, Identity};
 use super::run::GitFailure;
-use super::user_run::{DEADLINE, MAX_STDERR_BYTES, run_user_git};
+use super::user_run::{MAX_STDERR_BYTES, UserGit};
 use super::{MAX_SMALL_OUTPUT_BYTES, Repository};
 use crate::Mux;
 use crate::resource::ResourceError;
@@ -55,6 +55,11 @@ impl Target {
             })
         };
         Ok(Self { common_dir: canonical(common_dir)?, git_dir: canonical(git_dir)?, repository })
+    }
+
+    /// The repository and worktree this target resolved to, as one string.
+    pub(super) fn identity(&self) -> String {
+        format!("{}\0{}", self.common_dir.display(), self.git_dir.display())
     }
 
     /// The worktree's own git directory, where in-progress state lives.
@@ -123,7 +128,8 @@ pub(super) fn run_failed(operation: &str, failure: &GitFailure) -> ResourceError
         GitFailure::TimedOut => refused(
             operation,
             "timed_out",
-            format!("git did not finish within {} s and was stopped", DEADLINE.as_secs()),
+            "git did not finish in time and was stopped; it may have finished its work, \
+             and a retry with the same key reports that",
             Value::Null,
         ),
         other => refused(operation, "git_failed", other.reason(), Value::Null),
@@ -164,12 +170,12 @@ pub(super) fn normalized(error: ResourceError) -> ResourceError {
 /// The hooks among `names` that git would run in `root`: present and
 /// executable in the effective hooks directory (`core.hooksPath` or the
 /// repository's own).
-pub(super) fn active_hooks(root: &Path, names: &[&str]) -> Vec<String> {
+pub(super) fn active_hooks(git: &UserGit<'_>, names: &[&str]) -> Vec<String> {
     let mut arguments = vec!["rev-parse".to_string()];
     for name in names {
         arguments.extend(["--git-path".to_string(), format!("hooks/{name}")]);
     }
-    let Ok(run) = run_user_git(root, &arguments) else { return Vec::new() };
+    let Ok(run) = git.run(&arguments) else { return Vec::new() };
     if !run.success {
         return Vec::new();
     }
@@ -177,7 +183,7 @@ pub(super) fn active_hooks(root: &Path, names: &[&str]) -> Vec<String> {
     names
         .iter()
         .zip(stdout.lines())
-        .filter(|(_, path)| executable(&root.join(path)))
+        .filter(|(_, path)| executable(&git.root.join(path)))
         .map(|(name, _)| (*name).to_string())
         .collect()
 }

@@ -163,10 +163,12 @@ fn push_never_prompts_for_credentials() {
         ("SSH_ASKPASS", Some(askpass.as_str())),
         ("DISPLAY", Some(":0")),
     ]);
+    // Repository config's askpass is never used either.
+    git(&repository, &["config", "core.askPass", &askpass]);
     let mux = session("push-auth");
     let (reason, extra) = refused(&push(&mux, &repository, json!({}), "k-auth"));
     assert_eq!(reason, "auth_failed", "{extra}");
-    assert!(!marker.exists(), "an inherited askpass program ran");
+    assert!(!marker.exists(), "an askpass program ran");
 }
 
 #[test]
@@ -180,4 +182,34 @@ fn push_names_an_unreachable_remote() {
     let mux = session("push-network");
     let (reason, extra) = refused(&push(&mux, &repository, json!({}), "k-network"));
     assert_eq!(reason, "network_failed", "{extra}");
+}
+
+#[test]
+fn a_pre_push_hook_that_prints_permission_denied_is_still_the_hook() {
+    let (repository, _) = with_remote("push-hook-words");
+    let hook = "#!/bin/sh\necho 'fatal: permission denied by policy' >&2\nexit 1\n";
+    executable(&repository.join(".git/hooks/pre-push"), hook);
+    let mux = session("push-hook-words");
+    assert_eq!(refused(&push(&mux, &repository, json!({}), "k-words")).0, "hook_failed");
+}
+
+#[test]
+fn push_refuses_hostile_branches_unknown_remotes_and_special_remotes() {
+    let (repository, _) = with_remote("push-hostile");
+    let mux = session("push-hostile");
+    for branch in ["-x", "a:b", "main..x"] {
+        let envelope = push(&mux, &repository, json!({"branch": branch}), "k-branch");
+        assert_eq!(envelope["error"]["code"], "validation.invalid", "{branch}: {envelope}");
+    }
+    // `+x` is a valid name with no branch behind it; it never forces.
+    let plus = push(&mux, &repository, json!({"branch": "+x"}), "k-plus");
+    assert_eq!(refused(&plus).0, "branch_not_found");
+    let unknown = push(&mux, &repository, json!({"remote": "upstream"}), "k-unknown");
+    assert_eq!(refused(&unknown).0, "no_remote");
+    git(&repository, &["config", "remote.origin.push", "refs/heads/*:refs/heads/review/*"]);
+    let (reason, _) = refused(&push(&mux, &repository, json!({}), "k-refspec"));
+    assert_eq!(reason, "push_refspec_configured");
+    git(&repository, &["config", "--unset", "remote.origin.push"]);
+    git(&repository, &["config", "remote.origin.mirror", "true"]);
+    assert_eq!(refused(&push(&mux, &repository, json!({}), "k-mirror")).0, "mirror_remote");
 }

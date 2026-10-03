@@ -5,34 +5,37 @@
 //! whitespace cleanup, so a line starting with `#` stays.
 //!
 //! What it commits: with `paths`, exactly those paths as they are in the
-//! working tree (they are staged first, so new files can be named, and
-//! other staged changes stay staged and out of the commit); with `all`,
-//! every tracked change, plus untracked files with `include_untracked`; with
-//! neither, the index as it is. Paths are literal, never pathspec magic.
+//! working tree (they are staged first, so new files can be named; other
+//! staged changes stay staged and out of the commit, and the named paths
+//! stay staged when the commit is refused); with `all`, every tracked
+//! change, plus untracked files with `include_untracked`; with neither, the
+//! index as it is. Paths are literal, never pathspec magic.
 //!
 //! `expected_head` refuses with `head_moved` when HEAD is no longer the
-//! commit the caller saw. A lost reply is recovered through the commit
-//! journal (`commit_journal`), never by guessing from the message.
+//! commit the caller saw. A lost reply is recovered through the attempt
+//! journal: git commits with a reflog message that names the attempt, and a
+//! retry reports HEAD only when HEAD's newest reflog entry names it.
 
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use serde_json::{Map, Value, json};
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 
 use super::checkpoint::ledger;
 use super::checkpoint::store::{mint, private_directory};
-use super::commit_journal::{Attempt, Journal};
+use super::commit_args::{Arguments, parse};
+use super::journal::Journal;
 use super::mutation::{Target, active_hooks, key, output_extra, read_failed, refused, run_failed};
-use super::user_run::{UserRun, run_user_git};
+use super::run::GitFailure;
+use super::user_run::{UserGit, UserRun, deadline};
 use super::{MAX_SMALL_OUTPUT_BYTES, Repository, clamp};
 use crate::Mux;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
 
 const OPERATION: &str = "git.commit";
-const MAX_MESSAGE_BYTES: usize = 64 * 1024;
-const MAX_PATHS: usize = 5000;
 /// State files that make a plain commit the wrong action, and their names.
 const IN_PROGRESS: [(&str, &str); 5] = [
     ("MERGE_HEAD", "merge"),
@@ -42,14 +45,45 @@ const IN_PROGRESS: [(&str, &str); 5] = [
     ("REVERT_HEAD", "revert"),
 ];
 
-struct Arguments {
-    message: String,
-    paths: Vec<String>,
-    all: bool,
-    include_untracked: bool,
-    amend: bool,
-    no_verify: bool,
-    expected_head: Option<String>,
+/// A started commit, as the journal keeps it.
+#[derive(Debug, Serialize, Deserialize)]
+struct Attempt {
+    /// Named in the commit's reflog message.
+    attempt_id: String,
+    /// HEAD before the commit; `None` on an unborn branch.
+    head: Option<String>,
+    /// The parents the new commit gets: HEAD, or HEAD's own with amend.
+    parents: Vec<String>,
+}
+
+impl Attempt {
+    fn reflog_action(&self) -> String {
+        format!("commit (cmux {})", self.attempt_id)
+    }
+
+    /// HEAD, when HEAD's newest reflog entry is this attempt's commit.
+    fn recovered(&self, repository: &Repository, head: Option<&str>) -> Option<String> {
+        let head = head?;
+        if Some(head) == self.head.as_deref() {
+            return None;
+        }
+        let reflog = ["log", "-g", "-1", "--format=%H%n%gs%n%P", "HEAD", "--"];
+        let output = repository.run(&reflog, MAX_SMALL_OUTPUT_BYTES).ok()?;
+        let text = String::from_utf8_lossy(&output.stdout).into_owned();
+        let mut lines = text.lines();
+        let (commit, subject, parents) = (lines.next()?, lines.next()?, lines.next().unwrap_or(""));
+        let parents: Vec<String> = parents.split_whitespace().map(str::to_string).collect();
+        let ours = commit == head
+            && subject.starts_with(&format!("{}:", self.reflog_action()))
+            && parents == self.parents;
+        ours.then(|| head.to_string())
+    }
+}
+
+/// The step of a commit that git refused.
+enum Step {
+    Stage,
+    Commit,
 }
 
 pub(super) fn dispatch(
@@ -57,18 +91,19 @@ pub(super) fn dispatch(
     request: &ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let key = key(request);
-    let arguments = parse_arguments(&request.fields)?;
+    let deadline = deadline();
     let target = Target::resolve(mux, request, OPERATION)?;
+    let arguments = parse(&request.fields, &target.repository.root)?;
     let fingerprint = target.fingerprint(request);
     target.exclusive(OPERATION, || {
         if let Some(replayed) = ledger::prior(mux, &key, OPERATION, &fingerprint)? {
             return Ok(replayed);
         }
         let repository = &target.repository;
-        let journal = Journal::open(mux, &key, OPERATION)?;
+        let git = UserGit { root: &repository.root, deadline };
+        let journal = Journal::open(mux, &target.identity(), &key, OPERATION)?;
         let head = repository.commit("HEAD");
-        if let Some(journal) = &journal
-            && let Some(attempt) = journal.attempt(&key, &fingerprint)
+        if let Some(attempt) = journal.attempt::<Attempt>(&fingerprint)
             && let Some(commit) = attempt.recovered(repository, head.as_deref())
         {
             let value = described(repository, &commit)?;
@@ -85,17 +120,29 @@ pub(super) fn dispatch(
         }
         in_progress(target.git_dir())?;
         let parents = planned_parents(repository, head.as_deref(), arguments.amend)?;
-        if let Some(journal) = &journal {
-            journal.start(&Attempt::new(&key, &fingerprint, head, parents, &arguments.message))?;
-        }
-        // A run that did not finish (timed out) may have committed: its
-        // attempt stays so a retry can recover it.
-        let run = run_commit(repository, &arguments)?;
+        let attempt = Attempt { attempt_id: mint("attempt"), head, parents };
+        journal.start(&fingerprint, &attempt)?;
+        // A run that did not finish may have committed: the attempt stays,
+        // so a retry with the same key reports that commit.
+        let (step, run) = run_commit(&git, &arguments, &attempt).map_err(|failure| match failure {
+            GitFailure::TimedOut => refused(
+                OPERATION,
+                "timed_out",
+                "git did not finish in time and was stopped; a commit may have been made, \
+                 and a retry with the same key reports it",
+                Value::Null,
+            ),
+            other => run_failed(OPERATION, &other),
+        })?;
         if !run.success {
-            if let Some(journal) = &journal {
+            let error = classified(&git, &step, &run, &arguments);
+            // An index lock means another git may still commit; a moved HEAD
+            // may be this attempt's commit. Both keep the attempt.
+            let locked = error.details["reason"] == "index_locked";
+            if !locked && repository.commit("HEAD") == attempt.head {
                 journal.finish();
             }
-            return Err(classified(repository, &run, &arguments));
+            return Err(error);
         }
         #[cfg(test)]
         if seams::LOSE_REPLY.with(|lose| lose.replace(false)) {
@@ -107,80 +154,9 @@ pub(super) fn dispatch(
         };
         let value = described(repository, &commit)?;
         let reply = ledger::commit(mux, &key, OPERATION, &fingerprint, &value, false)?;
-        if let Some(journal) = &journal {
-            journal.finish();
-        }
+        journal.finish();
         Ok(reply)
     })
-}
-
-fn parse_arguments(fields: &Map<String, Value>) -> Result<Arguments, ResourceError> {
-    let message = fields.get("message").and_then(Value::as_str).unwrap_or_default();
-    if message.trim().is_empty() || message.len() > MAX_MESSAGE_BYTES || message.contains('\0') {
-        return Err(ResourceError::validation_invalid(
-            Some("message"),
-            "a commit message has text, at most 64 KiB and no NUL",
-        ));
-    }
-    let flag = |name: &str| fields.get(name).and_then(Value::as_bool).unwrap_or(false);
-    let (all, include_untracked) = (flag("all"), flag("include_untracked"));
-    let paths = match fields.get("paths") {
-        Some(value) => relative_paths(value)?,
-        None => Vec::new(),
-    };
-    if all && !paths.is_empty() {
-        return Err(ResourceError::validation_invalid(Some("all"), "give paths or all, not both"));
-    }
-    if include_untracked && !all {
-        return Err(ResourceError::validation_invalid(
-            Some("include_untracked"),
-            "include_untracked needs all",
-        ));
-    }
-    Ok(Arguments {
-        message: message.to_string(),
-        paths,
-        all,
-        include_untracked,
-        amend: flag("amend"),
-        no_verify: flag("no_verify"),
-        expected_head: fields.get("expected_head").and_then(Value::as_str).map(str::to_string),
-    })
-}
-
-/// Repository-relative paths: not empty, no leading `/`, no NUL and no `.`,
-/// `..` or `.git` component. A trailing `/` is dropped.
-fn relative_paths(value: &Value) -> Result<Vec<String>, ResourceError> {
-    let invalid = |path: &str| {
-        ResourceError::validation_invalid(
-            Some("paths"),
-            format!("{path:?} is not a path relative to the repository root"),
-        )
-    };
-    let given = value.as_array().map(Vec::as_slice).unwrap_or_default();
-    if given.is_empty() || given.len() > MAX_PATHS {
-        return Err(ResourceError::validation_invalid(
-            Some("paths"),
-            format!("paths names 1 to {MAX_PATHS} files"),
-        ));
-    }
-    let mut paths = Vec::with_capacity(given.len());
-    for path in given {
-        let path = path.as_str().ok_or_else(|| invalid(&path.to_string()))?;
-        let trimmed = path.strip_suffix('/').unwrap_or(path);
-        let valid = !trimmed.is_empty()
-            && !trimmed.contains('\0')
-            && Path::new(trimmed).components().all(|part| match part {
-                Component::Normal(name) => name != ".git",
-                _ => false,
-            })
-            && trimmed.split('/').all(|part| !matches!(part, "" | "." | ".."));
-        if !valid {
-            return Err(invalid(path));
-        }
-        paths.push(trimmed.to_string());
-    }
-    Ok(paths)
 }
 
 /// Refuses while a merge, rebase, cherry-pick or revert is in progress: a
@@ -210,16 +186,15 @@ fn planned_parents(
     Ok(String::from_utf8_lossy(&output.stdout).split_whitespace().map(str::to_string).collect())
 }
 
-/// Stages what the arguments name and runs `git commit`.
-fn run_commit(repository: &Repository, arguments: &Arguments) -> Result<UserRun, ResourceError> {
-    let scratch = Scratch::new().map_err(|error| {
-        refused(OPERATION, "git_failed", format!("temporary files: {error}"), Value::Null)
-    })?;
+/// Stages what the arguments name and runs `git commit`; the step that
+/// ran last and its result.
+fn run_commit(
+    git: &UserGit<'_>,
+    arguments: &Arguments,
+    attempt: &Attempt,
+) -> Result<(Step, UserRun), GitFailure> {
+    let scratch = Scratch::new().map_err(|error| GitFailure::Unavailable(error.to_string()))?;
     let message = scratch.write("message", arguments.message.as_bytes())?;
-    let root = &repository.root;
-    let run = |command: &[&std::ffi::OsStr]| {
-        run_user_git(root, command).map_err(|failure| run_failed(OPERATION, &failure))
-    };
     let mut pathspec_flag = None;
     if !arguments.paths.is_empty() {
         let mut list = Vec::new();
@@ -244,9 +219,9 @@ fn run_commit(repository: &Repository, arguments: &Arguments) -> Result<UserRun,
         None => None,
     };
     if let Some(staging) = staging {
-        let staged = run(&staging)?;
+        let staged = git.run(&staging)?;
         if !staged.success {
-            return Ok(staged);
+            return Ok((Step::Stage, staged));
         }
     }
     let mut command: Vec<&std::ffi::OsStr> =
@@ -264,7 +239,8 @@ fn run_commit(repository: &Repository, arguments: &Arguments) -> Result<UserRun,
     if let Some(flag) = &pathspec_flag {
         command.extend([flag.as_os_str(), "--pathspec-file-nul".as_ref()]);
     }
-    run(&command)
+    let action = attempt.reflog_action();
+    Ok((Step::Commit, git.run_with(&command, &[("GIT_REFLOG_ACTION", action.as_str())])?))
 }
 
 /// The reply for `commit`: its branch, parent, summary and line counts.
@@ -315,11 +291,19 @@ fn shortstat(text: &str) -> (u64, u64, u64) {
     counts
 }
 
-/// A refused commit's machine reason, from what git printed and the hooks
-/// that ran.
-fn classified(repository: &Repository, run: &UserRun, arguments: &Arguments) -> ResourceError {
+/// A refused commit's machine reason, from the step that failed, what git
+/// printed and the hooks that ran. A failed staging step is never a hook.
+fn classified(git: &UserGit<'_>, step: &Step, run: &UserRun, arguments: &Arguments) -> ResourceError {
     let output = run.output();
-    let (reason, message) = if output.contains("nothing to commit")
+    let (reason, message) = if output.contains("index.lock") {
+        ("index_locked", "another git process holds the repository's index")
+    } else if matches!(step, Step::Stage) {
+        if output.contains("did not match any file") {
+            ("path_not_found", "a path matches no file in the working tree or the index")
+        } else {
+            ("git_failed", "git could not stage the paths; its output says why")
+        }
+    } else if output.contains("nothing to commit")
         || output.contains("no changes added to commit")
         || output.contains("nothing added to commit")
     {
@@ -331,11 +315,9 @@ fn classified(repository: &Repository, run: &UserRun, arguments: &Arguments) -> 
         || output.contains("no name was given")
     {
         ("identity_missing", "git has no user.name or user.email for this repository")
-    } else if output.contains("index.lock") {
-        ("index_locked", "another git process holds the repository's index")
     } else if output.contains("did not match any file") {
         ("path_not_found", "a path matches no file in the working tree or the index")
-    } else if !commit_hooks(repository, arguments.no_verify).is_empty() {
+    } else if !commit_hooks(git, arguments.no_verify).is_empty() {
         ("hook_failed", "a commit hook refused the commit; its output says why")
     } else {
         ("git_failed", "git did not commit; its output says why")
@@ -344,13 +326,13 @@ fn classified(repository: &Repository, run: &UserRun, arguments: &Arguments) -> 
 }
 
 /// The commit hooks that run: `--no-verify` skips pre-commit and commit-msg.
-fn commit_hooks(repository: &Repository, no_verify: bool) -> Vec<String> {
+fn commit_hooks(git: &UserGit<'_>, no_verify: bool) -> Vec<String> {
     let names: &[&str] = if no_verify {
         &["prepare-commit-msg"]
     } else {
         &["pre-commit", "prepare-commit-msg", "commit-msg"]
     };
-    active_hooks(&repository.root, names)
+    active_hooks(git, names)
 }
 
 /// A private temporary directory for the message and pathspec files,
@@ -366,7 +348,7 @@ impl Scratch {
         Ok(Self { path })
     }
 
-    fn write(&self, name: &str, bytes: &[u8]) -> Result<PathBuf, ResourceError> {
+    fn write(&self, name: &str, bytes: &[u8]) -> Result<PathBuf, GitFailure> {
         let path = self.path.join(name);
         let mut options = fs::OpenOptions::new();
         options.write(true).create_new(true);
@@ -379,9 +361,7 @@ impl Scratch {
             use std::io::Write;
             file.write_all(bytes)
         });
-        written.map_err(|error| {
-            refused(OPERATION, "git_failed", format!("temporary files: {error}"), Value::Null)
-        })?;
+        written.map_err(|error| GitFailure::Unavailable(format!("temporary files: {error}")))?;
         Ok(path)
     }
 }

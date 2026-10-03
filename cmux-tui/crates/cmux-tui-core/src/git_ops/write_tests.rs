@@ -17,6 +17,8 @@ use super::user_run::seams::INHERITED;
 use crate::resource_router::handle_resource_message;
 use crate::{Mux, SurfaceOptions};
 
+#[path = "commit_recovery_tests.rs"]
+mod commit_recovery;
 #[path = "push_tests.rs"]
 mod push;
 
@@ -94,6 +96,12 @@ pub(super) fn executable(path: &Path, script: &str) {
     fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
 }
 
+/// Whether a process still runs (a reaped one does not).
+pub(super) fn alive(pid: i32) -> bool {
+    // SAFETY: signal 0 only checks that the process exists.
+    unsafe { libc::kill(pid, 0) == 0 }
+}
+
 pub(super) fn commit_all(directory: &Path, message: &str) -> String {
     git(directory, &["add", "-A"]);
     git(directory, &["commit", "-q", "-m", message]);
@@ -142,16 +150,16 @@ pub(super) fn refused(envelope: &Value) -> (String, Value) {
     (details["reason"].as_str().unwrap().to_string(), details["extra"].clone())
 }
 
-fn error_code(envelope: &Value) -> String {
+pub(super) fn error_code(envelope: &Value) -> String {
     assert_eq!(envelope["ok"], false, "{envelope}");
     envelope["error"]["code"].as_str().unwrap().to_string()
 }
 
-fn commit(mux: &Arc<Mux>, repository: &Path, fields: Value, key: &str) -> Value {
+pub(super) fn commit(mux: &Arc<Mux>, repository: &Path, fields: Value, key: &str) -> Value {
     call(mux, "git.commit", repository, fields, key)
 }
 
-fn committed_files(repository: &Path, revision: &str) -> Vec<String> {
+pub(super) fn committed_files(repository: &Path, revision: &str) -> Vec<String> {
     let listing =
         git(repository, &["show", "--name-only", "--format=", "--end-of-options", revision]);
     let mut files: Vec<String> = listing.lines().map(str::to_string).collect();

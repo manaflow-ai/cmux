@@ -12,13 +12,13 @@
 //!   `SSH_ASKPASS_REQUIRE=never` stop every credential and passphrase prompt.
 //! - git's own messages are in English (`LC_MESSAGES=C`) so failures can be
 //!   classified; the user's other locale settings stay.
-//! - Past the deadline the session gets SIGTERM, so git removes its lock
-//!   files, and SIGKILL after a short grace.
-//! - Output is bounded. A hook that leaves a background process holding the
+//! - One deadline covers every run of an operation. Past it the session gets
+//!   SIGTERM, so git removes its lock files, and SIGKILL after a short grace.
+//! - Output is bounded: the first and the last 8 KiB of stderr are kept. A hook that leaves a background process holding the
 //!   output pipes does not hold the reply: the pipes are read for a short
 //!   grace after git exits.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::ffi::{OsStr, OsString};
 use std::io::{ErrorKind, Read};
 use std::path::Path;
@@ -33,6 +33,15 @@ use super::run::GitFailure;
 
 /// Hooks and a remote can be slow; a commit or push past this is stopped.
 pub(super) const DEADLINE: Duration = Duration::from_secs(120);
+
+/// The deadline of an operation that starts now.
+pub(super) fn deadline() -> Instant {
+    #[cfg(test)]
+    if let Some(short) = seams::DEADLINE.with(std::cell::Cell::get) {
+        return Instant::now() + short;
+    }
+    Instant::now() + DEADLINE
+}
 /// How long git has to remove its lock files after SIGTERM.
 const TERMINATE_GRACE: Duration = Duration::from_secs(5);
 /// How long the pipes are read after git exits.
@@ -45,6 +54,8 @@ pub(super) const MAX_STDERR_BYTES: usize = 16 * 1024;
 /// results on stdout even when it fails.
 pub(super) struct UserRun {
     pub success: bool,
+    /// The exit code; `None` when a signal ended git.
+    pub code: Option<i32>,
     pub stdout: Vec<u8>,
     pub stderr: String,
 }
@@ -62,55 +73,76 @@ impl UserRun {
     }
 }
 
-/// Runs `git <arguments>` in `directory`.
-pub(super) fn run_user_git<S: AsRef<OsStr>>(
-    directory: &Path,
-    arguments: &[S],
-) -> Result<UserRun, GitFailure> {
-    let mut command = Command::new("git");
-    command
-        .args(arguments)
-        .current_dir(directory)
-        .env_clear()
-        .envs(environment())
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        // SAFETY: setsid(2) is async-signal-safe and touches no Rust state in
-        // the post-fork child. A new session has no controlling terminal, so
-        // ssh and git cannot prompt, and git leads the group the deadline
-        // stops.
-        unsafe {
-            command.pre_exec(|| {
-                if libc::setsid() < 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
-            });
-        }
+/// git in one repository's top level, bounded by its operation's deadline.
+pub(super) struct UserGit<'a> {
+    pub root: &'a Path,
+    pub deadline: Instant,
+}
+
+impl UserGit<'_> {
+    /// Runs `git <arguments>`.
+    pub(super) fn run<S: AsRef<OsStr>>(&self, arguments: &[S]) -> Result<UserRun, GitFailure> {
+        self.run_with(arguments, &[])
     }
-    let mut child = command.spawn().map_err(|error| GitFailure::Unavailable(error.to_string()))?;
-    let stdout = Pipe::read(child.stdout.take().expect("git stdout is piped"), MAX_STDOUT_BYTES);
-    let stderr = Pipe::read(child.stderr.take().expect("git stderr is piped"), MAX_STDERR_BYTES);
-    let status = match child.wait_timeout(DEADLINE) {
-        Ok(Some(status)) => status,
-        Ok(None) => {
-            terminate(&mut child);
+
+    /// Runs `git <arguments>` with `extra` set in its environment.
+    pub(super) fn run_with<S: AsRef<OsStr>>(
+        &self,
+        arguments: &[S],
+        extra: &[(&str, &str)],
+    ) -> Result<UserRun, GitFailure> {
+        let remaining = self.deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
             return Err(GitFailure::TimedOut);
         }
-        Err(error) => {
-            terminate(&mut child);
-            return Err(GitFailure::Unavailable(error.to_string()));
+        let mut command = Command::new("git");
+        command
+            .args(arguments)
+            .current_dir(self.root)
+            .env_clear()
+            .envs(environment())
+            .envs(extra.iter().copied())
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            // SAFETY: setsid(2) is async-signal-safe and touches no Rust state
+            // in the post-fork child. A new session has no controlling
+            // terminal, so ssh and git cannot prompt, and git leads the group
+            // the deadline stops.
+            unsafe {
+                command.pre_exec(|| {
+                    if libc::setsid() < 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
+                });
+            }
         }
-    };
-    let grace = Instant::now() + PIPE_GRACE;
-    let stdout = stdout.collect(grace);
-    let stderr = stderr.collect(grace);
-    Ok(UserRun {
-        success: status.success(),
-        stdout,
-        stderr: String::from_utf8_lossy(&stderr).trim().to_string(),
-    })
+        let mut child =
+            command.spawn().map_err(|error| GitFailure::Unavailable(error.to_string()))?;
+        let stdout = Pipe::read(child.stdout.take().expect("git stdout is piped"), MAX_STDOUT_BYTES);
+        let stderr = Pipe::read(child.stderr.take().expect("git stderr is piped"), MAX_STDERR_BYTES);
+        let status = match child.wait_timeout(remaining) {
+            Ok(Some(status)) => status,
+            Ok(None) => {
+                terminate(&mut child);
+                return Err(GitFailure::TimedOut);
+            }
+            Err(error) => {
+                terminate(&mut child);
+                return Err(GitFailure::Unavailable(error.to_string()));
+            }
+        };
+        let grace = Instant::now() + PIPE_GRACE;
+        let stdout = stdout.collect(grace);
+        let stderr = stderr.collect(grace);
+        Ok(UserRun {
+            success: status.success(),
+            code: status.code(),
+            stdout,
+            stderr: String::from_utf8_lossy(&stderr).trim().to_string(),
+        })
+    }
 }
 
 /// The inherited environment without git state or prompts, plus the
@@ -186,17 +218,27 @@ fn signal(child: &mut Child, _signal: i32) {
     let _ = child.kill();
 }
 
-/// One output pipe, read on its own thread into a bounded buffer.
+/// One output pipe, read on its own thread. It keeps the first and the last
+/// half of `limit` bytes, so a long hook output keeps its end, where the
+/// error usually is.
 struct Pipe {
-    kept: Arc<Mutex<Vec<u8>>>,
+    kept: Arc<Mutex<Kept>>,
     done: mpsc::Receiver<()>,
+}
+
+#[derive(Default)]
+struct Kept {
+    head: Vec<u8>,
+    tail: VecDeque<u8>,
+    dropped: bool,
 }
 
 impl Pipe {
     fn read(mut reader: impl Read + Send + 'static, limit: usize) -> Self {
-        let kept = Arc::new(Mutex::new(Vec::new()));
+        let kept = Arc::new(Mutex::new(Kept::default()));
         let (sender, done) = mpsc::channel();
         let buffer = Arc::clone(&kept);
+        let half = limit / 2;
         thread::spawn(move || {
             let mut chunk = [0_u8; 16 * 1024];
             loop {
@@ -204,8 +246,14 @@ impl Pipe {
                     Ok(0) => break,
                     Ok(read) => {
                         let mut kept = buffer.lock().unwrap_or_else(PoisonError::into_inner);
-                        let room = limit.saturating_sub(kept.len());
-                        kept.extend_from_slice(&chunk[..read.min(room)]);
+                        let room = half.saturating_sub(kept.head.len());
+                        let (head, rest) = chunk[..read].split_at(read.min(room));
+                        kept.head.extend_from_slice(head);
+                        kept.tail.extend(rest.iter().copied());
+                        while kept.tail.len() > half {
+                            kept.tail.pop_front();
+                            kept.dropped = true;
+                        }
                     }
                     Err(error) if error.kind() == ErrorKind::Interrupted => {}
                     Err(_) => break,
@@ -216,22 +264,31 @@ impl Pipe {
         Self { kept, done }
     }
 
-    /// What was read by the time the pipe closed, or by `grace`.
+    /// What was kept by the time the pipe closed, or by `grace`.
     fn collect(self, grace: Instant) -> Vec<u8> {
         let _ = self.done.recv_timeout(grace.saturating_duration_since(Instant::now()));
-        self.kept.lock().unwrap_or_else(PoisonError::into_inner).clone()
+        let kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut bytes = kept.head.clone();
+        if kept.dropped {
+            bytes.extend_from_slice(b"\n[...]\n");
+        }
+        bytes.extend(kept.tail.iter().copied());
+        bytes
     }
 }
 
 /// Test seams: the environment the daemon would have inherited.
 #[cfg(test)]
 pub(super) mod seams {
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
+    use std::time::Duration;
 
     thread_local! {
         /// Set (or, with `None`, removed) on top of the test process's
         /// environment before the runner filters it.
         pub static INHERITED: RefCell<Vec<(String, Option<String>)>> =
             const { RefCell::new(Vec::new()) };
+        /// A short operation deadline in place of 120 s.
+        pub static DEADLINE: Cell<Option<Duration>> = const { Cell::new(None) };
     }
 }

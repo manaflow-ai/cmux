@@ -9,9 +9,10 @@
 
 mod checkpoint;
 mod commit;
-mod commit_journal;
+mod commit_args;
 mod diff;
 mod files;
+mod journal;
 mod mutation;
 mod parse;
 mod push;

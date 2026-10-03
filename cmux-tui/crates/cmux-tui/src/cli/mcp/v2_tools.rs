@@ -210,7 +210,8 @@ impl V2Tool {
                 "readOnlyHint": !self.mutation,
                 "destructiveHint": destructive,
                 "idempotentHint": !self.mutation,
-                "openWorldHint": false,
+                // A push changes state on another machine.
+                "openWorldHint": self.wire == "git.push",
             },
         })
     }

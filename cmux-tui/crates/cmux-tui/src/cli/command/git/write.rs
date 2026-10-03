@@ -25,7 +25,16 @@ pub(super) fn commit(
         return Err(UsageError::new("--include-untracked needs --all"));
     }
     if !paths.is_empty() {
-        let paths = paths.iter().map(|path| Value::String((*path).to_string()));
+        // Paths name files from where the command runs, as in git.
+        let current = std::env::current_dir()
+            .map_err(|error| UsageError::new(format!("current directory: {error}")))?;
+        let paths = paths.iter().map(|path| {
+            let mut joined = current.join(path).to_string_lossy().into_owned();
+            if path.ends_with('/') && !joined.ends_with('/') {
+                joined.push('/');
+            }
+            Value::String(joined)
+        });
         params.insert("paths".into(), Value::Array(paths.collect()));
     }
     for (set, field) in [

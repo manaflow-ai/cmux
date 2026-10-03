@@ -10559,7 +10559,7 @@
               },
               "max_items": 5000
             },
-            "description": "Commit exactly these files or folders as they are in the working tree, relative to the root and literal (never pathspec magic). They are staged first, so new files can be named; other staged changes stay staged and out of the commit."
+            "description": "Commit exactly these files or folders as they are in the working tree: relative to the root, or absolute inside it, and literal (never pathspec magic). They are staged first, so new files can be named, and they stay staged when the commit is refused; other staged changes stay staged and out of the commit."
           },
           "all": {
             "required": false,
@@ -10630,9 +10630,9 @@
         "validation.invalid"
       ],
       "constraints": [
-        "git runs in the user's environment as in a terminal: their config, identity, signing and hooks apply. It never prompts (no terminal, GIT_TERMINAL_PROMPT=0, no askpass) and is stopped after 120 s.",
+        "git runs in the user's environment as in a terminal: their config, identity, signing and hooks apply. It never prompts (no terminal, GIT_TERMINAL_PROMPT=0, no askpass), and the whole operation is stopped after 120 s.",
         "With neither paths nor all, the index is committed as it is. A merge, rebase, cherry-pick or revert in progress refuses with merge_in_progress.",
-        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict. A retry after a lost reply reports the commit the first attempt made instead of committing again.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict. A retry after a lost reply or a timeout reports the commit the first attempt made instead of committing again: the attempt's id is in the commit's reflog message, and only a HEAD whose newest reflog entry names it is reported.",
         "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, nothing_to_commit, head_moved, merge_in_progress, hook_failed, identity_missing, index_locked, path_not_found, timed_out, repository_changed, store_failed or git_failed; extra.message explains it and extra.output carries what git and its hooks printed (at most 16 KiB)."
       ]
     },
@@ -10889,10 +10889,10 @@
       ],
       "constraints": [
         "Never forces: a remote branch with commits the local one lacks refuses with rejected_non_fast_forward.",
-        "git runs in the user's environment, so their credential helper, SSH agent and pre-push hook work as in a terminal. It never prompts (no terminal, GIT_TERMINAL_PROMPT=0, no askpass) and is stopped after 120 s.",
-        "The commit read at the branch's tip (and checked against expected_head) is the one pushed. Pushing a commit the remote already has succeeds with up_to_date true.",
+        "git runs in the user's environment, so their credential helper, SSH agent and pre-push hook work as in a terminal. It never prompts (no terminal, GIT_TERMINAL_PROMPT=0, no askpass), and the whole operation is stopped after 120 s. A remote with its own push refspecs or mirroring is refused.",
+        "The commit read at the branch's tip (and checked against expected_head) is the one pushed, also by a retry after a lost reply or a timeout. Pushing a commit the remote already has succeeds with up_to_date true.",
         "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
-        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, no_remote, detached_head, branch_not_found, head_moved, rejected_non_fast_forward, rejected_by_remote, hook_failed, auth_failed, network_failed, timed_out, repository_changed, store_failed or git_failed; extra.message explains it, extra.output carries what git and the remote printed (at most 16 KiB) and extra.ref_status the remote's verdict on the ref."
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, no_remote, push_refspec_configured, mirror_remote, detached_head, branch_not_found, head_moved, rejected_non_fast_forward, rejected_by_remote, hook_failed, auth_failed, network_failed, timed_out, repository_changed, store_failed or git_failed; extra.message explains it, extra.output carries what git and the remote printed (at most 16 KiB) and extra.ref_status the remote's verdict on the ref."
       ]
     },
     "git.status": {

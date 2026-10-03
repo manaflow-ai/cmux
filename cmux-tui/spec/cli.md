@@ -515,20 +515,20 @@ hooks, credential helper and SSH agent apply, and inherited `GIT_*` variables
 of the daemon are dropped. Git never prompts (no terminal,
 `GIT_TERMINAL_PROMPT=0`, no askpass) and is stopped after 120 s with
 `timed_out`. `commit` commits the named paths as they are in the working tree
-(staged first; other staged changes stay out of the commit), every tracked
+(paths are relative to the current directory; they are staged first and stay staged when the commit is refused; other staged changes stay out of the commit), every tracked
 change with `--all` (plus untracked files with `--include-untracked`), or the
 index as it is; `--no-verify` skips pre-commit and commit-msg. It refuses with
 `nothing_to_commit`, `head_moved` (HEAD is not `--expected-head`),
 `merge_in_progress` (also a rebase, cherry-pick or revert), `hook_failed` (with
 the hook's output, at most 16 KiB, in `extra.output`), `identity_missing`,
 `index_locked`, `path_not_found` or `git_failed`. A retry with the same key
-replays the first result, and a retry after a lost reply reports the commit
-the first attempt made (a per-key journal in the session's state directory
-proves the attempt). `push` pushes the branch's tip (the current branch unless
+replays the first result, and a retry after a lost reply or a timeout
+reports the commit the first attempt made: the attempt's id is in the commit's
+reflog message (bounded attempt journal: 7 days, 256 entries). `push` pushes the branch's tip (the current branch unless
 `--branch`) to the branch of the same name on a configured remote (default:
 where `git push` would go, else `origin`), never forced, and makes it the
 branch's upstream when the branch has none (or with `--set-upstream`). It
-refuses with `no_remote`, `detached_head`, `branch_not_found`, `head_moved`,
+refuses with `no_remote`, `push_refspec_configured`, `mirror_remote`, `detached_head`, `branch_not_found`, `head_moved`,
 `rejected_non_fast_forward`, `rejected_by_remote` (with the remote's message),
 `hook_failed`, `auth_failed`, `network_failed` or `git_failed`; pushing a
 commit the remote has succeeds with `up_to_date`.
