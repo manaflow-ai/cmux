@@ -92,13 +92,14 @@ let package = Package(
         // build of libghostty, pinned to one release. ios-v4 adds the host-owned
         // grid (ghostty_surface_set_grid / ghostty_surface_grid, generation
         // ordered) and GHOSTSNP restore and encode (READY, HISTORY, COMPLETE;
-        // snapshot version 1). Never pin ios-v1 (old module name GhosttyKit),
+        // snapshot version 1); ios-v5 makes every restore apply the surface
+        // config's scrollback-limit-bytes. Never pin ios-v1 (old module name GhosttyKit),
         // ios-v2 (draws black: its surface layer is never sized) or ios-v3 (no
         // snapshot API, so attach and resize fall back to a reset and byte replay).
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-76db9d14f3cd66cb026d56a0bd46eecaa085ece4-ios-v4/GhosttyNextKit.xcframework.zip",
-            checksum: "e8f62d62a48eec2c685e997ba8efff2bb34712784f2d4aed988c38b691771126"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-74e97632d40abe4a65a1bc4bc539407bbcc26321-ios-v5/GhosttyNextKit.xcframework.zip",
+            checksum: "534b48639b2dc3a2d3d1bf33b154af916fb1f3b550b9785dbe8a72422b362108"
         ),
         .target(
             name: "CmuxiOSPush",

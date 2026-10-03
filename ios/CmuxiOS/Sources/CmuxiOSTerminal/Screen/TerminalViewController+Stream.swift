@@ -111,7 +111,7 @@ extension TerminalStreamStats {
             "frames_undecodable": String(undecodableFrames), "restores": String(restores),
             "restores_refused": String(refusedRestores), "history_pages": String(historyPages),
             "fed_bytes": String(fedBytes), "snapshot_requests": String(snapshotRequests),
-            "digest_checks": String(digestChecks), "scrollback_trims": String(scrollbackTrims),
+            "digest_checks": String(digestChecks),
         ]
         if let restoredGeneration { out["restored_generation"] = String(restoredGeneration) }
         if let grid {
