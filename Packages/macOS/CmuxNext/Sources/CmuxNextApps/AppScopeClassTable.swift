@@ -58,7 +58,7 @@ public nonisolated struct AppScopeClassTable: Sendable {
     public init(data: Data) {
         let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         let rows = object?["rules"] as? [[String: Any]] ?? []
-        let rules = rows.compactMap { row in
+        let rules: [Rule] = rows.compactMap { row in
             guard let pattern = row["pattern"] as? String,
                   let raw = row["class"] as? String, let scopeClass = ScopeClass(rawValue: raw) else { return nil }
             return Rule(pattern: pattern, scopeClass: scopeClass, serverOnly: row["serverOnly"] as? Bool ?? false)
