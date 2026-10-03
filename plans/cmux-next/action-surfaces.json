@@ -8187,14 +8187,14 @@
       "palette" : "offered"
     },
     {
-      "cli" : "guiOnly",
-      "cli_name" : "action app-store-show",
+      "cli" : "offered",
+      "cli_name" : "app store",
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarBackground"
       ],
       "id" : "appStore.show",
-      "mcp" : "guiOnly",
+      "mcp" : "offered",
       "palette" : "offered"
     },
     {

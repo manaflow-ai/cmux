@@ -20,6 +20,8 @@ final class AppsService {
     private var fingerprints: [String: Int] = [:]
     private var store: AppStoreWindowController?
     private var storeModel: AppStoreModel?
+    /// One store model per App Store tab (internal page), by tab key.
+    private var pageModels: [String: AppStoreModel] = [:]
     /// Runs previews of apps that are not installed (sample data, no grant).
     private lazy var previewHost = AppHost(sink: AppPreviewSink())
 
@@ -40,6 +42,7 @@ final class AppsService {
         Task { [weak self] in
             await self?.registry.load()
             self?.storeModel?.refresh()
+            for model in self?.pageModels.values ?? [:].values { model.refresh() }
         }
     }
 
@@ -55,15 +58,22 @@ final class AppsService {
         sink.attach(AppOperationRouter(router: router, storage: storage, ledger: ledger))
     }
 
-    /// Opens the App Store window (palette "App Store", `appStore.show`):
-    /// on a listing when `appID` is given, else on Installed when asked.
-    /// Drawn in the theme of the window it was opened from.
-    func showStore(appID: String? = nil, installed: Bool = false) {
+    /// Opens the App Store (palette "App Store", `appStore.show`) as a tab
+    /// of the active window (internal page `app-store`, one per window);
+    /// `appID` opens that listing, `installed` the Installed tab. A user run
+    /// selects and focuses the tab; automation opens it without moving
+    /// focus. Falls back to the App Store window when no main window can
+    /// hold the tab.
+    func showStore(appID: String? = nil, installed: Bool = false, focus: Bool = true) {
+        if let view = services.pages.show(.appStore, in: services.windows.active, focus: focus),
+           let model = pageModels[view.key] {
+            model.present(appID: appID, installed: installed)
+            return
+        }
         if store == nil {
             // No disk I/O here: the catalog reads the registry's launch scan.
-            let model = AppStoreModel(catalog: RegistryAppStoreCatalog(registry: registry), registry: registry, host: host, previewHost: previewHost)
+            let model = makeStoreModel()
             storeModel = model
-            model.onRemoved = { [storage] id in await storage.clear(app: id) }
             let controller = AppStoreWindowController(model: model)
             controller.onClose = { [weak self] in
                 self?.store = nil
@@ -73,6 +83,12 @@ final class AppsService {
         }
         store?.setThemeScope(services.windows.active?.themeScope ?? .app)
         store?.present(appID: appID, installed: installed)
+    }
+
+    private func makeStoreModel() -> AppStoreModel {
+        let model = AppStoreModel(catalog: RegistryAppStoreCatalog(registry: registry), registry: registry, host: host, previewHost: previewHost)
+        model.onRemoved = { [storage] id in await storage.clear(app: id) }
+        return model
     }
 
     var storeWindow: NSWindow? { store?.window }
@@ -106,3 +122,27 @@ nonisolated final class DeferredAppSink: AppOperationSink, Sendable {
         return await sink.perform(request)
     }
 }
+
+// MARK: InternalPageProvider (the App Store as a tab)
+
+extension InternalPageID {
+    static let appStore = InternalPageID(rawValue: "app-store")
+}
+
+extension AppsService: InternalPageProvider {
+    var page: InternalPageID { .appStore }
+    var title: String { AppStoreModel.title }
+    var symbol: String { "bag" }
+
+    func makeView(for key: String, in window: WindowController?) -> NSView {
+        let model = makeStoreModel()
+        model.refresh()
+        pageModels[key] = model
+        return model.makeContentView()
+    }
+
+    func tabClosed(_ key: String) {
+        pageModels[key] = nil
+    }
+}
+

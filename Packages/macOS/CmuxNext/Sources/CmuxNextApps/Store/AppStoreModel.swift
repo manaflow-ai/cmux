@@ -72,6 +72,14 @@ public final class AppStoreModel {
     }
 
     /// Opens a listing (`appStore.show` with `app`): clears filters so it shows.
+    /// The App Store's title (window and tab).
+    public static var title: String { AppsStrings.windowTitle }
+
+    /// Shows `appID`'s listing, else the Installed tab when `installed`.
+    public func present(appID: String?, installed: Bool) {
+        if let appID { open(appID: appID) } else if installed { tab = .installed }
+    }
+
     public func open(appID: String) {
         tab = .discover
         if !listings.contains(where: { $0.id == appID }) {

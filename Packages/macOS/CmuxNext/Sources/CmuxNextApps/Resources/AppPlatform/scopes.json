@@ -113,6 +113,14 @@
       "scope": "browser:write",
       "class": "mutation"
     },
+    "chief.create": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
+    "chief.update": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
     "clipboard.write": {
       "scope": "clipboard:write",
       "class": "mutation"
@@ -139,6 +147,26 @@
     },
     "column.update": {
       "scope": "column:write",
+      "class": "mutation"
+    },
+    "conversation.create": {
+      "scope": "conversation:write",
+      "class": "mutation"
+    },
+    "conversation.history": {
+      "scope": "conversation:read",
+      "class": "read"
+    },
+    "conversation.settings.set": {
+      "scope": "conversation:write",
+      "class": "mutation"
+    },
+    "conversation.snapshot": {
+      "scope": "conversation:read",
+      "class": "read"
+    },
+    "dm.open": {
+      "scope": "dm:write",
       "class": "mutation"
     },
     "domain.claim": {
@@ -253,6 +281,38 @@
       "scope": "github:external",
       "class": "mutation"
     },
+    "home.search": {
+      "scope": "home:read",
+      "class": "read"
+    },
+    "home.settings.set": {
+      "scope": "home:write",
+      "class": "mutation"
+    },
+    "inbox.archive": {
+      "scope": "inbox:write",
+      "class": "mutation"
+    },
+    "inbox.dm_peer": {
+      "scope": "inbox:read",
+      "class": "read"
+    },
+    "inbox.list": {
+      "scope": "inbox:read",
+      "class": "read"
+    },
+    "inbox.mark_unread": {
+      "scope": "inbox:write",
+      "class": "mutation"
+    },
+    "inbox.mute": {
+      "scope": "inbox:write",
+      "class": "mutation"
+    },
+    "inbox.pin": {
+      "scope": "inbox:write",
+      "class": "mutation"
+    },
     "integration.complete": {
       "scope": "integration:write",
       "class": "mutation"
@@ -277,6 +337,22 @@
       "scope": "integration:<provider>",
       "class": "runtime"
     },
+    "invite.accept": {
+      "scope": "invite:write",
+      "class": "mutation"
+    },
+    "invite.approve_join": {
+      "scope": "invite:write",
+      "class": "mutation"
+    },
+    "invite.create": {
+      "scope": "invite:external",
+      "class": "mutation"
+    },
+    "invite.revoke": {
+      "scope": "invite:write",
+      "class": "mutation"
+    },
     "linear.issue.create": {
       "scope": "linear:write",
       "class": "mutation"
@@ -292,6 +368,26 @@
     "machine.list": {
       "scope": "machine:read",
       "class": "read"
+    },
+    "message.edit": {
+      "scope": "message:write",
+      "class": "mutation"
+    },
+    "message.retract": {
+      "scope": "message:write",
+      "class": "mutation"
+    },
+    "message.send": {
+      "scope": "message:write",
+      "class": "mutation"
+    },
+    "mux.ack": {
+      "scope": "mux:write",
+      "class": "mutation"
+    },
+    "mux.configure": {
+      "scope": "mux:write",
+      "class": "mutation"
     },
     "net.fetch": {
       "scope": "net:<host>",
@@ -367,6 +463,22 @@
     },
     "pane.zoom": {
       "scope": "workspace:write",
+      "class": "mutation"
+    },
+    "participants.add": {
+      "scope": "participants:write",
+      "class": "mutation"
+    },
+    "reaction.add": {
+      "scope": "reaction:write",
+      "class": "mutation"
+    },
+    "reaction.remove": {
+      "scope": "reaction:write",
+      "class": "mutation"
+    },
+    "read_cursor.set": {
+      "scope": "read_cursor:write",
       "class": "mutation"
     },
     "room.create": {
@@ -793,6 +905,10 @@
       "scope": "terminal:read",
       "class": "read"
     },
+    "title.set": {
+      "scope": "title:write",
+      "class": "mutation"
+    },
     "tunnel.attach": {
       "scope": "tunnel:write",
       "class": "mutation"
@@ -924,6 +1040,7 @@
     "browser.close",
     "browser.viewer.release",
     "browser.viewer.resize",
+    "chief.archive",
     "client.cell_pixels.set",
     "client.detach",
     "client.get",
@@ -945,6 +1062,7 @@
     "pairing_request.list",
     "pairing_request.resolve",
     "pane.close",
+    "participants.remove",
     "request.cancel",
     "screen.close",
     "server.revoke",
