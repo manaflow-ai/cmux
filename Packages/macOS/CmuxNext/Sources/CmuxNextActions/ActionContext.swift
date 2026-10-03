@@ -36,6 +36,9 @@ public nonisolated struct ActionContext: OptionSet, Sendable, Hashable {
     public static let agentPaneFocused = ActionContext(rawValue: 1 << 14)
     /// The focused agent page can capture through its session-host Git connection.
     public static let checkpointCaptureAvailable = ActionContext(rawValue: 1 << 15)
+    /// A shortcut recorder (Settings or the palette's Cmd-K editor) is open;
+    /// system-wide hot keys stand down so it can record their chords.
+    public static let recordingShortcut = ActionContext(rawValue: 1 << 16)
 }
 
 extension ActionContext {
