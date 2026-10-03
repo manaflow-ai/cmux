@@ -4,9 +4,9 @@ public import Foundation
 import Security
 
 /// The install key in the Secure Enclave. Only the enclave's encrypted key
-/// blob is stored (Keychain, this device only, after first unlock); the
-/// private key never leaves the enclave. No user-presence prompt: the token
-/// refreshes in the background.
+/// blob is stored (Keychain, this device only); the private key never leaves
+/// the enclave. The key is usable after first unlock (a locked phone can
+/// still answer Deny from a banner); no user-presence prompt.
 public struct SecureEnclaveInstallSigner: InstallSigner {
     public enum Failure: Error { case secureEnclaveUnavailable, keychain(OSStatus) }
 
@@ -21,6 +21,9 @@ public struct SecureEnclaveInstallSigner: InstallSigner {
 
     public func sign(_ message: Data) async throws -> Data { try key().sign(message) }
 
+    /// Destroys the key; the next use makes a new one.
+    public func rotate() async throws { destroy() }
+
     /// Deletes the key (sign-out of the last account is not a reason; a
     /// reset of the app's data is).
     public func destroy() { _ = SecItemDelete(query() as CFDictionary) }
@@ -28,7 +31,12 @@ public struct SecureEnclaveInstallSigner: InstallSigner {
     private func key() throws -> AnyInstallKey {
         if SecureEnclave.isAvailable {
             if let blob = try read() { return .enclave(try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob)) }
-            let made = try SecureEnclave.P256.Signing.PrivateKey()
+            var error: Unmanaged<CFError>?
+            guard let access = SecAccessControlCreateWithFlags(
+                nil, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly, .privateKeyUsage, &error) else {
+                throw Failure.keychain(errSecParam)
+            }
+            let made = try SecureEnclave.P256.Signing.PrivateKey(accessControl: access)
             try write(made.dataRepresentation)
             return .enclave(made)
         }

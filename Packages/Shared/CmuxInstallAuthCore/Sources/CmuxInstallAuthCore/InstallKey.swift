@@ -7,12 +7,19 @@ public protocol InstallSigner: Sendable {
     func publicKeyX963() async throws -> Data
     /// ES256 over `message` (SHA-256 inside), raw r||s (64 bytes) or DER.
     func sign(_ message: Data) async throws -> Data
+    /// Replaces the key (a revoked install, or a key the owner already holds
+    /// for another install). The old private key is destroyed.
+    func rotate() async throws
 }
 
 public enum InstallAuthError: Error, Hashable, Sendable {
     case invalidPublicKey
     case noSession
     case refused(String)
+    /// The owner sent a challenge this client will not sign.
+    case unexpectedChallenge
+    /// `user.ensure` answered for a different Stack user than the session's.
+    case userMismatch
     case transport
     case malformedReply
 }

@@ -18,6 +18,8 @@ final class AppContainer {
     let push: PushRegistration
     /// The install principal (nil when no API origin is configured).
     let identity: InstallIdentity?
+    /// Account changes apply in order (sign-in, sign-out, switch).
+    private var accountChanges: Task<Void, Never>?
     let feedResponder: FeedNotificationResponder
     private let notificationDelegate: NotificationDelegate
     private(set) var home: HomeStore?
@@ -31,10 +33,11 @@ final class AppContainer {
         auth = StackAuthGate(composition: composition)
         devOptions = DevOptions(environment: environment)
         // Feed pushes (plans/cmux-next/feed.md 7.3) go through the API Worker as
-        // this install. The install principal does not exist on iPhone yet, so
-        // ops are refused locally until identity lands (PushRegistration.State.pending).
+        // this install's principal (identity D5, InstallIdentity).
         let base = Self.cloudAPIBaseURL()
-        let madeIdentity = base.map { InstallIdentity(baseURL: $0, bundleID: Bundle.main.bundleIdentifier ?? "") }
+        let madeIdentity = base.map {
+            InstallIdentity(baseURL: $0, bundleID: Bundle.main.bundleIdentifier ?? "", deviceName: UIDevice.current.name)
+        }
         identity = madeIdentity
         let ops: any CloudOpsSending
         if let base, let madeIdentity {
@@ -51,6 +54,9 @@ final class AppContainer {
         feedResponder = FeedNotificationResponder(ops: ops)
         notificationDelegate = NotificationDelegate(responder: feedResponder)
         UNUserNotificationCenter.current().delegate = notificationDelegate
+        // A banner answer can arrive before auth restores (background launch):
+        // bind the last user now; minting needs only its record and the key.
+        if let madeIdentity { accountChanges = Task { await madeIdentity.restoreLast() } }
         feedResponder.openItem = { item in
             // The feed list is not on iPhone yet; Home stays in front.
             Logger(subsystem: "dev.cmux.ios", category: "push").info("open feed item \(item, privacy: .public)")
@@ -83,20 +89,31 @@ final class AppContainer {
     /// Signing out drops the account's Home mirror.
     func signedIn(account: SignedInAccount) {
         let coordinator = auth.coordinator
-        let device = UIDevice.current.name
-        Task {
-            await identity?.signedIn(stackUser: account.userID, deviceName: device,
-                                     sessionToken: { @MainActor in try await coordinator.accessToken() })
-            await push.start()
+        let identity = self.identity
+        let push = self.push
+        let previous = accountChanges
+        accountChanges = Task {
+            await previous?.value
+            if let replaced = await identity?.signedIn(stackUser: account.userID,
+                                                      sessionToken: { @MainActor in try await coordinator.accessToken() }) {
+                // A direct switch: the old account's target goes first.
+                await push.signOut(of: replaced)
+                await identity?.signedOut(of: replaced)
+            }
+            await push.start(for: account.userID)
         }
     }
 
     func signedOut() {
         let identity = self.identity
-        // Remove the push target while the install token still works, then forget it.
-        Task {
-            await push.signOut()
-            await identity?.signedOut()
+        let push = self.push
+        let previous = accountChanges
+        // Remove the push target as the signed-out user's install, then forget it.
+        accountChanges = Task {
+            await previous?.value
+            guard let user = await identity?.current else { return }
+            await push.signOut(of: user)
+            await identity?.signedOut(of: user)
         }
         home?.stop()
         home = nil
@@ -109,5 +126,6 @@ final class AppContainer {
 /// Adapts the install principal to the push client's token seam.
 struct IdentityTokens: InstallTokenProviding {
     let identity: InstallIdentity
-    func installToken() async throws -> String { try await identity.token() }
+    func installToken(for user: String?) async throws -> String { try await identity.token(for: user) }
+    func invalidate(for user: String?) async { await identity.invalidate(for: user) }
 }

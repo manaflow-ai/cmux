@@ -2,12 +2,12 @@ import CMUXMobileCore
 public import CmuxFeedPushCore
 public import Foundation
 
-/// The install credential the API Worker requires (identity spec D5:
-/// install keypair, challenge, short-lived token). The iPhone app has no
-/// install principal yet, so the default provider throws and every op is
-/// refused locally until identity lands.
+/// The install credential the API Worker requires (identity spec D5).
+/// `user` names the Stack user whose install acts (nil: the current one).
 public protocol InstallTokenProviding: Sendable {
-    func installToken() async throws -> String
+    func installToken(for user: String?) async throws -> String
+    /// The owner refused the token (401): drop it.
+    func invalidate(for user: String?) async
 }
 
 public enum CloudOpsError: Error, Hashable, Sendable {
@@ -22,16 +22,22 @@ public enum CloudOpsError: Error, Hashable, Sendable {
     case notConfigured
 }
 
-/// Until the install principal exists: refuse, so nothing is sent unauthenticated.
+/// No install principal: refuse, so nothing is sent unauthenticated.
 public struct UnavailableInstallToken: InstallTokenProviding {
     public init() {}
-    public func installToken() async throws -> String { throw CloudOpsError.installTokenUnavailable }
+    public func installToken(for user: String?) async throws -> String { throw CloudOpsError.installTokenUnavailable }
+    public func invalidate(for user: String?) async {}
 }
 
 /// Sends typed ops to the API Worker (`POST /v1/ops`). Redirects are
 /// refused, so the bearer never reaches another origin.
 public protocol CloudOpsSending: Sendable {
-    func send(_ op: CloudOp) async throws
+    /// Sends as the install of `user` (nil: the current user).
+    func send(_ op: CloudOp, as user: String?) async throws
+}
+
+extension CloudOpsSending {
+    public func send(_ op: CloudOp) async throws { try await send(op, as: nil) }
 }
 
 public struct CloudOpsClient: CloudOpsSending {
@@ -44,8 +50,21 @@ public struct CloudOpsClient: CloudOpsSending {
         self.tokens = tokens
     }
 
-    public func send(_ op: CloudOp) async throws {
-        let token = try await tokens.installToken()
+    public func send(_ op: CloudOp, as user: String?) async throws {
+        do {
+            try await attempt(op, as: user)
+        } catch CloudOpsError.httpStatus(401) {
+            // Revoked or clock-skewed token: mint a new one and try once more (same key).
+            await tokens.invalidate(for: user)
+            try await attempt(op, as: user)
+        }
+    }
+
+    private func attempt(_ op: CloudOp, as user: String?) async throws {
+        let token: String
+        do { token = try await tokens.installToken(for: user) } catch let error as CloudOpsError { throw error } catch {
+            throw CloudOpsError.installTokenUnavailable
+        }
         var request = URLRequest(url: baseURL.appendingPathComponent("v1/ops"))
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -69,5 +88,5 @@ public struct CloudOpsClient: CloudOpsSending {
 /// Used when no valid API Worker origin is configured (fail closed).
 public struct DisabledCloudOps: CloudOpsSending {
     public init() {}
-    public func send(_ op: CloudOp) async throws { throw CloudOpsError.notConfigured }
+    public func send(_ op: CloudOp, as user: String?) async throws { throw CloudOpsError.notConfigured }
 }
