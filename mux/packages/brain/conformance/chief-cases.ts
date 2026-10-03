@@ -594,7 +594,7 @@ function turnCases(): CorpusCase[] {
 
   {
     const epoch = T0 + 500;
-    const c = new CaseBuilder("turns: after cursor_reset reply keys carry an epoch (the at of the first replayed event), so a reused turn seq gets a new key", {
+    const c = new CaseBuilder("turns: after cursor_reset the promptless replay posts nothing (the cursor moves) and later reply keys carry an epoch", {
       defaultConversation: "conv_a",
       muxSessionId: MUX_SESSION,
       acpmuxSeq: 9,
@@ -608,18 +608,17 @@ function turnCases(): CorpusCase[] {
         events: [{ ...ev(1, "turn_started"), at: epoch }, { ...chunk(2, "again"), at: epoch + 1 }, { ...ev(3, "turn_end"), at: epoch + 2 }],
         cursor_reset: true,
       },
-      ["persist", "typing", "conversation_op", "typing", "list_conversations"],
+      ["persist", "list_conversations"],
       (e) => {
-        c.check(opKey(c, e) === `turn:${MUX_SESSION}:${epoch}:1`, `epoch key, got ${opKey(c, e)}`);
         const state = c.persisted(e) as HostStateData & { acpmuxEpoch?: number };
-        c.check(state.acpmuxSeq === 3 && state.acpmuxEpoch === epoch, "cursor and epoch saved");
+        c.check(state.acpmuxSeq === 3 && state.outbox.length === 0, "the cursor moves, nothing is posted");
+        c.check(state.acpmuxEpoch === epoch, "epoch saved");
       },
     );
-    c.step({ kind: "op_result", idempotency_key: `turn:${MUX_SESSION}:${epoch}:1` }, ["persist"]);
     c.step(mux(ev(4, "turn_started")), ["typing"]);
     c.step(mux(chunk(5, "later")), []);
     c.step(mux(ev(6, "turn_end")), ["persist", "conversation_op", "typing"], (e) =>
-      c.check(opKey(c, e) === `turn:${MUX_SESSION}:${epoch}:4`, "the epoch stays until the next reset"),
+      c.check(opKey(c, e) === `turn:${MUX_SESSION}:${epoch}:4`, "a live turn after the reset gets the epoch key"),
     );
     cases.push(c.end());
   }
