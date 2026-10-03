@@ -15,7 +15,7 @@ SCRIPT = ROOT / "scripts/ci/late_placement.py"
 WORKFLOW = ROOT / ".github/workflows/ci-macos.yml"
 XCODE = "/Applications/Xcode_26.6.app"
 ROOT_STD = "glaeda-root-std-xcode-26.6"
-FULL = {"MACOS": "true", "CLI": "false", "FULL_SUITE": "true", "ADMISSION_XCODE_APP": XCODE,
+FULL = {"MACOS": "true", "FULL_SUITE": "true", "ADMISSION_XCODE_APP": XCODE,
         "ADMISSION_RUNNER": "blacksmith-12vcpu-macos-26", "OWNED_JOBS": ""}
 
 
@@ -45,9 +45,9 @@ class Decide(unittest.TestCase):
         self.assertEqual(placed, {"cli-product": ROOT_STD})
         self.assertIn("3 idle", why)
 
-    def test_a_cli_only_run_moves_cli_product(self):
-        env = dict(FULL, MACOS="false", CLI="true", FULL_SUITE="false")
-        self.assertEqual(late.decide(env, roots(idle=1))[0], {"cli-product": ROOT_STD})
+    def test_a_compile_only_run_has_no_late_job(self):
+        env = dict(FULL, FULL_SUITE="false")
+        self.assertEqual(late.decide(env, roots(idle=1))[0], {})
 
     def test_a_job_the_picker_already_owned_stays_put(self):
         env = dict(FULL, OWNED_JOBS=" admission cli-product ")

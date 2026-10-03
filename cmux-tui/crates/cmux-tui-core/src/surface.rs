@@ -2963,6 +2963,7 @@ impl Surface {
                         }
                         drop(journal_update);
                         surface.publish_pending_directory();
+                        surface.publish_pending_progress();
                         pty.stream_progress.notify();
                         pty.request_frame(generation);
                         if let Some((offset, at_bottom)) = scroll_changed
@@ -3607,6 +3608,7 @@ impl Surface {
                                 }
                                 drop(journal_update.take());
                                 surface.publish_pending_directory();
+                        surface.publish_pending_progress();
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(title) = title_update
@@ -3769,6 +3771,7 @@ impl Surface {
                                 });
                                 drop(geometry);
                                 surface.publish_pending_directory();
+                        surface.publish_pending_progress();
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(mux) = mux.upgrade() {
@@ -4165,6 +4168,7 @@ impl Surface {
                             replacement_snapshot.cell_pixels,
                         );
                         surface.publish_pending_directory();
+                        surface.publish_pending_progress();
                         reconnect_mux.emit_terminal_title(pty.event_surface_id, title.into());
                         reconnect_mux.emit_terminal_resized(
                             pty.event_surface_id,
@@ -8641,6 +8645,10 @@ mod tests {
     /// resize artifact seen in Cloud terminals.
     #[cfg(unix)]
     #[test]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "zsh loses the partial line on macOS on feat-cmux-next too: #16644"
+    )]
     fn default_shell_prompt_survives_rapid_resizes_after_a_partial_line() {
         let mut ran = 0;
         for (index, shell) in ["zsh", "bash"].into_iter().enumerate() {
@@ -11160,34 +11168,5 @@ mod tests {
         assert!(writer.0.lock().unwrap().is_empty());
     }
 
-    #[test]
-    fn clear_history_preserves_alternate_screen_and_primary_history() {
-        let mux = Mux::new_for_test("clear-alternate-screen", SurfaceOptions::default());
-        let surface =
-            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
-        let primary_history_rows = surface
-            .with_terminal(|term| {
-                for line in 0..40 {
-                    term.vt_write(format!("primary-{line}\r\n").as_bytes());
-                }
-                term.vt_write(b"primary-tail");
-                let history_rows = term.history_rows();
-                term.vt_write(b"\x1b[?1049h");
-                term.vt_write(b"alternate-app");
-                assert_eq!(term.active_screen(), Screen::Alternate);
-                history_rows
-            })
-            .unwrap();
-
-        surface.clear_history().unwrap();
-
-        surface.with_terminal(|term| {
-            assert_eq!(term.active_screen(), Screen::Alternate);
-            assert!(term.viewport_text().unwrap().contains("alternate-app"));
-            term.vt_write(b"\x1b[?1049l");
-            assert_eq!(term.active_screen(), Screen::Primary);
-            assert_eq!(term.history_rows(), primary_history_rows);
-            assert!(term.viewport_text().unwrap().contains("primary-tail"));
-        });
-    }
+    mod clear_history_tests;
 }

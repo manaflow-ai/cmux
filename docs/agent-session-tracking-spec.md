@@ -1,5 +1,7 @@
 # Agent Session Tracking — Single Source of Truth (Technical Spec)
 
+> The Swift `cmux` CLI verbs named here were removed in the Rust CLI cutover ([plans/cmux-next/cli.md](../plans/cmux-next/cli.md)). This is a design record. Agent hooks now install with `cmux agent hook install [provider...]`.
+
 Status: DRAFT, living doc. Owner: Aziz. Last updated: 2026-06-22.
 
 Tracks the redesign of how cmux tracks whether a terminal surface has a coding

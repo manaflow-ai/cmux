@@ -51,7 +51,7 @@ ENTRY_POINT_DECLARATIONS = {
 
 def is_test_file(path: str) -> bool:
     return "/Tests/" in path or path.startswith(
-        ("cmuxTests/", "cmuxUITests/", "ios/cmuxUITests/", "cmuxCLITests/", "cmuxCLITestSupport/")
+        ("cmuxTests/", "cmuxUITests/", "ios/cmuxUITests/")
     )
 
 

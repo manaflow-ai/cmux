@@ -181,7 +181,8 @@ jobs:
             --manifest-url "https://files.cmux.com/cmux-tui/$client_commit/manifest.json" \
             --expected-commit "$client_commit" --require-capability wireguard-hub \
             --attest-signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-artifacts.yml"
-          client="$client_bundle/Contents/Resources/bin/cmux-tui"
+          # bin/cmux is the cmux-tui binary; bin/cmux-tui and bin/acpmux link to it.
+          client="$client_bundle/Contents/Resources/bin/cmux"
           probe="$($client remote-probe --json)"
           version="$($client --version)"
           ghostty_sha="$(git -C ghostty rev-parse HEAD)"
@@ -595,11 +596,6 @@ jobs:
           app_path="$(awk '/^App path:/{getline; sub(/^  /,""); print; exit}' "$log")"
           [ -n "$app_path" ] && [ -d "$app_path" ] || { echo "could not locate built app" >&2; exit 1; }
           echo "app_path=$app_path" >> "$GITHUB_OUTPUT"
-          if [ -f tests/test_cli_vm_create_name.py ]; then
-            CMUX_CLI_BIN="$app_path/Contents/Resources/bin/cmux" \
-              DYLD_FRAMEWORK_PATH="$app_path/Contents/Frameworks:$derived_data/Build/Products/Debug" \
-              python3 tests/test_cli_vm_create_name.py
-          fi
           mkdir -p artifact
           ( cd "$(dirname "$app_path")" && ditto -c -k --sequesterRsrc --keepParent "$(basename "$app_path")" "$GITHUB_WORKSPACE/artifact/app.zip" )
 

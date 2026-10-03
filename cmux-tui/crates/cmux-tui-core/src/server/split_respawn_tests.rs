@@ -98,6 +98,7 @@ fn only_browser_tab_split_with_a_browser_respawn_keeps_a_fresh_browser() {
         title: None,
         favicon_url: None,
         profile_id: Some("work".into()),
+        owner: None,
     };
     let browser = wire.mux.new_frontend_browser_tab(Some(pane), record, None).unwrap().id;
     // Make the browser the pane's only tab: the terminal goes to a split.

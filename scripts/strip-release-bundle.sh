@@ -31,6 +31,8 @@ STRIP_TOOL="${CMUX_STRIP_TOOL:-strip}"
 
 strip_if_macho() {
   local path="$1"
+  # A symlink (bin/cmux-tui, bin/acpmux -> cmux) names a file stripped on its own.
+  [ ! -L "$path" ] || return 0
   [ -f "$path" ] || return 0
   [ -x "$path" ] || return 0
   if ! "$FILE_TOOL" "$path" | grep -q 'Mach-O'; then
@@ -41,8 +43,8 @@ strip_if_macho() {
 }
 
 strip_if_macho "$APP_PATH/Contents/MacOS/cmux"
+# bin/cmux is the cmux-tui binary; bin/cmux-tui and bin/acpmux are symlinks to it.
 strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux"
-strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux-tui"
 strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar"
 
 if [ -d "$APP_PATH/Contents/PlugIns" ]; then

@@ -18,11 +18,11 @@ have not shipped yet.
 |---|---|
 | App preferences (appearance, sidebar, notifications, browser routing, automation, shortcuts, new-workspace placement) | `~/.config/cmux/cmux.json` via the `cmux-settings` helper |
 | Custom actions, workspace layouts/commands, tab bar buttons, plus-button behavior, Command Palette entries, notification hooks | `~/.config/cmux/cmux.json` globally or `.cmux/cmux.json` in the project |
-| Dock controls (right-sidebar terminals: logs, test watchers, git TUIs, dev servers, queues, `cmux feed tui --opentui`) | `.cmux/dock.json` or `~/.config/cmux/dock.json`; `cmux docs dock` when available |
+| Dock controls (right-sidebar terminals: logs, test watchers, git TUIs, dev servers, queues) | `.cmux/dock.json` or `~/.config/cmux/dock.json` |
 | Terminal rendering and terminal keybindings (fonts, themes, cursor style, copy-on-select, shell integration) | Ghostty config, usually `~/.config/ghostty/config` |
-| Bring fonts, colors and terminal behavior over from iTerm2, Terminal, Alacritty, Kitty, WezTerm or a Warp theme | `cmux import <terminal> --dry-run` to preview, then `cmux import <terminal>`; writes cmux's own Ghostty config and a generated theme, never `~/.config/ghostty/config` |
-| Workspace names, descriptions, colors, read state, sidebar metadata | cmux CLI, see [../cmux-workspace/SKILL.md](../cmux-workspace/SKILL.md) |
-| Feed event sources | `cmux hooks setup` |
+| Bring fonts, colors and terminal behavior over from another terminal | Not supported: `cmux import` was removed with the Swift CLI. Copy the values into Ghostty config by hand. |
+| Workspace names, descriptions, colors, read state | cmux CLI app actions (`cmux workspace set-color --target ws_… --color blue`), see [../cmux/references/windows-workspaces.md](../cmux/references/windows-workspaces.md) |
+| Agent hooks (agent state in the sidebar) | `cmux agent hook install [provider…]`; `cmux agent hook status` to check |
 
 Viewer-specific JSON settings live in the global `cmux.json`: `browser.*`,
 `markdown.*`, `fileEditor.*`, `fileExplorer.*`, and `diffViewer.*`. Generic file
@@ -64,7 +64,7 @@ Key surfaces in `cmux.json`: `actions` (reusable, can appear in Cmd+Shift+P, sur
    ```
 
 5. For actions, UI wiring, workspace layouts, notification hooks, and Dock controls, edit the JSONC by hand and preserve unrelated sections (`vault`, `rightSidebar`, `commands`, `actions`, `ui`, `notifications`).
-6. `cmux reload-config`.
+6. `cmux settings reload-configuration` (app action; the file watcher also reloads on save).
 7. Verify the configured entrypoint exists: read back the shortcut binding, or confirm the action ID and where it should appear.
 
 For viewer changes, verify the exact path or command state from the matrix. If
@@ -92,14 +92,14 @@ Appears in Cmd+Shift+P unless `palette` is false.
 }
 ```
 
-Before choosing a preset, template, starter config, or known workflow pattern, run `cmux docs workflows --json`. Its catalog describes the shipped examples, what each creates, task-fit cues, requirements, adaptation points, and the saved-layout lifecycle. After choosing an example, open [references/examples.md](references/examples.md) for that example's concrete JSON recipe.
+Before choosing a preset, template, starter config, or known workflow pattern, read [references/examples.md](references/examples.md). `cmux docs workflows` was removed with the Swift CLI, so that file is the catalog.
 
 ## Validation
 
 - App settings: `cmux-settings validate`.
 - Keep valid JSONC, no duplicate keys.
 - Parse `.cmux/dock.json` or `~/.config/cmux/dock.json` with a JSON parser before reporting completion.
-- `cmux reload-config` when the CLI is available.
+- `cmux settings reload-configuration` when the app is running.
 - Confirm the exact user-facing result: action title, shortcut, plus-button behavior, context-menu entry, or tab bar placement.
 
 ## Rules

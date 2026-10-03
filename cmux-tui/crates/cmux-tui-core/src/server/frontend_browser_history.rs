@@ -20,6 +20,8 @@ pub(super) struct UpdateTabParams {
     title: Option<String>,
     #[serde(default, deserialize_with = "super::present_nullable")]
     favicon_url: Option<Option<String>>,
+    #[serde(default)]
+    owner: Option<String>,
 }
 
 /// `set-frontend-browser-history`: store a frontend-rendered browser's
@@ -38,13 +40,15 @@ pub(super) struct GetParams {
 }
 
 pub(super) fn update(mux: &Mux, params: UpdateTabParams) -> anyhow::Result<Value> {
-    let UpdateTabParams { surface, url, title, favicon_url } = params;
-    let (record, changed) = mux.update_frontend_browser_tab(surface, url, title, favicon_url)?;
+    let UpdateTabParams { surface, url, title, favicon_url, owner } = params;
+    let (record, changed) =
+        mux.update_frontend_browser_tab_with_owner(surface, url, title, favicon_url, owner)?;
     Ok(json!({
         "surface": surface,
         "url": record.url,
         "title": record.title,
         "favicon_url": record.favicon_url,
+        "owner": record.owner,
         "changed": changed,
     }))
 }

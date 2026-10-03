@@ -29,6 +29,10 @@ extension WindowManager {
             BrowserEngineChoice(engine: .webkit)
         }
         let address = url?.absoluteString ?? "about:blank"
+        if EphemeralWorkspaces.localDaemonServes(self) {
+            EphemeralWorkspaces.newIncognitoWorkspace(self, window: windowID, address: address, choice: choice)
+            return windowID
+        }
         // Claimed before anything else runs: the pending claim keeps the
         // session alive until the window opens.
         let key = WorkspaceKey.generate()
@@ -70,7 +74,7 @@ extension WindowManager {
     /// closed one (its pages must still never use a normal store).
     func isIncognito(workspace workspaceID: String) -> Bool {
         let value = registry.value
-        if value.discarding.contains(workspaceID) { return true }
+        if value.discarding.contains(workspaceID) || EphemeralWorkspaces.isEphemeral(workspaceID, self) { return true }
         if let owner = value.owner(of: workspaceID) { return value.isIncognito(owner) }
         return pendingClaims[workspaceID].map(value.isIncognito) ?? false
     }
@@ -107,14 +111,16 @@ extension WindowManager {
         var ids = value.discarding
         for window in value.windows where value.isIncognito(window.id) { ids.formUnion(window.workspaceIDs) }
         for (workspace, window) in pendingClaims where value.isIncognito(window) { ids.insert(workspace) }
-        incognitoLedger.record(ids)
+        // The daemon closes ephemeral workspaces itself; the ledger keeps
+        // only incognito workspaces it does not know as such.
+        incognitoLedger.record(ids.filter { !EphemeralWorkspaces.isEphemeral($0, self) })
     }
 
     func endIncognitoSessionIfUnused() {
         guard let profile = incognitoSession else { return }
         let value = registry.value
         let open = value.windows.contains { value.isIncognito($0.id) }
-        let pending = pendingClaims.values.contains(where: value.isIncognito)
+        let pending = pendingClaims.values.contains(where: value.isIncognito) || !pendingEphemeralWindows.isEmpty
         guard !open, !pending else { return }
         incognitoSession = nil
         incognitoHistoryReset?()

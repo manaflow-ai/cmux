@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 4a59825cd43eedde1d1abef1833d07e90af4b64773ad9eacd346e4966b461d4c.
+// cmux-tui mux protocol 12, IR 9db25213cb8861aa38070472e063471f073e76674033258697acacca8a4398b7.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1452,12 +1452,36 @@ pub type NewBrowserTabResult = T::SurfaceResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewConversationTabRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cols: Optional<u16>,
+    pub conversation: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mutation_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub origin: Optional<String>,
+    pub owner: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub workspace: Optional<T::Id>,
+}
+
+#[rustfmt::skip]
+pub type NewConversationTabResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewFrontendBrowserTabRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
     pub engine: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub favicon_url: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub owner: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2565,6 +2589,8 @@ pub type UpdateBrowserProfileResult = T::JsonValue;
 pub struct UpdateFrontendBrowserTabRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub favicon_url: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub owner: Optional<String>,
     pub surface: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub title: Optional<String>,
@@ -3278,6 +3304,10 @@ impl CmuxClient {
 
     pub fn new_browser_tab(&mut self, request: NewBrowserTabRequest) -> Result<NewBrowserTabResult> {
         self.execute(&NEW_BROWSER_TAB_METADATA, &request)
+    }
+
+    pub fn new_conversation_tab(&mut self, request: NewConversationTabRequest) -> Result<NewConversationTabResult> {
+        self.execute(&NEW_CONVERSATION_TAB_METADATA, &request)
     }
 
     pub fn new_frontend_browser_tab(&mut self, request: NewFrontendBrowserTabRequest) -> Result<NewFrontendBrowserTabResult> {

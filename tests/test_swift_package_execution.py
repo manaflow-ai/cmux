@@ -25,12 +25,17 @@ def package_step(name: str) -> str:
 
 class SwiftPackageExecutionTests(unittest.TestCase):
     def run_step(
-        self, output: str, status: int = 0, package: str = "CmuxSudoBroker",
-        step: str = "Run Swift package unit tests",
+        self, output: str, status: int = 0, package: str = "CmuxUpdater",
+        step: str = "Run Swift package unit tests", ghosttykit: bool = False,
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory(prefix="swift-package-execution-") as directory:
             root = Path(directory)
             (root / "Packages/macOS" / package).mkdir(parents=True)
+            if ghosttykit:
+                # A binaryTarget on the root xcframework, like a GhosttyKit package's manifest.
+                (root / "Packages/macOS" / package / "Package.swift").write_text(
+                    '.binaryTarget(name: "GhosttyKit", path: "../../../GhosttyKit.xcframework")\n'
+                )
             (root / "scripts").mkdir()
             (root / "scripts/ci").symlink_to(ROOT / "scripts/ci", target_is_directory=True)
             binaries = root / "bin"
@@ -86,7 +91,7 @@ class SwiftPackageExecutionTests(unittest.TestCase):
         result = self.run_step(
             "error: unexpected binary framework\n"
             "✔ Test run with 0 tests passed after 0.001 seconds.\n",
-            status=1, package="CmuxTerminalCore",
+            status=1, package="GhosttyFixture", ghosttykit=True,
         )
         self.assertNotEqual(result.returncode, 0, result.stdout)
 
@@ -94,7 +99,7 @@ class SwiftPackageExecutionTests(unittest.TestCase):
         result = self.run_step(
             "error: unexpected binary framework\n"
             "✔ Test run with 2 tests in 1 suite passed after 0.001 seconds.\n",
-            status=1, package="CmuxTerminalCore",
+            status=1, package="GhosttyFixture", ghosttykit=True,
         )
         self.assertEqual(result.returncode, 0, result.stdout)
 
@@ -103,7 +108,7 @@ class SwiftPackageExecutionTests(unittest.TestCase):
             "error: unexpected binary framework\n"
             "warning: 'swift-crypto': skipping cache due to an error: The file “maintenance.lock” doesn’t exist.\n"
             "✔ Test run with 227 tests in 27 suites passed after 0.001 seconds.\n",
-            status=1, package="CmuxTerminalCore",
+            status=1, package="GhosttyFixture", ghosttykit=True,
         )
         self.assertEqual(result.returncode, 0, result.stdout)
 
@@ -112,7 +117,15 @@ class SwiftPackageExecutionTests(unittest.TestCase):
             "error: unexpected binary framework\n"
             "Foo.swift:1:2: error: x\n"
             "✔ Test run with 227 tests in 27 suites passed after 0.001 seconds.\n",
-            status=1, package="CmuxTerminalCore",
+            status=1, package="GhosttyFixture", ghosttykit=True,
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+
+    def test_binary_diagnostic_is_tolerated_only_for_ghosttykit_packages(self) -> None:
+        result = self.run_step(
+            "error: unexpected binary framework\n"
+            "✔ Test run with 2 tests in 1 suite passed after 0.001 seconds.\n",
+            status=1,
         )
         self.assertEqual(result.returncode, 1, result.stdout)
 
@@ -131,7 +144,7 @@ class SwiftPackageExecutionTests(unittest.TestCase):
              + "error: Exited with unexpected signal code 10\n", 1),
         ):
             with self.subTest(output=output, status=status):
-                result = self.run_step(output, status=status, package="CmuxTerminalCore")
+                result = self.run_step(output, status=status, package="GhosttyFixture", ghosttykit=True)
                 self.assertEqual(result.returncode, status, result.stdout)
 
 

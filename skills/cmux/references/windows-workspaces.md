@@ -2,34 +2,67 @@
 
 ```bash
 # inspect
-cmux list-windows
-cmux current-window
-cmux list-workspaces
-cmux current-workspace
+cmux window list
+cmux workspace list --json
+cmux workspace current show --json
 
 # lifecycle
-cmux new-window
-cmux focus-window --window window:2
-cmux close-window --window window:2
-cmux new-workspace
-cmux select-workspace --workspace workspace:4
-cmux close-workspace --workspace workspace:4
+cmux app new-window                       # app action
+cmux workspace create --name api
+cmux workspace ws_… focus
+cmux workspace ws_… rename --name infra
+cmux workspace ws_… close
 
-# reorder and move
-cmux reorder-workspace --workspace workspace:4 --before workspace:2
-cmux move-workspace-to-window --workspace workspace:4 --window window:1
+# order and move
+cmux workspace ws_… move --index 0
+cmux workspace move-to-window --target ws_… --window <window-id>   # app action
 ```
 
-## Context-Menu Actions
+Windows exist only in the app; their ids are the lowercase UUIDs `cmux window list` prints.
 
-`cmux workspace-action` runs the workspace right-click actions (color, description, rename, pin, read state, ordering). Defaults to the caller's workspace; override with `--workspace <id|ref|index>`.
+## Context-menu actions
+
+Workspace right-click actions are app actions. List them with `cmux action list --noun workspace` and check arguments with `cmux action describe "workspace set-color"`.
 
 ```bash
-cmux workspace-action --action set-color --color Blue      # name or #RRGGBB hex
-cmux workspace-action --action set-description --description "Ship checklist"
-cmux workspace-action --action rename --title "infra"
-cmux workspace-action --action pin
-cmux workspace-action --action clear-color
+cmux workspace set-color --target ws_… --color blue
+cmux workspace edit-description --target ws_… --description "Ship checklist"
+cmux workspace pin-unpin --target ws_…
+cmux workspace clear-name --target ws_…
+cmux workspace set-status --target ws_… --status inProgress
 ```
 
-Other actions: `unpin`, `clear-name`, `clear-description`, `mark-read`/`mark-unread`, `move-up`/`move-down`/`move-top`, `close-others`/`close-above`/`close-below`. Named colors: Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua, Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal. `set-color` tints a single workspace (stored as workspace state); the `workspaceColors` block in `cmux.json` defines the shared palette and selection/badge colors, not per-workspace assignments.
+Colors: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other actions include `mark-as-read`, `mark-as-unread`, `move-up`, `move-down`, `move-to-top`, `close-other`, `close-above` and `close-below`.
+
+## Groups
+
+```bash
+cmux workspace group list
+cmux workspace group create --name backend --color blue
+cmux workspace group backend add --workspace ws_…
+cmux workspace group remove --workspace ws_…
+cmux workspace placement list --json      # personal sidebar order
+```
+
+Groups and rooms take their id or exact name. Both are personal: they live in this Mac's home session.
+
+## Rooms
+
+```bash
+cmux room list --json
+cmux room create --name Work --color blue
+cmux room Work pin --workspace ws_…
+cmux room unpin --workspace ws_…
+cmux room Work follow --sessions s1,s2      # the complete follow set
+cmux room Work update --icon briefcase --clear-color
+cmux room Work move --index 0
+cmux room Work delete --move-to Home
+```
+
+## Workspace metadata and closed history
+
+```bash
+cmux workspace ws_… update --title "API" --color "#336699" --icon server.rack
+cmux closed list
+cmux closed <closed_id> reopen
+```
