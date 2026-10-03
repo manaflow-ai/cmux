@@ -43,8 +43,14 @@ final class CloudSectionHeaderActionsUITests: XCTestCase {
 
         let tree = app.descendants(matching: .any).matching(identifier: "CloudMachinesTree").firstMatch
         XCTAssertTrue(tree.waitForExistence(timeout: 10), "Expected the Cloud tree with its section headers")
-        // The team picker bar above the tree has its own "New Machine" +, so
-        // the header + is found by its identifier inside the tree only.
+        // The team picker bar above the tree exposes the top-level New Machine action.
+        let topPlus = app.buttons["CloudHeaderNewMachineButton"]
+        XCTAssertTrue(topPlus.waitForExistence(timeout: 5), "Expected the top Cloud header New Machine button")
+        XCTAssertEqual(topPlus.label, "New Machine")
+        topPlus.click()
+        assertOneNewMachineSheet(in: app, opener: "the Cloud header +")
+        cancelNewMachineSheet(in: app)
+
         let plus = tree.buttons.matching(identifier: "CloudMachinesNewMachineButton").firstMatch
         // Faded at rest, the + keeps its place in the accessibility tree.
         XCTAssertTrue(plus.waitForExistence(timeout: 5), "Expected the Cloud Machines header + in the tree")
