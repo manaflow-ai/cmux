@@ -1,52 +1,121 @@
 import CMUXMobileCore
 public import CmuxInstallAuthCore
 public import Foundation
+import Security
 
-/// The iPhone's install principal for the API Worker: an InstallAuthClient
-/// bound to one signed-in Stack user, with the install binding kept per
-/// (API origin, Stack user). The token stays in memory only.
+/// The iPhone's install principal for the API Worker. One owner for every
+/// account change (an actor, so sign-in, sign-out and switches apply in
+/// order). Each Stack user has its own InstallAuthClient; the (user, install)
+/// record lives in the Keychain next to the key, so a background launch or a
+/// sign-out cleanup can mint a token without a Stack session.
 public actor InstallIdentity {
     private let baseURL: URL
+    private let environment: String
     private let signer: SecureEnclaveInstallSigner
-    private let defaults: UserDefaults
-    private var client: InstallAuthClient?
-    private var stackUser: String?
+    private let records: InstallRecordStore
+    private let deviceName: String
+    private var clients: [String: InstallAuthClient] = [:]
+    public private(set) var current: String?
 
-    public init(baseURL: URL, bundleID: String, defaults: UserDefaults = .standard) {
+    public init(baseURL: URL, bundleID: String, deviceName: String) {
         self.baseURL = baseURL
-        signer = SecureEnclaveInstallSigner(bundleID: bundleID, environment: baseURL.host ?? "unknown")
-        self.defaults = defaults
+        let host = baseURL.host ?? "unknown"
+        environment = host == "cloud-api.cmux.dev" ? "production" : "staging"
+        signer = SecureEnclaveInstallSigner(bundleID: bundleID, environment: host)
+        records = InstallRecordStore(service: "\(bundleID).install-record.\(host)")
+        self.deviceName = deviceName
     }
 
-    /// Binds to a signed-in user. `sessionToken` returns a Stack access token.
-    public func signedIn(stackUser: String, deviceName: String,
-                         sessionToken: @escaping InstallAuthClient.SessionToken) {
-        guard stackUser != self.stackUser else { return }
-        self.stackUser = stackUser
-        let key = recordKey(stackUser)
-        let record = defaults.data(forKey: key).flatMap { try? JSONDecoder().decode(InstallRecord.self, from: $0) }
-        client = InstallAuthClient(transport: CredentialedTransport(baseURL: baseURL), signer: signer,
-                                   sessionToken: sessionToken, deviceName: deviceName, record: record)
+    /// At launch, before auth restores: bind the last signed-in user so a
+    /// background banner answer can act as the install.
+    public func restoreLast() {
+        guard current == nil, let last = records.lastUser() else { return }
+        current = last
     }
 
-    public func signedOut() async {
-        await client?.reset()
-        client = nil
-        stackUser = nil
+    /// The signed-in user. Returns the previous user when the account changed
+    /// (the caller cleans up its push target first).
+    public func signedIn(stackUser: String, sessionToken: @escaping InstallAuthClient.SessionToken) -> String? {
+        let previous = current
+        current = stackUser
+        records.setLastUser(stackUser)
+        clients[stackUser] = makeClient(stackUser, session: sessionToken)
+        return previous == stackUser ? nil : previous
     }
 
-    /// A valid install token (mints or refreshes as needed).
-    public func token() async throws -> String {
-        guard let client, let stackUser else { throw InstallAuthError.noSession }
-        let value = try await client.installToken()
-        if let record = await client.currentRecord, let data = try? JSONEncoder().encode(record) {
-            defaults.set(data, forKey: recordKey(stackUser))
+    /// Sign-out of one user; a no-op when another user is current now.
+    public func signedOut(of stackUser: String) async {
+        await clients[stackUser]?.reset()
+        clients[stackUser] = nil
+        if current == stackUser {
+            current = nil
+            records.setLastUser(nil)
         }
-        return value
     }
 
-    private func recordKey(_ stackUser: String) -> String {
-        "cmux.install.record.\(baseURL.host ?? "").\(stackUser)"
+    /// A valid install token for `stackUser` (default: the current user).
+    public func token(for stackUser: String? = nil) async throws -> String {
+        guard let user = stackUser ?? current else { throw InstallAuthError.noSession }
+        return try await client(for: user).installToken()
+    }
+
+    /// The owner refused the token (401): mint again next time.
+    public func invalidate(for stackUser: String? = nil) async {
+        guard let user = stackUser ?? current else { return }
+        await clients[user]?.invalidate()
+    }
+
+    private func client(for user: String) -> InstallAuthClient {
+        if let existing = clients[user] { return existing }
+        // No session here (background or cleanup): only an existing record can mint.
+        let made = makeClient(user, session: nil)
+        clients[user] = made
+        return made
+    }
+
+    private func makeClient(_ user: String, session: InstallAuthClient.SessionToken?) -> InstallAuthClient {
+        let records = self.records
+        return InstallAuthClient(transport: CredentialedTransport(baseURL: baseURL), signer: signer,
+                                 sessionToken: session, stackUser: user, environment: environment,
+                                 deviceName: deviceName, record: records.record(for: user),
+                                 onRecord: { records.setRecord($0, for: user) })
+    }
+}
+
+/// (user, install) records and the last signed-in user, in the Keychain
+/// (this device only, after first unlock). Identifiers only; no secrets.
+struct InstallRecordStore: Sendable {
+    let service: String
+
+    func record(for user: String) -> InstallRecord? {
+        read("record.\(user)").flatMap { try? JSONDecoder().decode(InstallRecord.self, from: $0) }
+    }
+
+    func setRecord(_ record: InstallRecord?, for user: String) {
+        write("record.\(user)", record.flatMap { try? JSONEncoder().encode($0) })
+    }
+
+    func lastUser() -> String? { read("last-user").map { String(decoding: $0, as: UTF8.self) } }
+    func setLastUser(_ user: String?) { write("last-user", user.map { Data($0.utf8) }) }
+
+    private func base(_ account: String) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
+    }
+
+    private func read(_ account: String) -> Data? {
+        var query = base(account)
+        query[kSecReturnData as String] = true
+        var out: CFTypeRef?
+        return SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess ? out as? Data : nil
+    }
+
+    private func write(_ account: String, _ data: Data?) {
+        SecItemDelete(base(account) as CFDictionary)
+        guard let data else { return }
+        var query = base(account)
+        query[kSecValueData as String] = data
+        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        SecItemAdd(query as CFDictionary, nil)
     }
 }
 

@@ -22,6 +22,14 @@ public final class FeedNotificationResponder {
             userInfo: response.notification.request.content.userInfo)
     }
 
+    private static func postNotSent() async {
+        let content = UNMutableNotificationContent()
+        content.title = String(localized: "push.notSent.title", defaultValue: "Answer not sent", bundle: .module)
+        content.body = String(localized: "push.notSent.body", defaultValue: "Open cmux to answer.", bundle: .module)
+        try? await UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: "cmux.feed.not-sent", content: content, trigger: nil))
+    }
+
     public func handle(_ decision: FeedPushResponse) async {
         switch decision {
         case .ignore:
@@ -32,7 +40,8 @@ public final class FeedNotificationResponder {
             do {
                 try await ops.send(key.op)
             } catch {
-                // Not sent (offline, or no install principal yet): show the item instead.
+                // Not sent: say so on the lock screen; the item stays open on the owner.
+                await Self.postNotSent()
                 openItem?(key.item)
             }
         }

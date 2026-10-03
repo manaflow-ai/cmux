@@ -5,28 +5,30 @@ import UserNotifications
 
 /// Owns this install's push target on the account (UserDO): asks for
 /// permission after sign-in, registers the APNs token with
-/// `push.target.register`, and removes it on sign-out. The owner keeps one
-/// target per install; registering again replaces it.
+/// `push.target.register` as the signed-in user's install, and removes it as
+/// THAT user's install on sign-out (or when the account changes). A removal
+/// that does not reach the owner is kept with its user and retried.
 @MainActor
 public final class PushRegistration {
     public enum State: Hashable, Sendable {
         case idle
         case denied
         case registered
-        /// Not sent: the reason (for example no install principal yet).
+        /// Not sent: the reason.
         case pending(String)
     }
+
+    private struct PendingRemoval: Codable { var token: Data; var user: String }
 
     public private(set) var state: State = .idle
     private let ops: any CloudOpsSending
     private let topic: String
     private let environment: CloudOp.APNsEnvironment
-    private var token: Data?
     private let defaults: UserDefaults
-    /// A token whose removal did not reach the owner yet (sign-out while
-    /// offline): retried at launch and before the next register, so a signed-out
-    /// account never keeps pushing to this phone.
-    private static let pendingRemovalKey = "cmux.push.pendingRemoval"
+    private var token: Data?
+    /// The Stack user whose install registered `token`.
+    private var owner: String?
+    private static let pendingKey = "cmux.push.pendingRemovals"
 
     public init(ops: any CloudOpsSending, topic: String, environment: CloudOp.APNsEnvironment,
                 defaults: UserDefaults = .standard) {
@@ -34,11 +36,12 @@ public final class PushRegistration {
         self.topic = topic
         self.environment = environment
         self.defaults = defaults
-        Task { await self.retryPendingRemoval() }
     }
 
-    /// After sign-in: register the categories, ask once, then ask APNs for a token.
-    public func start() async {
+    /// After sign-in of `user`: categories, permission, then an APNs token.
+    public func start(for user: String) async {
+        owner = user
+        await retryPendingRemovals()
         let center = UNUserNotificationCenter.current()
         center.setNotificationCategories(FeedPushCategory.notificationCategories)
         let granted = (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) ?? false
@@ -48,48 +51,60 @@ public final class PushRegistration {
 
     /// APNs answered with this install's token.
     public func didRegister(token: Data) async {
-        await retryPendingRemoval()
+        guard let owner else { return }
         self.token = token
         let op = CloudOp.registerPushTarget(token: token, topic: topic, environment: environment,
                                             deviceName: UIDevice.current.name,
                                             idempotencyKey: "push-register-" + UUID().uuidString.lowercased())
-        if await send(op) { state = .registered }
-    }
-
-    /// Sign-out: the account stops pushing to this device.
-    public func signOut() async {
-        // Take the token before any await: a sign-in during the removal must
-        // not have its new token cleared by this sign-out.
-        guard let token else { return }
-        self.token = nil
-        state = .idle
-        UIApplication.shared.unregisterForRemoteNotifications()
-        defaults.set(token, forKey: Self.pendingRemovalKey)
-        await retryPendingRemoval()
-    }
-
-    private func retryPendingRemoval() async {
-        guard let pending = defaults.data(forKey: Self.pendingRemovalKey) else { return }
         do {
-            try await ops.send(.removePushTarget(token: pending, idempotencyKey: "push-remove-" + pending.hexString))
-            defaults.removeObject(forKey: Self.pendingRemovalKey)
-        } catch CloudOpsError.rejected(_, retryable: false) {
-            // The owner no longer has this target: nothing left to remove.
-            defaults.removeObject(forKey: Self.pendingRemovalKey)
-        } catch {
-            // Kept; retried at the next launch or registration.
-        }
-    }
-
-    private func send(_ op: CloudOp) async -> Bool {
-        do {
-            try await ops.send(op)
-            return true
-        } catch CloudOpsError.installTokenUnavailable {
-            state = .pending("no install principal yet")
+            try await ops.send(op, as: owner)
+            state = .registered
         } catch {
             state = .pending("\(error)")
         }
-        return false
+    }
+
+    /// `user` signs out (or another account replaced it): the account stops
+    /// pushing to this device. Runs before the identity forgets that user.
+    public func signOut(of user: String) async {
+        let token = self.token
+        if owner == user {
+            owner = nil
+            self.token = nil
+            state = .idle
+            UIApplication.shared.unregisterForRemoteNotifications()
+            UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+        }
+        guard let token else { return }
+        var pending = loadPending()
+        pending.append(PendingRemoval(token: token, user: user))
+        savePending(pending)
+        await retryPendingRemovals()
+    }
+
+    /// Sends every kept removal as its own user's install.
+    public func retryPendingRemovals() async {
+        var remaining: [PendingRemoval] = []
+        for removal in loadPending() {
+            do {
+                try await ops.send(.removePushTarget(token: removal.token,
+                                                     idempotencyKey: "push-remove-\(removal.user)-\(removal.token.hexString)"),
+                                   as: removal.user)
+            } catch CloudOpsError.rejected(_, retryable: false) {
+                // That account no longer has this target: done.
+            } catch {
+                remaining.append(removal)
+            }
+        }
+        savePending(remaining)
+    }
+
+    private func loadPending() -> [PendingRemoval] {
+        defaults.data(forKey: Self.pendingKey).flatMap { try? JSONDecoder().decode([PendingRemoval].self, from: $0) } ?? []
+    }
+
+    private func savePending(_ value: [PendingRemoval]) {
+        if value.isEmpty { defaults.removeObject(forKey: Self.pendingKey) }
+        else { defaults.set(try? JSONEncoder().encode(value), forKey: Self.pendingKey) }
     }
 }
