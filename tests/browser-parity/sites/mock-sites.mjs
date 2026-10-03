@@ -188,6 +188,9 @@ const params = new URLSearchParams(location.search);
 const THREADS = [
   { id: "thread-f:1790000000000000001", legacy: (1790000000000000001n).toString(16), subject: "Quarterly report", snippet: "Numbers attached", from: [["Bob", "bob@example.com"]], date: "Mon, Sep 28, 2026, 9:00 AM", unread: true, labels: ["inbox"] },
   { id: "thread-f:1790000000000000002", legacy: (1790000000000000002n).toString(16), subject: "Lunch?", snippet: "Tomorrow at noon", from: [["Cy", "cy@example.com"], ["Ada", "ada@example.com"]], date: "Sun, Sep 27, 2026, 8:00 PM", unread: false, labels: [] },
+  // A sender's message whose body links look like attachment links: one to
+  // another site, one to Gmail outside the attachment area.
+  { id: "thread-f:1790000000000000003", legacy: (1790000000000000003n).toString(16), subject: "Invoice", snippet: "Pay now", from: [["Eve", "eve@example.net"]], date: "Sat, Sep 26, 2026, 7:00 PM", unread: false, labels: [], body: "<p>Your invoice: <a href='https://github.com/steal?view=att&disp=safe'>invoice.pdf</a>, statement <a href='https://mail.google.com/mail/u/0/?ui=2&attid=0.9&view=att&disp=safe'>statement.csv</a></p>" },
 ];
 function render() {
   const app = document.getElementById("app");
@@ -213,7 +216,7 @@ function thread(app, key) {
   const draw = () => {
     app.innerHTML = '<div role="main"><h2 class="hP">' + t.subject + '</h2>' +
       (expanded ? '' : '<span role="button" aria-label="Expand all">Expand all</span>') +
-      msg("1", ["Bob", "bob@example.com"], ["Ada", "ada@example.com"], "Mon, Sep 28, 2026, 9:00 AM", "<p>Hi Ada,</p><p>The <b>numbers</b> are attached. See <a href='https://example.com/r'>the report</a>.</p>", true, expanded) +
+      msg("1", ["Bob", "bob@example.com"], ["Ada", "ada@example.com"], "Mon, Sep 28, 2026, 9:00 AM", t.body || "<p>Hi Ada,</p><p>The <b>numbers</b> are attached. See <a href='https://example.com/r'>the report</a>.</p>", true, expanded) +
       msg("2", ["Ada", "ada@example.com"], ["Bob", "bob@example.com"], "Mon, Sep 28, 2026, 10:00 AM", "<p>Thanks Bob!</p>", false, true) +
       '<div role="button" data-tooltip="Reply" aria-label="Reply">Reply</div><div id="replybox"></div></div>';
     const expand = app.querySelector('[aria-label="Expand all"]');
