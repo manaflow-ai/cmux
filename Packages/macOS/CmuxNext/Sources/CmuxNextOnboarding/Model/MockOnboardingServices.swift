@@ -33,6 +33,13 @@ public final class MockOnboardingServices: OnboardingServices {
     /// The role step's answer: what `savedProfile` returns and `saveProfile` replaces.
     public var savedProfile: OnboardingProfile?
     public let defaultApps: any DefaultAppRegistering
+    /// What the project scan finds.
+    public var agentProjects: [AgentProject] = []
+    /// What the folder picker returns.
+    public var chosenFolder: URL?
+    public var homeDirectory = URL(fileURLWithPath: "/Users/demo", isDirectory: true)
+    /// Each `openProjects` call's folders.
+    public private(set) var openedProjects: [[URL]] = []
 
     public private(set) var appliedAppearance: [(String?, Density)] = []
     public private(set) var opened: [URL] = []
@@ -55,6 +62,10 @@ public final class MockOnboardingServices: OnboardingServices {
     }
 
     public func detectBrowsers() async -> [BrowserSource] { sources }
+
+    public func scanAgentProjects() async -> [AgentProject] { agentProjects }
+    public func chooseFolder() async -> URL? { chosenFolder }
+    public func openProjects(_ folders: [URL]) { openedProjects.append(folders) }
 
     public func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary {
         plans.append(plan)
@@ -117,6 +128,16 @@ public final class MockOnboardingServices: OnboardingServices {
         services.themeChoices = themes
         services.accountsView = accountsView
         services.firstTaskView = ThemedView()
+        let day: TimeInterval = 86_400
+        let now = Date()
+        services.agentProjects = [
+            AgentProject(folder: URL(fileURLWithPath: "/Users/demo/code/cmux"), sessions: 148, lastActive: now, apps: [.claudeCode, .codex]),
+            AgentProject(folder: URL(fileURLWithPath: "/Users/demo/code/website"), sessions: 37, lastActive: now - day, apps: [.claudeCode]),
+            AgentProject(folder: URL(fileURLWithPath: "/Users/demo/Documents/thesis"), sessions: 12, lastActive: now - 3 * day, apps: [.codex]),
+            AgentProject(folder: URL(fileURLWithPath: "/Users/demo/code/api"), sessions: 9, lastActive: now - 6 * day, apps: [.codex, .opencode]),
+            AgentProject(folder: URL(fileURLWithPath: "/Users/demo/Desktop/scratch"), sessions: 4, lastActive: now - 9 * day, apps: [.pi]),
+            AgentProject(folder: URL(fileURLWithPath: "/Users/demo/code/dotfiles"), sessions: 2, lastActive: now - 40 * day, apps: [.claudeCode]),
+        ]
         services.computerUseSource = MockComputerUsePermissionSource(current: ComputerUsePermissions(accessibility: true, screenRecording: false))
         services.passwordStore = true
         func profile(_ browser: ImportBrowser, _ directory: String, _ name: String) -> BrowserSourceProfile {

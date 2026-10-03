@@ -40,6 +40,16 @@ public protocol OnboardingServices: AnyObject {
     /// Writes the theme (nil: back to the Ghostty config) and density.
     func applyAppearance(themeName: String?, density: Density)
 
+    // Projects
+    /// The folders the user's coding agents worked in, best first (`AgentProjectScan`).
+    func scanAgentProjects() async -> [AgentProject]
+    /// A folder from the open panel, or nil when the user cancels.
+    func chooseFolder() async -> URL?
+    /// Opens each folder as a workspace, in order.
+    func openProjects(_ folders: [URL])
+    /// The user's home folder (where the privacy-guarded folders are).
+    var homeDirectory: URL { get }
+
     // Import
     func detectBrowsers() async -> [BrowserSource]
     func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary
@@ -90,6 +100,10 @@ public extension OnboardingServices {
     func makeAccountsStepView() -> NSView? { nil }
     func variantID(for step: OnboardingModel.Step) -> String? { nil }
     func setVariantID(_ id: String?, for step: OnboardingModel.Step) {}
+    func scanAgentProjects() async -> [AgentProject] { [] }
+    func chooseFolder() async -> URL? { nil }
+    func openProjects(_ folders: [URL]) {}
+    var homeDirectory: URL { FileManager.default.homeDirectoryForCurrentUser }
 }
 
 /// System Settings deep links.

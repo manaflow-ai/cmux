@@ -1,6 +1,6 @@
 # Tabs
 
-Every pane has its own tab strip. Pills start on the pane's content line; the strip is the window surface unless `appearance.tabBarBackground = darker`. Sources: `Packages/macOS/CmuxNext/Sources/CmuxNextTabs/` at `dd5e6216935`; images from `1824883286a`. JSON keys `components["tabs.*"]`.
+Every pane has its own tab strip. Pills start on the pane's content line; the strip is the window surface unless `appearance.tabBarBackground = darker`. Sources: `Packages/macOS/CmuxNext/Sources/CmuxNextTabs/` at `d445a445556`; images from `1824883286a` (they predate the pressedFill change below). JSON keys `components["tabs.*"]`.
 
 ![Two panes, dark: left pane unfocused (tabs fade), right pane focused](../images/tabs/dark-strips.png)
 
@@ -8,14 +8,14 @@ Every pane has its own tab strip. Pills start on the pane's content line; the st
 
 ## Strip
 
-Height tabStripHeight (28/36). Pill top = snapDown((stripHeight - tabHeight - panePadding) / 2) (`CmuxNextDesign/PaneChromeMetrics.swift:49-62 (PaneChromeMetrics.pillTop)`). Trailing buttons (new terminal, split right, split down) are tabHeight-4 square, 2 apart, 4 after the tabs, and reveal while the pointer is in the strip. A scrolled strip fades its edge over 24 pt. Separators between unselected neighbours: separator color, height tabHeight/2, centered in the gap.
+Height tabStripHeight (28/36). Pill top = snapDown((stripHeight - tabHeight - panePadding) / 2) (`CmuxNextDesign/PaneChromeMetrics.swift:49-62 (PaneChromeMetrics.pillTop)`). Trailing buttons (new terminal, split right, split down) are tabHeight − space2 square (20 compact, 26 comfortable), 2 apart, 4 after the tabs, with an SF Symbol at smallIconSize in an iconSize box, and reveal while the pointer is in the strip (`TabStripMetrics.swift:127-131 (TabStripMetrics.init)`, `TabStripButtonGroupView.swift:107-114 (buttonFrames)`). Ports add the pane padding above the strip as the app does (`layout.panePadding`, else 2 compact, 4 comfortable), so at compact density the pill top is snapDown((28 − 24 − 2) / 2) = 1 and the gaps above and below the pill are both 3 pt. A scrolled strip fades its edge over 24 pt. Separators between unselected neighbours: separator color, height tabHeight/2, centered in the gap.
 
 | tabBarBackground | strip fill | source |
 |---|---|---|
-| window (default) | none: windowBackground shows | CmuxNextApp/PaneContentView.swift:56 (`PaneContentView.stripTint`) |
-| darker | stripBackground (mix(bg, black, 0.22/0.05)) | :56, :185 |
+| window (default) | none: windowBackground shows | CmuxNextApp/PaneContentView.swift:56-58 (`PaneContentView.stripStep`) |
+| darker | stripStep (black at 0.22/0.05) over the window backdrop; over an opaque window it composites to stripBackground | :56-58, :183 |
 
-The strip fill is a `ChromeBackdropView`: in a see-through window with Reduce Transparency off, a behind-window `.headerView` blur shows under the tint at 0.82 × its alpha; otherwise the tint is solid (`CmuxNextDesign/ChromeBackdropView.swift:17,74-81`). A pane whose terminal theme differs from the window also paints the strip.
+The strip fill is a `ChromeStepView` (`CmuxNextDesign/ChromeStepView.swift (ChromeStepView)`): one translucent step over the window's single backdrop, never a material of its own, so it reads the same over the solid background, a blur or glass, and under Reduce Transparency.
 
 ![Darker tab bar, dark](../images/tabs/dark-tabbar-darker.png) ![Darker tab bar, light](../images/tabs/light-tabbar-darker.png)
 
@@ -44,31 +44,31 @@ Colors fade over 0.08 s (easeOut). Open grows from width 0 and alpha 0 (spring a
 
 ## Close button
 
-16 pt, radius itemCornerRadius-2, x glyph 7 pt with 1.3 stroke and round caps (`TabCell+LazyLayers.swift:38-65 (TabCell.makeCloseLayers, applyCloseColors)`, `TabCell.swift:331 (layoutLayers)`).
+16 pt, radius itemCornerRadius-2 (continuous), x glyph in a 7 pt box (space4 − space1/2) centered in the button, corner to corner, 1.3 stroke (space1 × 0.65), round caps (`TabCell+LazyLayers.swift:38-65 (TabCell.makeCloseLayers, applyCloseColors)`, `TabCell.swift:331 (layoutLayers)`).
 
 | state | glyph | fill |
 |---|---|---|
 | default | textSecondary | none |
 | hover | textPrimary | hoverFill |
-| pressed | textPrimary | selectionFill |
+| pressed | textPrimary | pressedFill |
 
 ## New tab (+) and trailing buttons
 
-+ button: tabHeight wide, radius itemCornerRadius, glyph stroke 1.4 (`NewTabButtonView.swift (NewTabButtonView)`). Trailing buttons: same fills (`TabStripButtonGroupView.swift:161-162 (TabStripButtonGroupView.applyColors)`).
++ button: tabHeight wide; its fill is a square of min(width, height) (24 compact, 30 comfortable), centered, radius itemCornerRadius (continuous). Glyph: a + whose arms reach space2 + space1/2 (5 pt) from the center, so it spans 10 pt, stroke space1 × 0.7 (1.4), round caps; the center snaps to the device pixel grid (`NewTabButtonView.swift:41-60 (NewTabButtonView.layout)`). Trailing buttons: same fills (`TabStripButtonGroupView.swift:161-162 (TabStripButtonGroupView.applyColors)`).
 
 | state | glyph | fill | note |
 |---|---|---|---|
 | default | textSecondary | none | |
 | hover | textPrimary | hoverFill | 0.08 s fade |
-| pressed | textPrimary | selectionFill | not animated |
+| pressed | textPrimary | pressedFill | not animated |
 
-![New tab hover, dark](../images/tabs/dark-new-tab-hover.png) ![New tab hover, light](../images/tabs/light-new-tab-hover.png) ![Trailing button hover, dark](../images/tabs/dark-trailing-button-hover.png)
+![New tab hover, dark](../images/tabs/dark-new-tab-hover.png) ![New tab hover, light](../images/tabs/light-new-tab-hover.png) ![+ button hover in the left pane, dark (the capture's hover point hit the + button, 24 pt; no trailing-button hover image exists yet)](../images/tabs/dark-trailing-button-hover.png)
 
 Pressed screenshots are UNVERIFIED: a synthetic mouse-down enters AppKit's tracking loop before the capture. The pressed tokens above come from code.
 
 ## Unfocused pane tabs (focus.inactiveTabStyle)
 
-Applies when `appearance.focusIndicator` is `tabs` or `both`, the screen has more than one pane, and the pane is not focused (`CmuxNextDesign/ChromeEmphasis.swift:30-77 (ChromeEmphasis.forPane, ThemeTokens.emphasized)`). Strength 0.35 (Debug tunable). Contrast floors: primary 3.5, secondary 2.5, tertiary 2.0.
+Applies when `appearance.focusIndicator` is `tabs` or `both`, the screen has more than one pane, and the pane is not focused (`CmuxNextDesign/ChromeEmphasis.swift:30-77 (ChromeEmphasis.forPane, ThemeTokens.emphasized)`). Style: cmux.json `focus.inactiveTabStyle`, `fade` (default), `tonal` or `quiet`; Settings > Appearance > Unfocused Pane Tabs; the Debug tunable of the same name overrides it. Strength 0.35 (Debug tunable `focus.inactiveTabStrength`). Contrast floors: primary 3.5, secondary 2.5, tertiary 2.0. Fade step: `fade` starts at the strength and steps the mix fraction down by 0.02 until the color holds min(floor, its own contrast) against the page; tonal and quiet fade the tertiary tier by strength / 2.
 
 | style | textPrimary | textSecondary | selectionFill | hoverFill |
 |---|---|---|---|---|
@@ -107,6 +107,6 @@ Sources: `TabStripMetrics.swift:137-143 (TabStripMetrics.init)`, `Groups/TabGrou
 
 ## Light appearance, more states
 
-![Light: unselected tab hover](../images/tabs/light-inactive-tab-hover.png) ![Light: close button hover](../images/tabs/light-close-button-hover.png) ![Light: trailing button hover](../images/tabs/light-trailing-button-hover.png)
+![Light: unselected tab hover](../images/tabs/light-inactive-tab-hover.png) ![Light: close button hover](../images/tabs/light-close-button-hover.png) ![Light: + button hover in the left pane](../images/tabs/light-trailing-button-hover.png)
 
 ![Whole window with the darker tab bar, dark](../images/window/dark-tabbar-darker.png) ![Whole window with the darker tab bar, light](../images/window/light-tabbar-darker.png)
