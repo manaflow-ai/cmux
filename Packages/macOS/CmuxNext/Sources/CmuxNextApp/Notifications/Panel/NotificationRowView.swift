@@ -107,9 +107,9 @@ final class NotificationRowView: NSView {
             lines.append(label)
         }
         if !row.body.isEmpty {
-            let body = Self.label(row.body, font: Typography.caption)
+            let body = Self.label(row.body, font: Typography.body)
             tinted.append((body, .secondary))
-            body.maximumNumberOfLines = 2
+            body.maximumNumberOfLines = 3
             // The list width less the dot, the close button and the gaps.
             body.preferredMaxLayoutWidth = NotificationsPanelView.listWidth - 4 * Metrics.space2 - Metrics.space2 - Metrics.space6
             body.lineBreakMode = .byTruncatingTail

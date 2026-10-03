@@ -4,4 +4,5 @@ import Foundation
 struct ShowcaseState {
     var agentTabs: [String: String] = [:]
     var workspaces: [String: String] = [:]
+    var notificationsSeeded = false
 }
