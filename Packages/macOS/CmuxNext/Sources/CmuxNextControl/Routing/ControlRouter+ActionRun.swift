@@ -218,6 +218,10 @@ extension ControlRouter {
             throw ControlError(code: "unavailable", message: ControlStrings.format("control.error.actionUnavailableReason", "%1$@ unavailable: %2$@", action, reason), data: ["action": .string(action), "reason": .string(reason)])
         case .notFound(let reason):
             throw ControlError(code: "not_found", message: reason, data: ["action": .string(action), "reason": .string(reason)])
+        case .featureDisabled(let feature):
+            throw ControlError(code: "feature.disabled",
+                               message: ControlStrings.format("control.error.featureDisabled", "%1$@ is turned off by your organization (%2$@)", action, feature),
+                               data: ["action": .string(action), "feature": .string(feature)])
         case .confirmationRequired:
             throw confirmationRequired(action)
         }

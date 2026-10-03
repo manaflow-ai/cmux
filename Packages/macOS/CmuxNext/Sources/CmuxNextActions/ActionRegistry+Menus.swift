@@ -71,6 +71,10 @@ final class ActionMenuTarget: NSObject, NSMenuItemValidation {
     /// the menu item afterwards. Clicks in an open menu are not gated.
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let registry, let payload = Self.payload(of: menuItem) else { return false }
+        // A feature an administrator turned off leaves the menu (DisabledFeatures).
+        let turnedOff = registry.disabledFeature(for: payload.id) != nil
+        if menuItem.isHidden != turnedOff { menuItem.isHidden = turnedOff }
+        if turnedOff { return false }
         // A standalone key window claims the run: its close items stay
         // enabled (they close it), actions on main window content are off.
         let invocation = ActionInvocation(target: payload.target, arguments: payload.arguments)

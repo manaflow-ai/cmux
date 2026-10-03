@@ -260,6 +260,7 @@ public final class SettingsController {
             fileRoot = effective.fileRoot
             managedKeys = effective.managedKeys
             managedPolicy = effective.policy
+            applier.registry.disabledFeatures = ManagedPreferences.disabledFeatures(in: effective.policy)
             file.managedGuard.update(effective.managedKeys)
             reportManagedStatus(managed: loaded.inputs.managed, team: loaded.inputs.team, effective: effective)
         }

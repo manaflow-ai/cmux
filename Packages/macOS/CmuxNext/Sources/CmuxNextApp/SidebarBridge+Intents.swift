@@ -57,6 +57,8 @@ extension SidebarBridge {
             // A double-click in a group's empty part, or its "+": the end of that group.
             let daemon = machine.flatMap { services.machines.daemon(machine: $0.rawValue) }
                 ?? services.machines.daemon(machine: state.machineID)
+            // A machine turned off by policy (DisabledFeatures) gets nothing, not a local stand-in.
+            if machine != nil || state.machineID != MachineRegistry.localID, daemon == nil { return }
             services.windows.newWorkspace(in: state, on: daemon, at: group.map(WorkspaceSlot.endOfGroup))
         case .setColor(let ids, let color):
             model.apply(intent)

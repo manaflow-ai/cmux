@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextDaemon
 import Foundation
@@ -18,6 +19,11 @@ final class MachineRegistry {
     /// SSH machines in the order they were added.
     private(set) var ssh: [SSHMachineSession] = []
 
+    /// Whether an administrator turned off a feature (`DisabledFeatures`):
+    /// a Cloud machine is not reachable with `cloud` off, an SSH machine
+    /// not with `remoteHosts` off, so no path opens work on it.
+    @ObservationIgnored var isFeatureDisabled: (ActionFeature) -> Bool = { _ in false }
+
     init(local: DaemonService) {
         self.local = local
     }
@@ -37,7 +43,9 @@ final class MachineRegistry {
     }
 
     func daemon(machine machineID: String) -> DaemonService? {
-        machineID == Self.localID ? local : session(machineID)?.daemon ?? sshSession(machineID)?.daemon
+        if machineID == Self.localID { return local }
+        if let cloud = session(machineID) { return isFeatureDisabled(.cloud) ? nil : cloud.daemon }
+        return isFeatureDisabled(.remoteHosts) ? nil : sshSession(machineID)?.daemon
     }
 
     /// The empty-workspace repair of `machineID` (the local one for local
