@@ -166,6 +166,11 @@ describe("summary entries", () => {
     expect(
       sessionEntry({ sessionId: "s", pullRequest: { number: 3, title: "Old", state: "closed" } }).pullRequest?.state,
     ).toBe("closed");
+    // CI checks ride along only as a known rollup.
+    const checks = (value: unknown) =>
+      sessionEntry({ sessionId: "s", pullRequest: { number: 3, title: "T", state: "open", checks: value } }).pullRequest
+        ?.checks;
+    expect([checks("failing"), checks("green"), checks(undefined)]).toEqual(["failing", undefined, undefined]);
     for (const pullRequest of [
       { number: 3, title: "T", state: "weird" },
       { number: Number.NaN, title: "T", state: "open" },
