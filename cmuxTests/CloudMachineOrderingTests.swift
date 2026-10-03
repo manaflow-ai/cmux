@@ -136,10 +136,11 @@ struct CloudMachineOrderingTests {
         return (fixture, clip, fixture.order)
     }
 
-    /// The scroll view's insets, which a lift may extend only while it lasts.
-    private func expectRestingInsets(_ outline: NSOutlineView) {
-        let insets = outline.enclosingScrollView?.contentInsets
-        #expect(insets?.top == 6 && insets?.bottom == 6, "the lift gives its scroll range back: \(String(describing: insets))")
+    /// The scroll view's insets and inset mode, which a lift may change only while it lasts.
+    private func insets(_ outline: NSOutlineView) -> [CGFloat] {
+        guard let scrollView = outline.enclosingScrollView else { return [] }
+        let insets = scrollView.contentInsets
+        return [insets.top, insets.bottom, scrollView.automaticallyAdjustsContentInsets ? 1 : 0]
     }
 
     @Test("Closing open machines above the held one is not a move, and the row stays under the hand")
@@ -155,6 +156,7 @@ struct CloudMachineOrderingTests {
         let source = try fixture.root("c")
         let frame = outline.rect(ofRow: outline.row(forItem: source))
         let hand = outline.convert(NSPoint(x: 10, y: frame.midY), to: nil)
+        let resting = insets(outline)
         let drag = try fixture.begin("c")
         coordinator.beginMachineLift(drag.session, node: source, in: outline, pressY: frame.midY)
         #expect(!outline.isItemExpanded(try fixture.root("a")) && !outline.isItemExpanded(try fixture.root("b")))
@@ -171,7 +173,7 @@ struct CloudMachineOrderingTests {
         try fixture.end(drag)
         #expect(fixture.order == ["a", "b", "c", "d"])
         #expect(outline.isItemExpanded(try fixture.root("a")) && outline.isItemExpanded(try fixture.root("b")))
-        expectRestingInsets(outline)
+        #expect(insets(outline) == resting, "the lift gives its scroll range back: \(insets(outline)) vs \(resting)")
     }
 
     @Test("The bottom machine of a scrolled list stays under the hand, and a cancel restores the scroll")
@@ -186,6 +188,7 @@ struct CloudMachineOrderingTests {
         let frame = outline.rect(ofRow: outline.row(forItem: source))
         let hand = outline.convert(NSPoint(x: 10, y: frame.midY), to: nil)
         #expect(clip.bounds.contains(clip.convert(hand, from: nil)), "the bottom machine is on screen")
+        let resting = insets(outline)
         let drag = try fixture.begin(last)
         coordinator.beginMachineLift(drag.session, node: source, in: outline, pressY: frame.midY)
         #expect(order.allSatisfy { id in (try? fixture.root(id)).map { !outline.isItemExpanded($0) } == true })
@@ -202,7 +205,7 @@ struct CloudMachineOrderingTests {
         #expect(fixture.order == order)
         #expect(order.allSatisfy { id in (try? fixture.root(id)).map { outline.isItemExpanded($0) } == true })
         #expect(abs(clip.bounds.minY - scrolled) < 1, "a cancel puts the list back where it was: \(clip.bounds.minY) vs \(scrolled)")
-        expectRestingInsets(outline)
+        #expect(insets(outline) == resting, "the lift gives its scroll range back: \(insets(outline)) vs \(resting)")
     }
 
     @Test("Rows closing below the held machine leave every row reachable by scrolling")
@@ -216,6 +219,7 @@ struct CloudMachineOrderingTests {
         let source = try fixture.root(id)
         let frame = outline.rect(ofRow: outline.row(forItem: source))
         let hand = outline.convert(NSPoint(x: 10, y: frame.midY), to: nil)
+        let resting = insets(outline)
         let drag = try fixture.begin(id)
         coordinator.beginMachineLift(drag.session, node: source, in: outline, pressY: frame.midY)
         drag.info.draggingLocation = hand
@@ -233,7 +237,7 @@ struct CloudMachineOrderingTests {
         let firstTop = outline.rect(ofRow: 0).minY + first.transform.m42
         #expect(firstTop >= clip.bounds.minY - 0.5, "the first row is reachable: \(firstTop) vs \(clip.bounds.minY)")
         try fixture.end(drag)
-        expectRestingInsets(outline)
+        #expect(insets(outline) == resting, "the lift gives its scroll range back: \(insets(outline)) vs \(resting)")
     }
 
     @Test("A lifted drag released on its own slot moves nothing and reopens machines")
