@@ -4,7 +4,7 @@ public import CoreGraphics
 public nonisolated enum DropZoneGeometry {
     /// The zone of `rect` under `point`: an edge when the point sits inside
     /// that edge's band, else center. Corners go to the relatively nearer edge.
-    public static func zone(at point: CGPoint, in rect: CGRect, style: LayoutStyle) -> PaneDropZone {
+    public static func zone(at point: CGPoint, in rect: CGRect, header: CGFloat = 0, style: LayoutStyle) -> PaneDropZone {
         let bandX = band(for: rect.width, style: style)
         let bandY = band(for: rect.height, style: style)
         let candidates: [(PaneDropZone, CGFloat)] = [
@@ -25,7 +25,8 @@ public nonisolated enum DropZoneGeometry {
 
     /// Drop target under `point` (content space). Column gap zones win over
     /// pane edges so "new column" is reachable between columns.
-    public static func target(at point: CGPoint, screen: ScreenID, geometry: ScreenGeometry, style: LayoutStyle) -> DropTarget? {
+    public static func target(at point: CGPoint, screen: ScreenID, geometry: ScreenGeometry, headers: [PaneID: CGFloat] = [:],
+                              style: LayoutStyle) -> DropTarget? {
         for zone in geometry.gapZones where zone.frame.contains(point) {
             return .newColumn(screen: screen, after: zone.after)
         }
@@ -41,7 +42,7 @@ public nonisolated enum DropZoneGeometry {
     /// rim, a docked column's edge band) takes none, so nothing lands in a
     /// strip pane hidden under it. The strip resolves as `target(at:)`.
     public static func target(atView point: CGPoint, offset: CGFloat, screen: ScreenID, geometry: ScreenGeometry,
-                              style: LayoutStyle) -> DropTarget? {
+                              headers: [PaneID: CGFloat] = [:], style: LayoutStyle) -> DropTarget? {
         if let cover = geometry.sticky.first(where: { $0.cover.contains(point) }) {
             let pane = geometry.panes.filter { geometry.fixedPanes.contains($0.key) && cover.frame.contains($0.value) }
                 .sorted { $0.key < $1.key }.first { $0.value.contains(point) }
