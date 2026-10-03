@@ -54,6 +54,10 @@ enum CloudTreeCreateAction: Equatable {
         case .newTerminal(let machine):
             actions.newTerminal(machine, nil)
         case .newDisplay(let machine, let canCreate):
+            guard canCreate else {
+                actions.showHint(unavailableHelp ?? CloudGuestDisplaySnapshot.unavailableMessage)
+                return
+            }
             CloudTreeRowHoverButtons.performDisplayCreationIfAvailable(canCreate) {
                 actions.newDisplay(machine)
             }
