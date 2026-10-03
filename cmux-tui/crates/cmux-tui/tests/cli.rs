@@ -971,7 +971,7 @@ fn uvx_spelling_server_stop_is_absent_idempotent_with_stable_output_modes() {
     assert_eq!(error["code"], "server.unavailable");
     assert!(!error["message"].as_str().unwrap().contains(socket.to_str().unwrap()));
 
-    // This is the binary-level spelling reached by `uvx cmux server stop`.
+    // This is the binary-level spelling reached by `uvx cmux daemon stop`.
     let human = lifecycle_cli(&[
         "server",
         "stop",
