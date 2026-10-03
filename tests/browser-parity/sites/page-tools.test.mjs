@@ -36,6 +36,18 @@ test("pageAssets.bundle downloads through the session, reports failures, writes 
   assert.match(await s.error('sites.pageAssets.bundle("inv-999")'), /expected an inventory/);
 });
 
+test("pageAssets.bundle sends cookies only to the page's own origin; a cross-origin asset is fetched without credentials", async () => {
+  await s.run('await page.goto("https://assets.example/xpage")');
+  const before = env.state.requests.length;
+  await s.value('sites.pageAssets.bundle((await sites.pageAssets.list()).id, { kinds: ["image"] })');
+  const reqs = env.state.requests.slice(before);
+  const other = reqs.filter((r) => r.url.startsWith("https://github.com/"));
+  assert.ok(other.length, "the cross-origin asset was requested");
+  assert.deepEqual(other.map((r) => r.cookie), other.map(() => ""), "no cookie went to github.com");
+  const own = reqs.filter((r) => r.url === "https://assets.example/img/logo.png");
+  assert.ok(own.length && own.every((r) => r.cookie.includes("asset_session=asset-session-secret")), "the page's own asset kept the session cookie");
+});
+
 test("webmcp: lists a page's tools; read-only tools run, others need a confirmed draft", async () => {
   await s.run('await page.goto("https://tools.example/")');
   const t = await s.value("sites.webmcp.tools()");

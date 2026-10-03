@@ -37,6 +37,7 @@ export const COOKIES = [
   { name: "tenant.session.token", value: SECRETS.jiraSession, domain: "acme.atlassian.net", path: "/", secure: true, httpOnly: true },
   { name: "cloud.session.token", value: "atl-session-secret", domain: ".atlassian.com", path: "/", secure: true, httpOnly: true },
   { name: "auth_token", value: SECRETS.xSession, domain: ".x.com", path: "/", secure: true, httpOnly: true },
+  { name: "asset_session", value: "asset-session-secret", domain: "assets.example", path: "/", secure: true, httpOnly: true },
 ];
 
 const html = (body, title = "", head = "") => `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>${head}</head><body>${body}</body></html>`;
@@ -655,6 +656,8 @@ function assets(req, url) {
         <svg aria-label="Check"><path d="M0 0L1 1"/></svg>
         <img src="data:image/png;base64,${PNG.toString("base64")}" alt="dot">`, "Assets", `<link rel="stylesheet" href="/css/site.css"><link rel="icon" href="/favicon.ico"><style>.hero{background-image:url("/img/hero.png")}@font-face{font-family:Mock;src:url(/fonts/mock.woff2) format("woff2")}</style>`),
     };
+  // A page that embeds an image from another site that holds a session cookie (github.com).
+  if (url.pathname === "/xpage") return { html: html(`<img src="/img/logo.png" alt="own"><img src="https://github.com/acme/avatar.png" alt="other">`, "Cross-origin assets") };
   if (url.pathname.endsWith(".png") || url.pathname.endsWith(".ico")) return { status: url.pathname.includes("@2x") ? 404 : 200, headers: { "content-type": "image/png" }, body: PNG };
   if (url.pathname.endsWith(".css")) return { status: 200, headers: { "content-type": "text/css" }, body: "body{margin:0}" };
   if (url.pathname.endsWith(".woff2")) return { status: 200, headers: { "content-type": "font/woff2" }, body: "wOF2mock" };
