@@ -7,13 +7,9 @@ import Observation
 final class WindowRegistryStore {
     private(set) var value = WindowRegistry()
     /// Membership of windows drawn from the daemon's launch snapshot before
-    /// the live registry is restored (`LaunchSnapshotWindow`);
+    /// the live registry is restored (`WindowManager.showLaunchSnapshot`);
     /// cleared by the restore.
     var provisional: [String: [String]] = [:]
-    /// True from the launch window until the saved windows are restored
-    /// from the live tree: meanwhile sidebars show their saved rows
-    /// (`SidebarSeed`).
-    var isLaunching = false
 
     /// Runs one transition; returns what it changed.
     @discardableResult
