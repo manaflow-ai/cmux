@@ -33,6 +33,7 @@ struct ClipboardCopyTextTests {
 }
 
 @Suite("Terminal copy-action clipboard writes", .serialized)
+@MainActor
 struct TerminalCopyClipboardWriteTests {
     private func makeService() -> (TerminalPasteboardService, NSPasteboard, NSPasteboard) {
         let standard = NSPasteboard(name: .init("cmux-copy-action-\(UUID().uuidString)"))
