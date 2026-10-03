@@ -156,10 +156,12 @@ final class RightSidebarModeBarDragController {
               let image = dragImage() else { return false }
         // The preview shows the full label even when the bar has truncated
         // this tab, so it keeps the tab's leading edge and vertical center
-        // and takes its own size.
+        // and takes its own size. A tab wider than its preview (a pending
+        // badge) shifts the image so the grab point stays on it.
         let lifted = tabFrame.offsetBy(dx: current.layout.draggedOffset(translation: translation), dy: travel.height)
+        let grabX = current.startLocation.x - tabFrame.minX
         let frame = NSRect(
-            x: lifted.minX,
+            x: lifted.minX + max(0, grabX - image.size.width + image.size.height / 2),
             y: lifted.midY - image.size.height / 2,
             width: image.size.width,
             height: image.size.height
