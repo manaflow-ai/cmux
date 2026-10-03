@@ -30,7 +30,7 @@ import Testing
     }
 
     @Test func theSchemaOffersEveryChoiceWithTheDocumentedDefault() throws {
-        let descriptor = try #require(SettingsSchema.descriptor(for: TasksLayoutSetting.configPath))
+        let descriptor = try #require(SettingsSchema.descriptor(for: TasksLayoutSetting().configPath))
         guard case .choice(let choices) = descriptor.kind else {
             Issue.record("tasks.layout is not a choice")
             return

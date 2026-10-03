@@ -13,7 +13,7 @@ public final nonisolated class ServerHelperListener: NSObject, NSXPCListenerDele
     public init(machServiceName: String, appBundleID: String, service: ServerHelperService = ServerHelperService()) {
         listener = NSXPCListener(machServiceName: machServiceName)
         self.service = service
-        requirement = ServerHelperConstants.clientRequirement(teamID: ServerHelperListener.ownTeamIdentifier(), appBundleID: appBundleID)
+        requirement = ServerHelperConstants().clientRequirement(teamID: ServerHelperListener.ownTeamIdentifier(), appBundleID: appBundleID)
         super.init()
         listener.delegate = self
     }

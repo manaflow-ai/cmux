@@ -121,7 +121,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `palette.scopes.<scope>.prefix`: user-assigned palette scope prefixes.
     public var paletteScopePrefixes = PaletteScopePrefixes()
     /// `tasks.layout`; "inbox" when unset or invalid.
-    public var tasksLayout: TasksLayoutPreference = TasksLayoutSetting.fallback
+    public var tasksLayout: TasksLayoutPreference = TasksLayoutSetting().fallback
     /// `appearance.theme`: a Ghostty theme spec; nil (the Ghostty config's
     /// theme) when unset, empty or invalid.
     public var appTheme: String?
@@ -229,7 +229,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (prefixes, prefixDiagnostics) = PaletteScopePrefixes.parse(root)
         snapshot.paletteScopePrefixes = prefixes
         snapshot.diagnostics += prefixDiagnostics
-        let (tasksLayout, tasksLayoutDiagnostic) = TasksLayoutSetting.parse(root)
+        let (tasksLayout, tasksLayoutDiagnostic) = TasksLayoutSetting().parse(root)
         snapshot.tasksLayout = tasksLayout
         if let tasksLayoutDiagnostic { snapshot.diagnostics.append(tasksLayoutDiagnostic) }
         let (recordsCommands, commandsDiagnostic) = TerminalCommandHistorySetting.parse(root)

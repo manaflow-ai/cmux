@@ -35,7 +35,7 @@ final class RemoteInputController {
     private var textRoutedKeys: Set<UInt16> = []
 
     func keyDown(_ event: NSEvent) -> KeyDecision {
-        let route = RemoteKeyboardPolicy.route(
+        let route = RemoteKeyboardPolicy().route(
             keyCode: event.keyCode, modifiers: event.modifierFlags, mode: settings.keyboardMode,
             sendSystemShortcuts: settings.sendSystemShortcuts,
             inputSourceIsASCIICapable: inputSourceIsASCIICapable(), releaseChord: releaseChord,
