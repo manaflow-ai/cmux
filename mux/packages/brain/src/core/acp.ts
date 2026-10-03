@@ -66,7 +66,10 @@ export function utf16Prefix(text: string, limit: number): string {
   return text.slice(0, end);
 }
 
-const countOk = (value: unknown) => value === undefined || value === null || (Number.isSafeInteger(value) && (value as number) >= 0);
+/** A count on the acpmux wire (seq, at, log id): a non-negative safe integer. */
+export const isCount = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
+
+const countOk = (value: unknown) => value === undefined || value === null || isCount(value);
 
 /**
  * An event's seq and at are absent (null counts as absent) or non-negative

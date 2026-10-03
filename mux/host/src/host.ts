@@ -1,3 +1,4 @@
+import { isCount } from "../../packages/brain/src/core/acp.ts";
 import { Core, type Effect, type Input } from "../../packages/brain/src/core/core.ts";
 import { DEFAULT_CONVERSATION_KEY, MUX_SESSION_NAME } from "../../packages/brain/src/core/rules.ts";
 import { type AcpmuxEvent, AcpmuxClient, type McpServer, type Notification, type SessionSummary, eventFromUpdate } from "./acpmux-client.ts";
@@ -483,8 +484,10 @@ export class MuxHost {
       // The log's identity is the `at` of its seq 1 event. A log host.json does
       // not know (another session, or another identity) replays from 0; the core
       // decides the reset and the reply-key epoch (core.ts acpmuxConnected).
-      const [firstEvent] = await acpmux.events(sessionId, 0, 1).catch(() => [] as AcpmuxEvent[]);
-      const logId = typeof firstEvent?.at === "number" ? firstEvent.at : undefined;
+      // A failed fetch fails the connect (the loop retries): an unknown identity would decide a reset wrongly.
+      const [firstEvent] = await acpmux.events(sessionId, 0, 1);
+      const firstAt: unknown = firstEvent?.at;
+      const logId = isCount(firstAt) ? firstAt : undefined;
       const state = this.core.state;
       // A host.json without acpmuxLog (from before it existed) adopts this identity: no replay from 0.
       const known =

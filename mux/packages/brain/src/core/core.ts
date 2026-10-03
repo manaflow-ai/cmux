@@ -1,4 +1,4 @@
-import { type AcpmuxEvent, lastReply, type SessionStatus, type SessionSummary, TurnFolder, validEvent } from "./acp.ts";
+import { type AcpmuxEvent, isCount, lastReply, type SessionStatus, type SessionSummary, TurnFolder, validEvent } from "./acp.ts";
 import { AGENT_MUX, type Change, type Message, type Op, type Summary, type WorkStatus } from "./conversation.ts";
 import {
   AGENT_GAP_RETRY_MS,
@@ -547,7 +547,7 @@ export class Core {
   ): void {
     if (this.acpmuxUp) this.disconnected("acpmux");
     // A log_id that is not a non-negative safe integer is unknown (as the Rust core reads it).
-    if (logId !== undefined && !(Number.isSafeInteger(logId) && logId >= 0)) {
+    if (logId !== undefined && !isCount(logId)) {
       this.log(`ignoring log_id ${String(logId)}: not a non-negative integer`);
       logId = undefined;
     }
