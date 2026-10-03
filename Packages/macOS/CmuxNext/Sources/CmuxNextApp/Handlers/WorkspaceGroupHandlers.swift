@@ -138,14 +138,14 @@ enum WorkspaceGroupHandlers {
         guard let window = context.activeWindow, let sidebar = try? context.sidebar(),
               !context.roomGroups.isEmpty else { return }
         let groups = context.roomGroups
-        let activeGroupIndex = sidebar.model.activeWorkspaceID.flatMap { active in
-            sidebar.model.sections.flatMap(\.nodes).firstIndex { node in
-                guard case let .group(group) = node else { return false }
-                return group.workspaces.contains { $0.id == active }
-            }
-        }.flatMap { nodeIndex in
-            guard case let .group(group) = sidebar.model.sections.flatMap(\.nodes)[nodeIndex] else { return nil }
-            return groups.firstIndex { $0.id.rawValue == group.id.rawValue }
+        let activeGroup = sidebar.model.activeWorkspaceID.flatMap { active in
+            sidebar.model.sections.flatMap(\.nodes).compactMap { node -> SidebarGroup? in
+                guard case let .group(group) = node, group.workspaces.contains(where: { $0.id == active }) else { return nil }
+                return group
+            }.first
+        }
+        let activeGroupIndex = activeGroup.flatMap { current in
+            groups.firstIndex { $0.id.rawValue == current.id.rawValue }
         }
         let start = activeGroupIndex ?? (offset > 0 ? -1 : groups.count)
         for step in 1...groups.count {
