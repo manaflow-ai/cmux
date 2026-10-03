@@ -9,7 +9,7 @@ extension CmuxTuiSurfaceProvider {
         // is stale on some VMs that already have the validated runtime. The
         // display coordinator's live guest probe is the authority; retain the
         // local checks that prevent requests while asleep or detached.
-        isAwake && info.hasDesktop && isRegisteredInCatalog()
+        isAwake && info.hasDesktop
     }
 
     var displayResources: [SurfaceResource] {
@@ -23,7 +23,7 @@ extension CmuxTuiSurfaceProvider {
     /// Only a user-requested refresh/expansion performs guest discovery. Results
     /// may publish only through the same still-authorized provider instance.
     func refreshDisplays() async {
-        guard isAwake, info.hasDesktop, isRegisteredInCatalog() else { return }
+        guard isAwake, info.hasDesktop else { return }
         let generation = currentLifecycleGeneration
         let refresh = refreshGeneration
         await displayCoordinator.refresh()
