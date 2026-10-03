@@ -101,7 +101,7 @@ impl WorkspaceRegistry {
         )?;
         insert_resource_mutation(
             &tx,
-            &mutation,
+            mutation,
             &operation,
             &fingerprint,
             &result_json,
