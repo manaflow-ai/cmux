@@ -61,9 +61,9 @@ EOF_PROFILE
   # Unix-domain sockets are represented as network endpoints by Seatbelt. The
   # proxy owns the target cmux socket, so the sandbox sees only these relays.
   printf '(allow file-read-metadata (literal "%s"))\n' "$(literal "$proxy_socket")"
-  printf '(allow network-outbound (literal "%s"))\n' "$(literal "$proxy_socket")"
+  printf '(allow network-outbound (path "%s"))\n' "$(literal "$proxy_socket")"
   if [ -n "$cloud_socket" ]; then
     printf '(allow file-read-metadata (literal "%s"))\n' "$(literal "$cloud_socket")"
-    printf '(allow network-outbound (literal "%s"))\n' "$(literal "$cloud_socket")"
+    printf '(allow network-outbound (path "%s"))\n' "$(literal "$cloud_socket")"
   fi
 } >"$profile"
