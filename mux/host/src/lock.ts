@@ -13,8 +13,10 @@ import { linkSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs
  * first, so it never removes a lock that another taker has just taken.
  *
  * The lock holds "<pid>\n<start ms>\n" (the owner's start, epoch ms). A
- * live pid whose OS start time is more than START_SLACK_MS away is a reused
- * pid, so the lock is stale. `ps` runs only on that stale check (another taker
+ * live pid whose OS start time is later than the recorded start (plus
+ * START_SLACK_MS) is a reused pid, so the lock is stale. The check is
+ * one-sided: the recorded start (runtime init) is never before the exec time
+ * ps reports, so an earlier OS start always means the same live holder. `ps` runs only on that stale check (another taker
  * wants the lock and the pid is alive), never on the holder's path. A lock
  * with a pid only (older hosts) is checked by pid.
  */
@@ -100,8 +102,8 @@ function parse(text: string): Owner | undefined {
   return second.trim() && Number.isFinite(startMs) ? { pid, startMs } : { pid };
 }
 
-/** `ps` reports start times in whole seconds; the runtime's time origin is a little later than the OS start. */
-const START_SLACK_MS = 2_000;
+/** `ps` reports start times truncated to whole seconds. */
+const START_SLACK_MS = 1_000;
 
 /** The stale check: a live pid holds the lock only if it is the process that wrote it. */
 function isOwnerAlive(owner: Owner): boolean {
@@ -109,7 +111,7 @@ function isOwnerAlive(owner: Owner): boolean {
   if (owner.startMs === undefined) return true;
   const start = processStartMs(owner.pid);
   // Unknown start (ps failed): keep the pid-only answer rather than take a live lock.
-  return start === undefined || Math.abs(start - owner.startMs) <= START_SLACK_MS;
+  return start === undefined || start <= owner.startMs + START_SLACK_MS;
 }
 
 /** The process's OS start time, epoch ms, from `ps -o lstart` in the C locale and UTC. */
