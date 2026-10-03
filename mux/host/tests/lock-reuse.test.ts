@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { type ChildProcess, spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { type ChildProcess, spawn } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { takeLock } from "../src/lock.ts";
+import { lockHolder, takeLock } from "../src/lock.ts";
 
-// A crashed host leaves its lock behind. If the OS later gives that pid to an
-// unrelated process, the lock must still count as stale: the lock records the
-// owner's start time as well as its pid.
+// The lock is a kernel lock held by a live process. A crashed holder leaves no
+// stale lock, and the pid text in the file never decides anything, so a reused
+// pid or a slow runtime start cannot steal or block the lock.
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -20,49 +20,55 @@ function lockPath(): string {
   return join(dir, "host.lock");
 }
 
-/** A live process that is not a mux host. */
-function bystander(): ChildProcess {
-  const child = spawn("sleep", ["30"], { stdio: "ignore" });
+function track(child: ChildProcess): ChildProcess {
   cleanups.push(() => child.kill("SIGKILL"));
   return child;
 }
 
-/** The OS start time of a process, epoch ms. */
-function startMs(pid: number): number {
-  const text = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], { env: { ...process.env, LC_ALL: "C", TZ: "UTC" } })
-    .stdout.toString()
-    .trim()
-    .replace(/\s+/g, " ");
-  return Date.parse(`${text} UTC`);
+/** A second process that takes the lock; resolves with its first output line. */
+async function holder(path: string): Promise<{ child: ChildProcess; line: string }> {
+  const child = track(spawn(process.execPath, [join(import.meta.dir, "fakes", "lock-holder.ts"), path], { stdio: ["ignore", "pipe", "inherit"] }));
+  const line = await new Promise<string>((resolve, reject) => {
+    let text = "";
+    child.stdout?.on("data", (chunk) => {
+      text += String(chunk);
+      if (text.includes("\n")) resolve(text.split("\n")[0] ?? "");
+    });
+    child.on("exit", (code) => reject(new Error(`lock holder exited ${code}`)));
+  });
+  return { child, line };
 }
 
-describe("MUX_HOME lock and pid reuse", () => {
-  test("a lock whose pid now belongs to another process is stale", () => {
+describe("MUX_HOME lock held by another process", () => {
+  test("a lock held by a live process is refused, and is free once that process dies", async () => {
     const path = lockPath();
-    const other = bystander();
-    // The crashed owner had this pid but started at another time.
-    writeFileSync(path, `${other.pid}\n0\n`);
+    const { child, line } = await holder(path);
+    expect(line).toBe("held");
+    expect(takeLock(path)).toBeUndefined();
+    expect(lockHolder(path)).toBe(child.pid);
+    const exited = new Promise((resolve) => child.once("exit", resolve));
+    child.kill("SIGKILL");
+    await exited;
     const release = takeLock(path);
     expect(release).toBeDefined();
-    expect(Number(readFileSync(path, "utf8").split("\n")[0])).toBe(process.pid);
     release?.();
   });
 
-  test("a lock whose pid and start time match a live process is held", () => {
+  test("a lock file that names a live process which does not hold the lock is free (pid reuse)", () => {
     const path = lockPath();
-    const other = bystander();
-    const pid = other.pid ?? 0;
-    writeFileSync(path, `${pid}\n${startMs(pid)}\n`);
-    expect(takeLock(path)).toBeUndefined();
+    const other = track(spawn("sleep", ["30"], { stdio: "ignore" }));
+    writeFileSync(path, `${other.pid}\n0\n`);
+    const release = takeLock(path);
+    expect(release).toBeDefined();
+    release?.();
   });
 
-  test("a live holder whose runtime started well after its exec (slow init) is held", () => {
+  test("a second taker in another process is refused while this process holds the lock", async () => {
     const path = lockPath();
-    const other = bystander();
-    const pid = other.pid ?? 0;
-    // The holder records its runtime time origin, which a loaded host can put
-    // seconds after the exec time that ps reports.
-    writeFileSync(path, `${pid}\n${startMs(pid) + 10_000}\n`);
-    expect(takeLock(path)).toBeUndefined();
+    const release = takeLock(path);
+    expect(release).toBeDefined();
+    const { line } = await holder(path);
+    expect(line).toBe("refused");
+    release?.();
   });
 });
