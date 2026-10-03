@@ -47,6 +47,11 @@ private struct ShortcutRowView: View {
                         .help(SettingsWindowStrings.conflict)
                         .accessibilityLabel(SettingsWindowStrings.conflict)
                 }
+                if row.isRefusedSystemWide {
+                    Image(systemName: "exclamationmark.triangle").foregroundStyle(SettingsStyle.secondary)
+                        .help(SettingsWindowStrings.systemWideRefused)
+                        .accessibilityLabel(SettingsWindowStrings.systemWideRefused)
+                }
                 Spacer(minLength: Metrics.space6)
                 Button { model.beginRecording(row.id) } label: {
                     if let recording {
