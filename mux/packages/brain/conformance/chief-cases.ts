@@ -690,6 +690,35 @@ function turnCases(): CorpusCase[] {
   }
 
   {
+    const created = T0 + 10;
+    const c = new CaseBuilder("log identity: a session the host created keeps plain keys, even though its log already holds the created event", {
+      defaultConversation: "conv_a",
+    });
+    c.step({ kind: "daemon_connected", conversation: summary("conv_a") }, []);
+    c.step(
+      {
+        kind: "acpmux_connected",
+        session_id: MUX_SESSION,
+        sessions: [],
+        events: [{ ...ev(1, "created", { policy: "approve-all" }), at: created }],
+        log_id: created,
+        created: true,
+      } as Input,
+      ["persist", "list_conversations"],
+      (e) => {
+        const state = c.persisted(e) as HostStateData & { acpmuxEpoch?: number; acpmuxLog?: number };
+        c.check(state.acpmuxEpoch === undefined && state.acpmuxLog === created, "no epoch, identity recorded");
+      },
+    );
+    c.step(mux(ev(2, "turn_started")), ["typing"]);
+    c.step(mux(chunk(3, "hello")), []);
+    c.step(mux(ev(4, "turn_end")), ["persist", "conversation_op", "typing"], (e) =>
+      c.check(opKey(c, e) === `turn:${MUX_SESSION}:2`, `plain key, got ${opKey(c, e)}`),
+    );
+    cases.push(c.end());
+  }
+
+  {
     const first = T0 + 500;
     const c = new CaseBuilder("log identity: after a lost host.json a non-empty log is a reset: its replay posts nothing and new keys get an epoch from now", {
       defaultConversation: "conv_a",
