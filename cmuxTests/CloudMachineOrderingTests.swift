@@ -110,6 +110,12 @@ struct CloudMachineOrderingTests {
         try fixture.end(drag)
     }
 
+    /// Where the held row's grab point comes to rest, in window coordinates:
+    /// its laid-out frame, which is its slot while the slot is unchanged.
+    private func restingPoint(_ outline: NSOutlineView, node: CloudTreeNode, grabOffset: CGFloat) -> CGFloat {
+        outline.convert(NSPoint(x: 10, y: outline.rect(ofRow: outline.row(forItem: node)).minY + grabOffset), to: nil).y
+    }
+
     /// Where the held row's grab point shows, in window coordinates: its
     /// laid-out frame plus the lift's translation.
     private func heldPoint(_ outline: NSOutlineView, node: CloudTreeNode, grabOffset: CGFloat) throws -> CGFloat {
@@ -144,7 +150,7 @@ struct CloudMachineOrderingTests {
     }
 
     @Test("Closing open machines above the held one is not a move, and the row stays under the hand")
-    func liftedDragBelowOpenMachines() async throws {
+    func liftedDragBelowOpenMachines() throws {
         let fixture = CloudMachineOrderingFixture(sectioned: true)
         defer { fixture.close() }
         let coordinator = fixture.coordinator
@@ -162,8 +168,6 @@ struct CloudMachineOrderingTests {
         let drag = try fixture.begin("c")
         coordinator.beginMachineLift(drag.session, node: source, in: outline, pressY: frame.midY)
         #expect(!outline.isItemExpanded(a) && !outline.isItemExpanded(b))
-        // Past any glide the lift could run on its own.
-        try await Task.sleep(for: .milliseconds(400))
         // A small nudge from where the hand pressed: a and b closed above c,
         // but only the pointer's travel counts.
         drag.info.draggingLocation = NSPoint(x: hand.x, y: hand.y - 3)
@@ -172,6 +176,8 @@ struct CloudMachineOrderingTests {
         #expect(outline.machineLift.slot == 2, "c keeps its place among a, b and d")
         let held = try heldPoint(outline, node: source, grabOffset: frame.height / 2)
         #expect(abs(held - drag.info.draggingLocation.y) < 1, "the row stays under the hand: \(held) vs \(drag.info.draggingLocation.y)")
+        let slot = restingPoint(outline, node: source, grabOffset: frame.height / 2)
+        #expect(abs(slot - hand.y) < 1, "the row's slot stays where the hand pressed: \(slot) vs \(hand.y)")
         try fixture.end(drag)
         #expect(fixture.order == ["a", "b", "c", "d"])
         #expect(outline.isItemExpanded(try fixture.root("a")))
@@ -180,7 +186,7 @@ struct CloudMachineOrderingTests {
     }
 
     @Test("The bottom machine of a scrolled list stays under the hand, and a cancel restores the scroll")
-    func liftedDragAtBottomOfScrolledList() async throws {
+    func liftedDragAtBottomOfScrolledList() throws {
         let (fixture, clip, order) = try scrolledOpenFixture()
         defer { fixture.close() }
         let coordinator = fixture.coordinator
@@ -195,7 +201,6 @@ struct CloudMachineOrderingTests {
         let drag = try fixture.begin(last)
         coordinator.beginMachineLift(drag.session, node: source, in: outline, pressY: frame.midY)
         #expect(order.allSatisfy { id in (try? fixture.root(id)).map { !outline.isItemExpanded($0) } == true })
-        try await Task.sleep(for: .milliseconds(400))
         // Up, inside the span: past its end the row resists the pointer.
         drag.info.draggingLocation = NSPoint(x: hand.x, y: hand.y + 3)
         #expect(coordinator.outlineView(outline, validateDrop: drag.info,
@@ -203,6 +208,8 @@ struct CloudMachineOrderingTests {
         #expect(outline.machineLift.slot == order.count - 1, "the bottom machine keeps the last place")
         let held = try heldPoint(outline, node: source, grabOffset: frame.height / 2)
         #expect(abs(held - drag.info.draggingLocation.y) < 1, "the row stays under the hand: \(held) vs \(drag.info.draggingLocation.y)")
+        let slot = restingPoint(outline, node: source, grabOffset: frame.height / 2)
+        #expect(abs(slot - hand.y) < 1, "the row's slot stays where the hand pressed: \(slot) vs \(hand.y)")
 
         try fixture.end(drag)
         #expect(fixture.order == order)
@@ -229,6 +236,8 @@ struct CloudMachineOrderingTests {
         _ = coordinator.outlineView(outline, validateDrop: drag.info, proposedItem: nil, proposedChildIndex: 0)
         let held = try heldPoint(outline, node: source, grabOffset: frame.height / 2)
         #expect(abs(held - hand.y) < 1, "the row stays under the hand: \(held) vs \(hand.y)")
+        let slot = restingPoint(outline, node: source, grabOffset: frame.height / 2)
+        #expect(abs(slot - hand.y) < 1, "the row's slot stays where the hand pressed: \(slot) vs \(hand.y)")
 
         // Scrolled all the way up mid-drag, the first row shows.
         var top = clip.bounds
