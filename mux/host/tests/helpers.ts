@@ -79,3 +79,11 @@ export function fakeClock(): FakeClock {
     },
   };
 }
+
+/** Advances the fake clock in steps (real time between them) until `done` holds: a reconnect backoff is armed only after the old connection's close event. */
+export async function advanceUntil(clock: FakeClock, done: () => boolean, stepMs = 1_000): Promise<void> {
+  for (let i = 0; i < 200 && !done(); i++) {
+    await Bun.sleep(10);
+    clock.advance(stepMs);
+  }
+}
