@@ -18,6 +18,10 @@ public nonisolated enum TabMoveIndex {
     /// pane index. The tab goes right before the pane tab that follows it
     /// in the new display order, else last.
     public static func paneFinalIndex(display: [String], moving: String, displayIndex: Int, pane: [String]) -> Int {
-        displayIndex
+        var shown = display.filter { $0 != moving }
+        shown.insert(moving, at: min(max(displayIndex, 0), shown.count))
+        let others = pane.filter { $0 != moving }
+        let after = shown.drop { $0 != moving }.dropFirst()
+        return after.lazy.compactMap { others.firstIndex(of: $0) }.first ?? others.count
     }
 }

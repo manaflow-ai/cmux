@@ -57,9 +57,11 @@ extension TabDragSession {
         switch outcome {
         case .strip(let stripID, let index, let groupID):
             guard let pane = paneController(stripID: stripID) else { return settle(false) }
-            TabMoves.move(tab, to: pane.pane, index: index, services: services, transaction: transaction) { [weak pane] ok in
+            let paneIndex = StripOrder.paneIndex(forDisplayIndex: index, moving: StripTabID(tab.id), in: pane)
+            TabMoves.move(tab, to: pane.pane, index: paneIndex, services: services, transaction: transaction) { [weak pane] ok in
                 if ok {
                     pane?.syncGroupMembership(of: tab, to: groupID)
+                    StripOrder.settle([pane])
                 } else {
                     pane?.resyncStrip()
                 }
