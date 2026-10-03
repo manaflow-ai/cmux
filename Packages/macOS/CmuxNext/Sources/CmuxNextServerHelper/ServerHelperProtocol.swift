@@ -8,7 +8,7 @@ public import Foundation
 @objc public protocol ServerHelperProtocol {
     /// Applies one allowlisted fix. Replies with nil on success, else a short reason.
     func apply(fixID: String, reply: @escaping @Sendable (String?) -> Void)
-    /// Restores the macOS default for one allowlisted fix.
+    /// Restores the value the fix replaced (recorded at apply time).
     func revert(fixID: String, reply: @escaping @Sendable (String?) -> Void)
     /// The helper's protocol version, so the app can replace an old helper.
     func version(reply: @escaping @Sendable (Int) -> Void)
@@ -67,6 +67,9 @@ public nonisolated enum ServerHelperConstants {
 public final nonisolated class ServerHelperService: NSObject, ServerHelperProtocol, @unchecked Sendable {
     private let runner: any ServerFixRunner
     private let priors: any ServerFixPriorStore
+    /// Apply and revert run one at a time, so a revert never interleaves
+    /// with an apply of the same setting and loses the user's value.
+    private let queue = FixQueue()
 
     public init(runner: any ServerFixRunner = ProcessFixRunner(), priors: any ServerFixPriorStore = MemoryFixPriorStore()) {
         self.runner = runner
@@ -75,14 +78,14 @@ public final nonisolated class ServerHelperService: NSObject, ServerHelperProtoc
 
     public func apply(fixID: String, reply: @escaping @Sendable (String?) -> Void) {
         guard let fix = ServerFix(rawValue: fixID) else { return reply("unknown fix") }
-        let runner = runner, priors = priors
-        Task { reply(await Self.apply(fix, runner: runner, priors: priors)) }
+        let runner = runner, priors = priors, queue = queue
+        Task { reply(await queue.serially { await Self.apply(fix, runner: runner, priors: priors) }) }
     }
 
     public func revert(fixID: String, reply: @escaping @Sendable (String?) -> Void) {
         guard let fix = ServerFix(rawValue: fixID) else { return reply("unknown fix") }
-        let runner = runner, priors = priors
-        Task { reply(await Self.revert(fix, runner: runner, priors: priors)) }
+        let runner = runner, priors = priors, queue = queue
+        Task { reply(await queue.serially { await Self.revert(fix, runner: runner, priors: priors) }) }
     }
 
     public func version(reply: @escaping @Sendable (Int) -> Void) {
@@ -97,7 +100,11 @@ public final nonisolated class ServerHelperService: NSObject, ServerHelperProtoc
                     return "could not read the current \(fix.setting) setting"
                 }
                 if value == fix.appliedValue { return nil }
-                try priors.record(fix, prior: value)
+                do {
+                    try priors.record(fix, prior: value)
+                } catch {
+                    return "could not record the current \(fix.setting) setting"
+                }
             }
             let result = try await runner.run(ServerFix.pmset, fix.applyArguments)
             return result.status == 0 ? nil : "pmset exited \(result.status)"
@@ -110,10 +117,15 @@ public final nonisolated class ServerHelperService: NSObject, ServerHelperProtoc
 
     static func revert(_ fix: ServerFix, runner: any ServerFixRunner, priors: any ServerFixPriorStore) async -> String? {
         guard let prior = priors.prior(fix) else { return "nothing to revert" }
+        guard ServerFix.allowedRange.contains(prior) else { return "the recorded \(fix.setting) value is out of range" }
         do {
             let result = try await runner.run(ServerFix.pmset, fix.arguments(setting: prior))
             guard result.status == 0 else { return "pmset exited \(result.status)" }
-            try priors.clear(fix)
+            do {
+                try priors.clear(fix)
+            } catch {
+                return "could not clear the recorded \(fix.setting) setting"
+            }
             return nil
         } catch is ServerHelperTimedOut {
             return "pmset timed out"
