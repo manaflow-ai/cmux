@@ -107,10 +107,12 @@ check_symbols() {
 # Prelinks a Rust staticlib into one object whose only global symbols are the
 # C ABI (every Rust and std symbol becomes local), then archives it again.
 hide_rust_symbols() {
-  local lib="$1" arch="$2" out="$3" work
+  local lib="$1" triple="$2" out="$3" work
   work="$(mktemp -d "${TMPDIR:-/tmp}/cmux-rd-ffi.XXXXXX")"
   grep -oE '\bcmux_rd_[a-z0-9_]+\(' "$crate_dir/include/cmux_rd_ffi.h" | tr -d '(' | sort -u | sed 's/^/_/' > "$work/exports.txt"
-  xcrun ld -r -arch "$arch" -force_load "$lib" -exported_symbols_list "$work/exports.txt" -o "$work/cmux_rd_ffi.o"
+  # clang drives ld so it passes the platform version for the triple.
+  xcrun clang -target "$triple" -r -nostdlib -Wl,-force_load,"$lib" \
+    -Wl,-exported_symbols_list,"$work/exports.txt" -o "$work/cmux_rd_ffi.o"
   rm -f "$out"
   xcrun libtool -static -o "$out" "$work/cmux_rd_ffi.o"
   rm -rf "$work"
@@ -121,7 +123,7 @@ mac_libs=()
 mkdir -p "$out_root/macos" "$out_root/slices"
 for target in "${mac_targets[@]}"; do
   arch="${target%%-*}"; [[ "$arch" == aarch64 ]] && arch=arm64
-  hide_rust_symbols "$(build "$target")" "$arch" "$out_root/slices/$target.a"
+  hide_rust_symbols "$(build "$target")" "$arch-apple-macos$MACOSX_DEPLOYMENT_TARGET" "$out_root/slices/$target.a"
   mac_libs+=("$out_root/slices/$target.a")
 done
 if [[ ${#mac_libs[@]} -eq 1 ]]; then
@@ -133,7 +135,9 @@ check_symbols "$out_root/macos/$lib_name"
 args+=(-library "$out_root/macos/$lib_name" -headers "$headers")
 for target in ${ios_targets[@]+"${ios_targets[@]}"}; do
   lib="$out_root/slices/$target.a"
-  hide_rust_symbols "$(build "$target")" arm64 "$lib"
+  triple="arm64-apple-ios$IPHONEOS_DEPLOYMENT_TARGET"
+  [[ "$target" == *-sim ]] && triple="$triple-simulator"
+  hide_rust_symbols "$(build "$target")" "$triple" "$lib"
   check_symbols "$lib"
   args+=(-library "$lib" -headers "$headers")
 done
