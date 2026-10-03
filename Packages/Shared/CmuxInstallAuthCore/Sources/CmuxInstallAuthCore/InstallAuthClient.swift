@@ -75,6 +75,24 @@ public actor InstallAuthClient {
         return try await task.value
     }
 
+    /// The op classes the phone's install asks for (a narrowing of the default grant).
+    public static let grantClasses = ["read", "mutate-own", "mutate-shared"]
+
+    /// L14-2: sign-out revokes this install (needs the Stack session; the
+    /// owner also drops the install's push targets). The key is rotated and
+    /// the record forgotten, so the next sign-in registers a new install.
+    public func revoke() async throws {
+        guard let record else { return }
+        guard let sessionToken else { throw InstallAuthError.noSession }
+        let session = try await sessionToken()
+        _ = try await op("install.revoke", params: ["install": record.install],
+                         key: "install-revoke-\(record.install)", bearer: session)
+        reset()
+        self.record = nil
+        await onRecord(nil)
+        try await signer.rotate()
+    }
+
     /// The owner refused the current token (401): mint a new one next time.
     public func invalidate() { token = nil }
 
@@ -136,6 +154,9 @@ public actor InstallAuthClient {
                 let install = try await op("install.register", params: [
                     "public_jwk": jwk.json, "kind": "ios", "name": "cmux iOS",
                     "device_name": Self.displayName(deviceName), "platform": "ios",
+                    // L14-1: the phone's install never gets `execute` (no terminal
+                    // input, no code, no CUA acts from a stolen phone token).
+                    "op_classes": Self.grantClasses,
                 ], key: "install-register-\(userID)-\(thumbprint)", bearer: session)
                 guard let installID = install["id"] as? String else { throw InstallAuthError.malformedReply }
                 let made = InstallRecord(user: userID, install: installID)

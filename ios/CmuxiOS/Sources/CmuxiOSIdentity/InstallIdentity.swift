@@ -53,6 +53,13 @@ public actor InstallIdentity {
         }
     }
 
+    /// Revokes `stackUser`'s install with its Stack session (sign-out), then
+    /// forgets it. Throws when the session is gone; the caller logs and continues.
+    public func revoke(_ stackUser: String) async throws {
+        try await client(for: stackUser).revoke()
+        await signedOut(of: stackUser)
+    }
+
     /// A valid install token for `stackUser` (default: the current user).
     public func token(for stackUser: String? = nil) async throws -> String {
         guard let user = stackUser ?? current else { throw InstallAuthError.noSession }

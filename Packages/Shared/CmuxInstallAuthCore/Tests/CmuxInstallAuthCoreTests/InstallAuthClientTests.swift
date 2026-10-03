@@ -28,6 +28,7 @@ actor FakeOwner: InstallAuthTransport {
     var registerCalls = 0
     var failNextChallenge = false
     var prefixOverride: String?
+    var grants: [[String]] = []
 
     func revoke(_ install: String) { revoked.insert(install) }
     func setFailNextChallenge() { failNextChallenge = true }
@@ -49,10 +50,16 @@ actor FakeOwner: InstallAuthTransport {
             if body["op"] as? String == "user.ensure" {
                 return try reply(["ok": true, "value": ["id": "user_1", "stack_user_id": "stack_1"]])
             }
+            if body["op"] as? String == "install.revoke" {
+                let install = (body["params"] as! [String: Any])["install"] as! String
+                revoked.insert(install)
+                return try reply(["ok": true, "value": ["id": install]])
+            }
             registerCalls += 1
             let key = body["idempotency_key"] as! String
             if let replay = ledger[key] { return try reply(["ok": true, "value": ["id": replay], "replayed": true]) }
             let params = body["params"] as! [String: Any]
+            grants.append(params["op_classes"] as? [String] ?? [])
             let jwk = params["public_jwk"] as! [String: String]
             let x = Data(base64URLEncoded: jwk["x"]!)!, y = Data(base64URLEncoded: jwk["y"]!)!
             let publicKey = try P256.Signing.PublicKey(x963Representation: Data([0x04]) + x + y)
@@ -154,6 +161,18 @@ func makeClient(_ owner: FakeOwner, _ signer: SoftwareSigner, record: InstallRec
         let owner = FakeOwner()
         await owner.setPrefixOverride("anything the server wants\n")
         await #expect(throws: InstallAuthError.unexpectedChallenge) { try await makeClient(owner, SoftwareSigner()).installToken() }
+    }
+
+    @Test func thePhoneAsksForNoExecuteAndSignOutRevokes() async throws {
+        let owner = FakeOwner(), signer = SoftwareSigner(), box = RecordBox()
+        let client = makeClient(owner, signer, box: box)
+        _ = try await client.installToken()
+        #expect(await owner.grants == [["read", "mutate-own", "mutate-shared"]])
+        try await client.revoke()
+        #expect(await owner.revoked == ["inst_1"])
+        #expect(await client.currentRecord == nil)
+        #expect(await box.value == nil)
+        #expect(await signer.rotations == 1)
     }
 
     @Test func base64URLHasNoPaddingAndRoundTrips() {

@@ -57,6 +57,17 @@ final class AppContainer {
         // A banner answer can arrive before auth restores (background launch):
         // bind the last user now; minting needs only its record and the key.
         if let madeIdentity { accountChanges = Task { await madeIdentity.restoreLast() } }
+        // L14-2: a user sign-out removes the push target and revokes the
+        // install while the Stack session still works. A passive sign-out
+        // (expired session) cannot revoke; it still removes the push target.
+        let pushRef = push
+        auth.beforeSignOut = {
+            guard let identity = madeIdentity, let user = await identity.current else { return }
+            await pushRef.signOut(of: user)
+            do { try await identity.revoke(user) } catch {
+                Logger(subsystem: "dev.cmux.ios", category: "identity").error("install revoke failed")
+            }
+        }
         feedResponder.openItem = { item in
             // The feed list is not on iPhone yet; Home stays in front.
             Logger(subsystem: "dev.cmux.ios", category: "push").info("open feed item \(item, privacy: .public)")
