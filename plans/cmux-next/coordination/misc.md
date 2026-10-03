@@ -1,10 +1,12 @@
 # Lane: misc
 
 ## Active streams
+- Window system (lane 20): one WindowKind registry + WindowKit.install for every window, one surface background token, one keyboard table per kind (plans/cmux-next/windows.md); then transparency controls in Settings.
 
 
 
 ## Landed
+- 2026-10-03 3cf3ecdc6c3 + fe8178428ee app: ActionRegistry.keyWindowRoute (KeyWindowRoute run/disabled) asked before availability/confirmation/handler and by menu validation; StandaloneWindowRule (interim, replaced by the window table); debug.window_snapshot renders own windows without Screen Recording (lane 20)
 
 
 
