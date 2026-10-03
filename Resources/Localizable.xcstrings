@@ -618912,6 +618912,124 @@
           }
         }
       }
+    },
+    "cli.hooks.setup.error.agentRequiresValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent requires a value. Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب --agent قيمة. الاستخدام: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent erfordert einen Wert. Verwendung: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent requiere un valor. Uso: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent nécessite une valeur. Utilisation : cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent には値が必要です。使い方: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent에는 값이 필요합니다. 사용법: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent 需要一个值。用法：cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent 需要一個值。用法：cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        }
+      }
+    },
+    "cli.hooks.setup.error.unknownOption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown option %@. Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خيار غير معروف %@. الاستخدام: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannte Option %@. Verwendung: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opción desconocida %@. Uso: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Option inconnue %@. Utilisation : cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なオプション %@。使い方: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 옵션 %@. 사용법: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知选项 %@。用法：cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的選項 %@。用法：cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
