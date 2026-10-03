@@ -35,8 +35,10 @@ public struct AccountLabeler: Sendable, CustomStringConvertible, CustomDebugStri
 
     /// A local Codex (ChatGPT) sign-in. The handle comes from the
     /// workspace and user ids (``CodexAccountIdentity``), so it matches the
-    /// CodeRouter row of the same sign-in. When both ids are missing, the
-    /// token's own email claim is the last resort (still never a label);
+    /// CodeRouter row of the same sign-in (after the server's legacy-row
+    /// migration; see ``CodexAccountIdentity``). When both ids are missing,
+    /// `codex:email:<email>` from the token's own email claim is the last
+    /// resort (still never a label);
     /// with no email either there is no account. The display is the plan,
     /// else the redacted email, else the provider name.
     func localCodex(_ identity: CodexAccountIdentity, email: String?, plan: String?) -> AccountLabel? {
@@ -45,7 +47,7 @@ public struct AccountLabeler: Sendable, CustomStringConvertible, CustomDebugStri
         if let stable = identity.identity {
             key = stable
         } else if let email {
-            key = email
+            key = "codex:email:\(email)"
         } else {
             return nil
         }
@@ -59,6 +61,8 @@ public struct AccountLabeler: Sendable, CustomStringConvertible, CustomDebugStri
     /// Codex: the workspace (`providerAccountId`) and user
     /// (`providerUserId`) ids (``CodexAccountIdentity``), else the row id;
     /// never the label, which the server rewrites and the user can rename.
+    /// A legacy Codex row (no `providerUserId` until the server's
+    /// `upgradeLegacyCodexIdentity` runs) gets the workspace-only handle.
     /// Other providers: the label only when it is an email, else
     /// `providerAccountId`, else `identifier`, else the row id. A
     /// user-editable label is display only: renaming keeps the handle, and

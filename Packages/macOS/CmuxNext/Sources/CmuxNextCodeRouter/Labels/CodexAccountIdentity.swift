@@ -1,5 +1,6 @@
 import Foundation
 import os
+import Synchronization
 
 /// The identity behind a Codex (ChatGPT) account handle: the ChatGPT
 /// workspace id and the user id. Local detection reads them from the
@@ -14,11 +15,20 @@ import os
 /// 2. workspace only: `codex:workspace:<ws>` (a legacy server row; two
 ///    users in one workspace share it).
 /// 3. user only: `codex:user:<user>`.
-/// 4. neither: the caller's fallback (the server row id, or the token's own
-///    email claim locally). Never a label.
-struct CodexAccountIdentity: Equatable {
-    let workspaceID: String?
-    let userID: String?
+/// 4. neither: the caller's fallback (the server row id, or
+///    `codex:email:<email>` from the token's own email claim locally).
+///    Never a label.
+///
+/// Legacy server rows: a row the server has not yet moved to the owner key
+/// (`upgradeLegacyCodexIdentity` in web/services/coderouter/accounts.ts)
+/// has no `providerUserId`, so it gets the workspace-only handle while
+/// local detection of the same sign-in gets workspace + user. Local and
+/// server handles match only after that server migration has run.
+///
+/// The ids never show in `description`, `dump` or the debugger.
+struct CodexAccountIdentity: Equatable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    private let workspaceID: String?
+    private let userID: String?
 
     init(workspaceID: String?, userID: String?) {
         self.workspaceID = Self.clean(workspaceID)
@@ -66,11 +76,22 @@ struct CodexAccountIdentity: Equatable {
         }
     }
 
-    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "coderouter.labels")
+    var description: String { "CodexAccountIdentity(<redacted>)" }
+    var debugDescription: String { description }
+    var customMirror: Mirror { Mirror(self, children: [], displayStyle: .struct) }
 
-    /// Logs (no values) that a Codex handle is not stable.
-    static func logUnstable(_ reason: Instability, source: String) {
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "coderouter.labels")
+    /// Reason + source pairs already logged in this process.
+    private static let logged = Mutex<Set<String>>([])
+
+    /// Logs (no values), once per reason and source per process, that a
+    /// Codex handle is not stable. Returns whether it logged.
+    @discardableResult
+    static func logUnstable(_ reason: Instability, source: String) -> Bool {
+        let key = "\(reason.rawValue)|\(source)"
+        guard logged.withLock({ $0.insert(key).inserted }) else { return false }
         logger.notice("codex account handle is unstable (\(reason.rawValue, privacy: .public), \(source, privacy: .public))")
+        return true
     }
 
     private static func clean(_ value: String?) -> String? {

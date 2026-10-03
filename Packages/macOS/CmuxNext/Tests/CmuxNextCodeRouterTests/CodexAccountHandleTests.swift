@@ -79,6 +79,12 @@ import Testing
             "access_token": fakeJWT(["chatgpt_user_id": "user-2"]), "refresh_token": "r", "account_id": "ws-1",
         ]]
         #expect(try localAccount(split)?.handle == fixtureLabeler.handle(namespace: "codex", identity: "codex:workspace:ws-1"))
+        // Two different workspace ids are no workspace id: tokens.account_id is not a tie-breaker.
+        let splitWorkspace: [String: Any] = ["tokens": [
+            "id_token": fakeJWT(["chatgpt_user_id": "user-1", "chatgpt_account_id": "ws-1"]),
+            "access_token": fakeJWT(["chatgpt_account_id": "ws-2"]), "refresh_token": "r", "account_id": "ws-1",
+        ]]
+        #expect(try localAccount(splitWorkspace)?.handle == fixtureLabeler.handle(namespace: "codex", identity: "codex:user:user-1"))
     }
 
     @Test func missingUserIdFallsBackWithoutTheLabel() throws {
@@ -95,7 +101,8 @@ import Testing
         #expect(byRow[0] != fixtureLabeler.handle(namespace: "codex", identity: "a@example.com"))
         // Locally, neither id: the token's own email claim; no email either: no account.
         let local = try #require(try localAccount(codexAuth(email: "dev@example.com", workspace: nil, user: nil)))
-        #expect(local.handle == fixtureLabeler.handle(namespace: "codex", identity: "dev@example.com"))
+        #expect(local.handle == fixtureLabeler.handle(namespace: "codex", identity: "codex:email:dev@example.com"))
+        #expect(local.handle != fixtureLabeler.handle(namespace: "codex", identity: "dev@example.com"), "the email fallback is namespaced")
         #expect(local.display == "pro")
         #expect(try localAccount(["tokens": ["id_token": fakeJWT([:]), "refresh_token": "r"]]) == nil)
     }
@@ -105,6 +112,22 @@ import Testing
         let split = CodexAccountIdentity(workspaceID: "ws", userID: "u").identity
         #expect(joined != split)
         #expect(CodexAccountIdentity(workspaceID: " ", userID: "").identity == nil, "blank ids are missing")
+    }
+
+    @Test func identityHidesItsIdsFromReflection() {
+        let identity = CodexAccountIdentity(workspaceID: "ws@example.com", userID: "user@example.com")
+        #expect(PrivacyScan.emails(inReflectionOf: identity).isEmpty, "\(identity)")
+        var dumped = ""
+        dump(identity, to: &dumped)
+        #expect(!dumped.contains("ws@") && !dumped.contains("user@"), "\(dumped)")
+        #expect(!String(describing: identity).contains("example") && !String(reflecting: identity).contains("example"))
+    }
+
+    @Test func unstableNoticeIsLoggedOncePerReasonAndSource() {
+        let source = "test-\(UUID().uuidString)"
+        #expect(CodexAccountIdentity.logUnstable(.missingUser, source: source))
+        #expect(!CodexAccountIdentity.logUnstable(.missingUser, source: source), "the same pair logs once")
+        #expect(CodexAccountIdentity.logUnstable(.missingBoth, source: source), "another reason logs")
     }
 
     @Test func handlesAndDisplaysCarryNoEmail() throws {
