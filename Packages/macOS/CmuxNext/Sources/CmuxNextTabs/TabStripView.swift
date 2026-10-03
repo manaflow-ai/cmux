@@ -113,6 +113,7 @@ public final class TabStripView: NSView {
     /// End-of-tracking observer of the menu the strip returned last.
     var menuEndObserver: (any NSObjectProtocol)?
 
+    typealias Drag = TabStripDrag
     var press: TabStripPress?
     var drag: TabStripDrag?
     /// Order shown after a local reorder until the model's order changes.
