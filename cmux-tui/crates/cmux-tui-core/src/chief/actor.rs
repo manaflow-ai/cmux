@@ -309,15 +309,21 @@ impl Actor {
         params: Value,
         input: impl Fn(Result<Value, ()>) -> Input + Send + 'static,
     ) {
-        let Some((_connection_id, connection)) = self.agent.clone() else { return };
-        // RED: no request deadline yet.
+        let Some((connection_id, connection)) = self.agent.clone() else { return };
+        let request = self.next_request;
+        self.next_request += 1;
+        let deadline = Instant::now() + self.config.request_timeout;
+        self.pending.insert(
+            request,
+            Pending { connection: connection_id, deadline, failure: input(Err(())) },
+        );
         let sender = self.sender.clone();
         connection.request(
             method,
             params,
             Box::new(move |answer| {
                 let input = input(answer.map_err(|_| ()));
-                let _ = sender.send(Msg::Input(input));
+                let _ = sender.send(Msg::Reply { request, input });
             }),
         );
     }
