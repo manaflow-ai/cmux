@@ -195972,16 +195972,16 @@
             "value": "إلغاء"
           }
         },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud nije omogućen. Podešavanje možete ponovo pokrenuti kada budete spremni."
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud nije omogućen. Podešavanje možete ponovo pokrenuti kada budete spremni."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud blev ikke aktiveret. Du kan starte opsætningen igen, når du er klar."
+            "value": "Cloud blev ikke aktiveret. Du kan starte opsætningen igen, når du er klar."
           }
         },
         "de": {
@@ -195993,7 +195993,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud non è stato abilitato. Puoi ripetere la configurazione quando vuoi."
+            "value": "Cloud non è stato abilitato. Puoi ripetere la configurazione quando vuoi."
           }
         },
         "es": {
@@ -196011,7 +196011,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud មិនត្រូវបានបើកទេ។ អ្នកអាចចាប់ផ្តើមការរៀបចំម្តងទៀតនៅពេលរួចរាល់។"
+            "value": "Cloud មិនត្រូវបានបើកទេ។ អ្នកអាចចាប់ផ្តើមការរៀបចំម្តងទៀតនៅពេលរួចរាល់។"
           }
         },
         "ja": {
@@ -196023,7 +196023,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud ble ikke aktivert. Du kan starte oppsettet på nytt når du er klar."
+            "value": "Cloud ble ikke aktivert. Du kan starte oppsettet på nytt når du er klar."
           }
         },
         "ko": {
@@ -196035,37 +196035,37 @@
         "nb": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud nie zostało włączone. Możesz ponownie rozpocząć konfigurację, gdy będziesz gotowy."
+            "value": "Cloud nie zostało włączone. Możesz ponownie rozpocząć konfigurację, gdy będziesz gotowy."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-        "value": "O Cloud não foi ativado. Você pode iniciar a configuração novamente quando quiser."
+            "value": "O Cloud não foi ativado. Você pode iniciar a configuração novamente quando quiser."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud не ввімкнено. Ви можете знову розпочати налаштування, коли будете готові."
+            "value": "Cloud не ввімкнено. Ви можете знову розпочати налаштування, коли будете готові."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud ยังไม่ได้เปิดใช้ คุณสามารถเริ่มการตั้งค่าใหม่ได้เมื่อพร้อม"
+            "value": "Cloud ยังไม่ได้เปิดใช้ คุณสามารถเริ่มการตั้งค่าใหม่ได้เมื่อพร้อม"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud etkinleştirilmedi. Hazır olduğunuzda kurulumu yeniden başlatabilirsiniz."
+            "value": "Cloud etkinleştirilmedi. Hazır olduğunuzda kurulumu yeniden başlatabilirsiniz."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud не включён. Вы можете снова начать настройку, когда будете готовы."
+            "value": "Cloud не включён. Вы можете снова начать настройку, когда будете готовы."
           }
         },
         "uk": {
@@ -609984,70 +609984,70 @@
             "value": "Cloud Machines 需要 cmux Pro"
           }
         },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines zahtijevaju cmux Pro"
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines zahtijevaju cmux Pro"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud Machines kræver cmux Pro"
+            "value": "Cloud Machines kræver cmux Pro"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud Machines richiedono cmux Pro"
+            "value": "Cloud Machines richiedono cmux Pro"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud Machines ត្រូវការ cmux Pro"
+            "value": "Cloud Machines ត្រូវការ cmux Pro"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud Machines krever cmux Pro"
+            "value": "Cloud Machines krever cmux Pro"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud Machines wymagają cmux Pro"
+            "value": "Cloud Machines wymagają cmux Pro"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-        "value": "O Cloud Machines requer cmux Pro"
+            "value": "O Cloud Machines requer cmux Pro"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-        "value": "Для Cloud Machines требуется cmux Pro"
+            "value": "Для Cloud Machines требуется cmux Pro"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud Machines ต้องใช้ cmux Pro"
+            "value": "Cloud Machines ต้องใช้ cmux Pro"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud Machines için cmux Pro gerekir"
+            "value": "Cloud Machines için cmux Pro gerekir"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-        "value": "Для Cloud Machines потрібен cmux Pro"
+            "value": "Для Cloud Machines потрібен cmux Pro"
           }
         }
       }
@@ -618357,6 +618357,891 @@
           "stringUnit": {
             "state": "translated",
             "value": "이미 로그인되어 있습니다. 계속하면 이 세션이 대체되고 새로운 cmux 활동은 링크의 계정에 속합니다. 직접 방금 이 계정을 선택한 것이 아니라면 “로그인하지 않기”를 클릭하세요."
+          }
+        }
+      }
+    },
+    "sshPane.newTerminalFailed.shortTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t open SSH terminal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-Terminal konnte nicht geöffnet werden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’ouvrir le terminal SSH"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر فتح طرفية SSH"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo abrir el terminal SSH"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法開啟 SSH 終端機"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开 SSH 终端"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 터미널을 열 수 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ターミナルを開けませんでした"
+          }
+        }
+      }
+    },
+    "sshPane.newTerminalFailed.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check the SSH connection, then retry this request."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfe die SSH-Verbindung und versuche die Anfrage erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérifiez la connexion SSH, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحقّق من اتصال SSH ثم أعد محاولة هذا الطلب."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprueba la conexión SSH y vuelve a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請檢查 SSH 連線後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请检查 SSH 连接，然后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 연결을 확인한 후 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 接続を確認してから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "sshPane.newTerminalFailed.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH connection could not be established."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Verbindung konnte nicht hergestellt werden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion SSH n’a pas pu être établie."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إنشاء اتصال SSH."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo establecer la conexión SSH."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法建立 SSH 連線。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法建立 SSH 连接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 연결을 설정할 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 接続を確立できませんでした."
+          }
+        }
+      }
+    },
+    "cloudTree.port.share.error.timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The link is still being set up. Try sharing again in a minute."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يزال الرابط قيد الإعداد. حاول المشاركة مرة أخرى بعد دقيقة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Link wird noch eingerichtet. Versuche es in einer Minute erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El enlace aún se está configurando. Vuelve a compartirlo en un minuto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le lien est encore en cours de configuration. Réessayez de le partager dans une minute."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクはまだ準備中です。1分ほどしてからもう一度共有してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크를 아직 설정하는 중입니다. 1분 후에 다시 공유해 보세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "链接仍在设置中。请一分钟后再尝试共享。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連結仍在設定中。請在一分鐘後再試著分享。"
+          }
+        }
+      }
+    },
+    "cloudTree.port.share.error.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service couldn't create a link for this port. Try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على خدمة السحابة إنشاء رابط لهذا المنفذ. حاول مرة أخرى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Cloud-Dienst konnte keinen Link für diesen Port erstellen. Versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servicio Cloud no pudo crear un enlace para este puerto. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le service Cloud n’a pas pu créer de lien pour ce port. Réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud サービスでこのポートのリンクを作成できませんでした。もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 서비스에서 이 포트의 링크를 만들지 못했습니다. 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 服务无法为此端口创建链接。请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 服務無法為此連接埠建立連結。請再試一次。"
+          }
+        }
+      }
+    },
+    "cloudTree.port.share.copiedPersonal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link copied. Only you can open it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم نسخ الرابط. يمكنك أنت فقط فتحه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link kopiert. Nur du kannst ihn öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enlace copiado. Solo tú puedes abrirlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lien copié. Vous seul pouvez l’ouvrir."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクをコピーしました。開けるのはあなただけです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크를 복사했습니다. 나만 열 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制链接。只有你可以打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已拷貝連結。只有你可以開啟。"
+          }
+        }
+      }
+    },
+    "cloudTree.port.share.copiedPublic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link copied. Anyone with the link can open it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم نسخ الرابط. يمكن لأي شخص لديه الرابط فتحه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link kopiert. Jeder mit dem Link kann ihn öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enlace copiado. Cualquiera con el enlace puede abrirlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lien copié. Toute personne disposant du lien peut l’ouvrir."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクをコピーしました。リンクを知っている人なら誰でも開けます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크를 복사했습니다. 링크가 있는 누구나 열 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制链接。任何拥有链接的人都可以打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已拷貝連結。任何擁有連結的人都可以開啟。"
+          }
+        }
+      }
+    },
+    "cloudTree.port.share.copiedTeam": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link copied. Your team can open it after signing in."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم نسخ الرابط. يمكن لفريقك فتحه بعد تسجيل الدخول."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link kopiert. Dein Team kann ihn nach der Anmeldung öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enlace copiado. Tu equipo puede abrirlo después de iniciar sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lien copié. Votre équipe peut l’ouvrir après s’être connectée."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクをコピーしました。チームのメンバーはサインイン後に開けます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크를 복사했습니다. 팀원은 로그인한 후 열 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制链接。你的团队登录后即可打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已拷貝連結。你的團隊登入後即可開啟。"
+          }
+        }
+      }
+    },
+    "cloudTree.port.share.creating": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creating link…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ إنشاء الرابط…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link wird erstellt…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creando el enlace…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Création du lien…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクを作成しています…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크를 만드는 중…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在创建链接…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在建立連結…"
+          }
+        }
+      }
+    },
+    "cloudTree.port.share.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't create link"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إنشاء الرابط"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link konnte nicht erstellt werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo crear el enlace"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de créer le lien"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクを作成できませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크를 만들 수 없음"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法创建链接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法建立連結"
+          }
+        }
+      }
+    },
+    "cloudTree.port.share.copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied to clipboard"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم النسخ إلى الحافظة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In die Zwischenablage kopiert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiado al portapapeles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copié dans le presse-papiers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリップボードにコピーしました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클립보드에 복사됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制到剪贴板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已拷貝到剪貼板"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.copyShareLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Share Link"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ رابط المشاركة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Freigabelink kopieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar enlace para compartir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier le lien de partage"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有リンクをコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "공유 링크 복사"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制共享链接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷貝分享連結"
+          }
+        }
+      }
+    },
+    "cloudTree.port.shareLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share Link"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مشاركة الرابط"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link teilen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartir enlace"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partager le lien"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクを共有"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크 공유"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享链接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分享連結"
+          }
+        }
+      }
+    },
+    "cloudTree.port.share.ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link ready"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الرابط جاهز"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link bereit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enlace listo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lien prêt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクの準備ができました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크 준비됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "链接已就绪"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連結已就緒"
+          }
+        }
+      }
+    },
+    "cloudTree.port.share.readyHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The link is ready. Click to copy it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الرابط جاهز. انقر لنسخه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Link ist bereit. Klicke, um ihn zu kopieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El enlace está listo. Haz clic para copiarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le lien est prêt. Cliquez pour le copier."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクの準備ができました。クリックしてコピーします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크가 준비되었습니다. 클릭하여 복사하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "链接已就绪。点按即可复制。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連結已就緒。按一下即可拷貝。"
           }
         }
       }

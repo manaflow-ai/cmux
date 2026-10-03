@@ -62,12 +62,19 @@ struct CloudTreeNodeActions {
     let copyToPasteboard: @MainActor (_ text: String) -> Void
     /// Copy the machine port's private URL without changing network state.
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
+    /// Copy a link to the port that teammates can open after signing in,
+    /// creating it first when the port has none.
+    var sharePort: @MainActor (_ resource: SurfaceResourceID) -> Void = { _ in }
     let refresh: @MainActor () -> Void
     var discoverPorts: @MainActor (SurfaceMachineID) -> Void = { _ in }
     var setDeviceDiscovery: @MainActor (Bool) -> Void = { _ in }
     var setDeviceIncomingAccess: @MainActor (Bool) -> Void = { _ in }
     var refreshMachine: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
     var newDisplay: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
+    /// Presents an inline Cloud action explanation without starting a remote operation.
+    var showHint: @MainActor (_ message: String) -> Void = { _ in }
+    /// Explains why a display cannot open in the currently selected workspace.
+    var showDisplayOpenHint: @MainActor (_ resource: SurfaceResourceID) -> Bool = { _ in false }
     /// Opens the New Machine flow through the same action as Cmd-Y.
     var newMachine: @MainActor () -> Void = {}
     /// Creates a workspace on the remembered or selected Cloud machine.
@@ -519,6 +526,23 @@ struct CloudTreeNodeActions {
             },
             refresh: refresh
         )
+        actions.showHint = onFailure
+        actions.showDisplayOpenHint = { resource in
+            guard let workspaceID = selectedWorkspaceID(),
+                  let workspace = Workspace.liveWorkspace(id: workspaceID) else {
+                // A display must never open until the selected destination's
+                // ownership is known. This also covers a stale selection while
+                // the Cloud workspace list is switching machines.
+                onFailure(SurfaceTransferRejection.cloudMachineMismatch.message)
+                return true
+            }
+            guard let rejection = workspace.surfaceOwnershipPolicy.rejection(
+                for: resource.machine,
+                kind: resource.kind
+            ) else { return false }
+            onFailure(rejection.message)
+            return true
+        }
         actions.openWorkspace = { machine, workspace, group in
             let host = workspaceCreationHost() ?? selectedWorkspaceID()
                 .flatMap { Workspace.liveWorkspace(id: $0)?.owningTabManager }
@@ -572,6 +596,12 @@ struct CloudTreeNodeActions {
         actions.discoverPorts = refreshMachine
         actions.newDisplay = { machine in
             let target = try? destination(.split)
+            if let target,
+               let workspace = Workspace.liveWorkspace(id: target.workspaceID),
+               let rejection = workspace.surfaceOwnershipPolicy.rejection(for: machine, kind: .display) {
+                onFailure(rejection.message)
+                return
+            }
             run(String(format: String(localized: "cloud.display.creating", defaultValue: "Creating a display on %@…"), machineName(machine))) { catalog in
                 do {
                     try await catalog.createDisplay(on: machine, into: target)
@@ -595,6 +625,54 @@ struct CloudTreeNodeActions {
             operationController: operationController ?? AppDelegate.shared?.cloudWorkspaceOperationController
         )
         actions.openRemoteTerminal = { navigation.open(machine: $0, group: $1, resource: $2, view: $3, openIn: $4) }
+        actions.sharePort = { resource in
+            guard let port = resource.forwardedPort else { return }
+            let store = CloudPortShareStore.shared
+            let key = CloudPortShareStore.Key(machineID: resource.machine.rawValue, port: port)
+            guard !store.isCreating(key) else { return }
+            store.set(.creating, for: key)
+            // Making a link can take a while; if something else lands on the
+            // clipboard meanwhile, don't replace it. The row says the link is
+            // ready instead, and the next click copies it straight away.
+            let clipboardAtClick = NSPasteboard.general.changeCount
+            run(
+                String(localized: "cloudTree.port.share.creating", defaultValue: "Creating link\u{2026}"),
+                { catalog in
+                    do {
+                        guard let provider = catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider,
+                              let client = VMClient.shared else {
+                            throw CloudPortShareFailure.unavailable
+                        }
+                        let publication = try await CloudPortShareService(api: client)
+                            .share(vmID: provider.machineID, port: port, teamID: provider.ownerTeamID)
+                        if NSPasteboard.general.changeCount == clipboardAtClick {
+                            Self.copyToPasteboard(publication.url)
+                            store.set(.copied(publication.accessMode), for: key, holdFor: .seconds(2))
+                        } else {
+                            store.set(.ready, for: key, holdFor: .seconds(10))
+                        }
+                    } catch is CancellationError {
+                        store.clear(key)
+                        throw CancellationError()
+                    } catch {
+                        store.set(.failed, for: key, holdFor: .seconds(4))
+                        throw error
+                    }
+                },
+                failureDescription: { error in
+                    switch error {
+                    case CloudPortShareError.stillProvisioning:
+                        return String(localized: "cloudTree.port.share.error.timeout", defaultValue: "The link is still being set up. Try sharing again in a minute.")
+                    case VMClientError.notSignedIn, VMClientError.sessionRefreshFailed:
+                        return (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                    default:
+                        // Server and client errors here are written for the
+                        // CLI ("Run `cmux ...`"); the sidebar gets plain copy.
+                        return String(localized: "cloudTree.port.share.error.unavailable", defaultValue: "The Cloud service couldn't create a link for this port. Try again.")
+                    }
+                }
+            )
+        }
         return actions
     }
     @MainActor
@@ -606,4 +684,9 @@ struct CloudTreeNodeActions {
         cmuxDebugLog("cloudTree.copyToPasteboard ok=\(ok) chars=\(text.count)")
         #endif
     }
+}
+
+/// The machine isn't reachable through a Cloud provider right now.
+private enum CloudPortShareFailure: Error {
+    case unavailable
 }

@@ -1146,9 +1146,11 @@ public actor VMClient {
         try await listPage(allowWhenCloudDisabled: false, expectedTeamScope: nil)
     }
 
-    public func listPublications() async throws -> [VMPublication] {
+    /// `scopeTeamID` runs the request as that team (a machine's owning team)
+    /// instead of the selected one; nil keeps the selected team.
+    public func listPublications(scopeTeamID: String? = nil) async throws -> [VMPublication] {
         return try await withOperation(.publication, foreground: true) {
-            let (data, http) = try await request("GET", path: "/api/vm/publications")
+            let (data, http) = try await request("GET", path: "/api/vm/publications", teamID: scopeTeamID)
             try ensureOK(http, data: data)
             let object = try decodeJSONObject(data)
             guard let items = (object["publications"] as? [[String: Any]])
@@ -1204,7 +1206,8 @@ public actor VMClient {
         accessMode: VMPublicationAccessMode?,
         teamID: String?,
         organizationSlug: String? = nil,
-        confirmPublic: Bool = false
+        confirmPublic: Bool = false,
+        scopeTeamID: String? = nil
     ) async throws -> VMPublication {
         return try await withOperation(.publication, foreground: true) {
             var body: [String: Any] = [
@@ -1219,19 +1222,21 @@ public actor VMClient {
             let (data, http) = try await request(
                 "POST",
                 path: "/api/vm/publications",
-                jsonBody: body
+                jsonBody: body,
+                teamID: scopeTeamID
             )
             try ensureOK(http, data: data)
             return try Self.decodePublicationMutation(try decodeJSONObject(data))
         }
     }
 
-    public func verifyPublication(id: String) async throws -> VMPublication {
+    public func verifyPublication(id: String, scopeTeamID: String? = nil) async throws -> VMPublication {
         return try await withOperation(.publication, foreground: true) {
             let encodedID = try pathSegment(id, fieldName: "publication id")
             let (data, http) = try await request(
                 "POST",
-                path: "/api/vm/publications/\(encodedID)/verify"
+                path: "/api/vm/publications/\(encodedID)/verify",
+                teamID: scopeTeamID
             )
             try ensureOK(http, data: data)
             return try Self.decodePublicationMutation(try decodeJSONObject(data))
@@ -1242,7 +1247,8 @@ public actor VMClient {
         id: String,
         accessMode: VMPublicationAccessMode,
         teamID: String?,
-        confirmPublic: Bool = false
+        confirmPublic: Bool = false,
+        scopeTeamID: String? = nil
     ) async throws -> VMPublication {
         return try await withOperation(.publication, foreground: true) {
             let encodedID = try pathSegment(id, fieldName: "publication id")
@@ -1255,7 +1261,8 @@ public actor VMClient {
             let (data, http) = try await request(
                 "PATCH",
                 path: "/api/vm/publications/\(encodedID)",
-                jsonBody: body
+                jsonBody: body,
+                teamID: scopeTeamID
             )
             try ensureOK(http, data: data)
             return try Self.decodePublicationMutation(try decodeJSONObject(data))
@@ -1274,10 +1281,10 @@ public actor VMClient {
         }
     }
 
-    public func deletePublication(id: String) async throws {
+    public func deletePublication(id: String, scopeTeamID: String? = nil) async throws {
         return try await withOperation(.publication, foreground: true) {
             let encodedID = try pathSegment(id, fieldName: "publication id")
-            let (data, http) = try await request("DELETE", path: "/api/vm/publications/\(encodedID)")
+            let (data, http) = try await request("DELETE", path: "/api/vm/publications/\(encodedID)", teamID: scopeTeamID)
             try ensureOK(http, data: data)
         }
     }
