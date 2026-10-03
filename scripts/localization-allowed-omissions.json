@@ -4615,5 +4615,113 @@
       "zh-Hans": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
       "zh-Hant": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale."
     }
+  },
+  "account.callbackApproval.cancel": {
+    "identityLocales": {
+      "de": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "fr": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ar": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "es": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hant": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hans": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ko": "Callback approval copy is awaiting professional translation; English is the reviewed fallback."
+    },
+    "source": "Don’t Sign In"
+  },
+  "account.callbackApproval.confirm": {
+    "identityLocales": {
+      "de": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "fr": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ar": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "es": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hant": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hans": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ko": "Callback approval copy is awaiting professional translation; English is the reviewed fallback."
+    },
+    "source": "Sign In"
+  },
+  "account.callbackApproval.replace.confirm": {
+    "identityLocales": {
+      "de": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "fr": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ar": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "es": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hant": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hans": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ko": "Callback approval copy is awaiting professional translation; English is the reviewed fallback."
+    },
+    "source": "Switch Account"
+  },
+  "account.callbackApproval.title": {
+    "identityLocales": {
+      "de": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "fr": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ar": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "es": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hant": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hans": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ko": "Callback approval copy is awaiting professional translation; English is the reviewed fallback."
+    },
+    "source": "Sign in to cmux from a link?"
+  },
+  "account.callbackApproval.replace.title": {
+    "identityLocales": {
+      "de": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "fr": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ar": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "es": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hant": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hans": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ko": "Callback approval copy is awaiting professional translation; English is the reviewed fallback."
+    },
+    "source": "Switch cmux to another account?"
+  },
+  "account.callbackApproval.message.email": {
+    "identityLocales": {
+      "de": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "fr": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ar": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "es": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hant": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hans": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ko": "Callback approval copy is awaiting professional translation; English is the reviewed fallback."
+    },
+    "source": "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+  },
+  "account.callbackApproval.message.unknown": {
+    "identityLocales": {
+      "de": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "fr": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ar": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "es": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hant": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hans": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ko": "Callback approval copy is awaiting professional translation; English is the reviewed fallback."
+    },
+    "source": "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+  },
+  "account.callbackApproval.replace.current": {
+    "identityLocales": {
+      "de": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "fr": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ar": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "es": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hant": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hans": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ko": "Callback approval copy is awaiting professional translation; English is the reviewed fallback."
+    },
+    "source": "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+  },
+  "account.callbackApproval.replace.generic": {
+    "identityLocales": {
+      "de": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "fr": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ar": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "es": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hant": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hans": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ko": "Callback approval copy is awaiting professional translation; English is the reviewed fallback."
+    },
+    "source": "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
   }
 }

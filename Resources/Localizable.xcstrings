@@ -617844,6 +617844,48 @@
             "state": "translated",
             "value": "サインインしない"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t Sign In"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t Sign In"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t Sign In"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t Sign In"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t Sign In"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t Sign In"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t Sign In"
+          }
         }
       }
     },
@@ -617860,6 +617902,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "サインイン"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
           }
         }
       }
@@ -617878,6 +617962,48 @@
             "state": "translated",
             "value": "アカウントを切り替える"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Account"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Account"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Account"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Account"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Account"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Account"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch Account"
+          }
         }
       }
     },
@@ -617894,6 +618020,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "リンクから cmux にサインインしますか？"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux from a link?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux from a link?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux from a link?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux from a link?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux from a link?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux from a link?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux from a link?"
           }
         }
       }
@@ -617912,6 +618080,48 @@
             "state": "translated",
             "value": "cmux を別のアカウントに切り替えますか？"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch cmux to another account?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch cmux to another account?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch cmux to another account?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch cmux to another account?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch cmux to another account?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch cmux to another account?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch cmux to another account?"
+          }
         }
       }
     },
@@ -617928,6 +618138,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "リンクが cmux に %@ としてサインインするよう求めています。ブラウザで cmux にサインインした直後の場合にのみ続行してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
           }
         }
       }
@@ -617946,6 +618198,48 @@
             "state": "translated",
             "value": "リンクが cmux にアカウントへのサインインを求めています。ブラウザで cmux にサインインした直後の場合にのみ続行してください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+          }
         }
       }
     },
@@ -617962,6 +618256,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "現在 %@ としてサインインしています。続行するとそのセッションが置き換えられ、以降の cmux のアクティビティはリンクのアカウントに属します。このアカウントを自分で選んだ直後でない場合は、「サインインしない」をクリックしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
           }
         }
       }
@@ -617980,10 +618316,51 @@
             "state": "translated",
             "value": "すでにサインインしています。続行するとそのセッションが置き換えられ、以降の cmux のアクティビティはリンクのアカウントに属します。このアカウントを自分で選んだ直後でない場合は、「サインインしない」をクリックしてください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+          }
         }
       }
-    }
-,
+    },
     "cloudTree.menu.copyShareURL": {
       "extractionState": "manual",
       "localizations": {
