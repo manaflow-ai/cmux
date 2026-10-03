@@ -10,14 +10,16 @@ import { join } from "node:path";
 
 // Copies taken before the mock: bun updates live bindings of a mocked module in place.
 const realFs = { ...fsModule };
-const { mkdtempSync, rmSync, writeFileSync: realWriteFile } = realFs;
+const { mkdtempSync, rmSync, utimesSync, writeFileSync: realWriteFile } = realFs;
 
-type Fn = "readFileSync" | "writeSync" | "writeFileSync";
-type Hook = { fns: Fn[]; run: () => void } | undefined;
+type Fn = "readFileSync" | "writeSync" | "writeFileSync" | "rmSync";
+/** `path`: fire only for a call on this path. */
+type Hook = { fns: Fn[]; path?: string; run: () => void } | undefined;
 let hook: Hook;
 
-function fire(fn: Fn): void {
+function fire(fn: Fn, path?: unknown): void {
   if (!hook?.fns.includes(fn)) return;
+  if (hook.path !== undefined && hook.path !== path) return;
   const { run } = hook;
   hook = undefined; // once
   run();
@@ -37,6 +39,10 @@ mock.module("node:fs", () => ({
   writeFileSync: (...args: Parameters<typeof realFs.writeFileSync>) => {
     realFs.writeFileSync(...args);
     fire("writeFileSync");
+  },
+  rmSync: (...args: Parameters<typeof realFs.rmSync>) => {
+    fire("rmSync", args[0]);
+    realFs.rmSync(...args);
   },
 }));
 
@@ -65,13 +71,42 @@ describe("MUX_HOME lock races", () => {
     const path = lockPath();
     realWriteFile(path, String(DEAD_PID));
     let first: (() => void) | undefined;
+    let fired = false;
     // The second taker reads the dead pid; before it acts on it, the first
     // taker runs to the end (it takes the stale lock over and holds it).
-    hook = { fns: ["readFileSync"], run: () => (first = takeLock(path)) };
+    hook = { fns: ["readFileSync"], run: () => ((fired = true), (first = takeLock(path))) };
     const second = takeLock(path);
-    expect(first).toBeDefined();
-    expect(second).toBeUndefined();
+    // A lock that never reads the old owner has no such window: the first taker comes after.
+    if (!fired) first = takeLock(path);
+    expect([first, second].filter(Boolean).length).toBe(1);
     expect(Number(String(realFs.readFileSync(path, "utf8")).split("\n")[0])).toBe(process.pid);
+  });
+
+  test("a taker that stalls inside a stale takeover does not remove the next holder's lock", () => {
+    const path = lockPath();
+    realWriteFile(path, String(DEAD_PID));
+    let second: (() => void) | undefined;
+    let fired = false;
+    // The first taker is about to remove the stale lock and stalls for longer
+    // than any orphan limit (its takeover marker looks old); meanwhile a second
+    // taker arrives and takes the lock.
+    hook = {
+      fns: ["rmSync"],
+      path,
+      run: () => {
+        fired = true;
+        const old = new Date(Date.now() - 60_000);
+        try {
+          utimesSync(`${path}.takeover`, old, old);
+        } catch {
+          // No takeover marker in this lock design.
+        }
+        second = takeLock(path);
+      },
+    };
+    const first = takeLock(path);
+    if (!fired) second = takeLock(path);
+    expect([first, second].filter(Boolean).length).toBe(1);
   });
 
   test("a taker that runs while the lock file is being written does not take it", () => {
