@@ -518,7 +518,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     private func openTab(_ params: [String: Any]) async throws -> [String: Any] {
         let workspace = try workspace()
         // A tab the session opens gets the page clipboard guard; without its
-        // script no page may run in such a tab.
+        // script, or without WebKit's switch for the asynchronous Clipboard
+        // API, no page may run in such a tab.
+        guard BrowserReplPageClipboard.isSupported else {
+            throw Self.error("unsupported", "This WebKit cannot turn its asynchronous Clipboard API off, so a page in a tab the session opens could write the system clipboard; tabs.open is refused")
+        }
         if BrowserReplTabAttachments.shared.pageClipboard == nil {
             guard let shim = bundle.readResource("page-clipboard.js") else {
                 throw Self.error("unsupported", "The browser REPL page clipboard script is not bundled")
@@ -1416,6 +1420,16 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 await BrowserReplNativeInput.roundTrip(webView)
                 return
             }
+            // The drag WebKit may start on this event writes its data to the
+            // capture's private pasteboard, never the system's named drag
+            // pasteboard; one automated drag's window is open at a time.
+            let capture = attachment.drag?.capture
+            if let capture {
+                guard await capture.openPasteboardWindow() else {
+                    throw Self.error("timeout", "Another tab's automated drag did not release the drag pasteboard within 5 s; the drag did not move")
+                }
+            }
+            defer { capture?.closePasteboardWindow() }
             try send()
             await BrowserReplNativeInput.waitForPendingMouseEvents(webView)
             await startDropIfDragBegan(webView: webView, window: window, location: location, attachment: attachment)
@@ -1706,6 +1720,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 throw Self.error(
                     "timeout",
                     "\(name) did not start within 5 s: a Copy, Cut or Paste in tab \(tab) has not finished. One runs at a time across all tabs, since WebKit's pasteboard requests do not say which tab they serve"
+                )
+            case .interfered:
+                throw Self.error(
+                    "stale",
+                    "\(name) finished, but a copy in another web view reached the private pasteboard during it (WebKit's pasteboard requests do not say which web view they serve), so the tab's clipboard is unchanged\(isPaste ? " and the page may have pasted nothing" : ""). Try again"
                 )
             case .unavailable:
                 try await performClipboardCommandWithoutWebKit(command, attachment: attachment, webView: webView)

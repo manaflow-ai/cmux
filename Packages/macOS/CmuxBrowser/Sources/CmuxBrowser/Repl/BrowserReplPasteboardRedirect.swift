@@ -55,13 +55,22 @@ public import WebKit
 ///   start in time does not run (`busy`, naming the tab it waited for), and
 ///   nothing is redirected for it while it waits.
 ///
+/// - A copy another web view makes during the command (WebKit's lookups do not
+///   say which web view they serve, so it gets the tab's pasteboard too) is
+///   never taken as the tab's: WebKit's own Copy or Cut writes the
+///   pasteboard at most once and a Paste never does (each write is one
+///   change count), so a command whose pasteboard was written more often is
+///   `interfered`, and the caller discards the pasteboard.
+///
 /// Residual risk: while a command is in flight (milliseconds, at most its
-/// timeout), a person pasting or copying in another web view of this process
-/// gets or fills the tab's pasteboard, and so does app code that WebKit
-/// calls back into (a delegate) if it looks up the general pasteboard by
-/// name. A copy made that way lands on the tab's clipboard. The same holds
-/// after a `timedOutStillRunning` until WebKit finishes, at most one more
-/// timeout. The caller test errs
+/// timeout), a person pasting in another web view of this process reads the
+/// tab's pasteboard, and a copy made there fills it (and does not reach the
+/// system clipboard); so does app code that WebKit calls back into (a
+/// delegate) if it looks up the general pasteboard by name. Such a copy
+/// reaches the tab's clipboard only when it is the one write of a Copy or
+/// Cut whose page wrote nothing itself (a `copy` handler that cancels the
+/// event and sets no data). The same holds after a `timedOutStillRunning`
+/// until WebKit finishes, at most one more timeout. The caller test errs
 /// toward WebKit: should WebKit's pasteboard code move, its lookups still
 /// come from a WebKit image and stay redirected, unless it moves to
 /// `+generalPasteboard`, which the WebKit tests catch as a change of the
@@ -95,6 +104,12 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         /// An earlier command, from the tab the caller named `tab`, was still
         /// unfinished when this one's wait ended; this one did not start.
         case busy(tab: String)
+        /// WebKit reported the command done within the timeout, but the
+        /// tab's pasteboard was written more often than the command writes
+        /// it (WebKit's Copy or Cut writes it at most once, a Paste never):
+        /// another web view's copy reached it during the command. What it
+        /// holds is not the tab's, and the caller must not take it.
+        case interfered
         /// The pasteboard lookup or WebKit's editing-command or
         /// process-ending SPI is missing, the caller may not end the web
         /// content process, or a Paste could not be kept from reading the
@@ -103,12 +118,17 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         case unavailable
     }
 
-    /// Guarded by `lock`; read by the hook on any thread.
-    private var target: NSPasteboard?
+    /// The pasteboard WebKit's lookups of each name get instead of the
+    /// system's: the general pasteboard's during a command, the drag
+    /// pasteboard's during an automated drag's window. Guarded by `lock`;
+    /// read by the hook on any thread.
+    private var targets: [String: NSPasteboard] = [:]
     private let lock = NSLock()
     @MainActor private var installed = false
     /// The command WebKit has not reported done, within or past its timeout.
     @MainActor private var unfinished: Command?
+    /// The automated drag whose window is open.
+    @MainActor private var dragWindow: DragWindow?
 
     /// Installs the process-wide `+[NSPasteboard pasteboardWithName:]` hook
     /// once. Returns `false` when the method is missing.
@@ -176,6 +196,7 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
             tab: tab,
             timeout: timeout,
             grace: grace,
+            maximumWrites: command == "Paste" ? 0 : 1,
             endWebContent: {
                 // At the timeout the caller decides; one timeout later the
                 // web content is ended regardless.
@@ -216,7 +237,9 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
     /// (`timedOutStillRunning`) the redirect lasts until WebKit reports the
     /// command done or `grace` (one more `timeout` when `nil`) passes, when
     /// `endWebContent` is called again (the caller then ends the web content
-    /// regardless) and the redirect ends whatever it returns. Cancelling the caller's task
+    /// regardless) and the redirect ends whatever it returns. A command that
+    /// completed but whose pasteboard was written more than `maximumWrites`
+    /// times during it is `interfered`. Cancelling the caller's task
     /// shortens none of these waits. `whenFinished` is called once, when
     /// `invoke`'s argument is called or the web content is ended, or at once
     /// when the command does not start.
@@ -226,6 +249,7 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         tab: String = "",
         timeout: Duration,
         grace: Duration? = nil,
+        maximumWrites: Int? = nil,
         clock: C = ContinuousClock(),
         endWebContent: @escaping @MainActor () -> Bool,
         whenFinished: @escaping @MainActor () -> Void = {},
@@ -244,14 +268,21 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         }
         let command = Command(pasteboard: pasteboard, tab: tab, whenFinished: whenFinished)
         unfinished = command
+        let startCount = pasteboard.changeCount
         setTarget(pasteboard)
         let deadline = clock.now.advanced(by: timeout)
         invoke { self.finish(command) }
-        if await command.finished.wait(until: deadline, clock: clock, honoringCancellation: false) { return .completed }
+        // The redirect ended when WebKit reported the command done, so no
+        // write reaches the pasteboard after that.
+        let completed: () -> Outcome = {
+            guard let maximumWrites, pasteboard.changeCount - startCount > maximumWrites else { return .completed }
+            return .interfered
+        }
+        if await command.finished.wait(until: deadline, clock: clock, honoringCancellation: false) { return completed() }
         // Past the timeout. Until this turn ends nothing else runs on the
         // main thread, so WebKit handles no more of the page's pasteboard
         // messages before its process is gone.
-        if command.finished.isSignaled { return .completed }
+        if command.finished.isSignaled { return completed() }
         if endWebContent() {
             // WebKit may already have reported the command done while it
             // ended the process; `finish` runs once either way.
@@ -275,17 +306,17 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
     /// a lookup of the general pasteboard by WebKit while a command is in
     /// flight.
     public func redirectTarget(forLookupOf name: String, fromWebKit: Bool) -> NSPasteboard? {
-        guard fromWebKit, name == NSPasteboard.Name.general.rawValue else { return nil }
+        guard fromWebKit else { return nil }
         lock.lock()
         defer { lock.unlock() }
-        return target
+        return targets[name]
     }
 
     private func redirectedLookup(of name: String) -> NSPasteboard? {
         lock.lock()
-        let inFlight = target != nil
+        let inFlight = targets[name] != nil
         lock.unlock()
-        guard inFlight, name == NSPasteboard.Name.general.rawValue else { return nil }
+        guard inFlight else { return nil }
         return redirectTarget(forLookupOf: name, fromWebKit: Self.lookupComesFromWebKit())
     }
 
@@ -324,16 +355,74 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         command.whenFinished()
     }
 
-    private func setTarget(_ pasteboard: NSPasteboard?) {
+    private func setTarget(_ pasteboard: NSPasteboard, for name: NSPasteboard.Name = .general) {
         lock.lock()
-        target = pasteboard
+        targets[name.rawValue] = pasteboard
         lock.unlock()
     }
 
-    private func endRedirect(to pasteboard: NSPasteboard) {
+    private func endRedirect(to pasteboard: NSPasteboard, for name: NSPasteboard.Name = .general) {
         lock.lock()
-        if target === pasteboard { target = nil }
+        if targets[name.rawValue] === pasteboard { targets[name.rawValue] = nil }
         lock.unlock()
+    }
+
+    // MARK: - Automated drags
+
+    /// Opens `pasteboard`'s drag window: until ``closeDragWindow(_:)`` or
+    /// `timeout`, WebKit's lookups of the drag pasteboard by name (the
+    /// pasteboard an HTML5 drag's data is written to when the drag starts)
+    /// get `pasteboard`, never the system's named drag pasteboard, which
+    /// every process of the user can read and overwrite. Lookups by other
+    /// code keep the system's.
+    ///
+    /// One window is open at a time in the whole app, since WebKit's
+    /// lookups do not say which web view a drag starts in: an open window of
+    /// another drag is waited for, up to `timeout`, and `false` means it was
+    /// still open then and this one did not open. Opening the window that is
+    /// already open returns `true`.
+    @MainActor
+    public func openDragWindow<C: Clock>(
+        _ pasteboard: NSPasteboard,
+        timeout: Duration = .seconds(5),
+        clock: C = ContinuousClock()
+    ) async -> Bool where C.Duration == Duration {
+        guard install() else { return false }
+        let deadline = clock.now.advanced(by: timeout)
+        while let open = dragWindow {
+            if open.pasteboard === pasteboard { return true }
+            guard await open.closed.wait(until: deadline, clock: clock, honoringCancellation: false) else { return false }
+        }
+        let window = DragWindow(pasteboard: pasteboard)
+        dragWindow = window
+        setTarget(pasteboard, for: .drag)
+        // Bounded: a drag the page never starts does not keep every other
+        // web view's drag data on this pasteboard.
+        let bound = clock.now.advanced(by: timeout)
+        Task { @MainActor in
+            if await window.closed.wait(until: bound, clock: clock, honoringCancellation: false) { return }
+            self.closeDragWindow(pasteboard)
+        }
+        return true
+    }
+
+    /// Closes `pasteboard`'s drag window, if it is the open one.
+    @MainActor
+    public func closeDragWindow(_ pasteboard: NSPasteboard) {
+        guard let window = dragWindow, window.pasteboard === pasteboard else { return }
+        endRedirect(to: pasteboard, for: .drag)
+        dragWindow = nil
+        window.closed.signal()
+    }
+
+    @MainActor
+    private final class DragWindow {
+        let pasteboard: NSPasteboard
+        let closed = BrowserReplLatch()
+
+        init(pasteboard: NSPasteboard) {
+            self.pasteboard = pasteboard
+        }
     }
 
     @MainActor

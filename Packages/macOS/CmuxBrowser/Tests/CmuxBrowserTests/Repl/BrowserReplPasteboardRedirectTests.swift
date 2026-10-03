@@ -619,6 +619,58 @@ struct BrowserReplPasteboardRedirectTests {
             #expect(NSPasteboard.general.changeCount == systemBefore, "the page's late \(command) wrote the real system pasteboard")
         }
 
+        /// WebKit's pasteboard requests do not say which web view they serve,
+        /// so while a Copy runs, a copy in another web view (a person's, or a
+        /// page's in a user's tab) also lands on the command's pasteboard.
+        /// The tab's clipboard must not take that: WebKit's own Copy writes
+        /// the pasteboard at most once, so a second write means another web
+        /// view wrote it, and the command does not complete.
+        @Test func aCopyInAnotherWebViewDuringACommandDoesNotReachTheTabClipboard() async throws {
+            #expect(BrowserReplPasteboardRedirect.shared.install())
+            let standIn = NSPasteboard.withUniqueName()
+            defer { standIn.releaseGlobally() }
+            standIn.clearContents()
+            standIn.setString("the person's clipboard", forType: .string)
+            let systemBefore = NSPasteboard.general.changeCount
+            var outcome: BrowserReplPasteboardRedirect.Outcome?
+            try await Self.withStandInSystemPasteboard(standIn) {
+                let tabView = await load(
+                    """
+                    <input id=i value="tab text"><script>
+                    addEventListener('copy', e => {
+                      const end = Date.now() + 1000;
+                      while (Date.now() < end) {}
+                    });
+                    </script>
+                    """
+                )
+                _ = try await tabView.evaluateJavaScript("const i = document.getElementById('i'); i.focus(); i.select(); true")
+                let otherView = await load("<input id=o value=\"another web view's text\">")
+                _ = try await otherView.evaluateJavaScript("const o = document.getElementById('o'); o.focus(); o.select(); true")
+                let tabProcess = tabView.value(forKey: "_webProcessIdentifier") as? Int
+                let otherProcess = otherView.value(forKey: "_webProcessIdentifier") as? Int
+                try #require(tabProcess != otherProcess, "the two web views share a web content process, so the other copy cannot run during the command")
+
+                let tab = NSPasteboard.withUniqueName()
+                defer { tab.releaseGlobally() }
+                tab.clearContents()
+                let command = Task { @MainActor in
+                    await BrowserReplPasteboardRedirect.shared.perform("Copy", in: tabView, pasteboard: tab, timeout: .seconds(30))
+                }
+                while BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) !== tab {
+                    await Task.yield()
+                }
+                // The other web view copies while the tab's copy handler runs.
+                // An evaluated script holds a user gesture, as a click would.
+                let copied = try await otherView.evaluateJavaScript("document.execCommand('copy')") as? Bool
+                try #require(copied == true)
+                outcome = await command.value
+            }
+            #expect(outcome != .completed, "the tab's clipboard took a copy another web view made during the command")
+            #expect(BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) == nil)
+            #expect(NSPasteboard.general.changeCount == systemBefore)
+        }
+
         /// Runs `body` with `standIn` in place of the system pasteboard for
         /// every lookup of the general pasteboard by name, the hook WebKit's
         /// pasteboard code uses. The redirect's own hook stays underneath and
