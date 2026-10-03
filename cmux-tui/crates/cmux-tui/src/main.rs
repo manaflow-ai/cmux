@@ -3218,9 +3218,18 @@ where
     #[cfg(unix)]
     {
         // Peek, not read: other shutdown waiters (remote runtime, browser
-        // proxy) consume the same wake byte.
-        let _ = std::thread::Builder::new().name("headless-signal-wait".into()).spawn(|| {
+        // proxy) consume the same wake byte. Record the session shutdown
+        // start here, before the loop wakes and teardown begins, so a
+        // shell that dies of the same logout signal is a host loss
+        // (`session-shutdown`).
+        let signalled = Arc::downgrade(mux);
+        let _ = std::thread::Builder::new().name("headless-signal-wait".into()).spawn(move || {
             wait_for_shutdown_signal_peek();
+            if shutdown_requested()
+                && let Some(mux) = signalled.upgrade()
+            {
+                mux.begin_session_shutdown();
+            }
             wake_headless();
         });
     }

@@ -3279,9 +3279,16 @@ impl Mux {
         );
         // Invariant 3: a receipt of a host loss (outcome unknown) keeps the
         // tabs, dead; only a recorded exit status or signal detaches them,
-        // and a signal during a session shutdown counts as a host loss.
-        let end = self.session_shutdown.classify(TerminalEnd::from_receipt(terminal.exit.as_ref()));
-        let Some(proof) = end.detach_proof() else {
+        // and a signal during a session shutdown counts as a host loss. A
+        // signal exit within the shutdown lead waits until the lead passed
+        // (logout race) and is classified again then.
+        let settled =
+            self.session_shutdown.settle(TerminalEnd::from_receipt(terminal.exit.as_ref()));
+        if let Some(until_ms) = settled.pending_until_ms() {
+            self.schedule_exit_settle(terminal_id, until_ms);
+            return Ok(false);
+        }
+        let Some(proof) = settled.end().detach_proof() else {
             return Ok(false);
         };
         let Some(terminal_public_id) = registry.terminal_resource_id(terminal_id)? else {

@@ -3,6 +3,7 @@
 
 mod agent_hook_errors;
 mod conversations;
+mod exit_settle;
 mod host_close;
 #[cfg(all(test, unix))]
 mod host_death_tests;
@@ -2720,6 +2721,9 @@ pub struct Mux {
     /// When this owner's session (and the previous owner's) was shutting
     /// down: signal exits then are host losses (`session-shutdown`).
     session_shutdown: crate::session_shutdown::SessionShutdownClock,
+    /// Detaches of live signal exits that wait out the session shutdown
+    /// lead (`session-shutdown`, logout race).
+    exit_settles: Arc<exit_settle::ExitSettleTimer>,
     /// Called after `request_daemon_shutdown`, so the owner loop that waits
     /// for it blocks instead of polling the flag.
     daemon_shutdown_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
@@ -3161,6 +3165,7 @@ impl Mux {
             server_lifecycle_ready: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
             session_shutdown,
+            exit_settles: Arc::default(),
             daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
@@ -3184,6 +3189,7 @@ impl Mux {
             test_surface_runtime,
             session,
         });
+        mux.exit_settles.bind(Arc::downgrade(&mux));
         let weak_mux = Arc::downgrade(&mux);
         mux.journal_plugin.set_exit_handler(Some(Arc::new(move |plugin_id, generation| {
             let Some(mux) = weak_mux.upgrade() else { return };
@@ -6059,11 +6065,15 @@ impl Mux {
 
     /// Test seam: the session shutdown clock reads `now_ms` from now on.
     #[cfg(test)]
-    pub(crate) fn set_session_clock_now_for_test(&self, _now_ms: u64) {}
+    pub(crate) fn set_session_clock_now_for_test(&self, now_ms: u64) {
+        self.session_shutdown.set_now_for_test(now_ms);
+    }
 
     /// Test seam: run the deferred exit detaches whose shutdown lead passed.
     #[cfg(test)]
-    pub(crate) fn run_due_exit_settles_for_test(&self) {}
+    pub(crate) fn run_due_exit_settles_for_test(&self) {
+        self.run_due_exit_settles();
+    }
 
     pub(crate) fn publish_resource_event(&self) {
         self.publish_journal_event();
@@ -12307,7 +12317,7 @@ impl Mux {
     /// losses (`session-shutdown`). The owner's loop calls it as soon as a
     /// termination signal wakes it, before any teardown.
     pub fn begin_session_shutdown(&self) {
-        self.session_shutdown.begin(crate::session_shutdown::unix_now_ms());
+        self.session_shutdown.begin();
     }
 
     /// Install the callback that `request_daemon_shutdown` runs after it
@@ -16796,8 +16806,12 @@ impl Mux {
         incarnation: Option<&str>,
         end: &TerminalEnd,
     ) -> anyhow::Result<bool> {
-        // A signal exit during a session shutdown is a host loss.
-        let end = &self.session_shutdown.classify(end.clone());
+        // A signal exit during a session shutdown is a host loss. A live
+        // signal exit within the shutdown lead is not final yet: it commits
+        // without a detach, which waits out the lead (logout race).
+        let settled = self.session_shutdown.settle(end.clone());
+        let settle_until_ms = settled.pending_until_ms();
+        let end = settled.end();
         let exit = end.exit();
         // Best-effort exit snapshot: capture the terminal's final state as
         // one bounded, compressed vt-replay blob while the runtime VT is
@@ -16869,7 +16883,8 @@ impl Mux {
             _ if matches!(
                 terminal.lifecycle,
                 TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
-            ) || keep_live_views =>
+            ) || keep_live_views
+                || settle_until_ms.is_some() =>
             {
                 None
             }
@@ -16941,10 +16956,13 @@ impl Mux {
             self.publish_resource_event();
             if let Some(effects) = detach_effects {
                 self.finish_terminal_exit_detach(effects);
-            } else if detach_proof.is_none() {
+            } else if detach_proof.is_none() || settle_until_ms.is_some() {
                 // The tabs stay and now show the terminal dead.
                 self.emit(MuxEvent::TreeChanged);
             }
+        }
+        if let Some(until_ms) = settle_until_ms {
+            self.schedule_exit_settle(terminal_id, until_ms);
         }
         Ok(!replayed)
     }
