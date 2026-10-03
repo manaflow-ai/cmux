@@ -25,6 +25,7 @@ extension CloudTreeOutlineView.Coordinator {
                 for machine in machines { outline.collapseItem(machine) }
             }
         }
+        installMachineLiftMouseUpMonitor(for: session, in: outline)
     }
 
     /// The real row is the drag visual, so the native image is blank and
