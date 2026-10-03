@@ -1189,6 +1189,7 @@ fn parse_browser(
 ) -> Result<CommandPlan, UsageError> {
     match strs(words).as_slice() {
         ["list"] => request(ResourceOperation::BrowserList, selectors, flags, Map::new()),
+        ["open"] | ["open", _] => parse_browser_open(words, selectors, flags),
         [selector, "show"] => {
             selectors.insert("browser", "browser", selector)?;
             request(ResourceOperation::BrowserGet, selectors, flags, Map::new())
@@ -1310,6 +1311,35 @@ fn parse_browser(
         }
         _ => usage("browser action"),
     }
+}
+
+fn parse_browser_open(
+    words: &[String],
+    selectors: &mut Selectors,
+    flags: &mut Flags,
+) -> Result<CommandPlan, UsageError> {
+    let positional_url = words.get(1).cloned();
+    let flagged_url = flags.take("url");
+    let url = match (positional_url, flagged_url) {
+        (Some(_), Some(_)) => {
+            return Err(UsageError::new("browser open accepts either a URL or --url, not both"));
+        }
+        (Some(url), None) => url,
+        (None, Some(url)) => url,
+        (None, None) => {
+            return Err(UsageError::new("browser open needs a URL or --url"));
+        }
+    };
+    if url.is_empty() {
+        return Err(UsageError::new("browser open URL cannot be empty"));
+    }
+
+    let mut params = Map::new();
+    params.insert("url".into(), Value::String(url));
+    insert_optional_string(&mut params, flags, "name", "name");
+    add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
+    add_pixel_size(&mut params, flags)?;
+    request(ResourceOperation::TabCreateBrowser, selectors, flags, params)
 }
 
 fn browser_no_args(
@@ -3247,6 +3277,17 @@ mod tests {
         assert!(
             parse(&strings(&["tab", "group", "create"]), super::super::Surface::CmuxTui).is_err()
         );
+    }
+
+    #[test]
+    fn browser_open_alias_maps_to_tab_create_browser() {
+        let plan = protocol(&["browser", "open", "https://example.com"]);
+        assert_eq!(operation(&plan), "tab.create_browser");
+        assert_eq!(plan.params["url"], "https://example.com");
+
+        let flagged = protocol(&["browser", "open", "--url", "https://example.com/docs"]);
+        assert_eq!(operation(&flagged), "tab.create_browser");
+        assert_eq!(flagged.params["url"], "https://example.com/docs");
     }
 
     #[test]
