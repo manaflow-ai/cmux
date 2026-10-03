@@ -262,3 +262,90 @@ fn a_bridged_connection_cannot_touch_the_browser_provider() {
     disconnect_client(&mux, local, false);
     mux.shutdown();
 }
+
+/// The next reply line (one with `ok`) on `outbound`.
+fn next_reply(outbound: &BoundedOutbound) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(line) = outbound.try_pop()
+            && let Ok(value) = serde_json::from_str::<Value>(&line)
+            && value.get("ok").is_some()
+        {
+            return value;
+        }
+        assert!(Instant::now() < deadline, "no reply");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// The next `url-open` event a subscriber receives within `wait`, if any.
+fn url_open_event(outbound: &BoundedOutbound, wait: Duration) -> Option<Value> {
+    let deadline = Instant::now() + wait;
+    while Instant::now() < deadline {
+        if let Some(line) = outbound.try_pop()
+            && let Ok(value) = serde_json::from_str::<Value>(&line)
+            && value["event"] == "url-open"
+        {
+            return Some(value);
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    None
+}
+
+/// A bridged peer cannot make this Mac open a URL (decision 3 of the 3b-1
+/// review); the Cloud VM guest opener, a local client on the session's own
+/// socket, still can.
+#[test]
+fn a_bridged_connection_cannot_open_urls_but_the_local_guest_opener_can() {
+    let mux = Mux::new_for_test("connection-origin-url", crate::SurfaceOptions::default());
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal = surface.terminal_public_id().cloned().unwrap().as_str().to_owned();
+    let url = "https://example.com/device?code=abc";
+
+    // The Mac app side: subscribes for this terminal's URL opens.
+    let app_outbound = Arc::new(BoundedOutbound::default());
+    let app_writer =
+        MessageWriter::new(QueuedSink { outbound: app_outbound.clone(), control: None });
+    let app = mux.control_clients.register(ClientTransport::Unix, app_writer.clone());
+    let subscribe =
+        json!({"id":1,"cmd":"url-open-subscribe","terminal_ids":[terminal]}).to_string();
+    let reply = line(&mux, app, &app_writer, &app_outbound, &subscribe);
+    assert_eq!(reply["ok"], true, "{reply}");
+    let open = json!({"id":2,"cmd":"url-open","terminal_id":terminal,"url":url}).to_string();
+
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let bridged = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let mark = String::from_utf8(remote_bridge_mark_line()).unwrap();
+    let _ = line(&mux, bridged, &writer, &outbound, &mark);
+    let scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
+        mux.surface_operation_admission.clone(),
+        None,
+    ));
+    assert!(handle_connection_message(&mux, bridged, &open, &writer, &scheduler));
+    assert_eq!(url_open_event(&app_outbound, Duration::from_millis(500)), None);
+    let reply = next_reply(&outbound);
+    assert_eq!(reply["data"]["opened"], false, "{reply}");
+    disconnect_client(&mux, bridged, false);
+
+    // The guest opener: an unmarked local client on the same socket.
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let guest = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    assert!(handle_connection_message(&mux, guest, &open, &writer, &scheduler));
+    let event = url_open_event(&app_outbound, Duration::from_secs(5)).expect("the app hears it");
+    assert_eq!(event["url"], url);
+    let request_id = event["request_id"].as_str().unwrap().to_owned();
+    let claim = json!({"id":3,"cmd":"url-open-claim","request_id":request_id}).to_string();
+    let claimed = line(&mux, app, &app_writer, &app_outbound, &claim);
+    assert_eq!(claimed["data"]["claimed"], true, "{claimed}");
+    let done =
+        json!({"id":4,"cmd":"url-open-result","request_id":request_id,"opened":true}).to_string();
+    let _ = line(&mux, app, &app_writer, &app_outbound, &done);
+    let reply = next_reply(&outbound);
+    assert_eq!(reply["data"]["opened"], true, "{reply}");
+    disconnect_client(&mux, guest, false);
+    disconnect_client(&mux, app, false);
+    mux.shutdown();
+}
