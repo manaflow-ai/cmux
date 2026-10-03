@@ -16547,6 +16547,13 @@
       "id" : "tab.moveToNewStickyColumn",
       "mcp" : "offered",
       "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
       "title" : "Move Tab to New Sticky Column",
       "title_key" : "action.tab.moveToNewStickyColumn",
       "title_table" : "LayoutActions"
