@@ -82,6 +82,10 @@ public final class UpdateIndicatorView: NSView {
     }
 
     override public func updateLayer() {
+        // Phase changes swap layers at once: an implicit fade left the old
+        // ring showing during a note.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         performWithTheme {
             disc.fillColor = Palette.highlight.cgColor
             ring.strokeColor = Palette.highlightText.cgColor
@@ -107,6 +111,7 @@ public final class UpdateIndicatorView: NSView {
             spinning = spins
             if spins, let spin = Motion.spinAnimation() { ring.add(spin, forKey: "spin") } else { ring.removeAnimation(forKey: "spin") }
         }
+        CATransaction.commit()
         hover.refresh(animated: true)
     }
 

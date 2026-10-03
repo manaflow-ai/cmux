@@ -17,7 +17,9 @@ public final class UpdatePillView: NSView {
         addSubview(surface)
         label.font = Typography.bodyEmphasized
         label.lineBreakMode = .byTruncatingTail
-        surface.contentView.addSubview(label)
+        // Above the material, not in its content view: glass lays that view
+        // out (inset) itself, which truncated the label.
+        addSubview(label)
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
     }
@@ -36,10 +38,10 @@ public final class UpdatePillView: NSView {
         }
     }
 
-    /// The capsule's width for `text` at `height`: the label, a half-height
-    /// cap at each end, and room for the material's own content inset.
+    /// The capsule's width for `text` at `height`: the label and a
+    /// half-height cap at each end.
     public func fittingWidth(height: CGFloat) -> CGFloat {
-        (label.intrinsicContentSize.width + height + Metrics.space2 * 2).rounded(.up)
+        (label.intrinsicContentSize.width + height).rounded(.up)
     }
 
     override public func viewDidChangeEffectiveAppearance() {
@@ -51,12 +53,9 @@ public final class UpdatePillView: NSView {
         super.layout()
         surface.frame = bounds
         surface.cornerRadius = bounds.height / 2
-        // Glass lays `contentView` out itself (it may be inset): center in it.
-        surface.layoutSubtreeIfNeeded()
-        let box = surface.contentView.bounds
         let size = label.intrinsicContentSize
-        let width = min(size.width.rounded(.up), box.width)
-        label.frame = CGRect(x: ((box.width - width) / 2).rounded(), y: ((box.height - size.height) / 2).rounded(),
+        let width = size.width.rounded(.up)
+        label.frame = CGRect(x: ((bounds.width - width) / 2).rounded(), y: ((bounds.height - size.height) / 2).rounded(),
                              width: width, height: size.height)
         performWithTheme { label.textColor = Palette.textPrimary }
     }
