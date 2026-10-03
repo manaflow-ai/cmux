@@ -25,7 +25,7 @@ struct CloudTreeMachineLiftStyle {
         CATransaction.commit()
         guard card.opacity != 1 else { return }
         if animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            fade(card, to: 1, duration: fadeIn)
+            fade(card, to: 1, duration: Self.fadeIn)
         } else {
             card.removeAllAnimations()
             CATransaction.begin()
@@ -38,7 +38,7 @@ struct CloudTreeMachineLiftStyle {
     func remove(from rowView: NSTableRowView, animated: Bool) {
         guard let host = rowView.layer, let card = existingCard(in: host), card.opacity != 0 else { return }
         if animated {
-            fade(card, to: 0, duration: fadeOut)
+            fade(card, to: 0, duration: Self.fadeOut)
         } else {
             card.removeAllAnimations()
             CATransaction.begin()
@@ -49,17 +49,17 @@ struct CloudTreeMachineLiftStyle {
     }
 
     private func existingCard(in host: CALayer) -> CALayer? {
-        host.sublayers?.first { $0.name == layerName }
+        host.sublayers?.first { $0.name == Self.layerName }
     }
 
     private func makeCard(in host: CALayer) -> CALayer {
         let card = CALayer()
-        card.name = layerName
+        card.name = Self.layerName
         card.opacity = 0
         card.cornerRadius = CloudTreeHoverStyle.cornerRadius
         card.cornerCurve = .continuous
         card.shadowColor = NSColor.black.cgColor
-        card.shadowOpacity = shadowOpacity
+        card.shadowOpacity = Self.shadowOpacity
         card.shadowRadius = 8
         card.shadowOffset = .zero
         // Below the hover fill and the cell, above nothing: the card replaces

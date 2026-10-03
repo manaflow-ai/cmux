@@ -161,7 +161,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
         deinit {
             if let organizationObserver { NotificationCenter.default.removeObserver(organizationObserver) }
-            removeMachineLiftMouseUpMonitor()
+            if let monitor = machineLiftMouseUpMonitor { NSEvent.removeMonitor(monitor) }
         }
 
         /// Removes the fallback monitor used when AppKit omits a drag-end callback.

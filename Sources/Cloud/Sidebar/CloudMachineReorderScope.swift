@@ -6,6 +6,11 @@ struct CloudMachineReorderScope {
     let parent: CloudTreeNode?
     let siblings: [CloudTreeNode]
 
+    private init(parent: CloudTreeNode?, siblings: [CloudTreeNode]) {
+        self.parent = parent
+        self.siblings = siblings
+    }
+
     /// Resolves the single sibling list that owns machine reordering.
     static func resolve(machineNodeID: String? = nil, roots: [CloudTreeNode]) -> CloudMachineReorderScope? {
         let rootMatches = roots.filter { node in
