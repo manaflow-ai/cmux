@@ -8,8 +8,9 @@ extension TerminalViewController {
         guard stream == nil else { return }
         let pipeline = self.pipeline ?? makePipeline()
         self.pipeline = pipeline
-        // Each attach is a new connection: request ids from an older one are void.
-        pipeline.connectionReset()
+        // Each attach is a new connection: request ids from an older one are
+        // void, and the first READY must come before the viewer's deadline.
+        pipeline.attachStarted()
         let source = self.source
         let terminal = self.terminal
         stream = Task { [weak self] in
@@ -28,6 +29,8 @@ extension TerminalViewController {
         stream = nil
         retry?.cancel()
         retry = nil
+        readyDeadline?.cancel()
+        readyDeadline = nil
         pipeline?.connectionReset()
         let source = self.source
         let terminal = self.terminal
@@ -78,6 +81,19 @@ extension TerminalViewController {
         case .versionMismatch:
             notice = String(localized: "terminal.replay", defaultValue: "Byte replay", bundle: .module)
             updateBadge()
+        case .armReadyDeadline(let epoch, let milliseconds):
+            readyDeadline?.cancel()
+            let clock = self.clock
+            readyDeadline = Task { [weak self] in
+                // wakeup-allow: one-shot READY deadline (terminal-snapshot-v1 resync), injected clock, cancelled with the screen
+                do { try await clock.sleep(for: .milliseconds(milliseconds)) } catch { return }
+                self?.pipeline?.readyDeadline(epoch)
+            }
+        case .reattach:
+            // The host never answered: a new connection gets a fresh READY.
+            guard stream != nil else { return }
+            detach()
+            attach()
         }
     }
 
