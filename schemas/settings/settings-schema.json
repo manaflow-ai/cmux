@@ -261,6 +261,49 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.newTerminal.opensWorkspace.help",
+        "text" : "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "newTerminal.opensWorkspace",
+      "keywords" : [
+        "new terminal",
+        "workspace",
+        "space",
+        "tab",
+        "option"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "newTerminal",
+        "opensWorkspace"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.newTerminal.opensWorkspace",
+        "text" : "New Terminal Opens a Workspace"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "ask",
         "keep",
         "end-keep-layout",
@@ -5697,7 +5740,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "c89ffa04431ca944543e94248c3a0bd1c54cae6c6796506bfe35ad4632039e08",
+  "schema_hash" : "902dea001c29eec6b4fb5665a46188144e7af8920cc45bb424600811122738d5",
   "sections" : [
     {
       "id" : "general",

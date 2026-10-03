@@ -17,6 +17,7 @@ import {
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
 import { postNative } from "./native";
 import { NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
+import { projectLabel } from "./sessionList";
 import { composerDraft } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
@@ -1397,7 +1398,9 @@ function AcpmuxPane() {
         void client.warmRecentProjects();
         // A new chat owns a live process before the first keypress. Sending a
         // prompt still joins this in-flight creation through ensureSession().
-        if (host.newSession && !host.adopt) void client.ensureSession().catch(() => undefined);
+        // A new-tab page stays empty until the user chooses a kind or sends a prompt.
+        // Other new chats still prewarm their process before the first keypress.
+        if (host.newSession && !host.adopt && !host.newTab) void client.ensureSession().catch(() => undefined);
         // A resumed chat is the tab's session from the start, so restoring the tab reopens it.
         if (client.adopted) void persistSession(client.adopted);
         // A `#turn-<turnId>` link that opened this tab: scroll once the turn's row renders.
@@ -1483,8 +1486,20 @@ function AcpmuxPane() {
       return;
     }
     setNewTab(undefined);
-    if (text) void callNative("chat.send", { text });
+    const start = cwd ? callNative("chat.new", { cwd }) : Promise.resolve();
+    void start.then(() => (text ? callNative("chat.send", { text }) : undefined));
   };
+  const newTabProjects = useMemo(() => {
+    const byPath = new Map<string, { cwd: string; label: string }>();
+    for (const path of newTab?.projects ?? []) byPath.set(path, { cwd: path, label: projectLabel(path) });
+    for (const session of composerSnapshot.sessions) {
+      if (typeof session.cwd !== "string" || !session.cwd) continue;
+      if (session.host && session.hostKind !== "local") continue;
+      byPath.set(session.cwd, { cwd: session.cwd, label: projectLabel(session.cwd) });
+    }
+    if (newTab?.cwd) byPath.set(newTab.cwd, { cwd: newTab.cwd, label: projectLabel(newTab.cwd) });
+    return [...byPath.values()];
+  }, [composerSnapshot.sessions, newTab?.cwd]);
   const transcript = (
     <TurnActionsContext.Provider value={turnActions}>
       <TurnCountsContext.Provider value={turnCountsFor}>
@@ -1615,9 +1630,8 @@ function AcpmuxPane() {
               cwd={newTab.cwd}
               host={newTab.host}
               location={newTab.location}
-              defaultKind={newTab.defaultKind}
-              onSetDefaultKind={(kind) => void callNative("tab.setDefaultKind", { kind })}
               omnibar={newTab.omnibar}
+              projects={newTabProjects}
               chips={ComposerChips}
               onSubmit={openFromNewTab}
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
@@ -1626,6 +1640,8 @@ function AcpmuxPane() {
                 selectSession(sessionId);
               }}
               onShowAll={() => setSidebar("open")}
+              onImport={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
+              onBrowseProject={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
             />
           ) : (
@@ -1721,6 +1737,7 @@ function AcpmuxPane() {
                     }
                     checkpointReview={checkpoints.review}
                     review={hunkReview}
+                    reviewFiles={diffFiles}
                   />
                 )}
               </div>

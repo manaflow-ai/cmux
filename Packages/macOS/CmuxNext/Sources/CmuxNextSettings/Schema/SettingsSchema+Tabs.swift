@@ -18,4 +18,18 @@ extension SettingsSchema {
             keywords: ["new tab", "cmd-t", "terminal", "browser", "agent", "kind", "default"]
         )
     }
+
+    /// `newTerminal.opensWorkspace`: whether New Terminal creates a workspace
+    /// in the current space instead of a tab in the focused workspace.
+    static func newTerminalOpensWorkspace(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(
+            NewTerminalWorkspaceSetting.configPath, section: .general, group: group,
+            title: SettingsText.keyed("settings.newTerminal.opensWorkspace", "New Terminal Opens a Workspace"),
+            help: SettingsText.keyed("settings.newTerminal.opensWorkspace.help",
+                                     "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."),
+            kind: .toggle,
+            default: .bool(NewTerminalWorkspaceSetting.fallback),
+            keywords: ["new terminal", "workspace", "space", "tab", "option"]
+        )
+    }
 }

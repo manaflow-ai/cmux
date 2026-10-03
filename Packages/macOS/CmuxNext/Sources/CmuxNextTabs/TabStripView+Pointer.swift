@@ -144,7 +144,7 @@ extension TabStripView {
         // already moved it or ran the double-click action
         // (`TitlebarDragPolicy`). Elsewhere a double-click opens a tab.
         if actsAsTitlebar { return }
-        if event.clickCount == 2 { model.send(.newTab(after: nil)) }
+        if event.clickCount == 2 { model.send(.newTab(after: nil, opensWorkspace: event.modifierFlags.contains(.option))) }
     }
 
     public override func mouseDragged(with event: NSEvent) {
@@ -185,7 +185,7 @@ extension TabStripView {
             if isInCloseButton(id, point) { close(id, source: .mouse) }
             return
         }
-        if endNewTabPress(at: point) { return }
+        if endNewTabPress(at: point, modifiers: event.modifierFlags) { return }
         if endTrailingButtonPress(at: point) { return }
         if drag != nil { endDrag() }
         press = nil
@@ -257,14 +257,14 @@ extension TabStripView {
     /// A click opens a tab at once; a hold already showed the menu
     /// and must not also open a tab.
     @discardableResult
-    func endNewTabPress(at point: CGPoint) -> Bool {
+    func endNewTabPress(at point: CGPoint, modifiers: NSEvent.ModifierFlags = []) -> Bool {
         newTabHoldTask?.cancel()
         newTabHoldTask = nil
         defer { newTabHoldOpenedMenu = false }
         guard pressedNewTab else { return newTabHoldOpenedMenu }
         pressedNewTab = false
         newTabButton.isPressed = false
-        if !newTabHoldOpenedMenu, isInNewTabButton(point) { model.send(.newTab(after: nil)) }
+        if !newTabHoldOpenedMenu, isInNewTabButton(point) { model.send(.newTab(after: nil, opensWorkspace: modifiers.contains(.option))) }
         return true
     }
 
