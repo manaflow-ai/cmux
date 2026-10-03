@@ -12,6 +12,7 @@ private final class RemoteRelayNarrowingContext: ControlCommandContext {
         "enabled": .bool(true),
         "state": .string("connected"),
         "connected": .bool(true),
+        "here_operation_id": .string("11111111-1111-1111-1111-111111111111"),
         "destination": .string("builder@example.internal"),
         "local_proxy_port": .int(61_234),
         "proxy": .object(["state": .string("ready"), "port": .int(61_235)]),

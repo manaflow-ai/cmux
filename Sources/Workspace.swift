@@ -3184,6 +3184,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     @Published var listeningPorts: [Int] = []
     @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
     var sshTuiConnectionAttemptID: UUID?
+    var sshTuiHereSession: SSHTuiHereSession?
     var remoteSessionController: RemoteSessionCoordinator?
     // Retains each detached controller until cleanup finishes or ownership transfers.
     var remoteSessionCleanupControllers: [UUID: (controller: RemoteSessionCoordinator, configuration: WorkspaceRemoteConfiguration)] = [:]
@@ -7150,6 +7151,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         _ configuration: WorkspaceRemoteConfiguration,
         autoConnect: Bool = true
     ) -> Bool {
+        // An in-place visit owns a parked local shell and its remote reservation.
+        // Reconnect uses the coordinator directly; replacing its owner requires disconnect.
+        guard sshTuiHereSession == nil else { return false }
         // `DisableRemoteConnections` (MDM): this is the single path that turns
         // a workspace into a remote one, so refusing here covers the CLI,
         // command palette, menus, forks, session restore, and automation at
@@ -7325,6 +7329,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func disconnectRemoteConnection(clearConfiguration: Bool = false, disconnectedDetail: String? = nil) {
+        if finishSSHTuiHereSession() { return }
         AppDelegate.shared?.sshTuiWorkspaceCoordinator.disconnect(workspace: self)
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let previousPresentedDirectory = presentedCurrentDirectory
@@ -10904,6 +10909,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
     }
     private func teardownPanelResources(retireDock: Bool) {
+        discardSSHTuiHereSession()
         cancelAllReservedCloudTerminalPanes()
         cloudPaneCreationFailureStore.cancelAll()
         portalRenderingEnabled = false
@@ -11270,6 +11276,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func detachSurface(panelId: UUID) -> DetachedSurfaceTransfer? {
+        // The anchor owns this workspace's parked return shell. Moving it to
+        // another workspace or Dock would separate exit from that owner, or
+        // retire the empty source and destroy the local shell. In-workspace
+        // tab moves use Bonsplit directly and remain available.
+        guard sshTuiHereSession?.reservation.panelID != panelId else { return nil }
         guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
         guard let sourcePanel = panels[panelId] else { return nil }
         let surfaceMachine = machineOwningSurface(panelId)

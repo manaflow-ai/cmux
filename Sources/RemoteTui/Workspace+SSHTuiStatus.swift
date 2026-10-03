@@ -28,6 +28,7 @@ extension Workspace {
             "terminal_profile": configuration.terminalProfile.kind.rawValue,
             "terminal_tmux_session": configuration.terminalProfile.tmuxSessionName ?? NSNull(),
             "remote_workspace_id": cloudVMBinding?.remoteWorkspaceID ?? NSNull(),
+            "here_operation_id": sshTuiHereSession?.operationID.uuidString.lowercased() ?? NSNull(),
             "active_terminal_sessions": catalog.projections.filter { $0.workspaceID == id && $0.resource.machine == machine }.count,
             "daemon": ["state": connected ? "ready" : state, "name": "cmux-tui"],
             "detail": info?.linkError ?? remoteConnectionDetail ?? NSNull(),

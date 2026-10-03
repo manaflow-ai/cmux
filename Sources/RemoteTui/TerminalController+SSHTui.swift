@@ -11,6 +11,38 @@ extension TerminalController {
         guard ManagedRemoteConnectionsPolicy.isEnabled else {
             throw SurfaceCatalogError.unsupported(ManagedRemoteConnectionsPolicy.disabledMessage)
         }
+        if params["here"] != nil, !(params["here"] is Bool) {
+            throw CloudDiagnosticFailure.unsupported
+        }
+        let callerProcess: AgentPIDProcessIdentity?
+        var callerObservation: AgentRestoreEvidenceSubscription?
+        var callerObservationAdopted = false
+        defer { if !callerObservationAdopted { callerObservation?.cancel() } }
+        let hereTarget: (workspace: Workspace, panel: TerminalPanel)?
+        if params["here"] as? Bool == true {
+            let identity = try SSHTuiHereSession.callerProcess(from: params["caller_process"])
+            try SSHTuiHereSession.requireLiveCaller(identity)
+            callerProcess = identity
+            // Construction arms and resumes the kernel source. Check again
+            // afterwards so an exit during registration cannot be missed.
+            callerObservation = AgentRestoreEvidenceSubscription(process: identity, paths: [], deadline: .distantFuture)
+            try SSHTuiHereSession.requireLiveCaller(identity)
+            guard let workspaceID = v2UUID(params, "workspace_id"),
+                  let panelID = v2UUID(params, "surface_id"),
+                  let workspace = Workspace.liveWorkspace(id: workspaceID),
+                  workspace.canBeginSSHTuiHereSession(panelID: panelID),
+                  let panel = workspace.terminalPanel(for: panelID) else {
+                throw SurfaceCatalogError.unsupported(String(
+                    localized: "cli.ssh.here.requiresSingleLocalPane",
+                    defaultValue: "ssh --here requires a workspace with one local terminal pane and no remote connection."
+                ))
+            }
+            hereTarget = (workspace, panel)
+        } else {
+            hereTarget = nil
+            callerProcess = nil
+            callerObservation = nil
+        }
         var hostParams = params
         hostParams["host"] = params["destination"]
         guard let host = Self.remoteTmuxHost(from: hostParams),
@@ -44,37 +76,86 @@ extension TerminalController {
         }
         try Task.checkCancellation()
         guard ManagedRemoteConnectionsPolicy.isEnabled else { throw CancellationError() }
-        var creation = params
-        creation.removeValue(forKey: "initial_command")
-        creation["eager_load_terminal"] = false
         let shouldFocus = params["focus"] as? Bool != false
-        creation["focus"] = shouldFocus
-        let created = v2WorkspaceCreate(params: creation)
-        guard case .ok(let raw) = created,
-              let payload = raw as? [String: Any],
-              let rawID = payload["workspace_id"] as? String,
-              let id = UUID(uuidString: rawID),
-              let workspace = Workspace.liveWorkspace(id: id) else {
-            throw CloudDiagnosticFailure.response
+        let workspace: Workspace
+        let payload: [String: Any]
+        let hereSession: SSHTuiHereSession?
+        if let target = hereTarget {
+            if let callerProcess { try SSHTuiHereSession.requireLiveCaller(callerProcess) }
+            guard target.workspace.terminalPanel(for: target.panel.id) === target.panel,
+                  target.workspace.canBeginSSHTuiHereSession(panelID: target.panel.id) else {
+                throw CloudDiagnosticFailure.placement
+            }
+            workspace = target.workspace
+            let session = try workspace.beginSSHTuiHereSession(
+                panelID: target.panel.id, machine: provider.machine,
+                operationID: (params["operation_id"] as? String).flatMap(UUID.init(uuidString:)) ?? UUID()
+            )
+            hereSession = session
+            if let title = (params["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+                session.requestedTitle = title
+                if let manager = workspace.owningTabManager {
+                    manager.setCustomTitle(tabId: workspace.id, title: title)
+                } else {
+                    workspace.setCustomTitle(title)
+                }
+            }
+            let windowID = workspace.owningTabManager.flatMap { AppDelegate.shared?.windowId(for: $0) }
+            payload = [
+                "window_id": v2OrNull(windowID?.uuidString), "window_ref": v2Ref(kind: .window, uuid: windowID),
+                "workspace_id": workspace.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                "group_id": v2OrNull(workspace.groupId?.uuidString), "group_ref": v2Ref(kind: .workspaceGroup, uuid: workspace.groupId),
+                "pane_id": session.paneID.id.uuidString, "pane_ref": v2Ref(kind: .pane, uuid: session.paneID.id),
+            ]
+        } else {
+            var creation = params
+            creation.removeValue(forKey: "initial_command")
+            creation["eager_load_terminal"] = false
+            creation["focus"] = shouldFocus
+            let created = v2WorkspaceCreate(params: creation)
+            guard case .ok(let raw) = created,
+                  let createdPayload = raw as? [String: Any],
+                  let rawID = createdPayload["workspace_id"] as? String,
+                  let id = UUID(uuidString: rawID),
+                  let createdWorkspace = Workspace.liveWorkspace(id: id) else {
+                throw CloudDiagnosticFailure.response
+            }
+            workspace = createdWorkspace
+            payload = createdPayload
+            hereSession = nil
         }
         do {
+            if let hereSession, let callerProcess, let callerObservation {
+                try hereSession.observeCallerProcess(callerProcess, subscription: callerObservation, in: workspace)
+                callerObservationAdopted = true
+            }
             let initialCommand = (params["initial_command"] as? String).map(connection.commandArguments)
-            try await coordinator.open(workspace: workspace, configuration: configuration, initialCommand: initialCommand, focus: shouldFocus)
-            if shouldFocus, let panelID = workspace.focusedPanelId {
-                if let manager = AppDelegate.shared?.tabManagerFor(tabId: id) {
+            try await coordinator.open(workspace: workspace, configuration: configuration, initialCommand: initialCommand,
+                                       focus: shouldFocus, expectedHereSession: hereSession)
+            let surfaceID = hereSession?.reservation.panelID ?? workspace.focusedPanelId
+            if shouldFocus, let panelID = surfaceID {
+                if let manager = AppDelegate.shared?.tabManagerFor(tabId: workspace.id) {
                     manager.selectWorkspace(workspace)
                 }
-                SurfacePaneFactory.focus(panelID: panelID, in: id)
+                SurfacePaneFactory.focus(panelID: panelID, in: workspace.id)
             }
             var result = payload
             result["transport"] = "cmux-tui"
             result["carrier"] = "ssh"
             result["machine"] = connection.id
             result["remote"] = workspace.remoteStatusPayload()
-            result["surface_id"] = workspace.focusedPanelId?.uuidString
+            result["surface_id"] = surfaceID?.uuidString
+            result["surface_ref"] = v2Ref(kind: .surface, uuid: surfaceID)
+            if let hereSession { result["here_operation_id"] = hereSession.operationID.uuidString.lowercased() }
             return result
         } catch {
-            workspace.applyRemoteConnectionStateUpdate(.error, detail: CloudMachineLink.errorText(error), target: host.destination)
+            if let hereSession {
+                if workspace.sshTuiHereSession === hereSession {
+                    workspace.finishSSHTuiHereSession(rollback: true)
+                }
+            } else {
+                workspace.applyRemoteConnectionStateUpdate(.error, detail: CloudMachineLink.errorText(error), target: host.destination)
+            }
             throw Self.sshTuiOpenFailure(error)
         }
     }

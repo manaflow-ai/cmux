@@ -84470,121 +84470,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nأنشئ مساحة عمل جديدة، وعلّمها كـ remote-SSH، وابدأ جلسة SSH داخلها.\nسينشئ cmux أيضًا نقطة نهاية وكيل SSH محلية حتى تخرج حركة مرور المتصفح من المضيف البعيد.\n\nFlags:\n  --name <title>          عنوان اختياري لمساحة العمل\n  --port <n>              منفذ SSH\n  --identity <path>       مسار ملف هوية SSH\n  -A, --forward-agent     يمرر وكيل SSH الخاص بالمستدعي؛ ويحترم أيضًا ForwardAgent yes من ssh_config\n  -a, --no-forward-agent  يعطّل تمرير وكيل SSH لمساحة العمل هذه\n  --ssh-option <opt>      خيار SSH -o إضافي (قابل للتكرار)\n  --window <id|ref|index> النافذة الهدف لمساحة العمل المُدارة\n  --no-focus              ينشئ مساحة العمل من دون الانتقال إليها\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
+            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nأنشئ مساحة عمل جديدة، وعلّمها كـ remote-SSH، وابدأ جلسة SSH داخلها.\nسينشئ cmux أيضًا نقطة نهاية وكيل SSH محلية حتى تخرج حركة مرور المتصفح من المضيف البعيد.\n\nFlags:\n  --name <title>          عنوان اختياري لمساحة العمل\n  --port <n>              منفذ SSH\n  --identity <path>       مسار ملف هوية SSH\n  -A, --forward-agent     يمرر وكيل SSH الخاص بالمستدعي؛ ويحترم أيضًا ForwardAgent yes من ssh_config\n  -a, --no-forward-agent  يعطّل تمرير وكيل SSH لمساحة العمل هذه\n  --ssh-option <opt>      خيار SSH -o إضافي (قابل للتكرار)\n  --window <id|ref|index> النافذة الهدف لمساحة العمل المُدارة\n  --no-focus              ينشئ مساحة العمل من دون الانتقال إليها\n  --here                  إعادة استخدام الجزء الحالي بدلاً من إنشاء مساحة عمل جديدة.\n                          يتطلب جزء cmux بطرفية واحدة وغير بعيد.\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh --here dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nKreira novi workspace, označava ga kao remote-SSH i pokreće SSH sesiju u tom workspaceu.\ncmux će također uspostaviti lokalnu SSH proxy krajnju tačku kako bi promet preglednika izlazio s udaljenog hosta.\n\nFlags:\n  --name <title>          Opcionalni naslov workspacea\n  --port <n>              SSH port\n  --identity <path>       Putanja do SSH identity datoteke\n  -A, --forward-agent     Prosljeđuje SSH agent pozivaoca; poštuje i ForwardAgent yes iz ssh_config\n  -a, --no-forward-agent  Onemogućava prosljeđivanje SSH agenta za ovaj workspace\n  --ssh-option <opt>      Dodatna SSH -o opcija (može se ponavljati)\n  --window <id|ref|index> Ciljni prozor za upravljani workspace\n  --no-focus              Kreira workspace bez prelaska na njega\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
+            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nKreira novi workspace, označava ga kao remote-SSH i pokreće SSH sesiju u tom workspaceu.\ncmux će također uspostaviti lokalnu SSH proxy krajnju tačku kako bi promet preglednika izlazio s udaljenog hosta.\n\nFlags:\n  --name <title>          Opcionalni naslov workspacea\n  --port <n>              SSH port\n  --identity <path>       Putanja do SSH identity datoteke\n  -A, --forward-agent     Prosljeđuje SSH agent pozivaoca; poštuje i ForwardAgent yes iz ssh_config\n  -a, --no-forward-agent  Onemogućava prosljeđivanje SSH agenta za ovaj workspace\n  --ssh-option <opt>      Dodatna SSH -o opcija (može se ponavljati)\n  --window <id|ref|index> Ciljni prozor za upravljani workspace\n  --no-focus              Kreira workspace bez prelaska na njega\n  --here                  Ponovo koristi trenutni panel umjesto kreiranja novog radnog prostora.\n                          Zahtijeva cmux panel s jednim terminalom koji nije udaljen.\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh --here dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nOpret et nyt arbejdsområde, markér det som remote-SSH, og start en SSH-session i det arbejdsområde.\ncmux opretter også et lokalt SSH-proxyendepunkt, så browsertrafik kan gå ud fra den eksterne vært.\n\nFlags:\n  --name <title>          Valgfri titel på arbejdsområdet\n  --port <n>              SSH-port\n  --identity <path>       Sti til SSH-identitetsfil\n  -A, --forward-agent     Videresend kalderens SSH-agent; respekterer også ForwardAgent yes fra ssh_config\n  -a, --no-forward-agent  Deaktiver SSH-agentvideresendelse for dette arbejdsområde\n  --ssh-option <opt>      Ekstra SSH -o-indstilling (kan gentages)\n  --window <id|ref|index> Målvindue for det administrerede arbejdsområde\n  --no-focus              Opret arbejdsområdet uden at skifte til det\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
+            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nOpret et nyt arbejdsområde, markér det som remote-SSH, og start en SSH-session i det arbejdsområde.\ncmux opretter også et lokalt SSH-proxyendepunkt, så browsertrafik kan gå ud fra den eksterne vært.\n\nFlags:\n  --name <title>          Valgfri titel på arbejdsområdet\n  --port <n>              SSH-port\n  --identity <path>       Sti til SSH-identitetsfil\n  -A, --forward-agent     Videresend kalderens SSH-agent; respekterer også ForwardAgent yes fra ssh_config\n  -a, --no-forward-agent  Deaktiver SSH-agentvideresendelse for dette arbejdsområde\n  --ssh-option <opt>      Ekstra SSH -o-indstilling (kan gentages)\n  --window <id|ref|index> Målvindue for det administrerede arbejdsområde\n  --no-focus              Opret arbejdsområdet uden at skifte til det\n  --here                  Genbrug den aktuelle rude i stedet for at oprette et nyt arbejdsområde.\n                          Kræver en cmux-rude med én enkelt terminal, der ikke er ekstern.\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh --here dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nErstellt einen neuen Workspace, markiert ihn als remote-SSH und startet darin eine SSH-Sitzung.\ncmux richtet außerdem einen lokalen SSH-Proxy-Endpunkt ein, damit Browserverkehr vom Remote-Host ausgeht.\n\nFlags:\n  --name <title>          Optionaler Workspace-Titel\n  --port <n>              SSH-Port\n  --identity <path>       Pfad zur SSH-Identitätsdatei\n  -A, --forward-agent     Leitet den SSH-Agent des Aufrufers weiter; beachtet auch ForwardAgent yes aus ssh_config\n  -a, --no-forward-agent  Deaktiviert SSH-Agent-Weiterleitung für diesen Workspace\n  --ssh-option <opt>      Zusätzliche SSH-Option -o (wiederholbar)\n  --window <id|ref|index> Zielfenster für den verwalteten Workspace\n  --no-focus              Workspace erstellen, ohne zu ihm zu wechseln\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
+            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nErstellt einen neuen Workspace, markiert ihn als remote-SSH und startet darin eine SSH-Sitzung.\ncmux richtet außerdem einen lokalen SSH-Proxy-Endpunkt ein, damit Browserverkehr vom Remote-Host ausgeht.\n\nFlags:\n  --name <title>          Optionaler Workspace-Titel\n  --port <n>              SSH-Port\n  --identity <path>       Pfad zur SSH-Identitätsdatei\n  -A, --forward-agent     Leitet den SSH-Agent des Aufrufers weiter; beachtet auch ForwardAgent yes aus ssh_config\n  -a, --no-forward-agent  Deaktiviert SSH-Agent-Weiterleitung für diesen Workspace\n  --ssh-option <opt>      Zusätzliche SSH-Option -o (wiederholbar)\n  --window <id|ref|index> Zielfenster für den verwalteten Workspace\n  --no-focus              Workspace erstellen, ohne zu ihm zu wechseln\n  --here                  Aktuelles Pane wiederverwenden, statt einen neuen Workspace zu erstellen.\n                          Erfordert ein cmux-Pane mit einem einzelnen, nicht-remoten Terminal.\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh --here dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nCreate a new workspace, mark it as remote-SSH, and start an SSH session in that workspace.\ncmux will also establish a local SSH proxy endpoint so browser traffic can egress from the remote host.\n\nFlags:\n  --name <title>          Optional workspace title\n  --port <n>              SSH port\n  --identity <path>       SSH identity file path\n  -A, --forward-agent     Forward the caller's SSH agent; also honors ForwardAgent yes from ssh_config\n  -a, --no-forward-agent  Disable SSH agent forwarding for this workspace\n  --ssh-option <opt>      Extra SSH -o option (repeatable)\n  --window <id|ref|index> Target window for the managed workspace\n  --no-focus              Create workspace without switching to it\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
+            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nCreate a new workspace, mark it as remote-SSH, and start an SSH session in that workspace.\ncmux will also establish a local SSH proxy endpoint so browser traffic can egress from the remote host.\n\nFlags:\n  --name <title>          Optional workspace title\n  --port <n>              SSH port\n  --identity <path>       SSH identity file path\n  -A, --forward-agent     Forward the caller's SSH agent; also honors ForwardAgent yes from ssh_config\n  -a, --no-forward-agent  Disable SSH agent forwarding for this workspace\n  --ssh-option <opt>      Extra SSH -o option (repeatable)\n  --window <id|ref|index> Target window for the managed workspace\n  --no-focus              Create workspace without switching to it\n  --here                  Reuse the current pane instead of creating a new workspace.\n                          Requires a single-terminal local cmux workspace. Keeps its sidebar group.\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh --here dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nCrea un nuevo espacio de trabajo, márcalo como remote-SSH e inicia una sesión SSH en ese espacio.\ncmux también establecerá un punto final de proxy SSH local para que el tráfico del navegador salga desde el host remoto.\n\nFlags:\n  --name <title>          Título opcional del espacio de trabajo\n  --port <n>              Puerto SSH\n  --identity <path>       Ruta del archivo de identidad SSH\n  -A, --forward-agent     Reenvía el agente SSH del proceso que llama; también respeta ForwardAgent yes de ssh_config\n  -a, --no-forward-agent  Desactiva el reenvío del agente SSH para este espacio de trabajo\n  --ssh-option <opt>      Opción SSH -o adicional (repetible)\n  --window <id|ref|index> Ventana de destino para el espacio de trabajo administrado\n  --no-focus              Crea el espacio de trabajo sin cambiar a él\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
+            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nCrea un nuevo espacio de trabajo, márcalo como remote-SSH e inicia una sesión SSH en ese espacio.\ncmux también establecerá un punto final de proxy SSH local para que el tráfico del navegador salga desde el host remoto.\n\nFlags:\n  --name <title>          Título opcional del espacio de trabajo\n  --port <n>              Puerto SSH\n  --identity <path>       Ruta del archivo de identidad SSH\n  -A, --forward-agent     Reenvía el agente SSH del proceso que llama; también respeta ForwardAgent yes de ssh_config\n  -a, --no-forward-agent  Desactiva el reenvío del agente SSH para este espacio de trabajo\n  --ssh-option <opt>      Opción SSH -o adicional (repetible)\n  --window <id|ref|index> Ventana de destino para el espacio de trabajo administrado\n  --no-focus              Crea el espacio de trabajo sin cambiar a él\n  --here                  Reutiliza el panel actual en lugar de crear un nuevo workspace.\n                          Requiere un panel de cmux con una sola terminal y que no sea remoto.\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh --here dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nCrée un nouvel espace de travail, le marque comme remote-SSH et démarre une session SSH dans cet espace.\ncmux établira aussi un point de terminaison proxy SSH local afin que le trafic du navigateur sorte depuis l’hôte distant.\n\nFlags:\n  --name <title>          Titre facultatif de l’espace de travail\n  --port <n>              Port SSH\n  --identity <path>       Chemin du fichier d’identité SSH\n  -A, --forward-agent     Transfère l’agent SSH de l’appelant ; respecte aussi ForwardAgent yes depuis ssh_config\n  -a, --no-forward-agent  Désactive le transfert d’agent SSH pour cet espace de travail\n  --ssh-option <opt>      Option SSH -o supplémentaire (répétable)\n  --window <id|ref|index> Fenêtre cible pour l’espace de travail géré\n  --no-focus              Crée l’espace de travail sans basculer dessus\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
+            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nCrée un nouvel espace de travail, le marque comme remote-SSH et démarre une session SSH dans cet espace.\ncmux établira aussi un point de terminaison proxy SSH local afin que le trafic du navigateur sorte depuis l’hôte distant.\n\nFlags:\n  --name <title>          Titre facultatif de l’espace de travail\n  --port <n>              Port SSH\n  --identity <path>       Chemin du fichier d’identité SSH\n  -A, --forward-agent     Transfère l’agent SSH de l’appelant ; respecte aussi ForwardAgent yes depuis ssh_config\n  -a, --no-forward-agent  Désactive le transfert d’agent SSH pour cet espace de travail\n  --ssh-option <opt>      Option SSH -o supplémentaire (répétable)\n  --window <id|ref|index> Fenêtre cible pour l’espace de travail géré\n  --no-focus              Crée l’espace de travail sans basculer dessus\n  --here                  Réutilise le panneau actuel au lieu de créer un nouvel espace de travail.\n                          Nécessite un panneau cmux avec un seul terminal, non distant.\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh --here dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nCrea un nuovo workspace, contrassegnalo come remote-SSH e avvia una sessione SSH in quel workspace.\ncmux creerà anche un endpoint proxy SSH locale in modo che il traffico del browser esca dall'host remoto.\n\nFlags:\n  --name <title>          Titolo opzionale del workspace\n  --port <n>              Porta SSH\n  --identity <path>       Percorso del file di identità SSH\n  -A, --forward-agent     Inoltra l'agente SSH del chiamante; rispetta anche ForwardAgent yes da ssh_config\n  -a, --no-forward-agent  Disattiva l'inoltro dell'agente SSH per questo workspace\n  --ssh-option <opt>      Opzione SSH -o aggiuntiva (ripetibile)\n  --window <id|ref|index> Finestra di destinazione per il workspace gestito\n  --no-focus              Crea il workspace senza passarvi\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
+            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nCrea un nuovo workspace, contrassegnalo come remote-SSH e avvia una sessione SSH in quel workspace.\ncmux creerà anche un endpoint proxy SSH locale in modo che il traffico del browser esca dall'host remoto.\n\nFlags:\n  --name <title>          Titolo opzionale del workspace\n  --port <n>              Porta SSH\n  --identity <path>       Percorso del file di identità SSH\n  -A, --forward-agent     Inoltra l'agente SSH del chiamante; rispetta anche ForwardAgent yes da ssh_config\n  -a, --no-forward-agent  Disattiva l'inoltro dell'agente SSH per questo workspace\n  --ssh-option <opt>      Opzione SSH -o aggiuntiva (ripetibile)\n  --window <id|ref|index> Finestra di destinazione per il workspace gestito\n  --no-focus              Crea il workspace senza passarvi\n  --here                  Riusa il pannello corrente invece di creare un nuovo workspace.\n                          Richiede un pannello cmux con un solo terminale e non remoto.\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh --here dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\n新しいワークスペースを作成し、remote-SSH としてマークして、そのワークスペースで SSH セッションを開始します。\ncmux はローカル SSH プロキシエンドポイントも確立するため、ブラウザトラフィックはリモートホストから送信されます。\n\nFlags:\n  --name <title>          任意のワークスペースタイトル\n  --port <n>              SSH ポート\n  --identity <path>       SSH identity ファイルパス\n  -A, --forward-agent     呼び出し元の SSH エージェントを転送します。ssh_config の ForwardAgent yes も尊重します\n  -a, --no-forward-agent  このワークスペースでは SSH エージェント転送を無効にします\n  --ssh-option <opt>      追加の SSH -o オプション（繰り返し可）\n  --window <id|ref|index> 管理対象ワークスペースのターゲットウィンドウ\n  --no-focus              ワークスペースを作成しますが切り替えません\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
+            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\n新しいワークスペースを作成し、remote-SSH としてマークして、そのワークスペースで SSH セッションを開始します。\ncmux はローカル SSH プロキシエンドポイントも確立するため、ブラウザトラフィックはリモートホストから送信されます。\n\nFlags:\n  --name <title>          任意のワークスペースタイトル\n  --port <n>              SSH ポート\n  --identity <path>       SSH identity ファイルパス\n  -A, --forward-agent     呼び出し元の SSH エージェントを転送します。ssh_config の ForwardAgent yes も尊重します\n  -a, --no-forward-agent  このワークスペースでは SSH エージェント転送を無効にします\n  --ssh-option <opt>      追加の SSH -o オプション（繰り返し可）\n  --window <id|ref|index> 管理対象ワークスペースのターゲットウィンドウ\n  --no-focus              ワークスペースを作成しますが切り替えません\n  --here                  新しいワークスペースを作成せず、現在のペインを再利用します。\n                          単一ターミナルでリモートではない cmux ペインが必要です。\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh --here dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nបង្កើត workspace ថ្មី សម្គាល់វាជា remote-SSH ហើយចាប់ផ្តើមសម័យ SSH នៅក្នុង workspace នោះ។\ncmux ក៏នឹងបង្កើតចំណុចបញ្ចប់ SSH proxy មូលដ្ឋាន ដើម្បីឱ្យចរាចរណ៍ browser ចេញពី host ពីចម្ងាយ។\n\nFlags:\n  --name <title>          ចំណងជើង workspace ស្រេចចិត្ត\n  --port <n>              ច្រក SSH\n  --identity <path>       ផ្លូវឯកសារ SSH identity\n  -A, --forward-agent     បញ្ជូនបន្ត SSH agent របស់អ្នកហៅ; ក៏គោរព ForwardAgent yes ពី ssh_config\n  -a, --no-forward-agent  បិទការបញ្ជូនបន្ត SSH agent សម្រាប់ workspace នេះ\n  --ssh-option <opt>      ជម្រើស SSH -o បន្ថែម (អាចប្រើម្តងហើយម្តងទៀត)\n  --window <id|ref|index> បង្អួចគោលដៅសម្រាប់ workspace ដែលបានគ្រប់គ្រង\n  --no-focus              បង្កើត workspace ដោយមិនប្តូរទៅវា\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
+            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nបង្កើត workspace ថ្មី សម្គាល់វាជា remote-SSH ហើយចាប់ផ្តើមសម័យ SSH នៅក្នុង workspace នោះ។\ncmux ក៏នឹងបង្កើតចំណុចបញ្ចប់ SSH proxy មូលដ្ឋាន ដើម្បីឱ្យចរាចរណ៍ browser ចេញពី host ពីចម្ងាយ។\n\nFlags:\n  --name <title>          ចំណងជើង workspace ស្រេចចិត្ត\n  --port <n>              ច្រក SSH\n  --identity <path>       ផ្លូវឯកសារ SSH identity\n  -A, --forward-agent     បញ្ជូនបន្ត SSH agent របស់អ្នកហៅ; ក៏គោរព ForwardAgent yes ពី ssh_config\n  -a, --no-forward-agent  បិទការបញ្ជូនបន្ត SSH agent សម្រាប់ workspace នេះ\n  --ssh-option <opt>      ជម្រើស SSH -o បន្ថែម (អាចប្រើម្តងហើយម្តងទៀត)\n  --window <id|ref|index> បង្អួចគោលដៅសម្រាប់ workspace ដែលបានគ្រប់គ្រង\n  --no-focus              បង្កើត workspace ដោយមិនប្តូរទៅវា\n  --here                  ប្រើផ្ទាំងបច្ចុប្បន្នឡើងវិញ ជំនួសឱ្យការបង្កើតកន្លែងធ្វើការថ្មី។\n                          តម្រូវឱ្យមានផ្ទាំង cmux ដែលមាន terminal តែមួយ និងមិនមែនពីចម្ងាយ។\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh --here dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\n새 워크스페이스를 만들고 remote-SSH로 표시한 뒤, 그 워크스페이스에서 SSH 세션을 시작합니다.\ncmux는 브라우저 트래픽이 원격 호스트에서 나가도록 로컬 SSH 프록시 엔드포인트도 설정합니다.\n\nFlags:\n  --name <title>          선택적 워크스페이스 제목\n  --port <n>              SSH 포트\n  --identity <path>       SSH identity 파일 경로\n  -A, --forward-agent     호출자의 SSH 에이전트를 전달합니다. ssh_config의 ForwardAgent yes도 존중합니다\n  -a, --no-forward-agent  이 워크스페이스에서 SSH 에이전트 전달을 비활성화합니다\n  --ssh-option <opt>      추가 SSH -o 옵션(반복 가능)\n  --window <id|ref|index> 관리되는 워크스페이스의 대상 창\n  --no-focus              워크스페이스를 만들되 전환하지 않습니다\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
+            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\n새 워크스페이스를 만들고 remote-SSH로 표시한 뒤, 그 워크스페이스에서 SSH 세션을 시작합니다.\ncmux는 브라우저 트래픽이 원격 호스트에서 나가도록 로컬 SSH 프록시 엔드포인트도 설정합니다.\n\nFlags:\n  --name <title>          선택적 워크스페이스 제목\n  --port <n>              SSH 포트\n  --identity <path>       SSH identity 파일 경로\n  -A, --forward-agent     호출자의 SSH 에이전트를 전달합니다. ssh_config의 ForwardAgent yes도 존중합니다\n  -a, --no-forward-agent  이 워크스페이스에서 SSH 에이전트 전달을 비활성화합니다\n  --ssh-option <opt>      추가 SSH -o 옵션(반복 가능)\n  --window <id|ref|index> 관리되는 워크스페이스의 대상 창\n  --no-focus              워크스페이스를 만들되 전환하지 않습니다\n  --here                  새 워크스페이스를 만들지 않고 현재 페인을 재사용합니다.\n                          단일 터미널이며 원격이 아닌 cmux 페인이 필요합니다.\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh --here dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nOpprett et nytt arbeidsområde, merk det som remote-SSH, og start en SSH-økt i arbeidsområdet.\ncmux oppretter også et lokalt SSH-proxyendepunkt slik at nettlesertrafikk kan gå ut fra den eksterne verten.\n\nFlags:\n  --name <title>          Valgfri tittel på arbeidsområdet\n  --port <n>              SSH-port\n  --identity <path>       Sti til SSH-identitetsfil\n  -A, --forward-agent     Videresender innkallerens SSH-agent; respekterer også ForwardAgent yes fra ssh_config\n  -a, --no-forward-agent  Deaktiver SSH-agentvideresending for dette arbeidsområdet\n  --ssh-option <opt>      Ekstra SSH -o-alternativ (kan gjentas)\n  --window <id|ref|index> Målvindu for det administrerte arbeidsområdet\n  --no-focus              Opprett arbeidsområdet uten å bytte til det\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
+            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nOpprett et nytt arbeidsområde, merk det som remote-SSH, og start en SSH-økt i arbeidsområdet.\ncmux oppretter også et lokalt SSH-proxyendepunkt slik at nettlesertrafikk kan gå ut fra den eksterne verten.\n\nFlags:\n  --name <title>          Valgfri tittel på arbeidsområdet\n  --port <n>              SSH-port\n  --identity <path>       Sti til SSH-identitetsfil\n  -A, --forward-agent     Videresender innkallerens SSH-agent; respekterer også ForwardAgent yes fra ssh_config\n  -a, --no-forward-agent  Deaktiver SSH-agentvideresending for dette arbeidsområdet\n  --ssh-option <opt>      Ekstra SSH -o-alternativ (kan gjentas)\n  --window <id|ref|index> Målvindu for det administrerte arbeidsområdet\n  --no-focus              Opprett arbeidsområdet uten å bytte til det\n  --here                  Gjenbruk gjeldende rute i stedet for å opprette et nytt arbeidsområde.\n                          Krever en cmux-rute med én enkelt terminal som ikke er ekstern.\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh --here dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nUtwórz nowy workspace, oznacz go jako remote-SSH i uruchom w nim sesję SSH.\ncmux utworzy także lokalny punkt końcowy proxy SSH, aby ruch przeglądarki wychodził ze zdalnego hosta.\n\nFlags:\n  --name <title>          Opcjonalny tytuł workspace\n  --port <n>              Port SSH\n  --identity <path>       Ścieżka pliku tożsamości SSH\n  -A, --forward-agent     Przekazuje agenta SSH wywołującego; respektuje też ForwardAgent yes z ssh_config\n  -a, --no-forward-agent  Wyłącza przekazywanie agenta SSH dla tego workspace\n  --ssh-option <opt>      Dodatkowa opcja SSH -o (można powtarzać)\n  --window <id|ref|index> Okno docelowe dla zarządzanego workspace\n  --no-focus              Tworzy workspace bez przełączania się do niego\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
+            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nUtwórz nowy workspace, oznacz go jako remote-SSH i uruchom w nim sesję SSH.\ncmux utworzy także lokalny punkt końcowy proxy SSH, aby ruch przeglądarki wychodził ze zdalnego hosta.\n\nFlags:\n  --name <title>          Opcjonalny tytuł workspace\n  --port <n>              Port SSH\n  --identity <path>       Ścieżka pliku tożsamości SSH\n  -A, --forward-agent     Przekazuje agenta SSH wywołującego; respektuje też ForwardAgent yes z ssh_config\n  -a, --no-forward-agent  Wyłącza przekazywanie agenta SSH dla tego workspace\n  --ssh-option <opt>      Dodatkowa opcja SSH -o (można powtarzać)\n  --window <id|ref|index> Okno docelowe dla zarządzanego workspace\n  --no-focus              Tworzy workspace bez przełączania się do niego\n  --here                  Użyj bieżącego panelu zamiast tworzyć nowy obszar roboczy.\n                          Wymaga panelu cmux z jednym terminalem, który nie jest zdalny.\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh --here dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nCrie um novo workspace, marque-o como remote-SSH e inicie uma sessão SSH nesse workspace.\nO cmux também estabelecerá um endpoint de proxy SSH local para que o tráfego do navegador saia pelo host remoto.\n\nFlags:\n  --name <title>          Título opcional do workspace\n  --port <n>              Porta SSH\n  --identity <path>       Caminho do arquivo de identidade SSH\n  -A, --forward-agent     Encaminha o agente SSH do chamador; também respeita ForwardAgent yes do ssh_config\n  -a, --no-forward-agent  Desativa o encaminhamento do agente SSH para este workspace\n  --ssh-option <opt>      Opção SSH -o extra (repetível)\n  --window <id|ref|index> Janela de destino para o workspace gerenciado\n  --no-focus              Cria o workspace sem alternar para ele\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
+            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nCrie um novo workspace, marque-o como remote-SSH e inicie uma sessão SSH nesse workspace.\nO cmux também estabelecerá um endpoint de proxy SSH local para que o tráfego do navegador saia pelo host remoto.\n\nFlags:\n  --name <title>          Título opcional do workspace\n  --port <n>              Porta SSH\n  --identity <path>       Caminho do arquivo de identidade SSH\n  -A, --forward-agent     Encaminha o agente SSH do chamador; também respeita ForwardAgent yes do ssh_config\n  -a, --no-forward-agent  Desativa o encaminhamento do agente SSH para este workspace\n  --ssh-option <opt>      Opção SSH -o extra (repetível)\n  --window <id|ref|index> Janela de destino para o workspace gerenciado\n  --no-focus              Cria o workspace sem alternar para ele\n  --here                  Reutiliza o painel atual em vez de criar um novo workspace.\n                          Requer um painel do cmux com um único terminal e não remoto.\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh --here dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nСоздает новый workspace, помечает его как remote-SSH и запускает в нем SSH-сеанс.\ncmux также создаст локальную конечную точку SSH-прокси, чтобы трафик браузера выходил с удаленного хоста.\n\nFlags:\n  --name <title>          Необязательный заголовок workspace\n  --port <n>              SSH-порт\n  --identity <path>       Путь к файлу идентификации SSH\n  -A, --forward-agent     Пересылает SSH-агент вызывающего процесса; также учитывает ForwardAgent yes из ssh_config\n  -a, --no-forward-agent  Отключает пересылку SSH-агента для этого workspace\n  --ssh-option <opt>      Дополнительная опция SSH -o (можно повторять)\n  --window <id|ref|index> Целевое окно для управляемого workspace\n  --no-focus              Создает workspace без переключения на него\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
+            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nСоздает новый workspace, помечает его как remote-SSH и запускает в нем SSH-сеанс.\ncmux также создаст локальную конечную точку SSH-прокси, чтобы трафик браузера выходил с удаленного хоста.\n\nFlags:\n  --name <title>          Необязательный заголовок workspace\n  --port <n>              SSH-порт\n  --identity <path>       Путь к файлу идентификации SSH\n  -A, --forward-agent     Пересылает SSH-агент вызывающего процесса; также учитывает ForwardAgent yes из ssh_config\n  -a, --no-forward-agent  Отключает пересылку SSH-агента для этого workspace\n  --ssh-option <opt>      Дополнительная опция SSH -o (можно повторять)\n  --window <id|ref|index> Целевое окно для управляемого workspace\n  --no-focus              Создает workspace без переключения на него\n  --here                  Использовать текущую панель вместо создания нового рабочего пространства.\n                          Требуется панель cmux с одним терминалом, не являющаяся удалённой.\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh --here dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nสร้าง workspace ใหม่ ทำเครื่องหมายเป็น remote-SSH และเริ่มเซสชัน SSH ใน workspace นั้น\ncmux จะตั้งค่าปลายทาง SSH proxy ภายในเครื่องด้วย เพื่อให้ทราฟฟิกของเบราว์เซอร์ออกจากโฮสต์ระยะไกล\n\nFlags:\n  --name <title>          ชื่อ workspace ที่ระบุได้\n  --port <n>              พอร์ต SSH\n  --identity <path>       พาธไฟล์ SSH identity\n  -A, --forward-agent     ส่งต่อ SSH agent ของผู้เรียก และเคารพ ForwardAgent yes จาก ssh_config ด้วย\n  -a, --no-forward-agent  ปิดการส่งต่อ SSH agent สำหรับ workspace นี้\n  --ssh-option <opt>      ตัวเลือก SSH -o เพิ่มเติม (ระบุซ้ำได้)\n  --window <id|ref|index> หน้าต่างเป้าหมายสำหรับ workspace ที่จัดการ\n  --no-focus              สร้าง workspace โดยไม่สลับไปยัง workspace นั้น\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
+            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nสร้าง workspace ใหม่ ทำเครื่องหมายเป็น remote-SSH และเริ่มเซสชัน SSH ใน workspace นั้น\ncmux จะตั้งค่าปลายทาง SSH proxy ภายในเครื่องด้วย เพื่อให้ทราฟฟิกของเบราว์เซอร์ออกจากโฮสต์ระยะไกล\n\nFlags:\n  --name <title>          ชื่อ workspace ที่ระบุได้\n  --port <n>              พอร์ต SSH\n  --identity <path>       พาธไฟล์ SSH identity\n  -A, --forward-agent     ส่งต่อ SSH agent ของผู้เรียก และเคารพ ForwardAgent yes จาก ssh_config ด้วย\n  -a, --no-forward-agent  ปิดการส่งต่อ SSH agent สำหรับ workspace นี้\n  --ssh-option <opt>      ตัวเลือก SSH -o เพิ่มเติม (ระบุซ้ำได้)\n  --window <id|ref|index> หน้าต่างเป้าหมายสำหรับ workspace ที่จัดการ\n  --no-focus              สร้าง workspace โดยไม่สลับไปยัง workspace นั้น\n  --here                  ใช้แผงปัจจุบันซ้ำแทนที่จะสร้างพื้นที่ทำงานใหม่\n                          ต้องใช้แผง cmux ที่มีเทอร์มินัลเดียวและไม่ใช่รีโมต\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh --here dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nYeni bir workspace oluşturur, onu remote-SSH olarak işaretler ve bu workspace içinde bir SSH oturumu başlatır.\ncmux ayrıca tarayıcı trafiğinin uzak hosttan çıkabilmesi için yerel bir SSH proxy uç noktası kurar.\n\nFlags:\n  --name <title>          İsteğe bağlı workspace başlığı\n  --port <n>              SSH portu\n  --identity <path>       SSH identity dosya yolu\n  -A, --forward-agent     Çağıranın SSH agent'ını iletir; ssh_config içindeki ForwardAgent yes ayarını da dikkate alır\n  -a, --no-forward-agent  Bu workspace için SSH agent iletmeyi devre dışı bırakır\n  --ssh-option <opt>      Ek SSH -o seçeneği (tekrarlanabilir)\n  --window <id|ref|index> Yönetilen workspace için hedef pencere\n  --no-focus              Workspace'i ona geçmeden oluşturur\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
+            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nYeni bir workspace oluşturur, onu remote-SSH olarak işaretler ve bu workspace içinde bir SSH oturumu başlatır.\ncmux ayrıca tarayıcı trafiğinin uzak hosttan çıkabilmesi için yerel bir SSH proxy uç noktası kurar.\n\nFlags:\n  --name <title>          İsteğe bağlı workspace başlığı\n  --port <n>              SSH portu\n  --identity <path>       SSH identity dosya yolu\n  -A, --forward-agent     Çağıranın SSH agent'ını iletir; ssh_config içindeki ForwardAgent yes ayarını da dikkate alır\n  -a, --no-forward-agent  Bu workspace için SSH agent iletmeyi devre dışı bırakır\n  --ssh-option <opt>      Ek SSH -o seçeneği (tekrarlanabilir)\n  --window <id|ref|index> Yönetilen workspace için hedef pencere\n  --no-focus              Workspace'i ona geçmeden oluşturur\n  --here                  Yeni bir çalışma alanı oluşturmak yerine geçerli bölmeyi yeniden kullanır.\n                          Tek terminalli ve uzak olmayan bir cmux bölmesi gerektirir.\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh --here dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nСтворює новий workspace, позначає його як remote-SSH і запускає в ньому SSH-сеанс.\ncmux також створить локальну кінцеву точку SSH-проксі, щоб трафік браузера виходив із віддаленого хоста.\n\nFlags:\n  --name <title>          Необов’язкова назва workspace\n  --port <n>              SSH-порт\n  --identity <path>       Шлях до файлу ідентифікації SSH\n  -A, --forward-agent     Пересилає SSH-агент процесу-викликача; також враховує ForwardAgent yes із ssh_config\n  -a, --no-forward-agent  Вимикає пересилання SSH-агента для цього workspace\n  --ssh-option <opt>      Додаткова опція SSH -o (можна повторювати)\n  --window <id|ref|index> Цільове вікно для керованого workspace\n  --no-focus              Створює workspace без перемикання на нього\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
+            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\nСтворює новий workspace, позначає його як remote-SSH і запускає в ньому SSH-сеанс.\ncmux також створить локальну кінцеву точку SSH-проксі, щоб трафік браузера виходив із віддаленого хоста.\n\nFlags:\n  --name <title>          Необов’язкова назва workspace\n  --port <n>              SSH-порт\n  --identity <path>       Шлях до файлу ідентифікації SSH\n  -A, --forward-agent     Пересилає SSH-агент процесу-викликача; також враховує ForwardAgent yes із ssh_config\n  -a, --no-forward-agent  Вимикає пересилання SSH-агента для цього workspace\n  --ssh-option <opt>      Додаткова опція SSH -o (можна повторювати)\n  --window <id|ref|index> Цільове вікно для керованого workspace\n  --no-focus              Створює workspace без перемикання на нього\n  --here                  Використовувати поточну панель замість створення нового робочого простору.\n                          Потрібна панель cmux з одним терміналом, що не є віддаленою.\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh --here dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\n创建一个新工作区，将其标记为 remote-SSH，并在该工作区中启动 SSH 会话。\ncmux 还会建立本地 SSH 代理端点，使浏览器流量可以从远程主机发出。\n\nFlags:\n  --name <title>          可选的工作区标题\n  --port <n>              SSH 端口\n  --identity <path>       SSH identity 文件路径\n  -A, --forward-agent     转发调用方的 SSH agent；也会遵循 ssh_config 中的 ForwardAgent yes\n  -a, --no-forward-agent  为此工作区禁用 SSH agent 转发\n  --ssh-option <opt>      额外的 SSH -o 选项（可重复）\n  --window <id|ref|index> 托管工作区的目标窗口\n  --no-focus              创建工作区但不切换到它\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
+            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\n创建一个新工作区，将其标记为 remote-SSH，并在该工作区中启动 SSH 会话。\ncmux 还会建立本地 SSH 代理端点，使浏览器流量可以从远程主机发出。\n\nFlags:\n  --name <title>          可选的工作区标题\n  --port <n>              SSH 端口\n  --identity <path>       SSH identity 文件路径\n  -A, --forward-agent     转发调用方的 SSH agent；也会遵循 ssh_config 中的 ForwardAgent yes\n  -a, --no-forward-agent  为此工作区禁用 SSH agent 转发\n  --ssh-option <opt>      额外的 SSH -o 选项（可重复）\n  --window <id|ref|index> 托管工作区的目标窗口\n  --no-focus              创建工作区但不切换到它\n  --here                  重用当前窗格，而不是创建新的工作区。\n                          需要单终端且非远程的 cmux 窗格。\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh --here dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\n建立新的工作區，將其標記為 remote-SSH，並在該工作區中啟動 SSH 工作階段。\ncmux 也會建立本機 SSH 代理端點，讓瀏覽器流量可以從遠端主機送出。\n\nFlags:\n  --name <title>          選用的工作區標題\n  --port <n>              SSH 連接埠\n  --identity <path>       SSH identity 檔案路徑\n  -A, --forward-agent     轉送呼叫端的 SSH agent；也會遵循 ssh_config 中的 ForwardAgent yes\n  -a, --no-forward-agent  對此工作區停用 SSH agent 轉送\n  --ssh-option <opt>      額外的 SSH -o 選項（可重複）\n  --window <id|ref|index> 受管理工作區的目標視窗\n  --no-focus              建立工作區但不切換到該工作區\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
+            "value": "Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]\n\n建立新的工作區，將其標記為 remote-SSH，並在該工作區中啟動 SSH 工作階段。\ncmux 也會建立本機 SSH 代理端點，讓瀏覽器流量可以從遠端主機送出。\n\nFlags:\n  --name <title>          選用的工作區標題\n  --port <n>              SSH 連接埠\n  --identity <path>       SSH identity 檔案路徑\n  -A, --forward-agent     轉送呼叫端的 SSH agent；也會遵循 ssh_config 中的 ForwardAgent yes\n  -a, --no-forward-agent  對此工作區停用 SSH agent 轉送\n  --ssh-option <opt>      額外的 SSH -o 選項（可重複）\n  --window <id|ref|index> 受管理工作區的目標視窗\n  --no-focus              建立工作區但不切換到該工作區\n  --here                  重用目前的窗格，而不是建立新的工作區。\n                          需要單一終端機且非遠端的 cmux 窗格。\n\nExample:\n  cmux ssh dev@my-host\n  cmux ssh --here dev@my-host\n  cmux ssh dev@my-host --name \"gpu-box\" --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh dev@my-host --forward-agent\n  cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no"
           }
         }
       }
@@ -261874,130 +261874,130 @@
       }
     },
     "mobile.pairing.error.teamUnavailable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could not load your cmux team. Check your internet connection, then try again."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux チームを読み込めませんでした。インターネット接続を確認してから、もう一度お試しください。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法加载你的 cmux 团队。请检查网络连接，然后重试。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dein cmux-Team konnte nicht geladen werden. Prüfe deine Internetverbindung und versuche es erneut."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de charger votre équipe cmux. Vérifiez votre connexion Internet, puis réessayez."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر تحميل فريق cmux الخاص بك. تحقّق من اتصالك بالإنترنت، ثم حاول مرة أخرى."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo cargar tu equipo de cmux. Comprueba tu conexión a internet e inténtalo de nuevo."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法載入你的 cmux 團隊。請檢查網路連線，然後再試一次。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 팀을 불러올 수 없습니다. 인터넷 연결을 확인한 후 다시 시도하세요."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nije moguće učitati vaš cmux tim. Provjerite internetsku vezu i pokušajte ponovo."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Din cmux-team kunne ikke indlæses. Kontrollér din internetforbindelse, og prøv igen."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossibile caricare il tuo team cmux. Controlla la connessione Internet e riprova."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "មិនអាចផ្ទុកក្រុម cmux របស់អ្នកបានទេ។ សូមពិនិត្យការតភ្ជាប់អ៊ីនធឺណិត ហើយព្យាយាមម្ដងទៀត។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kunne ikke laste inn cmux-teamet ditt. Kontroller internettilkoblingen, og prøv igjen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nie udało się załadować Twojego zespołu cmux. Sprawdź połączenie z internetem i spróbuj ponownie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Não foi possível carregar sua equipe cmux. Verifique sua conexão com a internet e tente novamente."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не удалось загрузить вашу команду cmux. Проверьте подключение к интернету и попробуйте ещё раз."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ไม่สามารถโหลดทีม cmux ของคุณได้ ตรวจสอบการเชื่อมต่ออินเทอร์เน็ตแล้วลองอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux ekibiniz yüklenemedi. İnternet bağlantınızı kontrol edip tekrar deneyin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не вдалося завантажити вашу команду cmux. Перевірте підключення до інтернету й спробуйте ще раз."
-          }
-        }
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Could not load your cmux team. Check your internet connection, then try again."
       }
     },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "cmux チームを読み込めませんでした。インターネット接続を確認してから、もう一度お試しください。"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "无法加载你的 cmux 团队。请检查网络连接，然后重试。"
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Dein cmux-Team konnte nicht geladen werden. Prüfe deine Internetverbindung und versuche es erneut."
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Impossible de charger votre équipe cmux. Vérifiez votre connexion Internet, puis réessayez."
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "تعذّر تحميل فريق cmux الخاص بك. تحقّق من اتصالك بالإنترنت، ثم حاول مرة أخرى."
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "No se pudo cargar tu equipo de cmux. Comprueba tu conexión a internet e inténtalo de nuevo."
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "無法載入你的 cmux 團隊。請檢查網路連線，然後再試一次。"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "cmux 팀을 불러올 수 없습니다. 인터넷 연결을 확인한 후 다시 시도하세요."
+      }
+    },
+    "bs": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nije moguće učitati vaš cmux tim. Provjerite internetsku vezu i pokušajte ponovo."
+      }
+    },
+    "da": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Din cmux-team kunne ikke indlæses. Kontrollér din internetforbindelse, og prøv igen."
+      }
+    },
+    "it": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Impossibile caricare il tuo team cmux. Controlla la connessione Internet e riprova."
+      }
+    },
+    "km": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "មិនអាចផ្ទុកក្រុម cmux របស់អ្នកបានទេ។ សូមពិនិត្យការតភ្ជាប់អ៊ីនធឺណិត ហើយព្យាយាមម្ដងទៀត។"
+      }
+    },
+    "nb": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Kunne ikke laste inn cmux-teamet ditt. Kontroller internettilkoblingen, og prøv igjen."
+      }
+    },
+    "pl": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Nie udało się załadować Twojego zespołu cmux. Sprawdź połączenie z internetem i spróbuj ponownie."
+      }
+    },
+    "pt-BR": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Não foi possível carregar sua equipe cmux. Verifique sua conexão com a internet e tente novamente."
+      }
+    },
+    "ru": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Не удалось загрузить вашу команду cmux. Проверьте подключение к интернету и попробуйте ещё раз."
+      }
+    },
+    "th": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "ไม่สามารถโหลดทีม cmux ของคุณได้ ตรวจสอบการเชื่อมต่ออินเทอร์เน็ตแล้วลองอีกครั้ง"
+      }
+    },
+    "tr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "cmux ekibiniz yüklenemedi. İnternet bağlantınızı kontrol edip tekrar deneyin."
+      }
+    },
+    "uk": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Не вдалося завантажити вашу команду cmux. Перевірте підключення до інтернету й спробуйте ще раз."
+      }
+    }
+  }
+},
     "mobile.pairing.error.noTicket": {
       "extractionState": "manual",
       "localizations": {
@@ -550698,54 +550698,14 @@
             "value": "Workspace Color: %@"
           }
         },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Arbeitsbereichfarbe: %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couleur de l’espace de travail : %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لون مساحة العمل: %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Color del espacio de trabajo: %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "工作區顏色：%@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "工作区颜色：%@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "작업 공간 색상: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースの色: %@"
-          }
-        }
+        "de": {"stringUnit": {"state": "translated", "value": "Arbeitsbereichfarbe: %@"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Couleur de l’espace de travail : %@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لون مساحة العمل: %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Color del espacio de trabajo: %@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "工作區顏色：%@"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "工作区颜色：%@"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "작업 공간 색상: %@"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ワークスペースの色: %@"}}
       }
     },
     "fileExplorer.preview.failedTitle": {
@@ -568805,70 +568765,70 @@
             "value": "cmux 重新開啟後仍在還原此終端機，並確認要恢復哪個代理工作階段。請幾秒後再試。"
           }
         },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux još vraća terminal nakon ponovnog otvaranja i provjerava koju sesiju agenta treba nastaviti. Pokušajte ponovo za nekoliko sekundi."
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux još vraća terminal nakon ponovnog otvaranja i provjerava koju sesiju agenta treba nastaviti. Pokušajte ponovo za nekoliko sekundi."
           }
         },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux gendanner stadig terminalen efter genåbning og tjekker, hvilken agentsession der skal genoptages. Prøv igen om et par sekunder."
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux gendanner stadig terminalen efter genåbning og tjekker, hvilken agentsession der skal genoptages. Prøv igen om et par sekunder."
           }
         },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux sta ancora ripristinando il terminale dopo la riapertura e verifica quale sessione dell’agente riprendere. Riprova tra qualche secondo."
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sta ancora ripristinando il terminale dopo la riapertura e verifica quale sessione dell’agente riprendere. Riprova tra qualche secondo."
           }
         },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux នៅតែកំពុងស្ដារទែមីណាល់ឡើងវិញ បន្ទាប់ពីបើកម្ដងទៀត ហើយកំពុងពិនិត្យមើលថាត្រូវបន្តវគ្គភ្នាក់ងារមួយណា។ សូមព្យាយាមម្ដងទៀតក្នុងរយៈពេលពីរបីវិនាទី។"
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux នៅតែកំពុងស្ដារទែមីណាល់ឡើងវិញ បន្ទាប់ពីបើកម្ដងទៀត ហើយកំពុងពិនិត្យមើលថាត្រូវបន្តវគ្គភ្នាក់ងារមួយណា។ សូមព្យាយាមម្ដងទៀតក្នុងរយៈពេលពីរបីវិនាទី។"
           }
         },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux gjenoppretter fortsatt terminalen etter at den ble åpnet på nytt, og sjekker hvilken agentøkt som skal gjenopptas. Prøv igjen om noen sekunder."
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux gjenoppretter fortsatt terminalen etter at den ble åpnet på nytt, og sjekker hvilken agentøkt som skal gjenopptas. Prøv igjen om noen sekunder."
           }
         },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux wciąż przywraca terminal po ponownym otwarciu i sprawdza, którą sesję agenta wznowić. Spróbuj ponownie za kilka sekund."
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux wciąż przywraca terminal po ponownym otwarciu i sprawdza, którą sesję agenta wznowić. Spróbuj ponownie za kilka sekund."
           }
         },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O cmux ainda está restaurando o terminal após ser reaberto e verificando qual sessão do agente retomar. Tente novamente em alguns segundos."
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O cmux ainda está restaurando o terminal após ser reaberto e verificando qual sessão do agente retomar. Tente novamente em alguns segundos."
           }
         },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux ещё восстанавливает терминал после повторного открытия и проверяет, какой сеанс агента возобновить. Повторите попытку через несколько секунд."
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux ещё восстанавливает терминал после повторного открытия и проверяет, какой сеанс агента возобновить. Повторите попытку через несколько секунд."
           }
         },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux ยังคงกู้คืนเทอร์มินัลหลังจากเปิดใหม่ และกำลังตรวจสอบว่าจะทำเซสชันเอเจนต์ใดต่อ ลองอีกครั้งในอีกไม่กี่วินาที"
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux ยังคงกู้คืนเทอร์มินัลหลังจากเปิดใหม่ และกำลังตรวจสอบว่าจะทำเซสชันเอเจนต์ใดต่อ ลองอีกครั้งในอีกไม่กี่วินาที"
           }
         },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux yeniden açıldıktan sonra terminali hâlâ geri yüklüyor ve hangi ajan oturumunun sürdürüleceğini denetliyor. Birkaç saniye sonra yeniden deneyin."
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux yeniden açıldıktan sonra terminali hâlâ geri yüklüyor ve hangi ajan oturumunun sürdürüleceğini denetliyor. Birkaç saniye sonra yeniden deneyin."
           }
         },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux ще відновлює термінал після повторного відкриття та перевіряє, який сеанс агента відновити. Спробуйте ще раз за кілька секунд."
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux ще відновлює термінал після повторного відкриття та перевіряє, який сеанс агента відновити. Спробуйте ще раз за кілька секунд."
           }
         }
       }
@@ -568930,70 +568890,70 @@
             "value": "此終端機正在關閉，無法讀取。"
           }
         },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal se zatvara i ne može se pročitati."
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal se zatvara i ne može se pročitati."
           }
         },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminalen lukkes og kan ikke læses."
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen lukkes og kan ikke læses."
           }
         },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il terminale si sta chiudendo e non può essere letto."
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il terminale si sta chiudendo e non può essere letto."
           }
         },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ទែមីណាល់កំពុងបិទ ហើយមិនអាចអានបានទេ។"
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ទែមីណាល់កំពុងបិទ ហើយមិនអាចអានបានទេ។"
           }
         },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminalen lukkes og kan ikke leses."
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen lukkes og kan ikke leses."
           }
         },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal jest zamykany i nie można go odczytać."
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal jest zamykany i nie można go odczytać."
           }
         },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O terminal está sendo fechado e não pode ser lido."
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O terminal está sendo fechado e não pode ser lido."
           }
         },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Терминал закрывается, и его нельзя прочитать."
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Терминал закрывается, и его нельзя прочитать."
           }
         },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เทอร์มินัลกำลังปิดและไม่สามารถอ่านได้"
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เทอร์มินัลกำลังปิดและไม่สามารถอ่านได้"
           }
         },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal kapanıyor ve okunamıyor."
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal kapanıyor ve okunamıyor."
           }
         },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Термінал закривається, і його не можна прочитати."
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Термінал закривається, і його не можна прочитати."
           }
         }
       }
@@ -569055,70 +569015,70 @@
             "value": "此終端機已休眠：cmux 暫停了其閒置的代理以節省記憶體。顯示它即可喚醒（這會將其視窗帶到最前面），然後再試一次：%@"
           }
         },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal je u hibernaciji: cmux je pauzirao njegovog neaktivnog agenta radi uštede memorije. Probudite ga tako što ćete ga prikazati (njegov prozor prelazi u prvi plan), pa pokušajte ponovo: %@"
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal je u hibernaciji: cmux je pauzirao njegovog neaktivnog agenta radi uštede memorije. Probudite ga tako što ćete ga prikazati (njegov prozor prelazi u prvi plan), pa pokušajte ponovo: %@"
           }
         },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminalen er i dvale: cmux har sat dens inaktive agent på pause for at spare hukommelse. Væk den ved at vise den (dens vindue kommer forrest), og prøv igen: %@"
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen er i dvale: cmux har sat dens inaktive agent på pause for at spare hukommelse. Væk den ved at vise den (dens vindue kommer forrest), og prøv igen: %@"
           }
         },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il terminale è ibernato: cmux ha sospeso il suo agente inattivo per risparmiare memoria. Riattivalo mostrandolo (la sua finestra passa in primo piano), quindi riprova: %@"
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il terminale è ibernato: cmux ha sospeso il suo agente inattivo per risparmiare memoria. Riattivalo mostrandolo (la sua finestra passa in primo piano), quindi riprova: %@"
           }
         },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ទែមីណាល់កំពុងសម្រាក៖ cmux បានផ្អាកភ្នាក់ងារដែលទំនេររបស់វា ដើម្បីសន្សំអង្គចងចាំ។ ដាស់វាដោយបង្ហាញវា (បង្អួចរបស់វានឹងមកខាងមុខ) រួចព្យាយាមម្ដងទៀត៖ %@"
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ទែមីណាល់កំពុងសម្រាក៖ cmux បានផ្អាកភ្នាក់ងារដែលទំនេររបស់វា ដើម្បីសន្សំអង្គចងចាំ។ ដាស់វាដោយបង្ហាញវា (បង្អួចរបស់វានឹងមកខាងមុខ) រួចព្យាយាមម្ដងទៀត៖ %@"
           }
         },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminalen er i dvale: cmux har satt den inaktive agenten på pause for å spare minne. Vekk den ved å vise den (vinduet kommer i forgrunnen), og prøv igjen: %@"
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen er i dvale: cmux har satt den inaktive agenten på pause for å spare minne. Vekk den ved å vise den (vinduet kommer i forgrunnen), og prøv igjen: %@"
           }
         },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal jest uśpiony: cmux wstrzymał jego bezczynnego agenta, aby oszczędzić pamięć. Wybudź go, wyświetlając go (jego okno przejdzie na pierwszy plan), a potem spróbuj ponownie: %@"
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal jest uśpiony: cmux wstrzymał jego bezczynnego agenta, aby oszczędzić pamięć. Wybudź go, wyświetlając go (jego okno przejdzie na pierwszy plan), a potem spróbuj ponownie: %@"
           }
         },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O terminal está hibernado: o cmux suspendeu o agente ocioso para economizar memória. Desperte-o exibindo-o (a janela vem para a frente) e tente novamente: %@"
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O terminal está hibernado: o cmux suspendeu o agente ocioso para economizar memória. Desperte-o exibindo-o (a janela vem para a frente) e tente novamente: %@"
           }
         },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Терминал в спящем режиме: cmux приостановил неактивного агента, чтобы сэкономить память. Разбудите его, показав терминал (его окно выйдет на передний план), и повторите попытку: %@"
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Терминал в спящем режиме: cmux приостановил неактивного агента, чтобы сэкономить память. Разбудите его, показав терминал (его окно выйдет на передний план), и повторите попытку: %@"
           }
         },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เทอร์มินัลอยู่ในโหมดพัก: cmux หยุดเอเจนต์ที่ไม่ได้ใช้งานชั่วคราวเพื่อประหยัดหน่วยความจำ ปลุกโดยแสดงเทอร์มินัล (หน้าต่างจะมาอยู่ด้านหน้า) แล้วลองอีกครั้ง: %@"
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เทอร์มินัลอยู่ในโหมดพัก: cmux หยุดเอเจนต์ที่ไม่ได้ใช้งานชั่วคราวเพื่อประหยัดหน่วยความจำ ปลุกโดยแสดงเทอร์มินัล (หน้าต่างจะมาอยู่ด้านหน้า) แล้วลองอีกครั้ง: %@"
           }
         },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal hazırda bekliyor: cmux bellek tasarrufu için boştaki ajanını askıya aldı. Onu göstererek uyandırın (penceresi öne gelir), ardından yeniden deneyin: %@"
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal hazırda bekliyor: cmux bellek tasarrufu için boştaki ajanını askıya aldı. Onu göstererek uyandırın (penceresi öne gelir), ardından yeniden deneyin: %@"
           }
         },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Термінал у режимі сну: cmux призупинив неактивного агента, щоб заощадити пам’ять. Розбудіть його, показавши термінал (його вікно перейде на передній план), і спробуйте ще раз: %@"
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Термінал у режимі сну: cmux призупинив неактивного агента, щоб заощадити пам’ять. Розбудіть його, показавши термінал (його вікно перейде на передній план), і спробуйте ще раз: %@"
           }
         }
       }
@@ -569180,70 +569140,70 @@
             "value": "此終端機已休眠：cmux 暫停了其閒置的代理以節省記憶體。請在 cmux 中顯示此終端機以喚醒它，然後再試一次。"
           }
         },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal je u hibernaciji: cmux je pauzirao njegovog neaktivnog agenta radi uštede memorije. Prikažite terminal u cmuxu da ga probudite, pa pokušajte ponovo."
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal je u hibernaciji: cmux je pauzirao njegovog neaktivnog agenta radi uštede memorije. Prikažite terminal u cmuxu da ga probudite, pa pokušajte ponovo."
           }
         },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminalen er i dvale: cmux har sat dens inaktive agent på pause for at spare hukommelse. Vis terminalen i cmux for at vække den, og prøv igen."
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen er i dvale: cmux har sat dens inaktive agent på pause for at spare hukommelse. Vis terminalen i cmux for at vække den, og prøv igen."
           }
         },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il terminale è ibernato: cmux ha sospeso il suo agente inattivo per risparmiare memoria. Mostra il terminale in cmux per riattivarlo, quindi riprova."
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il terminale è ibernato: cmux ha sospeso il suo agente inattivo per risparmiare memoria. Mostra il terminale in cmux per riattivarlo, quindi riprova."
           }
         },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ទែមីណាល់កំពុងសម្រាក៖ cmux បានផ្អាកភ្នាក់ងារដែលទំនេររបស់វា ដើម្បីសន្សំអង្គចងចាំ។ បង្ហាញទែមីណាល់នៅក្នុង cmux ដើម្បីដាស់វា រួចព្យាយាមម្ដងទៀត។"
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ទែមីណាល់កំពុងសម្រាក៖ cmux បានផ្អាកភ្នាក់ងារដែលទំនេររបស់វា ដើម្បីសន្សំអង្គចងចាំ។ បង្ហាញទែមីណាល់នៅក្នុង cmux ដើម្បីដាស់វា រួចព្យាយាមម្ដងទៀត។"
           }
         },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminalen er i dvale: cmux har satt den inaktive agenten på pause for å spare minne. Vis terminalen i cmux for å vekke den, og prøv igjen."
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen er i dvale: cmux har satt den inaktive agenten på pause for å spare minne. Vis terminalen i cmux for å vekke den, og prøv igjen."
           }
         },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal jest uśpiony: cmux wstrzymał jego bezczynnego agenta, aby oszczędzić pamięć. Wyświetl terminal w cmux, aby go wybudzić, a potem spróbuj ponownie."
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal jest uśpiony: cmux wstrzymał jego bezczynnego agenta, aby oszczędzić pamięć. Wyświetl terminal w cmux, aby go wybudzić, a potem spróbuj ponownie."
           }
         },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O terminal está hibernado: o cmux suspendeu o agente ocioso para economizar memória. Mostre o terminal no cmux para despertá-lo e tente novamente."
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O terminal está hibernado: o cmux suspendeu o agente ocioso para economizar memória. Mostre o terminal no cmux para despertá-lo e tente novamente."
           }
         },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Терминал в спящем режиме: cmux приостановил неактивного агента, чтобы сэкономить память. Покажите терминал в cmux, чтобы разбудить его, и повторите попытку."
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Терминал в спящем режиме: cmux приостановил неактивного агента, чтобы сэкономить память. Покажите терминал в cmux, чтобы разбудить его, и повторите попытку."
           }
         },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เทอร์มินัลอยู่ในโหมดพัก: cmux หยุดเอเจนต์ที่ไม่ได้ใช้งานชั่วคราวเพื่อประหยัดหน่วยความจำ แสดงเทอร์มินัลใน cmux เพื่อปลุก แล้วลองอีกครั้ง"
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เทอร์มินัลอยู่ในโหมดพัก: cmux หยุดเอเจนต์ที่ไม่ได้ใช้งานชั่วคราวเพื่อประหยัดหน่วยความจำ แสดงเทอร์มินัลใน cmux เพื่อปลุก แล้วลองอีกครั้ง"
           }
         },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal hazırda bekliyor: cmux bellek tasarrufu için boştaki ajanını askıya aldı. Uyandırmak için terminali cmux'ta gösterin, ardından yeniden deneyin."
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal hazırda bekliyor: cmux bellek tasarrufu için boştaki ajanını askıya aldı. Uyandırmak için terminali cmux'ta gösterin, ardından yeniden deneyin."
           }
         },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Термінал у режимі сну: cmux призупинив неактивного агента, щоб заощадити пам’ять. Покажіть термінал у cmux, щоб розбудити його, і спробуйте ще раз."
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Термінал у режимі сну: cmux призупинив неактивного агента, щоб заощадити пам’ять. Покажіть термінал у cmux, щоб розбудити його, і спробуйте ще раз."
           }
         }
       }
@@ -569305,70 +569265,70 @@
             "value": "此終端機尚未啟動。請幾秒後再試。"
           }
         },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal se još nije pokrenuo. Pokušajte ponovo za nekoliko sekundi."
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal se još nije pokrenuo. Pokušajte ponovo za nekoliko sekundi."
           }
         },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminalen er ikke startet endnu. Prøv igen om et par sekunder."
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen er ikke startet endnu. Prøv igen om et par sekunder."
           }
         },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il terminale non è ancora stato avviato. Riprova tra qualche secondo."
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il terminale non è ancora stato avviato. Riprova tra qualche secondo."
           }
         },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ទែមីណាល់មិនទាន់បានចាប់ផ្តើមនៅឡើយទេ។ សូមព្យាយាមម្ដងទៀតក្នុងរយៈពេលពីរបីវិនាទី។"
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ទែមីណាល់មិនទាន់បានចាប់ផ្តើមនៅឡើយទេ។ សូមព្យាយាមម្ដងទៀតក្នុងរយៈពេលពីរបីវិនាទី។"
           }
         },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminalen har ikke startet ennå. Prøv igjen om noen sekunder."
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen har ikke startet ennå. Prøv igjen om noen sekunder."
           }
         },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal jeszcze się nie uruchomił. Spróbuj ponownie za kilka sekund."
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal jeszcze się nie uruchomił. Spróbuj ponownie za kilka sekund."
           }
         },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O terminal ainda não foi iniciado. Tente novamente em alguns segundos."
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O terminal ainda não foi iniciado. Tente novamente em alguns segundos."
           }
         },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Терминал ещё не запущен. Повторите попытку через несколько секунд."
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Терминал ещё не запущен. Повторите попытку через несколько секунд."
           }
         },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เทอร์มินัลยังไม่ได้เริ่มทำงาน ลองอีกครั้งในอีกไม่กี่วินาที"
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เทอร์มินัลยังไม่ได้เริ่มทำงาน ลองอีกครั้งในอีกไม่กี่วินาที"
           }
         },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal henüz başlamadı. Birkaç saniye sonra yeniden deneyin."
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal henüz başlamadı. Birkaç saniye sonra yeniden deneyin."
           }
         },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Термінал ще не запущено. Спробуйте ще раз за кілька секунд."
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Термінал ще не запущено. Спробуйте ще раз за кілька секунд."
           }
         }
       }
@@ -609673,6 +609633,419 @@
           "stringUnit": {
             "state": "translated",
             "value": "Показати доступність команд Cloud"
+          }
+        }
+      }
+    },
+    "cli.help.ssh.hereLimitations": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In-place SSH:\n  --here requires one local terminal pane and interactive SSH; Mosh and Canvas are not supported.\n  Disconnect or exit returns to the original local shell while cmux stays open.\n  After restarting cmux, the session restores as a normal remote SSH workspace."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH في الجزء الحالي:\n  يتطلب --here جزء طرفية محليًا واحدًا وجلسة SSH تفاعلية؛ Mosh وCanvas غير مدعومين.\n  يعيد قطع الاتصال أو الخروج إلى الصدفة المحلية الأصلية ما دام cmux مفتوحًا.\n  بعد إعادة تشغيل cmux، تُستعاد الجلسة كمساحة عمل SSH بعيدة عادية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH im aktuellen Bereich:\n  --here erfordert einen lokalen Terminalbereich und interaktives SSH; Mosh und Canvas werden nicht unterstützt.\n  Trennen oder Beenden führt zur ursprünglichen lokalen Shell zurück, solange cmux geöffnet bleibt.\n  Nach einem Neustart von cmux wird die Sitzung als normaler Remote-SSH-Workspace wiederhergestellt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH en el panel actual:\n  --here requiere un único panel de terminal local y SSH interactivo; Mosh y Canvas no son compatibles.\n  Desconectar o salir vuelve al shell local original mientras cmux permanezca abierto.\n  Tras reiniciar cmux, la sesión se restaura como un espacio de trabajo SSH remoto normal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH dans le panneau actuel :\n  --here nécessite un seul panneau de terminal local et SSH interactif ; Mosh et Canvas ne sont pas pris en charge.\n  La déconnexion ou la sortie revient au shell local d’origine tant que cmux reste ouvert.\n  Après le redémarrage de cmux, la session est restaurée comme un espace de travail SSH distant normal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のペインでの SSH：\n  --here にはローカルターミナルペイン1つと対話型 SSH が必要です。Mosh と Canvas は使えません。\n  cmux を開いたまま切断または終了すると、元のローカルシェルに戻ります。\n  cmux を再起動すると、通常のリモート SSH ワークスペースとしてセッションが復元されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 창에서 SSH 사용:\n  --here에는 로컬 터미널 창 하나와 대화형 SSH가 필요하며 Mosh와 Canvas는 지원하지 않습니다.\n  cmux가 열려 있는 동안 연결을 끊거나 종료하면 원래 로컬 셸로 돌아갑니다.\n  cmux를 다시 시작하면 세션이 일반 원격 SSH 작업 공간으로 복원됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前窗格中的 SSH：\n  --here 需要一个本地终端窗格及交互式 SSH；不支持 Mosh 和 Canvas。\n  cmux 保持打开时，断开连接或退出会返回原来的本地 shell。\n  重新启动 cmux 后，会话将恢复为普通远程 SSH 工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前窗格中的 SSH：\n  --here 需要一個本機終端機窗格及互動式 SSH；不支援 Mosh 和 Canvas。\n  cmux 保持開啟時，中斷連線或退出會返回原本的本機 shell。\n  重新啟動 cmux 後，工作階段會還原為一般遠端 SSH 工作區。"
+          }
+        }
+      }
+    },
+    "cli.ssh.here.missingSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here did not receive an in-place session identity from cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتلقَّ ssh --here من cmux معرّف الجلسة في الجزء الحالي."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here hat von cmux keine Kennung für die Sitzung im aktuellen Bereich erhalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here no recibió de cmux un identificador de sesión en el panel actual."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here n’a pas reçu de cmux l’identifiant de la session dans le panneau actuel."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here は現在のペインのセッション識別子を cmux から受信できませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here가 cmux에서 현재 창의 세션 식별자를 받지 못했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here 未从 cmux 收到当前窗格的会话标识。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here 未從 cmux 收到目前窗格的工作階段識別碼。"
+          }
+        }
+      }
+    },
+    "cli.ssh.here.requiresInteractiveSSH": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here requires interactive SSH. Remove --transport mosh and options that disable a terminal."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب ssh --here جلسة SSH تفاعلية. أزل --transport mosh والخيارات التي تعطّل الطرفية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here erfordert interaktives SSH. Entfernen Sie --transport mosh und Optionen, die ein Terminal deaktivieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here requiere SSH interactivo. Elimina --transport mosh y las opciones que deshabilitan el terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here nécessite une session SSH interactive. Supprimez --transport mosh et les options qui désactivent le terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here には対話型 SSH が必要です。--transport mosh とターミナルを無効にするオプションを削除してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here에는 대화형 SSH가 필요합니다. --transport mosh와 터미널을 비활성화하는 옵션을 제거하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here 需要交互式 SSH。请移除 --transport mosh 及禁用终端的选项。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here 需要互動式 SSH。請移除 --transport mosh 及停用終端機的選項。"
+          }
+        }
+      }
+    },
+    "cli.ssh.here.requiresPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here must be run from an active cmux terminal pane."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب تشغيل ssh --here من جزء طرفية cmux نشط."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here muss in einem aktiven cmux-Terminalbereich ausgeführt werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here debe ejecutarse desde un panel de terminal cmux activo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here doit être exécuté depuis un panneau de terminal cmux actif."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here はアクティブな cmux ターミナルペインから実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here는 활성 cmux 터미널 창에서 실행해야 합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here 必须从活动的 cmux 终端窗格运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here 必須從作用中的 cmux 終端機窗格執行。"
+          }
+        }
+      }
+    },
+    "cli.ssh.here.windowConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here uses the current pane and cannot be combined with --window."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يستخدم ssh --here الجزء الحالي ولا يمكن دمجه مع --window."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here verwendet den aktuellen Bereich und kann nicht mit --window kombiniert werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here usa el panel actual y no se puede combinar con --window."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here utilise le panneau actuel et ne peut pas être combiné avec --window."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here は現在のペインを使用するため、--window と併用できません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here는 현재 창을 사용하며 --window와 함께 사용할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here 使用当前窗格，不能与 --window 同时使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here 使用目前的窗格，不能與 --window 同時使用。"
+          }
+        }
+      }
+    },
+    "cli.ssh.here.requiresSingleLocalPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here requires a workspace with one local terminal pane and no remote connection."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب ssh --here مساحة عمل تحتوي على جزء طرفية محلي واحد دون اتصال بعيد."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here erfordert einen Workspace mit genau einem lokalen Terminalbereich und ohne Remote-Verbindung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here requiere un espacio de trabajo con un único panel de terminal local y sin conexión remota."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here nécessite un espace de travail avec un seul panneau de terminal local et aucune connexion distante."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here には、ローカルターミナルペインが1つだけで、リモート接続のないワークスペースが必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here에는 로컬 터미널 창이 하나이고 원격 연결이 없는 작업 공간이 필요합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here 需要只有一个本地终端窗格且没有远程连接的工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here 需要只有一個本機終端機窗格且沒有遠端連線的工作區。"
+          }
+        }
+      }
+    },
+    "cli.ssh.here.callerUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here could not verify the calling process. Run it again from the terminal pane."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على ssh --here التحقق من العملية المستدعية. شغّله مجددًا من جزء الطرفية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here konnte den aufrufenden Prozess nicht verifizieren. Führen Sie den Befehl erneut im Terminalbereich aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here no pudo verificar el proceso que lo invoca. Ejecútalo de nuevo desde el panel de terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here n’a pas pu vérifier le processus appelant. Relancez la commande depuis le panneau de terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here は呼び出し元のプロセスを確認できませんでした。ターミナルペインから再実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here가 호출 프로세스를 확인하지 못했습니다. 터미널 창에서 다시 실행하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here 无法验证调用进程。请从终端窗格重新运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh --here 無法驗證呼叫程序。請從終端機窗格重新執行。"
           }
         }
       }

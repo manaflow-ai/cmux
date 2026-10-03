@@ -38,6 +38,9 @@ final class SSHTuiWorkspaceCoordinator {
     }
 
     func connect(workspace: Workspace, configuration: WorkspaceRemoteConfiguration) {
+        // The open RPC owns the initial handoff. A repeated reconnect must not
+        // supersede its generation and make its cancellation roll back a newer visit.
+        guard workspace.sshTuiHereSession?.connectionTask == nil else { return }
         for projection in catalog.projections where projection.workspaceID == workspace.id && projection.resource.machine.isSSH {
             let provider = catalog.provider(for: projection.resource.machine) as? CmuxTuiSurfaceProvider
             _ = provider?.manualMirrorSessions[projection.panelID]?.retryConnection()
@@ -72,17 +75,42 @@ final class SSHTuiWorkspaceCoordinator {
         return provider
     }
 
-    func open(workspace: Workspace, configuration: WorkspaceRemoteConfiguration, initialCommand: [String]? = nil, focus: Bool = true) async throws {
+    func open(workspace: Workspace, configuration: WorkspaceRemoteConfiguration, initialCommand: [String]? = nil,
+              focus: Bool = true, expectedHereSession: SSHTuiHereSession? = nil) async throws {
+        if let expectedHereSession {
+            // The caller watcher can run at the async call boundary. It may
+            // already have restored the shell, which is never a fresh scaffold.
+            guard workspace.sshTuiHereSession === expectedHereSession,
+                  let identity = expectedHereSession.callerProcessIdentity else { throw CancellationError() }
+            try SSHTuiHereSession.requireLiveCaller(identity)
+        }
         attempts.removeValue(forKey: workspace.id)?.cancel()
         let attemptID = UUID()
         workspace.sshTuiConnectionAttemptID = attemptID
         let restoring = workspace.remoteConfiguration != nil
         workspace.remoteConfiguration = configuration
         workspace.applyRemoteConnectionStateUpdate(.connecting, detail: nil, target: configuration.displayTarget)
-        try await attach(workspace: workspace, configuration: configuration, attemptID: attemptID, initialCommand: initialCommand, restoring: restoring, focus: focus)
+        if let here = workspace.sshTuiHereSession {
+            let task = Task { @MainActor [weak self, weak workspace] in
+                guard let self, let workspace else { throw CancellationError() }
+                try await self.attach(workspace: workspace, configuration: configuration, attemptID: attemptID,
+                                      initialCommand: initialCommand, restoring: restoring, focus: focus)
+            }
+            here.connectionTask = task
+            defer { here.connectionTask = nil }
+            try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
+        } else {
+            try await attach(workspace: workspace, configuration: configuration, attemptID: attemptID,
+                             initialCommand: initialCommand, restoring: restoring, focus: focus)
+        }
     }
 
     private func attach(workspace: Workspace, configuration: WorkspaceRemoteConfiguration, attemptID: UUID, initialCommand: [String]? = nil, restoring: Bool = false, focus: Bool = false) async throws {
+        try requireCurrent(workspace: workspace, attemptID: attemptID)
         let discardedLegacyDescriptor = configuration.restoredSSHSession != nil
             && Self.configurationForAttach(configuration).restoredSSHSession == nil
         let preparedConfiguration = Self.configurationForAttach(configuration)
@@ -101,6 +129,16 @@ final class SSHTuiWorkspaceCoordinator {
         }
         let provider = try provider(connection: connection)
         let machine = provider.machine
+        let here = workspace.sshTuiHereSession
+        let creationID = here?.operationID ?? workspace.stableId
+        // The just-created binding must not let graph reconciliation race the
+        // reservation and materialize the terminal into a different native pane.
+        let mutation = here.map { _ in catalog.cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: machine) }
+        defer {
+            if let mutation {
+                catalog.cloudWorkspaceProjectionCoordinator.endLocalMutation(mutation, on: machine, catalog: catalog)
+            }
+        }
         var reservation = reserveInitialTerminal(workspace: workspace, machine: machine, configuration: configuration, focus: focus)
         var completed = false
         defer {
@@ -121,6 +159,7 @@ final class SSHTuiWorkspaceCoordinator {
         // waits on the stale carrier left by the previous app process.
         if restoring, let sshLinks = provider.links as? SSHTuiLinkManager {
             _ = try await sshLinks.connected(machineID: connection.id, preflight: false, upgrade: true)
+            try requireCurrent(workspace: workspace, attemptID: attemptID)
         }
         guard await provider.refreshCurrentGraph(force: false) else {
             throw CloudMachineLink.LinkError.failureMessage(provider.info.linkFailureMessage)
@@ -155,8 +194,11 @@ final class SSHTuiWorkspaceCoordinator {
             } else {
                 connected = try await provider.links.connected(machineID: connection.id)
             }
+            try requireCurrent(workspace: workspace, attemptID: attemptID)
             guard let link = await provider.links.link(machineID: connection.id) else { throw CancellationError() }
-            let request = Self.remoteWorkspaceCreationRequest(for: workspace, socketPath: connected.socketPath)
+            try requireCurrent(workspace: workspace, attemptID: attemptID)
+            let request = Self.remoteWorkspaceCreationRequest(for: workspace, socketPath: connected.socketPath,
+                                                            creationID: creationID)
             let response = try await link.run(arguments: request)
             try requireCurrent(workspace: workspace, attemptID: attemptID)
             guard let object = try JSONSerialization.jsonObject(with: response) as? [String: Any],
@@ -166,7 +208,7 @@ final class SSHTuiWorkspaceCoordinator {
             let resource = try await provider.createTerminal(
                 command: initialCommand ?? connection.shellCommand, cwd: nil, name: nil, remoteWorkspaceID: remoteID,
                 request: CloudTerminalCreationRequest(
-                    id: workspace.stableId,
+                    id: creationID,
                     remoteWorkspaceID: remoteID,
                     restoring: Self.usesDurableCreationReceipt(machineID: connection.id, restoring: restoring)
                 )
@@ -180,7 +222,7 @@ final class SSHTuiWorkspaceCoordinator {
             }
             workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: connection.id, isBase: false, remoteWorkspaceID: remoteID)
             let projected = try await catalog.project(resource.id, into: .workspace(id: workspace.id, placement: .tab),
-                                                      focus: false, adopting: reservation)
+                                                      focus: false, reuseExisting: here == nil, adopting: reservation)
             try requireCurrent(workspace: workspace, attemptID: attemptID)
             if let reservation { workspace.completeReservedCloudTerminalPane(reservation, adoptedPanelID: projected.projection.panelID) }
         }
@@ -193,9 +235,10 @@ final class SSHTuiWorkspaceCoordinator {
     /// It stays unnamed so its creation fingerprint is stable: the idempotency
     /// key is per workspace, and the daemon rejects a replay whose parameters
     /// changed (`creation.conflict`), which a title edit between retries would cause.
-    static func remoteWorkspaceCreationRequest(for workspace: Workspace, socketPath: String) -> CloudTuiRequest {
+    static func remoteWorkspaceCreationRequest(for workspace: Workspace, socketPath: String,
+                                               creationID: UUID? = nil) -> CloudTuiRequest {
         CloudTuiRequests.createWorkspaceArguments(socketPath: socketPath, empty: true)
-            .withIdempotencyKey("ssh-workspace-" + workspace.stableId.uuidString.lowercased())
+            .withIdempotencyKey("ssh-workspace-" + (creationID ?? workspace.stableId).uuidString.lowercased())
     }
 
     /// The local title an SSH attach publishes to the remote workspace it just created.
@@ -218,6 +261,15 @@ final class SSHTuiWorkspaceCoordinator {
     private func reserveInitialTerminal(workspace: Workspace, machine: SurfaceMachineID,
                                         configuration: WorkspaceRemoteConfiguration, focus: Bool = false) -> CloudTerminalPaneReservation? {
         guard configuration.preserveAfterTerminalExit else { return nil }
+        if let here = workspace.sshTuiHereSession {
+            guard workspace.cloudPendingCreations[here.reservation.panelID] === here.reservation else { return nil }
+            if focus {
+                workspace.owningTabManager?.selectWorkspace(workspace)
+                workspace.focusPanel(here.reservation.panelID)
+                workspace.terminalPanel(for: here.reservation.panelID)?.surface.requestInputDemandSurfaceStartIfNeeded()
+            }
+            return here.reservation
+        }
         if let pending = workspace.cloudPendingCreations.values.first(where: { $0.machine == machine }) {
             workspace.restartReservedCloudTerminalPane(pending)
             return pending
@@ -240,6 +292,10 @@ final class SSHTuiWorkspaceCoordinator {
         try Task.checkCancellation()
         guard workspace.sshTuiConnectionAttemptID == attemptID, !workspace.isRetiredFromOwningTabManager,
               ManagedRemoteConnectionsPolicy.isEnabled else { throw CancellationError() }
+        if let here = workspace.sshTuiHereSession {
+            guard let identity = here.callerProcessIdentity else { throw CancellationError() }
+            try SSHTuiHereSession.requireLiveCaller(identity)
+        }
     }
 
     func disconnect(workspace: Workspace) {
