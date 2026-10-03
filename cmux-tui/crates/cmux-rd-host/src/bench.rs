@@ -36,6 +36,8 @@ struct Viewer {
     arrivals: Vec<Arrival>,
     marker: Option<u16>,
     marker_at_ns: u64,
+    /// Host capture time (host monotonic us) of the frame that showed the marker.
+    marker_capture_us: u64,
     frames: u64,
     bytes: u64,
     decode_ms: Vec<f64>,
@@ -89,6 +91,7 @@ impl Viewer {
                                 if self.marker != Some(v) {
                                     self.marker = Some(v);
                                     self.marker_at_ns = t1;
+                                    self.marker_capture_us = frame.body.t_capture_us;
                                 }
                             }
                         }
@@ -243,6 +246,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         arrivals: Vec::new(),
         marker: None,
         marker_at_ns: 0,
+        marker_capture_us: 0,
         frames: 0,
         bytes: 0,
         decode_ms: Vec::new(),
@@ -294,6 +298,9 @@ pub fn run(opts: &Opts) -> Res<()> {
     let (b0, f0, c0, t_begin) = (v.bytes, v.frames, cpu_s(), now_ns());
     let mut rng = Rng::new(u64::from(pid) ^ now_ns());
     let mut g2g = Vec::new();
+    // Same-machine runs share CLOCK_MONOTONIC, so these split the sample at the host capture.
+    let mut to_capture = Vec::new();
+    let mut capture_to_decoded = Vec::new();
     let mut lost = 0usize;
     while g2g.len() + lost < samples && v.ended.is_none() {
         let expected = v.marker.unwrap_or(0).wrapping_add(1);
@@ -304,6 +311,8 @@ pub fn run(opts: &Opts) -> Res<()> {
             v.pump(2_000_000)?;
             if v.marker == Some(expected) {
                 g2g.push((v.marker_at_ns - t0) as f64 / 1e6);
+                to_capture.push((v.marker_capture_us as f64 * 1000.0 - t0 as f64) / 1e6);
+                capture_to_decoded.push((v.marker_at_ns as f64 - v.marker_capture_us as f64 * 1000.0) / 1e6);
                 break;
             }
             if now_ns() - t0 > 1_000_000_000 {
@@ -323,6 +332,8 @@ pub fn run(opts: &Opts) -> Res<()> {
         "welcome": v.welcome,
         "g2g_ms": pct(&mut g2g),
         "lost": lost,
+        "same_clock_input_to_capture_ms": pct(&mut to_capture),
+        "same_clock_capture_to_decoded_ms": pct(&mut capture_to_decoded),
         "frames_per_s": (v.frames - f0) as f64 / secs,
         "mbit_per_s": (v.bytes - b0) as f64 * 8.0 / secs / 1e6,
         "decode_ms": pct(&mut v.decode_ms.clone()),
