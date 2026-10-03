@@ -328,7 +328,7 @@ fn a_bridged_connection_cannot_open_urls_but_the_local_guest_opener_can() {
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
     let guest = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-    assert!(url_open::start(&mux, guest, Some(json!(2)), terminal.clone(), url.into(), &writer));
+    assert!(url_open::start(&mux, guest, Some(json!(2)), terminal, url.into(), &writer));
     let event = url_open_event(&app_outbound, Duration::from_secs(5)).expect("the app hears it");
     assert_eq!(event["url"], url);
     let request_id = event["request_id"].as_str().unwrap().to_owned();
