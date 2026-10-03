@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { automationCapabilityOps } from "./automation-caps.ts"
 import { DisplayName, HostId, TeamId, UserId } from "./schemas.ts"
 
 /**
@@ -63,8 +64,23 @@ export const Trigger = Schema.Struct({
 
 export const Step = Schema.Union([
   Schema.Struct({ type: Schema.Literal("sleep"), seconds: Int(1, 365 * 24 * 3600) }),
-  Schema.Struct({ type: Schema.Literal("note"), text: Text(2000) })
+  Schema.Struct({ type: Schema.Literal("note"), text: Text(2000) }),
+  /**
+   * One cloud op, run as the automation (automation-caps.ts lists the ops). The op's own
+   * schema validates `params` when the step runs; the step's key makes a retry replay.
+   */
+  Schema.Struct({ type: Schema.Literal("op"), op: Schema.Literals(automationCapabilityOps), params: Schema.Unknown })
 ]).annotate({ identifier: "Step" })
+
+/**
+ * One host a code automation may reach over HTTPS (port 443) through the egress
+ * gateway: an exact host name or `*.` plus a domain (subdomains only). Lowercase
+ * DNS names with a letter TLD, so IP literals never match.
+ */
+export const EgressHost = Schema.String.check(
+  Schema.isPattern(/^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/),
+  Schema.isMaxLength(253)
+).annotate({ identifier: "EgressHost" })
 
 /** A full Git commit id (40 lowercase hex). Short ids and branch names never pin a run. */
 export const CommitSha = Schema.String.check(Schema.isPattern(/^[0-9a-f]{40}$/)).annotate({ identifier: "CommitSha" })
@@ -102,7 +118,12 @@ export const Body = Schema.Union([
   }),
   Schema.Struct({ type: Schema.Literal("steps"), steps: Schema.Array(Step).check(Schema.isMinLength(1), Schema.isMaxLength(50)) }),
   /** Chief-written Workflows code (decision A11) at a pinned commit; runs on Tier 1 Dynamic Workers. */
-  Schema.Struct({ type: Schema.Literal("code"), ref: CodeRef })
+  Schema.Struct({
+    type: Schema.Literal("code"),
+    ref: CodeRef,
+    /** Hosts the code may fetch through the egress gateway (none = no network). Part of the body, so a run pins it. */
+    egress: Schema.optionalKey(Schema.Array(EgressHost).check(Schema.isMaxLength(20)))
+  })
 ]).annotate({ identifier: "Body" })
 export type Body = typeof Body.Type
 
