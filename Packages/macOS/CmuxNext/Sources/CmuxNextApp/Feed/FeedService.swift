@@ -135,6 +135,7 @@ final class FeedService {
         if enabled {
             model.onRefresh = { [weak self] in
                 guard let self, self.connection == .connected else { return }
+                // task-owner: one-shot manual refresh; the source's in-flight guard owns duplicate suppression.
                 Task { @MainActor in await self.github.refresh() }
             }
         } else {

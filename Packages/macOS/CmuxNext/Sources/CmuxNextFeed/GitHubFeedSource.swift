@@ -54,7 +54,9 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
         runner = Task { @MainActor [weak self] in
             guard let self else { return }
             await refresh()
+            // wakeup-allow: periodic GitHub refresh; each pass awaits the configured interval and can be cancelled.
             while !Task.isCancelled {
+                // wakeup-allow: the next refresh is a cancellable periodic deadline, not a busy wait.
                 do { try await Task.sleep(for: interval) } catch { return }
                 await refresh()
             }

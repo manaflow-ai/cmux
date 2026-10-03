@@ -70,7 +70,9 @@ public struct GitHubCLIClient: GitHubFeedAPI {
         // while the parent drains one pipe before the other.
         process.standardError = output
         try process.run()
+        // concurrency-allow: this helper runs inside the detached utility task; the pipe is bounded by one gh response.
         let data = output.fileHandleForReading.readDataToEndOfFile()
+        // concurrency-allow: detached utility task owns the process and waits only after its output reaches EOF.
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
             throw GitHubFeedError.cliUnavailable(String(data: data, encoding: .utf8) ?? "gh failed")

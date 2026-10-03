@@ -32415,7 +32415,79 @@
             "value": "GitHub インボックス"
           }
         }
-      }
+      ,
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub Inbox"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub Inbox"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub Inbox"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub Inbox"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub Inbox"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub Inbox"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub Inbox"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub Inbox"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub Inbox"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub Inbox"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub Inbox"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "GitHub Inbox"
+          }
+        }}
     },
     "settings.feed.github.enabled": {
       "extractionState": "manual",
@@ -32474,7 +32546,79 @@
             "value": "GitHub に接続"
           }
         }
-      }
+      ,
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Connect GitHub"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Connect GitHub"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Connect GitHub"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Connect GitHub"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Connect GitHub"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Connect GitHub"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Connect GitHub"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Connect GitHub"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Connect GitHub"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Connect GitHub"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Connect GitHub"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Connect GitHub"
+          }
+        }}
     },
     "settings.feed.github.enabled.help": {
       "extractionState": "manual",
@@ -32533,7 +32677,79 @@
             "value": "この Mac で通知とレビュー依頼を読むために gh ログインを使用します。先に gh auth login でログインしてください。"
           }
         }
-      }
+      ,
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first."
+          }
+        }}
     },
     "settings.feed.github.pollInterval": {
       "extractionState": "manual",
@@ -32592,7 +32808,79 @@
             "value": "更新間隔"
           }
         }
-      }
+      ,
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Refresh Interval"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Refresh Interval"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Refresh Interval"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Refresh Interval"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Refresh Interval"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Refresh Interval"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Refresh Interval"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Refresh Interval"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Refresh Interval"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Refresh Interval"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Refresh Interval"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Refresh Interval"
+          }
+        }}
     },
     "settings.feed.github.pollInterval.help": {
       "extractionState": "manual",
@@ -32651,7 +32939,79 @@
             "value": "GitHub の更新間隔（秒）。受信トレイでの更新はすぐに実行されます。"
           }
         }
-      }
+      ,
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+          }
+        }}
     }
   },
   "version": "1.0"
