@@ -40,6 +40,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// The update a background check accepted, and its held install once it is ready.
     var backgroundItem: SUAppcastItem?
     var stagedInstall: (() -> Void)?
+    var installsWhenStaged = false
     /// Holds a ready update's relaunch while agents are mid-turn or commands are running.
     let relaunchGate: UpdateRelaunchGate
 
@@ -384,6 +385,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     }
 
     private func applyState(_ newState: UpdateState) {
+        if Self.endsInstallRequest(newState) { installsWhenStaged = false }
         model.applyDriverState(newState)
         log.append("state -> \(describe(newState))")
     }

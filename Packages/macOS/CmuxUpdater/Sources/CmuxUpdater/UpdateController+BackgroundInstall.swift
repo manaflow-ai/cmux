@@ -20,4 +20,11 @@ extension UpdateController {
     public func installStagedUpdate() {
         driver.installStaged()
     }
+
+    /// Installs the update downloading in the background as soon as it is ready: the user
+    /// clicked while it was still downloading.
+    public func installWhenStaged() {
+        guard driver.stagedInstall == nil else { return driver.installStaged() }
+        driver.installsWhenStaged = true
+    }
 }

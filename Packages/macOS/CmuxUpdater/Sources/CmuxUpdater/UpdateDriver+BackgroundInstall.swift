@@ -16,6 +16,7 @@ extension UpdateDriver {
     func stageInBackground(_ reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         log.append("background install: staged, waiting for the user")
         stagedInstall = { reply(.install) }
+        if installsWhenStaged { return installStaged() }
         setState(.installing(.init(
             isAutoUpdate: true,
             retryTerminatingApplication: { [weak self] in self?.installStaged() },
@@ -28,11 +29,21 @@ extension UpdateDriver {
         stagedInstall == nil ? nil : backgroundItem
     }
 
+    /// Whether `state` ends a click's request to install when ready: nothing
+    /// was found, or the flow failed, so a later download waits for a new click.
+    static func endsInstallRequest(_ state: UpdateState) -> Bool {
+        switch state {
+        case .notFound, .error, .idle: true
+        default: false
+        }
+    }
+
     /// Sends the held install reply once; Sparkle installs and relaunches.
     func installStaged() {
         guard let install = stagedInstall else { return }
         log.append("background install: installing staged update")
         stagedInstall = nil
+        installsWhenStaged = false
         backgroundItem = nil
         setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
         install()

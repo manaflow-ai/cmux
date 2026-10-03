@@ -107,6 +107,33 @@ import Testing
         #expect(readyBox.choice == nil)
     }
 
+    @Test func aClickDuringTheDownloadInstallsAsSoonAsItIsReady() {
+        let harness = Harness()
+        harness.controller.installsUpdatesInBackground = true
+        find(harness, into: ChoiceBox())
+        harness.controller.installWhenStaged()
+
+        let readyBox = ChoiceBox()
+        ready(harness, into: readyBox)
+
+        #expect(readyBox.choice == .install)
+        #expect(harness.controller.stagedUpdate == nil)
+    }
+
+    @Test func aClickThatFindsNothingDoesNotInstallALaterDownload() {
+        let harness = Harness()
+        harness.controller.installsUpdatesInBackground = true
+        harness.controller.installWhenStaged()
+        harness.controller.driver.showUpdateNotFoundWithError(NSError(domain: "test", code: 0), acknowledgement: {})
+
+        find(harness, into: ChoiceBox())
+        let readyBox = ChoiceBox()
+        ready(harness, into: readyBox)
+
+        #expect(readyBox.choice == nil)
+        #expect(harness.controller.stagedUpdate != nil)
+    }
+
     @Test func backgroundModeWritesNothingToDefaults() {
         let harness = Harness()
         let before = persisted(harness)
