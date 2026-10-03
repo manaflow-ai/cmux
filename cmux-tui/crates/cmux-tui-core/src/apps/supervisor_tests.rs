@@ -870,6 +870,8 @@ fn a_palette_command_runs_its_user_only_op_with_the_palette_gesture() {
 // MARK: provider channel (app-op-routing.md, APP-R1)
 
 const PROVIDER: u64 = 9;
+const APP: super::provider::ProviderClaim =
+    super::provider::ProviderClaim { agent: false, app_kind: true };
 
 /// Registers a provider connection and returns its event stream.
 fn provider(f: &Fixture, families: &[&str]) -> Receiver<Value> {
@@ -880,7 +882,7 @@ fn provider(f: &Fixture, families: &[&str]) -> Receiver<Value> {
         Arc::new(move |v: &Value| tx.lock().unwrap().send(v.clone()).is_ok()),
     );
     f.supervisor
-        .register_provider(PROVIDER, families.iter().map(|s| s.to_string()).collect())
+        .register_provider(PROVIDER, APP, families.iter().map(|s| s.to_string()).collect())
         .unwrap();
     rx
 }
@@ -1000,7 +1002,7 @@ fn a_provider_that_does_not_answer_times_out_and_is_told() {
         (json!("apps-provider-cancel"), id)
     );
     assert_eq!(
-        f.supervisor.register_provider(PROVIDER, vec!["shell".into()]).unwrap_err().code,
+        f.supervisor.register_provider(PROVIDER, APP, vec!["shell".into()]).unwrap_err().code,
         "bad-request"
     );
 }
@@ -1012,13 +1014,13 @@ fn a_live_provider_cannot_be_taken_over() {
     let thief = 10;
     f.supervisor.register_client(thief, Arc::new(|_: &Value| true));
     assert_eq!(
-        f.supervisor.register_provider(thief, vec!["action".into()]).unwrap_err().code,
+        f.supervisor.register_provider(thief, APP, vec!["action".into()]).unwrap_err().code,
         "apps.provider.taken"
     );
     // The holder may register again; after it leaves the family is free.
-    f.supervisor.register_provider(PROVIDER, vec!["action".into(), "fs".into()]).unwrap();
+    f.supervisor.register_provider(PROVIDER, APP, vec!["action".into(), "fs".into()]).unwrap();
     f.supervisor.disconnect(PROVIDER);
-    f.supervisor.register_provider(thief, vec!["action".into()]).unwrap();
+    f.supervisor.register_provider(thief, APP, vec!["action".into()]).unwrap();
 }
 
 #[test]
@@ -1096,4 +1098,23 @@ fn the_idle_stop_waits_for_a_provider_call_in_flight() {
     }
     f.supervisor.provider_result(PROVIDER, id, true, json!({ "value": null })).unwrap();
     f.wait("idle stop after the answer", |e| e["event"] == "apps-host" && e["state"] == "stopped");
+}
+
+#[test]
+fn only_the_cmux_app_and_never_an_agent_may_provide() {
+    let f = fixture();
+    let agent = super::provider::ProviderClaim { agent: true, app_kind: true };
+    let undeclared = super::provider::ProviderClaim { agent: false, app_kind: false };
+    for claim in [agent, undeclared] {
+        let refused =
+            f.supervisor.register_provider(PROVIDER, claim, vec!["action".into()]).unwrap_err();
+        assert_eq!(refused.code, "apps.provider.forbidden", "{claim:?}");
+    }
+    // Nothing was registered: calls still find no provider.
+    f.install("cmux/demo");
+    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    assert_eq!(
+        f.call("m1", "action.run", json!({ "id": "newWindow" }), true)["body"]["code"],
+        "provider.unavailable"
+    );
 }
