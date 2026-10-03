@@ -43,8 +43,7 @@ import Testing
         #expect(store.workspace(key: key)?.pinned == true)
     }
 
-    @Test func pinIsServedByThePinnedDaemon() {
-        #expect(!DaemonCapabilities.shared.awaitingPin.contains(DaemonCapabilities.shared.workspacePin))
+    @Test func pinIsAnOptionalCapability() {
         #expect(DaemonCapabilities.shared.optional.contains(DaemonCapabilities.shared.workspacePin))
         #expect(DaemonCapabilities.shared.advertised.contains("workspace-pin-v1"))
     }

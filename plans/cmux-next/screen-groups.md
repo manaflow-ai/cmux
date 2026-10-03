@@ -44,10 +44,10 @@ command layers still copied, and what this change shares or fixes:
   screen groups, Chrome syncs it with the group, and a per-client copy
   would be a second writer for the same fact. Revisit if a client needs a
   private collapse (record it in its own per-client view record then).
-- `state-resources-v1` is `awaitingPin`: advertised, used when a daemon
-  serves it, not required of the pinned f39636c811a. The pin cut that
-  brings 52103e740 or later moves it to `optional`; screen group
-  create/add/remove/update/ungroup then always carry idempotency keys.
+- `state-resources-v1` is in `optional`: the bundled daemon of a tree with
+  #16174 (cmux-tui 52103e740 or later) serves it, and screen group
+  create/add/remove/update/ungroup then always carry idempotency keys. An
+  older remote daemon gets the raw commands.
 - Move, close, save and placed adds have no v2 operation yet; they stay on
   the raw commands until #16174 adds them.
 - Automatic group colors skip blue (no blue in colors cmux picks itself);

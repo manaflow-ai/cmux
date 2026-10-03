@@ -364,8 +364,8 @@ COORDINATION.md line.
    fixed-capacity array representation checked equal to the real reducer by proptest;
    not scheduled.
 3. `mutation-echo-v1` in the dispatcher: central transaction tag on every caused event,
-   `request-settled` for every request; additive capability, advertised in
-   `awaitingPin` until the pin carries it.
+   `request-settled` for every request; additive capability, listed in the app's
+   `optional` capabilities in the same change as its daemon half.
 3a. Authenticated client identity (`client-identity-v1`). Today v2 requests carry no
    client identity, so "only the hosting app writes the browser record" and "only the
    owning install writes its window record" are enforced by clients alone. Bind an
