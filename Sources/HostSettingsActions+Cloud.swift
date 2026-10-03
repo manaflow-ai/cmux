@@ -69,6 +69,10 @@ extension HostSettingsActions {
         )
     }
 
+    var cloudMachinesAccountID: String? {
+        AppDelegate.shared?.auth?.accountFlow.currentIdentity?.id
+    }
+
     func cloudMachinesPlanIncludesCloud() async -> Bool? {
         guard let flow = AppDelegate.shared?.auth?.accountFlow, flow.isAuthenticated else { return nil }
         await flow.refreshBillingPlan()

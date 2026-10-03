@@ -186,7 +186,7 @@ struct CloudMachinesEnablementView: View {
                     Text(String(localized: "cloud.enable.action", defaultValue: "Enable Cloud"))
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .cloudProminentButtonStyle()
                 .controlSize(.regular)
                 .accessibilityIdentifier("CloudMachinesEnableButton")
                 // A known Pro plan needs no reminder; the note only explains
@@ -267,10 +267,22 @@ struct CloudMachinesEnablementView: View {
         .controlSize(.regular)
         .accessibilityIdentifier(identifier)
         if prominent {
-            button.buttonStyle(.borderedProminent)
+            button.cloudProminentButtonStyle()
         } else {
             button.buttonStyle(.bordered)
         }
+    }
+}
+
+extension View {
+    /// `.borderedProminent` that stays blue when the window is inactive.
+    /// The right sidebar forces its own color scheme
+    /// (`RightSidebarPanelView`); when that disagrees with the window's
+    /// appearance, AppKit draws the inactive gray bezel under SwiftUI's white
+    /// prominent label and the button all but disappears after a click away.
+    func cloudProminentButtonStyle() -> some View {
+        buttonStyle(.borderedProminent)
+            .environment(\.controlActiveState, .key)
     }
 }
 

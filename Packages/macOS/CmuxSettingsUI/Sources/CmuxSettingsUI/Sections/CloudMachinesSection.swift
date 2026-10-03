@@ -1,3 +1,4 @@
+import AppKit
 import CmuxFoundation
 import SwiftUI
 
@@ -14,6 +15,9 @@ public struct CloudMachinesSection: View {
     /// Free accounts get Upgrade in place of the Enable toggle; nil until the
     /// plan answers (or when signed out), which keeps the toggle.
     @State private var planIncludesCloud: Bool?
+    /// Bumped when the app comes back to the front, e.g. after upgrading in
+    /// the browser, so the row stops offering Upgrade without a restart.
+    @State private var planCheckGeneration = 0
 
     public init(hostActions: SettingsHostActions) {
         self.hostActions = hostActions
@@ -50,9 +54,19 @@ public struct CloudMachinesSection: View {
                     : ["setting:cloudMachines:enable"]
             )
             .task { await observeActivation() }
-            .task(id: showsEnableToggle) {
-                guard showsEnableToggle else { return }
+            .task(id: PlanCheckKey(
+                showsEnableToggle: showsEnableToggle,
+                accountID: hostActions.cloudMachinesAccountID,
+                generation: planCheckGeneration
+            )) {
+                guard showsEnableToggle, hostActions.cloudMachinesAccountID != nil else {
+                    planIncludesCloud = nil
+                    return
+                }
                 planIncludesCloud = await hostActions.cloudMachinesPlanIncludesCloud()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                planCheckGeneration &+= 1
             }
             .task(id: activationState.isEnabled) {
                 plan = nil
@@ -150,6 +164,12 @@ public struct CloudMachinesSection: View {
                 .foregroundStyle(.secondary)
                 .accessibilityLabel(String(localized: "settings.cloudMachines.enable.unavailable", defaultValue: "Cloud unavailable"))
         }
+    }
+
+    private struct PlanCheckKey: Equatable {
+        let showsEnableToggle: Bool
+        let accountID: String?
+        let generation: Int
     }
 
     /// Cloud is off, so the row offers to turn it on (or to upgrade first).

@@ -260,9 +260,6 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
             billingPlanIdentityID = nil
             return
         }
-        // A failed refresh keeps a known answer for the same account; it
-        // only resets when there is nothing known to keep.
-        let keepsKnownPlan = billingPlanIdentityID == identityID
         var request = URLRequest(url: AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan"))
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -276,26 +273,33 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
+            // The account may have changed while the request was in flight.
+            guard currentIdentity?.id == identityID else { return }
             guard let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode) else {
-                if !keepsKnownPlan {
-                    isProActive = false
-                    canManageBilling = false
-                }
+                forgetBillingPlanUnlessKnown(for: identityID)
                 return
             }
             let decoded = try JSONDecoder().decode(BillingPlanResponse.self, from: data)
-            // The account may have changed while the request was in flight.
-            guard currentIdentity?.id == identityID else { return }
             isProActive = decoded.isPro
             canManageBilling = decoded.billingManagement == .stripe
             billingPlanIdentityID = identityID
         } catch {
-            if !keepsKnownPlan {
-                isProActive = false
-                canManageBilling = false
-            }
+            // A cancelled request (the panel went away) says nothing about the plan.
+            if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
+            guard currentIdentity?.id == identityID else { return }
+            forgetBillingPlanUnlessKnown(for: identityID)
         }
+    }
+
+    /// A failed check keeps a real answer for the same account, read at the
+    /// time of the failure (another refresh may have answered meanwhile).
+    /// With no answer to keep, the plan is unknown rather than "not Pro".
+    private func forgetBillingPlanUnlessKnown(for identityID: String) {
+        guard billingPlanIdentityID != identityID else { return }
+        isProActive = false
+        canManageBilling = false
+        billingPlanIdentityID = nil
     }
 
     // `AccountFlow` (CmuxSettingsUI) cannot see `ProUpgradeSource`; its
