@@ -112,6 +112,18 @@ struct CloudTreeRowHoverButtons: View {
                     nodeActions.closeTerminal(row.resource.id)
                 }
             }
+        case .port:
+            if let shareablePort = kind.shareablePort {
+                MachinesChromeIconButton(
+                    symbolName: "square.and.arrow.up",
+                    accessibilityLabel: String(localized: "cloudTree.menu.share", defaultValue: "Share"),
+                    isBusy: false
+                ) {
+                    nodeActions.sharePort(shareablePort.resource, shareablePort.url, .copyURL)
+                }
+                .help(String(localized: "cloudTree.menu.share", defaultValue: "Share"))
+                .accessibilityIdentifier("CloudPortShareButton")
+            }
         default:
             EmptyView()
         }
@@ -130,6 +142,8 @@ struct CloudTreeRowHoverButtons: View {
             return row.canCreateWorkspacesAndTerminals
         case .terminal(let row):
             return !row.resource.machine.isLocal
+        case .port:
+            return kind.shareablePort != nil
         default:
             return false
         }

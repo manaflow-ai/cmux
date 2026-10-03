@@ -583,9 +583,13 @@ struct CloudTreeMachineMenuTests {
     @Test("Cloud port sharing is offered only for a resolved Cloud URL")
     func cloudPortSharingIsCloudOnlyAndVisible() throws {
         let recorder = CloudTreeMenuVerbRecorder()
+        var actions = Self.nodeActions(recording: recorder)
+        actions.sharePort = { resource, url, destination in
+            recorder.sharedPorts.append((resource.id, url, destination))
+        }
         let coordinator = CloudTreeOutlineView.Coordinator(
             machineActions: Self.machineActions(recording: recorder),
-            nodeActions: Self.nodeActions(recording: recorder),
+            nodeActions: actions,
             expansionStore: CloudTreeExpansionStore(
                 defaults: UserDefaults(suiteName: "cloud-tree-port-sharing-\(UUID().uuidString)")!
             ),
@@ -603,14 +607,44 @@ struct CloudTreeMachineMenuTests {
         let menu = try #require(coordinator.contextMenu(forRow: 0))
         let titles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
         #expect(titles.contains(Self.title("cloudTree.menu.share", "Share")))
-        #expect(titles.contains(Self.title("cloudTree.menu.shareInNewWorkspace", "Share in New Workspace")))
+        #expect(titles.contains(Self.title("cloudTree.menu.shareNewWorkspace", "Share in New Workspace")))
         #expect(CloudTreeRowHoverButtons.hasButtons(for: .port(cloudResource, url: "https://cloud.example/3000", openIn: nil)))
+        try Self.choose(Self.title("cloudTree.menu.share", "Share"), in: menu)
+        try Self.choose(Self.title("cloudTree.menu.shareNewWorkspace", "Share in New Workspace"), in: menu)
+        #expect(recorder.sharedPorts.map(\.0) == [cloudResource.id, cloudResource.id])
+        #expect(recorder.sharedPorts.map(\.1) == [
+            "https://cloud.example/3000",
+            "https://cloud.example/3000",
+        ])
+        #expect(recorder.sharedPorts.map(\.2) == [.copyURL, .newWorkspace])
 
         let noURL = Self.portResource(machine: .cloud(Self.machineID))
         #expect(!CloudTreeRowHoverButtons.hasButtons(for: .port(noURL, url: nil, openIn: nil)))
 
+        var unavailable = Self.portResource(machine: .cloud(Self.machineID))
+        unavailable.lifecycle = .unavailable
+        #expect(!CloudTreeRowHoverButtons.hasButtons(for: .port(unavailable, url: "https://cloud.example/3000", openIn: nil)))
+
+        let local = Self.portResource(machine: .local)
+        #expect(!CloudTreeRowHoverButtons.hasButtons(for: .port(local, url: "http://localhost:3000", openIn: nil)))
+
         let ssh = Self.portResource(machine: .ssh("ssh-host"))
         #expect(!CloudTreeRowHoverButtons.hasButtons(for: .port(ssh, url: "https://ssh.example/3000", openIn: nil)))
+
+        let shareTitles = [
+            Self.title("cloudTree.menu.share", "Share"),
+            Self.title("cloudTree.menu.shareNewWorkspace", "Share in New Workspace"),
+        ]
+        for (id, kind) in [
+            ("cloud-port-no-url", CloudTreeNode.Kind.port(noURL, url: nil, openIn: nil)),
+            ("cloud-port-unavailable", CloudTreeNode.Kind.port(unavailable, url: "https://cloud.example/3000", openIn: nil)),
+            ("local-port", CloudTreeNode.Kind.port(local, url: "http://localhost:3000", openIn: nil)),
+            ("ssh-port", CloudTreeNode.Kind.port(ssh, url: "https://ssh.example/3000", openIn: nil)),
+        ] {
+            coordinator.apply(nodes: [CloudTreeNode(id: id, kind: kind)])
+            let invalidMenu = try #require(coordinator.contextMenu(forRow: 0))
+            #expect(invalidMenu.items.map(\.title).allSatisfy { !shareTitles.contains($0) })
+        }
     }
 
     /// The menu builder appends the rename item in both the browser and the
@@ -996,4 +1030,5 @@ private final class CloudTreeMenuVerbRecorder {
     var networkEdits: [(String, String?)] = []
     var agentUpdateChanges: [(String, Bool)] = []
     var renamedRemoteViews: [(SurfaceResourceID, String)] = []
+    var sharedPorts: [(SurfaceResourceID, String, CloudPortShareDestination)] = []
 }

@@ -79,6 +79,18 @@ final class CloudTreeNode: NSObject {
         case machineDetailTabs(CloudTreeMachineDetailTabs)
         /// The gap after a Cloud machine's last row, before the next machine.
         case machineEndSpacer(machine: SurfaceMachineID)
+        /// A port can be shared only when the row points at a Cloud machine and
+        /// the discovery route has produced a usable URL. Keeping this gate on
+        /// the node gives context menus and hover controls one source of truth.
+        var shareablePort: (resource: SurfaceResource, url: String)? {
+            guard case .port(let resource, let url, _) = self,
+                  resource.machine.cloudMachineID != nil,
+                  resource.lifecycle == .running,
+                  let url,
+                  !url.isEmpty
+            else { return nil }
+            return (resource: resource, url: url)
+        }
         /// Port discovery is demand-driven when the user opens the Ports group.
         var refreshesOnExpansion: Bool { switch self { case .portsGroup, .displaysPool: true; default: false } }
         /// The identity glyph a top-level section header carries once for all of
