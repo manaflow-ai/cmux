@@ -11,7 +11,7 @@ struct WgHubFlags {
     exit_with_parent: bool,
 }
 
-fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
+pub(super) fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
     let mut config = None;
     let mut socket = None;
     let mut control = None;
