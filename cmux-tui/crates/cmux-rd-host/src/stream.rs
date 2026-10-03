@@ -94,9 +94,7 @@ impl MediaSession {
             max_bps: u64::from(cfg.max_kbps) * 1000,
             ..CcConfig::default()
         };
-        let mut gate = FrameGate::new(1, cfg.max_fps);
-        // The first frame covers the whole screen (an IDR).
-        let _ = gate.damage(Rect { x: 0, y: 0, width: w, height: h }, now_us());
+        let gate = FrameGate::new(1, cfg.max_fps);
         Ok(Self {
             injector: Injector::new(&cfg.display)?,
             pic: I420::new(w as usize, h as usize),
@@ -143,6 +141,13 @@ impl MediaSession {
     ) -> String {
         let mut damage = Vec::new();
         let mut buf = vec![0u8; 65536];
+        // The first frame covers the whole screen (an IDR).
+        let full = Rect { x: 0, y: 0, width: self.cap.width, height: self.cap.height };
+        if let FlowAction::Encode { damage: d, frame } = self.gate.damage(full, now_us()) {
+            if let Err(e) = self.encode(stream, d, frame) {
+                return format!("encode/send failed: {e}");
+            }
+        }
         loop {
             if !table.may_send_media(session, viewer) {
                 return "session not active".into();
