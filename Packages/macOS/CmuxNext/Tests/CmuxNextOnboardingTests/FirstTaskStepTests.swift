@@ -21,7 +21,7 @@ import Testing
     @Test func theStepFollowsRoleOnlyWhenTheAppCanRunAChat() {
         #expect(!OnboardingModel(services: MockOnboardingServices()).steps.contains(.firstTask))
         let model = OnboardingModel(services: services())
-        #expect(model.steps == [.role, .firstTask, .projects, .defaultBrowser, .importData, .theme])
+        #expect(model.steps == [.role, .firstTask, .projects, .chats, .defaultBrowser, .importData, .theme])
         model.next()
         #expect(model.step == .firstTask)
     }

@@ -12,9 +12,9 @@ public import Foundation
 public nonisolated struct AgentChatScan: Sendable {
     public var projects: AgentProjectScan
     /// The newest chats returned; older ones add nothing a user would pick.
-    public var limit = 200
+    public var limit = 60
     /// Bytes read per session file; a longer chat's count stops there.
-    public var bytesPerFile = 8 * 1024 * 1024
+    public var bytesPerFile = 32 * 1024 * 1024
 
     public init(projects: AgentProjectScan) {
         self.projects = projects
@@ -43,12 +43,22 @@ public nonisolated struct AgentChatScan: Sendable {
         guard let data = try? handle.read(upToCount: bytesPerFile) else { return nil }
         var reader = ChatRecordReader(app: app)
         if app == .claudeCode { reader.sessionID = file.deletingPathExtension().lastPathComponent }
+        let needles = Self.needles(app)
         for line in data.split(separator: UInt8(ascii: "\n")) {
-            guard let record = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any] else { continue }
+            // Most lines are tool output and replies; only parse ones that can matter.
+            guard needles.contains(where: { line.range(of: $0) != nil }),
+                  let record = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any] else { continue }
             reader.add(record)
         }
         guard let id = reader.sessionID, let cwd = reader.cwd, reader.prompts > 0 else { return nil }
         return AgentChat(sessionID: id, app: app, folder: URL(fileURLWithPath: cwd, isDirectory: true).standardizedFileURL,
                          title: reader.summary ?? reader.firstPrompt ?? "", prompts: reader.prompts, lastActive: modified)
+    }
+
+    /// Byte strings at least one of which every record `ChatRecordReader` uses contains.
+    static func needles(_ app: AgentApp) -> [Data] {
+        let strings = app == .codex ? [#""session_meta""#, #""user_message""#, #""role":"user""#]
+            : [#""type":"user""#, #""type":"summary""#]
+        return strings.map { Data($0.utf8) }
     }
 }

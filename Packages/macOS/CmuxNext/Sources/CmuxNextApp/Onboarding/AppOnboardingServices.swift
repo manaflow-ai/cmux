@@ -15,7 +15,13 @@ import SwiftUI
 @MainActor
 final class AppOnboardingServices: OnboardingServices {
     unowned let owner: OnboardingService
-    private var services: AppServices { owner.services }
+    var services: AppServices { owner.services }
+    /// Workspaces `openProjects` and `resumeChats` opened, by folder path,
+    /// once their window lists them; and the chats waiting for one.
+    var folderWorkspaces: [String: String] = [:]
+    var waitingChats: [String: [AgentChat]] = [:]
+    /// Folders whose workspace was asked for and isn't listed yet.
+    var openingFolders: Set<String> = []
 
     init(owner: OnboardingService) {
         self.owner = owner
@@ -103,7 +109,7 @@ final class AppOnboardingServices: OnboardingServices {
         Task {
             for folder in folders {
                 do {
-                    _ = try await windows.createWorkspace(WorkspaceSpawn(cwd: folder.path, name: folder.lastPathComponent), into: target)
+                    _ = try await windows.createWorkspace(folderSpawn(folder), into: target)
                 } catch {
                     logger.error("onboarding project workspace failed: \(String(describing: error), privacy: .public)")
                 }

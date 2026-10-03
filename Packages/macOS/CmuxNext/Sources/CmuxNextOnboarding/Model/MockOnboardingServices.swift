@@ -40,6 +40,8 @@ public final class MockOnboardingServices: OnboardingServices {
     public var homeDirectory = URL(fileURLWithPath: "/Users/demo", isDirectory: true)
     /// Each `openProjects` call's folders.
     public private(set) var openedProjects: [[URL]] = []
+    public var agentChats: [AgentChat] = []
+    public private(set) var resumedChats: [[AgentChat]] = []
 
     public private(set) var appliedAppearance: [(String?, Density)] = []
     public private(set) var opened: [URL] = []
@@ -66,6 +68,8 @@ public final class MockOnboardingServices: OnboardingServices {
     public func scanAgentProjects() async -> [AgentProject] { agentProjects }
     public func chooseFolder() async -> URL? { chosenFolder }
     public func openProjects(_ folders: [URL]) { openedProjects.append(folders) }
+    public func scanAgentChats() async -> [AgentChat] { agentChats }
+    public func resumeChats(_ chats: [AgentChat]) { resumedChats.append(chats) }
 
     public func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary {
         plans.append(plan)
@@ -137,6 +141,18 @@ public final class MockOnboardingServices: OnboardingServices {
             AgentProject(folder: URL(fileURLWithPath: "/Users/demo/code/api"), sessions: 9, lastActive: now - 6 * day, apps: [.codex, .opencode]),
             AgentProject(folder: URL(fileURLWithPath: "/Users/demo/Desktop/scratch"), sessions: 4, lastActive: now - 9 * day, apps: [.pi]),
             AgentProject(folder: URL(fileURLWithPath: "/Users/demo/code/dotfiles"), sessions: 2, lastActive: now - 40 * day, apps: [.claudeCode]),
+        ]
+        func chat(_ id: String, _ app: AgentApp, _ folder: String, _ title: String, _ prompts: Int, _ age: TimeInterval) -> AgentChat {
+            AgentChat(sessionID: id, app: app, folder: URL(fileURLWithPath: "/Users/demo/\(folder)"), title: title, prompts: prompts,
+                      lastActive: now - age)
+        }
+        services.agentChats = [
+            chat("c1", .claudeCode, "code/cmux", "Fix the flaky reconnect test in the agent pane", 14, 3_600),
+            chat("c2", .codex, "code/cmux", "Split the onboarding model into one file per step", 9, 5 * 3_600),
+            chat("c3", .claudeCode, "code/website", "Make the pricing table readable on phones", 6, day),
+            chat("c4", .codex, "code/api", "Add rate limiting to the upload endpoint", 21, 2 * day),
+            chat("c5", .claudeCode, "Documents/thesis", "Tighten chapter 3 and check every citation", 33, 4 * day),
+            chat("c6", .codex, "code/dotfiles", "Why does my prompt take two seconds to draw?", 3, 12 * day),
         ]
         services.computerUseSource = MockComputerUsePermissionSource(current: ComputerUsePermissions(accessibility: true, screenRecording: false))
         services.passwordStore = true
