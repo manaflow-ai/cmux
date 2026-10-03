@@ -14,6 +14,11 @@ public enum TerminalViewerAction: Hashable, Sendable {
     case requestSnapshot(SnapshotRequest)
     /// The host throttled the request: call `retryDue()` after this delay.
     case retryAfter(milliseconds: Int)
+    /// The viewer now waits for a READY: call `readyDeadline(epoch)` after
+    /// `readyTimeoutMilliseconds` (the caller owns the clock).
+    case armReadyDeadline(epoch: UInt64, milliseconds: Int)
+    /// No READY came in time: detach and attach again (a new connection).
+    case reattach
     /// The host's snapshot version differs from this viewer's: the host sends
     /// a byte replay instead, which the viewer now accepts without a snapshot.
     case versionMismatch(host: UInt16)
@@ -41,12 +46,17 @@ public struct TerminalViewer: Sendable {
     public private(set) var snapshotOffset: UInt64?
     /// The request sent and not yet answered by a READY.
     public private(set) var inFlight: SnapshotRequest?
+    /// Counts each start of a wait for READY; a deadline for an older wait is void.
+    public private(set) var waitEpoch: UInt64 = 0
+    /// How long the viewer waits for a READY before it asks for a reattach.
+    public let readyTimeoutMilliseconds: Int
 
     private let terminal: String
     private let makeRequestID: @Sendable () -> String
 
-    public init(terminal: String, snapshotVersion: UInt16,
+    public init(terminal: String, snapshotVersion: UInt16, readyTimeoutMilliseconds: Int = 10_000,
                 makeRequestID: @escaping @Sendable () -> String = { "snap-" + UUID().uuidString.lowercased() }) {
+        self.readyTimeoutMilliseconds = readyTimeoutMilliseconds
         self.terminal = terminal
         self.snapshotVersion = snapshotVersion
         self.makeRequestID = makeRequestID
@@ -74,6 +84,26 @@ public struct TerminalViewer: Sendable {
         mode = .awaitingSnapshot
     }
 
+    /// A new connection starts: wait for the host's first READY under a
+    /// deadline. Call after `connectionReset()` when the attach begins.
+    public mutating func attachStarted() -> [TerminalViewerAction] {
+        connectionReset()
+        return [armDeadline()]
+    }
+
+    /// The deadline armed for `epoch` ended. When the viewer still waits for
+    /// that same READY, it forgets the request and asks for a reattach.
+    public mutating func readyDeadline(_ epoch: UInt64) -> [TerminalViewerAction] {
+        guard epoch == waitEpoch, mode == .awaitingSnapshot else { return [] }
+        connectionReset()
+        return [.reattach]
+    }
+
+    private mutating func armDeadline() -> TerminalViewerAction {
+        waitEpoch &+= 1
+        return .armReadyDeadline(epoch: waitEpoch, milliseconds: readyTimeoutMilliseconds)
+    }
+
     /// The retry delay ended: resend the same request (same request_id) if
     /// no READY arrived meanwhile.
     public func retryDue() -> [TerminalViewerAction] {
@@ -96,6 +126,7 @@ public struct TerminalViewer: Sendable {
         case .snapshotReady:
             mode = .live
             inFlight = nil
+            waitEpoch &+= 1
             generation = frame.generation
             offset = frame.offset
             snapshotOffset = frame.offset
@@ -159,6 +190,6 @@ public struct TerminalViewer: Sendable {
         }
         let made = SnapshotRequest(terminal: terminal, reason: reason, have: have, requestID: makeRequestID())
         inFlight = made
-        return [.requestSnapshot(made)]
+        return [.requestSnapshot(made), armDeadline()]
     }
 }
