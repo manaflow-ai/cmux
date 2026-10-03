@@ -916,6 +916,18 @@ function turnCases(): CorpusCase[] {
   }
 
   {
+    const c = new CaseBuilder("turns: recording an outstanding prompt again (a repeated permission) keeps its order");
+    boot(c, [summary("conv_a")], [session("s_w", "writer", "waiting")]);
+    c.step({ kind: "permission_pending", session_id: "s_w", permission_id: "p1", request: {} }, ["persist", "conversation_op", "prompt"]);
+    c.step(live(msg("conv_a", 1, USER_LOCAL, "meanwhile")), ["persist", "prompt"]);
+    c.step({ kind: "permission_pending", session_id: "s_w", permission_id: "p1", request: {} }, ["persist", "prompt"], (e) => {
+      const order = (c.persisted(e).prompts["perm:s_w:p1"] as { order?: number }).order;
+      c.check(order === 1, `the first order stays, got ${order}`);
+    });
+    cases.push(c.end());
+  }
+
+  {
     const c = new CaseBuilder("typing: no typing while the daemon is down; the reply waits in the outbox; acpmux loss turns typing off", {
       defaultConversation: "conv_a",
     });
