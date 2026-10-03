@@ -127,14 +127,16 @@ cursors stay on the Mac; search and contacts are not supported.
    experiment now. When CodeRouter accounts work in the agent pane (R35), the chief moves to the
    CodeRouter route so it uses the team's Claude and Codex accounts.
 4. Done: WorkerDO (pi session, `fetch_url`) and spawn.
-5. Native UI in Home (416320062f3, 3e032168fbe, 0cc60689777): `CmuxNextChief` target, sidebar item,
-   `chief.show` action (palette, CLI `cmux chief show`), `debug.chief` (state + layer render to
-   PNG). Tagged build `chief3` verified without GUI automation (launched with `open -g`):
-   `chief.show` with focus selects the tab; `debug.chief` reports online, 2 messages, the rows
-   "Preflight from the agent..." (from you, Delivered) and "Hello, Lawrence..." (from Chief), and
-   the PNG shows the native bubbles. UNVERIFIED: sending from the composer; the Liquid Glass
-   composer draws flat in the layer render. Rule (coordinator): no Computer Use and no GUI
-   driving on Lawrence's laptop.
+5. Native UI in Home (416320062f3 .. d8003fd451d): `CmuxNextChief` target, sidebar item, `chief.show`
+   action (palette, CLI `cmux chief show`), `debug.chief` (state, layer render to PNG, `send`
+   through the real composer), WebSocket stream instead of the long poll. Tagged build `chief4`
+   verified without GUI automation (`open -g`): two messages sent through the composer were
+   delivered and answered; the second reply reached the app 0.1 s after the server recorded it
+   (8.2 s vs 8.3 s); the PNG shows the native bubbles. The first reply after the deploy took over
+   60 s on the server (cold first turn, not measured further). Limits: the Liquid Glass composer
+   draws flat in the layer render; Swift tests of d8003fd451d not rerun (nx-remote host offline;
+   the fleet build compiles it). Rule (coordinator): no Computer Use or GUI driving on Lawrence's
+   laptop.
 6. Coding worker (built; real runs blocked by two decisions). `spawn` takes `tools: "code"`: WorkerDO
    runs `src/coding/runner.ts` on a `VmDriver` (Freestyle REST over plain fetch: create from the
    cmux devbox snapshot with an allow-public firewall and a run budget, start the agent detached,
