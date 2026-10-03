@@ -4375,7 +4375,7 @@ impl Mux {
                             .get("viewport_width")
                             .and_then(Value::as_f64)
                             .map(|value| value as f32),
-                        row_height: crate::mux::rows::row_height_field(fields)?,
+                        row_height: rows::row_height_field(fields)?,
                     },
                 )
                 .map(|created| created.path)
@@ -5049,7 +5049,7 @@ impl Mux {
                     .layout_column_for_pane_mut(target)
                     .context("target pane has no viewport column")?;
                 column.edit_row_of(target, |root, auto_layout| {
-                    append_to_auto_layout(root, auto_layout, pane_id, || self.next_id())
+                    append_to_auto_layout(root, auto_layout, pane_id, || self.next_id());
                 });
                 screen.sync_layout_column_projection();
             } else {
@@ -5349,7 +5349,7 @@ fn validate_effect_fields(
                     "invalid viewport pane width"
                 );
             }
-            crate::mux::rows::validate_row_height_field(fields, direction)?;
+            rows::validate_row_height_field(fields, direction)?;
             let _ = effect_cell_size(fields)?;
             let _ = optional_effect_command(fields)?;
         }
@@ -6334,7 +6334,7 @@ fn registry_screen_from_layout(
                     })
                     .transpose()?,
                 sticky: column.sticky,
-                rows: super::registry_viewport::registry_rows(state, column)?,
+                rows: registry_viewport::registry_rows(state, column)?,
             })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
