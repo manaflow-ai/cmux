@@ -552,8 +552,11 @@ def test_changelog_runs_web_validation() -> None:
     assert_areas(["CHANGELOG.md"], macos=True, web=True)
 
 
-def test_web_only_runs_web_without_macos() -> None:
-    assert_areas(["web/app/page.tsx", "webviews/src/diff/App.tsx"], macos=False, web=True)
+def test_web_only_runs_web_and_one_native_compile_for_webviews() -> None:
+    # Web app changes stay web-only, while webview sources also feed native
+    # bundles and therefore get one compile admission.
+    assert_areas(["web/app/page.tsx"], macos=False, web=True)
+    assert_areas(["webviews/src/diff/App.tsx"], macos=True, web=True)
     assert_areas(
         [
             "workers/presence/src/index.ts",
