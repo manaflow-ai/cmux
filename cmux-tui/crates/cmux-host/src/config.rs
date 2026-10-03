@@ -109,6 +109,8 @@ pub struct Config {
     /// How to run this binary's hidden `rekey` verb: `[cmux-host]`, or
     /// `[cmux, host]` once the verb is mounted in `cmux`.
     pub self_argv: Vec<String>,
+    /// `server.json` of the install layout (watched for `ConfigChanged`).
+    pub server_config: Option<PathBuf>,
 }
 
 impl Config {
@@ -124,6 +126,7 @@ impl Config {
             rearm_delay: HOUSEKEEPING_DELAY,
             action_log: None,
             self_argv: Vec::new(),
+            server_config: None,
         }
     }
 }

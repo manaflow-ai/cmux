@@ -44,14 +44,16 @@ proptest! {
     #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
 
     #[test]
-    fn bind_rules_hold_for_any_event_sequence(ops in proptest::collection::vec(op(), 1..80)) {
+    fn bind_rules_hold_for_any_event_sequence(
+        ops in proptest::collection::vec((op(), any::<bool>()), 1..80),
+    ) {
         let mut m = Machine::new();
         let mut w = World::default();
         let mut last_reseed: Option<String> = None;
         // Completed binds (write-bound). A reseed whose bind was superseded
         // during the old host's stop may repeat; a bind never does.
         let mut binds: Vec<String> = Vec::new();
-        for op in ops {
+        for (op, refuse_park) in ops {
             let stopping_before = matches!(m.daemon(), DaemonState::Stopping(_));
             let bound_before = w.bound.clone();
             let input = match &op {
@@ -77,7 +79,16 @@ proptest! {
                 Op::Resume => Input::ResumeSignal,
                 Op::AnnounceDone => Input::AnnounceDone,
             };
-            let actions = m.step(input);
+            let mut actions = m.step(input);
+            // The agent answers a role park at once.
+            if actions.last() == Some(&Action::ParkRoles) {
+                let answer = m.step(Input::RolesParked { ok: !refuse_park });
+                if refuse_park {
+                    prop_assert!(!m.is_parked());
+                    prop_assert!(!answer.contains(&Action::TerminateDaemon), "{answer:?}");
+                }
+                actions.extend(answer);
+            }
             let step_reseeds: Vec<&String> = actions
                 .iter()
                 .filter_map(|a| if let Action::Reseed(x) = a { Some(x) } else { None })

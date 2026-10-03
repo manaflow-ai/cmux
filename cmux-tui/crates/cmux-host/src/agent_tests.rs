@@ -1,8 +1,9 @@
 use super::*;
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
-use cmux_server_core::role::RoleError;
+use cmux_server_core::layout::{LayoutEnv, layout};
+use cmux_server_core::platform::Platform as OsPlatform;
+use cmux_server_core::role::{HostEvent, RoleContext, RoleError, StopContext};
 
 /// A scripted platform: each `wait` returns the next batch; each `observe`
 /// returns the current metadata id and files.
@@ -15,6 +16,7 @@ struct Fake {
     ran: Vec<String>,
     fail_spawn: u32,
     statuses: usize,
+    last_status: Option<Status>,
 }
 
 impl Fake {
@@ -28,6 +30,7 @@ impl Fake {
             ran: Vec::new(),
             fail_spawn: 0,
             statuses: 0,
+            last_status: None,
         }
     }
 }
@@ -62,14 +65,24 @@ impl Platform for Fake {
     fn daemon_pid(&self) -> Option<u32> {
         None
     }
-    fn write_status(&mut self, _status: &Status) -> io::Result<()> {
+    fn write_status(&mut self, status: &Status) -> io::Result<()> {
         self.statuses += 1;
+        self.last_status = Some(status.clone());
         Ok(())
     }
 }
 
 #[derive(Clone, Default)]
-struct Events(Rc<RefCell<Vec<String>>>);
+struct Events(Arc<Mutex<Vec<String>>>);
+
+impl Events {
+    fn push(&self, line: String) {
+        self.0.lock().unwrap().push(line);
+    }
+    fn all(&self) -> Vec<String> {
+        self.0.lock().unwrap().clone()
+    }
+}
 
 struct Recorder(Events);
 
@@ -78,20 +91,37 @@ impl Role for Recorder {
         "recorder"
     }
     fn start(&mut self, ctx: &RoleContext) -> Result<(), RoleError> {
-        self.0.0.borrow_mut().push(format!("start:{}", ctx.instance_id.as_deref().unwrap_or("-")));
+        self.0.push(format!("start:{}", ctx.instance_id.as_deref().unwrap_or("-")));
         Ok(())
     }
-    fn stop(&mut self) {
-        self.0.0.borrow_mut().push("stop".to_owned());
+    fn stop(&mut self, _ctx: &StopContext) -> Result<(), RoleError> {
+        self.0.push("stop".to_owned());
+        Ok(())
     }
     fn on_event(&mut self, event: &HostEvent) -> Result<(), RoleError> {
-        self.0.0.borrow_mut().push(event_name(event).to_owned());
+        let name = match event {
+            HostEvent::Bound { .. } => "bound",
+            HostEvent::Parked { .. } => "parked",
+            HostEvent::Resumed => "resumed",
+            HostEvent::AddressesChanged => "addresses",
+            HostEvent::ChannelChanged => "channel",
+            HostEvent::ConfigChanged => "config",
+            HostEvent::Shutdown { .. } => "shutdown",
+        };
+        self.0.push(name.to_owned());
         Ok(())
     }
 }
 
 fn agent(fake: Fake, events: &Events) -> Agent<Fake> {
-    Agent::new(fake, vec![Box::new(Recorder(events.clone()))], ActionLog::new(None).unwrap())
+    let env = LayoutEnv { home: Some("/root".to_owned()), uid: Some(0), ..LayoutEnv::default() };
+    let install = layout(InstallMode::System, OsPlatform::Linux, &env).unwrap();
+    Agent::new(
+        fake,
+        vec![Box::new(Recorder(events.clone()))],
+        Ok((install, InstallMode::System)),
+        ActionLog::new(None).unwrap(),
+    )
 }
 
 #[test]
@@ -114,8 +144,8 @@ fn binds_once_across_repeated_resume_signals() {
         .collect();
     assert_eq!(order, ["reseed", "drop-remote-identity", "write-bound", "spawn-daemon"]);
     assert_eq!(
-        *events.0.borrow(),
-        ["start:vm-1", "bound", "resumed", "resumed", "shutdown", "stop"]
+        events.all(),
+        ["start:vm-1", "bound", "resumed", "addresses", "resumed", "shutdown", "stop"]
     );
 }
 
@@ -165,4 +195,43 @@ impl Agent<Fake> {
             }
         }
     }
+}
+
+/// A role that cannot stop in time (Postgres that will not shut down).
+struct Stubborn;
+
+impl Role for Stubborn {
+    fn name(&self) -> &str {
+        "stubborn"
+    }
+    fn start(&mut self, _ctx: &RoleContext) -> Result<(), RoleError> {
+        Ok(())
+    }
+    fn stop(&mut self, _ctx: &StopContext) -> Result<(), RoleError> {
+        Err(RoleError("still flushing".to_owned()))
+    }
+    fn on_event(&mut self, _event: &HostEvent) -> Result<(), RoleError> {
+        Ok(())
+    }
+}
+
+#[test]
+fn role_that_cannot_park_refuses_the_park_and_reports_its_error() {
+    let mut fake = Fake::new(vec![vec![Wake::BakeFile]], vec![Some("b"), Some("b")]);
+    fake.bound = Some("b".to_owned());
+    let env = LayoutEnv { home: Some("/root".to_owned()), uid: Some(0), ..LayoutEnv::default() };
+    let install = layout(InstallMode::System, OsPlatform::Linux, &env).unwrap();
+    let mut agent = Agent::new(
+        fake,
+        vec![Box::new(Stubborn)],
+        Ok((install, InstallMode::System)),
+        ActionLog::new(None).unwrap(),
+    );
+    agent.run_with_bake_after_first();
+    assert!(!agent.machine().is_parked());
+    let ran = &agent.platform().ran;
+    assert!(!ran.iter().any(|a| a == "terminate-daemon" || a == "park-housekeeping"), "{ran:?}");
+    let status = agent.platform().last_status.clone().unwrap();
+    assert_eq!(status.roles[0].name, "stubborn");
+    assert_eq!(status.roles[0].last_error.as_deref(), Some("still flushing"));
 }

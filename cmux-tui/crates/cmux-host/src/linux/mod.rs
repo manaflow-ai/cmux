@@ -66,6 +66,8 @@ pub struct LinuxPlatform {
     inotify: Inotify,
     wd_run: i32,
     wd_etc: i32,
+    /// `server.json`'s directory watch and file name, when it exists.
+    config_watch: Option<(i32, std::ffi::OsString)>,
     signals: SignalFd,
     rearm: TimerFd,
     backoff: TimerFd,
@@ -91,6 +93,14 @@ impl LinuxPlatform {
         let inotify = Inotify::new()?;
         let wd_run = inotify.watch_dir(&paths.at(RUN_DIR))?;
         let wd_etc = inotify.watch_dir(&paths.at(ETC_DIR))?;
+        let config_watch = match cfg.server_config.as_deref().map(|p| paths.at(&p.to_string_lossy())) {
+            Some(file) if file.parent().is_some_and(std::path::Path::is_dir) => {
+                let dir = file.parent().expect("checked");
+                let name = file.file_name().map(std::ffi::OsStr::to_os_string).unwrap_or_default();
+                Some((inotify.watch_dir(dir)?, name))
+            }
+            _ => None,
+        };
         let metadata = Box::new(Mmds { addr: cfg.metadata_addr, timeout: cfg.metadata_timeout });
         let platform = Self {
             epoll: Epoll::new()?,
@@ -100,6 +110,7 @@ impl LinuxPlatform {
             inotify,
             wd_run,
             wd_etc,
+            config_watch,
             signals,
             rearm: TimerFd::new(Clock::Boottime)?,
             backoff: TimerFd::new(Clock::Monotonic)?,
@@ -170,6 +181,8 @@ impl LinuxPlatform {
                 out.push(Wake::DriverFile);
             } else if event.wd == self.wd_etc && event.name == BAKE_FILE_NAME {
                 out.push(Wake::BakeFile);
+            } else if self.config_watch.as_ref().is_some_and(|(wd, name)| *wd == event.wd && event.name == *name) {
+                out.push(Wake::ConfigFile);
             }
         }
         Ok(())
@@ -483,7 +496,11 @@ impl Platform for LinuxPlatform {
                 self.notify_ready();
                 Ok(None)
             }
-            Action::StartRoles(_) | Action::StopRoles | Action::Notify(_) | Action::Exit => {
+            Action::StartRoles(_)
+            | Action::ParkRoles
+            | Action::ShutdownRoles
+            | Action::Notify(_)
+            | Action::Exit => {
                 Ok(None)
             }
         }

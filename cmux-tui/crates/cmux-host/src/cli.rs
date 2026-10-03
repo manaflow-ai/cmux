@@ -138,8 +138,20 @@ pub fn run(args: &[String], self_argv: Vec<String>) -> ExitCode {
 }
 
 #[cfg(target_os = "linux")]
-fn run_agent(cfg: Config) -> ExitCode {
+fn run_agent(mut cfg: Config) -> ExitCode {
     use crate::agent::{ActionLog, Agent};
+    // The install layout roles receive (CMUX_SERVER_MODE, else system as
+    // root). Without one the agent still binds and supervises; roles only
+    // report the error.
+    let mode = cmux_server::host::resolve_mode(false);
+    let install = cmux_server::host::layout_for(mode, &cmux_server::host::layout_env())
+        .map(|layout| (layout, mode))
+        .map_err(|e| e.to_string());
+    if let Ok((layout, _)) = &install {
+        cfg.server_config = Some(PathBuf::from(layout.config_file.as_str()));
+    }
+    // TODO(lane 10): ChannelChanged has no source yet; the control-plane
+    // push lands with the updater role.
     let log = match ActionLog::new(cfg.action_log.as_deref()) {
         Ok(log) => log,
         Err(e) => return usage(&format!("action log: {e}")),
@@ -151,7 +163,7 @@ fn run_agent(cfg: Config) -> ExitCode {
             return code(1);
         }
     };
-    match Agent::new(platform, Vec::new(), log).run() {
+    match Agent::new(platform, Vec::new(), install, log).run() {
         Ok(()) => code(0),
         Err(e) => {
             eprintln!("cmux host: {e}");

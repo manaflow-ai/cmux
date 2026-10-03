@@ -24,13 +24,22 @@
 //!   ([`crate::retry::backoff_delay_ms`]); a host that lived at least
 //!   [`HEALTHY_RUN_MS`] resets the backoff.
 
-use cmux_server_core::role::HostEvent;
-
 use crate::retry::backoff_delay_ms;
 
 /// A session host that ran this long before exiting was healthy: its exit
 /// restarts at once and resets the crash counter.
 pub const HEALTHY_RUN_MS: u64 = 10_000;
+
+/// A role notification. The agent adds deadlines and turns it into a
+/// `cmux_server_core::role::HostEvent`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Lifecycle {
+    Bound(String),
+    Resumed,
+    AddressesChanged,
+    ChannelChanged,
+    ConfigChanged,
+}
 
 /// What one wake learned about the machine.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -64,6 +73,14 @@ pub enum Input {
     RearmElapsed,
     /// Every announce helper exited.
     AnnounceDone,
+    /// rtnetlink reported an interface or address change.
+    AddressesChanged,
+    /// The control plane moved the machine to another channel.
+    ChannelChanged,
+    /// `server.json` changed.
+    ConfigChanged,
+    /// Every role handled `Parked` and stopped (`ok`), or one refused.
+    RolesParked { ok: bool },
     /// SIGTERM or SIGINT.
     Shutdown,
 }
@@ -108,10 +125,13 @@ pub enum Action {
     RemoveDriverFile,
     /// Start every role with this instance id.
     StartRoles(Option<String>),
-    /// Stop every role.
-    StopRoles,
-    /// Deliver a lifecycle event to every role.
-    Notify(HostEvent),
+    /// Deliver `Parked` to every role and stop them, in reverse order, by
+    /// a deadline; answers with [`Input::RolesParked`].
+    ParkRoles,
+    /// Deliver `Shutdown` to every role and stop them, in reverse order.
+    ShutdownRoles,
+    /// Deliver a lifecycle event to every role, in order.
+    Notify(Lifecycle),
     /// Tell the service manager the agent is ready (once).
     Ready,
     /// Leave the event loop. The session host keeps running.
@@ -142,7 +162,8 @@ impl Action {
             Action::DisarmBackoff => "disarm-backoff",
             Action::RemoveDriverFile => "remove-driver-file",
             Action::StartRoles(_) => "start-roles",
-            Action::StopRoles => "stop-roles",
+            Action::ParkRoles => "park-roles",
+            Action::ShutdownRoles => "shutdown-roles",
             Action::Notify(_) => "notify",
             Action::Ready => "ready",
             Action::Exit => "exit",
@@ -176,6 +197,8 @@ pub struct Machine {
     fast_exits: u32,
     announcing: bool,
     roles_running: bool,
+    /// A park waiting for the roles' answer.
+    park_pending: Option<String>,
     ready_sent: bool,
     /// The last id this machine bound or found bound (for roles and status).
     current_id: Option<String>,
@@ -198,6 +221,7 @@ impl Machine {
             fast_exits: 0,
             announcing: false,
             roles_running: false,
+            park_pending: None,
             ready_sent: false,
             current_id: None,
             deferred: None,
@@ -255,11 +279,14 @@ impl Machine {
                 }
             }
             Input::AnnounceDone => self.announcing = false,
+            Input::AddressesChanged => self.notify(Lifecycle::AddressesChanged, &mut out),
+            Input::ChannelChanged => self.notify(Lifecycle::ChannelChanged, &mut out),
+            Input::ConfigChanged => self.notify(Lifecycle::ConfigChanged, &mut out),
+            Input::RolesParked { ok } => self.roles_parked(ok, &mut out),
             Input::Shutdown => {
-                out.push(Action::Notify(HostEvent::Shutdown));
                 if self.roles_running {
                     self.roles_running = false;
-                    out.push(Action::StopRoles);
+                    out.push(Action::ShutdownRoles);
                 }
                 self.exiting = true;
                 out.push(Action::Exit);
@@ -340,18 +367,43 @@ impl Machine {
         }
         self.current_id = Some(id.clone());
         self.start_roles(out);
-        out.push(Action::Notify(HostEvent::Bound { instance_id: id }));
+        out.push(Action::Notify(Lifecycle::Bound(id)));
     }
 
     fn park(&mut self, id: String, out: &mut Vec<Action>) {
+        if !self.parked && self.roles_running {
+            // Roles park first; a refusal keeps the machine running.
+            if self.park_pending.is_none() {
+                self.park_pending = Some(id);
+                out.push(Action::ParkRoles);
+            }
+            return;
+        }
+        self.park_now(id, out);
+    }
+
+    fn roles_parked(&mut self, ok: bool, out: &mut Vec<Action>) {
+        let Some(id) = self.park_pending.take() else { return };
+        self.roles_running = false;
+        if ok {
+            self.park_now(id, out);
+        } else {
+            // Refused: the session host keeps running, so the bake's park
+            // step fails rather than snapshot a half-stopped machine.
+            self.start_roles(out);
+        }
+    }
+
+    fn notify(&mut self, event: Lifecycle, out: &mut Vec<Action>) {
+        if self.roles_running && !self.parked {
+            out.push(Action::Notify(event));
+        }
+    }
+
+    fn park_now(&mut self, id: String, out: &mut Vec<Action>) {
         let entering = !self.parked;
         if entering {
             self.parked = true;
-            out.push(Action::Notify(HostEvent::Parked));
-            if self.roles_running {
-                self.roles_running = false;
-                out.push(Action::StopRoles);
-            }
             out.push(Action::ParkHousekeeping);
             out.push(Action::DisarmRearm);
             out.push(Action::RemoveDriverFile);
@@ -380,9 +432,7 @@ impl Machine {
         if self.parked || self.current_id.is_none() {
             return;
         }
-        if self.roles_running {
-            out.push(Action::Notify(HostEvent::Resumed));
-        }
+        self.notify(Lifecycle::Resumed, out);
         if !self.announcing {
             self.announcing = true;
             out.push(Action::Announce);

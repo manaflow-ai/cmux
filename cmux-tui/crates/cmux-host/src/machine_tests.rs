@@ -17,7 +17,8 @@ fn parked_builder() -> Machine {
     m.step(Input::Boot { adopted_daemon: false });
     m.step(obs(Some("b"), None, None));
     m.step(Input::DaemonExited { lived_ms: 0 }); // nothing: Running -> immediate respawn
-    m.step(obs(Some("b"), Some("b"), Some("b")));
+    assert_eq!(names(&m.step(obs(Some("b"), Some("b"), Some("b")))), ["park-roles"]);
+    m.step(Input::RolesParked { ok: true });
     m.step(Input::DaemonExited { lived_ms: 60_000 });
     m.step(Input::AnnounceDone);
     assert!(m.is_parked());
@@ -79,12 +80,11 @@ fn bake_id_parks_and_stops_terminal_hosts_after_the_host_exits() {
     let mut m = Machine::new();
     m.step(Input::Boot { adopted_daemon: false });
     m.step(obs(Some("b"), None, Some("b")));
-    let park = m.step(obs(Some("b"), Some("b"), Some("b")));
+    assert_eq!(names(&m.step(obs(Some("b"), Some("b"), Some("b")))), ["park-roles"]);
+    let park = m.step(Input::RolesParked { ok: true });
     assert_eq!(
         names(&park),
         [
-            "notify",
-            "stop-roles",
             "park-housekeeping",
             "disarm-rearm",
             "remove-driver-file",
@@ -157,7 +157,7 @@ fn shutdown_leaves_the_daemon_running() {
     let mut m = Machine::new();
     m.step(obs(Some("x"), None, Some("x")));
     let actions = m.step(Input::Shutdown);
-    assert_eq!(names(&actions), ["notify", "stop-roles", "exit"]);
+    assert_eq!(names(&actions), ["shutdown-roles", "exit"]);
     assert!(!actions.contains(&Action::TerminateDaemon));
     assert!(m.step(obs(Some("y"), None, Some("x"))).is_empty());
 }
@@ -176,8 +176,33 @@ fn bake_during_a_bind_stop_parks_without_spawning() {
     m.step(obs(None, None, None));
     m.step(obs(Some("x"), None, None));
     assert!(m.step(obs(Some("x"), Some("x"), None)).is_empty(), "deferred while stopping");
-    let actions = m.step(Input::DaemonExited { lived_ms: 1 });
+    let mut actions = m.step(Input::DaemonExited { lived_ms: 1 });
+    assert_eq!(actions.last(), Some(&Action::ParkRoles));
+    actions.extend(m.step(Input::RolesParked { ok: true }));
     assert!(!actions.contains(&Action::SpawnDaemon), "{actions:?}");
     assert!(!actions.iter().any(|a| matches!(a, Action::WriteBound(_))), "{actions:?}");
     assert!(m.is_parked());
+}
+
+#[test]
+fn a_role_refusing_the_park_keeps_the_machine_running() {
+    let mut m = Machine::new();
+    m.step(obs(Some("b"), None, Some("b")));
+    assert_eq!(names(&m.step(obs(Some("b"), Some("b"), Some("b")))), ["park-roles"]);
+    let refused = m.step(Input::RolesParked { ok: false });
+    assert_eq!(names(&refused), ["start-roles"]);
+    assert!(!m.is_parked());
+    assert_eq!(m.daemon(), &DaemonState::Running);
+    // The next wake tries the park again.
+    assert_eq!(names(&m.step(obs(Some("b"), Some("b"), Some("b")))), ["park-roles"]);
+}
+
+#[test]
+fn address_and_config_events_reach_running_roles_only() {
+    let mut m = Machine::new();
+    assert!(m.step(Input::AddressesChanged).is_empty());
+    m.step(obs(Some("x"), None, Some("x")));
+    assert_eq!(m.step(Input::AddressesChanged), [Action::Notify(Lifecycle::AddressesChanged)]);
+    assert_eq!(m.step(Input::ConfigChanged), [Action::Notify(Lifecycle::ConfigChanged)]);
+    assert_eq!(m.step(Input::ChannelChanged), [Action::Notify(Lifecycle::ChannelChanged)]);
 }

@@ -105,6 +105,8 @@ impl Harness {
             .arg(log)
             .env("FAKE_DAEMON_LOG", &self.daemon_log)
             .env_remove("CMUX_TUI_REMOTE_WS_BIND")
+            // System layout: server.json is /etc/cmux/server.json (under the root).
+            .env("CMUX_SERVER_MODE", "system")
             .env_remove("NOTIFY_SOCKET")
             // The agent's and the fake session host's output go to a file,
             // never to the test harness's pipes (an orphaned `sleep` would
@@ -221,6 +223,10 @@ fn agent_binds_parks_adopts_and_restarts() {
     );
     wait_until("status", || h.status().is_some_and(|s| s.daemon_pid.is_some()));
     let first_pid = h.status().unwrap().daemon_pid.unwrap();
+
+    // server.json written: roles hear ConfigChanged.
+    fs::write(h.at("/etc/cmux/server.json"), "{}").unwrap();
+    wait_until("config event", || lines(&log).iter().any(|l| l == "notify event=config-changed"));
 
     // A clone: new id via the driver file. The old host is stopped first.
     h.clone_to("vm-b");

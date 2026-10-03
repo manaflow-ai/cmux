@@ -11,9 +11,12 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::path::Path;
 
-use cmux_server_core::role::{HostEvent, Role, RoleContext};
+use cmux_server_core::layout::Layout;
+use cmux_server_core::platform::InstallMode;
+use cmux_server_core::role::Role;
 
 use crate::machine::{Action, DaemonState, Input, Machine, Observation};
+use crate::roles::{Roles, event_name};
 use crate::status::Status;
 
 /// One kernel event the platform woke for.
@@ -27,6 +30,8 @@ pub enum Wake {
     DriverFile,
     /// The bake wrote `/etc/cmux/bake-instance-id`.
     BakeFile,
+    /// `server.json` was written.
+    ConfigFile,
     /// SIGTERM or SIGINT.
     Terminate,
     /// SIGCHLD or the session host's pidfd: reap.
@@ -104,27 +109,26 @@ fn describe(action: &Action) -> String {
     }
 }
 
-fn event_name(event: &HostEvent) -> &'static str {
-    match event {
-        HostEvent::Bound { .. } => "bound",
-        HostEvent::Parked => "parked",
-        HostEvent::Resumed => "resumed",
-        HostEvent::Shutdown => "shutdown",
-    }
-}
-
 /// The agent: machine, roles and log over one platform.
 pub struct Agent<P: Platform> {
     platform: P,
     machine: Machine,
-    roles: Vec<Box<dyn Role>>,
+    roles: Roles,
     log: ActionLog,
     last_wake: &'static str,
     wakes: u64,
 }
 
 impl<P: Platform> Agent<P> {
-    pub fn new(platform: P, roles: Vec<Box<dyn Role>>, log: ActionLog) -> Self {
+    /// `install`: the layout and mode roles receive in their context, or
+    /// why it could not be resolved.
+    pub fn new(
+        platform: P,
+        roles: Vec<Box<dyn Role>>,
+        install: Result<(Layout, InstallMode), String>,
+        log: ActionLog,
+    ) -> Self {
+        let roles = Roles::new(roles, install);
         Self { platform, machine: Machine::new(), roles, log, last_wake: "start", wakes: 0 }
     }
 
@@ -166,10 +170,16 @@ impl<P: Platform> Agent<P> {
         let mut terminate = false;
         for wake in wakes {
             match wake {
-                Wake::ClockSet | Wake::Address => {
+                Wake::ClockSet => {
                     resumed = true;
                     observe = true;
                 }
+                Wake::Address => {
+                    resumed = true;
+                    observe = true;
+                    inputs.push(Input::AddressesChanged);
+                }
+                Wake::ConfigFile => inputs.push(Input::ConfigChanged),
                 Wake::DriverFile | Wake::BakeFile => observe = true,
                 Wake::Terminate => terminate = true,
                 Wake::ProcessExit => {
@@ -207,9 +217,29 @@ impl<P: Platform> Agent<P> {
                 self.log.line(&describe(&action));
                 match &action {
                     Action::Exit => exit = true,
-                    Action::StartRoles(id) => self.start_roles(id.clone()),
-                    Action::StopRoles => self.roles.iter_mut().for_each(|role| role.stop()),
-                    Action::Notify(event) => self.notify(event),
+                    Action::StartRoles(id) => {
+                        let errors = self.roles.start(id.clone());
+                        self.log_all(errors);
+                    }
+                    Action::Notify(event) => {
+                        let errors = self.roles.notify(event);
+                        self.log_all(errors);
+                    }
+                    Action::ParkRoles => {
+                        let ok = match self.roles.park() {
+                            Ok(()) => true,
+                            Err(errors) => {
+                                self.log_all(errors);
+                                self.log.line("park refused by a role");
+                                false
+                            }
+                        };
+                        queue.push_back(Input::RolesParked { ok });
+                    }
+                    Action::ShutdownRoles => {
+                        let errors = self.roles.shutdown();
+                        self.log_all(errors);
+                    }
                     _ => match self.platform.run(&action) {
                         Ok(Some(follow)) => queue.push_back(follow),
                         Ok(None) => {}
@@ -229,20 +259,9 @@ impl<P: Platform> Agent<P> {
         exit
     }
 
-    fn start_roles(&mut self, instance_id: Option<String>) {
-        let ctx = RoleContext { instance_id };
-        for role in &mut self.roles {
-            if let Err(err) = role.start(&ctx) {
-                self.log.line(&format!("role {} start failed: {err}", role.name()));
-            }
-        }
-    }
-
-    fn notify(&mut self, event: &HostEvent) {
-        for role in &mut self.roles {
-            if let Err(err) = role.on_event(event) {
-                self.log.line(&format!("role {} event failed: {err}", role.name()));
-            }
+    fn log_all(&mut self, lines: Vec<String>) {
+        for line in lines {
+            self.log.line(&line);
         }
     }
 
@@ -255,7 +274,7 @@ impl<P: Platform> Agent<P> {
             daemon: daemon_name(self.machine.daemon()).to_owned(),
             daemon_pid: self.platform.daemon_pid(),
             fast_exits: self.machine.fast_exits(),
-            roles: self.roles.iter().map(|role| role.name().to_owned()).collect(),
+            roles: self.roles.statuses(),
             last_wake: self.last_wake.to_owned(),
             wakes: self.wakes,
         };
@@ -271,6 +290,7 @@ fn wake_name(wake: Wake) -> &'static str {
         Wake::Address => "net",
         Wake::DriverFile => "driver-file",
         Wake::BakeFile => "bake-file",
+        Wake::ConfigFile => "config-file",
         Wake::Terminate => "terminate",
         Wake::ProcessExit => "exit",
         Wake::Rearm => "rearm",

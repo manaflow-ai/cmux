@@ -7,6 +7,8 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::roles::RoleStatus;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Status {
     pub agent_pid: u32,
@@ -19,7 +21,8 @@ pub struct Status {
     pub daemon_pid: Option<u32>,
     /// Consecutive short-lived session host exits.
     pub fast_exits: u32,
-    pub roles: Vec<String>,
+    /// Each role with its `last_error`.
+    pub roles: Vec<RoleStatus>,
     /// The first wake of the last loop turn.
     pub last_wake: String,
     /// Loop turns since the agent started.

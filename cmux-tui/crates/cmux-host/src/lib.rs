@@ -18,6 +18,7 @@
 //! - [`daemon_spec`]: the session host's exact argv and environment (pure).
 //! - [`announce`]: the private network announce filter (pure).
 //! - [`agent`]: the event loop over the [`agent::Platform`] trait.
+//! - [`roles`]: role supervision (order, deadlines, last errors).
 //! - [`status`]: `cmux host status`.
 //! - [`cli`]: the verbs; also the standalone `cmux-host` binary.
 //! - `linux`: the Linux platform (descriptors, spawn, identity, `/proc`).
@@ -32,4 +33,5 @@ pub mod linux;
 pub mod machine;
 pub mod metadata;
 pub mod retry;
+pub mod roles;
 pub mod status;
