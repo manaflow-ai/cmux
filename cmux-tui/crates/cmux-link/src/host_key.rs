@@ -325,7 +325,19 @@ mod tests {
         );
         let found = parse_keygen_lines(&text, &offered);
         assert!(found.revoked);
-        assert_eq!(found.key, None, "marked lines are not trusted keys");
+        // A host trusted only through a CA reports the CA key, so a plain
+        // key it offers is a change, never an unknown.
+        let authority = blob_of("ssh-rsa", 3);
+        assert_eq!(found.key.as_ref().map(|key| key.key_base64.as_str()), Some(authority.as_str()));
+        let text = format!(
+            "@cert-authority * ssh-rsa {authority}\n[h]:22 ssh-rsa {}\n",
+            blob_of("ssh-rsa", 4)
+        );
+        assert_eq!(
+            parse_keygen_lines(&text, &offered).key.unwrap().key_base64,
+            blob_of("ssh-rsa", 4),
+            "a plain known key wins over the CA"
+        );
     }
 
     #[test]

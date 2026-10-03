@@ -429,3 +429,22 @@ async fn a_revoked_key_is_a_hard_stop_that_no_confirm_lifts() {
     assert_eq!(again.code(), "host_key.revoked");
     drop(sshd);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_host_trusted_only_through_a_ca_that_offers_a_plain_key_is_a_change() {
+    let Some(lab) = lab() else { return };
+    // The user trusts host certificates signed by a CA for this host; the
+    // host offers a plain key instead.
+    let lookup = format!("[127.0.0.1]:{}", lab.port);
+    let line = format!(
+        "@cert-authority {lookup} ssh-ed25519 {}\n",
+        key_blob(&lab.path().join("host_b.pub"))
+    );
+    std::fs::write(&lab.user_known_hosts, &line).unwrap();
+    let sshd = lab.sshd("host_a");
+    let conn = lab.create_conn();
+    let error =
+        lab.connector.open_sftp(&lab.principal, &conn).await.err().expect("CA-only host refuses");
+    assert_eq!(error.code(), "host_key.changed", "{error}");
+    drop(sshd);
+}
