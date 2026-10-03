@@ -191,16 +191,23 @@ Source: spec-coverage.md P17 and the enterprise review. Each parsed policy key g
 
 Order: P17-1, P17-2, P17-3 (Swift client), P17-5, then the backend slices through the backend lead. A review subagent (security) checks each slice before it lands.
 
-### P17-1 status and follow-ups (review subagent, 2026-10-03)
+### P17-1 and P17-1b (DisabledFeatures), 2026-10-03
 
-Landed in P17-1: the registry gate (palette, context menus, shortcuts, perform, main menu items hidden at validation, the shortcut page, `action.list`, `feature.disabled` from `action.run` / `action.describe` / CLI names), `MachineRegistry.daemon(machine:)` for Cloud and SSH machines (covers `workspace.newOnMachine` and the sidebar "+"), the root palette's app rows, and the Computer Use onboarding step.
+Landed in P17-1: the registry gate (palette, context menus, shortcuts, perform, main menu items hidden at validation, the shortcut page, `action.list`, `feature.disabled` from `action.run`, `action.describe` and CLI names), `MachineRegistry.daemon(machine:)`, the root palette's app rows and the Computer Use onboarding step.
+
+P17-1b (coordinator decisions, 2026-10-03):
+- When a feature is turned off, this Mac disconnects that feature's live sessions and refuses reconnects (SSH wake and activation, restored hosts, the Cloud list refresh, restored cloud workspaces, the Cloud tunnel hub). Nothing remote is deleted or stopped: Cloud VMs, SSH host processes and remote daemons keep running. Turning the feature on again reconnects what was connecting before.
+- Terminal tabs on a turned-off machine show the plain banner "Turned off by your organization", with no reconnect hint. Their endpoint refuses re-attaches. A window of such a machine keeps its blocked daemon, so its commands never land on this Mac.
+- `apps`: the app host refuses to start apps and stops running ones, including a start that was in flight. Lifting the policy clears the reason.
+- `server.makeThisMacAServer` and `server.addServer` map to `remoteHosts`. `server.stopServing` stays available, so a running server can still be stopped.
+- The shortcut and chord index (leader overlay) skips disabled actions.
+- `cloud.machines`, `remote.machines` and CodeRouter writes (`coderouter.*.add|set|update|remove|clear`) answer `feature.disabled`. CodeRouter reads stay on. Phone access (`mobile.*`) stays on, because the phone reaches this Mac, not Cloud.
+- A malformed `DisabledFeatures` value (not an array of strings) fails closed: every feature is turned off, and a diagnostic says why. An administrator who set the key meant to restrict, so a typo must not leave everything on. An unknown name is reported and ignored, and the known names still apply. A problem never turns a feature on.
+- At launch, the forced value applies synchronously before Cloud, SSH and apps start.
 
 Open:
-- P17-1b (HIGH, spec "the owning host refuses its ops"): `services.startCloud()`, `services.ssh.start()` and `services.apps.start()` start without a policy check, and SSH reconnects sessions on wake. Restored cloud and remote workspaces, open app pages and `coderouter.*` writes stay usable. Fix: each service observes `disabledFeatures`, refuses connects and creates, and ends live sessions. DECISION (Lawrence): does turning a feature off also disconnect live sessions? RECOMMEND: yes. MDM pushes the key to stop a feature, and a session left running defeats that.
-- `server.*` actions (Add Server, Make This Mac a Server) have no feature. DECISION: map them to `remoteHosts`? RECOMMEND: yes, because they open remote access to this Mac.
-- The leader overlay and chord prefixes (`LeaderLayer`, `startsChord`) still list and consume disabled chords. The read-only socket methods `cloud.machines` and `remote.machines` still answer.
-- A non-array `DisabledFeatures` value or an unknown name turns nothing off without any message. Add a managed-status diagnostic.
 - Rust half (ad349): `cmux mcp serve` and browser automation ops refuse when `mcp` or `browserAutomation` is off, through the config actor.
+- After the policy lifts, an SSH terminal keeps the banner until its next attach event (a click or a key press), and an open app page keeps it until the page is reopened.
 
 ### P17-4 and P17-6 status (backend lead, 2026-10-03)
 
