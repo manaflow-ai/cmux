@@ -64,6 +64,15 @@ export interface Env {
   readonly SLACK_CLIENT_ID?: string
   readonly SLACK_CLIENT_SECRET?: string
   readonly SLACK_SIGNING_SECRET?: string
+  /** Google OAuth client of the integrations Google Cloud project (Gmail and Google Calendar share it). */
+  readonly GOOGLE_CLIENT_ID?: string
+  /** Secret: that client's secret. */
+  readonly GOOGLE_CLIENT_SECRET?: string
+  /**
+   * `testing` | `internal` | `verified`: this deployment may ask for restricted Gmail scopes
+   * (gmail.readonly, gmail.modify). Unset in production until Google's security assessment passes.
+   */
+  readonly GOOGLE_RESTRICTED_SCOPES?: string
   /** Home (plans/cmux-next/home-messaging.md): one ConversationDO per conversation. */
   readonly CONVERSATION_DO: DurableObjectNamespace<ConversationDO>
   /** One MuxDO per chief: its wake queue. */

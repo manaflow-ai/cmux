@@ -8,6 +8,8 @@ import {
   cloudOpByName,
   CurrentPrincipal,
   Forbidden,
+  googleProviderOpNames,
+  googleReadOpNames,
   OwnerUnreachable,
   providerOpNames,
   providerReadOpNames,
@@ -23,7 +25,7 @@ import type { Env } from "./env.ts"
 import type { DomainReply } from "./team-domain-external.ts"
 import type { ExternalReply } from "./connection-do.ts"
 import { automationHookPath, automationHookSecret } from "./ingress/automation-hook.ts"
-import { providers } from "./integrations/providers.ts"
+import { isProvider, providers, scopesToRequest } from "./integrations/providers.ts"
 import { signState, verifyState } from "./integrations/state.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
@@ -187,7 +189,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           ...(payload.expected_revision ? { expected_revision: payload.expected_revision } : {})
         }
         // Integration ops with external effects run in the ConnectionDO's own ledger (connection-do.ts).
-        if (payload.op === "integration.complete" || providerOpNames.has(payload.op)) return yield* externalOp(principal, frame)
+        if (payload.op === "integration.complete" || providerOpNames.has(payload.op) || googleProviderOpNames.has(payload.op)) return yield* externalOp(principal, frame)
         // DNS checks and the domain's DomainDO run in TeamDO, outside its reducer (team-domain-external.ts).
         if (payload.op === "domain.verify" || payload.op === "domain.release") {
           const p = yield* principalFor("cloud:TeamDO", principal)
@@ -206,10 +208,16 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           })
         }
         if (payload.op === "integration.connect") {
-          const provider = (payload.params as { provider?: string } | null)?.provider
-          const impl = provider === "github" || provider === "linear" || provider === "slack" ? providers[provider] : undefined
+          const cp = payload.params as { provider?: string; scopes?: unknown } | null
+          const provider = cp?.provider
+          const impl = isProvider(provider) ? providers[provider] : undefined
           if (impl && (!env.INTEGRATIONS_KEK || !env.DASHBOARD_ORIGIN || !impl.configured(env))) {
             return { ok: false, op: payload.op, error: { code: "integration.not_configured", message: `${provider} is not configured on this deployment`, retryable: false }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `connections:${principal.team}`, sequence: 0 }
+          }
+          // A provider may refuse scopes this deployment must not ask for (restricted Gmail scopes before CASA).
+          const refused = impl?.refuseScopes?.(env, scopesToRequest(env, impl, Array.isArray(cp?.scopes) ? (cp.scopes as Array<string>) : []))
+          if (refused) {
+            return { ok: false, op: payload.op, error: { code: "validation.invalid", message: refused, retryable: false }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `connections:${principal.team}`, sequence: 0 }
           }
         }
         // Home: conversations are keyed by the op's params, inbox ops run on UserDO's second stream (home-routes.ts).
@@ -230,8 +238,9 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const c = response.value as Connection
           const impl = providers[c.provider]
           const state = yield* Effect.promise(() => signState(env, { conn: c.id, team: c.owner, user: c.created_by, provider: c.provider }))
-          const scopes = c.scopes_requested.length > 0 ? c.scopes_requested : impl.defaultScopes
-          return { ...response, value: { connection: c, authorize_url: impl.authorizeUrl(env, state, scopes, callbackUrl()) } }
+          const scopes = scopesToRequest(env, impl, c.scopes_requested)
+          const authorizeUrl = yield* Effect.promise(() => Promise.resolve(impl.authorizeUrl(env, state, scopes, callbackUrl(), c.id)))
+          return { ...response, value: { connection: c, authorize_url: authorizeUrl } }
         }
         // A revoked server also loses its install key: TeamDO pushes the revocation to the owner's UserDO now and retries until it lands.
         if (payload.op === "server.revoke" && response.ok) {
@@ -271,7 +280,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           return { op: payload.op, value: r.value, stream: "pairing", revision: "0" }
         }
         const reader = yield* principalFor(def.owner, principal)
-        if (providerReadOpNames.has(payload.op)) {
+        if (providerReadOpNames.has(payload.op) || googleReadOpNames.has(payload.op)) {
           const stub = env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(reader.team!))
           const pr = yield* Effect.tryPromise({
             try: () => rpc<{ ok: true; value: unknown } | { ok: false; code: string; message: string }>(stub.providerRead(reader.team!, reader, payload.op, payload.params)),

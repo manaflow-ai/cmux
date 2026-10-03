@@ -14,7 +14,7 @@ export const ConnectionId = Schema.String.check(Schema.isPattern(/^conn_[a-z0-9]
   description: "One integration connection (a provider account linked to a team)."
 })
 
-export const IntegrationProvider = Schema.Literals(["github", "linear", "slack"]).annotate({ identifier: "IntegrationProvider" })
+export const IntegrationProvider = Schema.Literals(["github", "linear", "slack", "google_calendar", "gmail"]).annotate({ identifier: "IntegrationProvider" })
 export type IntegrationProvider = typeof IntegrationProvider.Type
 
 export const ConnectionStatus = Schema.Literals(["pending", "active", "needs_reauth", "error", "revoked", "expired"]).annotate({ identifier: "ConnectionStatus" })

@@ -121,6 +121,8 @@ export type DeviceStatus = {
   readonly reported_at: number
 }
 
+export type EmailAddress = string
+
 /** A lowercase DNS name such as acme.com. */
 export type EmailDomain = string
 
@@ -481,7 +483,7 @@ export type InstallId = string
 
 export type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm"
 
-export type IntegrationProvider = "github" | "linear" | "slack"
+export type IntegrationProvider = "github" | "linear" | "slack" | "google_calendar" | "gmail"
 
 export type InviteId = string
 
@@ -951,6 +953,58 @@ export interface CloudOps {
       readonly secret: string
       readonly scheme: string
     }
+  }
+  /** List the calendars of a Google Calendar connection (ids for the other calendar ops). */
+  readonly "calendar.calendars.list": {
+    readonly params: {
+      readonly connection: ConnectionId
+    }
+    readonly result: unknown
+  }
+  /** Create a Google Calendar event; attendees get Google's invitation email. */
+  readonly "calendar.event.create": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly calendar_id?: string
+      readonly summary: string
+      readonly description?: string
+      readonly location?: string
+      readonly start: {
+        readonly date_time?: string
+        readonly date?: string
+        readonly time_zone?: string
+      }
+      readonly end: {
+        readonly date_time?: string
+        readonly date?: string
+        readonly time_zone?: string
+      }
+      readonly attendees?: ReadonlyArray<EmailAddress>
+    }
+    readonly result: unknown
+  }
+  /** Answer a Google Calendar invitation as the connected account; the organizer is notified. */
+  readonly "calendar.event.respond": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly calendar_id?: string
+      readonly event_id: string
+      readonly response: "accepted" | "declined" | "tentative"
+    }
+    readonly result: unknown
+  }
+  /** List events of a Google calendar (single events, ordered by start). Read at call time; nothing is stored. */
+  readonly "calendar.events.list": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly calendar_id?: string
+      readonly time_min?: string
+      readonly time_max?: string
+      readonly query?: string
+      readonly max_results?: number
+      readonly page_token?: string
+    }
+    readonly result: unknown
   }
   /** Archive a chief: its thread stays readable, it stops waking. */
   readonly "chief.archive": {
@@ -1680,6 +1734,66 @@ export interface CloudOps {
       }>
     }
   }
+  /** Read one Gmail message (headers, plain text, attachment list) at call time; nothing is stored. */
+  readonly "mail.get": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly message_id: string
+    }
+    readonly result: unknown
+  }
+  /** Change labels of Gmail messages or a thread (archive, mark read with remove_labels UNREAD). */
+  readonly "mail.modify": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly thread_id?: string
+      readonly message_ids?: ReadonlyArray<string>
+      readonly add_labels?: ReadonlyArray<string>
+      readonly remove_labels?: ReadonlyArray<string>
+      readonly archive?: boolean
+    }
+    readonly result: unknown
+  }
+  /** Search the connected Gmail mailbox with Gmail query syntax; returns message and thread ids only. */
+  readonly "mail.search": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly query: string
+      readonly max_results?: number
+      readonly page_token?: string
+    }
+    readonly result: unknown
+  }
+  /** Send a plain-text email from the connected Gmail account. */
+  readonly "mail.send": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly to: ReadonlyArray<EmailAddress>
+      readonly cc?: ReadonlyArray<EmailAddress>
+      readonly bcc?: ReadonlyArray<EmailAddress>
+      readonly subject: string
+      readonly body: string
+      readonly thread_id?: string
+      readonly in_reply_to?: string
+    }
+    readonly result: unknown
+  }
+  /** Read one Gmail thread (every message, as mail.get) at call time; nothing is stored. */
+  readonly "mail.thread.get": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly thread_id: string
+    }
+    readonly result: unknown
+  }
+  /** Row data for Gmail threads (subject, sender, date, snippet, unread) by id, for feed rows; held in client memory only. */
+  readonly "mail.threads.peek": {
+    readonly params: {
+      readonly connection: ConnectionId
+      readonly thread_ids: ReadonlyArray<string>
+    }
+    readonly result: unknown
+  }
   /** Replace the parts of one of your messages (not after it was retracted). */
   readonly "message.edit": {
     readonly params: {
@@ -2133,6 +2247,10 @@ export const cloudOpMeta = {
   "automation.settings.set": { class: "mutation", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.update": { class: "mutation", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.webhook.get": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
+  "calendar.calendars.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
+  "calendar.event.create": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "calendar.event.respond": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "calendar.events.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
   "chief.archive": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
   "chief.create": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "chief.update": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
@@ -2191,6 +2309,12 @@ export const cloudOpMeta = {
   "invite.revoke": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "linear.issue.create": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "linear.teams.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
+  "mail.get": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
+  "mail.modify": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-own" },
+  "mail.search": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
+  "mail.send": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "mail.thread.get": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
+  "mail.threads.peek": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
   "message.edit": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
   "message.retract": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
   "message.send": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },

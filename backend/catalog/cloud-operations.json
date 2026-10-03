@@ -635,6 +635,12 @@
         }
       }
     },
+    "EmailAddress": {
+      "kind": "primitive",
+      "name": "string",
+      "max_length": 254,
+      "pattern": "^[^\\s@<>,;:\"\\\\()\\[\\]]+@[^\\s@<>,;:\"\\\\()\\[\\]]+\\.[^\\s@<>,;:\"\\\\()\\[\\]]+$"
+    },
     "EmailDomain": {
       "kind": "primitive",
       "name": "string",
@@ -2797,7 +2803,9 @@
       "values": [
         "github",
         "linear",
-        "slack"
+        "slack",
+        "google_calendar",
+        "gmail"
       ]
     },
     "InviteId": {
@@ -10007,6 +10015,674 @@
             "description": "One trigger of an automation; assigned by the owner."
           }
         }
+      }
+    },
+    "calendar.calendars.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConnectionId"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "primitive",
+        "name": "json"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "integration.unavailable",
+        "policy.denied",
+        "provider.error",
+        "selector.not_found"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "calendar calendars list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "calendar"
+      },
+      "docs": "List the calendars of a Google Calendar connection (ids for the other calendar ops).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          }
+        },
+        "required": [
+          "connection"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$defs": {}
+      }
+    },
+    "calendar.event.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConnectionId"
+            }
+          },
+          "calendar_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 254,
+              "pattern": "^(?!\\.{1,2}$)[^\\s/?#%]+$"
+            }
+          },
+          "summary": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 1024
+            }
+          },
+          "description": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 8000
+            }
+          },
+          "location": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 1024
+            }
+          },
+          "start": {
+            "required": true,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "date_time": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?(Z|[+-]\\d{2}:\\d{2})$"
+                  }
+                },
+                "date": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  }
+                },
+                "time_zone": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "max_length": 64,
+                    "pattern": "^[A-Za-z0-9_+/-]+$"
+                  }
+                }
+              }
+            }
+          },
+          "end": {
+            "required": true,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "date_time": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?(Z|[+-]\\d{2}:\\d{2})$"
+                  }
+                },
+                "date": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  }
+                },
+                "time_zone": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "max_length": 64,
+                    "pattern": "^[A-Za-z0-9_+/-]+$"
+                  }
+                }
+              }
+            }
+          },
+          "attendees": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "EmailAddress"
+              }
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "primitive",
+            "name": "json"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "integration.unavailable",
+        "mutation.indeterminate",
+        "policy.denied",
+        "provider.error",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "send-external",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "calendar event create",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "calendar"
+      },
+      "docs": "Create a Google Calendar event; attendees get Google's invitation email.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          },
+          "calendar_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 254,
+            "pattern": "^(?!\\.{1,2}$)[^\\s/?#%]+$"
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 8000
+          },
+          "location": {
+            "type": "string",
+            "maxLength": 1024
+          },
+          "start": {
+            "type": "object",
+            "properties": {
+              "date_time": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?(Z|[+-]\\d{2}:\\d{2})$"
+              },
+              "date": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              "time_zone": {
+                "type": "string",
+                "maxLength": 64,
+                "pattern": "^[A-Za-z0-9_+/-]+$"
+              }
+            },
+            "additionalProperties": true
+          },
+          "end": {
+            "type": "object",
+            "properties": {
+              "date_time": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?(Z|[+-]\\d{2}:\\d{2})$"
+              },
+              "date": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              "time_zone": {
+                "type": "string",
+                "maxLength": 64,
+                "pattern": "^[A-Za-z0-9_+/-]+$"
+              }
+            },
+            "additionalProperties": true
+          },
+          "attendees": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/EmailAddress"
+            },
+            "maxItems": 100
+          }
+        },
+        "required": [
+          "connection",
+          "summary",
+          "start",
+          "end"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          },
+          "EmailAddress": {
+            "type": "string",
+            "maxLength": 254,
+            "pattern": "^[^\\s@<>,;:\"\\\\()\\[\\]]+@[^\\s@<>,;:\"\\\\()\\[\\]]+\\.[^\\s@<>,;:\"\\\\()\\[\\]]+$"
+          }
+        }
+      },
+      "output_json_schema": {
+        "$defs": {}
+      }
+    },
+    "calendar.event.respond": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConnectionId"
+            }
+          },
+          "calendar_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 254,
+              "pattern": "^(?!\\.{1,2}$)[^\\s/?#%]+$"
+            }
+          },
+          "event_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,1024}$"
+            }
+          },
+          "response": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "accepted",
+                "declined",
+                "tentative"
+              ]
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "primitive",
+            "name": "json"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "integration.unavailable",
+        "mutation.indeterminate",
+        "policy.denied",
+        "provider.error",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "send-external",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "calendar event respond",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "calendar"
+      },
+      "docs": "Answer a Google Calendar invitation as the connected account; the organizer is notified.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          },
+          "calendar_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 254,
+            "pattern": "^(?!\\.{1,2}$)[^\\s/?#%]+$"
+          },
+          "event_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,1024}$"
+          },
+          "response": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "declined",
+              "tentative"
+            ]
+          }
+        },
+        "required": [
+          "connection",
+          "event_id",
+          "response"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$defs": {}
+      }
+    },
+    "calendar.events.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConnectionId"
+            }
+          },
+          "calendar_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 254,
+              "pattern": "^(?!\\.{1,2}$)[^\\s/?#%]+$"
+            }
+          },
+          "time_min": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?(Z|[+-]\\d{2}:\\d{2})$"
+            }
+          },
+          "time_max": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?(Z|[+-]\\d{2}:\\d{2})$"
+            }
+          },
+          "query": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 500
+            }
+          },
+          "max_results": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "page_token": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2000
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "primitive",
+        "name": "json"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "integration.unavailable",
+        "policy.denied",
+        "provider.error",
+        "selector.not_found"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "calendar events list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "calendar"
+      },
+      "docs": "List events of a Google calendar (single events, ordered by start). Read at call time; nothing is stored.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          },
+          "calendar_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 254,
+            "pattern": "^(?!\\.{1,2}$)[^\\s/?#%]+$"
+          },
+          "time_min": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?(Z|[+-]\\d{2}:\\d{2})$"
+          },
+          "time_max": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?(Z|[+-]\\d{2}:\\d{2})$"
+          },
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "max_results": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 250
+          },
+          "page_token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "connection"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$defs": {}
       }
     },
     "chief.archive": {
@@ -25703,7 +26379,9 @@
             "enum": [
               "github",
               "linear",
-              "slack"
+              "slack",
+              "google_calendar",
+              "gmail"
             ]
           },
           "ConnectionStatus": {
@@ -25972,7 +26650,9 @@
             "enum": [
               "github",
               "linear",
-              "slack"
+              "slack",
+              "google_calendar",
+              "gmail"
             ]
           }
         }
@@ -26013,7 +26693,9 @@
             "enum": [
               "github",
               "linear",
-              "slack"
+              "slack",
+              "google_calendar",
+              "gmail"
             ]
           },
           "ConnectionStatus": {
@@ -26293,7 +26975,9 @@
             "enum": [
               "github",
               "linear",
-              "slack"
+              "slack",
+              "google_calendar",
+              "gmail"
             ]
           },
           "ConnectionStatus": {
@@ -26479,7 +27163,9 @@
             "enum": [
               "github",
               "linear",
-              "slack"
+              "slack",
+              "google_calendar",
+              "gmail"
             ]
           },
           "RepoPattern": {
@@ -26752,7 +27438,9 @@
             "enum": [
               "github",
               "linear",
-              "slack"
+              "slack",
+              "google_calendar",
+              "gmail"
             ]
           },
           "RepoPattern": {
@@ -26769,7 +27457,9 @@
             "enum": [
               "github",
               "linear",
-              "slack"
+              "slack",
+              "google_calendar",
+              "gmail"
             ]
           },
           "RepoPattern": {
@@ -26986,7 +27676,9 @@
             "enum": [
               "github",
               "linear",
-              "slack"
+              "slack",
+              "google_calendar",
+              "gmail"
             ]
           },
           "ConnectionStatus": {
@@ -28067,6 +28759,809 @@
           "teams"
         ],
         "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "mail.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConnectionId"
+            }
+          },
+          "message_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "primitive",
+        "name": "json"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "integration.unavailable",
+        "policy.denied",
+        "provider.error",
+        "selector.not_found"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "mail get",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "mail"
+      },
+      "docs": "Read one Gmail message (headers, plain text, attachment list) at call time; nothing is stored.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          },
+          "message_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$"
+          }
+        },
+        "required": [
+          "connection",
+          "message_id"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$defs": {}
+      }
+    },
+    "mail.modify": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConnectionId"
+            }
+          },
+          "thread_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+            }
+          },
+          "message_ids": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,64}$"
+              }
+            }
+          },
+          "add_labels": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,100}$"
+              }
+            }
+          },
+          "remove_labels": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,100}$"
+              }
+            }
+          },
+          "archive": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "primitive",
+            "name": "json"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "integration.unavailable",
+        "mutation.indeterminate",
+        "policy.denied",
+        "provider.error",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "mail modify",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "mail"
+      },
+      "docs": "Change labels of Gmail messages or a thread (archive, mark read with remove_labels UNREAD).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          },
+          "thread_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$"
+          },
+          "message_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+            },
+            "minItems": 1,
+            "maxItems": 1000
+          },
+          "add_labels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,100}$"
+            },
+            "maxItems": 100
+          },
+          "remove_labels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,100}$"
+            },
+            "maxItems": 100
+          },
+          "archive": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "connection"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$defs": {}
+      }
+    },
+    "mail.search": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConnectionId"
+            }
+          },
+          "query": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 2000
+            }
+          },
+          "max_results": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "page_token": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2000
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "primitive",
+        "name": "json"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "integration.unavailable",
+        "policy.denied",
+        "provider.error",
+        "selector.not_found"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "mail search",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "mail"
+      },
+      "docs": "Search the connected Gmail mailbox with Gmail query syntax; returns message and thread ids only.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          },
+          "query": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "max_results": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "page_token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "connection",
+          "query"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$defs": {}
+      }
+    },
+    "mail.send": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConnectionId"
+            }
+          },
+          "to": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "EmailAddress"
+              }
+            }
+          },
+          "cc": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "EmailAddress"
+              }
+            }
+          },
+          "bcc": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "EmailAddress"
+              }
+            }
+          },
+          "subject": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 900,
+              "pattern": "^[^\\r\\n]*$"
+            }
+          },
+          "body": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 1000000
+            }
+          },
+          "thread_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+            }
+          },
+          "in_reply_to": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 998,
+              "pattern": "^[^\\r\\n]*$"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "primitive",
+            "name": "json"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "integration.unavailable",
+        "mutation.indeterminate",
+        "policy.denied",
+        "provider.error",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "send-external",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "mail send",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "mail"
+      },
+      "docs": "Send a plain-text email from the connected Gmail account.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          },
+          "to": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/EmailAddress"
+            },
+            "maxItems": 100,
+            "minItems": 1
+          },
+          "cc": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/EmailAddress"
+            },
+            "maxItems": 100
+          },
+          "bcc": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/EmailAddress"
+            },
+            "maxItems": 100
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 900,
+            "pattern": "^[^\\r\\n]*$"
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 1000000
+          },
+          "thread_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$"
+          },
+          "in_reply_to": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 998,
+            "pattern": "^[^\\r\\n]*$",
+            "allOf": [
+              {
+                "pattern": "^<[^<>\\s]+>$"
+              }
+            ]
+          }
+        },
+        "required": [
+          "connection",
+          "to",
+          "subject",
+          "body"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          },
+          "EmailAddress": {
+            "type": "string",
+            "maxLength": 254,
+            "pattern": "^[^\\s@<>,;:\"\\\\()\\[\\]]+@[^\\s@<>,;:\"\\\\()\\[\\]]+\\.[^\\s@<>,;:\"\\\\()\\[\\]]+$"
+          }
+        }
+      },
+      "output_json_schema": {
+        "$defs": {}
+      }
+    },
+    "mail.thread.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConnectionId"
+            }
+          },
+          "thread_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "primitive",
+        "name": "json"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "integration.unavailable",
+        "policy.denied",
+        "provider.error",
+        "selector.not_found"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "mail thread get",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "mail"
+      },
+      "docs": "Read one Gmail thread (every message, as mail.get) at call time; nothing is stored.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          },
+          "thread_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$"
+          }
+        },
+        "required": [
+          "connection",
+          "thread_id"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$defs": {}
+      }
+    },
+    "mail.threads.peek": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConnectionId"
+            }
+          },
+          "thread_ids": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,64}$"
+              }
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "primitive",
+        "name": "json"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "integration.unavailable",
+        "policy.denied",
+        "provider.error",
+        "selector.not_found"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "mail threads peek",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "mail"
+      },
+      "docs": "Row data for Gmail threads (subject, sender, date, snippet, unread) by id, for feed rows; held in client memory only.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          },
+          "thread_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+            },
+            "minItems": 1,
+            "maxItems": 50
+          }
+        },
+        "required": [
+          "connection",
+          "thread_ids"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          }
+        }
+      },
+      "output_json_schema": {
         "$defs": {}
       }
     },
@@ -34424,7 +35919,9 @@
             "enum": [
               "github",
               "linear",
-              "slack"
+              "slack",
+              "google_calendar",
+              "gmail"
             ]
           },
           "TeamPolicyValues": {
@@ -35134,7 +36631,9 @@
             "enum": [
               "github",
               "linear",
-              "slack"
+              "slack",
+              "google_calendar",
+              "gmail"
             ]
           },
           "TeamPolicyValues": {
@@ -35894,7 +37393,9 @@
             "enum": [
               "github",
               "linear",
-              "slack"
+              "slack",
+              "google_calendar",
+              "gmail"
             ]
           },
           "TeamPolicyValues": {
@@ -36680,7 +38181,9 @@
             "enum": [
               "github",
               "linear",
-              "slack"
+              "slack",
+              "google_calendar",
+              "gmail"
             ]
           },
           "TeamPolicyValues": {
