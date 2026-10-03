@@ -1,5 +1,5 @@
-import CmuxNextDesign
-import SwiftUI
+public import CmuxNextDesign
+public import SwiftUI
 
 /// Compact slider controls shared by the Appearance Studio and its one-slider
 /// peek panel. State remains local to the view while the host owns the live
