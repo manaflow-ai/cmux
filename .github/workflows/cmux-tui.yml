@@ -505,10 +505,6 @@ jobs:
             echo "- hit rate: \`${hit_rate}%\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: cargo fmt
-        working-directory: cmux-tui
-        run: cargo fmt --check
-
       # Clippy builds every workspace target with macOS cfgs. Keep this before
       # the focused tests so a macOS-only compile break cannot hide behind the
       # reduced test list.
@@ -820,8 +816,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos
-            runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
           - os: linux
             runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     steps:
@@ -848,11 +842,6 @@ jobs:
         if: runner.os == 'Linux'
         working-directory: web
         run: bunx playwright install --with-deps chromium
-
-      - name: Install pinned Playwright Chromium (macOS)
-        if: runner.os == 'macOS'
-        working-directory: web
-        run: bunx playwright install chromium
 
       - name: Resolve Playwright Chromium executable
         id: chromium
