@@ -314,6 +314,14 @@ pub struct WebSocketConfig {
     pub listen: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
+    /// Browser origins allowed besides the listener's own and the agent
+    /// pane's (for example a page dev server). `null` is never allowed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_origins: Vec<String>,
+    /// `Host` names allowed besides loopback (a proxy that keeps a public
+    /// name). Both lists are read when the listener starts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_hosts: Vec<String>,
 }
 
 fn default_palette_prefix() -> String {
@@ -439,6 +447,10 @@ pub struct Config {
     /// not being served. Kept apart so a save does not drop the address.
     #[serde(skip)]
     pub web_unbound: bool,
+    /// Loopback page dev server origins from `--allow-dev-origin` (this run
+    /// only, never saved).
+    #[serde(skip)]
+    pub dev_origins: Vec<String>,
     /// Profiles whose launcher failed its start-up check, with the reason.
     /// They stay configured (sessions on them keep their history) but no
     /// family preference or fallback routes new work to them.

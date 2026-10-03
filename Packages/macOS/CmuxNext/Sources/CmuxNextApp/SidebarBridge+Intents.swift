@@ -39,6 +39,13 @@ extension SidebarBridge {
             guard !model.isPlaceholder(id) else { return }
             model.apply(intent)
             services.windows.show(workspaceID: id.rawValue, in: state)
+        case let .selectTab(_, tab):
+            _ = services.revealTab(tab.rawValue)
+        case .moveTab:
+            // Tab drags are committed by TabDragSession. Keep this intent
+            // conservative until a sidebar-only tab move has a daemon
+            // transaction path of its own.
+            resync()
         case .reorder(let ids, let position):
             let before = model.sections
             model.apply(intent)

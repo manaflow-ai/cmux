@@ -1,4 +1,4 @@
-//! `git checkpoint create|get|list|pin|unpin`: capture-only repository
+//! `git checkpoint create|get|list|pin|unpin|diff`: capture-only repository
 //! checkpoints the session host stores without changing HEAD, the index or
 //! the worktree.
 
@@ -10,7 +10,7 @@ use super::super::{
     validate_one_of,
 };
 
-const REASONS: &[&str] = &["manual", "handoff"];
+const REASONS: &[&str] = &["manual", "handoff", "turn"];
 
 /// `words` follow `git checkpoint`; `params` already names the repository.
 pub(super) fn parse(
@@ -58,6 +58,27 @@ pub(super) fn parse(
             params.insert("checkpoint_id".into(), text(id));
             params.insert("pin_id".into(), Value::String(flags.required("pin")?));
             Op::GitCheckpointUnpin
+        }
+        ["diff", from, to @ ..] if to.len() <= 1 => {
+            params.insert("from".into(), text(from));
+            if let [to] = to {
+                params.insert("to".into(), text(to));
+            }
+            if flags.boolean("patch") {
+                params.insert("include_patch".into(), Value::Bool(true));
+            }
+            if let Some(value) = flags.take("max-patch-bytes") {
+                let field = "max_patch_bytes";
+                insert_bounded_u32(&mut params, field, "--max-patch-bytes", value, 1, 4_194_304)?;
+            }
+            if let Some(value) = flags.take("max-files") {
+                insert_bounded_u32(&mut params, "max_files", "--max-files", value, 1, 5000)?;
+            }
+            if let Some(only) = flags.take("only") {
+                let paths = comma_separated("--only", &only)?.into_iter().map(Value::String);
+                params.insert("paths".into(), Value::Array(paths.collect()));
+            }
+            Op::GitCheckpointDiff
         }
         _ => return usage("git checkpoint action"),
     };

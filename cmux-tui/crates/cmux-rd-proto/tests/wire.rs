@@ -141,3 +141,85 @@ fn large_frames_without_parity_are_accepted_and_large_fec_blocks_refused() {
     assert!(DatagramHeader::decode(&header(254, 1, 254, DatagramKind::Fec)).is_ok());
     assert!(DatagramHeader::decode(&header(4097, 0, 0, DatagramKind::Video)).is_err());
 }
+
+#[test]
+fn stream_frames_split_at_any_chunk_boundary() {
+    use cmux_rd_proto::{STREAM_CONTROL, STREAM_DATAGRAM, StreamDeframer, encode_stream_frame};
+    let mut bytes = Vec::new();
+    encode_stream_frame(STREAM_CONTROL, br#"{"t":"stop"}"#, &mut bytes).expect("control");
+    encode_stream_frame(STREAM_DATAGRAM, &[7u8; 40], &mut bytes).expect("datagram");
+    assert_eq!(&bytes[..5], &[1, 12, 0, 0, 0]);
+    for chunk in 1..bytes.len() {
+        let mut d = StreamDeframer::default();
+        let mut frames = Vec::new();
+        for part in bytes.chunks(chunk) {
+            d.extend(part);
+            while let Some(f) = d.next_frame().expect("frame") {
+                frames.push(f);
+            }
+        }
+        assert_eq!(frames.len(), 2);
+        assert_eq!(frames[0], (STREAM_CONTROL, br#"{"t":"stop"}"#.to_vec()));
+        assert_eq!(frames[1], (STREAM_DATAGRAM, vec![7u8; 40]));
+        assert_eq!(d.buffered(), 0);
+    }
+}
+
+#[test]
+fn stream_refuses_unknown_types_and_oversized_lengths() {
+    use cmux_rd_proto::{MAX_STREAM_FRAME, StreamDeframer, encode_stream_frame};
+    assert!(encode_stream_frame(9, b"x", &mut Vec::new()).is_err());
+    let mut d = StreamDeframer::default();
+    d.extend(&[9, 1, 0, 0, 0, 0]);
+    assert!(d.next_frame().is_err());
+    // The failure is sticky.
+    d.extend(&[1, 0, 0, 0, 0]);
+    assert!(d.next_frame().is_err());
+    let mut d = StreamDeframer::default();
+    d.extend(&[2]);
+    d.extend(&((MAX_STREAM_FRAME as u32) + 1).to_le_bytes());
+    assert!(d.next_frame().is_err());
+}
+
+#[test]
+fn many_small_frames_in_one_chunk_are_all_read() {
+    use cmux_rd_proto::{STREAM_CONTROL, StreamDeframer, encode_stream_frame};
+    let mut bytes = Vec::new();
+    for _ in 0..100_000 {
+        encode_stream_frame(STREAM_CONTROL, b"", &mut bytes).expect("control");
+    }
+    bytes.extend_from_slice(&[STREAM_CONTROL, 3, 0]);
+    let mut d = StreamDeframer::default();
+    d.extend(&bytes);
+    let mut n = 0;
+    while let Some((kind, payload)) = d.next_frame().expect("frame") {
+        assert_eq!((kind, payload.len()), (STREAM_CONTROL, 0));
+        n += 1;
+    }
+    assert_eq!(n, 100_000);
+    // Only the partial frame stays, and it completes with the next chunk.
+    assert_eq!(d.buffered(), 3);
+    d.extend(&[0, 0, b'a', b'b', b'c']);
+    assert_eq!(d.next_frame().expect("frame"), Some((STREAM_CONTROL, b"abc".to_vec())));
+    assert_eq!(d.buffered(), 0);
+}
+
+/// The stream carrier bytes of `{"t":"stop"}` then a 3-byte datagram. The
+/// same vector is pinned in cmux-rd-host's src/wire.rs tests (which also
+/// round-trip it through the host's writer and reader).
+#[test]
+fn stream_framing_matches_the_golden_vector() {
+    use cmux_rd_proto::{STREAM_CONTROL, STREAM_DATAGRAM, StreamDeframer, encode_stream_frame};
+    const GOLDEN: &[u8] = &[
+        1, 12, 0, 0, 0, b'{', b'"', b't', b'"', b':', b'"', b's', b't', b'o', b'p', b'"', b'}', 2,
+        3, 0, 0, 0, 7, 7, 7,
+    ];
+    let mut bytes = Vec::new();
+    encode_stream_frame(STREAM_CONTROL, br#"{"t":"stop"}"#, &mut bytes).expect("control");
+    encode_stream_frame(STREAM_DATAGRAM, &[7, 7, 7], &mut bytes).expect("datagram");
+    assert_eq!(bytes, GOLDEN);
+    let mut d = StreamDeframer::default();
+    d.extend(GOLDEN);
+    assert_eq!(d.next_frame().expect("frame"), Some((STREAM_CONTROL, br#"{"t":"stop"}"#.to_vec())));
+    assert_eq!(d.next_frame().expect("frame"), Some((STREAM_DATAGRAM, vec![7, 7, 7])));
+}

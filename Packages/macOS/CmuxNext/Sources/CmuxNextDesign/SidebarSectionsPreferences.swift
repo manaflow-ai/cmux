@@ -1,6 +1,7 @@
 /// The sidebar section settings in cmux.json (`sidebar.sectionLook`,
 /// `sidebar.topBandMaxShare`, `sidebar.bottomBandMaxShare`,
-/// `sidebar.stickyBandsScroll`; plans/cmux-next/sidebar-sections.md 7).
+/// `sidebar.stickyBandsScroll` and `sidebar.showWorkspaceTabs`;
+/// plans/cmux-next/sidebar-sections.md 7).
 public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// A `SectionsLookVariant` raw value (CmuxNextSidebar); unknown = quiet.
     public var look: String
@@ -12,13 +13,16 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// False: the bands never scroll; the list shrinks instead (to a
     /// minimum of three rows).
     public var stickyBandsScroll: Bool
+    /// Whether the workspace list expands each workspace into its tab rows.
+    public var showWorkspaceTabs: Bool
 
     public init(look: String = "quiet", topBandMaxShare: Double = 1.0 / 3.0, bottomBandMaxShare: Double = 0.25,
-                stickyBandsScroll: Bool = true) {
+                stickyBandsScroll: Bool = true, showWorkspaceTabs: Bool = false) {
         self.look = look
         self.topBandMaxShare = topBandMaxShare
         self.bottomBandMaxShare = bottomBandMaxShare
         self.stickyBandsScroll = stickyBandsScroll
+        self.showWorkspaceTabs = showWorkspaceTabs
     }
 
     public static let defaults = SidebarSectionsPreferences()

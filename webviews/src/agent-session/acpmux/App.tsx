@@ -46,6 +46,7 @@ import { SummaryButton } from "./summary/SummaryButton";
 import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
+import { readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointSource";
 import {
   restoredDecisions,
   turnHunkKeys,
@@ -197,6 +198,9 @@ const changesSource: ChangesSource = {
   diff: (scope) => callNative("git.diff", { scope, include_patch: true }),
   status: () => callNative("git.status", {}),
 };
+/// A turn's checkpoint pair, diffed on the session host (`git.checkpoint.diff`).
+const checkpointDiff: CheckpointDiff = (from, to) =>
+  callNative("git.checkpoint.diff", { from, to, include_patch: true });
 /// The host opens a changed file in a tab beside the agent or in the editor (`file.open`).
 const openChangedFile = (path: string, where: "tab" | "editor") => callNative("file.open", { path, where });
 
@@ -957,17 +961,25 @@ function AcpmuxPane() {
     if (diffActivity.current?.key !== key) diffActivity.current = { key, files: turnFiles(activity) };
     return diffActivity.current.files;
   }, [diffView, diffOpen, snapshot.rows]);
-  // Each turn's checkpoint pair, named by the row that starts the turn. The host reads none yet
-  // (changesSource has no `turn`), so Last turn shows the tool calls' edits as before.
-  const turnCheckpoints = useTurnCheckpoints(changesSource.turn, snapshot.sessionId);
-  const { request: requestTurnCheckpoint, get: turnCheckpoint } = turnCheckpoints;
+  // Each turn's checkpoint pair, named by the row that starts the turn: the checkpoints acpmux
+  // recorded on its summary, diffed on the session host.
   const turnRowsRef = useRef(snapshot.rows);
   turnRowsRef.current = snapshot.rows;
+  const readTurn = useCallback(
+    ({ rowId }: { rowId: string }) => readTurnFromRows(turnRowsRef.current, rowId, checkpointDiff),
+    [],
+  );
+  const turnCheckpoints = useTurnCheckpoints(readTurn, snapshot.sessionId);
+  const { request: requestTurnCheckpoint, get: turnCheckpoint } = turnCheckpoints;
   const turnKey = useCallback((rowId: string) => turnRows(turnRowsRef.current, rowId)[0]?.id ?? rowId, []);
   const diffTurn = diffView && diffOpen ? turnKey(diffView.rowId) : undefined;
+  // A turn's pair exists once it has ended, so the view asks then (and again when it ends while
+  // the view is open); until then it shows the tool calls' edits.
+  const diffTurnEnded =
+    diffView && diffOpen ? turnRows(snapshot.rows, diffView.rowId).some((row) => row.kind === "turnSummary") : false;
   useEffect(() => {
-    if (diffTurn) requestTurnCheckpoint(diffTurn);
-  }, [diffTurn, requestTurnCheckpoint]);
+    if (diffTurn && diffTurnEnded) requestTurnCheckpoint(diffTurn);
+  }, [diffTurn, diffTurnEnded, requestTurnCheckpoint]);
   const diffDisplay = useMemo(() => {
     if (!diffFiles || !diffTurn) return undefined;
     // An Undo chosen but not yet sent holds the tool-call view; Keep has nothing to send.
@@ -1390,6 +1402,7 @@ function AcpmuxPane() {
           "chat.handoff.discard": async () => persistSession(await client.discardHandoff()),
           "git.diff": ({ scope }) => client.gitDiff(String(scope)),
           "git.status": () => client.gitStatus(),
+          "git.checkpoint.diff": ({ from, to }) => client.gitCheckpointDiff(String(from), String(to)),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
@@ -1499,7 +1512,7 @@ function AcpmuxPane() {
     }
     if (newTab?.cwd) byPath.set(newTab.cwd, { cwd: newTab.cwd, label: projectLabel(newTab.cwd) });
     return [...byPath.values()];
-  }, [composerSnapshot.sessions, newTab?.cwd]);
+  }, [composerSnapshot.sessions, newTab?.cwd, newTab?.projects]);
   const transcript = (
     <TurnActionsContext.Provider value={turnActions}>
       <TurnCountsContext.Provider value={turnCountsFor}>

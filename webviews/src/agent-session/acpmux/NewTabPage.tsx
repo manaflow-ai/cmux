@@ -6,6 +6,7 @@ import { ProjectChooser, type Project } from "./ProjectChooser";
 import {
   defaultRow,
   EMPTY_OMNIBAR,
+  MAX_NEW_TAB_ENTRIES,
   omnibarContext,
   omnibarRows,
   type OmnibarContext,
@@ -105,7 +106,11 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(typeof object.location === "string" && object.location ? { location: object.location } : {}),
     ...(omnibar ? { omnibar } : {}),
     ...(Array.isArray(object.projects)
-      ? { projects: object.projects.filter((path): path is string => typeof path === "string" && path.length > 0) }
+      ? {
+          projects: object.projects
+            .filter((path): path is string => typeof path === "string" && path.length > 0)
+            .slice(0, MAX_NEW_TAB_ENTRIES),
+        }
       : {}),
     ...(DEFAULT_KINDS.includes(object.defaultKind as DefaultKind)
       ? { defaultKind: object.defaultKind as DefaultKind }

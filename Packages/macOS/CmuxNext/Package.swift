@@ -81,6 +81,22 @@ let daemonSwiftSettings: [SwiftSetting] = [
     .enableUpcomingFeature("InternalImportsByDefault"),
 ]
 
+/// The remote desktop viewer core (Rust crate cmux-tui/crates/cmux-rd-ffi) as the
+/// client xcframework, linked only into CmuxNextRemoteView and only when
+/// CMUX_NEXT_RD_FFI=1 after scripts/cmux-next/build-rd-ffi.sh built it. Every
+/// other build compiles the remote view without it: RemoteRdCore is
+/// `#if CMUX_RD_FFI` (plans/cmux-next/remote-desktop.md section 3).
+/// An environment switch, not a file check: SwiftPM caches the manifest by
+/// its environment, so a file check would go stale.
+let remoteDesktopCoreLinked = Context.environment["CMUX_NEXT_RD_FFI"] == "1"
+let remoteDesktopCoreTargets: [Target] = remoteDesktopCoreLinked
+    ? [.binaryTarget(name: "CCmuxRdFFI", path: "../../../cmux-tui/target/cmux-rd-ffi/CCmuxRdFFI.xcframework")]
+    : []
+let remoteDesktopCoreDependency: [Target.Dependency] = remoteDesktopCoreLinked ? ["CCmuxRdFFI"] : []
+/// A compiler define, not `canImport`: a changed define recompiles the
+/// module, so switching CMUX_NEXT_RD_FFI in one .build never links stale objects.
+let remoteDesktopCoreSettings: [SwiftSetting] = remoteDesktopCoreLinked ? [.define("CMUX_RD_FFI")] : []
+
 let package = Package(
     name: "CmuxNext",
     defaultLocalization: "en",
@@ -417,17 +433,17 @@ let package = Package(
         // `remote_view` tabs (cmux://remote-view records, development builds).
         .target(
             name: "CmuxNextRemoteView",
-            dependencies: ["CmuxNextDesign"],
+            dependencies: ["CmuxNextDesign"] + remoteDesktopCoreDependency,
             exclude: ["README.md"],
             resources: [
                 .process("Resources"),
             ],
-            swiftSettings: uiSwiftSettings
+            swiftSettings: uiSwiftSettings + remoteDesktopCoreSettings
         ),
         .testTarget(
             name: "CmuxNextRemoteViewTests",
-            dependencies: ["CmuxNextRemoteView", "CmuxNextDesign"],
-            swiftSettings: uiSwiftSettings
+            dependencies: ["CmuxNextRemoteView", "CmuxNextDesign"] + remoteDesktopCoreDependency,
+            swiftSettings: uiSwiftSettings + remoteDesktopCoreSettings
         ),
         // cmux server (plans/cmux-next/server.md sections 6, 9, 13, 14): the
         // menubar panel, pairing, approver sheet and health prototypes over a
@@ -832,5 +848,5 @@ let package = Package(
             dependencies: ["CmuxNextActions"],
             swiftSettings: uiSwiftSettings
         ),
-    ]
+    ] + remoteDesktopCoreTargets
 )

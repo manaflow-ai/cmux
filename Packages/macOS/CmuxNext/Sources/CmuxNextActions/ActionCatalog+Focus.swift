@@ -15,9 +15,9 @@ nonisolated extension ActionCatalog {
         // Screens
         "screen.next", "screen.previous", "screen.select", "screen.selectLast",
         // Workspaces and rooms
-        "nextSidebarTab", "prevSidebarTab", "nextSidebarTabInGroup", "prevSidebarTabInGroup", "selectWorkspaceByNumber",
+        "nextSidebarTab", "prevSidebarTab", "nextSidebarTabInGroup", "prevSidebarTabInGroup", "nextWorkspaceGroup", "prevWorkspaceGroup", "selectWorkspaceByNumber",
         "goToWorkspace", "workspace.selectFirst", "workspace.selectLast", "workspace.selectLastUsed",
-        "space.next", "space.previous", "space.selectByNumber", "space.switch",
+        "space.next", "space.previous", "space.selectByNumber", "space.switch", "home.show",
         // Focus history and notifications
         "focusHistoryBack", "focusHistoryForward", "focusHistoryLast", "jumpToUnread", "markOldestUnreadAndJumpNext",
         "notificationOpen", "vaultFocusSession", "computerUseFocus", "computerUseFocusCallingTerminal",

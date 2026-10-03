@@ -140,8 +140,10 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.focusRightSidebar`
 - `shortcuts.bindings.nextSidebarTab`
 - `shortcuts.bindings.nextSidebarTabInGroup`
+- `shortcuts.bindings.nextWorkspaceGroup`
 - `shortcuts.bindings.prevSidebarTab`
 - `shortcuts.bindings.prevSidebarTabInGroup`
+- `shortcuts.bindings.prevWorkspaceGroup`
 - `shortcuts.bindings.switchRightSidebarToDock`
 - `shortcuts.bindings.switchRightSidebarToFeed`
 - `shortcuts.bindings.switchRightSidebarToFiles`

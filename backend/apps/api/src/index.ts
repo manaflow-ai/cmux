@@ -6,7 +6,7 @@ import { handleProviderHook } from "./ingress/provider-hook.ts"
 import { handleGooglePubsub } from "./ingress/google-hooks.ts"
 import { handleSsoDiscover } from "./sso-discover.ts"
 import { handleInviteCard, handleInvitePreview } from "./home-routes.ts"
-import { signInRules, ssoRefusal, versionRefusal, withSsoSession } from "./policy-gate.ts"
+import { signInRules, ssoGate, versionRefusal } from "./policy-gate.ts"
 import type { PresenceKeyBody } from "./user-do.ts"
 import { handlePairBegin, handlePairWait } from "./pair-routes.ts"
 import { handleSsoCallback, handleSsoRedeem, handleSsoStart } from "./sso-routes.ts"
@@ -40,10 +40,12 @@ const wire = async (request: Request, env: Env, scope: string, conversation?: st
   const token = protocols.find((p) => p.startsWith("bearer."))?.slice("bearer.".length)
   const authenticated = await authenticate(env, token)
   if (!authenticated?.user || !authenticated.team) return new Response("unauthenticated", { status: 401 })
-  // Team policy (P17-4): SSO for sessions, minimum client version for every connect.
+  // Team policy (P17-4): SSO (own team and the email domain's team), minimum client version for every connect.
   const rules = await signInRules(env, authenticated.team, authenticated.user)
-  const authed = await withSsoSession(env, authenticated, rules)
-  const refused = ssoRefusal(authed, rules) ?? versionRefusal(request.headers.get("x-cmux-client-version"), rules)
+  const gate = await ssoGate(env, authenticated)
+  // The Stack session id and the install's email domain serve only this gate; owners never receive them.
+  const { stack_session: _session, email_domain: _domain, ...authed } = gate.principal
+  const refused = gate.refusal ?? versionRefusal(request.headers.get("x-cmux-client-version"), rules)
   if (refused) return Response.json({ error: refused }, { status: 403 })
   // TeamDO and FeedDO cannot see UserDO's revocations; resolve the grant first (UserDO checks its own installs).
   const principal = scope === "user" ? authed : await withGrantClasses(env, authed)
@@ -71,14 +73,16 @@ const wire = async (request: Request, env: Env, scope: string, conversation?: st
 /** POST /v1/presence-key with the install's own token (home-messaging.md section 21). */
 const handlePresenceKey = async (request: Request, env: Env): Promise<Response> => {
   const auth = request.headers.get("authorization") ?? ""
-  const principal = await authenticate(env, auth.startsWith("Bearer ") ? auth.slice(7) : undefined)
-  if (!principal?.user) return Response.json({ error: { code: "auth.unauthenticated", message: "install token required" } }, { status: 401 })
-  const refused = principal.team ? ssoRefusal(principal, await signInRules(env, principal.team, principal.user)) : undefined
-  if (refused) return Response.json({ ok: false, error: refused }, { status: 403 })
+  const authenticated = await authenticate(env, auth.startsWith("Bearer ") ? auth.slice(7) : undefined)
+  if (!authenticated?.user) return Response.json({ error: { code: "auth.unauthenticated", message: "install token required" } }, { status: 401 })
+  const gate = await ssoGate(env, authenticated)
+  if (gate.refusal) return Response.json({ ok: false, error: gate.refusal }, { status: 403 })
+  const { stack_session: _session, email_domain: _domain, ...principal } = gate.principal
+  const user = authenticated.user
   const body = (await request.json().catch(() => null)) as PresenceKeyBody | null
   if (!body) return Response.json({ error: { code: "validation.invalid", message: "JSON body required" } }, { status: 400 })
-  const stub = env.USER_DO.get(env.USER_DO.idFromName(principal.user)) as unknown as { registerPresenceKey(e: string, p: unknown, b: PresenceKeyBody): Promise<unknown> }
-  const r = (await stub.registerPresenceKey(principal.user, principal, body)) as { error?: { code: string; message: string }; frames?: Array<{ t: string; value?: unknown; code?: string; message?: string }> }
+  const stub = env.USER_DO.get(env.USER_DO.idFromName(user)) as unknown as { registerPresenceKey(e: string, p: unknown, b: PresenceKeyBody): Promise<unknown> }
+  const r = (await stub.registerPresenceKey(user, principal, body)) as { error?: { code: string; message: string }; frames?: Array<{ t: string; value?: unknown; code?: string; message?: string }> }
   if (r.error) return Response.json({ ok: false, error: r.error }, { status: r.error.code.startsWith("auth.") ? 403 : 400 })
   const reply = r.frames?.find((f) => f.t === "result" || f.t === "reject")
   if (reply?.t !== "result") return Response.json({ ok: false, error: { code: reply?.code ?? "owner.unreachable", message: reply?.message ?? "no reply" } }, { status: 400 })

@@ -150,7 +150,7 @@ WebSocket handshake, before the protocol starts:
 | cmux-tui daemon `--ws` | `--ws-token` or a pairing credential in the first frame; a pairing request needs the user's approval (both exist) | added; `--ws-allow-origin` / `--ws-allow-host` add a web frontend dev server or a `tailscale serve` name |
 | acpmux web and WebSocket (`127.0.0.1:47811`) | made mandatory: a config with no token gets one; header or `?token=` | added; own origin (dashboard), `cmux-agent://pane` (the agent pane, once it loads from that scheme: a `loadFileURL` page sends `Origin: null`, measured on macOS 27), and `websocket.allowed_origins` |
 | cmux-remote workspace HTTP | bearer token file (exists) | every `Origin` refused (no browser client); no `Host` rule, because it is meant to sit behind SSH forwarding or a TLS reverse proxy that keeps the public name |
-| cmux-remote direct WebSocket `/v1/link` | link handshake (exists) | every `Origin` refused (exists, tested); no `Host` rule, same reason |
+| cmux-remote direct WebSocket `/v1/link` | link handshake (exists) | already present (daemon.rs:1467, test browser_origin_is_rejected_by_direct_websocket_listener): every `Origin` refused; no `Host` rule, same reason |
 | HTTP MCP (new, section 7) | scoped MCP token | built in |
 
 Notes from the slice 2 review:
@@ -161,12 +161,29 @@ Notes from the slice 2 review:
 - acpmux reads `websocket.allowed_origins` and `websocket.allowed_hosts` when the
   listener starts; a change needs a daemon restart.
 - The Debug agent pane dev server (`CMUX_NEXT_AGENT_PANE_DEV_URL`) sends its own
-  origin; add it to `websocket.allowed_origins` in `~/.acpmux/config.json`.
+  origin. A Debug app (only `#if DEBUG` resolves a dev server) starts acpmux with
+  `--allow-dev-origin <origin>`. Only the Swift side is Debug-only: the
+  `--allow-dev-origin` flag exists in EVERY acpmux build (Release included), so
+  anyone who can start `acpmux daemon run` can pass it. That is safe because the
+  flag accepts only an `http` origin whose host is loopback (`127.0.0.1`,
+  `localhost`, `[::1]`) with an explicit port (anything else is a start-up
+  error, so it can never admit a web site); the value is never saved to
+  config.json (this run only); and the token stays mandatory, so an allowed dev
+  origin still needs the token. Release apps never pass the flag. A daemon that
+  already runs keeps its origins, so restart it after changing the dev URL. No
+  manual config entry (coordinator decision 2026-10-03).
+- acpmux creates `daemon.log` with mode 0600, like its config file, and narrows
+  an older log with wider bits to 0600 when it opens it.
 - acpmux peers that connect with no token stop working once the remote side has
   this change; `acpmux peer add ... --token T` or an ssh peer (which reads the
   remote token) is required.
 - The acpmux dashboard reads a request head up to 32 KiB (large localhost
   cookies); a larger head is refused.
+
+Raw TCP listeners (no HTTP) follow the same intent: loopback bind by default, a
+per-launch token before any frame, and an immediate close when the first bytes
+look like an HTTP request (a cross-protocol POST from a web page). The remote
+desktop host (`cmux-rd-host`, lane 17) gets its token over `--token-fd`.
 
 Out of scope, recorded so nobody adds them by mistake: port forwards that carry the
 user's own service (cmux-remote `LocalPortForward`, `loopback_forward`, the app's
@@ -210,6 +227,10 @@ risk class. Token ops are `mcp.expose: never`.
    the journal field. Then the `frontend` actor (launcher fd, `client.hello`
    proof, `forwarded`) and `secret.register|release` with its own store and
    audit record (daemon owner review with this slice).
+   - feed-local-handoff-begin and feed-local-handoff-done (lane 9's new
+     local-admin, Unix-only commands) are restricted to the frontend/user
+     actor; until then any local agent can call them (coordinator decision
+     2026-10-03).
 4. `terminal.for_pid` and pid-ancestry stamping; acpmux mints per ACP session.
 5. App side: `action.run` verifies the credential and records the actor.
 6. Tailnet mode. 7. HTTP MCP with scoped revocable tokens.

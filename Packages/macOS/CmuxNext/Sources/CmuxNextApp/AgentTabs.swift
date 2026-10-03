@@ -76,17 +76,6 @@ final class AgentTabStore {
         actionRegistry = registry
         self.linkScheme = linkScheme
         self.git = git
-        let resolvedHost: any AgentPaneHostProviding
-        if showcase || environment["CMUX_NEXT_AGENT_PANE_MOCK"] == "1" {
-            resolvedHost = MockAgentPaneHost()
-        } else {
-            let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-            resolvedHost = AcpmuxHost { AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin, environment: environment) }
-        }
-        host = resolvedHost
-        // Start acpmux while the first pane is loading. The page still owns
-        // the authenticated WebSocket handshake and session selection.
-        Task { try? await resolvedHost.prewarm() }
         // Release loads only the bundled page; the dev server is for Debug
         // and tagged builds (webviews/src/agent-session/acpmux/README.md).
         #if DEBUG
@@ -94,6 +83,26 @@ final class AgentTabStore {
         #else
         let allowsDevServer = false
         #endif
+        let resolvedSource = AgentPaneSource.resolve(
+            environment: environment, bundledPage: AgentPaneView.bundledPage, allowsDevServer: allowsDevServer
+        )
+        let resolvedHost: any AgentPaneHostProviding
+        if showcase || environment["CMUX_NEXT_AGENT_PANE_MOCK"] == "1" {
+            resolvedHost = MockAgentPaneHost()
+        } else {
+            let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
+            // A dev server page has its own origin, which acpmux accepts only
+            // when this (Debug) app starts it with `--allow-dev-origin`.
+            let devOrigin = resolvedSource?.devServerOrigin
+            resolvedHost = AcpmuxHost {
+                AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin, environment: environment)?
+                    .allowingDevOrigin(devOrigin)
+            }
+        }
+        host = resolvedHost
+        // Start acpmux while the first pane is loading. The page still owns
+        // the authenticated WebSocket handshake and session selection.
+        Task { try? await resolvedHost.prewarm() }
         #if DEBUG
         switch environment["CMUX_NEXT_AGENT_PANE_FULL_RATE"] {
         case "1": renderRate = .full
@@ -103,9 +112,7 @@ final class AgentTabStore {
         #else
         renderRate = .adaptive
         #endif
-        source = AgentPaneSource.resolve(
-            environment: environment, bundledPage: AgentPaneView.bundledPage, allowsDevServer: allowsDevServer
-        )
+        source = resolvedSource
         customization = AgentPaneCustomizationWatcher(
             directory: AgentPaneCustomization.directory(configFile: CmuxConfigFile.defaultURL(environment: environment))
         )

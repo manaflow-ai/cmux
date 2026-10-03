@@ -35,10 +35,18 @@ extension AppActions {
             let pick = number >= 9 ? all[all.count - 1] : all[min(number - 1, all.count - 1)]
             services.windows.show(workspaceID: pick, in: state)
         })
-        // Home is the store's home workspace (home.md 7): select it like any workspace.
+        // Home is the store's home workspace (home.md 7): shown like any
+        // workspace, from any origin (a focus action), or refused with why.
         registry.bind("home.show") {
-            guard let state = services.windows.active?.state, let home = services.home.homeWorkspace else { return }
-            services.windows.show(workspaceID: home.id, in: state)
+            guard let home = services.home.homeWorkspace else {
+                services.registry.refuse(RefusalStrings.homeNotReady)
+                return
+            }
+            if let state = services.windows.active?.state {
+                services.windows.show(workspaceID: home.id, in: state)
+            } else {
+                services.windows.reveal(workspaceID: home.id)
+            }
         }
                 registry.bind("moveWorkspaceUp", invoke: { moveWorkspace(services, $0, by: -1) })
         registry.bind("moveWorkspaceDown", invoke: { moveWorkspace(services, $0, by: 1) })
