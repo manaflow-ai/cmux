@@ -30,8 +30,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var isVisible: Bool { presence == .visible }
     /// Tabs closed locally while the daemon confirms, so a close looks instant.
     var pendingClosed: Set<String> = []
-    /// A tab this app just created here; selected once the daemon reports it
-    /// (`selectWhenReported`).
+    /// A tab this app just created here; selected once the daemon reports it (`selectWhenReported`).
     private(set) var pendingSelectSurface: SurfaceID?
     /// Same, named by tab resource id (a reopened tab's restored view).
     private(set) var pendingSelectTab: String?
