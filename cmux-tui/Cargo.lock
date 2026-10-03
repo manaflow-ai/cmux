@@ -668,6 +668,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-pty-keeper"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "cmux-relay"
 version = "0.1.0"
 dependencies = [
