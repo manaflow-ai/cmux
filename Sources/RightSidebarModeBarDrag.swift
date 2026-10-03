@@ -14,7 +14,7 @@ final class RightSidebarModeBarDragController {
     static let coordinateSpace = "RightSidebarModeBarTabs"
     /// A longer, nearly critically damped spring keeps lateral tab movement
     /// gradual while staying responsive when the order changes.
-    static let spring = Animation.spring(response: 0.42, dampingFraction: 0.9)
+    static let spring = Animation.spring(response: 0.34, dampingFraction: 0.9)
 
     struct Session {
         let mode: RightSidebarMode
