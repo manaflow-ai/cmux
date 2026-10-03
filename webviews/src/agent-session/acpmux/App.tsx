@@ -55,6 +55,8 @@ import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings, localizedHandoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
 import { useCheckpoints } from "./checkpoints/controller";
+import { PermissionPanel } from "./permissions/Panel";
+import type { PermissionDecision } from "./permissions/protocol";
 import { checkpointStrings, localizedCheckpointStrings } from "./checkpoints/strings";
 import { NativeError, type NativeErrorReply } from "./nativeError";
 
@@ -734,6 +736,10 @@ function AcpmuxPane() {
     started: !freshChat && snapshot.rows.length > 0,
     prompts: snapshot.rows.filter((row) => row.kind === "user").length,
   });
+  const individualPermission =
+    snapshot.permission?.pending && !(snapshot.permissionGroups?.supported && snapshot.permission.groupId)
+      ? snapshot.permission
+      : undefined;
   // Search files reads the session's folder through whoever runs the session: the acpmux
   // client (or the mock daemon), else the native host.
   const fileRoot = snapshot.summary?.cwd;
@@ -742,10 +748,18 @@ function AcpmuxPane() {
     [fileRoot],
   );
   // Turn shape: work folds under "Worked for" until opened.
-  const transcriptRows = useMemo(
-    () => turnView(snapshot.rows, expanded, { working: snapshot.isWorking }),
-    [snapshot.rows, expanded, snapshot.isWorking],
-  );
+  const transcriptRows = useMemo(() => {
+    const groups = snapshot.permissionGroups;
+    const groupedIds = new Set(groups?.groups.flatMap((group) => group.items.map((item) => item.permissionId)));
+    const rows = groups?.supported
+      ? snapshot.rows.filter(
+          (row) =>
+            row.kind !== "permission" ||
+            (!row.permission?.groupId && !groupedIds.has(row.permission?.permissionId ?? "")),
+        )
+      : snapshot.rows;
+    return turnView(rows, expanded, { working: snapshot.isWorking });
+  }, [snapshot.rows, expanded, snapshot.isWorking, snapshot.permissionGroups]);
   // The open changes view: a turn of one session, and the control that opened it.
   const [diffView, setDiffView] = useState<{
     sessionId?: string;
@@ -890,6 +904,19 @@ function AcpmuxPane() {
       command(name) {
         if (name === "searchChats") setSearching((open) => !open);
         if (name === "createCheckpoint") showCheckpoint.current();
+        if (
+          [
+            "permissionAllowOnce",
+            "permissionAllowChat",
+            "permissionDeny",
+            "permissionExpand",
+            "permissionRetry",
+            "permissionRevoke",
+            "permissionRefresh",
+          ].includes(name)
+        ) {
+          window.dispatchEvent(new CustomEvent(`cmux-acpmux-${name}`));
+        }
         if (
           name === "continueIn" &&
           snapshotRef.current?.canHandoff &&
@@ -1052,6 +1079,11 @@ function AcpmuxPane() {
           "chat.send": ({ text }) => send(String(text ?? "")),
           "chat.cancel": () => client.cancel(),
           "chat.permission": ({ permissionId, optionId }) => client.permission(String(permissionId), String(optionId)),
+          "chat.permission_group.respond": ({ groupId, revision, decision }) =>
+            client.permissionGroup(String(groupId), Number(revision), decision as PermissionDecision),
+          "chat.permission_group.retry": () => client.permissions.retry(),
+          "chat.permission_chat.revoke": () => client.permissions.revoke(),
+          "chat.permission_groups.refresh": () => client.permissions.refresh(),
           "chat.model": ({ modelId }) => client.setModel(String(modelId)),
           "chat.mode": ({ modeId }) => client.setMode(String(modeId)),
           "chat.effort": ({ configId, value }) => client.setConfig(String(configId), String(value)),
@@ -1298,7 +1330,24 @@ function AcpmuxPane() {
                   />
                 )}
               </div>
-              {(snapshot.permission?.pending || trustAsk.ask) && (
+              {snapshot.permissionGroups?.supported && (
+                <PermissionPanel
+                  state={snapshot.permissionGroups}
+                  onRespond={(groupId, revision, decision) => {
+                    void callNative("chat.permission_group.respond", { groupId, revision, decision });
+                  }}
+                  onRetry={() => {
+                    void callNative("chat.permission_group.retry", {});
+                  }}
+                  onRevoke={() => {
+                    void callNative("chat.permission_chat.revoke", {});
+                  }}
+                  onRefresh={() => {
+                    void callNative("chat.permission_groups.refresh", {});
+                  }}
+                />
+              )}
+              {(individualPermission || trustAsk.ask) && (
                 <div className="acpmux-permission">
                   {trustAsk.ask && (
                     <TrustAsk
@@ -1309,8 +1358,11 @@ function AcpmuxPane() {
                       onUndo={trustAsk.undo}
                     />
                   )}
-                  {snapshot.permission?.pending && (
-                    <PermissionCard permission={snapshot.permission} onAnswer={answerPermission(snapshot.permission)} />
+                  {individualPermission && (
+                    <PermissionCard
+                      permission={individualPermission}
+                      onAnswer={answerPermission(individualPermission)}
+                    />
                   )}
                 </div>
               )}

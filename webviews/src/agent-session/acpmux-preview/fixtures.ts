@@ -208,6 +208,69 @@ function permissionSnapshot(): AcpmuxSnapshot {
   return snapshot;
 }
 
+function groupedPermissionSnapshot(): AcpmuxSnapshot {
+  const snapshot = permissionSnapshot();
+  snapshot.permission = undefined;
+  snapshot.permissionGroups = {
+    supported: true,
+    ready: true,
+    loading: false,
+    busy: false,
+    chatAllowance: false,
+    groups: [
+      {
+        groupId: "preview-group",
+        sessionId: snapshot.sessionId!,
+        turnId: "preview-turn",
+        revision: 4,
+        state: "pending",
+        decision: null,
+        decisions: ["allow_once", "allow_chat", "deny"],
+        items: [
+          {
+            permissionId: "edit-package",
+            state: "pending",
+            request: {
+              toolCall: {
+                title: "Update package.json",
+                kind: "edit",
+                rawInput: { path: "package.json", dependency: "typescript" },
+              },
+              options: [
+                { optionId: "yes", name: "Allow", kind: "allow_once" },
+                { optionId: "no", name: "Deny", kind: "reject_once" },
+              ],
+            },
+          },
+          {
+            permissionId: "edit-lockfile",
+            state: "pending",
+            request: {
+              toolCall: { title: "Update bun.lock", kind: "edit", rawInput: { path: "bun.lock" } },
+              options: [
+                { optionId: "yes", name: "Allow", kind: "allow_once" },
+                { optionId: "no", name: "Deny", kind: "reject_once" },
+              ],
+            },
+          },
+          {
+            permissionId: "run-tests",
+            state: "pending",
+            request: {
+              toolCall: { title: "Run project tests", kind: "execute", rawInput: { command: "bun test" } },
+              options: [
+                { optionId: "yes", name: "Allow", kind: "allow_once" },
+                { optionId: "no", name: "Deny", kind: "reject_once" },
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  };
+  return snapshot;
+}
+
 const codex = recordingRows(codexRecording, "Codex recorded session", "codex");
 const claude = recordingRows(claudeRecording, "Claude recorded session", "claude");
 
@@ -286,6 +349,7 @@ export const previewFixtures: PreviewFixture[] = [
     replay: codex.replay,
   },
   { id: "synthetic-5000", label: "5,000 row fling", snapshot: syntheticSnapshot() },
+  { id: "grouped-permissions", label: "Grouped tool permissions", snapshot: groupedPermissionSnapshot() },
   { id: "permission-queue", label: "Permission and queue", snapshot: permissionSnapshot() },
   { id: "session-list", label: "Session list", snapshot: sessionListSnapshot() },
 ];

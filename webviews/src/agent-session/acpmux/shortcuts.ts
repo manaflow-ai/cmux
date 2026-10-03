@@ -6,6 +6,13 @@ export const SHORTCUT_ACTIONS = {
   searchChats: "agentPane.searchChats",
   newAgentChat: "palette.newAgentChat",
   toggleDictation: "palette.toggleDictation",
+  permissionAllowOnce: "agentPane.permission.allowOnce",
+  permissionAllowChat: "agentPane.permission.allowChat",
+  permissionDeny: "agentPane.permission.deny",
+  permissionRetry: "agentPane.permission.retry",
+  permissionRevoke: "agentPane.permission.revoke",
+  permissionRefresh: "agentPane.permission.refresh",
+  permissionExpand: "agentPane.permission.expand",
 } as const;
 
 /// Keycaps by action id, such as `{"agentPane.searchChats": "⌘K"}`. An action without a

@@ -6,7 +6,12 @@ import Foundation
 /// no shortcut are left out, so the page shows none.
 public nonisolated struct AgentPaneShortcuts: Equatable, Sendable {
     /// The actions the page names.
-    static let actions: [ActionID] = ["agentPane.searchChats", "palette.newAgentChat", "palette.toggleDictation"]
+    static let actions: [ActionID] = [
+        "agentPane.searchChats", "palette.newAgentChat", "palette.toggleDictation",
+        "agentPane.permission.allowOnce", "agentPane.permission.allowChat", "agentPane.permission.deny",
+        "agentPane.permission.expand", "agentPane.permission.retry", "agentPane.permission.revoke",
+        "agentPane.permission.refresh",
+    ]
 
     public var labels: [String: String] = [:]
 

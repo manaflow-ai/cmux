@@ -50,6 +50,24 @@ enum AgentHandlers {
             }
             view.showSearchChats()
         })
+        let permissionCommands: [(ActionID, String)] = [
+            ("agentPane.permission.allowOnce", "permissionAllowOnce"),
+            ("agentPane.permission.allowChat", "permissionAllowChat"),
+            ("agentPane.permission.deny", "permissionDeny"),
+            ("agentPane.permission.expand", "permissionExpand"),
+            ("agentPane.permission.retry", "permissionRetry"),
+            ("agentPane.permission.revoke", "permissionRevoke"),
+            ("agentPane.permission.refresh", "permissionRefresh"),
+        ]
+        for (id, command) in permissionCommands {
+            registry.bind(id, run: { invocation in
+                guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
+                      let view = context.services.agentTabs.existingView(key) else {
+                    return context.refuse(MiscHandlerStrings.noAgentChat)
+                }
+                view.runPermissionAction(command)
+            })
+        }
         // Continue in… is a user-facing chooser. Headless callers use the
         // acpmux-owned CLI operation, so automation cannot open this UI unless
         // it explicitly requests focus.
