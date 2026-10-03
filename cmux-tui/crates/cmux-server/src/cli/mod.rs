@@ -62,6 +62,12 @@ pub fn running_version() -> &'static str {
 /// Entry point. `args` excludes the program name and may start with
 /// `server`.
 pub fn run(args: &[String]) -> ExitCode {
+    run_with_guard(args, std::env::var(GUARD_ENV).ok())
+}
+
+/// [`run`] with the re-exec guard already read (the standalone binary
+/// reads it and removes it from its environment before anything starts).
+pub fn run_with_guard(args: &[String], guard: Option<String>) -> ExitCode {
     let runner = SystemRunner;
     let ctx = Context {
         runner: &runner,
@@ -70,7 +76,7 @@ pub fn run(args: &[String]) -> ExitCode {
         keys: keys::baked(),
         running_cmux: running_version().to_owned(),
         // Only ever stops a re-exec, so the environment cannot widen trust.
-        reexec_guard: std::env::var(GUARD_ENV).ok().filter(|v| !v.is_empty()),
+        reexec_guard: guard.filter(|v| !v.is_empty()),
         env: host::layout_env(),
         now_ms: host::now_ms(),
     };

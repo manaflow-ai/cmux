@@ -10,6 +10,29 @@ use cmux_server_core::{InstallMode, Platform};
 use crate::error::{Error, Result};
 use crate::sys;
 
+/// This build's release target, as in server.md 4.2 step 2 (`<arch>-<os>`).
+/// The channel serves one manifest per target, so a host never stages a
+/// package built for another OS or architecture.
+pub const TARGET: &str = target();
+
+const fn target() -> &'static str {
+    if cfg!(all(target_arch = "x86_64", target_os = "linux")) {
+        "x86_64-linux"
+    } else if cfg!(all(target_arch = "aarch64", target_os = "linux")) {
+        "aarch64-linux"
+    } else if cfg!(all(target_arch = "aarch64", target_os = "macos")) {
+        "aarch64-darwin"
+    } else if cfg!(all(target_arch = "x86_64", target_os = "macos")) {
+        "x86_64-darwin"
+    } else if cfg!(all(target_arch = "x86_64", windows)) {
+        "x86_64-windows"
+    } else if cfg!(all(target_arch = "aarch64", windows)) {
+        "aarch64-windows"
+    } else {
+        "unsupported"
+    }
+}
+
 /// The platform this binary was built for.
 pub fn platform() -> Platform {
     if cfg!(target_os = "macos") {

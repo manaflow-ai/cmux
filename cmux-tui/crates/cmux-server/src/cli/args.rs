@@ -90,8 +90,6 @@ pub struct Args {
     pub json: bool,
     pub help: bool,
     pub idempotency_key: Option<String>,
-    /// The arguments as given (a re-exec passes them on unchanged).
-    pub raw: Vec<String>,
 }
 
 impl Args {
@@ -117,6 +115,30 @@ impl Args {
     pub fn verb_str(&self) -> String {
         self.verb.join(" ")
     }
+
+    /// The arguments that [`parse`] turns back into these (verb words,
+    /// `--flag=value` flags, `--json`, `--idempotency-key`, then `--` and
+    /// the positionals), with no `server` noun: the argv for the re-exec.
+    pub fn to_argv(&self) -> Vec<String> {
+        let mut out = self.verb.clone();
+        for (name, value) in &self.flags {
+            out.push(match value {
+                Some(v) => format!("--{name}={v}"),
+                None => format!("--{name}"),
+            });
+        }
+        if self.json {
+            out.push("--json".to_owned());
+        }
+        if let Some(key) = &self.idempotency_key {
+            out.push(format!("--idempotency-key={key}"));
+        }
+        if !self.positionals.is_empty() {
+            out.push("--".to_owned());
+            out.extend(self.positionals.iter().cloned());
+        }
+        out
+    }
 }
 
 fn find_spec(words: &[String]) -> Option<&'static VerbSpec> {
@@ -130,7 +152,7 @@ fn find_spec(words: &[String]) -> Option<&'static VerbSpec> {
 /// so the standalone binary also accepts Postgres's
 /// `… server db archive-wal %p %f`).
 pub fn parse(args: &[String]) -> Result<Args> {
-    let mut out = Args { raw: args.to_vec(), ..Args::default() };
+    let mut out = Args::default();
     let mut words = Vec::new();
     let mut raw_flags = Vec::new();
     let mut iter = args.iter().peekable();

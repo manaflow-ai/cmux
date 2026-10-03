@@ -38,6 +38,7 @@ impl Kind {
 
 fn inhibit_command(kind: Kind) -> Command {
     let mut cmd = Command::new("systemd-inhibit");
+    cmd.env_remove(cmux_server_core::reexec::GUARD_ENV);
     cmd.arg(format!("--what={}", kind.as_str()))
         .arg("--mode=block")
         .arg("--who=cmux-server")

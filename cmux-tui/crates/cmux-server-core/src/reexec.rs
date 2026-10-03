@@ -4,8 +4,8 @@
 //! version cannot be applied by this binary. The I/O crate stages the
 //! manifest's `cmux` package into the store exactly like any package
 //! (streaming SHA-256, exact size, safe unpack), then asks [`plan`] what to
-//! do: exec the staged `bin/cmux` once with the same verb and arguments,
-//! or refuse with the "needs newer cmux" error (exit 4).
+//! do: exec the staged [`REEXEC_BINARY`] once with the same verb and
+//! arguments, or refuse with the "needs newer cmux" error (exit 4).
 //!
 //! Loop guard: the exec carries [`GUARD_ENV`] set to a [`marker`] that
 //! names the manifest (sequence and SHA-256). A process that starts with
@@ -16,13 +16,28 @@
 
 use crate::layout::{Layout, ServiceKind};
 use crate::manifest::{ChannelManifest, Package};
-use crate::platform::HostPath;
+use crate::platform::{HostPath, Platform};
 
 /// Set on the re-exec'd process; its value is a [`marker`].
 pub const GUARD_ENV: &str = "CMUX_SERVER_REEXEC";
 
 /// The package that carries the `cmux` binary.
 pub const CMUX_PACKAGE: &str = "cmux";
+
+/// The binary in that package's `bin/` that owns the server verbs and is
+/// re-exec'd as `cmux-server <verb> …`. The `cmux` CLI does not mount the
+/// `server` noun yet (its own `server` scope is the daemon's), so this is
+/// the standalone binary. When `cmux server` is mounted in the Rust CLI,
+/// this moves to `bin/cmux` with a leading `server` argument.
+pub const REEXEC_BINARY: &str = "cmux-server";
+
+/// [`REEXEC_BINARY`]'s file name on `platform`.
+pub fn reexec_binary(platform: Platform) -> String {
+    match platform {
+        Platform::Windows => format!("{REEXEC_BINARY}.exe"),
+        Platform::Linux | Platform::MacOs => REEXEC_BINARY.to_owned(),
+    }
+}
 
 /// `<sequence>:<manifest sha256 hex>`: the manifest a re-exec was for.
 pub fn marker(sequence: u64, manifest_sha256: &[u8; 32]) -> String {
@@ -33,18 +48,6 @@ pub fn marker(sequence: u64, manifest_sha256: &[u8; 32]) -> String {
 /// The manifest's `cmux` package for a machine with `roles`.
 pub fn cmux_package<'a>(manifest: &'a ChannelManifest, roles: &'a [&str]) -> Option<&'a Package> {
     manifest.packages_for(roles).find(|p| p.name == CMUX_PACKAGE)
-}
-
-/// The arguments for the staged binary: the same verb, flags and
-/// positionals, always under the `server` noun (the standalone
-/// `cmux-server` binary is called without it).
-pub fn reexec_args(args: &[String]) -> Vec<String> {
-    let mut out = Vec::with_capacity(args.len() + 1);
-    if args.first().map(String::as_str) != Some("server") {
-        out.push("server".to_owned());
-    }
-    out.extend(args.iter().cloned());
-    out
 }
 
 /// Everything [`plan`] decides from.
@@ -59,7 +62,8 @@ pub struct ReexecInput<'a> {
     pub manifest_sha256: &'a [u8; 32],
     /// The value of [`GUARD_ENV`] in this process, if set.
     pub guard: Option<&'a str>,
-    /// This process's arguments after the program name.
+    /// The verb's arguments for [`REEXEC_BINARY`], built from the parse
+    /// result (verb, flags, positionals; no `server` noun).
     pub args: &'a [String],
 }
 
@@ -88,7 +92,7 @@ pub fn plan(input: &ReexecInput<'_>) -> ReexecPlan {
             input.package.sha256
         ));
     };
-    let binary = dir.join("bin").join(input.layout.platform.cmux_exe());
+    let binary = dir.join("bin").join(&reexec_binary(input.layout.platform));
     if let Some(guard) = input.guard {
         return ReexecPlan::Refuse(format!(
             "manifest {marker} needs cmux {min} or newer; this process was already re-executed \
@@ -96,7 +100,7 @@ pub fn plan(input: &ReexecInput<'_>) -> ReexecPlan {
             binary.as_str()
         ));
     }
-    ReexecPlan::Exec { binary, args: reexec_args(input.args), marker }
+    ReexecPlan::Exec { binary, args: input.args.to_vec(), marker }
 }
 
 #[cfg(test)]
@@ -142,22 +146,21 @@ mod tests {
     }
 
     #[test]
-    fn execs_the_staged_binary_once_with_the_same_verb() {
+    fn execs_the_staged_server_binary_once_with_the_same_verb() {
         let l = layout(InstallMode::User, Platform::Linux, &env()).unwrap();
         let pkg = package();
-        let args = words("upgrade --json --channel-url https://c.example");
+        let args = words("upgrade --json --channel-url=https://c.example");
         let plan = plan(&input(&l, &pkg, None, &args));
         let sha = "ab".repeat(32);
         assert_eq!(
             plan,
             ReexecPlan::Exec {
-                binary: l.store.join(&sha).join("bin/cmux"),
-                args: words("server upgrade --json --channel-url https://c.example"),
+                binary: l.store.join(&sha).join("bin/cmux-server"),
+                args,
                 marker: format!("42:{}", "11".repeat(32)),
             }
         );
-        // The `server` noun is not doubled.
-        assert_eq!(reexec_args(&words("server install")), words("server install"));
+        assert_eq!(reexec_binary(Platform::Windows), "cmux-server.exe");
     }
 
     #[test]

@@ -55,6 +55,20 @@ pub fn bin_package(name: &str, body: &[u8]) -> Vec<u8> {
     gzip(&tar)
 }
 
+/// A package archive with executable `bin/<name>` files.
+pub fn files_package(files: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut builder = tar::Builder::new(Vec::new());
+    for (name, body) in files {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(body.len() as u64);
+        header.set_mode(0o755);
+        header.set_entry_type(tar::EntryType::Regular);
+        header.set_cksum();
+        builder.append_data(&mut header, format!("bin/{name}"), *body).unwrap();
+    }
+    gzip(&builder.into_inner().unwrap())
+}
+
 pub fn gzip(bytes: &[u8]) -> Vec<u8> {
     let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
     enc.write_all(bytes).unwrap();

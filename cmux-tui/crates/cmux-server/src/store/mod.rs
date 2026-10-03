@@ -44,6 +44,8 @@ pub struct Store {
     pub current: PathBuf,
     /// `<state>/updater.json`.
     pub record: PathBuf,
+    /// The re-exec binary's file name on this layout's platform.
+    pub reexec_binary: String,
 }
 
 /// One manifest to apply.
@@ -93,6 +95,10 @@ pub struct StagedCmux {
     pub manifest_sha256: [u8; 32],
     /// `<store>/<sha256>`.
     pub dir: PathBuf,
+    /// The package's `bin/cmux-server` (`reexec::REEXEC_BINARY`), resolved
+    /// and checked by [`Store::verified_package_file`] while the store lock
+    /// was held; `Err` says why it cannot run.
+    pub program: std::result::Result<PathBuf, String>,
 }
 
 impl StagedCmux {
@@ -147,6 +153,7 @@ impl Store {
             profiles: fsx::local(&layout.profiles),
             current: fsx::local(&layout.current),
             record: fsx::local(&layout.state).join("updater.json"),
+            reexec_binary: reexec::reexec_binary(layout.platform),
         }
     }
 
@@ -284,12 +291,17 @@ impl Store {
         if !self.has_package(&cmux.sha256) {
             self.fetch_package(cmux, fetcher)?;
         }
+        let dir = self.package_dir(&cmux.sha256);
+        let program = self
+            .verified_package_file(cmux, &dir.join("bin").join(&self.reexec_binary))
+            .map_err(|e| e.message);
         Ok(StagedCmux {
             package: cmux.clone(),
             min_cmux_version: manifest.min_cmux_version.clone(),
             sequence: manifest.sequence,
             manifest_sha256: verified.sha256,
-            dir: self.package_dir(&cmux.sha256),
+            dir,
+            program,
         })
     }
 
@@ -297,16 +309,14 @@ impl Store {
     /// package directory carries the marker that only a verified unpack
     /// writes, for this exact SHA-256 and name, and `file` resolves (links
     /// followed) to a regular, executable file inside that directory.
-    pub fn verified_package_file(&self, staged: &StagedCmux, file: &Path) -> Result<PathBuf> {
+    pub fn verified_package_file(&self, package: &Package, file: &Path) -> Result<PathBuf> {
         let refuse = |what: String| Error::verification(format!("refusing to run {what}"));
-        let dir = self.package_dir(&staged.package.sha256);
+        let dir = self.package_dir(&package.sha256);
         let marker: serde_json::Value = fs::read(dir.join(MARKER))
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .ok_or_else(|| refuse(format!("{}: no verified package marker", dir.display())))?;
-        if marker["sha256"] != staged.package.sha256.as_str()
-            || marker["name"] != staged.package.name.as_str()
-        {
+        if marker["sha256"] != package.sha256.as_str() || marker["name"] != package.name.as_str() {
             return Err(refuse(format!("{}: the marker names another package", dir.display())));
         }
         let real_dir = fs::canonicalize(&dir).map_err(|e| Error::io(dir.display(), e))?;

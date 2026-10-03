@@ -121,6 +121,8 @@ impl Runner for SystemRunner {
     fn run(&self, cmd: &Cmd) -> std::io::Result<Output> {
         let mut command = Command::new(&cmd.program);
         command.args(&cmd.args);
+        // The re-exec loop guard belongs to this process only.
+        command.env_remove(cmux_server_core::reexec::GUARD_ENV);
         for (k, v) in &cmd.env {
             command.env(k, v);
         }

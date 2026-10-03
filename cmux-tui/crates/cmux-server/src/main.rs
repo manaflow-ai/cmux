@@ -6,5 +6,9 @@ use std::process::ExitCode;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    cmux_server::cli::run(&args)
+    let guard_env = cmux_server_core::reexec::GUARD_ENV;
+    let guard = std::env::var(guard_env).ok();
+    // SAFETY: first statement block of main, before any thread starts.
+    unsafe { std::env::remove_var(guard_env) };
+    cmux_server::cli::run_with_guard(&args, guard)
 }

@@ -19,8 +19,10 @@ use crate::store::fetch::fetch_small;
 use crate::store::{ApplyOutcome, ApplyReport, ApplyRequest, MANIFEST_LIMIT, StagedCmux, Store};
 use crate::{access, fsx, host, sys};
 
-/// The default channel base; `<base>/<channel>/latest.json` or
-/// `<base>/<channel>/v/<version>.json`, each with a `.sig` next to it.
+/// The default channel base; `<base>/<channel>/<target>/latest.json` or
+/// `<base>/<channel>/<target>/v/<version>.json` (target: `host::TARGET`),
+/// each with a `.sig` next to it. The target is in the URL, not in manifest
+/// schema 1 (shared with lane 1).
 pub const CHANNEL_BASE: &str = "https://cmux.com/server/channel";
 
 /// The machine's roles for package selection (server.md 5 defaults).
@@ -80,14 +82,17 @@ fn manifest_url(base: &str, channel: &str, version: Option<&str>) -> Result<Stri
     if !valid_channel(channel) {
         return Err(Error::usage(format!("invalid channel {channel:?}")));
     }
-    let base = base.trim_end_matches('/');
+    if host::TARGET == "unsupported" {
+        return Err(Error::rejected("this build's OS and architecture have no release channel"));
+    }
+    let base = format!("{}/{channel}/{}", base.trim_end_matches('/'), host::TARGET);
     match version {
-        None => Ok(format!("{base}/{channel}/latest.json")),
+        None => Ok(format!("{base}/latest.json")),
         Some(v)
             if !v.is_empty()
                 && v.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-+".contains(&b)) =>
         {
-            Ok(format!("{base}/{channel}/v/{v}.json"))
+            Ok(format!("{base}/v/{v}.json"))
         }
         Some(v) => Err(Error::usage(format!("invalid version {v:?}"))),
     }
@@ -128,25 +133,18 @@ fn apply_channel(
         let store = Store::new(layout);
         match store.apply_outcome(&request, fetcher)? {
             ApplyOutcome::Applied(report) => Ok(report),
-            ApplyOutcome::NeedsNewerCmux(staged) => {
-                Err(reexec_newer(ctx, args, layout, &store, &staged))
-            }
+            ApplyOutcome::NeedsNewerCmux(staged) => Err(reexec_newer(ctx, args, layout, &staged)),
         }
     })
 }
 
 /// Decision SV-R2: exec the verified staged `cmux` once with the same
 /// arguments, so an upgrade that needs a newer `cmux` goes on in it. The
-/// store lock is already released (and every file is `O_CLOEXEC`). Returns
+/// staged binary was checked under the store lock, which is released now
+/// (and every file is `O_CLOEXEC`). Returns
 /// only when there is no exec: the "needs newer cmux" refusal (exit 4), or
 /// the exec's own failure.
-fn reexec_newer(
-    ctx: &Context<'_>,
-    args: &Args,
-    layout: &Layout,
-    store: &Store,
-    staged: &StagedCmux,
-) -> Error {
+fn reexec_newer(ctx: &Context<'_>, args: &Args, layout: &Layout, staged: &StagedCmux) -> Error {
     let input = ReexecInput {
         layout,
         package: &staged.package,
@@ -154,17 +152,18 @@ fn reexec_newer(
         sequence: staged.sequence,
         manifest_sha256: &staged.manifest_sha256,
         guard: ctx.reexec_guard.as_deref(),
-        args: &args.raw,
+        args: &args.to_argv(),
     };
     let (binary, exec_args, marker) = match reexec::plan(&input) {
         ReexecPlan::Exec { binary, args, marker } => (binary, args, marker),
         ReexecPlan::Refuse(why) => return Error::rejected(why),
     };
     // Only a file of the package that passed the streaming SHA-256 and the
-    // signed manifest runs.
-    let program = match store.verified_package_file(staged, &fsx::local(&binary)) {
-        Ok(path) => path,
-        Err(e) => return staged.refusal(&format!(" ({})", e.message)),
+    // signed manifest runs; it was checked under the store lock, so GC
+    // could not swap it in between.
+    let program = match &staged.program {
+        Ok(path) => path.clone(),
+        Err(why) => return staged.refusal(&format!(" ({why}; expected {})", binary.as_str())),
     };
     let request =
         ExecRequest { program, args: exec_args, env: vec![(reexec::GUARD_ENV.to_owned(), marker)] };
