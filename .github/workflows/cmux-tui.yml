@@ -585,6 +585,12 @@ jobs:
           cargo test -p cmux-server-core --test units_golden launch_ \
             -- --test-threads=1
 
+      # The macOS arm64 host snapshot digests that the GhosttyNextKit cross
+      # check compares against (schemas/terminal-corpus/crosscheck/run.sh).
+      - name: Terminal corpus host snapshots (macOS arm64)
+        working-directory: cmux-tui
+        run: cargo test -p ghostty-vt --test terminal_corpus
+
   test:
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
