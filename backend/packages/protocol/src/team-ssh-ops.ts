@@ -70,7 +70,7 @@ export const TeamVmSshCert = def({
     public_key: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(1000)),
     /** Default 30. */
     validity_minutes: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 15, maximum: 60 }))),
-    /** Default: `human` when `presence` is given, else `agent` (D28: restricted unless asked). */
+    /** Default: `human` for a person's session (then `presence` is required: `team_vm.ssh_presence_required` without it), `agent` for an install token (D28). */
     class: Schema.optionalKey(SshCertClass),
     /**
      * Required for `human` (decision SSH-1): the presence proof from `team_vm.ssh_cert.challenge`, signed after

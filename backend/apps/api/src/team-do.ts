@@ -268,12 +268,16 @@ export class TeamDO extends OwnerDO<TeamState> {
         sql: this.ctx.storage.sql,
         now: () => Date.now(),
         submitSystem: (op, params, key) => this.submitSystem(op, params, key),
-        presence: this.presenceOwner(entity)
+        presence: this.presenceOwner(entity),
+        running: this.sshRunning
       },
       principal,
       frame
     )
   }
+
+  /** SSH CA requests running in this instance (team-ssh-ca.ts); a reset object starts with none, so its stored requests resume. */
+  private readonly sshRunning = new Set<string>()
 
   /** The person's UserDO checks presence proofs (keys, nonces, App Attest counters live there); tests replace it. */
   presenceOwner = (team: string): SshPresence => ({

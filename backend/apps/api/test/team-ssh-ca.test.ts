@@ -114,12 +114,12 @@ describe("team SSH key parsing (workerd)", () => {
 })
 
 describe("team SSH CA (TeamDO, workerd)", () => {
-  it("a person's session without a presence proof gets a restricted certificate that ssh tools accept; a replay returns the same certificate", async () => {
+  it("a person's session that asks for the agent class gets a restricted certificate that ssh tools accept; a replay returns the same certificate", async () => {
     const t = await setup("stack-ssh-0000000001")
     const key = await sshLine("ed25519")
     const idem = crypto.randomUUID()
     const before = Date.now()
-    const r = await mutate(t.token, "team_vm.ssh_cert", { public_key: key }, idem)
+    const r = await mutate(t.token, "team_vm.ssh_cert", { public_key: key, class: "agent" }, idem)
     expect(r.ok).toBe(true)
     expect(r.value).toMatchObject({ class: "agent", principals: ["lawrence-agents"], ca_generation: 1, serial: 1 })
     const read = await api(t.token, "/v1/read", { op: "team_vm.ssh_ca", params: {} })
@@ -131,14 +131,16 @@ describe("team SSH CA (TeamDO, workerd)", () => {
     expect(c.keyId).toMatch(new RegExp(`^${t.owner}/session/session/[0-9a-f]{12}$`))
     expect(c.critical).toEqual({ "force-command": "cmux team restricted-shell" })
     expect(c.extensions).toEqual({ "cmux-teams@cmux.dev": t.team })
-    // A full shell needs a fresh presence proof (decision SSH-1), even from a signed-in session.
+    // A full shell needs a fresh presence proof (decision SSH-1), even from a signed-in session. A session asks for a
+    // full shell unless it names the agent class, so it gets an explicit error (the CLI then asks for presence), never a silent agent certificate.
     expect((await mutate(t.token, "team_vm.ssh_cert", { public_key: key, class: "human" })).error!.code).toBe("team_vm.ssh_presence_required")
+    expect((await mutate(t.token, "team_vm.ssh_cert", { public_key: key })).error!.code).toBe("team_vm.ssh_presence_required")
     expect(c.validBefore - c.validAfter).toBe(31 * 60)
     expect(c.validAfter * 1000).toBeLessThanOrEqual(before)
-    const again = await mutate(t.token, "team_vm.ssh_cert", { public_key: key }, idem)
+    const again = await mutate(t.token, "team_vm.ssh_cert", { public_key: key, class: "agent" }, idem)
     expect(again.replayed).toBe(true)
     expect(again.value.certificate).toBe(r.value.certificate)
-    expect((await mutate(t.token, "team_vm.ssh_cert", { public_key: key, validity_minutes: 20 }, idem)).error!.code).toBe("idempotency.conflict")
+    expect((await mutate(t.token, "team_vm.ssh_cert", { public_key: key, class: "agent", validity_minutes: 20 }, idem)).error!.code).toBe("idempotency.conflict")
     expect((await mutate(t.token, "team_vm.ssh_cert", { public_key: key, validity_minutes: 61 })).error!.code).toBe("validation.invalid")
     expect((await mutate(t.token, "team_vm.ssh_cert", { public_key: "ssh-rsa AAAAB3NzaC1yc2E x" })).error!.code).toBe("team_vm.ssh_key_invalid")
     // The CA private key is only in its sealed row: never in state, the op ledger or a reply (Ed25519 PKCS#8 starts MC4CAQAwBQYDK2Vw).
@@ -170,7 +172,7 @@ describe("team SSH CA (TeamDO, workerd)", () => {
     // Install tokens never mint a full shell, not even a Mac or CLI install with execute: only a person's session does.
     for (const kind of ["cli", "mac"]) expect((await t.op(t.install(t.owner, ["read", "mutate-own", "execute"], kind), "team_vm.ssh_cert", { public_key: key, class: "human" })).error!.code).toBe("team_vm.ssh_class_refused")
     expect((await t.op(t.install(t.owner, ["read", "mutate-own", "execute"], "cli"), "team_vm.ssh_cert", { public_key: key })).value).toMatchObject({ class: "agent", principals: ["lawrence-agents"] })
-    const aziz = await t.op(t.memberP, "team_vm.ssh_cert", { public_key: key })
+    const aziz = await t.op(t.memberP, "team_vm.ssh_cert", { public_key: key, class: "agent" })
     expect(aziz.value.principals).toEqual(["aziz-agents"])
     const outsider: Principal = { identity: "session:user_00000000000000000777", kind: "session", user: "user_00000000000000000777", team: t.team }
     expect((await t.op(outsider, "team_vm.ssh_cert", { public_key: key })).error!.code).toBe("auth.forbidden")
@@ -194,8 +196,8 @@ describe("team SSH CA (TeamDO, workerd)", () => {
   it("revocation lists serials in the KRL; members revoke only their own; owners revoke anyone's", async () => {
     const t = await setup("stack-ssh-0000000003")
     const key = await sshLine("ed25519")
-    const mine = (await t.op(t.memberP, "team_vm.ssh_cert", { public_key: key })).value.serial as number
-    const owners = (await t.op(t.ownerP, "team_vm.ssh_cert", { public_key: key })).value.serial as number
+    const mine = (await t.op(t.memberP, "team_vm.ssh_cert", { public_key: key, class: "agent" })).value.serial as number
+    const owners = (await t.op(t.ownerP, "team_vm.ssh_cert", { public_key: key, class: "agent" })).value.serial as number
     expect((await t.op(t.memberP, "team_vm.ssh_cert.revoke", { serial: owners })).error!.code).toBe("auth.forbidden")
     expect((await t.op(t.memberP, "team_vm.ssh_cert.revoke", { user: t.owner })).error!.code).toBe("auth.forbidden")
     expect((await t.op(t.memberP, "team_vm.ssh_cert.revoke", { serial: mine, user: t.member })).error!.code).toBe("validation.invalid")
@@ -215,13 +217,13 @@ describe("team SSH CA (TeamDO, workerd)", () => {
   it("rotation: owners in a session only; the old CA stays trusted, or is revoked at once when compromised", async () => {
     const t = await setup("stack-ssh-0000000004")
     const key = await sshLine("ed25519")
-    const first = (await t.op(t.ownerP, "team_vm.ssh_cert", { public_key: key })).value
+    const first = (await t.op(t.ownerP, "team_vm.ssh_cert", { public_key: key, class: "agent" })).value
     expect((await t.op(t.memberP, "team_vm.ssh_ca.rotate", {})).error!.code).toBe("auth.forbidden")
     expect((await t.op(t.install(t.owner, ["read", "mutate-own", "mutate-shared", "execute", "destructive"]), "team_vm.ssh_ca.rotate", {})).error!.code).toBe("auth.forbidden")
     const rot = await t.op(t.ownerP, "team_vm.ssh_ca.rotate", {})
     expect(rot.value.generation).toBe(2)
     expect((await t.ca()).value.trusted_ca_keys).toEqual([rot.value.ca_public_key, first.ca_public_key])
-    const second = (await t.op(t.ownerP, "team_vm.ssh_cert", { public_key: key })).value
+    const second = (await t.op(t.ownerP, "team_vm.ssh_cert", { public_key: key, class: "agent" })).value
     expect(second.ca_generation).toBe(2)
     expect((await readCert(second.certificate, rot.value.ca_public_key)).verified).toBe(true)
     const hard = await t.op(t.ownerP, "team_vm.ssh_ca.rotate", { compromised: true })
@@ -258,14 +260,14 @@ describe("team SSH CA (TeamDO, workerd)", () => {
           submitSystem: (op, params, k) => instance.submitSystem(op, params, k)
         },
         t.ownerP,
-        { op: "team_vm.ssh_cert", params: { public_key: key }, idempotency_key: "no-kek" }
+        { op: "team_vm.ssh_cert", params: { public_key: key, class: "agent" }, idempotency_key: "no-kek" }
       )
     )
     expect(noKek.error?.code).toBe("team_vm.ssh_ca_not_configured")
-    for (let i = 0; i < 30; i++) expect((await t.op(t.memberP, "team_vm.ssh_cert", { public_key: key })).ok).toBe(true)
-    const limited = await t.op(t.memberP, "team_vm.ssh_cert", { public_key: key })
+    for (let i = 0; i < 30; i++) expect((await t.op(t.memberP, "team_vm.ssh_cert", { public_key: key, class: "agent" })).ok).toBe(true)
+    const limited = await t.op(t.memberP, "team_vm.ssh_cert", { public_key: key, class: "agent" })
     expect(limited.error).toMatchObject({ code: "team_vm.ssh_rate_limited", retryable: true })
-    expect((await t.op(t.ownerP, "team_vm.ssh_cert", { public_key: key })).ok).toBe(true)
+    expect((await t.op(t.ownerP, "team_vm.ssh_cert", { public_key: key, class: "agent" })).ok).toBe(true)
     // Per person across installs: a second install gets 30 more, a third gets none.
     for (let i = 0; i < 30; i++) expect((await t.op(t.install(t.member, ["read", "mutate-own"], "mac", "inst_00000000000000000082"), "team_vm.ssh_cert", { public_key: key })).ok).toBe(true)
     expect((await t.op(t.install(t.member, ["read", "mutate-own"], "mac", "inst_00000000000000000083"), "team_vm.ssh_cert", { public_key: key })).error!.code).toBe("team_vm.ssh_rate_limited")

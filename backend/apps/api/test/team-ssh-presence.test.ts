@@ -178,6 +178,22 @@ describe("a crash during a certificate request replays the same certificate", { 
     expect(replay.value.certificate).toBe(lost.certificate)
   })
 
+  it("a crashed request that became a team server's, or whose member left, never resumes its certificate", async () => {
+    const t = await setup("stack-ssh-0000000015")
+    const key = await sshLine("ed25519")
+    const p = t.install(t.owner, ["read", "mutate-own"], "mac", "inst_00000000000000000097")
+    const idem = crypto.randomUUID()
+    const lost = await crashOnce(t, p, { public_key: key }, idem)
+    await inDO(t.stub, async (instance) => {
+      const engine = instance.boundEngine
+      const host = { id: "host_00000000000000000097", name: "mini", platform: "macos", owner_user: t.owner, enrolled_by: p.install, enrolled_at: 1, kind: "server" }
+      engine.state = { ...engine.currentState, hosts: { ...engine.currentState.hosts, [host.id]: host } }
+    })
+    expect((await t.op(p, "team_vm.ssh_cert", { public_key: key }, idem)).error!.code).toBe("team_vm.ssh_class_refused")
+    // The prepared certificate is forgotten with its issued-log row: it never left the object.
+    expect(await issued(t, p.identity)).not.toContain(lost.serial)
+  })
+
   it("a full-shell request that crashed after its presence proof resumes without a second approval or certificate", async () => {
     const t = await setup("stack-ssh-0000000014")
     const device = await presenceDevice(t)
