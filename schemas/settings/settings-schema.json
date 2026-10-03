@@ -1548,6 +1548,75 @@
     },
     {
       "accepts" : [
+        "list",
+        "board",
+        "inbox"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.tasksList",
+            "text" : "List"
+          },
+          "value" : "list"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.tasksBoard",
+            "text" : "Board"
+          },
+          "value" : "board"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.tasksInbox",
+            "text" : "Inbox"
+          },
+          "value" : "inbox"
+        }
+      ],
+      "default" : "inbox",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tasks",
+        "text" : "Tasks"
+      },
+      "help" : {
+        "key" : "settings.tasks.layout.help",
+        "text" : "Inbox lists what needs you first, with the task beside it. Changes apply at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tasks.layout",
+      "keywords" : [
+        "tasks",
+        "issues",
+        "board",
+        "list",
+        "inbox",
+        "layout",
+        "kanban"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "tasks",
+        "layout"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.tasks.layout",
+        "text" : "Tasks Layout"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "even",
         "halve"
       ],
@@ -5204,7 +5273,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "c3a05da8389b0518cee7b8d45e2be48be0438b404912d991591051b71b8f1c31",
+  "schema_hash" : "f9d0e34f2604d9f5d78d41becf5515643674f22b19afaa37c669c7633ee93aa0",
   "sections" : [
     {
       "id" : "general",
