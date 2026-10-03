@@ -36,8 +36,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var showsCloudVPNWarning = false
     /// The Cloud Machines header's New Machine "+" and its plan count (nil until the plan loads).
     var canCreateCloudMachine: Bool = false
-    var cloudMachinesUsage: CloudMachinesUsage? = nil
-    var cloudMachinesRefresh: CloudTreeSectionRefresh? = nil
+    var cloudMachinesUsage: CloudMachinesUsage? = nil, cloudMachinesRefresh: CloudTreeSectionRefresh? = nil
     var reveal: CloudTreeRevealRequest? = nil
     var creationReveal: CloudWorkspaceCreationReveal? = nil
     var nodeBuilder: ((CloudTreeBuildInputs) -> [CloudTreeNode])? = nil
@@ -125,8 +124,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             self?.pendingDragWriterDidDeallocate(tokenID: tokenID)
         }
         private(set) var isDragging = false
-        /// Machine drags lift the real row; proposal-level tests turn it off.
-        var machineLiftEnabled = true
+        var machineLiftEnabled = true // machine drags lift the real row; proposal-level tests turn it off
         var deferredNodes: [CloudTreeNode]?
         private var deferredReload = false
         var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
@@ -589,9 +587,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     nodeActions.newMachine()
                     return
                 }
+                // A Ports status row (No reachable ports, asleep, Discovering…) is
+                // text with its own button; only that button acts, so a click on the
+                // text never refreshes or wakes.
+                guard placeholder.portStatus == nil else { return }
                 // "Asleep — open to wake": a fresh terminal on the machine is what wakes it.
-                if let status = placeholder.portStatus { performPortAction(status.action, machineID: machineID) }
-                else if placeholder.opensMachine, let machine = machine(id: machineID) { openMachine(machine) }
+                if placeholder.opensMachine, let machine = machine(id: machineID) { openMachine(machine) }
             }
         }
         private func toggle(_ node: CloudTreeNode) {

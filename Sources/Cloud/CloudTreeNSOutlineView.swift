@@ -441,7 +441,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         onDocumentContentChanged?()
     }
 
-    private func disclosureLeading(atRow row: Int) -> CGFloat {
+    func disclosureLeading(atRow row: Int) -> CGFloat {
         GlobalFontMagnification.scaledSize(
             Self.leadingMargin + CGFloat(max(0, level(forRow: row))) * treeStyle.indentPerLevel
         )
@@ -483,6 +483,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         }
         let trailing = frame.maxX
         frame.origin.x = panelContentLeading(atRow: row)
+            ?? connectingLeading(atRow: row)
             ?? CloudTreeLayoutMetrics().contentLeading(level: level(forRow: row), style: treeStyle)
         frame.size.width = max(0, trailing - frame.minX)
         return frame
