@@ -20,3 +20,4 @@ Read the lane file before changing a shared surface. Newest entries remain first
 - [ownership](ownership.md)
 - [rust-cli](rust-cli.md)
 - [server](server.md)
+- [settings](settings.md)
