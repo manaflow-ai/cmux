@@ -43,6 +43,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// Determinate or indeterminate bar under the row: the workspace's
     /// reported progress, else a terminal's OSC 9;4 progress.
     public var progress: SidebarProgress?
+    /// Tabs in pane order, shown only when the sidebar tab setting is enabled.
+    public var tabs: [SidebarTab]
     /// Live daemon data, a saved row drawn before the daemon answered, or a
     /// placeholder (`SidebarRowState`).
     public var rowState: SidebarRowState
@@ -58,6 +60,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         activity: StatusIndicatorState = .idle,
         activityStyle: StatusIndicatorStyle? = nil,
         progress: SidebarProgress? = nil,
+        tabs: [SidebarTab] = [],
         rowState: SidebarRowState = .live
     ) {
         self.id = id
@@ -70,6 +73,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.activity = activity
         self.activityStyle = activityStyle
         self.progress = progress
+        self.tabs = tabs
         self.rowState = rowState
     }
 }

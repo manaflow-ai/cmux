@@ -198,11 +198,9 @@ public final class SidebarView: NSView {
         // ones, so rows never reflow when the scroller appears.
         NotificationCenter.default.addObserver(self, selector: #selector(scrollerStyleChanged), name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
         scrollView.onHorizontalSwipe = { [weak self] delta in self?.model.stepProfile(by: delta) }
-        profileBar.onHorizontalSwipe = { [weak self] delta in self?.model.stepProfile(by: delta) }
         edgeFade = ScrollEdgeFadeView(scrollView: scrollView)
         addSubview(edgeFade)
         scrollFit = ScrollFitElasticity(scrollView: scrollView)
-
         buildBands()
 
         addSubview(footer)
@@ -380,7 +378,9 @@ public final class SidebarView: NSView {
             || lastState?.drawsLines != state.drawsLines || lastState?.preferences != state.preferences || lastState?.suppressedApps != state.suppressedApps
         let listChanged = lastState?.sections != state.sections || lastState?.selection != state.selection
             || lastState?.active != state.active || lastState?.filter != state.filter || chromeChanged || profileChanged
+            || lastState?.preferences.showWorkspaceTabs != state.preferences.showWorkspaceTabs
         let previous = lastState?.sections
+        model.showWorkspaceTabs = state.preferences.showWorkspaceTabs
         if listChanged {
             if profileChanged, let previousProfile = lastState?.activeProfile, let nextProfile = state.activeProfile,
                let oldIndex = state.profiles.firstIndex(where: { $0.id == previousProfile }), let newIndex = state.profiles.firstIndex(where: { $0.id == nextProfile }),

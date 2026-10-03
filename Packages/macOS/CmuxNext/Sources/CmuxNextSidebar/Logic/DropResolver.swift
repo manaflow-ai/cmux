@@ -72,6 +72,14 @@ public nonisolated enum DropResolver {
             }
             return .position(DropPosition(section: row.section, index: f < 0.5 ? row.siblingIndex : row.siblingIndex + 1))
 
+        case .tab:
+            guard let workspace = row.workspace,
+                  let parent = base.row(for: .workspace(workspace)) else { return nil }
+            if let group = parent.group {
+                return .position(DropPosition(section: parent.section, group: group, index: parent.siblingIndex + 1))
+            }
+            return .position(DropPosition(section: parent.section, index: parent.siblingIndex + 1))
+
         case let .group(group):
             if row.isCollapsed {
                 if f < groupEdgeFraction { return .position(DropPosition(section: row.section, index: row.siblingIndex)) }
@@ -117,6 +125,10 @@ public nonisolated enum DropResolver {
         case .workspace:
             guard row.section == home else { return nil }
             index = f < 0.5 ? row.siblingIndex : row.siblingIndex + 1
+        case .tab:
+            guard row.section == home, let parent = row.workspace,
+                  let parentRow = base.row(for: .workspace(parent)) else { return nil }
+            index = parentRow.siblingIndex + 1
         case .section:
             if row.section == home {
                 index = row.isCollapsed ? row.childCount : 0
