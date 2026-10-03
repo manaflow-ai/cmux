@@ -1,0 +1,1009 @@
+{
+ "format": "cmux-conversation-import/1",
+ "notes": [
+  "Cloud only. Replay the cases in order on one ConversationDO (MemoryRows) with origin user; compare ok, the reject code, or the head, value and number of row writes."
+ ],
+ "cases": [
+  {
+   "name": "import: a stranger as participant is refused",
+   "principal": {
+    "identity": "user:user_me",
+    "kind": "session",
+    "user": "user_me"
+   },
+   "op": "conversation.import",
+   "params": {
+    "id": "conv_P1",
+    "source": {
+     "kind": "mac",
+     "host": "inst_mac1",
+     "local_id": "conv_LOCAL1"
+    },
+    "kind": "chief",
+    "participants": [
+     {
+      "id": "user_me",
+      "kind": "human",
+      "display_name": "Me"
+     },
+     {
+      "id": "agent_chief",
+      "kind": "agent",
+      "display_name": "Chief",
+      "agent_class": "mux",
+      "owner_user": "user_me"
+     },
+     {
+      "id": "user_x",
+      "kind": "human",
+      "display_name": "X"
+     }
+    ],
+    "messages": []
+   },
+   "now": 1790000000000,
+   "expect": {
+    "ok": false,
+    "reject": "forbidden"
+   }
+  },
+  {
+   "name": "import: an agent the importer does not own is refused",
+   "principal": {
+    "identity": "user:user_me",
+    "kind": "session",
+    "user": "user_me"
+   },
+   "op": "conversation.import",
+   "params": {
+    "id": "conv_P1",
+    "source": {
+     "kind": "mac",
+     "host": "inst_mac1",
+     "local_id": "conv_LOCAL1"
+    },
+    "kind": "chief",
+    "participants": [
+     {
+      "id": "user_me",
+      "kind": "human",
+      "display_name": "Me"
+     },
+     {
+      "id": "agent_chief",
+      "kind": "agent",
+      "display_name": "Chief",
+      "agent_class": "mux",
+      "owner_user": "user_x"
+     }
+    ],
+    "messages": []
+   },
+   "now": 1790000000000,
+   "expect": {
+    "ok": false,
+    "reject": "forbidden"
+   }
+  },
+  {
+   "name": "import: a gap in seq is refused",
+   "principal": {
+    "identity": "user:user_me",
+    "kind": "session",
+    "user": "user_me"
+   },
+   "op": "conversation.import",
+   "params": {
+    "id": "conv_P1",
+    "source": {
+     "kind": "mac",
+     "host": "inst_mac1",
+     "local_id": "conv_LOCAL1"
+    },
+    "kind": "chief",
+    "participants": [
+     {
+      "id": "user_me",
+      "kind": "human",
+      "display_name": "Me"
+     },
+     {
+      "id": "agent_chief",
+      "kind": "agent",
+      "display_name": "Chief",
+      "agent_class": "mux",
+      "owner_user": "user_me"
+     }
+    ],
+    "messages": [
+     {
+      "id": "msg_local2",
+      "seq": 2,
+      "client_msg_id": "c2",
+      "author": "user_me",
+      "parts": [
+       {
+        "type": "text",
+        "text": "hi"
+       }
+      ],
+      "created_at": "2026-09-21T13:13:22.000Z"
+     }
+    ]
+   },
+   "now": 1790000000000,
+   "expect": {
+    "ok": false,
+    "reject": "invalid_import"
+   }
+  },
+  {
+   "name": "import: an author outside the participants is refused",
+   "principal": {
+    "identity": "user:user_me",
+    "kind": "session",
+    "user": "user_me"
+   },
+   "op": "conversation.import",
+   "params": {
+    "id": "conv_P1",
+    "source": {
+     "kind": "mac",
+     "host": "inst_mac1",
+     "local_id": "conv_LOCAL1"
+    },
+    "kind": "chief",
+    "participants": [
+     {
+      "id": "user_me",
+      "kind": "human",
+      "display_name": "Me"
+     },
+     {
+      "id": "agent_chief",
+      "kind": "agent",
+      "display_name": "Chief",
+      "agent_class": "mux",
+      "owner_user": "user_me"
+     }
+    ],
+    "messages": [
+     {
+      "id": "msg_local1",
+      "seq": 1,
+      "client_msg_id": "c1",
+      "author": "agent_other",
+      "parts": [
+       {
+        "type": "text",
+        "text": "hi"
+       }
+      ],
+      "created_at": "2026-09-21T13:13:21.000Z"
+     }
+    ]
+   },
+   "now": 1790000000000,
+   "expect": {
+    "ok": false,
+    "reject": "invalid_import"
+   }
+  },
+  {
+   "name": "import: the first batch creates the head in importing",
+   "principal": {
+    "identity": "user:user_me",
+    "kind": "session",
+    "user": "user_me"
+   },
+   "op": "conversation.import",
+   "params": {
+    "id": "conv_P1",
+    "source": {
+     "kind": "mac",
+     "host": "inst_mac1",
+     "local_id": "conv_LOCAL1"
+    },
+    "kind": "chief",
+    "title": "Chief",
+    "participants": [
+     {
+      "id": "user_me",
+      "kind": "human",
+      "display_name": "Me"
+     },
+     {
+      "id": "agent_chief",
+      "kind": "agent",
+      "display_name": "Chief",
+      "agent_class": "mux",
+      "owner_user": "user_me"
+     }
+    ],
+    "read_cursors": {
+     "user_me": 3
+    },
+    "messages": [
+     {
+      "id": "msg_local1",
+      "seq": 1,
+      "client_msg_id": "c1",
+      "author": "user_me",
+      "parts": [
+       {
+        "type": "text",
+        "text": "start"
+       }
+      ],
+      "created_at": "2026-09-21T13:13:21.000Z"
+     },
+     {
+      "id": "msg_local2",
+      "seq": 2,
+      "client_msg_id": "c2",
+      "author": "agent_chief",
+      "parts": [
+       {
+        "type": "text",
+        "text": "on it"
+       }
+      ],
+      "created_at": "2026-09-21T13:13:22.000Z",
+      "edited_at": "2026-09-21T13:13:30.000Z",
+      "reactions": [
+       {
+        "author": "user_me",
+        "part_index": 0,
+        "kind": {
+         "tapback": "like"
+        },
+        "at": "2026-09-21T13:13:31.000Z"
+       }
+      ]
+     },
+     {
+      "id": "msg_local3",
+      "seq": 3,
+      "client_msg_id": "c3",
+      "author": "agent_chief",
+      "parts": [],
+      "created_at": "2026-09-21T13:13:23.000Z",
+      "retracted_at": "2026-09-21T13:13:32.000Z"
+     }
+    ]
+   },
+   "now": 1790000000000,
+   "expect": {
+    "ok": true,
+    "head": {
+     "id": "conv_P1",
+     "title": "Chief",
+     "participants": [
+      {
+       "id": "user_me",
+       "kind": "human",
+       "display_name": "Me",
+       "role": "owner",
+       "joined_seq": 0,
+       "added_by": "user_me"
+      },
+      {
+       "id": "agent_chief",
+       "kind": "agent",
+       "display_name": "Chief",
+       "agent_class": "mux",
+       "owner_user": "user_me",
+       "role": "member",
+       "joined_seq": 0,
+       "added_by": "user_me"
+      }
+     ],
+     "last_seq": 3,
+     "rev": 1,
+     "created_at": "2026-09-21T14:13:20.000Z",
+     "updated_at": "2026-09-21T13:13:23.000Z",
+     "read_cursors": {
+      "user_me": 3
+     },
+     "kind": "chief",
+     "created_by": "user_me",
+     "state": "importing",
+     "settings": {
+      "wake_policy": "auto",
+      "agent_budget": {
+       "turns": 4,
+       "gap_ms": 2000
+      },
+      "history_visible": "all"
+     },
+     "invites": [],
+     "agent_text_streak": 2,
+     "import": {
+      "kind": "mac",
+      "host": "inst_mac1",
+      "local_id": "conv_LOCAL1",
+      "by": "user_me"
+     },
+     "last_agent_text_at": "2026-09-21T13:13:23.000Z"
+    },
+    "value": {
+     "last_seq": 3
+    },
+    "writes": 6
+   }
+  },
+  {
+   "name": "import: a repeated create with the same source is a no-op",
+   "principal": {
+    "identity": "user:user_me",
+    "kind": "session",
+    "user": "user_me"
+   },
+   "op": "conversation.import",
+   "params": {
+    "id": "conv_P1",
+    "source": {
+     "kind": "mac",
+     "host": "inst_mac1",
+     "local_id": "conv_LOCAL1"
+    },
+    "kind": "chief",
+    "participants": [
+     {
+      "id": "user_me",
+      "kind": "human",
+      "display_name": "Me"
+     },
+     {
+      "id": "agent_chief",
+      "kind": "agent",
+      "display_name": "Chief",
+      "agent_class": "mux",
+      "owner_user": "user_me"
+     }
+    ],
+    "messages": []
+   },
+   "now": 1790000000000,
+   "expect": {
+    "ok": true,
+    "head": {
+     "id": "conv_P1",
+     "title": "Chief",
+     "participants": [
+      {
+       "id": "user_me",
+       "kind": "human",
+       "display_name": "Me",
+       "role": "owner",
+       "joined_seq": 0,
+       "added_by": "user_me"
+      },
+      {
+       "id": "agent_chief",
+       "kind": "agent",
+       "display_name": "Chief",
+       "agent_class": "mux",
+       "owner_user": "user_me",
+       "role": "member",
+       "joined_seq": 0,
+       "added_by": "user_me"
+      }
+     ],
+     "last_seq": 3,
+     "rev": 1,
+     "created_at": "2026-09-21T14:13:20.000Z",
+     "updated_at": "2026-09-21T13:13:23.000Z",
+     "read_cursors": {
+      "user_me": 3
+     },
+     "kind": "chief",
+     "created_by": "user_me",
+     "state": "importing",
+     "settings": {
+      "wake_policy": "auto",
+      "agent_budget": {
+       "turns": 4,
+       "gap_ms": 2000
+      },
+      "history_visible": "all"
+     },
+     "invites": [],
+     "agent_text_streak": 2,
+     "import": {
+      "kind": "mac",
+      "host": "inst_mac1",
+      "local_id": "conv_LOCAL1",
+      "by": "user_me"
+     },
+     "last_agent_text_at": "2026-09-21T13:13:23.000Z"
+    },
+    "value": {
+     "conversation": {
+      "id": "conv_P1",
+      "owner": "cloud",
+      "title": "Chief",
+      "participants": [
+       {
+        "id": "user_me",
+        "kind": "human",
+        "display_name": "Me",
+        "role": "owner",
+        "joined_seq": 0,
+        "added_by": "user_me"
+       },
+       {
+        "id": "agent_chief",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux",
+        "owner_user": "user_me",
+        "role": "member",
+        "joined_seq": 0,
+        "added_by": "user_me"
+       }
+      ],
+      "last_seq": 3,
+      "rev": 1,
+      "created_at": "2026-09-21T14:13:20.000Z",
+      "updated_at": "2026-09-21T13:13:23.000Z",
+      "read_cursors": {
+       "user_me": 3
+      },
+      "kind": "chief",
+      "created_by": "user_me",
+      "state": "importing",
+      "settings": {
+       "wake_policy": "auto",
+       "agent_budget": {
+        "turns": 4,
+        "gap_ms": 2000
+       },
+       "history_visible": "all"
+      },
+      "invites": []
+     }
+    },
+    "writes": 0
+   }
+  },
+  {
+   "name": "import: a create with another source is conversation_exists",
+   "principal": {
+    "identity": "user:user_me",
+    "kind": "session",
+    "user": "user_me"
+   },
+   "op": "conversation.import",
+   "params": {
+    "id": "conv_P1",
+    "source": {
+     "kind": "mac",
+     "host": "inst_mac1",
+     "local_id": "conv_OTHER"
+    },
+    "kind": "chief",
+    "participants": [
+     {
+      "id": "user_me",
+      "kind": "human",
+      "display_name": "Me"
+     },
+     {
+      "id": "agent_chief",
+      "kind": "agent",
+      "display_name": "Chief",
+      "agent_class": "mux",
+      "owner_user": "user_me"
+     }
+    ],
+    "messages": []
+   },
+   "now": 1790000000000,
+   "expect": {
+    "ok": false,
+    "reject": "conversation_exists"
+   }
+  },
+  {
+   "name": "import: normal ops wait for commit",
+   "principal": {
+    "identity": "user:user_me",
+    "kind": "session",
+    "user": "user_me"
+   },
+   "op": "message.send",
+   "params": {
+    "client_msg_id": "k1",
+    "parts": [
+     {
+      "type": "text",
+      "text": "early"
+     }
+    ]
+   },
+   "now": 1790000000000,
+   "expect": {
+    "ok": false,
+    "reject": "importing"
+   }
+  },
+  {
+   "name": "import: another user cannot continue",
+   "principal": {
+    "identity": "user:user_x",
+    "kind": "session",
+    "user": "user_x"
+   },
+   "op": "conversation.import",
+   "params": {
+    "id": "conv_P1",
+    "after_seq": 3,
+    "messages": [
+     {
+      "id": "msg_local4",
+      "seq": 4,
+      "client_msg_id": "c4",
+      "author": "user_me",
+      "parts": [
+       {
+        "type": "text",
+        "text": "x"
+       }
+      ],
+      "created_at": "2026-09-21T13:13:24.000Z"
+     }
+    ]
+   },
+   "now": 1790000000000,
+   "expect": {
+    "ok": false,
+    "reject": "forbidden"
+   }
+  },
+  {
+   "name": "import: a batch out of order is refused",
+   "principal": {
+    "identity": "user:user_me",
+    "kind": "session",
+    "user": "user_me"
+   },
+   "op": "conversation.import",
+   "params": {
+    "id": "conv_P1",
+    "after_seq": 2,
+    "messages": [
+     {
+      "id": "msg_local3",
+      "seq": 3,
+      "client_msg_id": "c3",
+      "author": "user_me",
+      "parts": [
+       {
+        "type": "text",
+        "text": "x"
+       }
+      ],
+      "created_at": "2026-09-21T13:13:23.000Z"
+     }
+    ]
+   },
+   "now": 1790000000000,
+   "expect": {
+    "ok": false,
+    "reject": "import_out_of_order"
+   }
+  },
+  {
+   "name": "import: a duplicate client_msg_id per author is refused",
+   "principal": {
+    "identity": "user:user_me",
+    "kind": "session",
+    "user": "user_me"
+   },
+   "op": "conversation.import",
+   "params": {
+    "id": "conv_P1",
+    "after_seq": 3,
+    "messages": [
+     {
+      "id": "msg_local4",
+      "seq": 4,
+      "client_msg_id": "c1",
+      "author": "user_me",
+      "parts": [
+       {
+        "type": "text",
+        "text": "dup"
+       }
+      ],
+      "created_at": "2026-09-21T13:13:24.000Z"
+     }
+    ]
+   },
+   "now": 1790000000000,
+   "expect": {
+    "ok": false,
+    "reject": "invalid_import"
+   }
+  },
+  {
+   "name": "import: the next batch continues the seq and the agent streak",
+   "principal": {
+    "identity": "user:user_me",
+    "kind": "session",
+    "user": "user_me"
+   },
+   "op": "conversation.import",
+   "params": {
+    "id": "conv_P1",
+    "after_seq": 3,
+    "messages": [
+     {
+      "id": "msg_local4",
+      "seq": 4,
+      "client_msg_id": "c4",
+      "author": "agent_chief",
+      "parts": [
+       {
+        "type": "text",
+        "text": "more"
+       }
+      ],
+      "created_at": "2026-09-21T13:13:24.000Z"
+     },
+     {
+      "id": "msg_local5",
+      "seq": 5,
+      "client_msg_id": "c5",
+      "author": "agent_chief",
+      "parts": [
+       {
+        "type": "text",
+        "text": "and more"
+       }
+      ],
+      "created_at": "2026-09-21T13:13:25.000Z"
+     }
+    ]
+   },
+   "now": 1790000000000,
+   "expect": {
+    "ok": true,
+    "head": {
+     "id": "conv_P1",
+     "title": "Chief",
+     "participants": [
+      {
+       "id": "user_me",
+       "kind": "human",
+       "display_name": "Me",
+       "role": "owner",
+       "joined_seq": 0,
+       "added_by": "user_me"
+      },
+      {
+       "id": "agent_chief",
+       "kind": "agent",
+       "display_name": "Chief",
+       "agent_class": "mux",
+       "owner_user": "user_me",
+       "role": "member",
+       "joined_seq": 0,
+       "added_by": "user_me"
+      }
+     ],
+     "last_seq": 5,
+     "rev": 2,
+     "created_at": "2026-09-21T14:13:20.000Z",
+     "updated_at": "2026-09-21T13:13:25.000Z",
+     "read_cursors": {
+      "user_me": 3
+     },
+     "kind": "chief",
+     "created_by": "user_me",
+     "state": "importing",
+     "settings": {
+      "wake_policy": "auto",
+      "agent_budget": {
+       "turns": 4,
+       "gap_ms": 2000
+      },
+      "history_visible": "all"
+     },
+     "invites": [],
+     "agent_text_streak": 4,
+     "import": {
+      "kind": "mac",
+      "host": "inst_mac1",
+      "local_id": "conv_LOCAL1",
+      "by": "user_me"
+     },
+     "last_agent_text_at": "2026-09-21T13:13:25.000Z"
+    },
+    "value": {
+     "last_seq": 5
+    },
+    "writes": 4
+   }
+  },
+  {
+   "name": "import: commit with the wrong last_seq is refused",
+   "principal": {
+    "identity": "user:user_me",
+    "kind": "session",
+    "user": "user_me"
+   },
+   "op": "conversation.import.commit",
+   "params": {
+    "id": "conv_P1",
+    "last_seq": 4
+   },
+   "now": 1790000000000,
+   "expect": {
+    "ok": false,
+    "reject": "import_out_of_order"
+   }
+  },
+  {
+   "name": "import: commit opens the conversation and bumps the inbox",
+   "principal": {
+    "identity": "user:user_me",
+    "kind": "session",
+    "user": "user_me"
+   },
+   "op": "conversation.import.commit",
+   "params": {
+    "id": "conv_P1",
+    "last_seq": 5
+   },
+   "now": 1790000000000,
+   "expect": {
+    "ok": true,
+    "head": {
+     "id": "conv_P1",
+     "title": "Chief",
+     "participants": [
+      {
+       "id": "user_me",
+       "kind": "human",
+       "display_name": "Me",
+       "role": "owner",
+       "joined_seq": 0,
+       "added_by": "user_me"
+      },
+      {
+       "id": "agent_chief",
+       "kind": "agent",
+       "display_name": "Chief",
+       "agent_class": "mux",
+       "owner_user": "user_me",
+       "role": "member",
+       "joined_seq": 0,
+       "added_by": "user_me"
+      }
+     ],
+     "last_seq": 5,
+     "rev": 3,
+     "created_at": "2026-09-21T14:13:20.000Z",
+     "updated_at": "2026-09-21T13:13:25.000Z",
+     "read_cursors": {
+      "user_me": 3
+     },
+     "kind": "chief",
+     "created_by": "user_me",
+     "state": "active",
+     "settings": {
+      "wake_policy": "auto",
+      "agent_budget": {
+       "turns": 4,
+       "gap_ms": 2000
+      },
+      "history_visible": "all"
+     },
+     "invites": [],
+     "agent_text_streak": 4,
+     "import": {
+      "kind": "mac",
+      "host": "inst_mac1",
+      "local_id": "conv_LOCAL1",
+      "by": "user_me"
+     },
+     "last_agent_text_at": "2026-09-21T13:13:25.000Z"
+    },
+    "value": {
+     "conversation": {
+      "id": "conv_P1",
+      "owner": "cloud",
+      "title": "Chief",
+      "participants": [
+       {
+        "id": "user_me",
+        "kind": "human",
+        "display_name": "Me",
+        "role": "owner",
+        "joined_seq": 0,
+        "added_by": "user_me"
+       },
+       {
+        "id": "agent_chief",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux",
+        "owner_user": "user_me",
+        "role": "member",
+        "joined_seq": 0,
+        "added_by": "user_me"
+       }
+      ],
+      "last_seq": 5,
+      "rev": 3,
+      "created_at": "2026-09-21T14:13:20.000Z",
+      "updated_at": "2026-09-21T13:13:25.000Z",
+      "last_message": {
+       "id": "msg_local5",
+       "conversation": "conv_P1",
+       "seq": 5,
+       "client_msg_id": "c5",
+       "author": "agent_chief",
+       "parts": [
+        {
+         "type": "text",
+         "text": "and more"
+        }
+       ],
+       "created_at": "2026-09-21T13:13:25.000Z",
+       "reactions": []
+      },
+      "read_cursors": {
+       "user_me": 3
+      },
+      "kind": "chief",
+      "created_by": "user_me",
+      "state": "active",
+      "settings": {
+       "wake_policy": "auto",
+       "agent_budget": {
+        "turns": 4,
+        "gap_ms": 2000
+       },
+       "history_visible": "all"
+      },
+      "invites": []
+     }
+    },
+    "writes": 0
+   }
+  },
+  {
+   "name": "import: a batch after commit is conversation_exists",
+   "principal": {
+    "identity": "user:user_me",
+    "kind": "session",
+    "user": "user_me"
+   },
+   "op": "conversation.import",
+   "params": {
+    "id": "conv_P1",
+    "after_seq": 5,
+    "messages": [
+     {
+      "id": "msg_local6",
+      "seq": 6,
+      "client_msg_id": "c6",
+      "author": "user_me",
+      "parts": [
+       {
+        "type": "text",
+        "text": "x"
+       }
+      ],
+      "created_at": "2026-09-21T13:13:26.000Z"
+     }
+    ]
+   },
+   "now": 1790000000000,
+   "expect": {
+    "ok": false,
+    "reject": "conversation_exists"
+   }
+  },
+  {
+   "name": "import: normal ops run after commit",
+   "principal": {
+    "identity": "user:user_me",
+    "kind": "session",
+    "user": "user_me"
+   },
+   "op": "message.send",
+   "params": {
+    "client_msg_id": "k2",
+    "parts": [
+     {
+      "type": "text",
+      "text": "now"
+     }
+    ]
+   },
+   "now": 1790000000000,
+   "expect": {
+    "ok": true,
+    "head": {
+     "id": "conv_P1",
+     "title": "Chief",
+     "participants": [
+      {
+       "id": "user_me",
+       "kind": "human",
+       "display_name": "Me",
+       "role": "owner",
+       "joined_seq": 0,
+       "added_by": "user_me"
+      },
+      {
+       "id": "agent_chief",
+       "kind": "agent",
+       "display_name": "Chief",
+       "agent_class": "mux",
+       "owner_user": "user_me",
+       "role": "member",
+       "joined_seq": 0,
+       "added_by": "user_me"
+      }
+     ],
+     "last_seq": 6,
+     "rev": 4,
+     "created_at": "2026-09-21T14:13:20.000Z",
+     "updated_at": "2026-09-21T14:13:20.000Z",
+     "read_cursors": {
+      "user_me": 3
+     },
+     "kind": "chief",
+     "created_by": "user_me",
+     "state": "active",
+     "settings": {
+      "wake_policy": "auto",
+      "agent_budget": {
+       "turns": 4,
+       "gap_ms": 2000
+      },
+      "history_visible": "all"
+     },
+     "invites": [],
+     "agent_text_streak": 0,
+     "import": {
+      "kind": "mac",
+      "host": "inst_mac1",
+      "local_id": "conv_LOCAL1",
+      "by": "user_me"
+     },
+     "last_agent_text_at": "2026-09-21T13:13:25.000Z"
+    },
+    "value": {
+     "rev": 4,
+     "seq": 6,
+     "message_id": "msg_16",
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_16",
+       "conversation": "conv_P1",
+       "seq": 6,
+       "client_msg_id": "k2",
+       "author": "user_me",
+       "parts": [
+        {
+         "type": "text",
+         "text": "now"
+        }
+       ],
+       "created_at": "2026-09-21T14:13:20.000Z",
+       "reactions": []
+      }
+     }
+    },
+    "writes": 2
+   }
+  }
+ ]
+}

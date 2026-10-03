@@ -5,6 +5,7 @@ import { create, summary } from "./create.ts"
 import type { Domain, Principal, ReduceContext, ReduceResult, RowWrite } from "./engine-types.ts"
 import { rowsOf } from "./engine-types.ts"
 import { formatRfc3339Millis } from "./ids.ts"
+import { IMPORT_OPS, reduceImport } from "./import.ts"
 import { commitOutbox, createOutbox } from "./outbox.ts"
 import { actorOf, defaultParticipantPolicy, FALLBACK_NAME, stampParticipant, type ParticipantPolicy } from "./policy.ts"
 import type { OpRequest } from "./request.ts"
@@ -174,6 +175,7 @@ export const makeConversationDomain = (options: ConversationDomainOptions = {}):
   reduce: (state, op, params, ctx) => {
     const actor = actorOf(ctx.principal)
     if (!actor) return refuse("forbidden")
+    if (IMPORT_OPS.has(op)) return reduceImport(state, op, params, ctx, actor)
     if (CREATE_OPS.has(op)) return reduceCreate(state, op, params, ctx, actor, options.participantPolicy ?? defaultParticipantPolicy)
     if (!state) return refuse("unknown_conversation")
     const prepared = prepare(state, op, params, ctx, actor, options)
