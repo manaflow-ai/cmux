@@ -311,8 +311,36 @@ export class MuxHost {
    * `disconnected {daemon}`) and the reconnect retries; one stuck request
    * cannot block the serial effect queue.
    */
+  private get requestTimeoutMs(): number {
+    return this.options.requestTimeoutMs ?? 30_000;
+  }
+
+  /** A connect (socket plus handshake) bounded by the request timeout; a client that arrives late is closed. */
+  private connectWithin<T extends { close(): void }>(what: string, connect: Promise<T>): Promise<T> {
+    const ms = this.requestTimeoutMs;
+    let late = false;
+    return new Promise<T>((resolve, reject) => {
+      const timer = this.clock.setTimeout(() => {
+        late = true;
+        this.log(`${what} connect got no answer in ${ms} ms; retrying`);
+        reject(new RequestTimeoutError(`${what} connect timed out`));
+      }, ms);
+      connect.then(
+        (client) => {
+          this.clock.clearTimeout(timer);
+          if (late) client.close();
+          else resolve(client);
+        },
+        (error) => {
+          this.clock.clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
+  }
+
   private timed<T>(daemon: DaemonClient, what: string, request: Promise<T>): Promise<T> {
-    const ms = this.options.requestTimeoutMs ?? 30_000;
+    const ms = this.requestTimeoutMs;
     return new Promise<T>((resolve, reject) => {
       const timer = this.clock.setTimeout(() => {
         this.log(`daemon ${what} got no answer in ${ms} ms; reconnecting`);
@@ -356,24 +384,31 @@ export class MuxHost {
   private async runDaemon(): Promise<void> {
     // Events that arrive before the core knows the connection are held, then fed after it.
     let held: Record<string, unknown>[] | undefined = [];
-    const daemon = await DaemonClient.connect(this.options.daemonSocket, {
-      subscribe: true,
-      onEvent: (event) => {
-        if (held) held.push(event);
-        else this.onDaemonEvent(daemon, event);
-      },
-    });
+    const daemon = await this.connectWithin(
+      "daemon",
+      DaemonClient.connect(this.options.daemonSocket, {
+        subscribe: true,
+        onEvent: (event) => {
+          if (held) held.push(event);
+          else this.onDaemonEvent(daemon, event);
+        },
+      }),
+    );
     const closed = new Promise<void>((resolve) => daemon.onClose(() => resolve()));
     try {
-      const { conversation } = await daemon.create({
-        idempotency_key: DEFAULT_CONVERSATION_KEY,
-        actor: USER_LOCAL,
-        title: "mux",
-        participants: this.defaultParticipants(),
-      });
+      const { conversation } = await this.timed(
+        daemon,
+        "create",
+        daemon.create({
+          idempotency_key: DEFAULT_CONVERSATION_KEY,
+          actor: USER_LOCAL,
+          title: "mux",
+          participants: this.defaultParticipants(),
+        }),
+      );
       // Read at every connect: the app mints a new token on each launch.
       const token = typeof this.options.agentToken === "function" ? this.options.agentToken() : this.options.agentToken;
-      if (token) await daemon.bind(AGENT_MUX, token);
+      if (token) await this.timed(daemon, "bind", daemon.bind(AGENT_MUX, token));
       this.daemon = daemon;
       this.log(`daemon connected (${daemon.identity.app ?? "?"} ${daemon.identity.version ?? ""}); conversation ${conversation.id}`);
       this.feed({ kind: "daemon_connected", conversation });
@@ -413,8 +448,15 @@ export class MuxHost {
 
   private async runAcpmux(): Promise<void> {
     await this.options.startAcpmux?.();
-    const acpmux = await AcpmuxClient.connect(this.options.acpmuxSocket, "mux-host");
+    const acpmux = await this.connectWithin("acpmux", AcpmuxClient.connect(this.options.acpmuxSocket, "mux-host"));
     const closed = new Promise<void>((resolve) => acpmux.onClose(() => resolve()));
+    // The connect sequence (sessions, watch, first event, attach) has one deadline:
+    // a stuck step closes the client and the loop connects again.
+    const ms = this.requestTimeoutMs;
+    const deadline = this.clock.setTimeout(() => {
+      this.log(`acpmux connect got no answer in ${ms} ms; reconnecting`);
+      acpmux.close();
+    }, ms);
     // Notifications that arrive while attach replays are held, then fed after it.
     let held: Notification[] | undefined = [];
     acpmux.onNotification((n) => {
@@ -439,6 +481,7 @@ export class MuxHost {
         state.muxSessionId === sessionId &&
         (logId === undefined || state.acpmuxLog === undefined || logId === state.acpmuxLog);
       const { events, cursorReset } = await this.attach(acpmux, sessionId, known ? state.acpmuxSeq : 0);
+      this.clock.clearTimeout(deadline);
       this.acpmux = acpmux;
       this.log(`acpmux connected; mux session ${sessionId} (${events.length} events replayed)`);
       this.feed({
@@ -455,6 +498,7 @@ export class MuxHost {
       for (const n of queued) this.onAcpmuxNotification(n);
       await Promise.race([closed, this.stoppedSignal]);
     } finally {
+      this.clock.clearTimeout(deadline);
       acpmux.close();
       if (this.acpmux === acpmux) {
         this.acpmux = undefined;
