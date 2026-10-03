@@ -18,6 +18,7 @@ from pathlib import Path
 VERSION_RE = re.compile(r"^(?:[0-9]+\.[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+\.dev[0-9]{9,})$")
 DIST_NAME = "cmux"
 PACKAGE_NAME = "cmux_tui"
+LICENSE_SOURCE = Path(__file__).resolve().parents[1] / "npm" / "cmux" / "LICENSE"
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 PROJECT_SUMMARY = "cmux \u2014 a tmux-like terminal multiplexer TUI backed by libghostty-vt"
 PROJECT_DESCRIPTION = """# cmux
@@ -151,11 +152,12 @@ Tag: py3-none-{tag}
         (
             f"{dist_info}/METADATA",
             text_bytes(
-                f"""Metadata-Version: 2.1
+                f"""Metadata-Version: 2.4
 Name: {DIST_NAME}
 Version: {version}
 Summary: {PROJECT_SUMMARY}
-License: GPL-3.0-or-later
+License-Expression: GPL-3.0-or-later
+License-File: LICENSE
 Project-URL: Source, https://github.com/manaflow-ai/cmux
 Description-Content-Type: text/markdown
 
@@ -163,6 +165,7 @@ Description-Content-Type: text/markdown
             ),
             0o644,
         ),
+        (f"{dist_info}/licenses/LICENSE", LICENSE_SOURCE.read_bytes(), 0o644),
         (
             f"{dist_info}/entry_points.txt",
             text_bytes(
