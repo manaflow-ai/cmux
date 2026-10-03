@@ -379,6 +379,47 @@ test("clearCookies: scoped to the current tab's site unless { all: true }", asyn
   }
 });
 
+// A tab's cookies live in that tab's data store (a private tab's, or the
+// session's proxy store, is not the user's profile), so every cookie call a
+// page makes names its tab; without it the driver would use another tab's
+// store.
+test("cookie calls name the page's tab, so the driver uses that tab's store", async () => {
+  const browser = await createDevBrowser();
+  const servers = await startFixtureServers();
+  const { primary } = servers.origins;
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmux-repl-cookie-")));
+  const driver = browser.driver();
+  const calls = [];
+  const call = driver.call.bind(driver);
+  driver.call = (method, params) => {
+    if (method.startsWith("cookies.")) calls.push({ method, targetId: params && params.targetId });
+    return call(method, params);
+  };
+  const repl = createDevRepl({ host: createNodeHost({ workDir: dir, sessionId: `cookie-${process.pid}`, print: () => {} }), driver });
+  try {
+    const r = await repl.evaluate(`
+      const other = await tabs.open(${JSON.stringify(primary)} + "/index.html");
+      const own = await tabs.open(${JSON.stringify(primary)} + "/agent-tools.html");
+      await other.bringToFront();
+      await own.context().cookies();
+      await own.context().addCookies([{ name: "n", value: "1", url: ${JSON.stringify(primary)} + "/" }]);
+      await own.context().storageState();
+      await own.context().setStorageState({ cookies: [{ name: "m", value: "1", url: ${JSON.stringify(primary)} + "/" }] });
+      await own.context().clearCookies();
+      own._targetId
+    `);
+    assert.equal(r.ok, true, r.error);
+    const ownId = r.value;
+    assert.ok(calls.length >= 5, JSON.stringify(calls));
+    assert.deepEqual(calls.filter((c) => c.targetId !== ownId), [], `every cookie call names ${ownId}`);
+  } finally {
+    repl.dispose();
+    await browser.close();
+    await servers.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("cookies.clear: the driver clears the target tab's site, never a named one or the whole profile", async () => {
   const servers = await startFixtureServers();
   const { primary, peer } = servers.origins;
