@@ -10,6 +10,10 @@ enum TerminalStreamControl: Sendable, Hashable {
     case retryAfter(milliseconds: Int)
     /// The host's snapshot version differs: bytes are now a replay (badge only).
     case versionMismatch(host: UInt16)
+    /// Call `readyDeadline(epoch)` after this delay (waiting for a READY).
+    case armReadyDeadline(epoch: UInt64, milliseconds: Int)
+    /// No READY came in time: detach and attach again.
+    case reattach
 }
 
 /// Counters for DEBUG diagnostics, copied to the main actor with each update.
@@ -92,7 +96,18 @@ final class TerminalStreamPipeline: @unchecked Sendable {
         run { pipeline, _ in pipeline.viewer.retryDue() }
     }
 
-    /// Detach or a new connection: forget the in-flight request, wait for READY.
+    /// A new connection starts: forget the in-flight request and wait for the
+    /// host's first READY under the viewer's deadline.
+    @MainActor func attachStarted() {
+        run { pipeline, _ in pipeline.viewer.attachStarted() }
+    }
+
+    /// The READY deadline armed for `epoch` ended.
+    @MainActor func readyDeadline(_ epoch: UInt64) {
+        run { pipeline, _ in pipeline.viewer.readyDeadline(epoch) }
+    }
+
+    /// Detach: forget the in-flight request, wait for READY.
     @MainActor func connectionReset() {
         run { pipeline, _ in
             pipeline.viewer.connectionReset()
@@ -163,6 +178,10 @@ final class TerminalStreamPipeline: @unchecked Sendable {
                 controls.append(.retryAfter(milliseconds: milliseconds))
             case .versionMismatch(let host):
                 controls.append(.versionMismatch(host: host))
+            case .armReadyDeadline(let epoch, let milliseconds):
+                controls.append(.armReadyDeadline(epoch: epoch, milliseconds: milliseconds))
+            case .reattach:
+                controls.append(.reattach)
             }
         }
         return controls
