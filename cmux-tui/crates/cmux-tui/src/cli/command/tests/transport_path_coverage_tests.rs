@@ -56,7 +56,16 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         (vec!["terminal", TERMINAL, "write", "--bytes-base64", "AA=="], "terminal.input.write"),
         (vec!["git", "checkpoint", "get", "--path", "/repo", "--key", "k1"], "git.checkpoint.get"),
         (
-            vec!["git", "commit", "--path", "/repo", "--message", "m", "--all", "--include-untracked"],
+            vec![
+                "git",
+                "commit",
+                "--path",
+                "/repo",
+                "--message",
+                "m",
+                "--all",
+                "--include-untracked",
+            ],
             "git.commit",
         ),
         (

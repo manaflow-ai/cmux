@@ -127,7 +127,10 @@ fn valid_branch(repository: &Repository, branch: &str) -> Result<(), ResourceErr
     if valid {
         return Ok(());
     }
-    Err(ResourceError::validation_invalid(Some("branch"), format!("{branch:?} is not a branch name")))
+    Err(ResourceError::validation_invalid(
+        Some("branch"),
+        format!("{branch:?} is not a branch name"),
+    ))
 }
 
 fn current_branch(repository: &Repository) -> Option<String> {
@@ -144,8 +147,10 @@ fn track(
     remote: &str,
     destination: &str,
 ) -> Result<bool, ResourceError> {
-    let settings =
-        [(format!("branch.{branch}.remote"), remote), (format!("branch.{branch}.merge"), destination)];
+    let settings = [
+        (format!("branch.{branch}.remote"), remote),
+        (format!("branch.{branch}.merge"), destination),
+    ];
     let mut changed = false;
     for (name, value) in &settings {
         if config_lines(repository, &["config", "--get", name]).pop().as_deref() == Some(*value) {

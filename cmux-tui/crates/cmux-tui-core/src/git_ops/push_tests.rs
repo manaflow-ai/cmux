@@ -41,7 +41,10 @@ fn push_creates_the_upstream_and_a_second_push_is_up_to_date() {
     assert_eq!(value["branch"], "main");
     assert_eq!(value["upstream"], "origin/main");
     assert_eq!(value["pushed_commit"], head.as_str());
-    assert_eq!((value["created_upstream"].as_bool(), value["up_to_date"].as_bool()), (Some(true), Some(false)));
+    assert_eq!(
+        (value["created_upstream"].as_bool(), value["up_to_date"].as_bool()),
+        (Some(true), Some(false))
+    );
     assert!(value.get("previous_remote_commit").is_none(), "{value}");
     assert_eq!(git(&remote, &["rev-parse", "refs/heads/main"]), head);
     assert_eq!(git(&repository, &["rev-parse", "--abbrev-ref", "main@{upstream}"]), "origin/main");
@@ -104,18 +107,25 @@ fn push_reports_a_remote_hook_rejection_with_its_message() {
     let (reason, extra) = refused(&push(&mux, &repository, json!({}), "k-hook"));
     assert_eq!(reason, "rejected_by_remote");
     assert!(extra["output"].as_str().unwrap().contains("main is protected here"), "{extra}");
-    assert!(git_output(&remote, &["rev-parse", "--verify", "refs/heads/main"]).status.code() != Some(0));
+    assert!(
+        git_output(&remote, &["rev-parse", "--verify", "refs/heads/main"]).status.code() != Some(0)
+    );
 }
 
 #[test]
 fn push_reports_a_local_pre_push_hook() {
     let (repository, remote) = with_remote("push-pre-push");
-    executable(&repository.join(".git/hooks/pre-push"), "#!/bin/sh\necho 'tests failed' >&2\nexit 1\n");
+    executable(
+        &repository.join(".git/hooks/pre-push"),
+        "#!/bin/sh\necho 'tests failed' >&2\nexit 1\n",
+    );
     let mux = session("push-pre-push");
     let (reason, extra) = refused(&push(&mux, &repository, json!({}), "k-pre-push"));
     assert_eq!(reason, "hook_failed");
     assert!(extra["output"].as_str().unwrap().contains("tests failed"), "{extra}");
-    assert!(git_output(&remote, &["rev-parse", "--verify", "refs/heads/main"]).status.code() != Some(0));
+    assert!(
+        git_output(&remote, &["rev-parse", "--verify", "refs/heads/main"]).status.code() != Some(0)
+    );
 }
 
 /// A remote that asks for credentials: git never prompts and never runs an

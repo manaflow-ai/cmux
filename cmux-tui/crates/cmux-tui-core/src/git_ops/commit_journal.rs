@@ -69,14 +69,12 @@ impl Attempt {
         let output = repository.run(&arguments, 64 * 1024).ok()?;
         let text = String::from_utf8_lossy(&output.stdout).into_owned();
         let mut lines = text.split('\n');
-        let parents: Vec<String> =
-            lines.next()?.split_whitespace().map(str::to_string).collect();
+        let parents: Vec<String> = lines.next()?.split_whitespace().map(str::to_string).collect();
         let committed: u64 = lines.next()?.trim().parse().ok()?;
         let subject = lines.next()?.trim_end();
         // One second of slack: the attempt's clock and git's round down.
-        let same = parents == self.parents
-            && committed + 1 >= self.started_at
-            && subject == self.subject;
+        let same =
+            parents == self.parents && committed + 1 >= self.started_at && subject == self.subject;
         same.then(|| head.to_string())
     }
 }

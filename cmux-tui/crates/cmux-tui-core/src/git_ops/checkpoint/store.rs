@@ -307,7 +307,9 @@ pub(in crate::git_ops) fn private_directory(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-pub(in crate::git_ops) fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> io::Result<Option<T>> {
+pub(in crate::git_ops) fn read_json<T: serde::de::DeserializeOwned>(
+    path: &Path,
+) -> io::Result<Option<T>> {
     match fs::read(path) {
         Ok(bytes) => serde_json::from_slice(&bytes)
             .map(Some)

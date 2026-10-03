@@ -261,8 +261,6 @@ fn git_push_names_a_remote_branch_and_upstream_choice() {
         sent(&["git", "push", "--path", "/repo", "--remote", "fork", "--set-upstream"]),
         ("git.push".into(), json!({"path": "/repo", "remote": "fork", "set_upstream": true}))
     );
-    assert!(
-        rejects(&["git", "push", "--set-upstream", "--no-set-upstream"]).contains("not both")
-    );
+    assert!(rejects(&["git", "push", "--set-upstream", "--no-set-upstream"]).contains("not both"));
     assert!(rejects(&["git", "push", "--force"]).contains("--force"));
 }

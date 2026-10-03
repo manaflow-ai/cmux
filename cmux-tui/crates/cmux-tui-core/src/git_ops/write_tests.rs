@@ -106,7 +106,13 @@ pub(super) fn session(name: &str) -> Arc<Mux> {
     Mux::open_persistent(format!("gitw-{name}"), SurfaceOptions::default(), &root).unwrap()
 }
 
-pub(super) fn call(mux: &Arc<Mux>, operation: &str, repository: &Path, fields: Value, key: &str) -> Value {
+pub(super) fn call(
+    mux: &Arc<Mux>,
+    operation: &str,
+    repository: &Path,
+    fields: Value,
+    key: &str,
+) -> Value {
     let mut params = fields;
     params["path"] = json!(repository.to_string_lossy());
     params["machine"] = json!("current");

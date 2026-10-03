@@ -23,9 +23,7 @@ use serde_json::{Map, Value, json};
 use super::checkpoint::ledger;
 use super::checkpoint::store::{mint, private_directory};
 use super::commit_journal::{Attempt, Journal};
-use super::mutation::{
-    Target, active_hooks, key, output_extra, read_failed, refused, run_failed,
-};
+use super::mutation::{Target, active_hooks, key, output_extra, read_failed, refused, run_failed};
 use super::user_run::{UserRun, run_user_git};
 use super::{MAX_SMALL_OUTPUT_BYTES, Repository, clamp};
 use crate::Mux;
@@ -248,9 +246,12 @@ fn run_commit(repository: &Repository, arguments: &Arguments) -> Result<UserRun,
         pathspec_flag = Some(flag);
     }
     let staging: Option<Vec<&std::ffi::OsStr>> = match &pathspec_flag {
-        Some(flag) => {
-            Some(vec!["add".as_ref(), "-A".as_ref(), flag.as_os_str(), "--pathspec-file-nul".as_ref()])
-        }
+        Some(flag) => Some(vec![
+            "add".as_ref(),
+            "-A".as_ref(),
+            flag.as_os_str(),
+            "--pathspec-file-nul".as_ref(),
+        ]),
         None if arguments.include_untracked => Some(vec!["add".as_ref(), "-A".as_ref()]),
         None => None,
     };

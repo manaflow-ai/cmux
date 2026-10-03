@@ -20,9 +20,9 @@ mod target;
 #[cfg(test)]
 mod tests;
 mod user_run;
+mod write_run;
 #[cfg(all(test, unix))]
 mod write_tests;
-mod write_run;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
