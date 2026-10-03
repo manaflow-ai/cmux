@@ -15108,6 +15108,29 @@
       "title_table" : "Localizable"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "settings import-classic-sessions",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "palette.importClassicSessions",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "Import Classic cmux Sessions…",
+      "title_key" : "action.palette.importClassicSessions",
+      "title_table" : "Localizable"
+    },
+    {
       "cli" : "devOnly",
       "cli_name" : "settings onboarding-gallery",
       "context_menu" : "devOnly",

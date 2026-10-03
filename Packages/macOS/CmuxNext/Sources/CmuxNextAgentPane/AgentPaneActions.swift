@@ -1,4 +1,5 @@
 public import CmuxNextActions
+public import Foundation
 
 // The agent pane's actions. Descriptors live in CmuxNextActions
 // (`ActionCatalog+Agents`), so the palette, menus, the tab strip's new-tab
@@ -11,6 +12,8 @@ extension ActionID {
     /// Open File: a file in a tab of the pane or in the text editor
     /// (`AgentPaneFileOpening`).
     public static let fileOpen: ActionID = "file.open"
+    /// New Browser Tab, with `url` to open a page in it.
+    public static let openBrowser: ActionID = "openBrowser"
 }
 
 extension ActionRegistry {
@@ -36,6 +39,20 @@ extension ActionRegistry {
         )
         var performed = false
         let refusal = reportingRefusal { performed = perform(.fileOpen, invocation: invocation) }
+        return performed && refusal == nil
+    }
+
+    /// Opens a turn's local web page (its preview card) in a new browser tab
+    /// of `pane` through `openBrowser`, the path the tab strip and palette
+    /// take. False when the handler refused.
+    @discardableResult
+    public func openAgentPreview(_ url: URL, pane: String) -> Bool {
+        let invocation = ActionInvocation(
+            target: ActionTargetRef(kind: .pane, id: pane),
+            arguments: ["url": .string(url.absoluteString)]
+        )
+        var performed = false
+        let refusal = reportingRefusal { performed = perform(.openBrowser, invocation: invocation) }
         return performed && refusal == nil
     }
 }

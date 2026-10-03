@@ -13,7 +13,7 @@ import Testing
 
     private func plan(_ screen: LayoutScreen, _ column: String, edge: StickyEdge? = nil,
                       mode: StickyMode = .docked) -> DockPlan? {
-        DockDefaults.plan(screen: screen, column: ColumnID(column), pane: nil, edge: edge, mode: mode)
+        DockDefaults().plan(screen: screen, column: ColumnID(column), pane: nil, edge: edge, mode: mode)
     }
 
     @Test func aMiddleOrRightColumnDocksRightAtItsClampedWidth() {
@@ -49,21 +49,21 @@ import Testing
 
     @Test func aConfiguredEdgeReplacesTheNearestEdge() {
         let s = screen([0.3, 0.5, 0.5])
-        #expect(DockDefaults.plan(screen: s, column: "c0", pane: nil, edge: nil, defaultEdge: .bottom, mode: .docked)
+        #expect(DockDefaults().plan(screen: s, column: "c0", pane: nil, edge: nil, defaultEdge: .bottom, mode: .docked)
                 == .pin("c0", StickyColumn(edge: .bottom, mode: .docked), width: 0.3))
         // A docked column keeps its own edge; an explicit edge still wins.
         let docked = screen([0.5, 0.3], sticky: [1: StickyColumn(edge: .right, mode: .overlay)])
-        #expect(DockDefaults.plan(screen: docked, column: "c1", pane: nil, edge: nil, defaultEdge: .left, mode: .docked)
+        #expect(DockDefaults().plan(screen: docked, column: "c1", pane: nil, edge: nil, defaultEdge: .left, mode: .docked)
                 == .pin("c1", StickyColumn(edge: .right, mode: .docked), width: 0.3))
     }
 
     @Test func aScreensOnlyColumnDocksItsTabIntoANewColumn() {
         let lone = LayoutScreen(id: ScreenID("s"), name: "s", layout: .splits(.leaf(PaneID("p0"))))
-        let plan = DockDefaults.plan(screen: lone, column: lone.implicitColumnID, pane: PaneID("p0"), edge: nil, mode: .docked)
+        let plan = DockDefaults().plan(screen: lone, column: lone.implicitColumnID, pane: PaneID("p0"), edge: nil, mode: .docked)
         #expect(plan == .moveTab("p0", StickyColumn(edge: .right, mode: .docked), width: 0.40))
         // The only scrolling column of a screen with a dock does the same.
         let s = screen([0.5, 0.3], sticky: [1: StickyColumn(edge: .right, mode: .docked)])
-        #expect(DockDefaults.plan(screen: s, column: "c0", pane: "p0", edge: nil, mode: .docked)
+        #expect(DockDefaults().plan(screen: s, column: "c0", pane: "p0", edge: nil, mode: .docked)
                 == .moveTab("p0", StickyColumn(edge: .left, mode: .docked), width: 0.40))
     }
 }

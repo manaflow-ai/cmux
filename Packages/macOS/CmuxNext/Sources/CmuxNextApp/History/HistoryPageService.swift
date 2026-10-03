@@ -125,7 +125,7 @@ extension TabContentCache {
         if let url, RemoteViewTabRecord.matches(url) {
             let pages = services.remoteViewPages
             let source = pages.source(for: key, url: url, isLocal: services.machines.daemon(forTab: tab).isLocal)
-            let decision = RemoteViewTabPolicy.decide(record: RemoteViewTabRecord(url: url), source: source)
+            let decision = RemoteViewTabPolicy().decide(record: RemoteViewTabRecord(url: url), source: source)
             let page = RemoteViewPageTab(
                 id: BrowserTabID(rawValue: key), engine: engine, profile: profile, url: url, decision: decision,
                 closeTab: { [weak self] in self?.pageRequests.closeTab(key) },

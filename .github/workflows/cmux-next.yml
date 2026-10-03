@@ -156,6 +156,13 @@ jobs:
                   ;;
                 web/*|workers/*|config/vite-plus/*|docs/*|design/*|plans/*|*.md|*.mdx|*.txt|README|README.*|package.json|bun.lock|biome.json|bunfig.toml|.npmrc|.vercelignore|vercel.json)
                   ;;
+                Packages/macOS/CmuxNext/*)
+                  native=true
+                  ;;
+                Packages/*)
+                  # The generic workflow owns focused tests for packages
+                  # outside CmuxNext. Do not wake the full next suite too.
+                  ;;
                 *)
                   native=true
                   ;;

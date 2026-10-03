@@ -64,12 +64,12 @@ import Testing
     }
 
     @Test func everyTapbackHasAGlyphAndALocalizedName() {
-        #expect(Set(HomeReactionStyle.tapbacks) == Set(Reaction.Tapback.allCases))
+        #expect(Set(HomeReactionStyle().tapbacks) == Set(Reaction.Tapback.allCases))
         for tapback in Reaction.Tapback.allCases {
-            #expect(!HomeReactionStyle.glyph(tapback).isEmpty)
-            #expect(HomeReactionStyle.glyph(.tapback(tapback)) == HomeReactionStyle.glyph(tapback))
-            #expect(!HomeReactionStyle.accessibilityName(tapback).isEmpty)
+            #expect(!HomeReactionStyle().glyph(tapback).isEmpty)
+            #expect(HomeReactionStyle().glyph(.tapback(tapback)) == HomeReactionStyle().glyph(tapback))
+            #expect(!HomeReactionStyle().accessibilityName(tapback).isEmpty)
         }
-        #expect(HomeReactionStyle.accessibilityName(.love) == "Heart")
+        #expect(HomeReactionStyle().accessibilityName(.love) == "Heart")
     }
 }

@@ -332,7 +332,8 @@ let package = Package(
             name: "CmuxNextAgentActivity",
             dependencies: ["CmuxNextDesign", "CmuxNextWakeups"],
             resources: [
-                .process("Resources"),
+                .process("Resources/Localizable.xcstrings"),
+                .copy("Resources/agent-activity"),
             ],
             swiftSettings: uiSwiftSettings
         ),

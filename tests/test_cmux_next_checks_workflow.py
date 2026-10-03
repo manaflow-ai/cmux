@@ -193,6 +193,8 @@ class PathRoutingStructure(unittest.TestCase):
         route_script = route["steps"][-1]["run"]
         self.assertIn("webviews/*", route_script)
         self.assertIn("web/*", route_script)
+        self.assertIn("Packages/macOS/CmuxNext/*", route_script)
+        self.assertIn("Packages/*", route_script)
 
 if __name__ == "__main__":
     unittest.main()

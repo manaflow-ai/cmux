@@ -3,7 +3,7 @@ import Synchronization
 
 /// A helper call or a `pmset` run took longer than its limit.
 public nonisolated struct ServerHelperTimedOut: Error, Equatable {
-    public init() {}
+    public nonisolated init() {}
 }
 
 /// Bounds a helper operation with an injected clock, without waiting for the
@@ -11,8 +11,9 @@ public nonisolated struct ServerHelperTimedOut: Error, Equatable {
 /// resumes the caller. On the deadline it runs `onTimeout` (kill the child,
 /// invalidate the connection) and throws `ServerHelperTimedOut`; the
 /// operation's late result is dropped.
-public nonisolated enum ServerHelperDeadline {
-    public static func run<T: Sendable>(
+public struct ServerHelperDeadline {
+    public nonisolated init() {}
+    public nonisolated func run<T: Sendable>(
         limit: Duration,
         clock: any Clock<Duration>,
         operation: @escaping @Sendable () async throws -> T,

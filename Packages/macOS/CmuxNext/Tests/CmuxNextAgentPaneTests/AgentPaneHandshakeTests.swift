@@ -56,6 +56,8 @@ import Testing
         #expect(AgentPaneRequest(body: ["method": "chat.persistSession", "params": ["sessionId": "s-2"]]) == .persistSession("s-2"))
         #expect(AgentPaneRequest(body: ["method": "chat.persistSession", "params": ["sessionId": ""]]) == .unsupported("chat.persistSession"))
         #expect(AgentPaneRequest(body: ["method": "pane.framePacing", "params": ["intervals": [6.25, 12.5]]]) == .framePacing([6.25, 12.5]))
+        #expect(AgentPaneRequest(body: ["method": "pane.renderRate", "params": ["full": false]]) == .renderRate(false))
+        #expect(AgentPaneRequest(body: ["method": "pane.renderRate", "params": ["full": "false"]]) == .unsupported("pane.renderRate"))
         #expect(AgentPaneRequest(body: ["method": "pane.framePacing", "params": ["intervals": [Double]()]]) == .unsupported("pane.framePacing"))
         #expect(AgentPaneRequest(body: ["method": "pane.checkpointAvailability", "params": ["available": true]]) == .checkpointAvailability(true))
         #expect(AgentPaneRequest(body: ["method": "pane.checkpointAvailability", "params": ["available": "yes"]]) == .unsupported("pane.checkpointAvailability"))

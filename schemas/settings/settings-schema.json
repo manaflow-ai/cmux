@@ -381,9 +381,9 @@
     },
     {
       "accepts" : [
-        0.10000000000000001,
+        0.1,
         1,
-        0.55000000000000004
+        0.55
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -409,13 +409,13 @@
       ],
       "range" : {
         "max" : 1,
-        "min" : 0.10000000000000001,
-        "placeholder" : 0.10000000000000001,
-        "step" : 0.050000000000000003,
+        "min" : 0.1,
+        "placeholder" : 0.1,
+        "step" : 0.05,
         "unit" : "fraction"
       },
       "refuses" : [
-        -0.90000000000000002,
+        -0.9,
         2,
         "1"
       ],
@@ -2107,6 +2107,387 @@
     },
     {
       "accepts" : [
+        "none",
+        "wheat-field-with-cypresses",
+        "met-saint-catherine-436908",
+        "met-woman-man-casement-436896",
+        "met-women-picking-olives-436536",
+        "met-sunflowers-436524"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.none",
+            "text" : "None"
+          },
+          "value" : "none"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Wheat Field with Cypresses"
+          },
+          "value" : "wheat-field-with-cypresses"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Saint Catherine of Alexandria"
+          },
+          "value" : "met-saint-catherine-436908"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Portrait at a Casement"
+          },
+          "value" : "met-woman-man-casement-436896"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Women Picking Olives"
+          },
+          "value" : "met-women-picking-olives-436536"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Sunflowers"
+          },
+          "value" : "met-sunflowers-436524"
+        }
+      ],
+      "default" : "none",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backdropArt.help",
+        "text" : "A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backdropArt",
+      "keywords" : [
+        "painting",
+        "art",
+        "wallpaper",
+        "backdrop",
+        "attribution",
+        "legacy"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "appearance",
+        "backdropArt"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.backdropArt",
+        "text" : "Backdrop Art"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "none",
+        "wheat-field-with-cypresses",
+        "met-saint-catherine-436908",
+        "met-woman-man-casement-436896",
+        "met-women-picking-olives-436536",
+        "met-sunflowers-436524",
+        "system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.none",
+            "text" : "None"
+          },
+          "value" : "none"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Wheat Field with Cypresses"
+          },
+          "value" : "wheat-field-with-cypresses"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Saint Catherine of Alexandria"
+          },
+          "value" : "met-saint-catherine-436908"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Portrait at a Casement"
+          },
+          "value" : "met-woman-man-casement-436896"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Women Picking Olives"
+          },
+          "value" : "met-women-picking-olives-436536"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Sunflowers"
+          },
+          "value" : "met-sunflowers-436524"
+        }
+      ],
+      "default" : "none",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.background.help",
+        "text" : "Choose a bundled public-domain painting or a macOS system wallpaper behind the window material."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.background",
+      "keywords" : [
+        "painting",
+        "art",
+        "wallpaper",
+        "backdrop",
+        "desktop",
+        "attribution"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "appearance",
+        "background"
+      ],
+      "refuses" : [
+        "system:relative/path.heic",
+        "system:",
+        "__not_a_backdrop__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.background",
+        "text" : "Background"
+      },
+      "validation" : "domain:backdrop_selection"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.experimentalControls.help",
+        "text" : "Show the wallpaper grid and live appearance tuner while they are being integrated."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.experimentalControls",
+      "keywords" : [
+        "experimental",
+        "wallpaper",
+        "tuner",
+        "transparency",
+        "hue",
+        "saturation",
+        "labs"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "appearance",
+        "experimentalControls"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.experimentalControls",
+        "text" : "Experimental Appearance Controls"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.appearanceTuning",
+        "text" : "Appearance Tuning"
+      },
+      "help" : {
+        "key" : "settings.appearance.glassTransparency.help",
+        "text" : "How much of the desktop or wallpaper shows through the glass."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.glassTransparency",
+      "keywords" : [
+        "glass",
+        "transparency",
+        "alpha",
+        "clear"
+      ],
+      "kind" : "number",
+      "path" : [
+        "appearance",
+        "glassTransparency"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.glassTransparency",
+        "text" : "Glass Transparency"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : 0.5,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.appearanceTuning",
+        "text" : "Appearance Tuning"
+      },
+      "help" : {
+        "key" : "settings.appearance.hue.help",
+        "text" : "Shift the tint color around the hue wheel."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.hue",
+      "keywords" : [
+        "tint",
+        "color",
+        "colour"
+      ],
+      "kind" : "number",
+      "path" : [
+        "appearance",
+        "hue"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0.5,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.hue",
+        "text" : "Hue"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        2,
+        1
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.appearanceTuning",
+        "text" : "Appearance Tuning"
+      },
+      "help" : {
+        "key" : "settings.appearance.saturation.help",
+        "text" : "Increase or reduce the tint color intensity."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.saturation",
+      "keywords" : [
+        "tint",
+        "color",
+        "colour",
+        "intensity"
+      ],
+      "kind" : "number",
+      "path" : [
+        "appearance",
+        "saturation"
+      ],
+      "range" : {
+        "max" : 2,
+        "min" : 0,
+        "placeholder" : 1,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -2,
+        4,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.saturation",
+        "text" : "Saturation"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         0,
         1,
         0.5
@@ -2144,7 +2525,7 @@
         "max" : 1,
         "min" : 0,
         "placeholder" : 1,
-        "step" : 0.050000000000000003,
+        "step" : 0.05,
         "unit" : "fraction"
       },
       "refuses" : [
@@ -3238,7 +3619,7 @@
         "max" : 1.5,
         "min" : 0.5,
         "placeholder" : 0.5,
-        "step" : 0.050000000000000003,
+        "step" : 0.05,
         "unit" : "fraction"
       },
       "refuses" : [
@@ -3647,13 +4028,13 @@
     },
     {
       "accepts" : [
-        0.10000000000000001,
-        0.90000000000000002,
+        0.1,
+        0.9,
         0.5
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
-      "default" : 0.33333333333333331,
+      "default" : 0.3333333333333333,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -3678,15 +4059,15 @@
         "topBandMaxShare"
       ],
       "range" : {
-        "max" : 0.90000000000000002,
-        "min" : 0.10000000000000001,
-        "placeholder" : 0.10000000000000001,
-        "step" : 0.050000000000000003,
+        "max" : 0.9,
+        "min" : 0.1,
+        "placeholder" : 0.1,
+        "step" : 0.05,
         "unit" : "fraction"
       },
       "refuses" : [
-        -0.90000000000000002,
-        1.8999999999999999,
+        -0.9,
+        1.9,
         "1"
       ],
       "section" : "appearance",
@@ -3698,8 +4079,8 @@
     },
     {
       "accepts" : [
-        0.10000000000000001,
-        0.90000000000000002,
+        0.1,
+        0.9,
         0.5
       ],
       "agent_refusal" : null,
@@ -3729,15 +4110,15 @@
         "bottomBandMaxShare"
       ],
       "range" : {
-        "max" : 0.90000000000000002,
-        "min" : 0.10000000000000001,
-        "placeholder" : 0.10000000000000001,
-        "step" : 0.050000000000000003,
+        "max" : 0.9,
+        "min" : 0.1,
+        "placeholder" : 0.1,
+        "step" : 0.05,
         "unit" : "fraction"
       },
       "refuses" : [
-        -0.90000000000000002,
-        1.8999999999999999,
+        -0.9,
+        1.9,
         "1"
       ],
       "section" : "appearance",
@@ -5161,7 +5542,7 @@
     },
     {
       "accepts" : [
-        0.29999999999999999,
+        0.3,
         30,
         15.15
       ],
@@ -5187,14 +5568,14 @@
       ],
       "range" : {
         "max" : 30,
-        "min" : 0.29999999999999999,
-        "placeholder" : 0.29999999999999999,
+        "min" : 0.3,
+        "placeholder" : 0.3,
         "step" : 0.5,
         "unit" : "seconds"
       },
       "refuses" : [
-        -29.399999999999999,
-        59.700000000000003,
+        -29.4,
+        59.7,
         "1"
       ],
       "section" : "notifications",
@@ -5359,6 +5740,7 @@
       "validation" : "portable"
     }
   ],
+  "schema_hash" : "f2a1811425bb5040a531e0a4195162c6aeb1caa5cf64adb5b41cb16e3f475a60",
   "schema_hash" : "e3d9b3447db9bea49c1eab9ecb9ba7cbf7d78a91b96be48ce0c08bb3caeb7109",
   "sections" : [
     {

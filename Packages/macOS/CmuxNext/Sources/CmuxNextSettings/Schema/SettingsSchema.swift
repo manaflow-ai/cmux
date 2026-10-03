@@ -154,6 +154,8 @@ public nonisolated enum SettingsSchema {
         let window = SettingsText.keyed("settings.group.windowBackground", "Window Background")
         let ghostty = SettingsText.keyed("settings.default.ghosttyConfig", "Ghostty config")
         let appTheme = SettingsText.keyed("settings.group.appTheme", "App Theme")
+        let tuning = SettingsText.keyed("settings.group.appearanceTuning", "Appearance Tuning")
+        let artChoices = BackdropArt.allCases.map { SettingChoice($0.rawValue, $0.title) }
         return [
             SettingDescriptor(
                 AppThemeSetting().configPath, section: .appearance, group: appTheme,
@@ -168,11 +170,49 @@ public nonisolated enum SettingsSchema {
                 title: SettingsText.keyed("settings.appearance.backdropArt", "Backdrop Art"),
                 help: SettingsText.keyed("settings.appearance.backdropArt.help",
                                         "A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above."),
-                kind: .choice([
-                    SettingChoice("none", SettingsText.keyed("settings.choice.none", "None")),
-                    SettingChoice(BackdropArt.wheatField.rawValue, SettingsText.keyed("settings.choice.wheatField", "Wheat Field with Cypresses")),
-                ]),
-                default: "none", keywords: ["painting", "art", "wallpaper", "backdrop", "van Gogh", "attribution"]
+                kind: .choice([SettingChoice("none", SettingsText.keyed("settings.choice.none", "None"))] + artChoices),
+                default: "none", keywords: ["painting", "art", "wallpaper", "backdrop", "attribution", "legacy"]
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting().configPath, section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.background", "Background"),
+                help: SettingsText.keyed("settings.appearance.background.help",
+                                        "Choose a bundled public-domain painting or a macOS system wallpaper behind the window material."),
+                kind: .choice([SettingChoice("none", SettingsText.keyed("settings.choice.none", "None"))] + artChoices),
+                default: "none", keywords: ["painting", "art", "wallpaper", "backdrop", "desktop", "attribution"]
+            ),
+            SettingDescriptor(
+                ExperimentalAppearanceSetting().configPath, section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.experimentalControls", "Experimental Appearance Controls"),
+                help: SettingsText.keyed("settings.appearance.experimentalControls.help",
+                                        "Show the wallpaper grid and live appearance tuner while they are being integrated."),
+                kind: .toggle, default: .bool(false),
+                keywords: ["experimental", "wallpaper", "tuner", "transparency", "hue", "saturation", "labs"]
+            ),
+            SettingDescriptor(
+                AppearanceTuningSetting.glassTransparencyPath, section: .appearance, group: tuning,
+                title: SettingsText.keyed("settings.appearance.glassTransparency", "Glass Transparency"),
+                help: SettingsText.keyed("settings.appearance.glassTransparency.help",
+                                        "How much of the desktop or wallpaper shows through the glass."),
+                kind: .number(SettingNumber(AppearanceTuningSetting.glassTransparencyRange, step: 0.05, unit: .fraction, placeholder: 0)),
+                default: .number(AppearanceTuningSetting.fallback.glassTransparency),
+                keywords: ["glass", "transparency", "alpha", "clear"]
+            ),
+            SettingDescriptor(
+                AppearanceTuningSetting.huePath, section: .appearance, group: tuning,
+                title: SettingsText.keyed("settings.appearance.hue", "Hue"),
+                help: SettingsText.keyed("settings.appearance.hue.help", "Shift the tint color around the hue wheel."),
+                kind: .number(SettingNumber(AppearanceTuningSetting.hueRange, step: 0.05, unit: .fraction, placeholder: 0.5)),
+                default: .number(AppearanceTuningSetting.fallback.hue),
+                keywords: ["tint", "color", "colour"]
+            ),
+            SettingDescriptor(
+                AppearanceTuningSetting.saturationPath, section: .appearance, group: tuning,
+                title: SettingsText.keyed("settings.appearance.saturation", "Saturation"),
+                help: SettingsText.keyed("settings.appearance.saturation.help", "Increase or reduce the tint color intensity."),
+                kind: .number(SettingNumber(AppearanceTuningSetting.saturationRange, step: 0.05, unit: .fraction, placeholder: 1)),
+                default: .number(AppearanceTuningSetting.fallback.saturation),
+                keywords: ["tint", "color", "colour", "intensity"]
             ),
             SettingDescriptor(
                 WindowBackgroundSetting.opacityPath, section: .appearance, group: window,
@@ -334,64 +374,6 @@ public nonisolated enum SettingsSchema {
                 kind: .toggle, default: .bool(FocusRingSettings().showsForSinglePane)
             ),
         ] + statusIndicator
-    }
-
-    /// `appearance.statusIndicator.*` (plans/cmux-next/status-indicators.md).
-    static var statusIndicator: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.statusIndicator", "Loading Indicator")
-        let defaults = StatusIndicatorSettings()
-        let path = StatusIndicatorConfigParser.path
-        return [
-            SettingDescriptor(
-                path + ["style"], section: .appearance, group: group,
-                title: SettingsText.keyed("settings.statusIndicator.style", "Style"),
-                help: SettingsText.keyed("settings.statusIndicator.style.help", "How sidebar rows, tabs and panes show work in progress."),
-                kind: .choice([
-                    SettingChoice(StatusIndicatorStyle.arc.rawValue, SettingsText.keyed("settings.choice.thinArc", "Thin Arc")),
-                    SettingChoice(StatusIndicatorStyle.native.rawValue, SettingsText.keyed("settings.choice.macSpinner", "macOS Spinner")),
-                    SettingChoice(StatusIndicatorStyle.dot.rawValue, SettingsText.keyed("settings.choice.pulsingDot", "Pulsing Dot")),
-                    SettingChoice(StatusIndicatorStyle.braille.rawValue, SettingsText.keyed("settings.choice.brailleSpinner", "Braille Spinner")),
-                    SettingChoice(StatusIndicatorStyle.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
-                ]),
-                default: .string(defaults.style.rawValue), keywords: ["spinner", "progress", "loading", "busy"]
-            ),
-            SettingDescriptor(
-                path + ["size"], section: .appearance, group: group,
-                title: SettingsText.keyed("settings.statusIndicator.size", "Size"),
-                kind: .number(SettingNumber(Double(StatusIndicatorSettings.scaleRange.lowerBound)...Double(StatusIndicatorSettings.scaleRange.upperBound),
-                                            step: 0.05, unit: .fraction)),
-                default: .number(Double(defaults.scale))
-            ),
-            SettingDescriptor(
-                path + ["thickness"], section: .appearance, group: group,
-                title: SettingsText.keyed("settings.statusIndicator.thickness", "Line Width"),
-                kind: .number(points(StatusIndicatorSettings.thicknessRange, step: 0.25)), default: .number(Double(defaults.thickness))
-            ),
-            SettingDescriptor(
-                path + ["color"], section: .appearance, group: group,
-                title: SettingsText.keyed("settings.statusIndicator.color", "Color"),
-                kind: .color, default: nil, defaultLabel: SettingsText.keyed("settings.default.theme", "Theme")
-            ),
-            SettingDescriptor(
-                path + ["honorStatusStyle"], section: .appearance, group: group,
-                title: SettingsText.keyed("settings.statusIndicator.honorStatusStyle", "Let Statuses Choose Their Style"),
-                help: SettingsText.keyed("settings.statusIndicator.honorStatusStyle.help",
-                                        "A status that asks for a style (cmux status set --style) uses it."),
-                kind: .toggle, default: .bool(true)
-            ),
-            SettingDescriptor(
-                StatusIndicatorConfigParser.behaviorPath + ["inferCommandBusy"], section: .appearance, group: group,
-                title: SettingsText.keyed("settings.status.inferCommandBusy", "Show Running Commands"),
-                help: SettingsText.keyed("settings.status.inferCommandBusy.help", "A shell command that runs a while shows as busy."),
-                kind: .toggle, default: .bool(StatusBehaviorSettings().inferCommandBusy)
-            ),
-            SettingDescriptor(
-                StatusIndicatorConfigParser.behaviorPath + ["inferCommandBusyAfter"], section: .appearance, group: group,
-                title: SettingsText.keyed("settings.status.inferCommandBusyAfter", "Show After"),
-                kind: .number(SettingNumber(StatusBehaviorSettings.inferAfterRange, step: 1, unit: .seconds)),
-                default: .number(StatusBehaviorSettings().inferCommandBusyAfter)
-            ),
-        ]
     }
 
     static func points(_ range: ClosedRange<CGFloat>, step: Double, placeholder: Double? = nil) -> SettingNumber {

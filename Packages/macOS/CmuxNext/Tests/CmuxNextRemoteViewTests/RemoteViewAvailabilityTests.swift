@@ -6,7 +6,7 @@ import Testing
 /// out with `#if DEBUG`, which the CI Release compile exercises.
 struct RemoteViewAvailabilityTests {
     @Test func debugBuildsExposeThePane() {
-        #expect(RemoteViewAvailability.isAvailable)
+        #expect(RemoteViewAvailability().isAvailable)
     }
 
     @Test func connectingStatesShowTheDevelopmentOnlyNote() {
