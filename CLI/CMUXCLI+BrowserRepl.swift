@@ -267,13 +267,19 @@ extension CMUXCLI {
         return ok
     }
 
+    /// Reads stdin in chunks and stops as soon as it passes
+    /// `maximumEncodedTextBytes`, so an endless stream is refused instead of
+    /// being buffered whole.
     private static func readBrowserReplStandardInput() throws -> String {
-        let data = FileHandle.standardInput.readDataToEndOfFile()
-        guard data.count <= maximumEncodedTextBytes else {
-            throw CLIError(message: String(
-                localized: "cli.browser.repl.error.inputTooLarge",
-                defaultValue: "REPL input is too large"
-            ))
+        var data = Data()
+        while let chunk = try FileHandle.standardInput.read(upToCount: 1 << 20), !chunk.isEmpty {
+            data.append(chunk)
+            guard data.count <= maximumEncodedTextBytes else {
+                throw CLIError(message: String(
+                    localized: "cli.browser.repl.error.inputTooLarge",
+                    defaultValue: "REPL input is too large"
+                ))
+            }
         }
         guard let text = String(data: data, encoding: .utf8) else {
             throw CLIError(message: String(
