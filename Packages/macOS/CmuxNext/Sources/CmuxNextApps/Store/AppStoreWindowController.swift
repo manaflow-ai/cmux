@@ -26,7 +26,13 @@ public final class AppStoreWindowController: NSWindowController, NSWindowDelegat
         window.setFrameAutosaveName("cmux.appStore")
         super.init(window: window)
         window.delegate = self
-        window.contentView = model.makeContentView()
+        // Theme and background before the content view: changing the window
+        // background while AppKit installs the content view puts the content
+        // above the titlebar, which hides the close button (same fix as
+        // Settings, lane 20).
+        scope.adopt(window)
+        window.backgroundColor = scope.perform { Palette.utilityWindowBackground }
+        window.contentView = AppStoreContentView(model: model, ownsWindowBackground: true)
     }
 
     @available(*, unavailable)
@@ -57,7 +63,7 @@ extension AppStoreModel {
     /// The App Store content as one self-contained view: the window hosts it
     /// today; a pane (internal page tab) hosts the same view once the shared
     /// page mechanism lands.
-    public func makeContentView() -> NSView { AppStoreContentView(model: self) }
+    public func makeContentView() -> NSView { AppStoreContentView(model: self, ownsWindowBackground: false) }
 }
 
 /// The App Store content: one self-contained view that resolves the scene
@@ -65,8 +71,12 @@ extension AppStoreModel {
 /// (internal page tab) hosts the same view once the shared page mechanism lands.
 final class AppStoreContentView: NSHostingView<AnyView> {
     private let appearanceModel = AppSceneAppearance()
+    /// True in the App Store window, false in a pane: a pane never touches
+    /// its main window's background.
+    private let ownsWindowBackground: Bool
 
-    init(model: AppStoreModel) {
+    init(model: AppStoreModel, ownsWindowBackground: Bool) {
+        self.ownsWindowBackground = ownsWindowBackground
         let appearance = appearanceModel
         super.init(rootView: AnyView(AppSceneThemedRoot(appearance: appearance) { AppStoreRootView(model: model) }))
     }
@@ -90,7 +100,10 @@ final class AppStoreContentView: NSHostingView<AnyView> {
     func resolveColors() {
         appearanceModel.update(from: self)
         // Opaque (a utility window): the scene's own background is the
-        // sidebar color, which carries the main windows' opacity.
-        window?.backgroundColor = performWithTheme { Palette.utilityWindowBackground }
+        // sidebar color, which carries the main windows' opacity. Written
+        // only when it changes (an unchanged write still reorders the titlebar).
+        guard ownsWindowBackground, let window else { return }
+        let color = performWithTheme { Palette.utilityWindowBackground }
+        if window.backgroundColor != color { window.backgroundColor = color }
     }
 }

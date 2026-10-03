@@ -12,10 +12,12 @@ nonisolated enum AppStoreActionCatalog: ActionCatalogGroup {
                 keywords: ["apps", "store", "extensions", "plugins", "install", "marketplace", "sidebar sections"],
                 category: .settings, symbol: "bag", surfaces: [.palette, .keyboard, .contextMenu],
                 arguments: [ActionArgument(name: "app", title: t("argument.appStore.app", "App"), kind: .string, isRequired: false)],
+                cliName: "app store",
                 surfacePlan: ActionSurfacePlan(
-                    // A window for a person to browse; agents read listings
-                    // through the store ops (`apps search|info`) instead.
-                    cli: .exempt(.guiOnly),
+                    // A tab of the active window; automation opens it without
+                    // moving focus. Agents read listings through the store
+                    // ops (`apps search|info`) instead.
+                    cli: .offered,
                     contextMenus: [ContextMenuPlacement(.sidebarBackground, .view, 301)])
             ),
             ActionDescriptor(

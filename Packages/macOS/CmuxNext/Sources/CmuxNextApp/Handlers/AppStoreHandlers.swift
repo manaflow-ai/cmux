@@ -6,11 +6,15 @@ import CmuxNextActions
 enum AppStoreHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
+        // The App Store is an internal page (a tab of the active window).
+        services.pages.register(services.apps)
         registry.bind("appStore.show", run: { invocation in
             let app = invocation["app"]?.stringValue?.trimmingCharacters(in: .whitespaces)
-            services.apps.showStore(appID: app?.isEmpty == false ? app : nil)
+            services.apps.showStore(appID: app?.isEmpty == false ? app : nil, focus: invocation.allowsViewChange)
         })
-        registry.bind("appStore.showInstalled", run: { _ in services.apps.showStore(installed: true) })
+        registry.bind("appStore.showInstalled", run: { invocation in
+            services.apps.showStore(installed: true, focus: invocation.allowsViewChange)
+        })
         // Hide and unhide (V9): view preference only; the app keeps running and answering granted calls.
         func bindHidden(_ id: ActionID, _ hidden: Bool) {
             registry.bind(id, run: { invocation in

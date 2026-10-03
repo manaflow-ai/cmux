@@ -2,6 +2,8 @@
 // cmux app API 1.0.0. Every op is checked by the host against the app's granted scopes.
 
 declare namespace Cmux {
+  type AddressId = string
+  type AgentId = string
   type AgentSnapshot = { id: string /* agent_… */; session_id: string /* session_… */; terminal_id: string /* terminal_… */; state: Cmux.AgentState; source: "hook" | "socket" | "detected" | "plugin"; updated_at_ms: string; source_session: string | null; extra?: Record<string, Cmux.JsonValue> }
   type AgentState = "working" | "blocked" | "idle" | "done" | "unknown"
   type Automation = { id: Cmux.AutomationId; owner: Cmux.TeamId; name: string; description: string; enabled: boolean; version: number; triggers: Array<Cmux.Trigger>; body: Cmux.Body; target: Cmux.TargetPolicy; concurrency: Cmux.Concurrency; budget: Cmux.Budget; created_by: Cmux.UserId; created_at: number; updated_at: number; next_run_at: number | null }
@@ -20,6 +22,7 @@ declare namespace Cmux {
   type CellPixelsResult = { width_px: number; height_px: number; resized_terminals: Array<string /* terminal_… */>; failures: Record<string, string> }
   type ClientSnapshot = { id: string /* client_… */; session_id: string /* session_… */; name: string | null; client_kind: string | null; transport: Cmux.ClientTransport; connected_seconds: string; attached_terminal_ids: Array<string /* terminal_… */>; sizes: Array<Cmux.ClientTerminalSize>; self: boolean; extra?: Record<string, Cmux.JsonValue> }
   type ClientTerminalSize = { terminal_id: string /* terminal_… */; cols: number | null; rows: number | null; participating: boolean }
+  type ClientToken = string
   type ClientTransport = "unix" | "websocket"
   type ClosedItemSnapshot = { id: Cmux.StateId; kind: "tab" | "screen" | "workspace"; name: string | null; workspace_id: string /* workspace_… */ | null; pane_id: string /* pane_… */ | null; index: number; closed_at_ms: string; screens: Array<Cmux.ClosedScreenRecord> }
   type ClosedReopenResult = { closed_id: Cmux.StateId; kind: "tab" | "screen" | "workspace"; workspace_id: string /* workspace_… */; screen_ids: Array<string /* screen_… */>; tab_ids: Array<string /* tab_… */> }
@@ -32,6 +35,8 @@ declare namespace Cmux {
   type Connection = { id: Cmux.ConnectionId; owner: Cmux.TeamId; created_by: Cmux.UserId; provider: Cmux.IntegrationProvider; account: { key: string; name: string; url?: string } | null; scopes_requested: Array<string>; scopes_granted: Array<string>; status: Cmux.ConnectionStatus; status_detail?: string; sharing: "private" | "team"; resources?: { repos: Array<string> | null }; created_at: number; updated_at: number }
   type ConnectionId = string
   type ConnectionStatus = "pending" | "active" | "needs_reauth" | "error" | "revoked" | "expired"
+  type ConversationId = string
+  type ConversationKind = "chief" | "dm" | "group"
   type CreatedBrowserPath = { kind: "browser"; workspace_id: string /* workspace_… */; screen_id: string /* screen_… */; pane_id: string /* pane_… */; tab_id: string /* tab_… */; browser_id: string /* browser_… */ }
   type CreatedPath = unknown
   type CreatedTerminalPath = { kind: "terminal"; workspace_id: string /* workspace_… */; screen_id: string /* screen_… */; pane_id: string /* pane_… */; tab_id: string /* tab_… */; terminal_id: string /* terminal_… */ }
@@ -80,6 +85,21 @@ declare namespace Cmux {
   type Grant = { id: Cmux.GrantId; grantee: string; op_classes: Array<Cmux.OpClass>; approval: "none" | "per_call" | "per_session"; expires_at: number | null; revoked_at: number | null; created_from: "install" | "ui" | "automation" | "standing_rule" }
   type GrantId = string
   type GroupColor = "grey" | "blue" | "red" | "yellow" | "green" | "pink" | "purple" | "cyan" | "orange"
+  type HomeChief = { agent: Cmux.AgentId; owner_user: string; name: string; avatar?: string; parent?: Cmux.AgentId; brain: "local" | "cloud"; thread: Cmux.ConversationId; archived_at?: Cmux.Timestamp }
+  type HomeConversationCommit = { rev: number; seq?: number; message_id?: Cmux.MessageId; change: string }
+  type HomeConversationSettings = { wake_policy: "auto" | "mentions" | "all"; agent_budget: { turns: number; gap_ms: number }; history_visible: "all" | "since_join" }
+  type HomeConversationSummary = { id: Cmux.ConversationId; owner: string; title: string; participants: Array<Cmux.HomeParticipant>; last_seq: number; rev: number; created_at: Cmux.Timestamp; updated_at: Cmux.Timestamp; last_message?: Cmux.HomeMessage; read_cursors: Record<string, number>; kind?: Cmux.ConversationKind; team?: string; created_by?: string; state?: "active" | "archived"; settings?: Cmux.HomeConversationSettings; invites?: Array<Cmux.HomeInvite>; retention_days?: number }
+  type HomeDeliveryState = "queued" | "sent" | "delivered" | "bounced" | "complained" | "failed" | "suppressed" | "refused_env"
+  type HomeInboxEntry = { conversation: Cmux.ConversationId; rev: number; kind: Cmux.ConversationKind; title: string; last_seq: number; last_at: Cmux.Timestamp; preview: string; dm_peer?: Cmux.ParticipantId; removed: boolean; unread: number; mentions: number; counts_rev: number; pinned: boolean; pin_position?: number; muted: boolean; muted_until?: unknown; archived: boolean; archived_seq: number; marked_unread: boolean }
+  type HomeInvite = { id: Cmux.InviteId; address: Cmux.AddressId; channel: "email" | "sms"; display_name: string; invited_by: Cmux.ParticipantId; created_at: Cmux.Timestamp; expires_at: Cmux.Timestamp; status: "pending" | "pending_approval" | "accepted" | "revoked" | "expired"; accepted_by?: string; accepted_at?: Cmux.Timestamp; requested_by?: string; requested_name?: string; requested_at?: Cmux.Timestamp; delivery: { state: Cmux.HomeDeliveryState; provider_id?: string; at: Cmux.Timestamp }; copy_variant: string; locale: string }
+  type HomeMessage = { id: Cmux.MessageId; conversation: Cmux.ConversationId; seq: number; client_msg_id: Cmux.ClientToken; author: Cmux.ParticipantId; parts: Array<Cmux.HomePart>; reply_to?: Cmux.HomePartRef; created_at: Cmux.Timestamp; edited_at?: Cmux.Timestamp; retracted_at?: Cmux.Timestamp; reactions: Array<Cmux.HomeReaction> }
+  type HomePart = unknown
+  type HomeParticipant = { id: Cmux.ParticipantId; kind: "human" | "agent" | "address"; display_name: string; agent_class?: "mux" | "agent"; acp_session?: string; owner_user?: string; role?: "owner" | "member"; joined_seq?: number; added_by?: string; left_at?: Cmux.Timestamp }
+  type HomeParticipantInput = { id: Cmux.ParticipantId; kind: "human" | "agent"; display_name: string; agent_class?: "mux" | "agent"; owner_user?: string }
+  type HomePartRef = { message_id: Cmux.MessageId; part_index: number }
+  type HomeReaction = { author: Cmux.ParticipantId; part_index: number; kind: Cmux.HomeReactionKind; at: Cmux.Timestamp }
+  type HomeReactionKind = unknown
+  type HomeTextRun = { start: number; length: number; mention?: Cmux.ParticipantId; link?: string }
   type Host = { id: Cmux.HostId; name: string; platform: Cmux.Platform; owner_user: Cmux.UserId; enrolled_by: Cmux.InstallId; enrolled_at: number; kind?: Cmux.HostKind; wg_public_key?: Cmux.WgPublicKey; tags?: Array<string> }
   type HostId = string
   type HostKind = "device" | "server"
@@ -88,6 +108,7 @@ declare namespace Cmux {
   type InstallId = string
   type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm"
   type IntegrationProvider = "github" | "linear" | "slack"
+  type InviteId = string
   type JournalAppendResult = { producer_id: string; sequence: string; event_id: string }
   type JournalAuthority = { principal_id: string; lease_id: string; generation: string; role: string }
   type JournalCheckpointCreateResult = { checkpoint_id: string; source_sequence: string; reducer_version: number; sha256: string; created_at_ms: string; content_refs: Array<Cmux.JournalContentRef>; sequence: string; event_id: string }
@@ -131,6 +152,7 @@ declare namespace Cmux {
   type LocalMutationResult = { plugin?: Cmux.SidebarPluginSnapshot; plugins?: Array<Cmux.SidebarPluginSnapshot> }
   type MachineSnapshot = { id: string /* machine_… */; name: string; origin: "local"; status: "running" | "connecting" | "sleeping" | "stopped" | "unavailable"; connectable: boolean; deleted: boolean; recoverable: boolean; extra?: Record<string, Cmux.JsonValue> }
   type ManagedDevice = { install: Cmux.InstallId; user: string; via: "token" | "accept"; token: Cmux.EnrollmentTokenId | null; at: number }
+  type MessageId = string
   type NotificationAckResult = { client_id: string; acknowledged: Array<string /* notification_… */>; unknown: Array<string /* notification_… */> }
   type NotificationClearResult = { cleared: Array<string /* notification_… */> }
   type NotificationLevel = "info" | "warning" | "error"
@@ -143,6 +165,7 @@ declare namespace Cmux {
   type PairingResolutionResult = { pairing_request: Cmux.PairingRequestSnapshot }
   type PaneNeighborResult = { pane?: Cmux.PaneSnapshot | null }
   type PaneSnapshot = { id: string /* pane_… */; screen_id: string /* screen_… */; name: string | null; focused: boolean; zoomed: boolean; extra?: Record<string, Cmux.JsonValue> }
+  type ParticipantId = string
   type PingResult = { alive: boolean; cursor: Cmux.Cursor }
   type PixelSize = { width_px: number; height_px: number }
   type Platform = "macos" | "ios" | "linux" | "windows" | "web"
@@ -151,6 +174,8 @@ declare namespace Cmux {
   type PolicyMode = "enforced" | "default"
   type ProcessInfoResult = { pid: number; executable?: string; argv: Array<string>; cwd?: string; foreground_cwd: string | null; foreground_executable: string | null; children: Array<number> }
   type PublicJwk = { kty: "EC"; crv: "P-256"; x: string; y: string }
+  type PushTarget = { token: Cmux.PushToken; topic: string; environment: "development" | "production"; install: string; device_name: string; registered_at: number }
+  type PushToken = string
   type ReloadConfigResult = { reloaded: boolean; warnings: Array<string> }
   type RenderCursor = { x: number; y: number; style: Cmux.RenderCursorStyle; blink: boolean; visible: boolean; color: Cmux.ColorHex | null }
   type RenderCursorStyle = "block" | "underline" | "bar"
@@ -240,6 +265,7 @@ declare namespace Cmux {
   type TerminalWaitExitPending = { state: "pending"; terminal_id: string /* terminal_… */; lifecycle: "launching" | "running"; revision: string }
   type TerminalWaitExitResult = unknown
   type TerminalWaitResult = { matched: boolean; text: string }
+  type Timestamp = string
   type Trigger = { id: Cmux.TriggerId; status: "active" | "not_yet_supported"; spec: Cmux.TriggerInput; next_at: number | null }
   type TriggerId = string
   type TriggerInput = unknown
@@ -334,6 +360,12 @@ interface CmuxGlobal {
     /** `browser.reload` (mutation, scope `browser:write`) */
     reload: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; browser: string; expected_revision?: string }, Cmux.MutationResult<Cmux.BrowserSnapshot>>
   }
+  chief: {
+    /** `chief.create` (mutation, scope `chief:write`): Create a chief (or a subchief under parent): its agent principal and mux grant, its wake queue and its chief thread. */
+    create: CmuxOp<{ name: string; parent?: Cmux.AgentId; avatar?: string; brain: "local" | "cloud"; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeChief>>
+    /** `chief.update` (mutation, scope `chief:write`): Rename a chief or change its avatar. */
+    update: CmuxOp<{ agent: Cmux.AgentId; name?: string; avatar?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeChief>>
+  }
   closed: {
     /** `closed.list` (read, scope `closed:read`) */
     list: CmuxOp<{ machine?: string; session?: string }, Array<Cmux.ClosedItemSnapshot>>
@@ -343,6 +375,22 @@ interface CmuxGlobal {
   column: {
     /** `column.update` (mutation, scope `column:write`) */
     update: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen: string; column: string /* split_… */; sticky?: boolean; edge?: "left" | "right"; mode?: "docked" | "overlay"; width?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.ScreenSnapshot>>
+  }
+  conversation: {
+    /** `conversation.create` (mutation, scope `conversation:write`): Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. */
+    create: CmuxOp<{ kind?: "group"; title?: string; participants: Array<Cmux.HomeParticipantInput>; settings?: Cmux.HomeConversationSettings; expected_revision?: string }, Cmux.MutationResult<{ conversation: Cmux.HomeConversationSummary }>>
+    /** `conversation.history` (read, scope `conversation:read`): Page older messages before before_seq (newest first within the page). */
+    history: CmuxOp<{ conversation: Cmux.ConversationId; before_seq?: number; limit?: number }, { messages: Array<Cmux.HomeMessage>; next_before_seq: number | null; revision: string }>
+    settings: {
+      /** `conversation.settings.set` (mutation, scope `conversation:write`): Change the chief wake policy, agent turn budget or history visibility (conversation owner). */
+      set: CmuxOp<{ conversation: Cmux.ConversationId; wake_policy?: "auto" | "mentions" | "all"; agent_budget?: { turns: number; gap_ms: number }; history_visible?: "all" | "since_join"; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
+    }
+    /** `conversation.snapshot` (read, scope `conversation:read`): Read the conversation and its newest messages (history_visible since_join hides earlier ones). */
+    snapshot: CmuxOp<{ conversation: Cmux.ConversationId; tail?: number }, { conversation: Cmux.HomeConversationSummary; messages: Array<Cmux.HomeMessage>; revision: string }>
+  }
+  dm: {
+    /** `dm.open` (mutation, scope `dm:write`): Open the one-to-one conversation with a user or chief, or with an email or phone (which invites the address). Idempotent: an existing DM with the peer is returned. */
+    open: CmuxOp<{ peer: unknown; expected_revision?: string }, Cmux.MutationResult<{ conversation: Cmux.HomeConversationSummary }>>
   }
   domain: {
     /** `domain.claim` (mutation, scope `domain:write`): Start verifying an email domain for the team (owners and admins): returns the DNS TXT record to publish. Public mail domains are refused. */
@@ -416,6 +464,28 @@ interface CmuxGlobal {
       comment: CmuxOp<{ connection: Cmux.ConnectionId; repo: string; issue: number; body: string; expected_revision?: string }, Cmux.MutationResult<string>>
     }
   }
+  home: {
+    /** `home.search` (read, scope `home:read`): Search Home messages in conversations you are a current human participant of (newest first, with a short Top section). */
+    search: CmuxOp<{ q: string; conversation?: Cmux.ConversationId; author?: Cmux.ParticipantId; kind?: Cmux.ConversationKind; before?: Cmux.Timestamp; cursor?: string; limit?: number }, { hits: Array<{ conversation: Cmux.ConversationId; seq: number; message_id: string; author: Cmux.ParticipantId; created_at: Cmux.Timestamp; snippet: string; ranges: Array<{ start: number; length: number }> }>; cursor?: string }>
+    settings: {
+      /** `home.settings.set` (mutation, scope `home:write`): Choose who can find you by email or phone and who may start a DM with you. */
+      set: CmuxOp<{ discoverable_by_email?: boolean; discoverable_by_phone?: boolean; allow_dm_from?: "anyone" | "teams" | "contacts"; expected_revision?: string }, Cmux.MutationResult<{ discoverable_by_email: boolean; discoverable_by_phone: boolean; allow_dm_from: "anyone" | "teams" | "contacts" }>>
+    }
+  }
+  inbox: {
+    /** `inbox.archive` (mutation, scope `inbox:write`): Archive or unarchive a conversation; a new message unarchives it. */
+    archive: CmuxOp<{ conversation: Cmux.ConversationId; archived: boolean; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeInboxEntry>>
+    /** `inbox.dm_peer` (read, scope `inbox:read`): Your existing one-to-one conversation with a peer, if any (dm.open checks it before deriving a new id). */
+    dm_peer: CmuxOp<{ peer: Cmux.ParticipantId }, { conversation: Cmux.ConversationId | null }>
+    /** `inbox.list` (read, scope `inbox:read`): List your Home conversations: pinned first by position, then newest activity first. */
+    list: CmuxOp<{ limit?: number; include_archived?: boolean }, { entries: Array<Cmux.HomeInboxEntry>; revision: string }>
+    /** `inbox.mark_unread` (mutation, scope `inbox:write`): Flag a conversation unread (the read cursor stays). */
+    mark_unread: CmuxOp<{ conversation: Cmux.ConversationId; unread: boolean; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeInboxEntry>>
+    /** `inbox.mute` (mutation, scope `inbox:write`): Mute a conversation (until a time in ms, or until unmuted). Approvals still notify. */
+    mute: CmuxOp<{ conversation: Cmux.ConversationId; muted: boolean; until?: unknown; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeInboxEntry>>
+    /** `inbox.pin` (mutation, scope `inbox:write`): Pin or unpin a conversation in your Home list. */
+    pin: CmuxOp<{ conversation: Cmux.ConversationId; pinned: boolean; position?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeInboxEntry>>
+  }
   integration: {
     /** `integration.complete` (mutation, scope `integration:write`): Finish a connection from the provider's redirect (the signed-in user must be the one who started it). */
     complete: CmuxOp<{ state: string; code?: string; installation_id?: string; setup_action?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.Connection>>
@@ -429,6 +499,16 @@ interface CmuxGlobal {
       /** `integration.policy.set` (mutation, scope `integration:write`): Change the team's integration policy (team admins; refused while an SSO or MDM policy locks it). */
       set: CmuxOp<{ allowed_providers?: Array<Cmux.IntegrationProvider> | null; github?: { scope?: "linking_user_repos" | "installation"; require_org_admin?: boolean; repo_allowlist?: Array<Cmux.RepoPattern> | null }; expected_revision?: string }, Cmux.MutationResult<Cmux.TeamIntegrationPolicy>>
     }
+  }
+  invite: {
+    /** `invite.accept` (mutation, scope `invite:write`): Accept an invite from its link (/i/<code>#<secret>). The Worker turns the secret into the proof the owner checks; a group invite may wait for the inviter's approval. */
+    accept: CmuxOp<{ code: string; secret: string; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
+    /** `invite.approve_join` (mutation, scope `invite:write`): Approve (default) or decline a join that waits for approval (pending_approval). */
+    approve_join: CmuxOp<{ conversation: Cmux.ConversationId; invite_id: Cmux.InviteId; approve?: boolean; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
+    /** `invite.create` (mutation, scope `invite:external`): Invite an email or phone to the conversation. The Worker normalizes the address, checks limits and suppression, and the invite is sent by email or iMessage/SMS after the commit. */
+    create: CmuxOp<{ conversation: Cmux.ConversationId; address: unknown; display_name: string; locale?: string; copy_variant?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
+    /** `invite.revoke` (mutation, scope `invite:write`): Revoke a pending invite (the inviter or the conversation owner). */
+    revoke: CmuxOp<{ conversation: Cmux.ConversationId; invite_id: Cmux.InviteId; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
   }
   linear: {
     issue: {
@@ -445,6 +525,20 @@ interface CmuxGlobal {
     get: CmuxOp<{ machine?: string }, Cmux.MachineSnapshot>
     /** `machine.list` (read, scope `machine:read`) */
     list: CmuxOp<Record<string, never>, Array<Cmux.MachineSnapshot>>
+  }
+  message: {
+    /** `message.edit` (mutation, scope `message:write`): Replace the parts of one of your messages (not after it was retracted). */
+    edit: CmuxOp<{ conversation: Cmux.ConversationId; message_id: Cmux.MessageId; parts: Array<Cmux.HomePart>; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
+    /** `message.retract` (mutation, scope `message:write`): Retract one of your messages: its parts and reactions are cleared and it leaves search. */
+    retract: CmuxOp<{ conversation: Cmux.ConversationId; message_id: Cmux.MessageId; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
+    /** `message.send` (mutation, scope `message:write`): Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message. */
+    send: CmuxOp<{ conversation: Cmux.ConversationId; client_msg_id: Cmux.ClientToken; parts: Array<Cmux.HomePart>; reply_to?: Cmux.HomePartRef; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
+  }
+  mux: {
+    /** `mux.ack` (mutation, scope `mux:write`): The chief's brain host acknowledges its wakes in a conversation up to seq (moves its catch-up cursor). */
+    ack: CmuxOp<{ agent: Cmux.AgentId; conversation: Cmux.ConversationId; seq: number; expected_revision?: string }, Cmux.MutationResult<{ cursor: number; cleared?: number }>>
+    /** `mux.configure` (mutation, scope `mux:write`): Run a chief's brain locally (on a host) or in the cloud (the chief's owner). */
+    configure: CmuxOp<{ agent: Cmux.AgentId; brain: "local" | "cloud"; brain_host?: string | null; expected_revision?: string }, Cmux.MutationResult<string>>
   }
   network: {
     /** `network.list` (read, scope `network:read`): List the caller-owned private Cloud networks. */
@@ -493,6 +587,28 @@ interface CmuxGlobal {
     }
     /** `pane.zoom` (mutation, scope `workspace:write`) */
     zoom: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; enabled?: boolean; expected_revision?: string }, Cmux.MutationResult<Cmux.PaneSnapshot>>
+  }
+  participants: {
+    /** `participants.add` (mutation, scope `participants:write`): Add a user who shares a team or a conversation with you, or a chief its reachability allows (max 64). Anyone else needs invite.create. */
+    add: CmuxOp<{ conversation: Cmux.ConversationId; participant: Cmux.HomeParticipantInput; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
+  }
+  push: {
+    target: {
+      /** `push.target.register` (mutation, scope `push:write`): Register the calling iPhone or iPad install's APNs token (replaces the install's earlier token). */
+      register: CmuxOp<{ token: Cmux.PushToken; topic: string; environment: "development" | "production"; device_name?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.PushTarget>>
+      /** `push.target.remove` (mutation, scope `push:write`): Remove an APNs token (sign-out on the device, or the user removes a device). */
+      remove: CmuxOp<{ token: Cmux.PushToken; expected_revision?: string }, Cmux.MutationResult<{ token: Cmux.PushToken; removed: boolean }>>
+    }
+  }
+  reaction: {
+    /** `reaction.add` (mutation, scope `reaction:write`): Add a tapback or emoji reaction to a message part (one per author, part and kind). */
+    add: CmuxOp<{ conversation: Cmux.ConversationId; message_id: Cmux.MessageId; part_index: number; reaction: Cmux.HomeReactionKind; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
+    /** `reaction.remove` (mutation, scope `reaction:write`): Remove one of your reactions. */
+    remove: CmuxOp<{ conversation: Cmux.ConversationId; message_id: Cmux.MessageId; part_index: number; reaction: Cmux.HomeReactionKind; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
+  }
+  read_cursor: {
+    /** `read_cursor.set` (mutation, scope `read_cursor:write`): Move your read cursor forward (monotonic, at most last_seq). Recommended key: read:<seq>. */
+    set: CmuxOp<{ conversation: Cmux.ConversationId; seq: number; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
   }
   room: {
     /** `room.create` (mutation, scope `room:write`) */
@@ -775,6 +891,10 @@ interface CmuxGlobal {
     wait: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; pattern: string; timeout_ms?: string }, Cmux.TerminalWaitResult>
     /** `terminal.wait_exit` (read, scope `terminal:read`) */
     wait_exit: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; timeout_ms?: string }, Cmux.TerminalWaitExitResult>
+  }
+  title: {
+    /** `title.set` (mutation, scope `title:write`): Rename a group conversation (not a dm or chief thread). */
+    set: CmuxOp<{ conversation: Cmux.ConversationId; title: string; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
   }
   tunnel: {
     /** `tunnel.attach` (mutation, scope `tunnel:write`): Attach an owned WireGuard tunnel to an owned private network. */
