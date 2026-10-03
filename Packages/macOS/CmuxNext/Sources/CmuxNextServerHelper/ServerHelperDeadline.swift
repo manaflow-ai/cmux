@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 import Synchronization
 
 /// A helper call or a `pmset` run took longer than its limit.
