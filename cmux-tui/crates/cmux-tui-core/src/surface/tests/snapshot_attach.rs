@@ -239,3 +239,55 @@ fn flood_with_a_slow_snapshot_viewer_stays_bounded_and_resyncs() {
     drop(stream);
     surface.kill();
 }
+
+#[test]
+fn a_deferred_snapshot_does_not_keep_requests_collapsed() {
+    let lifecycle = AttachLifecycle::default();
+    let (tap, receiver) = AttachTap::snapshot_pair(lifecycle, 16, 1 << 20);
+    let gate = SnapshotRequestGate::new(receiver.snapshot_request_handle());
+    let start = Instant::now();
+    // The first snapshot could not be encoded: deferred, not pending.
+    receiver.defer_snapshot();
+    gate.sent(start);
+    let later = start + SNAPSHOT_REQUEST_MIN_INTERVAL;
+    assert_eq!(gate.request(later), SnapshotAdmission::Accepted);
+    assert!(is_snapshot(&next_event(&receiver)));
+    // Deferred again; the next output asks for the snapshot by itself.
+    receiver.defer_snapshot();
+    gate.sent(later);
+    assert!(tap.try_send(AttachFrame::Output(b"more".to_vec())));
+    assert!(is_snapshot(&next_event(&receiver)));
+    receiver.finish_snapshot_locked();
+    assert!(tap.try_send(AttachFrame::Output(b"live".to_vec())));
+    assert!(matches!(next_event(&receiver), ViewerEvent::Frame(AttachFrame::Output(_))));
+}
+
+#[test]
+fn snapshot_encode_waits_for_an_oversized_escape_sequence_to_finish() {
+    let mux = Mux::new_for_test("snapshot-deferred", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    let pty = surface.as_pty().unwrap();
+    let stream = surface.attach_snapshot_stream(AttachLifecycle::default(), 1 << 20).unwrap();
+    // An OSC longer than the 1 MiB snapshot continuation budget.
+    {
+        let mut term = pty.term.lock().unwrap();
+        let mut osc = b"\x1b]2;".to_vec();
+        osc.extend(std::iter::repeat_n(b'x', 2 << 20));
+        let normalized = term.vt_write_with_normalized(&osc).into_owned();
+        pty.broadcast_attach_output(&normalized);
+    }
+    assert!(is_snapshot(&next_event(&stream.receiver)));
+    assert!(surface.take_viewer_snapshot(&stream.receiver).is_err());
+    stream.receiver.defer_snapshot();
+    // The sequence ends; the next output brings the snapshot back.
+    {
+        let mut term = pty.term.lock().unwrap();
+        let normalized = term.vt_write_with_normalized(b"\x07done").into_owned();
+        pty.broadcast_attach_output(&normalized);
+    }
+    assert!(is_snapshot(&next_event(&stream.receiver)));
+    assert!(surface.take_viewer_snapshot(&stream.receiver).is_ok());
+    drop(stream);
+    surface.kill();
+}
