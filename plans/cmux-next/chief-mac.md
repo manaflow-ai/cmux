@@ -131,24 +131,29 @@ profile (group names and one line each), so the prompt and the tool list cannot 
 
 ## 6. `conversation.promote` (D10)
 
-A local conversation becomes a cloud `ConversationDO`. The local owner stays the single writer of
-the local copy; the cloud owner is the single writer of the new one.
+A local conversation becomes a cloud `ConversationDO` through lane 15's `conversation.import`
+(home-messaging.md section 22). The local owner stays the single writer of the local copy; the
+cloud owner is the single writer of the new one. The promoting user drives it from the app (it
+holds the account session); an agent never promotes.
 
-1. Local op `conversation.promote.begin {conversation, idempotency_key}` (actor `user_local`):
-   the owner freezes the conversation (writes refused with `promoted`) and returns the export
-   (summary, all messages, reactions, read cursors) and a deterministic target id
-   `conv_<base32(sha256("promote:" + local id + ":" + user id))[0..26]>`.
-2. The app (it holds the account session) calls the cloud op `conversation.import {id, source:
-   {owner: "local", conversation, rev}, participants, messages}` through Home ops routing. The import
-   maps `user_local` to the account's `user_<id>` and `agent_mux` to the user's Chief agent id
-   (home-messaging.md section 20 item 9). Import is idempotent by `id`.
-3. Local op `conversation.promote.commit {conversation, cloud_id}`: the local copy becomes read-only
-   with a pointer (`promoted_to`). A crash between 1 and 3 replays 2 (same id) and then 3.
-   `conversation.promote.abort` unfreezes when the import is refused.
+1. Local `conversation-promote-begin {conversation}` (actor `user_local`): the owner refuses a
+   conversation whose participants are not `user_local` plus agents of this Mac (`not_promotable`),
+   then freezes it (state `promoting`; every write refused with `promoting`) and returns the summary
+   and this daemon's host id. The app pages the frozen messages with `conversation-history`.
+2. The app maps `user_local` to the account's `user_<id>` and `agent_mux` to the user's default
+   chief id (section 9) before the call, and sends `conversation.import` with `source {kind: mac,
+   host, local_id}` and `kind: chief` (the owner and one owned mux agent) or `group`. The Worker
+   derives the cloud id from the signed-in user, host and local id; the app never chooses it.
+   Batches hold at most 500 messages and 1 MiB, in seq order (`after_seq` continues). Resume after a
+   crash: the same first call returns `{last_seq, state}` and the app continues after `last_seq`.
+   Then `conversation.import.commit {id, last_seq}`.
+3. Local `conversation-promote-commit {conversation, cloud_id}`: the local copy becomes read-only
+   with `promoted_to`. `conversation-promote-abort {conversation}` unfreezes it when the import is
+   refused (for example while chief imports fail closed, before the backend lead adds the
+   owner-record participant policy).
 
 The Chief follows the pointer: it stops waking on the local copy; the cloud brain owns the cloud
-copy. Dependencies: `conversation.import` in home-core (lane 15) and its Worker route (backend lead,
-urgent finding 2).
+copy. The local ops are daemon protocol changes (review subagent, cmux-tui window).
 
 ## 7. Migration and landing order
 
@@ -208,3 +213,12 @@ reused; its conversations keep the participant (marked left). Memory deletion fo
 owner, not this record.
 
 Presence: the Mac Chief does not need presence or the presence key.
+
+## 10. Memory scope in the UI
+
+One Chief identity spans the Mac and the cloud, but each brain keeps its own memory until P2 (Chief
+memory in the team VM); accepted by the coordinator, 2026-10-03. Every view that shows the Chief
+says so plainly. String for the Home lead's views (Mac and iOS), key
+`home.chief.memoryScope.deviceOnly`: en "This Chief remembers on this device only.", ja
+"この Chief はこのデバイスでのみ記憶します。" (other languages per check-l10n.sh, by the view owner).
+The note is removed when P2 lands shared memory.
