@@ -366110,6 +366110,131 @@
         }
       }
     },
+    "settings.terminal.showCopyConfirmation.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض «تم النسخ إلى الحافظة» لفترة وجيزة أسفل الطرفية عندما يؤدي تحديد النص إلى نسخه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kratko prikazuje „Kopirano u međuspremnik“ na dnu terminala kada se odabrani tekst kopira."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser kortvarigt „Kopieret til udklipsholder“ nederst i en terminal, når markering af tekst kopierer den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt unten im Terminal kurz „In die Zwischenablage kopiert“ an, wenn durch Auswählen von Text kopiert wird."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Briefly shows “Copied to clipboard” at the bottom of a terminal when selecting text copies it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra brevemente «Copiado al portapapeles» en la parte inferior de una terminal cuando al seleccionar texto se copia."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche brièvement « Copié dans le presse-papiers » en bas d’un terminal lorsque la sélection de texte le copie."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra brevemente «Copiato negli appunti» in fondo a un terminale quando la selezione del testo lo copia."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストを選択してコピーしたときに、ターミナルの下部に「クリップボードにコピーしました」を短く表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ «បានចម្លងទៅក្ដារតម្រៀប» មួយភ្លែតនៅខាងក្រោម terminal នៅពេលការជ្រើសអត្ថបទចម្លងវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "텍스트를 선택해 복사하면 터미널 하단에 “클립보드에 복사됨”을 잠시 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser kort «Kopiert til utklippstavlen» nederst i en terminal når markering av tekst kopierer den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na chwilę wyświetla „Skopiowano do schowka” u dołu terminala, gdy zaznaczenie tekstu go kopiuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra brevemente “Copiado para a área de transferência” na parte inferior do terminal quando selecionar texto o copia."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ненадолго показывает «Скопировано в буфер обмена» внизу терминала, когда выделение текста копирует его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดง “คัดลอกไปยังคลิปบอร์ดแล้ว” ชั่วครู่ที่ด้านล่างของเทอร์มินัลเมื่อการเลือกข้อความคัดลอกข้อความนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metin seçimi onu kopyaladığında terminalin altında kısa süreliğine “Panoya kopyalandı” gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ненадовго показує «Скопійовано в буфер обміну» внизу термінала, коли виділення тексту копіює його."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择文本并复制时，在终端底部短暂显示“已复制到剪贴板”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選取文字並複製時，在終端機底部短暫顯示「已複製到剪貼簿」。"
+          }
+        }
+      }
+    },
     "settings.terminal.reflowHardWrapOnCopy": {
       "extractionState": "manual",
       "localizations": {
