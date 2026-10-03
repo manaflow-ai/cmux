@@ -1,2 +1,1 @@
 See plans/cmux-next/coordination/INDEX.md for the generated coordination ledger.
-- 2026-10-03 (this commit) apps + sidebar: first-party apps are label items (R36): default top section Home, App Store, itm_app_coderouter (.app("cmux/coderouter")); no default app section; action app.open {app, command?} (CLI app open) opens an app's page tab (internal page app:<id>, AppPanePage, one per window) and runs a command (CodeRouter connectAccount = add-account flow for the agent pane link); root palette lists Open <App> and app commands (app platform lead)
