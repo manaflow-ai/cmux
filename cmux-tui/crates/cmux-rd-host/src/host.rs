@@ -24,6 +24,8 @@ pub fn run(opts: &Opts) -> Res<()> {
         start_kbps: opts.num_or("start-kbps", 8000)?,
         max_kbps: opts.num_or("max-kbps", 50_000)?,
         preset: opts.str_or("preset", "ultrafast"),
+        // High for hardware decoders (VideoToolbox); the Linux bench decoder needs baseline.
+        profile: opts.str_or("profile", "high"),
         threads: opts.num_or("threads", 2)?,
         stats_every_ms: opts.num_or("stats-ms", 1000)?,
     };

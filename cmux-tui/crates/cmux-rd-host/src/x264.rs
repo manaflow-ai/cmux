@@ -58,9 +58,10 @@ impl X264 {
         kbps: u32,
         threads: u16,
         preset: &str,
+        profile: &str,
     ) -> Res<Self> {
         let preset_c = CString::new(preset)?;
-        let profile = CString::new("high")?;
+        let profile_c = CString::new(profile)?;
         // SAFETY: valid C strings and plain integers; NULL on failure.
         let raw = unsafe {
             rd_x264_open(
@@ -71,7 +72,7 @@ impl X264 {
                 kbps as c_int,
                 c_int::from(threads.max(1)),
                 preset_c.as_ptr(),
-                profile.as_ptr(),
+                profile_c.as_ptr(),
             )
         };
         if raw.is_null() {
@@ -79,7 +80,7 @@ impl X264 {
         }
         // SAFETY: static NUL-terminated string from the shim.
         let build = unsafe { CStr::from_ptr(rd_x264_build()) }.to_string_lossy().into_owned();
-        let name = format!("{build} preset={preset} tune=zerolatency profile=high abr vbv=1frame gop=inf bframes=0");
+        let name = format!("{build} preset={preset} tune=zerolatency profile={profile} abr vbv=1frame gop=inf bframes=0");
         Ok(Self { raw, fps, kbps, name })
     }
 

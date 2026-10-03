@@ -34,6 +34,7 @@ pub struct SessionCfg {
     pub start_kbps: u32,
     pub max_kbps: u32,
     pub preset: String,
+    pub profile: String,
     pub threads: u16,
     pub stats_every_ms: u64,
 }
@@ -85,7 +86,7 @@ impl MediaSession {
     ) -> Res<Self> {
         let cap = Capturer::new(&cfg.display, true)?;
         let (w, h) = (cap.width, cap.height);
-        let enc = X264::new(w, h, cfg.max_fps, cfg.start_kbps, cfg.threads, &cfg.preset)?;
+        let enc = X264::new(w, h, cfg.max_fps, cfg.start_kbps, cfg.threads, &cfg.preset, &cfg.profile)?;
         // Phase 1 has no path events from the link yet; the VPC path is the deployed case.
         let path = PathKind::ViaCloudRegion;
         let cc_cfg = CcConfig {
