@@ -34,6 +34,8 @@ public actor InstallAuthClient {
     /// `local`), learned from the server: the challenge prefix names it and
     /// the minted token's issuer (`https://cmux-api/<environment>`) must
     /// agree. Never derived from the host name. Nil before the first mint.
+    /// The issuer check is a consistency check (the token signature is the
+    /// owner's to verify); trust comes from TLS and the per-host install key.
     public private(set) var environment: String?
     private let deviceName: String
     private let onRecord: @Sendable (InstallRecord?) async -> Void
@@ -130,6 +132,8 @@ public actor InstallAuthClient {
                                                           "nonce": nonce, "signature": (signature).base64URLEncoded], bearer: nil)
         guard let value = reply["access_token"] as? String else { throw InstallAuthError.malformedReply }
         guard Self.issuer(of: value) == "https://cmux-api/\(named)" else { throw InstallAuthError.unexpectedChallenge }
+        // A mint cancelled by reset() (sign-out) must not store its token.
+        try Task.checkCancellation()
         environment = named
         let cap = now().addingTimeInterval(Self.maximumLifetime)
         let stated = (reply["expires_at"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) } ?? cap
