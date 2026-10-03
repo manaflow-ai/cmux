@@ -13,11 +13,13 @@ import java.util.Objects;
 /** Immutable send-key request. Protocol v6; authority: control. */
 public final class SendKeyRequest implements WireValue {
     private final List<String> keys;
+    private final Field<Boolean> noReply;
     private final UInt64 surface;
 
     private SendKeyRequest(Builder builder) {
         if (!builder.keysSet) throw new IllegalArgumentException("keys is required");
         this.keys = List.copyOf(Wire.nonNull(builder.keys, "keys"));
+        this.noReply = builder.noReply;
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
         this.surface = Wire.nonNull(builder.surface, "surface");
     }
@@ -25,6 +27,7 @@ public final class SendKeyRequest implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public List<String> keys() { return keys; }
+    public Field<Boolean> noReply() { return noReply; }
     public UInt64 surface() { return surface; }
 
     public static SendKeyRequest fromWire(Object value) {
@@ -32,6 +35,10 @@ public final class SendKeyRequest implements WireValue {
         Builder builder = builder();
         Object rawKeys = Wire.required(object, "keys");
         builder.keys(Wire.array(rawKeys, "SendKeyRequest.keys", item -> Wire.string(item, "SendKeyRequest.keys item")));
+        Object rawNoReply = Wire.optional(object, "no_reply");
+        if (!Wire.isMissing(rawNoReply)) {
+            builder.noReply(Wire.bool(rawNoReply, "SendKeyRequest.no_reply"));
+        }
         Object rawSurface = Wire.required(object, "surface");
         builder.surface(Wire.uint64(rawSurface, "SendKeyRequest.surface"));
         return builder.build();
@@ -41,6 +48,7 @@ public final class SendKeyRequest implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "keys", keys);
+        Wire.put(object, "no_reply", noReply);
         Wire.put(object, "surface", surface);
         return Collections.unmodifiableMap(object);
     }
@@ -48,11 +56,11 @@ public final class SendKeyRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof SendKeyRequest that)) return false;
-        return Objects.equals(keys, that.keys) && Objects.equals(surface, that.surface);
+        return Objects.equals(keys, that.keys) && Objects.equals(noReply, that.noReply) && Objects.equals(surface, that.surface);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(keys, surface); }
+    public int hashCode() { return Objects.hash(keys, noReply, surface); }
 
     @Override
     public String toString() { return "SendKeyRequest" + toWire(); }
@@ -60,12 +68,17 @@ public final class SendKeyRequest implements WireValue {
     public static final class Builder {
         private List<String> keys;
         private boolean keysSet;
+        private Field<Boolean> noReply = Field.omitted();
         private UInt64 surface;
         private boolean surfaceSet;
 
         public Builder keys(List<String> value) {
             this.keys = value;
             this.keysSet = true;
+            return this;
+        }
+        public Builder noReply(Boolean value) {
+            this.noReply = Field.of(value);
             return this;
         }
         public Builder surface(UInt64 value) {

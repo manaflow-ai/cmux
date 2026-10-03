@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298.
+// cmux-tui mux protocol 12, IR 3333b22c2d6ee41e948aa604b6821aefb321d88c97094d57cbab6e47302dd814.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1143,6 +1143,8 @@ pub struct SendRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub bytes: Optional<T::Base64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub no_reply: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub paste: Option<bool>,
     pub surface: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1156,6 +1158,8 @@ pub type SendResult = T::EmptyResult;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SendKeyRequest {
     pub keys: Vec<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub no_reply: Option<bool>,
     pub surface: T::Id,
 }
 
@@ -1946,6 +1950,9 @@ impl CmuxClient {
     }
 
     pub fn send(&mut self, request: SendRequest) -> Result<SendResult> {
+        if request.no_reply.is_some() {
+            self.require_protocol_field("send", 12)?;
+        }
         if request.paste.is_some() {
             self.require_protocol_field("send", 7)?;
         }
@@ -1953,6 +1960,9 @@ impl CmuxClient {
     }
 
     pub fn send_key(&mut self, request: SendKeyRequest) -> Result<SendKeyResult> {
+        if request.no_reply.is_some() {
+            self.require_protocol_field("send-key", 12)?;
+        }
         self.execute(&SEND_KEY_METADATA, &request)
     }
 

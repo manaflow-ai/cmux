@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298";
+inline constexpr std::string_view kProtocolIrSha256 = "3333b22c2d6ee41e948aa604b6821aefb321d88c97094d57cbab6e47302dd814";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -2416,12 +2416,14 @@ struct SelectWorkspaceRequest {
 
 struct SendKeyRequest {
     std::vector<std::string> keys{};
+    std::optional<bool> no_reply{};
     Id surface{};
     friend bool operator==(const SendKeyRequest&, const SendKeyRequest&) = default;
 };
 
 struct SendRequest {
     Field<Base64> bytes{};
+    std::optional<bool> no_reply{};
     std::optional<bool> paste{};
     Id surface{};
     Field<std::string> text{};

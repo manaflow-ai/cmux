@@ -18,6 +18,12 @@ pub mod transport {
         fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
         fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
         fn shutdown(&self, how: Shutdown) -> io::Result<()>;
+        /// Returns true when the peer has hung up without consuming payload.
+        /// The Unix implementation uses a zero-timeout poll, so this is safe
+        /// to call from the writer while the reader owns normal byte reads.
+        fn peer_closed(&self) -> bool {
+            false
+        }
     }
 
     pub struct Listener {
@@ -109,17 +115,36 @@ pub mod transport {
             fn shutdown(&self, how: std::net::Shutdown) -> io::Result<()> {
                 UnixStream::shutdown(self, how)
             }
+
+            fn peer_closed(&self) -> bool {
+                use std::os::fd::AsRawFd;
+
+                let mut descriptor = libc::pollfd {
+                    fd: self.as_raw_fd(),
+                    events: libc::POLLIN | libc::POLLHUP | libc::POLLERR,
+                    revents: 0,
+                };
+                // SAFETY: descriptor points to one initialized pollfd and the
+                // zero timeout makes this a non-blocking probe.
+                let result = unsafe { libc::poll(&mut descriptor, 1, 0) };
+                result > 0
+                    && descriptor.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0
+            }
         }
     }
 
     #[cfg(windows)]
     mod imp {
         use std::io;
+        use std::os::windows::io::AsRawSocket;
         use std::path::Path;
         use std::time::Duration;
 
         use super::Stream;
         use uds_windows::{UnixListener, UnixStream};
+        use windows_sys::Win32::Networking::WinSock::{
+            POLLERR, POLLHUP, POLLIN, POLLNVAL, WSAPOLLFD, WSAPoll,
+        };
 
         pub(super) struct Listener {
             inner: UnixListener,
@@ -160,6 +185,45 @@ pub mod transport {
             fn shutdown(&self, how: std::net::Shutdown) -> io::Result<()> {
                 UnixStream::shutdown(self, how)
             }
+
+            fn peer_closed(&self) -> bool {
+                let socket = self.as_raw_socket();
+                let mut descriptor =
+                    WSAPOLLFD { fd: socket, events: POLLIN | POLLHUP | POLLERR, revents: 0 };
+                // SAFETY: descriptor points to one initialized pollfd and the
+                // zero timeout makes this a non-blocking probe. Unlike a
+                // select-then-recv peek, WSAPoll reports hangup directly and
+                // cannot block if the reader consumes queued input first.
+                let ready = unsafe { WSAPoll(&mut descriptor, 1, 0) };
+                ready > 0 && descriptor.revents & (POLLHUP | POLLERR | POLLNVAL) != 0
+            }
+        }
+    }
+
+    #[cfg(all(test, unix))]
+    mod tests {
+        use std::io::Write;
+        use std::os::unix::net::UnixStream;
+        use std::thread;
+        use std::time::{Duration, Instant};
+
+        use super::Stream;
+
+        #[test]
+        fn unix_peer_closed_probe_reports_hangup_without_consuming_input() {
+            let (left, right) = UnixStream::pair().unwrap();
+            right.write_all(b"queued").unwrap();
+            assert!(!left.peer_closed());
+            drop(right);
+
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while Instant::now() < deadline {
+                if left.peer_closed() {
+                    return;
+                }
+                thread::sleep(Duration::from_millis(1));
+            }
+            panic!("peer hangup was not observed");
         }
     }
 }

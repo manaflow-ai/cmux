@@ -13,12 +13,14 @@ import java.util.Objects;
 /** Immutable send request. Protocol v5; authority: control. */
 public final class SendRequest implements WireValue {
     private final Field<Bytes> bytes;
+    private final Field<Boolean> noReply;
     private final Field<Boolean> paste;
     private final UInt64 surface;
     private final Field<String> text;
 
     private SendRequest(Builder builder) {
         this.bytes = builder.bytes;
+        this.noReply = builder.noReply;
         this.paste = builder.paste;
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
         this.surface = Wire.nonNull(builder.surface, "surface");
@@ -28,6 +30,7 @@ public final class SendRequest implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public Field<Bytes> bytes() { return bytes; }
+    public Field<Boolean> noReply() { return noReply; }
     public Field<Boolean> paste() { return paste; }
     public UInt64 surface() { return surface; }
     public Field<String> text() { return text; }
@@ -38,6 +41,10 @@ public final class SendRequest implements WireValue {
         Object rawBytes = Wire.optional(object, "bytes");
         if (!Wire.isMissing(rawBytes)) {
             builder.bytes(rawBytes == null ? null : Wire.bytes(rawBytes, "SendRequest.bytes"));
+        }
+        Object rawNoReply = Wire.optional(object, "no_reply");
+        if (!Wire.isMissing(rawNoReply)) {
+            builder.noReply(Wire.bool(rawNoReply, "SendRequest.no_reply"));
         }
         Object rawPaste = Wire.optional(object, "paste");
         if (!Wire.isMissing(rawPaste)) {
@@ -56,6 +63,7 @@ public final class SendRequest implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "bytes", bytes);
+        Wire.put(object, "no_reply", noReply);
         Wire.put(object, "paste", paste);
         Wire.put(object, "surface", surface);
         Wire.put(object, "text", text);
@@ -65,17 +73,18 @@ public final class SendRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof SendRequest that)) return false;
-        return Objects.equals(bytes, that.bytes) && Objects.equals(paste, that.paste) && Objects.equals(surface, that.surface) && Objects.equals(text, that.text);
+        return Objects.equals(bytes, that.bytes) && Objects.equals(noReply, that.noReply) && Objects.equals(paste, that.paste) && Objects.equals(surface, that.surface) && Objects.equals(text, that.text);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(bytes, paste, surface, text); }
+    public int hashCode() { return Objects.hash(bytes, noReply, paste, surface, text); }
 
     @Override
     public String toString() { return "SendRequest" + toWire(); }
 
     public static final class Builder {
         private Field<Bytes> bytes = Field.omitted();
+        private Field<Boolean> noReply = Field.omitted();
         private Field<Boolean> paste = Field.omitted();
         private UInt64 surface;
         private boolean surfaceSet;
@@ -83,6 +92,10 @@ public final class SendRequest implements WireValue {
 
         public Builder bytes(Bytes value) {
             this.bytes = Field.ofNullable(value);
+            return this;
+        }
+        public Builder noReply(Boolean value) {
+            this.noReply = Field.of(value);
             return this;
         }
         public Builder paste(Boolean value) {

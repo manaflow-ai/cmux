@@ -24,6 +24,13 @@ import CmuxCloudTui
         #expect(CloudTuiManualIOGrid(columns: 80, rows: 24)?.columns == 80)
     }
 
+    @Test func manualInputCommandsOptOutOfControlReceipts() {
+        let commands = CloudTuiManualIOCommand()
+        #expect(commands.input(surfaceID: 7, bytes: Data("x".utf8))["no_reply"] as? Bool == true)
+        #expect(commands.namedKey(surfaceID: 7, key: "enter")["no_reply"] as? Bool == true)
+        #expect(commands.resize(surfaceID: 7, columns: 80, rows: 24)["no_reply"] == nil)
+    }
+
     @Test func resizeSchedulerKeepsOneRequestInFlightAndSendsTheNewestNext() throws {
         let small = try #require(CloudTuiManualIOGrid(columns: 80, rows: 24))
         let medium = try #require(CloudTuiManualIOGrid(columns: 100, rows: 30))

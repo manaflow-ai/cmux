@@ -13657,6 +13657,11 @@ Result<Json> Codec<SendRequest>::encode(const SendRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("bytes", std::move(encoded).value());
     }
+    if (value.no_reply) {
+        auto encoded = encode_value(*value.no_reply);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("no_reply", std::move(encoded).value());
+    }
     if (value.paste) {
         auto encoded = encode_value(*value.paste);
         if (!encoded) return std::move(encoded).error();
@@ -13686,6 +13691,12 @@ Result<SendRequest> Codec<SendRequest>::decode(const Json& value) {
             if (!decoded) return std::move(decoded).error();
             result.bytes = Field<Base64>(std::move(decoded).value());
         }
+    }
+    const Json* field_no_reply = value.find("no_reply");
+    if (field_no_reply) {
+        auto decoded = decode_value<bool>(*field_no_reply);
+        if (!decoded) return std::move(decoded).error();
+        result.no_reply = std::move(decoded).value();
     }
     const Json* field_paste = value.find("paste");
     if (field_paste) {
@@ -13721,6 +13732,11 @@ Result<Json> Codec<SendKeyRequest>::encode(const SendKeyRequest& value) {
     auto encoded_keys = encode_value(value.keys);
     if (!encoded_keys) return std::move(encoded_keys).error();
     object.emplace("keys", std::move(encoded_keys).value());
+    if (value.no_reply) {
+        auto encoded = encode_value(*value.no_reply);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("no_reply", std::move(encoded).value());
+    }
     auto encoded_surface = encode_value(value.surface);
     if (!encoded_surface) return std::move(encoded_surface).error();
     object.emplace("surface", std::move(encoded_surface).value());
@@ -13739,6 +13755,12 @@ Result<SendKeyRequest> Codec<SendKeyRequest>::decode(const Json& value) {
         auto decoded = decode_value<std::vector<std::string>>(*field_keys);
         if (!decoded) return std::move(decoded).error();
         result.keys = std::move(decoded).value();
+    }
+    const Json* field_no_reply = value.find("no_reply");
+    if (field_no_reply) {
+        auto decoded = decode_value<bool>(*field_no_reply);
+        if (!decoded) return std::move(decoded).error();
+        result.no_reply = std::move(decoded).value();
     }
     const Json* field_surface = value.find("surface");
     if (!field_surface) {
@@ -20265,8 +20287,12 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand81FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand84FieldRequirements{{
     {"key", 9U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand89FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand89FieldRequirements{{
+    {"no_reply", 12U, ""},
     {"paste", 7U, ""},
+}};
+constexpr std::array<CommandFieldRequirement, 1> kCommand90FieldRequirements{{
+    {"no_reply", 12U, ""},
 }};
 constexpr std::array<CommandFieldRequirement, 5> kCommand93FieldRequirements{{
     {"device_id", 12U, "shared-sizing-v1"},
@@ -20388,7 +20414,7 @@ constexpr std::array<CommandMetadata, 118> kCommands{{
     {"select-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"select-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"send", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand89FieldRequirements)},
-    {"send-key", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"send-key", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand90FieldRequirements)},
     {"server-stats", "local-admin", 12U, "server-stats-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-cell-pixels", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-client-info", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand93FieldRequirements)},

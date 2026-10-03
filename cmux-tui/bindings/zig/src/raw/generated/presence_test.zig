@@ -23,7 +23,9 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.MintTerminalRendererRequest, "ttl_ms");
     try expectExplicitNullRejected(protocol.MintTerminalRendererByTerminalRequest, "ttl_ms");
     try expectExplicitNullRejected(protocol.RunRequest, "new_workspace");
+    try expectExplicitNullRejected(protocol.SendRequest, "no_reply");
     try expectExplicitNullRejected(protocol.SendRequest, "paste");
+    try expectExplicitNullRejected(protocol.SendKeyRequest, "no_reply");
     try expectExplicitNullRejected(protocol.SetClientSizingRequest, "exclusive");
     try expectExplicitNullRejected(protocol.SetDefaultColorsRequest, "complete");
     try expectExplicitNullRejected(protocol.ShutdownDaemonRequest, "force");

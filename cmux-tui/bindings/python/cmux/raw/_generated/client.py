@@ -279,11 +279,11 @@ class GeneratedClientMixin:
     def select_workspace(self, index: Union[int, None, MissingType] = MISSING, *, delta: Union[int, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('select-workspace', SelectWorkspaceRequest(index=index, delta=delta))
 
-    def send(self, surface: Id, *, text: Union[str, None, MissingType] = MISSING, bytes_data: Union[Union[Base64, None, MissingType], bytes] = MISSING, paste: Union[bool, MissingType] = MISSING) -> EmptyResult:
-        return self._invoke_command('send', SendRequest(surface=surface, text=text, bytes_data=(base64.b64encode(bytes_data).decode('ascii') if isinstance(bytes_data, bytes) else bytes_data), paste=paste))
+    def send(self, surface: Id, *, text: Union[str, None, MissingType] = MISSING, bytes_data: Union[Union[Base64, None, MissingType], bytes] = MISSING, paste: Union[bool, MissingType] = MISSING, no_reply: Union[bool, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('send', SendRequest(surface=surface, text=text, bytes_data=(base64.b64encode(bytes_data).decode('ascii') if isinstance(bytes_data, bytes) else bytes_data), paste=paste, no_reply=no_reply))
 
-    def send_key(self, surface: Id, keys: List[str]) -> EmptyResult:
-        return self._invoke_command('send-key', SendKeyRequest(surface=surface, keys=keys))
+    def send_key(self, surface: Id, keys: List[str], *, no_reply: Union[bool, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('send-key', SendKeyRequest(surface=surface, keys=keys, no_reply=no_reply))
 
     def server_stats(self) -> ServerStatsResult:
         return self._invoke_command('server-stats', ServerStatsRequest())
