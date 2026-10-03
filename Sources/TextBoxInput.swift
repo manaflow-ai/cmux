@@ -3039,9 +3039,7 @@ struct TextBoxInputView: NSViewRepresentable {
         textView.delegate = context.coordinator
         textView.onMoveToWindow = onTextViewMovedToWindow
         textView.isRichText = true
-        textView.isAutomaticQuoteSubstitutionEnabled = false
-        textView.isAutomaticDashSubstitutionEnabled = false
-        textView.isAutomaticTextReplacementEnabled = false
+        textView.cmuxDisableTypingSubstitutions()
         textView.allowsUndo = true
         textView.importsGraphics = false
         textView.isHorizontallyResizable = false

@@ -33,6 +33,9 @@ enum CmuxMain {
 #endif
         CmuxWorkerEntrypoint(arguments: CommandLine.arguments).runIfRequested()
         SurfaceResumeApprovalStore.preloadSigningSecret()
+        // Before any window exists: field editors and SwiftUI text views read
+        // these when AppKit creates them (#16738).
+        CmuxPlainTextInput.installAppDefaults(.standard)
         cmuxApp.main()
     }
 }

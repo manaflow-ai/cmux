@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxFeedback
 import Foundation
 
@@ -159,6 +160,8 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
         configureEmailField()
         configureTextView(noteTextView, editable: true)
         configureTextView(previewTextView, editable: false)
+        noteTextView.cmuxDisableTypingSubstitutions()
+        previewTextView.cmuxDisableTypingSubstitutions()
 
         attachmentLabel.font = .systemFont(ofSize: 12)
         attachmentLabel.textColor = .secondaryLabelColor

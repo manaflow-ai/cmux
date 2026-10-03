@@ -455,6 +455,7 @@ final class TerminalPanel: Panel, ObservableObject {
             currentTextView.clearContent(cleanupAttachmentFiles: true)
             currentTextView.discardUndoHistoryAndCleanupPendingAttachmentFiles()
         } else if !attachmentsToCleanup.isEmpty {
+            // text-input-substitutions: exempt (never shown; only deletes attachment files)
             let cleanupTextView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
             cleanupTextView.cleanupDisposableAttachmentFiles(
                 attachmentsToCleanup,

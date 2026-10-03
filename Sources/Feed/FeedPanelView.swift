@@ -3271,6 +3271,7 @@ private final class FeedInlineTextEditorView: NSView {
         textView.isEditable = true
         textView.isSelectable = true
         textView.isRichText = false
+        textView.cmuxDisableTypingSubstitutions()
         textView.importsGraphics = false
         textView.isHorizontallyResizable = false
         textView.isVerticallyResizable = true
