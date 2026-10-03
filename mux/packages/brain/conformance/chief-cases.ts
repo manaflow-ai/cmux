@@ -709,6 +709,17 @@ function turnCases(): CorpusCase[] {
   }
 
   {
+    const c = new CaseBuilder("log identity: a log_id that is not a non-negative integer is ignored with a log", {
+      defaultConversation: "conv_a",
+      muxSessionId: MUX_SESSION,
+      acpmuxSeq: 4,
+      acpmuxLog: T0 + 500,
+    } as Partial<HostStateData>);
+    c.step({ kind: "acpmux_connected", session_id: MUX_SESSION, sessions: [], events: [], log_id: 2.5 } as unknown as Input, [], undefined);
+    cases.push(c.end((s) => c.check((s as HostStateData & { acpmuxLog?: number }).acpmuxLog === T0 + 500, "identity kept")));
+  }
+
+  {
     const created = T0 + 10;
     const c = new CaseBuilder("log identity: a session the host created keeps plain keys, even though its log already holds the created event", {
       defaultConversation: "conv_a",
