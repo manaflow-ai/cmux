@@ -177,7 +177,6 @@ final class BrowserTabService {
             guard let resource = tab.resourceID else { return false }
             return await updateState(resource, fields)
         }
-        }
         writers[id] = writer
         trackHistory(page, id: id, surface: tab.surface, recordURL: tab.url, while: writer)
     }
