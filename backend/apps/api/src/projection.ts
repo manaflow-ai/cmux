@@ -98,6 +98,50 @@ const statements: Record<string, (p: Record<string, unknown>, stream: string, se
       ]
     ]
   },
+  // Home messaging (home-messaging.md section 7; migration 0006). Payloads are home-core's
+  // conversationProjection, participantProjection, inviteProjection and SearchRow.
+  "home.conversation.upsert": (p, stream, seq) => [
+    `INSERT INTO home_conversations (id, kind, team_id, title, created_by, created_at, last_seq, last_at, participant_count, state, source_stream, source_seq, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())
+     ON CONFLICT (id) DO UPDATE SET kind = excluded.kind, team_id = excluded.team_id, title = excluded.title, last_seq = excluded.last_seq,
+       last_at = excluded.last_at, participant_count = excluded.participant_count, state = excluded.state,
+       source_stream = excluded.source_stream, source_seq = excluded.source_seq, updated_at = now()
+     WHERE home_conversations.source_seq < excluded.source_seq`,
+    [p.id, p.kind, p.team_id ?? null, p.title ?? null, p.created_by ?? null, p.created_at, p.last_seq, p.last_at, p.participant_count, p.state, stream, seq]
+  ],
+  // home-core sends joined_at only for a new or rejoined participant; otherwise the stored one stays.
+  "home.participant.upsert": (p, stream, seq) => [
+    `INSERT INTO home_participants (conversation_id, participant_id, kind, visible_from_seq, joined_at, left_at, source_stream, source_seq, updated_at)
+     VALUES ($1, $2, $3, $4, COALESCE($5::timestamptz, now()), $6, $7, $8, now())
+     ON CONFLICT (conversation_id, participant_id) DO UPDATE SET kind = excluded.kind, visible_from_seq = excluded.visible_from_seq,
+       joined_at = COALESCE($5::timestamptz, home_participants.joined_at), left_at = excluded.left_at,
+       source_stream = excluded.source_stream, source_seq = excluded.source_seq, updated_at = now()
+     WHERE home_participants.source_seq < excluded.source_seq`,
+    [p.conversation_id, p.participant_id, p.kind, p.visible_from_seq ?? 0, p.joined_at ?? null, p.left_at ?? null, stream, seq]
+  ],
+  "home.message.upsert": (p, stream, seq) => [
+    `INSERT INTO home_message_search (conversation_id, seq, message_id, author_id, author_kind, created_at, edited_at, body, source_stream, source_seq)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     ON CONFLICT (conversation_id, seq) DO UPDATE SET message_id = excluded.message_id, author_id = excluded.author_id,
+       author_kind = excluded.author_kind, edited_at = excluded.edited_at, body = excluded.body,
+       source_stream = excluded.source_stream, source_seq = excluded.source_seq
+     WHERE home_message_search.source_seq < excluded.source_seq`,
+    [p.conversation_id, p.seq, p.message_id, p.author_id, p.author_kind, p.created_at, p.edited_at ?? null, p.body, stream, seq]
+  ],
+  // Retraction and retention: the row goes unless a newer write already replaced it.
+  "home.message.delete": (p, stream, seq) => [
+    `DELETE FROM home_message_search WHERE conversation_id = $1 AND seq = $2 AND source_stream = $3 AND source_seq <= $4`,
+    [p.conversation_id, p.seq, stream, seq]
+  ],
+  "home.invite.upsert": (p, stream, seq) => [
+    `INSERT INTO home_invites (id, conversation_id, invited_by, address_id, channel, status, delivery_state, copy_variant, created_at, expires_at, accepted_by, accepted_at, source_stream, source_seq, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now())
+     ON CONFLICT (id) DO UPDATE SET status = excluded.status, delivery_state = excluded.delivery_state, expires_at = excluded.expires_at,
+       accepted_by = excluded.accepted_by, accepted_at = excluded.accepted_at,
+       source_stream = excluded.source_stream, source_seq = excluded.source_seq, updated_at = now()
+     WHERE home_invites.source_seq < excluded.source_seq`,
+    [p.id, p.conversation_id, p.invited_by, p.address_id, p.channel, p.status, p.delivery_state, p.copy_variant, p.created_at, p.expires_at, p.accepted_by ?? null, p.accepted_at ?? null, stream, seq]
+  ],
   "host.delete": (p, stream, seq) => [
     `UPDATE hosts SET deleted_at = now(), source_stream = $2, source_seq = $3, updated_at = now() WHERE id = $1 AND source_seq < $3`,
     [p.id, stream, seq]

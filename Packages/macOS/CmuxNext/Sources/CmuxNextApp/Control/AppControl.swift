@@ -42,6 +42,7 @@ final class AppControl {
         service.router.register(HistoryControl.methods(services: services))
         service.router.register(TabSearchControl.methods())
         service.router.register(BookmarkControl.methods(services: services))
+        service.router.register(FeedControl.methods(services: services))
         service.router.register([
             .mainActor("debug.frames") { call in .value(probe.handle(call.params)) },
             // Measured animation spans (plans/cmux-next/motion.md).

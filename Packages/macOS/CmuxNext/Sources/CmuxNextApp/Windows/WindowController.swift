@@ -299,6 +299,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        services.keyRouter.cancelChord()
         services.windows.windowWillClose(self)
     }
 }

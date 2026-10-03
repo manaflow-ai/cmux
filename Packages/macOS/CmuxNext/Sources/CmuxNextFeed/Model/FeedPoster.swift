@@ -12,6 +12,8 @@ public nonisolated struct FeedPoster: Sendable, Equatable, Hashable {
         case automation
         case integration
         case system
+        /// The user's own post (a note to self from a signed-in session).
+        case user
     }
 
     public var kind: Kind

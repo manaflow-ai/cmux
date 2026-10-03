@@ -1,4 +1,4 @@
-import type { Principal } from "@cmux/ownership"
+import type { EventFrame, Principal } from "@cmux/ownership"
 import { feedKindSchemas, FeedList, type FeedItem } from "@cmux/protocol"
 import { decodeParams } from "./domains/common.ts"
 import { listItems } from "./domains/feed-query.ts"
@@ -6,9 +6,6 @@ import { feedCounts, feedDomain, nextFeedWake, visibleTo, type FeedState } from 
 import { isUserClient, prunableAt, pushEligible, RETENTION_MS } from "./domains/feed-state.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
-
-/** How long a Mac's `active` presence counts for the push rule (feed.md 7.3). */
-const MAC_ACTIVE_WINDOW_MS = 120_000
 
 interface Presence {
   readonly active: boolean
@@ -66,6 +63,20 @@ export class FeedDO extends OwnerDO<FeedState> {
     return isUserClient(principal) && (!state.user || state.user === principal.user)
   }
 
+  /**
+   * Each live event carries the items its commit changed (every reducer change
+   * stamps `updated_at` with the commit time, the event's `at`), and, for ops
+   * that can remove items (post and adopt evict, prune drops), every id still
+   * present. Clients mirror these owner-written items; they never replay ops.
+   */
+  protected override eventExtras(event: EventFrame): Record<string, unknown> | undefined {
+    const state = this.boundEngine?.currentState
+    if (!state) return undefined
+    const items = Object.values(state.items).filter((i) => i.updated_at === event.at)
+    const removes = event.op === "feed.post" || event.op === "feed.adopt" || event.op === "feed.prune"
+    return { items, ...(removes ? { present: Object.keys(state.items) } : {}) }
+  }
+
   protected override nextWakeAt(state: FeedState): number | null {
     return nextFeedWake(state)
   }
@@ -80,10 +91,11 @@ export class FeedDO extends OwnerDO<FeedState> {
     return true
   }
 
-  private macActive(now: number): boolean {
+  private macActive(): boolean {
     return this.ctx.getWebSockets().some((ws) => {
       const p = (ws.deserializeAttachment() as { presence?: Presence } | null)?.presence
-      return Boolean(p && p.client === "mac" && p.active && now - p.at < MAC_ACTIVE_WINDOW_MS)
+      // Active until the client says otherwise (app resigns, screen sleeps or locks) or the socket closes.
+      return Boolean(p && p.client === "mac" && p.active)
     })
   }
 
@@ -104,7 +116,7 @@ export class FeedDO extends OwnerDO<FeedState> {
     const state = engine.currentState
     const pushDue = Object.values(state.items).filter((i) => i.push_due_at !== null && i.push_due_at <= now)
     if (pushDue.length > 0) {
-      const quiet = state.prefs.push_skip_when_mac_active && this.macActive(now)
+      const quiet = state.prefs.push_skip_when_mac_active && this.macActive()
       const send = pushDue.filter((i) => pushEligible(i) && (!quiet || i.priority === "urgent")).map((i) => i.id)
       const skip = pushDue.map((i) => i.id).filter((id) => !send.includes(id))
       const r = this.submitSystem("feed.push_due", { at: now, send, skip }, `push:${now}`)

@@ -108,6 +108,10 @@ final class FocusEffectApplier: FocusEffectApplying {
             guard case .agent(let view)? = presented(pane: pane, tab: tab) else { return }
             blurChildWindowPage()
             if !responder(of: window, isInside: view) { window.makeFirstResponder(view.webView) }
+        case .page(let pane, let tab):
+            guard case .page(let view)? = presented(pane: pane, tab: tab) else { return }
+            blurChildWindowPage()
+            if !responder(of: window, isInside: view) { window.makeFirstResponder(view.focusTarget) }
         case .emptyPane:
             blurChildWindowPage()
             // Nothing to type into: the previous content must not keep keys.

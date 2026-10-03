@@ -5438,6 +5438,17 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "feed show",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "feed.show",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "notification show",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -7570,6 +7581,17 @@
       ],
       "id" : "terminal.scrollToBottom",
       "mcp" : "stepAdjust",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "terminal scroll-to-selection",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "id" : "terminal.scrollToSelection",
+      "mcp" : "liveInput",
       "palette" : "offered"
     },
     {

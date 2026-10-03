@@ -29,8 +29,11 @@ public final class DebugSettingsWindowController: NSWindowController, NSWindowDe
         window.model = model
         super.init(window: window)
         window.delegate = self
-        window.contentView = DebugSettingsContentView(rootView: DebugSettingsRootView(model: model))
+        // Theme and background before the content view, so the titlebar
+        // (close button) stays above it (lane 20).
         setThemeScope(SettingsTheme.shared.scope)
+        window.backgroundColor = SettingsTheme.shared.scope.perform { Palette.utilityWindowBackground }
+        window.contentView = DebugSettingsContentView(rootView: DebugSettingsRootView(model: model))
     }
 
     @available(*, unavailable)
@@ -70,7 +73,8 @@ final class DebugSettingsContentView: NSHostingView<DebugSettingsRootView> {
     }
 
     private func applyColors() {
-        performWithTheme { window?.backgroundColor = Palette.utilityWindowBackground }
+        let color = performWithTheme { Palette.utilityWindowBackground }
+        if let window, window.backgroundColor != color { window.backgroundColor = color }
     }
 }
 

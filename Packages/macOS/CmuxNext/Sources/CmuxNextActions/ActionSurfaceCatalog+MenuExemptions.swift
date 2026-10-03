@@ -27,7 +27,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.enableBrowser", "palette.disableBrowser", "toggleRightSidebar", "switchRightSidebarToFiles",
             "switchRightSidebarToFind", "switchRightSidebarToSessions", "switchRightSidebarToFeed",
             "switchRightSidebarToDock", "switchRightSidebarToMachines", "palette.toggleMatchTerminalBackground",
-            "palette.enableMinimalMode", "palette.disableMinimalMode", "showNotifications", "markAllNotificationsRead",
+            "palette.enableMinimalMode", "palette.disableMinimalMode", "showNotifications", "feed.show", "markAllNotificationsRead",
             "clearAllNotifications", "notifications.toggleBanners", "notifications.dismissal.keystroke",
             "notifications.dismissal.focus", "notifications.dismissal.click", "notifications.dismissal.explicit",
             "notifications.dismissal.timeout", "notifications.dismissal.never", "palette.openTerminalChatView",
@@ -110,7 +110,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.toggleDictation",
             "toggleTerminalCopyMode", "palette.terminalToggleTextBoxInput", "cycleTextBoxSubmitAction",
             "attachTextBoxFile", "sendCtrlFToTerminal", "pasteLastScreenshot", "find", "findInDirectory", "findNext",
-            "findPrevious", "hideFind", "toggleUnread",
+            "findPrevious", "hideFind", "toggleUnread", "terminal.scrollToSelection",
         ],
         .dragGesture: [
             "space.move", "browser.extension.move", "bookmark.move",

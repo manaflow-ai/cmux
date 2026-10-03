@@ -8,6 +8,8 @@ nonisolated struct FocusTopology: Hashable, Sendable, Codable {
         case browser
         /// An agent chat tab: the acpmux React pane's web view.
         case agent
+        /// An internal page tab (Settings, Debug Settings): a native view.
+        case page
         /// A tab kind the app shows no content for.
         case other
     }

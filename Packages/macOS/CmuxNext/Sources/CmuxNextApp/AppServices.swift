@@ -30,6 +30,8 @@ final class AppServices {
     /// Tests replace it to record the intent without ordering windows in.
     var showJumpWindow: @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
     private(set) var cloud: CloudService!
+    /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
+    private(set) var feed: FeedService!
     /// SSH machines (Connect to Machine…).
     private(set) var ssh: SSHService!
     /// Phone access; started by the account layer once signed in.
@@ -132,6 +134,8 @@ final class AppServices {
     private(set) lazy var agentTabs = AgentTabStore(tag: environment.tag, registry: registry, linkScheme: linkScheme, git: agentGit)
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
     private(set) lazy var quickComposer = makeQuickComposer()
+    /// Internal page tabs (Settings, Debug Settings, the App Store).
+    let pages = InternalPageTabStore()
     /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps
     /// them in the import store only.
     var importedBookmarkSink: (any ImportedBookmarkSink)?
@@ -153,6 +157,7 @@ final class AppServices {
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
         machines = MachineRegistry(local: daemon)
         cloud = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)
+        feed = FeedService(auth: cloud.auth)
         ssh = SSHService(machines: machines, bundleID: environment.launch.bundleID)
         BrowserLifecycleTrace.shared.configure { tab, event in
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))
@@ -210,6 +215,7 @@ final class AppServices {
         cache.pageRequests.services = self
         keyRouter = KeyRouter(registry: registry)
         keyRouter.services = self
+        keyRouter.whichKey = WhichKeyController(registry: registry)
         cache.keyRouter = keyRouter
         cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
         cache.onBrowserEntryCreated = { [registry, unowned self] entry in
@@ -259,8 +265,9 @@ final class AppServices {
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
         (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] window in
             self?.notifications.noteMouseDown(in: window)
-            // A click anywhere ends link hints (it may move the keyboard).
+            // A click anywhere ends link hints and a waiting chord (it may move the keyboard).
             self?.linkHints.cancel()
+            self?.keyRouter.cancelChord()
         }
     }
 

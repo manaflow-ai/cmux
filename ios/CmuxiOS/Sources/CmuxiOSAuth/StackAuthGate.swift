@@ -9,6 +9,9 @@ public final class StackAuthGate: AuthGate {
     public let composition: MobileAuthComposition
     public private(set) var state: AuthState = .restoring
     public var onChange: ((AuthState) -> Void)?
+    /// Runs before the Stack session ends (the session is still valid):
+    /// account cleanup that needs it, such as revoking the install.
+    public var beforeSignOut: (@MainActor () async -> Void)?
     private var bootstrapped = false
     private var bootstrapTask: Task<Void, Never>?
 
@@ -32,6 +35,7 @@ public final class StackAuthGate: AuthGate {
     }
 
     public func signOut() async {
+        await beforeSignOut?()
         await coordinator.signOut()
         refresh()
     }

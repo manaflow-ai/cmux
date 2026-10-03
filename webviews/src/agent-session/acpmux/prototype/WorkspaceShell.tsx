@@ -9,7 +9,8 @@ import { AcpmuxApp } from "../App";
 import { mockSessions, sessionSummary } from "../mockFixture";
 import { SessionSidebar } from "../SessionSidebar";
 import { sessionEntry, sessionMark, type AcpmuxSessionEntry } from "../sessionList";
-import { DisconnectedIcon, NeedsInputIcon, WorkingIcon } from "../sidebarIcons";
+import { Icon } from "../icons/Icon";
+import { rowIconSize } from "../icons/iconSize";
 import {
   AgentIcon,
   BrowserIcon,
@@ -71,7 +72,12 @@ const KIND_ICONS: Record<TabKind, (props: { size?: number }) => React.ReactEleme
   terminal: TerminalIcon,
   browser: BrowserIcon,
 };
-const MARKS = { input: <NeedsInputIcon />, running: <WorkingIcon />, error: <DisconnectedIcon /> };
+const MARK_SIZE = rowIconSize(13);
+const MARKS = {
+  input: <Icon name="status.needsinput" size={MARK_SIZE} row />,
+  running: <Icon name="status.running" size={MARK_SIZE} row />,
+  error: <Icon name="status.disconnected" size={MARK_SIZE} row />,
+};
 
 /** The fixture's sessions as the history layer lists them. */
 const history: AcpmuxSessionEntry[] = (() => {
@@ -325,7 +331,7 @@ export function WorkspaceShell() {
       <main className="proto-content">
         <div className="proto-tabs" role="tablist" aria-label={workspaceLead(active).title}>
           {active.tabs.map((tab) => {
-            const Icon = KIND_ICONS[tab.kind];
+            const KindIcon = KIND_ICONS[tab.kind];
             return (
               <button
                 key={tab.id}
@@ -335,7 +341,7 @@ export function WorkspaceShell() {
                 className={`proto-tab proto-tab-${tab.kind}`}
                 onClick={() => show(selectTab(stack, active.id, tab.id))}
               >
-                <Icon size={14} />
+                <KindIcon size={14} />
                 <span>{tab.kind === "browser" && tab.id === activeTab.id ? tab.url : tab.title}</span>
               </button>
             );
@@ -387,7 +393,7 @@ function WorkspaceRow({
   onSelect: (tabId: string) => void;
 }) {
   const lead = workspaceLead(workspace);
-  const Icon = KIND_ICONS[lead.kind];
+  const KindIcon = KIND_ICONS[lead.kind];
   const session = lead.sessionId ? historyById.get(lead.sessionId) : undefined;
   const mark = session && sessionMark(session, active);
   const preview = items.preview ? detail.preview : undefined;
@@ -411,7 +417,7 @@ function WorkspaceRow({
         aria-current={active ? "true" : undefined}
         onClick={() => onSelect(lead.id)}
       >
-        <Icon />
+        <KindIcon />
         {preview || meta ? (
           <span className="proto-workspace-body">
             <span className="proto-workspace-line">

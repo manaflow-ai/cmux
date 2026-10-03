@@ -26,7 +26,19 @@
          location = "group:CmuxClientConfig">
       </FileRef>
       <FileRef
+         location = "group:CmuxFeedPushCore">
+      </FileRef>
+      <FileRef
          location = "group:CmuxGhosttyKit">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxHomeCore">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxHomeRender">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxInstallAuthCore">
       </FileRef>
       <FileRef
          location = "group:CmuxIrohTransport">

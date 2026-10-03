@@ -30,3 +30,6 @@ PRODUCT_DISPLAY_NAME = cmux BETA
 // Config/cmux.entitlements from Shared.xcconfig.
 CMUX_APP_CODE_SIGN_ENTITLEMENTS = Config/cmux-release.entitlements
 CODE_SIGN_ENTITLEMENTS = $(CMUX_APP_CODE_SIGN_ENTITLEMENTS)
+
+// The cmux-next API Worker (feed pushes, push targets).
+CMUX_CLOUD_API_BASE_URL = https:/$()/cloud-api.cmux.dev

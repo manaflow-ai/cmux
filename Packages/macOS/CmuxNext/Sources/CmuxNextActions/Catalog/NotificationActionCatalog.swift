@@ -4,9 +4,16 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         [
             ActionDescriptor(
+                id: "feed.show",
+                title: String(localized: "action.feed.show", defaultValue: "Show Feed", bundle: .module),
+                keywords: ["inbox", "requests", "notifications", "approvals"], defaultShortcut: Shortcut("i", modifiers: [.command]),
+                category: .notifications, symbol: "tray.full", surfaces: [.palette, .keyboard, .menu],
+                cliName: "feed show", mainMenu: .window
+            ),
+            ActionDescriptor(
                 id: "showNotifications",
                 title: String(localized: "action.showNotifications", defaultValue: "Show Notifications", bundle: .module),
-                keywords: ["inbox", "alerts"], defaultShortcut: Shortcut("i", modifiers: [.command]),
+                keywords: ["inbox", "alerts"],
                 category: .notifications, symbol: "bell", surfaces: [.palette, .keyboard, .menu],
                 cliName: "notification show", mainMenu: .window
             ),

@@ -107,6 +107,8 @@ extension PaneController {
         switch content {
         case .agent:
             kind = "agent"
+        case .page:
+            kind = "page"
         case .terminal(let entry):
             kind = "terminal"
             terminal = entry.session.diagnostics

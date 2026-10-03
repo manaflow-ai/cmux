@@ -7,7 +7,18 @@ import type { Schema } from "effect"
  */
 export interface CloudOpDef<P extends Schema.Top = Schema.Top, R extends Schema.Top = Schema.Top> {
   readonly name: string
-  readonly owner: "cloud:UserDO" | "cloud:TeamDO" | "cloud:SchedulerDO" | "cloud:ConnectionDO" | "cloud:FeedDO" | "cloud:PairingDO"
+  readonly owner:
+    | "cloud:UserDO"
+    | "cloud:TeamDO"
+    | "cloud:SchedulerDO"
+    | "cloud:ConnectionDO"
+    | "cloud:FeedDO"
+    | "cloud:ConversationDO"
+    | "cloud:MuxDO"
+    | "cloud:AddressDO"
+    | "cloud:PairingDO"
+    /** A read of a PlanetScale projection through the read-only Hyperdrive (for example home.search). */
+    | "cloud:planetscale"
   readonly class: "read" | "mutation"
   readonly risk: "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive"
   readonly target: string
