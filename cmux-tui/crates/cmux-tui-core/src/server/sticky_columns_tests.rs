@@ -309,7 +309,7 @@ fn sticky_column_unknown_pane_is_not_found() {
 fn sticky_column_rejects_unknown_edge_and_mode() {
     let (mut wire, panes) = Wire::with_columns(2);
     for request in [
-        json!({"cmd": "set-column-sticky", "pane": panes[1], "sticky": true, "edge": "top"}),
+        json!({"cmd": "set-column-sticky", "pane": panes[1], "sticky": true, "edge": "diagonal"}),
         json!({"cmd": "set-column-sticky", "pane": panes[1], "sticky": true, "mode": "floating"}),
         json!({"cmd": "set-column-sticky", "pane": panes[1], "sticky": false, "edge": ""}),
     ] {
@@ -523,4 +523,43 @@ fn sticky_column_on_a_split_screen_uses_the_implicit_single_column() {
     wire.ok(json!({"cmd": "set-column-sticky", "pane": panes[0], "sticky": false}));
     assert_eq!(wire.screen()["layout"], before["layout"]);
     assert!(wire.screen().get("columns").is_none());
+#[test]
+fn edge_docks_capability_is_advertised() {
+    let mut wire = Wire::new();
+    let identify = wire.ok(json!({"cmd": "identify"}));
+    let capabilities = identify["capabilities"].as_array().unwrap();
+    assert!(capabilities.contains(&json!(EDGE_DOCKS_CAPABILITY)));
+}
+
+#[test]
+fn edge_dock_is_sent_as_dock_and_a_side_flag_as_sticky() {
+    let (mut wire, panes) = Wire::with_columns(3);
+    wire.set_sticky(panes[0], "left", "docked");
+    wire.set_sticky(panes[2], "top", "overlay");
+    let columns = wire.columns();
+    assert_eq!(columns[0]["sticky"], json!({"edge": "left", "mode": "docked"}));
+    assert!(columns[0].get("dock").is_none());
+    assert_eq!(columns[2]["dock"], json!({"edge": "top", "mode": "overlay"}));
+    assert!(columns[2].get("sticky").is_none());
+    // One column per edge: a second top dock replaces the first.
+    wire.set_sticky(panes[1], "top", "docked");
+    assert!(wire.columns()[2].get("dock").is_none());
+}
+
+#[test]
+fn move_tab_to_column_pins_the_new_column_in_one_commit() {
+    let (mut wire, panes) = Wire::with_columns(2);
+    wire.set_sticky(panes[1], "bottom", "docked");
+    let second = wire.mux.new_tab(Some(panes[0]), None, Some((38, 22))).unwrap();
+    wire.ok(json!({
+        "cmd": "move-tab-to-column",
+        "surface": second.id,
+        "pane": panes[0],
+        "sticky": {"edge": "bottom", "mode": "overlay"},
+    }));
+    let columns = wire.columns();
+    assert_eq!(columns.len(), 3);
+    // The new column holds the edge; the old holder scrolls again.
+    assert_eq!(columns[2]["dock"], json!({"edge": "bottom", "mode": "overlay"}));
+    assert!(columns[1].get("dock").is_none());
 }

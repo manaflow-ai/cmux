@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "7404a8e17454cc6c21668d097c65296444533595166a321dccb83d8d7c673029";
+inline constexpr std::string_view kProtocolIrSha256 = "8617c916cf0fc7d5d327154602f3c7973973019a71386cd33d601840326fa985";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -38,6 +38,7 @@ struct ClientSize;
 enum class ClientTransport;
 struct CloseTerminalResult;
 struct ColorHex;
+struct ColumnPin;
 struct CopyResult;
 enum class CursorStyle;
 struct DeadPane;
@@ -1155,6 +1156,12 @@ struct ColorsChangedEvent {
     friend bool operator==(const ColorsChangedEvent&, const ColorsChangedEvent&) = default;
 };
 
+struct ColumnPin {
+    std::string edge{};
+    std::string mode{};
+    friend bool operator==(const ColumnPin&, const ColumnPin&) = default;
+};
+
 struct ConfigReloadRequestedEvent {
     friend bool operator==(const ConfigReloadRequestedEvent&, const ConfigReloadRequestedEvent&) = default;
 };
@@ -2255,6 +2262,7 @@ struct MoveTabToColumnRequest {
     Field<Id> after_column{};
     Field<Id> pane{};
     Field<Id> screen{};
+    Field<ColumnPin> sticky{};
     Id surface{};
     Field<std::string> transaction{};
     Field<float> width{};
@@ -4077,6 +4085,12 @@ template <>
 struct Codec<ColorHex> {
     static Result<Json> encode(const ColorHex& value);
     static Result<ColorHex> decode(const Json& value);
+};
+
+template <>
+struct Codec<ColumnPin> {
+    static Result<Json> encode(const ColumnPin& value);
+    static Result<ColumnPin> decode(const Json& value);
 };
 
 template <>

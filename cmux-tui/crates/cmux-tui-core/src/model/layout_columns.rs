@@ -26,28 +26,39 @@ pub(crate) struct LayoutColumn {
     pub(crate) sticky: Option<ColumnSticky>,
 }
 
-/// Viewport edge a sticky column is pinned to.
+/// Viewport edge a column is pinned to. Left and right are sticky columns
+/// (`sticky-columns-v1`); top and bottom are screen-wide docks
+/// (`edge-docks-v1`, plans/cmux-next/layout-model.md), sent as
+/// `columns[].dock` and stored outside `viewport_json` so older builds read
+/// such a column as an ordinary one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum StickyEdge {
     Left,
     Right,
+    Top,
+    Bottom,
 }
 
 impl StickyEdge {
+    pub const ALL: [Self; 4] = [Self::Left, Self::Right, Self::Top, Self::Bottom];
+
     pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "left" => Some(Self::Left),
-            "right" => Some(Self::Right),
-            _ => None,
-        }
+        Self::ALL.into_iter().find(|edge| edge.as_str() == value)
     }
 
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Left => "left",
             Self::Right => "right",
+            Self::Top => "top",
+            Self::Bottom => "bottom",
         }
+    }
+
+    /// Top and bottom: a screen-wide dock rather than a sticky column.
+    pub fn is_band(self) -> bool {
+        matches!(self, Self::Top | Self::Bottom)
     }
 }
 
@@ -102,7 +113,7 @@ pub(crate) fn sticky_flags_are_consistent(flags: &[Option<ColumnSticky>]) -> boo
     }
     flags.len() >= 2
         && sticky.len() < flags.len()
-        && [StickyEdge::Left, StickyEdge::Right]
+        && StickyEdge::ALL
             .iter()
             .all(|edge| sticky.iter().filter(|flag| flag.edge == *edge).count() <= 1)
 }

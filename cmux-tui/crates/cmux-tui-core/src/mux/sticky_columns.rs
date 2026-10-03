@@ -60,7 +60,7 @@ impl fmt::Display for ColumnStickyError {
             }
             Self::LastScrollingColumn => formatter.write_str("at least one column must scroll"),
             Self::InvalidArgument { field: "edge", value } => {
-                write!(formatter, "bad edge {value:?} (want \"left\" or \"right\")")
+                write!(formatter, "bad edge {value:?} (want left, right, top or bottom)")
             }
             Self::InvalidArgument { field, value } => {
                 write!(formatter, "bad {field} {value:?} (want \"docked\" or \"overlay\")")
@@ -303,7 +303,7 @@ mod tests {
 
     fn all_flags() -> Vec<Option<ColumnSticky>> {
         let mut flags = vec![None];
-        for edge in [StickyEdge::Left, StickyEdge::Right] {
+        for edge in StickyEdge::ALL {
             for mode in [StickyMode::Docked, StickyMode::Overlay] {
                 flags.push(Some(ColumnSticky { edge, mode }));
             }
@@ -388,7 +388,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!((accepted, rejected), (4455, 20), "every state and op was checked");
+        assert_eq!((accepted, rejected), (238111, 2216), "every state and op was checked");
     }
 
     #[test]
