@@ -10757,11 +10757,13 @@ struct CMUXCLI {
 
         var params: [String: Any] = [:]
         let force = commandArgs.contains("--force")
+        let confirm = commandArgs.contains("--confirm")
         let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride), client: client)
         if let winId { params["window_id"] = winId }
         let wsId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId)
         if let wsId { params["workspace_id"] = wsId }
         if force { params["force"] = true }
+        if confirm { params["confirm"] = true }
         let payload = try client.sendV2(method: "workspace.close", params: params)
         if let closedWorkspaceId = (payload["workspace_id"] as? String) ?? wsId {
             try? tmuxPruneCompatWorkspaceState(workspaceId: closedWorkspaceId)
