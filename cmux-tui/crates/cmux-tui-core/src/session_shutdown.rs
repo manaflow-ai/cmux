@@ -235,4 +235,70 @@ mod tests {
         assert_eq!(fourth.previous, Some((10_000, 12_000)));
         let _ = std::fs::remove_dir_all(root);
     }
+
+    fn scratch_marker(name: &str) -> (PathBuf, PathBuf) {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-owner-shutdown-{name}-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let marker = owner_shutdown_marker_path(&root.join("workspace-registry.sqlite3"));
+        (root, marker)
+    }
+
+    /// A shutdown window lasts from its start to 60 s after it, even when no
+    /// owner starts in between: a signal exit after that is a real end again.
+    #[test]
+    fn a_shutdown_window_ends_sixty_seconds_after_its_start() {
+        let previous = SessionShutdownClock::new(Some((100_000, 400_000)));
+        assert!(matches!(previous.classify(signal_end(159_999)), TerminalEnd::HostLost(_)));
+        for at in [160_000, 300_000] {
+            let end = previous.classify(signal_end(at));
+            assert!(matches!(end, TerminalEnd::ProcessEnded(_)), "{at}: {end:?}");
+        }
+        // A next owner that starts sooner still closes the window at its start.
+        let closed = SessionShutdownClock::new(Some((100_000, 120_000)));
+        assert!(matches!(closed.classify(signal_end(120_000)), TerminalEnd::ProcessEnded(_)));
+
+        let own = SessionShutdownClock::new(None);
+        own.begin(50_000);
+        assert!(matches!(own.classify(signal_end(109_999)), TerminalEnd::HostLost(_)));
+        for at in [110_000, 200_000] {
+            let end = own.classify(signal_end(at));
+            assert!(matches!(end, TerminalEnd::ProcessEnded(_)), "{at}: {end:?}");
+        }
+    }
+
+    /// The previous window is known once the marker is read; failing to
+    /// rewrite it (closing the window) must not lose it.
+    #[test]
+    fn a_failed_marker_rewrite_still_returns_the_previous_window() {
+        let (root, marker) = scratch_marker("rewrite-fails");
+        std::fs::write(&marker, "1000").unwrap();
+        // A directory where the rewrite's temporary file goes makes the
+        // rewrite fail, also for a privileged test user.
+        let temporary = marker.with_extension(format!("owner-shutdown.{}.tmp", std::process::id()));
+        std::fs::create_dir_all(&temporary).unwrap();
+        let clock = SessionShutdownClock::open(Some(marker.clone()), 5_000);
+        assert_eq!(clock.previous, Some((1_000, 5_000)));
+        assert!(matches!(clock.classify(signal_end(1_500)), TerminalEnd::HostLost(_)));
+        assert_eq!(std::fs::read_to_string(&marker).unwrap(), "1000");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// A crash between creating and renaming the marker's temporary file
+    /// leaves it behind; the next owner removes it at open.
+    #[test]
+    fn opening_removes_stale_marker_temporary_files() {
+        let (root, marker) = scratch_marker("stale-temporary");
+        let stale = marker.with_extension("owner-shutdown.4242.tmp");
+        std::fs::write(&stale, "1000").unwrap();
+        let unrelated = root.join("other-registry.owner-shutdown.4242.tmp");
+        std::fs::write(&unrelated, "1000").unwrap();
+        let clock = SessionShutdownClock::open(Some(marker.clone()), 10);
+        assert_eq!(clock.previous, None);
+        assert!(!stale.exists(), "the stale temporary file stayed");
+        assert!(unrelated.exists(), "another registry's file was removed");
+        let _ = std::fs::remove_dir_all(root);
+    }
 }
