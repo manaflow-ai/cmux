@@ -59,6 +59,7 @@ export function DiffPanel({
   checkpointAction,
   checkpointReview,
   review,
+  turn,
 }: {
   files: TurnFile[];
   initialPath?: string;
@@ -69,6 +70,8 @@ export function DiffPanel({
   checkpointAction?: React.ReactNode;
   checkpointReview?: React.ReactNode;
   review?: HunkReview;
+  /// Where Last turn's files came from, and why a checkpoint isn't shown when one was expected.
+  turn?: { source: "checkpoint" | "tools"; note?: string };
 }) {
   registerAgentDiffTheme();
   const [scope, setScope] = useState<ChangeScope>("lastTurn");
@@ -91,8 +94,10 @@ export function DiffPanel({
   const body = useRef<HTMLDivElement>(null);
   const back = useRef<HTMLButtonElement>(null);
   const focusAfter = useRef<string | undefined>(undefined);
-  // Decisions are keyed by the turn's tool calls, so only the last turn's hunks are reviewed.
-  const hunkReview = scope === "lastTurn" ? review : undefined;
+  // Decisions are keyed by the turn's tool calls, so only the tool-call view of the last turn
+  // offers them; a checkpoint's hunks are read-only until they map onto those keys.
+  const hunkReview = scope === "lastTurn" && turn?.source !== "checkpoint" ? review : undefined;
+  const turnNote = scope === "lastTurn" ? turn?.note : undefined;
   const totals = useMemo(
     () =>
       files.reduce(
@@ -304,8 +309,9 @@ export function DiffPanel({
           {openFailure}
         </div>
       )}
-      {(branch || skipped > 0) && (
+      {(branch || skipped > 0 || turnNote) && (
         <div className="acpmux-diff-notes">
+          {turnNote && <output className="acpmux-turn-note">{turnNote}</output>}
           {branch && <BranchPill branch={branch.branch} base={branch.base} />}
           {skipped > 0 && <TrackedOnlyBanner skipped={skipped} onRefresh={refresh} />}
         </div>
@@ -330,7 +336,7 @@ export function DiffPanel({
                   view={{ collapsed: collapsed.has(file.path), viewed: viewed.has(file.path) }}
                   on={on}
                   onPainted={onPainted}
-                  review={hunkReview}
+                  review={file.outside ? undefined : hunkReview}
                   focusAfter={focusAfter}
                 />
               )),

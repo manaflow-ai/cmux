@@ -17,6 +17,8 @@ export type TurnFile = {
   /// A git scope's file that the change removed, or whose contents are not text.
   deleted?: boolean;
   binary?: boolean;
+  /// A turn checkpoint's file that none of the turn's tool calls changed: read-only.
+  outside?: boolean;
 };
 
 /// Lines unchanged around a change that a hunk keeps, as `git diff` does.
