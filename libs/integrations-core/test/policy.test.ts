@@ -81,10 +81,26 @@ describe("resolution", () => {
   })
 
   test("across owners the most restrictive wins: a user cannot loosen a team rule", () => {
-    const rules = [rule("t1", "team", "tb.projects.*", "ask"), rule("u1", "user", "tb.projects.delete", "allow")]
-    expect(resolveEffectivePolicy("tb.projects.delete", rules, "block")).toMatchObject({ action: "ask", source: "team" })
+    const rules = [rule("t1", "team", "tb.projects.*", "ask"), rule("u1", "user", "tb.projects.update", "allow")]
+    expect(resolveEffectivePolicy("tb.projects.update", rules, "ask")).toMatchObject({ action: "ask", source: "team" })
     const tighter = [rule("t1", "team", "tb.*", "ask"), rule("u1", "user", "tb.projects.list", "block")]
     expect(resolveEffectivePolicy("tb.projects.list", tighter, "allow")).toMatchObject({ action: "block", source: "user" })
+  })
+
+  test("a destructive default is loosened only by a rule for that exact tool", () => {
+    const destructive = "tb.projects.delete"
+    // Broad rules that would allow or ask never unblock it.
+    for (const pattern of ["*", "tb.*", "tb.projects.*", "tb.*.delete"]) {
+      for (const owner of ["team", "user"] as const) expect(resolveEffectivePolicy(destructive, [rule("r", owner, pattern, "allow")], "block")).toEqual({ action: "block", source: "default" })
+    }
+    // An exact rule does, per owner.
+    expect(resolveEffectivePolicy(destructive, [rule("t", "team", destructive, "ask")], "block")).toMatchObject({ action: "ask", source: "team" })
+    // A team subtree rule keeps the tool blocked for the team, so a user's exact rule cannot loosen it.
+    expect(resolveEffectivePolicy(destructive, [rule("t", "team", "tb.projects.*", "ask"), rule("u", "user", destructive, "allow")], "block")).toEqual({ action: "block", source: "default" })
+    // An exact team rule plus a looser exact user rule: the team's (most restrictive) wins.
+    expect(resolveEffectivePolicy(destructive, [rule("t", "team", destructive, "ask"), rule("u", "user", destructive, "allow")], "block")).toMatchObject({ action: "ask", source: "team" })
+    // Broad rules still loosen non-destructive defaults.
+    expect(resolveEffectivePolicy("tb.projects.create", [rule("t", "team", "tb.*", "allow")], "ask")).toMatchObject({ action: "allow", source: "team" })
   })
 
   test("a rule replaces the default even when it is looser", () => {

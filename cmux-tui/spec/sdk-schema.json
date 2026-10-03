@@ -16697,7 +16697,7 @@
    },
    "stream": null,
    "constraints": [
-    "Trusted local connections only. limit is 1-100; query is at most 200 characters, and every word matches as a prefix. See spec/commands.md for the result object."
+    "Trusted local connections only. query is trimmed, 1-200 characters, no control characters; limit is 1-100 (rejects: conversation_rejected with reason invalid_query or invalid_limit). See spec/commands.md for the result object."
    ]
   },
   "conversation-op": {

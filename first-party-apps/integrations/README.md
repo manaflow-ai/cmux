@@ -1,6 +1,6 @@
 # Integrations (`cmux/integrations`)
 
-Connect GitHub, Linear, Slack, Google Calendar, Gmail or any OpenAPI, GraphQL or MCP API; see each connection's health; share it with your team; sign in again; disconnect; and choose per tool whether agents and automations may run it (Allow), must ask you first (Ask) or never run it (Block).
+Connect GitHub, Linear, Slack or any OpenAPI, GraphQL or remote MCP API (Google Calendar and Gmail show as "coming"); see each connection's health; share it with your team; sign in again; disconnect; and choose per tool whether agents and automations may run it (Allow), must ask you first (Ask) or never run it (Block).
 
 The app is a UI over the backend's one integration model (spec `integrations.md`, protocol `integrations.ts`): `Connection` records owned by `ConnectionDO`, credentials held only by the gateway, the team's `TeamIntegrationPolicy`, sharing `private | team`. The app keeps no second store: it renders what `integration.list` and `integration.policy.get` return and re-reads on change events. It never sees a token; a credential is an opaque `cred_…` handle that only the gateway resolves.
 
@@ -15,7 +15,7 @@ The generic import (OpenAPI, GraphQL and MCP ingestion, tool paths, auth-method 
 | `integrations` | sidebar section | connections that need action, then "N connected" |
 | `pane` | pane kind | the main surface (three variants), connection detail, connect gallery, API importer |
 | `openIntegrations` | command (palette, section) | opens the pane, optionally on one connection |
-| `connect` | command (palette) | starts connecting a first-class provider |
+| `connect` | command (palette) | starts connecting `github`, `linear` or `slack` |
 | `importApi` | command (palette) | previews a spec URL or JSON in the importer |
 | `cycleVariant` | command (palette, DEV/NIGHTLY) | next design variant |
 
@@ -26,7 +26,7 @@ No MCP tools: connecting needs a human at the provider, and agents already reach
 | Scope | Why |
 | --- | --- |
 | `integration:read` | list connections, their tools and the team policy |
-| `integration:write` (optional) | connect, sign in again, share, disconnect, change a tool's policy, each on a click |
+| `integration:write` (optional) | connect, sign in again, share, disconnect (the shell confirms first), MCP exposure on or off, change a tool's policy, each on a click |
 | `workspace:write` (optional) | open the pane from the palette or sidebar |
 
 ## Variants (DEV/NIGHTLY setting `variant`, palette "Next Integrations Variant")
@@ -41,61 +41,58 @@ Recommendation: `connections`. It matches how people think about integrations (a
 
 ## Policy defaults (from the spec, before any rule)
 
-Reads Allow, changes Ask, destructive Block (decided): OpenAPI GET/HEAD/OPTIONS, GraphQL queries and MCP `readOnlyHint` tools Allow; OpenAPI POST/PUT/PATCH, GraphQL mutations and un-annotated MCP tools Ask; OpenAPI DELETE, GraphQL mutations named with a destructive verb and MCP `destructiveHint` tools Block. First-class provider ops use the same mapping on the backend op's risk (read and mutate-own Allow, send-external and mutate-shared Ask, destructive and money Block). The full table, the rule patterns and the grant mapping are in `libs/integrations-core/README.md`; `defaultActionFor` there is the single source.
+Reads Allow, changes Ask, destructive Block (decided). Only a rule for the exact tool can loosen a destructive (Block) default; a broader rule (`ns.*`, `ns.*.delete`, `*`) that would allow or ask leaves it blocked, so a subtree rule never unblocks a delete by accident. The backend lead must confirm this rule: the gateway resolves policy with the same `resolveEffectivePolicy`. Defaults: OpenAPI GET/HEAD/OPTIONS, GraphQL queries and MCP `readOnlyHint` tools Allow; OpenAPI POST/PUT/PATCH, GraphQL mutations and un-annotated MCP tools Ask; OpenAPI DELETE, GraphQL mutations named with a destructive verb and MCP `destructiveHint` tools Block. First-class provider ops use the same mapping on the backend op's risk (read and mutate-own Allow, send-external and mutate-shared Ask, destructive and money Block). The full table, the rule patterns and the grant mapping are in `libs/integrations-core/README.md`; `defaultActionFor` there is the single source.
 
-## Proposed operations
+## Contract (final)
 
-| Op | Params | Result | Owner | Risk | Scope | Events | Why existing ops do not suffice |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `integration.tools.list` | `{connection}` | `{namespace, tools: ToolEntry[], rules: PolicyRule[], catalog: {title, version, digest, refreshed_at}}` | gateway (catalog store) + ConnectionDO/UserDO (rules) | read | `integration:read` | `integration.changed` | no catalog of a connection's tools exists |
-| `integration.tools.policy.set` | `{connection, owner: user \| team, pattern, action \| null, expected_revision?}` | `{rules}` | user rules: UserDO; team rules: ConnectionDO (admins) | mutate-own (user), mutate-shared (team) | `integration:write` | `integration.changed` | per-tool policy has no home; grants are per op class only |
-| `integration.catalog.preview` | `{source: {url} \| {document}, credential?: cred_…}` | `{catalog}` | gateway | read (fetches the URL with an SSRF guard) | `integration:read` | | private specs need a credential the app must not see |
-| `integration.connect` (extended) | adds `provider: openapi \| graphql \| mcp`, `source`, `catalog: {digest, namespace}`, `auth: {kind, headers?, query?, flow?}` | `{connection, authorize_url?, opened?}` | ConnectionDO; the host collects the secret in its own sheet | mutate-shared, origin user | `integration:write` | `integration.changed` | generic connections in the same record (question 1) |
-| `integration.reauth` | `{connection}` | `{connection, authorize_url, opened?}` | ConnectionDO | mutate-shared, origin user | `integration:write` | `integration.changed` | keeps id, sharing and tool rules; a new connect would lose them |
-| `integration.share` | `{connection, sharing}` | `Connection` | ConnectionDO (creator only) | mutate-shared | `integration:write` | `integration.changed` | sharing is set only at connect today |
-| `integration.revoke` (exists) | `{connection}` | `Connection` | ConnectionDO | destructive | `integration:write` | `integration.changed` | in the app "never" list; propose: allowed with a gesture plus a shell confirmation |
-| `integration.catalog.refresh` | `{connection}` | `{digest, added, removed, changed}` | gateway | mutate-shared | `integration:write` | `integration.changed` | specs change; rules survive by address |
-| `integration.call` | `{connection, tool, args, idempotency_key}` | provider result | gateway, same ledger as provider ops | the tool's op class | per tool policy | | how agents, automations and the MCP endpoint run generic tools (not called by this app) |
-| `credential.request` | `{kind, host?, label}` | `{credential: cred_…}` | shell sheet + gateway | mutate-own, gesture | `credential:request` | | other local apps (HTTP or DB client) ask for a credential (`cmux.credential.provider/1`) |
-| `app.pane.open` | `{kind, input?}` | `{pane}` | shell | mutate-own, gesture | `workspace:write` | | open this app's pane from a command |
-| host behavior | `integration.connect` / `reauth` called by an app with a gesture | host opens `authorize_url`, adds `opened: true` | shell | | | | apps cannot open URLs; approval must happen in the user's browser |
-| event | `integration.changed {connection}` (typed `integration.watch`) | | ConnectionDO outbox via the session | | `integration:read` | | no app-visible change stream today |
-| `integration.list` additions | | per connection `capabilities {revoke, share, reauth}` and `catalog` summary | ConnectionDO | read | | | the app cannot tell who it is, so it cannot hide Disconnect for teammates' connections |
+The backend lead's final answers. The app is built against mocks of them (`preview/make-fixtures.ts`); the gateway is built later.
+
+1. **One record.** Generic connections (`provider: openapi | graphql | mcp`) use the `Connection` record with `catalog {kind, title, version, digest, source_url}` and `auth {kind}`, and count toward the team's 50 connections. The app shows "N of 50 connections" and disables Connect and Add at the limit; the owner refuses with `integration.limit`, which the app shows as the same message. Catalogs are content-addressed in ConnectionDO `catalog_blobs` (2 MB cap, `catalog.too_large`) and re-ingested daily; a change posts a feed notice, and the app shows "The API changed" from the record with an Open in Feed link. The app never polls.
+2. **Rules.** Team rules live in ConnectionDO, user rules in UserDO; the most restrictive wins. Allow, Ask and Block map to grant approval `none`, `per_call` and no grant. Destructive tools default to Block (see "Policy defaults" for the exact-rule condition). The team policy's `generic_hosts` limits the hosts generic connections may target: the add flow shows the list and refuses other hosts before any call (`egress.host_not_allowed`); the owner enforces it for real.
+3. **Egress.** Calls go through the external-effect ledger with SSRF-safe egress: no private, loopback, link-local or ULA targets, checked again after each redirect, 10 MB, 30 s. The URL import runs the same checks on the URL text first (`egress.private_target`, `egress.credentials_in_url`, `egress.invalid_url`) and shows the gateway's own refusals (`egress.private_target` after DNS, `egress.too_large`, `egress.timeout`) with the same texts.
+4. **MCP.** Remote servers over Streamable HTTP, one session per connection in ConnectionDO. stdio is not supported: the importer refuses command lines and `{command}` / `mcpServers` configs (`import.mcp_stdio`), and the UI has no stdio option. One endpoint per principal, `/v1/mcp`. Tool names are `<namespace>__<path>` (dots become `-`), at most 64 characters, with a hash suffix when cut or lossy: `mcpToolName` and `assignMcpToolNames` in `@cmux/integrations-core`. Ask tools wait for approval in the feed or through MCP elicitation; Block tools are hidden. MCP exposure is opt-in per connection (Off and On in the detail screen; off by default).
+5. **Code.** `libs/integrations-core` (MIT, with `NOTICE`) is the only home of ingestion, policy resolution, egress pre-checks and MCP naming.
+6. **Credentials.** API key, bearer, basic, custom headers, OAuth2 with PKCE (plus dynamic client registration for MCP) and client credentials, all sealed. `cred_…` handles are bound to (user, app id, host pattern); only the gateway resolves them. The add flow picks the auth kind (declared methods first, then every other kind) and the host opens its own secure sheet; the app never sees a value.
+7. **Lifecycle.** Disconnect sends `integration.revoke` with the tap's gesture token; the shell shows its confirmation sheet first (a cancel answers `user.cancelled`). Team admins may disconnect team-shared connections (audited; the app says so, and tells members that the creator or a team admin is needed). Sharing: the creator or admins. Sign in again keeps the id, sharing and rules. Google Calendar and Gmail show as "Coming". `integration.changed` arrives on the user stream; the app subscribes once and re-reads.
+
+### Still mocked (proposed operations)
+
+| Mock | Shape the app assumes | Owner |
+| --- | --- | --- |
+| `integration.list` additions | `viewer {user, team_admin}`, `limit {used, max}`; per record `catalog`, `auth {kind}`, `mcp_exposed`, and `catalog.changed {at, feed_item, previous_digest}` (field name is this app's choice) | ConnectionDO |
+| `integration.policy.get` | `generic_hosts: string[] \| null`; `allowed_providers` may list generic kinds | ConnectionDO |
+| `integration.tools.list` | `{namespace, tools: ToolEntry[], rules: PolicyRule[], catalog}` | gateway + ConnectionDO (team) + UserDO (user) |
+| `integration.tools.policy.set` | `{connection, owner: user \| team, pattern, action \| null}` -> `{rules}` | UserDO / ConnectionDO |
+| `integration.catalog.preview` | `{source: {url}}` -> `{catalog}`; errors `egress.*`, `catalog.too_large` with `details.host` | gateway |
+| `integration.connect` (generic) | adds `source`, `catalog {digest, namespace}`, `auth {kind, headers?, query?, scopes?, dynamic_registration?}`; the host opens the secure sheet | ConnectionDO + shell |
+| `integration.reauth`, `integration.share` | `{connection}` / `{connection, sharing}` -> record | ConnectionDO |
+| `integration.revoke` for apps | today in the app "never" list; contract: gesture + shell confirmation sheet, `user.cancelled` on cancel | shell + ConnectionDO |
+| `integration.mcp.set` | `{connection, exposed}` -> record | ConnectionDO |
+| `ui.open` `cmux.feed/1` | `{interface: "cmux.feed/1", target: {item}}` opens the feed item | shell |
+| `app.pane.open` | `{kind}` opens this app's pane | shell |
+| event `integration.changed` | `{connection}` on the user stream | ConnectionDO outbox via the session |
+
+MCP names shown in the detail screen are computed locally over the connections whose tools this session loaded; the gateway assigns the real names over all of the principal's connections with the same function, so they differ only in a cross-connection collision.
 
 ## Code placement
 
 The pure core lives in `libs/integrations-core/` (`@cmux/integrations-core`, MIT), so the gateway (authoritative ingestion at connect and refresh, policy resolution at call time) and this app (local preview and display) run one implementation. A rule set in the preview must match the tool the gateway runs, so tool paths and defaults cannot fork. The app imports it by name through `tsconfig.json` `paths`; `pack.ts` bundles it. The package README says why `libs/` (not `backend/`, which is BSL, and not a top-level `packages/`, which collides with `Packages/` on case-insensitive file systems) and how the backend adopts it.
 
-The gateway adds what the app must not do: YAML parsing, fetching specs with an SSRF guard, the MCP client for remote servers (no stdio), and invocation (executor `plugins/openapi/src/sdk/invoke.ts` is the next candidate to adapt into the package, under the same NOTICE).
-
-## Questions for the backend lead
-
-1. Generic connections in the same `Connection` record: extend `IntegrationProvider` with `openapi | graphql | mcp`, add `catalog {kind, title, version, digest, tools, source_url}` and `auth {kind}`, account key `openapi:<host>:<namespace>`? Do they count toward `MAX_CONNECTIONS = 50`? Recommend yes to all: one list, one sharing model, one revoke.
-2. Imported tool catalogs: where do they live and how are they versioned? Proposal: content-addressed blob (R2 or DO SQLite) keyed by digest; the connection stores `{digest, source, refreshed_at}`; `integration.catalog.refresh` and a server-side scheduled check (allowed off-device) re-ingest and post a feed notice with added and removed tools; new tools start at their defaults; rules survive by address and become inert when a tool disappears.
-3. Per-tool policy vs grants vs `TeamIntegrationPolicy`: team rules in ConnectionDO next to the policy (single writer), user rules in UserDO, resolution in the gateway (most restrictive wins). Allow = approval `none`, Ask = `per_call`, Block = no grant. Should `allowed_providers` list generic kinds, and should the policy gain a host allowlist for generic APIs? (Decided: destructive defaults to Block.)
-4. Gateway execution of generic calls: `integration.call` through the same external-effect ledger as `github.issue.comment` (decided keys replay, `mutation.indeterminate` after a send), egress limited to the spec's servers, no private addresses, response size caps, redacted errors. Agree? Who owns MCP sessions to remote servers (one per connection in the ConnectionDO)?
-5. Code placement and NOTICE (decided): MIT package `libs/integrations-core/` outside the BSL directories, with `LICENSE` and `NOTICE`; the backend depends on it (steps in its README).
-6. Credential types: API key (header or query), bearer, basic, custom header sets, OAuth2 authorization code (with PKCE; dynamic client registration for MCP servers), OAuth2 client credentials. All sealed with the existing envelope. For local apps: is a `cred_…` handle always resolved by the gateway (calls go through `integration.call` or a gateway-proxied fetch), or may the Mac host inject a secret into a local request? Recommend gateway only.
-7. One MCP endpoint per user or team that exposes the whole catalog (`/v1/mcp` scoped by session or install, tools named `<namespace>__<path>` within MCP's 64-character limit, Ask tools answered through the feed or MCP elicitation, Block tools hidden): which process hosts it (API Worker route or a DO), and does it replace per-provider vendor MCP for agents?
-8. `integration.revoke` is in the app "never" list and only the creator may revoke. May an app call it with a gesture and a shell confirmation? May team admins revoke a teammate's team-shared connection?
-9. Sharing after connect: add `integration.share`, creator only?
-10. Re-auth: add `integration.reauth` that keeps id, sharing and rules?
-11. `IntegrationProvider` lacks `google_calendar` and `gmail` (spec "first providers"); the app shows them as "Not set up yet" from `providers[].configured`.
-12. A change stream for apps: will the ConnectionDO outbox (`connection.upsert`) reach clients as `integration.changed`?
+The gateway adds what the app must not do: YAML parsing, fetching specs with the SSRF guard after DNS and redirects (the package's `egress.ts` is only the URL-text pre-check), the Streamable HTTP MCP client (no stdio), the `/v1/mcp` endpoint (names from `mcp-names.ts`), and invocation (executor `plugins/openapi/src/sdk/invoke.ts` is the next candidate to adapt into the package, under the same NOTICE).
 
 ## Platform gaps (most important first)
 
-1. No secure input and no URL open for apps: the secret sheet and the OAuth approval page must be host behavior on `integration.connect` (proposed above); the app says when the host did not open the page.
-2. `integration.revoke` is never grantable to apps; Disconnect fails until a gesture-plus-confirmation path exists.
+1. No secure input and no URL open for apps: the secret sheet and the OAuth approval page must be host behavior on `integration.connect` (contract item 6); the app says when the host did not open the page.
+2. `integration.revoke` is still in the app "never" list; Disconnect shows `scope.missing` until the shell's gesture-plus-confirmation path exists (contract item 7).
 3. The preview host's scope table does not list the existing `integration.*` ops (fixtures add them under `scopes`); without that the app sees `scope.missing` for `integration.list`.
-4. No typed change stream: the app listens to the guessed `integration.changed`.
+4. No typed change stream in `cmux-app.d.ts`: the app listens to `integration.changed` by name.
 5. A function child that returns a function (not a view) is dropped silently, with no log line.
 6. View modifiers are single props: a second `.padding()` replaces the first, so outer margins need a wrapper node. `Button` ignores `.font`.
-7. No segmented control and no multi-line text field (specs paste as one line).
+7. No segmented control or toggle and no multi-line text field (specs paste as one line; Allow / Ask / Block and Off / On are tappable texts).
 8. No pane input: a pane mount has no `connection`; commands set a shared route instead.
 9. `untrack` is a runtime global but missing from `cmux-app.d.ts` (`src/globals.d.ts` declares it).
 10. `x-cmux-devOnly` is not honored; strings are bundled from `strings/<lang>.json` until hosts pass them to `cmux.t`.
 
 ## Layout and checks
 
-`src/model/` state and owner calls; `src/views/` scene; `src/main.ts` exports; ingestion and policy come from `@cmux/integrations-core`. Build: `bun first-party-apps/build.ts integrations`. Tests: `bun test first-party-apps/integrations/test` (FakeHost tests per variant and flow, l10n coverage) and `bun test libs/integrations-core/test` (ingestion and policy on fixtures under `libs/integrations-core/test/fixtures/`). Preview fixtures: `bun first-party-apps/integrations/preview/make-fixtures.ts`. No test makes a network call.
+`src/model/` state and owner calls; `src/views/` scene; `src/main.ts` exports; ingestion and policy come from `@cmux/integrations-core`. Build: `bun first-party-apps/build.ts integrations`. Tests: `bun test first-party-apps/integrations/test` (FakeHost tests per variant and flow, l10n coverage) and `bun test libs/integrations-core/test` (ingestion and policy on fixtures under `libs/integrations-core/test/fixtures/`). Preview fixtures: `bun first-party-apps/integrations/preview/make-fixtures.ts` (`connections`, `catalog`, `taskboard`, `docs`, `reauth`, `admin`, `empty`, `limit`, `managed`, `egress`, `missing`). No test makes a network call.

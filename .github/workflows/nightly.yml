@@ -2187,14 +2187,15 @@ jobs:
         run: |
           set -euo pipefail
           # Every rc/** branch shares the rc tag and those branches diverge,
-          # so only the nightly and nightly-next tags require a fast-forward. The helper retries
+          # so only the nightly tag requires a fast-forward. nightly-next may
+          # move from a baseline build (see nightly-next-promote.yml). The helper retries
           # only transient API/network failures and reads the ref back before
           # declaring the marker updated. Permission failures are terminal.
           python3 scripts/ci/update-release-tag.py \
             --repo "$GITHUB_REPOSITORY" \
             --tag "$CHANNEL_RELEASE_TAG" \
             --sha "${{ needs.decide.outputs.head_sha }}" \
-            ${{ needs.decide.outputs.release_tag == 'rc' && '--allow-non-descendant' || '' }}
+            ${{ needs.decide.outputs.release_tag != 'nightly' && '--allow-non-descendant' || '' }}
 
       - name: Record nightly publication marker outcome
         id: tag-outcome

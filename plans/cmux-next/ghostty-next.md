@@ -158,6 +158,37 @@ it) is out of scope for v1. It helps only on high-RTT paths, it is wrong in
 raw-mode apps, and it needs a reconciliation layer. Revisit with measured
 RTT data from lane 12's path badges.
 
+### 2.1 Frame fields (proposal for sync-and-transport.md sections 3 and 4)
+
+Capability `terminal-snapshot-v1`. One `terminal_bytes` channel per attached
+viewer. Every binary frame keeps the section 4 header (`u32 channel`,
+`u64 seq`, `u8 flags`) and adds a terminal sub-header before the payload:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `kind` | u8 | 0 `bytes` (raw PTY output), 1 `snapshot_ready` (GHOSTSNP up to READY; keyframe flag set), 2 `snapshot_history` (GHOSTSNP HISTORY pages, newest first), 3 `digest` |
+| `generation` | u32 | grid generation (size-state `generation`); a viewer drops `bytes` older than its last restored snapshot |
+| `offset` | u64 | host byte offset of the PTY output stream after this frame (for `snapshot_ready`: the offset the snapshot reflects) |
+| `snapshot_version` | u16 | GHOSTSNP version, present for kinds 1 to 3 |
+
+Rules: the first frame after attach is `snapshot_ready`. A grid change sends
+`snapshot_ready` with the new generation to every viewer. Per-viewer credit:
+when a viewer's unacknowledged backlog would exceed
+`terminal.viewerBacklogBytes` (default 262144), the host drops that
+viewer's pending bytes and sends `snapshot_ready` at the next credit. 2 s
+after output goes idle the host sends `digest` (sha256 of its READY
+encoding). A viewer with a different `snapshot_version` gets the byte
+replay instead (capability fallback). `presence.set` carries `visible` and
+`counts` (section 6).
+
+The same fields map onto cmux-tui raw v12 events for local clients:
+`attach-surface {mode:"bytes", snapshot:"ghostsnp", snapshot_version}`
+answers with event `snapshot {phase:"ready"|"history", generation, offset,
+version, data(b64)}`; `output` gains `generation` and `offset`; `digest
+{generation, offset, version, sha256}`; command `snapshot-request
+{surface}`. `terminal.history` and `terminal.read_range` are in the
+request file `terminal-snapshot-history.md`.
+
 ## 3. Manual IO mode
 
 ghostty-next keeps the desktop fork's C ABI so app code transfers:

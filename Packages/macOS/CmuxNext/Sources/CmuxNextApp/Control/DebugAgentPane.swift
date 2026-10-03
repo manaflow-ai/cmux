@@ -19,6 +19,11 @@ import WebKit
 /// `Model` or `Mode`, through the same path as a click, for automation and
 /// captures), `acp_log` (the page's acpmux wire log and its stats; `limit`
 /// keeps the newest entries), `acp_log_export` (that log as JSON Lines),
+/// the chat automation verbs (webviews automation.ts; each runs the page
+/// action a click or key runs, so a no-activate window can be driven end to
+/// end): `chat_state`, `send_prompt` (`text`), `new_chat` (`harness`, `cwd`),
+/// `select_session` (`session`), `answer_permission` (`option`, `allow`,
+/// `decision`), `open_changes` (the latest turn's changes view),
 /// `pid` (the WebContent process, for profiling), or
 /// `full_rate` (`enabled` turns full-rate rendering on or off on the live
 /// page; returns whether it is on). Every action first stops WebKit from
@@ -33,6 +38,8 @@ enum DebugAgentPane {
         "seed_rows": "seedRows", "fling": "startFling", "fling_stats": "flingStats",
         "perf_stats": "perfStats", "typing_stats": "typingStats", "reset_typing": "resetTyping",
         "open_menu": "openMenu", "acp_log": "acpLog", "acp_log_export": "acpLogExport",
+        "chat_state": "chatState", "send_prompt": "sendPrompt", "new_chat": "newChat",
+        "select_session": "selectSession", "answer_permission": "answerPermission", "open_changes": "openChanges",
     ]
 
     /// Runs `fn(...args)` on the page and returns its result as JSON text.
@@ -61,7 +68,7 @@ enum DebugAgentPane {
             return .object(["pane": .string(pane), "full_rate": .bool(view.rendersAtFullRate)])
         }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, open_menu, acp_log, acp_log_export, pid or full_rate")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, answer_permission, open_changes, pid or full_rate")])
         }
         do {
             let result = try await view.webView.callAsyncJavaScript(
@@ -103,6 +110,18 @@ enum DebugAgentPane {
             return [params["label"]?.stringValue ?? ""]
         case "acp_log":
             return [params["limit"]?.intValue.map { ["limit": $0] as [String: Any] } ?? [:]]
+        case "send_prompt":
+            return [params["text"]?.stringValue ?? ""]
+        case "new_chat":
+            return [params["harness"]?.stringValue ?? NSNull(), params["cwd"]?.stringValue ?? NSNull()]
+        case "select_session":
+            return [params["session"]?.stringValue ?? ""]
+        case "answer_permission":
+            var options: [String: Any] = [:]
+            if let option = params["option"]?.stringValue { options["optionId"] = option }
+            if let allow = params["allow"]?.boolValue { options["allow"] = allow }
+            if let decision = params["decision"]?.stringValue { options["decision"] = decision }
+            return [options]
         default:
             return []
         }
