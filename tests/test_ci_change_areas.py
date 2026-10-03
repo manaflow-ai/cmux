@@ -2840,14 +2840,43 @@ def test_required_tests_status_waits_for_platform_workflows() -> None:
     assert 'web_result not in {"success", "skipped"}' in block
 
 
+WEBVIEWS_BUN_JOBS = ("react-apps-check", "diff-sidecar-check")
+
+
+def _setup_bun_versions(text: str) -> list[str]:
+    action = "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6"
+    versions = []
+    for suffix in text.split(action)[1:]:
+        setup_tail = suffix.split("\n      - name: ", 1)[0]
+        match = re.search(r'^          bun-version: "(\d+\.\d+\.\d+)"$', setup_tail, re.MULTILINE)
+        assert match, f"setup-bun step without an exact bun-version: {setup_tail!r}"
+        versions.append(match.group(1))
+    return versions
+
+
 def test_web_workflow_pins_every_bun_setup_version() -> None:
     workflow = WEB_WORKFLOW.read_text(encoding="utf-8")
-    action = "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6"
-    blocks = workflow.split(action)
-    assert len(blocks) > 1
-    for suffix in blocks[1:]:
-        setup_tail = suffix.split("\n      - name: ", 1)[0]
-        assert '          bun-version: "1.3.14"' in setup_tail
+    versions = _setup_bun_versions(workflow)
+    assert versions
+    webviews_versions = []
+    for job in WEBVIEWS_BUN_JOBS:
+        webviews_versions += _setup_bun_versions(workflow_job_block(job, WEB_WORKFLOW))
+    assert len(webviews_versions) == len(WEBVIEWS_BUN_JOBS)
+    other = list(versions)
+    for version in webviews_versions:
+        other.remove(version)
+    assert set(other) == {"1.3.14"}
+
+
+def test_webviews_bun_jobs_match_dev_engines_pin() -> None:
+    package = json.loads((ROOT / "webviews" / "package.json").read_text(encoding="utf-8"))
+    manager = package["devEngines"]["packageManager"]
+    assert manager["name"] == "bun"
+    # A mismatched bun must fail loudly, never fetch a tool at install time.
+    assert manager["onFail"] == "error"
+    workflow = WEB_WORKFLOW.read_text(encoding="utf-8")
+    for job in WEBVIEWS_BUN_JOBS:
+        assert _setup_bun_versions(workflow_job_block(job, WEB_WORKFLOW)) == [manager["version"]], job
 
 
 def test_every_setup_bun_step_declares_a_version() -> None:
