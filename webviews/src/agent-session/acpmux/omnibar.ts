@@ -36,22 +36,26 @@ export function omnibarContext(value: unknown): OmnibarContext | undefined {
   const object = value as Record<string, unknown>;
   const kinds = new Set(["terminal", "browser", "agent"]);
   return {
-    tabs: records(object.tabs).flatMap((tab) => {
-      const id = string(tab.id);
-      const title = string(tab.title) ?? "";
-      if (!id || !kinds.has(tab.kind as string)) return [];
-      const detail = string(tab.detail);
-      const workspace = string(tab.workspace);
-      return [
-        { id, kind: tab.kind as TabKind, title, ...(detail ? { detail } : {}), ...(workspace ? { workspace } : {}) },
-      ];
-    }).slice(0, MAX_NEW_TAB_ENTRIES),
-    workspaces: records(object.workspaces).flatMap((workspace) => {
-      const id = string(workspace.id);
-      const name = string(workspace.name);
-      const detail = string(workspace.detail);
-      return id && name ? [{ id, name, ...(detail ? { detail } : {}) }] : [];
-    }).slice(0, MAX_NEW_TAB_ENTRIES),
+    tabs: records(object.tabs)
+      .flatMap((tab) => {
+        const id = string(tab.id);
+        const title = string(tab.title) ?? "";
+        if (!id || !kinds.has(tab.kind as string)) return [];
+        const detail = string(tab.detail);
+        const workspace = string(tab.workspace);
+        return [
+          { id, kind: tab.kind as TabKind, title, ...(detail ? { detail } : {}), ...(workspace ? { workspace } : {}) },
+        ];
+      })
+      .slice(0, MAX_NEW_TAB_ENTRIES),
+    workspaces: records(object.workspaces)
+      .flatMap((workspace) => {
+        const id = string(workspace.id);
+        const name = string(workspace.name);
+        const detail = string(workspace.detail);
+        return id && name ? [{ id, name, ...(detail ? { detail } : {}) }] : [];
+      })
+      .slice(0, MAX_NEW_TAB_ENTRIES),
     sessions: [],
     folders: (Array.isArray(object.folders) ? object.folders : [])
       .flatMap((path) => string(path) ?? [])
@@ -59,11 +63,13 @@ export function omnibarContext(value: unknown): OmnibarContext | undefined {
     commands: (Array.isArray(object.commands) ? object.commands : [])
       .flatMap((command) => string(command) ?? [])
       .slice(0, MAX_NEW_TAB_ENTRIES),
-    history: records(object.history).flatMap((entry) => {
-      const url = string(entry.url);
-      const title = string(entry.title);
-      return url ? [{ url, ...(title ? { title } : {}) }] : [];
-    }).slice(0, MAX_NEW_TAB_ENTRIES),
+    history: records(object.history)
+      .flatMap((entry) => {
+        const url = string(entry.url);
+        const title = string(entry.title);
+        return url ? [{ url, ...(title ? { title } : {}) }] : [];
+      })
+      .slice(0, MAX_NEW_TAB_ENTRIES),
   };
 }
 
