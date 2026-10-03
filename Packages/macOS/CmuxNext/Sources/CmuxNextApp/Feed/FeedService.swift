@@ -95,16 +95,20 @@ final class FeedService {
             started = false
         }
         account = user
+        if user != nil, started { localOwner.reconnectPrimary() }
         startIfSignedIn()
     }
 
     /// Starts the mirror when signed in; the panel and requests call it again (after a sign-in).
     func startIfSignedIn() {
-        guard !started, auth.isSignedIn else { return }
-        account = auth.user?.id ?? ""
+        guard !started else {
+            if auth.isSignedIn { source.setPresence(active: NSApp.isActive) }
+            return
+        }
+        account = auth.user?.id
         started = true
-        source.setPresence(active: NSApp.isActive)
         model.start()
+        if auth.isSignedIn { source.setPresence(active: NSApp.isActive) }
     }
 
     var isSignedIn: Bool { auth.isSignedIn }
@@ -142,7 +146,12 @@ final class FeedService {
             model.onRefresh = nil
         }
         github.setInterval(.seconds(pollIntervalSeconds))
-        if enabled, started, auth.isSignedIn, connection == .connected { github.start() } else if !enabled { github.stop() }
+        if enabled {
+            startIfSignedIn()
+            if connection == .connected { github.start() }
+        } else {
+            github.stop()
+        }
     }
 
     private var githubEnabled = false

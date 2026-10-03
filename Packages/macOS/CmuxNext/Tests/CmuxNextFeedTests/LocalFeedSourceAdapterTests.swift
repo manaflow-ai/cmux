@@ -39,6 +39,19 @@ struct LocalFeedSourceAdapterTests {
         #expect(model.lastReject == .disconnected)
     }
 
+    @Test func localOwnerWorksWithoutACloudSource() async {
+        let localItem = item("local", home: .local(install: "test"))
+        let adapter = LocalFeedSourceAdapter(local: InMemoryFeedSource(snapshot: FeedSnapshot(
+            revision: 0, user: "", device: "Mac", items: [localItem]
+        )))
+        let model = FeedModel(source: adapter, clock: { self.now })
+        model.start()
+        #expect(model.connection == .connected)
+        model.archive([localItem.id])
+        await Task.yield()
+        #expect(model.item(localItem.id)?.archivedAt == now)
+    }
+
     private func item(_ id: String, home: FeedHome) -> FeedItem {
         FeedItem(id: id, home: home, title: id, prompt: .notice,
                  poster: FeedPoster(kind: .system, label: "Test"), createdAt: now)

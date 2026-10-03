@@ -4,7 +4,7 @@ public import Foundation
 /// the owner's lifecycle rules (first answer wins, `feed.closed` for a late
 /// answer), and intents committed on the next main-actor turn (no timers).
 @MainActor
-public final class MockFeedSource: FeedPostingSource {
+public final class InMemoryFeedSource: FeedPostingSource {
     private var sink: (@MainActor (FeedSourceEvent) -> Void)?
     private var items: [String: FeedItem]
     private var revision: UInt64
@@ -119,3 +119,6 @@ public final class MockFeedSource: FeedPostingSource {
         sink?(.event(FeedEvent(revision: revision, tx: tx, change: .items(stamped))))
     }
 }
+
+/// Compatibility name for fixtures that use the feed demo owner.
+public typealias MockFeedSource = InMemoryFeedSource
