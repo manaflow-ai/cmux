@@ -62,9 +62,26 @@ test("the sidebar groups sessions by folder, marks them, and selects on click", 
   );
   expect(marks).toEqual(["Needs input", "Working", "New activity"]);
   // Needs input and working are told apart from the unread dot by their glyphs, not only by colour.
-  expect(container.querySelector(".acpmux-session-mark-input svg")).not.toBeNull();
-  expect(container.querySelector(".acpmux-session-mark-running svg")).not.toBeNull();
-  expect(container.querySelector(".acpmux-session-mark-unread svg")).toBeNull();
+  const glyph = (selector: string) => container.querySelector(`${selector} svg`)?.getAttribute("data-icon");
+  expect(glyph(".acpmux-session-mark-input")).toBe("status.needsinput");
+  expect(glyph(".acpmux-session-mark-running")).toBe("status.running");
+  expect(glyph(".acpmux-session-mark-unread")).toBeUndefined();
+  // Registry icons at the row size for the sidebar's 13px text; the rail keeps its glyphs' footprint.
+  expect(container.querySelector(".acpmux-session-mark-input svg")?.getAttribute("width")).toBe("16");
+  expect(glyph(".acpmux-sidebar-project")).toBe("folder");
+  expect(glyph(".acpmux-sidebar-search")).toBe("search");
+  expect(
+    [...container.querySelectorAll(".acpmux-rail-button svg")].map((svg) => [
+      svg.getAttribute("data-icon"),
+      svg.getAttribute("width"),
+    ]),
+  ).toEqual([
+    ["home", "15"],
+    ["agent.chat.list", "15"],
+    ["history", "15"],
+    ["git.pullrequest", "15"],
+    ["action.more", "15"],
+  ]);
   // The state is part of the row's accessible name.
   expect(container.querySelector(".acpmux-session-row")?.getAttribute("aria-label")).toBe(
     "Fix the checkout page, Needs input",
@@ -166,6 +183,8 @@ test("pinned sessions get their own section, an all-cloud project names its mach
     "worktree",
     undefined,
   ]);
+  const placeIcon = (id: string) => row(id).querySelector(".acpmux-session-place svg")?.getAttribute("data-icon");
+  expect([placeIcon("local"), placeIcon("far"), placeIcon("tree")]).toEqual(["git.branch", "cloud", "git.worktree"]);
   expect(row("far").title).toBe("CI\nRuns on hearty-elk, Branch ci");
   expect(row("tree").getAttribute("aria-label")).toBe("Home, Worktree home");
   await act(async () => root.unmount());

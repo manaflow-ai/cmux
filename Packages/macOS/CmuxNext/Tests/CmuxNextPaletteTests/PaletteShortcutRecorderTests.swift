@@ -243,6 +243,22 @@ import Testing
         #expect(h.registry.effectiveShortcut(for: "t.plain") == Shortcut("u"))
     }
 
+    /// A chord-only default (the Cmd-J leader's) is a default: Restore
+    /// Default is offered and brings the chord back after an unbind.
+    @Test func shiftDeleteRestoresADefaultChord() async {
+        let h = await harness()
+        var chordOnly = Self.action("t.chord")
+        chordOnly.defaultChord = ShortcutChord(Shortcut("j", modifiers: [.command]), Shortcut("j", modifiers: []))
+        h.registry.seed([chordOnly])
+        h.registry.bind("t.chord") {}
+        h.registry.setShortcutOverride(nil, for: "t.chord")
+        #expect(h.recorder.begin("t.chord"))
+        #expect(h.model.shortcutRecorder?.hasDefault == true)
+        press(h, "\u{8}", [.shift], keyCode: 51)
+        #expect(h.editor.restores.map(\.0) == ["t.chord"])
+        #expect(h.registry.effectiveChord(for: "t.chord") == chordOnly.defaultChord)
+    }
+
     @Test func restoringADefaultAnotherActionTookAsksFirst() async {
         let h = await harness()
         h.registry.setShortcutOverride(Shortcut("i"), for: "t.plain")
