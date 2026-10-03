@@ -330,7 +330,10 @@ rest. Measurements: [performance.md](performance.md).
   [driver-protocol.md](driver-protocol.md)); it never navigates or filters the user's tab. An event the agent registered a handler for on that
   page (`page.on("dialog")`, `page.on("filechooser")`,
   `page.waitForEvent("download")` and the like) goes to the session instead,
-  only while the handler is registered. The runtime reports these handlers
+  only while the handler is registered. When several sessions drive one tab,
+  each dialog, file chooser and download goes to one of them (one with a
+  handler for it, the creating session first, else the creating session),
+  and only that session can answer it. The runtime reports these handlers
   to the driver with `tab.handleEvents`.
 - A driven tab keeps rendering like a foreground page. Shown in a pane of the
   key window, it stays live in the pane. Hidden, or shown in a window that is

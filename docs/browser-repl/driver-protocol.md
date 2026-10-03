@@ -54,6 +54,15 @@ sessions instead. The runtime sends `tab.handleEvents` whenever a page's
 `dialog`, `filechooser` or `download` listeners change, and its next call on
 the tab waits for it. A download keeps the route it started with.
 
+Each such event goes to one session, never to every session driving the
+tab: a session with a handler for it in its last `tab.handleEvents` (the
+creating session's first, then the session that registered first), else the
+creating session of a tab a session created. Only that session gets
+`dialog.opened`, `filechooser.opened` and the download's `download.*` events,
+and `dialog.respond` and `filechooser.respond` from any other session fail
+with `not_found`, leaving the dialog or chooser open. When that session
+leaves the tab, its open dialogs are dismissed and its choosers cancelled.
+
 When the last session leaves a tab, the driver releases what the sessions
 left pressed: each held key gets its key-up (last pressed first) and each
 held mouse button its button-up at the last mouse position, or the drag it
@@ -99,8 +108,9 @@ All input is delivered as native, trusted events (`isTrusted === true`).
 Playwright (`KeyboardEvent.key` values plus `Meta+a` style parsed by the runtime).
 
 When sessions share a tab, a session's `input.mouse` `down` owns the pointer
-until its `up` (or until the session leaves the tab); another session's
-`input.mouse` waits meanwhile, at most 10 s, then fails with `timeout`
+until its `up` (or until the session leaves the tab), and an `input.drag`
+owns it from its press to its release; another session's `input.mouse` or
+`input.drag` waits meanwhile, at most 10 s, then fails with `timeout`
 naming the session that holds the mouse.
 
 ## Capture
@@ -143,8 +153,8 @@ Every event carries `targetId`.
 
 | Method | Params |
 | --- | --- |
-| `cookies.get` / `cookies.set` | `{ urls?, targetId? }`, `{ cookies, targetId? }`. A URL the domain policy blocks fails with `blocked`; `cookies.get` leaves out the cookies of blocked sites and `cookies.set` refuses one, and also refuses a cookie with a Domain attribute (`.example.com`) unless an allowed pattern covers every subdomain it reaches (`*.example.com`) and no prohibited host is among them (see "Guards") |
-| `cookies.clear` | `{ targetId?, all?, name?, domain?, path? }`. Deletes the cookies of the target tab's store (the active tab's without `targetId`) on that tab's site, its registrable domain by the system's Public Suffix List (CFNetwork), and the site's subdomains, narrowed by exact `name`, `domain` and `path`. The driver takes the site from the tab; a `site` parameter is ignored. On a persistent profile (the user's cookies) a tab with no http(s) site and `all: true` fail with `invalid`; a store that is not persistent (a private tab's, the session's proxy store) is cleared whole for either. Cookies of sites the domain policy blocks are never cleared |
+| `cookies.get` / `cookies.set` | `{ urls?, targetId? }`, `{ cookies, targetId? }`. They use the store of the target tab (a private tab's, or the session's proxy store, is not the user's profile), which the runtime names on every call a page makes; without `targetId`, the session's `session.configure({ proxy })` store, else the active tab's. A URL the domain policy blocks fails with `blocked`; `cookies.get` leaves out the cookies of blocked sites and `cookies.set` refuses one, and also refuses a cookie with a Domain attribute (`.example.com`) unless an allowed pattern covers every subdomain it reaches (`*.example.com`) and no prohibited host is among them (see "Guards") |
+| `cookies.clear` | `{ targetId?, all?, name?, domain?, path? }`. Deletes the cookies of the target tab's store (without `targetId`, the store `cookies.get` uses) on that tab's site, its registrable domain by the system's Public Suffix List (CFNetwork), and the site's subdomains, narrowed by exact `name`, `domain` and `path`. The driver takes the site from the tab; a `site` parameter is ignored. On a persistent profile (the user's cookies) a tab with no http(s) site and `all: true` fail with `invalid`; a store that is not persistent (a private tab's, the session's proxy store) is cleared whole for either. Cookies of sites the domain policy blocks are never cleared |
 | `clipboard.read` / `clipboard.write` | per-tab virtual clipboard `{ items: [{ type, base64 }] }`. Meta+C, Meta+X and Meta+V run the engine's own Copy, Cut and Paste against it, so the page gets trusted `copy`, `cut` and `paste` events with `clipboardData` (every type), and the system clipboard is neither read nor written. They run only in tabs a session created: in a user's tab `input.key` refuses them with `unsupported` before any key reaches the page. Until the engine reports the command done, a JavaScript dialog in that tab is answered as an unhandled one is (`dialog.respond` with `accept: false`) and reported with `dismissedDuring`, never held. On WebKit, which has no per-view pasteboard, the general-pasteboard lookups WebKit itself makes (its pasteboard IPC answered through WebCore) get a private pasteboard from the start of one command until WebKit reports it done or 5 s pass; lookups by any other code, `NSPasteboard.general` included, get the system pasteboard. The tab's clipboard takes the private pasteboard only when the command finished in time. At 5 s the driver ends the tab's web content process (`tab.crashed`) in the same main-thread turn that ends the redirect, and the call fails with `timeout`: WebKit handles no message from that process afterwards, so a Copy or Cut the page would finish late never writes the system clipboard. It ends the process only when every other tab in it was created by the same session and no popup window of cmux's shares it (popups share their opener's process); otherwise the shortcut falls back to script (the selection's text, or inserting the clipboard's text, without clipboard events). A session that detaches, or a tab that closes, during the command does not change that. If another tab or a popup window joins the process during a command, the private pasteboard stays until WebKit finishes or 5 s more pass, when the driver ends the process anyway (its pages crash). A caller that stops waiting shortens none of these times. A Paste also runs through WebKit only while the private pasteboard's change count is below the system's, so WebKit's read grant, which compares change counts, can never cover the system clipboard; otherwise it falls back to inserting text. Commands run one at a time across all tabs, because WebKit's pasteboard requests do not say which web view they serve, so two tabs' commands at once would share one private pasteboard. For the same reason a copy in another web view during a command (a person's, or a page's in a user's tab) reaches the private pasteboard; WebKit's own Copy or Cut writes it at most once and a Paste never, so a command whose pasteboard was written more often fails with `stale` and leaves the tab's clipboard unchanged (the one copy it cannot tell apart is the only write of a Copy or Cut whose page cancelled the event and set no data). A person's paste in another web view during a command still reads the private pasteboard. Items that name a local file (a file URL, also a `file:` URL as `text/uri-list` or another URL type, a filename list, an alias, a Finder node or a file promise) are left out when the tab's clipboard is put on the private pasteboard for a Paste, so WebKit never hands the page a local file. A command waits up to 5 s for the one before it, which ends by then (10 s when its process could not be ended at once), then gets its own 5 s; one that cannot start fails with `timeout`, names the tab it waited for, and does not run. While a command runs, another web view's paste or copy uses the private pasteboard too. Writes a page's own scripts make (the asynchronous Clipboard API, `execCommand("copy")`) are outside this redirect; the page clipboard guard (see "Guards") sends them to this clipboard |
 
 ## Guards
@@ -170,7 +180,14 @@ native (`BrowserReplBoundary` in the session, and the driver):
   (`invalid`) when masking fails in one of them or a scan after the
   capture finds a value rendered unmasked.
   Results, events, fetch responses, output, errors, written files and
-  files read back are redacted by the session.
+  files read back are redacted by the session. Another session that drives the same tab
+  (`tabs.use`) does not hold the secret, so the driver remembers each value
+  it typed, by tab, until the tab closes, and masks it in every result,
+  event and error it returns to any other session, and in their captures;
+  once the typing session ends, also for a later session of the same name.
+  This masks the value as typed and in the encodings the session's
+  redaction knows; page script that copies it elsewhere or transforms it
+  is outside it, as it is within one session.
 - Domain policy: the session refuses `tab.navigate`/`tabs.open` to a blocked
   URL (`blocked`) and `session.configure` content rules, and calls the
   driver's `setDomainPolicy(policy)` (Swift only). The driver applies the

@@ -54,6 +54,37 @@ import Testing
         #expect(ownership.creatorSessionID == nil)
     }
 
+    // One session gets each routed event, so only that session can answer it.
+    @Test func aRoutedEventGoesToOneSession() {
+        var ownership = BrowserReplTabOwnership()
+        ownership.attach(sessionID: "first")
+        ownership.attach(sessionID: "second")
+        ownership.setHandledEvents([.dialog], for: "first")
+        ownership.setHandledEvents([.dialog, .download], for: "second")
+        #expect(ownership.recipient(for: .dialog) == "first", "the session that registered first")
+        #expect(ownership.recipient(for: .download) == "second")
+        #expect(ownership.recipient(for: .fileChooser) == nil, "the user's UI")
+        // A session that drives the tab without a handler gets none of them.
+        ownership.attach(sessionID: "bystander")
+        #expect(ownership.recipient(for: .dialog) == "first")
+        ownership.setHandledEvents([], for: "first")
+        #expect(ownership.recipient(for: .dialog) == "second")
+        ownership.detach(sessionID: "second")
+        #expect(ownership.recipient(for: .dialog) == nil)
+    }
+
+    @Test func aSessionTabsEventsGoToItsCreatorUnlessAnotherSessionHandlesThem() {
+        var ownership = BrowserReplTabOwnership()
+        ownership.markCreated(by: "creator")
+        ownership.attach(sessionID: "other")
+        #expect(ownership.recipient(for: .dialog) == "creator")
+        ownership.setHandledEvents([.dialog], for: "other")
+        #expect(ownership.recipient(for: .dialog) == "other", "a handler takes the event")
+        ownership.setHandledEvents([.dialog], for: "creator")
+        #expect(ownership.recipient(for: .dialog) == "creator", "the creator's handler first")
+        #expect(ownership.recipient(for: .download) == "creator")
+    }
+
     @Test func eventNamesParseStrictly() {
         #expect(BrowserReplTabOwnership.events(named: ["dialog", "filechooser", "download"]) == Set(BrowserReplTabEvent.allCases))
         #expect(BrowserReplTabOwnership.events(named: []) == [])

@@ -175,7 +175,29 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             BrowserReplTabAttachments.shared.detach(sessionID: sessionID)
             return .failure(Self.closedError)
         }
-        return result
+        return maskingTypedSecrets(result, method: method)
+    }
+
+    /// A result with the secrets other sessions typed into tabs masked
+    /// (``BrowserReplTypedSecrets``): this session does not hold them, so
+    /// its own redaction would not. Screenshots and PDFs get them as
+    /// capture masks instead (``typedSecretMasks(_:)``).
+    @MainActor
+    private func maskingTypedSecrets(_ result: Result<String, BrowserReplDriverError>, method: String) -> Result<String, BrowserReplDriverError> {
+        guard let store = BrowserReplTabAttachments.shared.typedSecrets.redaction(forReader: sessionID) else { return result }
+        switch result {
+        case .success(let json):
+            return method == "tab.screenshot" || method == "tab.pdf" ? result : .success(store.redactJSON(json))
+        case .failure(let error):
+            return .failure(BrowserReplDriverError(code: error.code, message: store.redact(error.message), errorName: error.errorName))
+        }
+    }
+
+    /// The session's capture masks plus the secrets other sessions typed.
+    @MainActor
+    private func typedSecretMasks(_ params: [String: Any]) -> [[String: Any]] {
+        (params["secretMasks"] as? [[String: Any]] ?? [])
+            + BrowserReplTabAttachments.shared.typedSecrets.captureMasks(forReader: sessionID)
     }
 
     @MainActor
@@ -523,7 +545,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 applySessionLabel(to: uuid)
             }
         }
-        guard let json = JSONSerialization.browserReplString(payload) else { return }
+        // Events carry no secret another session typed (BrowserReplTypedSecrets).
+        let visible = BrowserReplTabAttachments.shared.typedSecrets.redaction(forReader: sessionID)
+            .map { $0.redactValue(payload) } ?? payload
+        guard let json = JSONSerialization.browserReplString(visible) else { return }
         let sink = lock.withLock { self.sink }
         sink?(name, json)
     }
@@ -1839,6 +1864,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             try await BrowserReplNativeInput.insertText(text, into: webView, checkTarget: checkTarget)
             await BrowserReplNativeInput.roundTrip(webView)
         }
+        // The value is in the tab now: other sessions that read the tab do
+        // not hold the secret, so the tab keeps it masked for them.
+        if let name = params["secretName"] as? String {
+            let domains = (params["secretDomains"] as? [[String: Any]] ?? []).compactMap(BrowserReplDomainPattern.from(json:))
+            BrowserReplTabAttachments.shared.typedSecrets.record(
+                tab: panel.id.uuidString, name: name, value: text, domains: domains, typist: sessionID
+            )
+        }
         return nil
     }
 
@@ -1864,20 +1897,24 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 trail.append(CGPoint(x: previous.x + (next.x - previous.x) * t, y: previous.y + (next.y - previous.y) * t))
             }
         }
-        try await withWindow(panel) { [self] webView, window in
-            let flags = modifiers.union(webView.browserNativeInputDeliveryOwner.activeModifierFlags)
-            attachment.mouseState.reset()
-            _ = attachment.mouseState.eventType(forType: "move", button: .left)
-            try await self.deliverMouse(.mouseMoved, button: .left, at: first, clickCount: 0, flags: flags, webView: webView, window: window, attachment: attachment)
-            _ = attachment.mouseState.eventType(forType: "down", button: .left)
-            try await self.deliverMouse(.leftMouseDown, button: .left, at: first, clickCount: 1, flags: flags, webView: webView, window: window, attachment: attachment)
-            for point in trail {
-                try await self.deliverMouse(.leftMouseDragged, button: .left, at: point, clickCount: 1, flags: flags, webView: webView, window: window, attachment: attachment)
+        // The drag holds the tab's pointer like a press does (input.mouse), so
+        // another session's mouse input never interleaves with it.
+        try await attachment.performPointerGesture(sessionID: sessionID) {
+            try await withWindow(panel) { [self] webView, window in
+                let flags = modifiers.union(webView.browserNativeInputDeliveryOwner.activeModifierFlags)
+                attachment.mouseState.reset()
+                _ = attachment.mouseState.eventType(forType: "move", button: .left)
+                try await self.deliverMouse(.mouseMoved, button: .left, at: first, clickCount: 0, flags: flags, webView: webView, window: window, attachment: attachment)
+                _ = attachment.mouseState.eventType(forType: "down", button: .left)
+                try await self.deliverMouse(.leftMouseDown, button: .left, at: first, clickCount: 1, flags: flags, webView: webView, window: window, attachment: attachment)
+                for point in trail {
+                    try await self.deliverMouse(.leftMouseDragged, button: .left, at: point, clickCount: 1, flags: flags, webView: webView, window: window, attachment: attachment)
+                }
+                _ = attachment.mouseState.eventType(forType: "up", button: .left)
+                try await self.deliverMouse(.leftMouseUp, button: .left, at: last, clickCount: 1, flags: flags, webView: webView, window: window, attachment: attachment)
             }
-            _ = attachment.mouseState.eventType(forType: "up", button: .left)
-            try await self.deliverMouse(.leftMouseUp, button: .left, at: last, clickCount: 1, flags: flags, webView: webView, window: window, attachment: attachment)
+            attachment.mousePosition = last
         }
-        attachment.mousePosition = last
         return nil
     }
 
@@ -1950,7 +1987,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 return url
             }
         }
-        guard attachment(panel).respondToFileChooser(id: id, files: urls) else {
+        // Only the session the chooser was routed to may answer it.
+        guard attachment(panel).respondToFileChooser(id: id, sessionID: sessionID, files: urls) else {
             throw Self.error("not_found", "File chooser \(id) is gone")
         }
         return nil
@@ -1963,7 +2001,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             throw Self.error("invalid", "dialogId is required")
         }
         let accept = params["accept"] as? Bool ?? false
-        guard attachment(panel).respondToDialog(id: id, accept: accept, promptText: params["promptText"] as? String) else {
+        // Only the session the dialog was routed to may answer it.
+        guard attachment(panel).respondToDialog(id: id, sessionID: sessionID, accept: accept, promptText: params["promptText"] as? String) else {
             throw Self.error("not_found", "Dialog \(id) is gone")
         }
         return nil
@@ -2009,7 +2048,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let quality = (params["quality"] as? NSNumber)?.doubleValue
         let fullPage = params["fullPage"] as? Bool ?? false
         let clip = params["clip"] as? [String: Any]
-        let masks = params["secretMasks"] as? [[String: Any]] ?? []
+        let masks = typedSecretMasks(params)
         let image: CGImage = try await withWindow(panel) { webView, _ in
             try await Self.withSecretMasks(masks, webView: webView) {
                 try await BrowserReplCapture.snapshot(webView: webView, clip: clip, fullPage: fullPage)
@@ -2022,7 +2061,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func pdf(_ params: [String: Any]) async throws -> [String: Any] {
         let panel = try panel(params)
-        let masks = params["secretMasks"] as? [[String: Any]] ?? []
+        let masks = typedSecretMasks(params)
         let data: Data = try await withWindow(panel) { [self] webView, _ in
             try await Self.withSecretMasks(masks, webView: webView) {
                 try await self.printPDF(webView: webView, params: params)
@@ -2068,12 +2107,20 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     /// The data store cookie calls use, and the tab it belongs to: the
-    /// target tab's, else the active tab's, else the default profile's.
+    /// target tab's (a tab this session can reach, else the call fails),
+    /// else the store the session's next tab opens in (its
+    /// `session.configure({ proxy })` store), else the active tab's, else
+    /// the default profile's. The runtime names the tab on every call a
+    /// page makes, so a private or proxied tab never reads or writes
+    /// another tab's store.
     @MainActor
     private func cookieTab(_ params: [String: Any]) throws -> (store: WKWebsiteDataStore, panel: BrowserPanel?) {
         if params["targetId"] != nil {
             let panel = try panel(params)
             return (panel.webView.configuration.websiteDataStore, panel)
+        }
+        if let proxyDataStore {
+            return (proxyDataStore, nil)
         }
         let panels = try browserPanels()
         let preferred = activeTargetID.flatMap(UUID.init(uuidString:)).flatMap { id in panels.first { $0.id == id } }

@@ -597,7 +597,8 @@
       else Object.assign(headers, src);
       const sendsCookies = credentials === "include" || (credentials === "same-origin" && origin === new core.URL(url).origin);
       if (!host.fetchHandlesCookies && sendsCookies && !Object.keys(headers).some((k) => k.toLowerCase() === "cookie")) {
-        const cookies = await session.call("cookies.get", { urls: [url] }).catch(() => []);
+        const scope = page && !String(page._targetId).startsWith("lazy:") ? { targetId: page._targetId } : {};
+        const cookies = await session.call("cookies.get", { ...scope, urls: [url] }).catch(() => []);
         if (cookies.length) headers.cookie = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
       }
       const body = init.body === undefined || init.body === null ? undefined : Buffer.from(init.body).toString("base64");
