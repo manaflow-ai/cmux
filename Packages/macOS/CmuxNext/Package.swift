@@ -136,6 +136,7 @@ let package = Package(
                 "CmuxNextOnboarding",
                 "CmuxNextAgentPane",
                 "CmuxNextHistory",
+                "CmuxNextRemoteView",
                 "CmuxNextCodeRouter",
                 "CmuxNextAccounts",
                 "CmuxNextBookmarks",
@@ -406,7 +407,8 @@ let package = Package(
         ),
         // Remote desktop pane (plans/cmux-next/remote-desktop.md section 7):
         // VideoToolbox decode, presenter variants, chrome A, input capture and
-        // a VideoToolbox mock host. Transport neutral; not wired into the app yet.
+        // a VideoToolbox mock host. Transport neutral. The App shows it in
+        // `remote_view` tabs (cmux://remote-view records, development builds).
         .target(
             name: "CmuxNextRemoteView",
             dependencies: ["CmuxNextDesign"],

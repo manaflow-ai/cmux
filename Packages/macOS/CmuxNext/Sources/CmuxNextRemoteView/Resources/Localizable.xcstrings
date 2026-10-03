@@ -394,6 +394,137 @@
         }
       }
     },
+    "rd.action.connect": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اتصال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poveži"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opret forbindelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verbinden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se connecter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connetti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្ជាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "연결"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koble til"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Połącz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подключиться"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Під’єднатися"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kết nối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "連線"
+          }
+        }
+      }
+    },
     "rd.action.controlAnyway": {
       "extractionState": "manual",
       "localizations": {
@@ -4451,6 +4582,1185 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "已結束"
+          }
+        }
+      }
+    },
+    "rd.tab.confirm.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح نص برمجي أو وكيل أو استعادة علامة التبويب هذه. لن يتم الاتصال حتى تختار اتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovu karticu je otvorila skripta, agent ili vraćanje. Ništa se ne povezuje dok ne odaberete Poveži."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et script, en agent eller en gendannelse åbnede denne fane. Intet forbindes, før du vælger Opret forbindelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Skript, ein Agent oder eine Wiederherstellung hat diesen Tab geöffnet. Nichts verbindet sich, bis du Verbinden wählst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A script, an agent or a restore opened this tab. Nothing connects until you choose Connect."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un script, un agente o una restauración abrió esta pestaña. Nada se conecta hasta que elijas Conectar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un script, un agent ou une restauration a ouvert cet onglet. Rien ne se connecte avant que vous choisissiez Se connecter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uno script, un agente o un ripristino ha aperto questa scheda. Nulla si connette finché non scegli Connetti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブはスクリプト、エージェント、または復元によって開かれました。「接続」を選ぶまで何も接続しません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្គ្រីប ភ្នាក់ងារ ឬការស្ដារ បានបើកផ្ទាំងនេះ។ គ្មានអ្វីភ្ជាប់ទេ រហូតដល់អ្នកជ្រើស ភ្ជាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스크립트, 에이전트 또는 복원이 이 탭을 열었습니다. 연결을 선택하기 전까지는 아무것도 연결되지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et skript, en agent eller en gjenoppretting åpnet denne fanen. Ingenting kobles til før du velger Koble til."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tę kartę otworzył skrypt, agent lub przywracanie. Nic się nie połączy, dopóki nie wybierzesz Połącz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um script, um agente ou uma restauração abriu esta aba. Nada se conecta até você escolher Conectar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эту вкладку открыл скрипт, агент или восстановление. Ничего не подключится, пока вы не выберете «Подключиться»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สคริปต์ เอเจนต์ หรือการกู้คืนเปิดแท็บนี้ จะไม่มีการเชื่อมต่อจนกว่าคุณจะเลือกเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sekmeyi bir betik, bir ajan veya geri yükleme açtı. Bağlan'ı seçene kadar hiçbir şey bağlanmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цю вкладку відкрив скрипт, агент або відновлення. Нічого не під’єднається, доки ви не виберете «Під’єднатися»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một tập lệnh, một tác tử hoặc thao tác khôi phục đã mở thẻ này. Không có gì kết nối cho đến khi bạn chọn Kết nối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此标签页由脚本、代理或恢复操作打开。在你选择“连接”之前不会连接任何内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此分頁由指令碼、代理程式或還原開啟。在你選擇「連線」之前不會連線。"
+          }
+        }
+      }
+    },
+    "rd.tab.confirm.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هل تريد الاتصال بـ %@؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Povezati se s %@?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opret forbindelse til %@?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mit %@ verbinden?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect to %@?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Conectarse a %@?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se connecter à %@ ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connettersi a %@?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に接続しますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្ជាប់ទៅ %@ ឬ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@에 연결할까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koble til %@?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Połączyć z %@?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectar a %@?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подключиться к %@?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เชื่อมต่อกับ %@ ไหม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ile bağlanılsın mı?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Під’єднатися до %@?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kết nối với %@?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "连接到 %@？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "連線到 %@？"
+          }
+        }
+      }
+    },
+    "rd.tab.title.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سطح المكتب البعيد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Udaljena radna površina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjernskrivebord"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remote Desktop"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote Desktop"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escritorio remoto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bureau à distance"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desktop remoto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデスクトップ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទៃតុពីចម្ងាយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "원격 데스크톱"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eksternt skrivebord"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pulpit zdalny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Área de trabalho remota"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалённый рабочий стол"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เดสก์ท็อประยะไกล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uzak Masaüstü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Віддалений робочий стіл"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Màn hình từ xa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "远程桌面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "遠端桌面"
+          }
+        }
+      }
+    },
+    "rd.tab.unavailable.invalidAddress": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عنوان سطح المكتب البعيد في علامة التبويب هذه غير صالح."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresa udaljene radne površine ove kartice nije važeća."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne fanes adresse til fjernskrivebordet er ugyldig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Remote-Desktop-Adresse dieses Tabs ist ungültig."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This tab's remote desktop address is not valid."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La dirección de escritorio remoto de esta pestaña no es válida."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’adresse de bureau à distance de cet onglet n’est pas valide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’indirizzo del desktop remoto di questa scheda non è valido."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブのリモートデスクトップのアドレスが無効です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អាសយដ្ឋានផ្ទៃតុពីចម្ងាយរបស់ផ្ទាំងនេះមិនត្រឹមត្រូវទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 탭의 원격 데스크톱 주소가 올바르지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fanens adresse til eksternt skrivebord er ugyldig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adres pulpitu zdalnego w tej karcie jest nieprawidłowy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O endereço da área de trabalho remota desta aba não é válido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Адрес удалённого рабочего стола в этой вкладке недействителен."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ที่อยู่เดสก์ท็อประยะไกลของแท็บนี้ไม่ถูกต้อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sekmenin uzak masaüstü adresi geçerli değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Адреса віддаленого робочого столу в цій вкладці недійсна."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Địa chỉ màn hình từ xa của thẻ này không hợp lệ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此标签页的远程桌面地址无效。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此分頁的遠端桌面位址無效。"
+          }
+        }
+      }
+    },
+    "rd.tab.unavailable.noTransport": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن لهذا الإصدار الاتصال بـ %@ بعد. يعرض المضيف “mock” سطح مكتب للاختبار."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova verzija se još ne može povezati s %@. Host „mock” prikazuje testnu radnu površinu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne version kan endnu ikke oprette forbindelse til %@. Værten “mock” viser et testskrivebord."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Build kann sich noch nicht mit %@ verbinden. Der Host „mock“ zeigt einen Test-Desktop."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This build cannot connect to %@ yet. The host “mock” shows a test desktop."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta compilación aún no puede conectarse a %@. El host “mock” muestra un escritorio de prueba."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette version ne peut pas encore se connecter à %@. L’hôte « mock » affiche un bureau de test."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa build non può ancora connettersi a %@. L’host “mock” mostra un desktop di prova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドはまだ %@ に接続できません。ホスト「mock」ではテスト用のデスクトップを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណែនេះមិនទាន់អាចភ្ជាប់ទៅ %@ បានទេ។ ម៉ាស៊ីន “mock” បង្ហាញផ្ទៃតុសាកល្បង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 빌드는 아직 %@에 연결할 수 없습니다. 호스트 “mock”은 테스트 데스크톱을 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne versjonen kan ikke koble til %@ ennå. Verten «mock» viser et testskrivebord."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta kompilacja nie może jeszcze połączyć się z %@. Host „mock” pokazuje pulpit testowy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta versão ainda não consegue se conectar a %@. O host “mock” mostra uma área de trabalho de teste."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта сборка пока не может подключиться к %@. Хост «mock» показывает тестовый рабочий стол."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บิลด์นี้ยังเชื่อมต่อกับ %@ ไม่ได้ โฮสต์ “mock” แสดงเดสก์ท็อปสำหรับทดสอบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu derleme henüz %@ ile bağlantı kuramıyor. “mock” ana makinesi bir test masaüstü gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця збірка ще не може під’єднатися до %@. Хост «mock» показує тестовий робочий стіл."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản dựng này chưa thể kết nối với %@. Máy chủ “mock” hiển thị một màn hình thử nghiệm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本还无法连接到 %@。主机“mock”会显示一个测试桌面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本還無法連線到 %@。主機「mock」會顯示一個測試桌面。"
+          }
+        }
+      }
+    },
+    "rd.tab.unavailable.notInBuild": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يتضمن هذا الإصدار سطح المكتب البعيد. وهو متاح حاليًا في إصدارات التطوير فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova verzija ne sadrži udaljenu radnu površinu. Za sada je samo u razvojnim verzijama."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne version indeholder ikke fjernskrivebord. Det findes indtil videre kun i udviklingsversioner."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Build enthält kein Remote Desktop. Es ist vorerst nur in Entwicklungs-Builds enthalten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This build does not include remote desktop. It is in development builds only for now."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta compilación no incluye el escritorio remoto. Por ahora solo está en compilaciones de desarrollo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette version n’inclut pas le bureau à distance. Il n’est pour l’instant que dans les versions de développement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa build non include il desktop remoto. Per ora è solo nelle build di sviluppo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドにはリモートデスクトップが含まれていません。現在は開発ビルドのみで利用できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណែនេះមិនរួមបញ្ចូលផ្ទៃតុពីចម្ងាយទេ។ បច្ចុប្បន្នវាមានតែក្នុងកំណែអភិវឌ្ឍន៍ប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 빌드에는 원격 데스크톱이 포함되어 있지 않습니다. 지금은 개발 빌드에만 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne versjonen har ikke eksternt skrivebord. Foreløpig finnes det bare i utviklingsversjoner."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta kompilacja nie zawiera pulpitu zdalnego. Na razie jest tylko w kompilacjach deweloperskich."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta versão não inclui a área de trabalho remota. Por enquanto, ela está só nas versões de desenvolvimento."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В этой сборке нет удалённого рабочего стола. Пока он есть только в сборках для разработки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บิลด์นี้ไม่มีเดสก์ท็อประยะไกล ขณะนี้มีเฉพาะในบิลด์สำหรับการพัฒนาเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu derleme uzak masaüstünü içermiyor. Şimdilik yalnızca geliştirme derlemelerinde var."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця збірка не містить віддаленого робочого столу. Поки що він є лише у збірках для розробки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản dựng này không có màn hình từ xa. Hiện tại tính năng chỉ có trong bản dựng phát triển."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本不包含远程桌面。目前仅在开发版本中提供。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本不包含遠端桌面。目前僅在開發版本中提供。"
+          }
+        }
+      }
+    },
+    "rd.tab.unavailable.notLoopback": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تتصل إصدارات التطوير حاليًا بهذا الـ Mac فقط، وليس بـ %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razvojne verzije se za sada povezuju samo s ovim Macom, ne s %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Udviklingsversioner opretter indtil videre kun forbindelse til denne Mac, ikke til %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entwicklungs-Builds verbinden sich vorerst nur mit diesem Mac, nicht mit %@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Development builds connect only to this Mac for now, not to %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Por ahora, las compilaciones de desarrollo solo se conectan a este Mac, no a %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pour l’instant, les versions de développement se connectent seulement à ce Mac, pas à %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Per ora le build di sviluppo si connettono solo a questo Mac, non a %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開発ビルドは現在このMacにのみ接続できます。%@ には接続できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បច្ចុប្បន្ន កំណែអភិវឌ្ឍន៍ភ្ជាប់តែទៅ Mac នេះប៉ុណ្ណោះ មិនមែនទៅ %@ ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "개발 빌드는 지금은 이 Mac에만 연결되며 %@에는 연결되지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utviklingsversjoner kobler foreløpig bare til denne Macen, ikke til %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kompilacje deweloperskie łączą się na razie tylko z tym Makiem, nie z %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Por enquanto, as versões de desenvolvimento se conectam só a este Mac, não a %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сборки для разработки пока подключаются только к этому Mac, но не к %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขณะนี้บิลด์สำหรับการพัฒนาเชื่อมต่อได้เฉพาะกับ Mac เครื่องนี้ ไม่ใช่ %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Geliştirme derlemeleri şimdilik yalnızca bu Mac'e bağlanır, %@ ile bağlanmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Збірки для розробки поки що під’єднуються лише до цього Mac, а не до %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện bản dựng phát triển chỉ kết nối với máy Mac này, không kết nối với %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "开发版本目前只能连接到这台 Mac，不能连接到 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開發版本目前只能連線到這台 Mac，無法連線到 %@。"
+          }
+        }
+      }
+    },
+    "rd.tab.unavailable.remoteRecord": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جاءت علامة التبويب هذه من جهاز آخر. لا تُفتح علامات تبويب سطح المكتب البعيد إلا على الـ Mac الذي أنشأها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova kartica je došla s drugog računara. Kartice udaljene radne površine otvaraju se samo na Macu koji ih je napravio."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne fane kom fra en anden maskine. Faner med fjernskrivebord åbnes kun på den Mac, der lavede dem."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Tab stammt von einem anderen Rechner. Remote-Desktop-Tabs öffnen sich nur auf dem Mac, der sie erstellt hat."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This tab came from another machine. Remote desktop tabs open only on the Mac that made them."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta pestaña vino de otra máquina. Las pestañas de escritorio remoto solo se abren en el Mac que las creó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet onglet vient d’une autre machine. Les onglets de bureau à distance ne s’ouvrent que sur le Mac qui les a créés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa scheda proviene da un’altra macchina. Le schede del desktop remoto si aprono solo sul Mac che le ha create."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブは別のマシンから来ました。リモートデスクトップのタブは、作成したMacでのみ開きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងនេះមកពីម៉ាស៊ីនផ្សេង។ ផ្ទាំងផ្ទៃតុពីចម្ងាយបើកតែលើ Mac ដែលបានបង្កើតវាប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 탭은 다른 기기에서 왔습니다. 원격 데스크톱 탭은 탭을 만든 Mac에서만 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne fanen kom fra en annen maskin. Faner med eksternt skrivebord åpnes bare på Macen som laget dem."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta karta pochodzi z innego komputera. Karty pulpitu zdalnego otwierają się tylko na Macu, który je utworzył."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta aba veio de outra máquina. Abas de área de trabalho remota abrem só no Mac que as criou."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта вкладка пришла с другой машины. Вкладки удалённого рабочего стола открываются только на том Mac, где их создали."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บนี้มาจากเครื่องอื่น แท็บเดสก์ท็อประยะไกลจะเปิดได้เฉพาะบน Mac ที่สร้างแท็บนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sekme başka bir makineden geldi. Uzak masaüstü sekmeleri yalnızca onları oluşturan Mac'te açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця вкладка надійшла з іншої машини. Вкладки віддаленого робочого столу відкриваються лише на тому Mac, де їх створили."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thẻ này đến từ một máy khác. Thẻ màn hình từ xa chỉ mở trên máy Mac đã tạo ra nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此标签页来自另一台机器。远程桌面标签页只在创建它的 Mac 上打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此分頁來自另一台機器。遠端桌面分頁只會在建立它的 Mac 上開啟。"
+          }
+        }
+      }
+    },
+    "rd.tab.unavailable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سطح المكتب البعيد غير متاح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Udaljena radna površina nije dostupna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjernskrivebord er ikke tilgængeligt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remote Desktop ist nicht verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote desktop is not available"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El escritorio remoto no está disponible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le bureau à distance n’est pas disponible"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il desktop remoto non è disponibile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデスクトップは利用できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទៃតុពីចម្ងាយមិនអាចប្រើបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "원격 데스크톱을 사용할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eksternt skrivebord er ikke tilgjengelig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pulpit zdalny jest niedostępny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A área de trabalho remota não está disponível"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалённый рабочий стол недоступен"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เดสก์ท็อประยะไกลไม่พร้อมใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uzak masaüstü kullanılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Віддалений робочий стіл недоступний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Màn hình từ xa không khả dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "远程桌面不可用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "遠端桌面無法使用"
           }
         }
       }

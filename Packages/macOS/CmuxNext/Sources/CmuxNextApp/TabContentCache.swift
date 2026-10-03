@@ -355,6 +355,7 @@ final class TabContentCache {
         pendingMounts[key] = nil
         hibernation?.forget(key)
         agentDrivenTabs.remove(key)
+        pageRequests.services?.remoteViewPages.forget(key)
         terminals.removeValue(forKey: key)?.close()
         browsers.removeValue(forKey: key)?.close()
         browserTabs.untrack(key)

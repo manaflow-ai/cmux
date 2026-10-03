@@ -1,8 +1,12 @@
 # CmuxNextRemoteView
 
-The remote desktop pane (plans/cmux-next/remote-desktop.md section 7): decode, present, chrome and input capture for one `cmux.rd/1` stream. Transport neutral: the App supplies a `RemoteViewStreamSource` and a `RemoteViewInputSink`. `MockRemoteStreamSource` encodes synthetic frames with VideoToolbox, so the pane runs with no host. Not wired into the app yet.
+The remote desktop pane (plans/cmux-next/remote-desktop.md section 7): decode, present, chrome and input capture for one `cmux.rd/1` stream. Transport neutral: the App supplies a `RemoteViewStreamSource` and a `RemoteViewInputSink`. `MockRemoteStreamSource` encodes synthetic frames with VideoToolbox, so the pane runs with no host.
 
 Debug builds only: `RemoteDesktopPane`, its view and the mock host compile out of Release and NIGHTLY (`RemoteViewAvailability.isAvailable`) until the overlay link token authenticates the viewer's hello claims. The connecting and consent cards say so.
+
+## Tabs
+
+A `remote_view` tab is the store browser record `cmux://remote-view?host=<host>&target=display:<n>|window:<id>|virtual&mode=view|control` (`RemoteViewTabRecord`). `RemoteViewTabPolicy` decides what it shows (plans/cmux-next/remote-desktop.md 7): records from a remote tree never open; Release and NIGHTLY show "not available" (`RemoteViewUnavailableView`); development builds connect only to loopback hosts, and only after a person opened or confirmed the tab (CLI, MCP, agents and restore get a Connect button). Until the in-app transport lands, the host `mock` is the only one that streams.
 
 ## Settings the viewer reads
 

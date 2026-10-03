@@ -73,5 +73,27 @@ nonisolated enum RemoteViewStrings {
     static var reconnect: String { t("rd.action.reconnect", "Reconnect") }
     static var cancel: String { t("rd.action.cancel", "Cancel") }
     static var close: String { t("rd.action.close", "Close") }
+    static var genericTabTitle: String { t("rd.tab.title.generic", "Remote Desktop") }
+    static var unavailableTitle: String { t("rd.tab.unavailable.title", "Remote desktop is not available") }
+    static var unavailableNotInBuild: String {
+        t("rd.tab.unavailable.notInBuild", "This build does not include remote desktop. It is in development builds only for now.")
+    }
+    static func unavailableNoTransport(_ host: String) -> String {
+        String(format: t("rd.tab.unavailable.noTransport", "This build cannot connect to %@ yet. The host “mock” shows a test desktop."), host)
+    }
+    static func unavailableNotLoopback(_ host: String) -> String {
+        String(format: t("rd.tab.unavailable.notLoopback", "Development builds connect only to this Mac for now, not to %@."), host)
+    }
+    static var unavailableRemoteRecord: String {
+        t("rd.tab.unavailable.remoteRecord", "This tab came from another machine. Remote desktop tabs open only on the Mac that made them.")
+    }
+    static func confirmTitle(_ host: String) -> String { String(format: t("rd.tab.confirm.title", "Connect to %@?"), host) }
+    static var confirmDetail: String {
+        t("rd.tab.confirm.detail", "A script, an agent or a restore opened this tab. Nothing connects until you choose Connect.")
+    }
+    static var connect: String { t("rd.action.connect", "Connect") }
+    static var unavailableInvalidAddress: String {
+        t("rd.tab.unavailable.invalidAddress", "This tab's remote desktop address is not valid.")
+    }
     static func accessibilityPane(_ host: String) -> String { String(format: t("rd.a11y.pane", "Remote desktop: %@"), host) }
 }

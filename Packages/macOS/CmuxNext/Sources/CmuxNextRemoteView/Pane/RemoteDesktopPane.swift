@@ -64,11 +64,12 @@ public final class RemoteDesktopPane {
         source: any RemoteViewStreamSource,
         inputSink: (any RemoteViewInputSink)?,
         settings: RemoteDesktopSettings = RemoteDesktopSettings(),
-        presenter: RemotePresenterKind = RemoteViewTunables.presenter.value
+        presenter: RemotePresenterKind = RemoteViewTunables.presenter.value,
+        initialMode: RemoteControlMode = .control
     ) {
         self.source = source
         self.settings = settings
-        state = RemotePaneState(hostName: hostName, interactiveMaxRttMs: settings.interactiveMaxRttMs)
+        state = RemotePaneState(hostName: hostName, requestedMode: initialMode, interactiveMaxRttMs: settings.interactiveMaxRttMs)
         self.presenter = RemoteFramePresenters.make(presenter)
         presenterKind = self.presenter.kind
         view.video.install(self.presenter)
