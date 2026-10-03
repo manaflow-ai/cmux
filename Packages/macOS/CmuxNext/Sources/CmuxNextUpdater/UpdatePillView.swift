@@ -30,6 +30,8 @@ public final class UpdatePillView: NSView {
 
     override public func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    var cornerRadius: CGFloat { surface.cornerRadius }
+
     public var text: String {
         get { label.stringValue }
         set {

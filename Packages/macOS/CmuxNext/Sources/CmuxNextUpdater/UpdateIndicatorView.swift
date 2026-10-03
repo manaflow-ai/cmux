@@ -20,6 +20,12 @@ public final class UpdateIndicatorView: NSView {
     private let glyph = CALayer()
     private let ring = CAShapeLayer()
     private var spinning = false
+    /// The window's backing scale; layers rasterize at it.
+    var backingScale: CGFloat = NSScreen.main?.backingScaleFactor ?? 2
+    var discFrame: CGRect { disc.frame }
+    var ringFrame: CGRect { ring.frame }
+    var ringLineWidth: CGFloat { ring.lineWidth }
+    var layerContentsScales: [CGFloat] { [disc, glyph, ring].map(\.contentsScale) }
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
@@ -61,6 +67,11 @@ public final class UpdateIndicatorView: NSView {
 
     /// The disc's diameter: the rail's icon box, like the account avatar.
     var discDiameter: CGFloat { (min(bounds.width, bounds.height) - Metrics.space2 * 2).rounded() }
+
+    static func discRect(in bounds: CGRect, scale: CGFloat) -> CGRect {
+        let side = (min(bounds.width, bounds.height) - Metrics.space2 * 2).rounded()
+        return CGRect(x: ((bounds.width - side) / 2).rounded(), y: ((bounds.height - side) / 2).rounded(), width: side, height: side)
+    }
 
     override public func layout() {
         super.layout()

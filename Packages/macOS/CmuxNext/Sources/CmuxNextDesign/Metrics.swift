@@ -141,6 +141,9 @@ public struct Metrics {
     public static var panelCornerRadius: CGFloat { MetricTunables.panelCornerRadius.value }
     /// Corner radius for tabs and rows.
     public static var itemCornerRadius: CGFloat { MetricTunables.itemCornerRadius.value }
+    /// Corner radius for a small labeled surface (a note, toast or count
+    /// badge) of `height`: the item radius, never a capsule.
+    public static func chipCornerRadius(height: CGFloat) -> CGFloat { height / 2 }
 
     // MARK: Icons
 
