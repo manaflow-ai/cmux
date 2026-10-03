@@ -348,12 +348,12 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             return
         }
         if let data = dataCache.currentData {
-            apply(data, to: model, includingPlan: false)
+            Self.applyInitialData(data, to: model)
         }
         if let cacheListenerID { dataCache.removeListener(cacheListenerID) }
         cacheListenerID = dataCache.addListener { [weak self, weak model] data in
             guard let self, let model, self.model === model else { return }
-            self.apply(data, to: model, includingPlan: true)
+            Self.apply(data, to: model, includingPlan: true)
         }
         // Signed out: no answer will come, so the Network row must not spin.
         if !dataCache.refresh(), model.supportsNetworkPolicy, model.networkAvailability == .loading {
@@ -361,7 +361,11 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         }
     }
 
-    private func apply(_ data: NewMachineSheetData, to model: NewMachineModel, includingPlan: Bool) {
+    static func applyInitialData(_ data: NewMachineSheetData, to model: NewMachineModel) {
+        apply(data, to: model, includingPlan: false)
+    }
+
+    static func apply(_ data: NewMachineSheetData, to model: NewMachineModel, includingPlan: Bool) {
         if includingPlan, data.hasPlan, model.mode == .newMachine {
             model.applyPlan(activeCount: data.activeCount, limits: data.limits)
         }

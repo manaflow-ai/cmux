@@ -11,6 +11,33 @@ import Testing
 @MainActor
 @Suite("New machine sheet plan readiness")
 struct NewMachineSheetPresenterTests {
+    @Test("initial cached plan fills a model that opened before the panel refresh")
+    func initialCachedPlanIsAppliedBeforePresentation() {
+        let model = NewMachineModel(
+            mode: .newMachine,
+            plan: nil,
+            memoryOptionsMb: [],
+            submit: { _ in true }
+        )
+        #expect(model.supportsSize == false)
+
+        let data = NewMachineSheetData(
+            hasPlan: true,
+            limits: VMPlanLimits(
+                planId: "pro",
+                freeAccessWindowDays: 0,
+                memoryOptionsMb: [4096, 8192]
+            ),
+            activeCount: 0,
+            catalog: nil,
+            catalogFailed: false
+        )
+        NewMachineSheetPresenter.applyInitialData(data, to: model)
+
+        #expect(model.supportsSize)
+        #expect(model.memoryOptions == [4096, 8192])
+    }
+
     @Test("presentation waits for and uses the shared authoritative fleet page")
     func transientFleetMissIsRetried() async {
         var attempts = 0
