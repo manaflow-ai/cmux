@@ -77,9 +77,12 @@ build() {
 
 headers="$out_root/headers"
 rm -rf "$headers"
-mkdir -p "$headers"
-cp "$crate_dir/include/cmux_rd_ffi.h" "$headers/"
-cat > "$headers/module.modulemap" <<'MAP'
+# The module map sits in its own folder: SwiftPM copies every binary target's
+# Headers into one include directory, and GhosttyKit already has a top-level
+# module.modulemap there.
+mkdir -p "$headers/CCmuxRdFFI"
+cp "$crate_dir/include/cmux_rd_ffi.h" "$headers/CCmuxRdFFI/"
+cat > "$headers/CCmuxRdFFI/module.modulemap" <<'MAP'
 module CCmuxRdFFI {
     header "cmux_rd_ffi.h"
     export *
