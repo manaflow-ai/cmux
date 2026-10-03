@@ -65,7 +65,6 @@ struct NewMachineSheetDataCacheTests {
 
         let warmed = await cache.data()
         #expect(warmed?.limits?.memoryOptionsMb == [4096, 8192, 32768])
-        #expect(warmed?.catalog == Self.catalog)
         #expect(backend.pageFetches == 1)
 
         // Presenting reads the ready data synchronously; the fetch count
@@ -113,4 +112,111 @@ struct NewMachineSheetDataCacheTests {
         #expect(bData?.plan?.planId == "pro")
         #expect(cache.readyData?.plan?.planId == "pro")
     }
+    @Test func sizesAreReadyWhileNetworkPresetsAreStillLoading() async {
+        let releaseCatalog = AsyncStream<Void>.makeStream()
+        defer { releaseCatalog.continuation.finish() }
+        let account = Self.scope("first-open")
+        var pageFetches = 0
+        let cache = NewMachineSheetDataCache(
+            currentScope: { account },
+            scopes: { AsyncStream { $0.finish() } },
+            fetchPage: {
+                pageFetches += 1
+                return VMListPage(vms: [], limits: VMPlanLimits(
+                    planId: "pro", freeAccessWindowDays: 0, memoryOptionsMb: [4096, 8192]
+                ))
+            },
+            fetchCatalog: {
+                for await _ in releaseCatalog.stream { break }
+                return Self.catalog
+            }
+        )
+        let data = await cache.data(waitingAtMost: .milliseconds(100))
+        #expect(data?.limits?.memoryOptionsMb == [4096, 8192])
+        #expect(cache.readyData != nil)
+        #expect(data?.catalog == nil)
+        _ = await cache.data(waitingAtMost: .milliseconds(100))
+        #expect(pageFetches == 1)
+    }
+
+    @Test func machineListWithoutLimitsIsNotAReadyPlan() async {
+        let account = Self.scope("missing-plan")
+        let cache = NewMachineSheetDataCache(
+            currentScope: { account },
+            scopes: { AsyncStream { $0.finish() } },
+            fetchPage: { VMListPage(vms: []) },
+            fetchCatalog: { Self.catalog }
+        )
+        _ = await cache.data()
+        #expect(cache.readyData == nil)
+        #expect(cache.currentData?.hasPlan == false)
+    }
+
+    @Test func enablingCloudPreloadsBeforeFirstPresentation() async {
+        let backend = Backend()
+        backend.scope = Self.scope("enable")
+        let center = NotificationCenter()
+        var enabled = false
+        let delivered = AsyncStream<Void>.makeStream()
+        let cache = NewMachineSheetDataCache(
+            currentScope: { backend.scope },
+            scopes: { AsyncStream { $0.finish() } },
+            fetchPage: {
+                backend.pageFetches += 1
+                return VMListPage(vms: [], limits: VMPlanLimits(
+                    planId: "pro", freeAccessWindowDays: 0, memoryOptionsMb: [4096, 8192]
+                ))
+            },
+            fetchCatalog: { Self.catalog },
+            notificationCenter: center,
+            isCloudEnabled: { enabled }
+        )
+        let listener = cache.addListener { data in
+            if data.hasPlan { delivered.continuation.yield(()) }
+        }
+        defer {
+            cache.removeListener(listener)
+            delivered.continuation.finish()
+        }
+        cache.start()
+        #expect(backend.pageFetches == 0)
+        enabled = true
+        center.post(name: .cmuxFeatureFlagsDidChange, object: nil)
+        for await _ in delivered.stream { break }
+        #expect(cache.readyData?.limits?.memoryOptionsMb == [4096, 8192])
+        let firstOpen = await cache.data()
+        #expect(firstOpen?.hasPlan == true)
+        #expect(backend.pageFetches == 1)
+        enabled = false
+        center.post(name: .cmuxFeatureFlagsDidChange, object: nil)
+        #expect(cache.readyData == nil)
+    }
+
+    @Test func failedPlanCanRetryWhileCatalogIsPending() async {
+        let releaseCatalog = AsyncStream<Void>.makeStream()
+        defer { releaseCatalog.continuation.finish() }
+        let account = Self.scope("retry-plan")
+        var attempts = 0
+        let cache = NewMachineSheetDataCache(
+            currentScope: { account },
+            scopes: { AsyncStream { $0.finish() } },
+            fetchPage: {
+                attempts += 1
+                if attempts == 1 { throw URLError(.networkConnectionLost) }
+                return VMListPage(vms: [], limits: VMPlanLimits(
+                    planId: "pro", freeAccessWindowDays: 0, memoryOptionsMb: [4096, 8192]
+                ))
+            },
+            fetchCatalog: {
+                for await _ in releaseCatalog.stream { break }
+                return Self.catalog
+            }
+        )
+        let first = await cache.data(waitingAtMost: .milliseconds(100))
+        #expect(first?.hasPlan != true)
+        let second = await cache.data(waitingAtMost: .milliseconds(100))
+        #expect(second?.limits?.memoryOptionsMb == [4096, 8192])
+        #expect(attempts == 2)
+    }
+
 }

@@ -12,6 +12,20 @@ import Testing
 #endif
 
 @Suite struct CloudTuiManualIOConnectionTests {
+    @Test func sustainedQueuedWritesPreserveOrder() async throws {
+        try await Self.withConnection { connection, peer in
+            // Keep the burst below the 256 KiB protocol bound while exceeding
+            // the usual peer receive buffer, forcing partial writes and EAGAIN.
+            let lines = (0..<200).map {
+                Data(("input-\($0)-" + String(repeating: "x", count: 1_000) + "\n").utf8)
+            }
+            for line in lines { connection.send(line: line) }
+            let expected = lines.reduce(into: Data()) { $0.append($1) }
+            let received = try await Self.blocking { try Self.readExactly(peer, count: expected.count) }
+            #expect(received == expected)
+        }
+    }
+
     @Test func burstSurvivesAConsumerWaitingForAnInputRoundTrip() async throws {
         try await Self.withConnection { connection, peer in
             let chunks = (0..<100).map { Data("\u{1b}[?2026hchunk-\($0)\u{1b}[?2026l".utf8) }
@@ -377,6 +391,22 @@ import Testing
             result.append(byte)
             if byte == 0x0A { return result }
         }
+    }
+
+    static func readExactly(_ descriptor: Int32, count: Int) throws -> Data {
+        var result = Data()
+        result.reserveCapacity(count)
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while result.count < count {
+            let wanted = min(buffer.count, count - result.count)
+            let received = buffer.withUnsafeMutableBytes { raw in
+                Darwin.read(descriptor, raw.baseAddress!, wanted)
+            }
+            if received < 0, errno == EINTR { continue }
+            guard received > 0 else { throw socketError() }
+            result.append(contentsOf: buffer.prefix(received))
+        }
+        return result
     }
 
     /// Blocking peer I/O stays off Swift's cooperative executor and the client's
