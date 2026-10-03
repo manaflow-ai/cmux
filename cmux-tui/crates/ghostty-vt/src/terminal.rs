@@ -3987,82 +3987,16 @@ impl Terminal {
 
     fn cursor_position_escape(&mut self) -> Result<Option<Vec<u8>>> {
         let Some((x, y)) = self.cursor_position() else { return Ok(None) };
-        let origin_mode = self.mode(6, false);
-        if !self.get::<bool>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_PENDING_WRAP).unwrap_or(false) {
-            // The formatter already emits the cursor. An appended CUP would
-            // reinterpret active-area coordinates relative to the scrolling
-            // region while DECOM is enabled.
-            if origin_mode {
-                return Ok(None);
-            }
-            return Ok(Some(
-                format!("\x1b[{};{}H", u32::from(y) + 1, u32::from(x) + 1).into_bytes(),
-            ));
+        // The formatter already emits the cursor, including a pending wrap
+        // (also under DECOM). An appended CUP would clear the pending wrap
+        // and, with DECOM on, reinterpret active-area coordinates relative to
+        // the scrolling region.
+        if self.mode(6, false)
+            || self.get::<bool>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_PENDING_WRAP).unwrap_or(false)
+        {
+            return Ok(None);
         }
-
-        // No standard cursor-positioning sequence can restore pending wrap:
-        // CUP clears it. Reprint the authoritative cursor cell last instead.
-        // The one-cell formatter includes a wide cell's lead grapheme, then
-        // restores active cursor state without moving the cursor again.
-        let cursor_ref = self
-            .grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, x, u64::from(y))
-            .ok_or(Error::InvalidValue)?;
-        let palette = terminal_palette(self.raw, sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)?;
-        let mut grapheme = Vec::new();
-        let cursor_cell = read_grid_ref_cell(&cursor_ref, &palette, &mut grapheme)?;
-        let start_x = if cursor_cell.width == CellWidth::SpacerTail {
-            x.checked_sub(1).ok_or(Error::InvalidValue)?
-        } else {
-            x
-        };
-        let selection = sys::GhosttySelection {
-            size: size_of::<sys::GhosttySelection>(),
-            start: self
-                .grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, start_x, u64::from(y))
-                .ok_or(Error::InvalidValue)?,
-            end: cursor_ref,
-            rectangle: false,
-        };
-        let opts = sys::GhosttyFormatterTerminalOptions {
-            size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
-            emit: sys::GHOSTTY_FORMATTER_FORMAT_VT,
-            unwrap: false,
-            trim: false,
-            extra: sys::GhosttyFormatterTerminalExtra {
-                size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
-                palette: false,
-                modes: false,
-                scrolling_region: false,
-                tabstops: false,
-                pwd: false,
-                keyboard: false,
-                screen: sys::GhosttyFormatterScreenExtra {
-                    size: size_of::<sys::GhosttyFormatterScreenExtra>(),
-                    cursor: false,
-                    style: true,
-                    hyperlink: true,
-                    protection: true,
-                    kitty_keyboard: true,
-                    charsets: true,
-                },
-            },
-            selection: &selection,
-        };
-        let mut suffix = if origin_mode {
-            // The main formatter leaves the cursor at the authoritative cell.
-            // Move only to a wide glyph's lead cell, using a relative motion
-            // whose meaning is independent of the scrolling-region origin.
-            let columns_left = x.saturating_sub(start_x);
-            if columns_left == 0 {
-                Vec::new()
-            } else {
-                format!("\x1b[{}D", u32::from(columns_left)).into_bytes()
-            }
-        } else {
-            format!("\x1b[{};{}H", u32::from(y) + 1, u32::from(start_x) + 1).into_bytes()
-        };
-        suffix.extend_from_slice(&self.format(opts)?);
-        Ok(Some(suffix))
+        Ok(Some(format!("\x1b[{};{}H", u32::from(y) + 1, u32::from(x) + 1).into_bytes()))
     }
 
     fn vt_replay_segment_options(
