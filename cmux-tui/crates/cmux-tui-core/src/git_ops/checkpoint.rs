@@ -210,8 +210,7 @@ fn finish(
     store.save(&pending.draft).map_err(|error| io_failed(OPERATION, &error))?;
     let value = serde_json::to_value(&pending.draft.record).expect("records serialize");
     let key = &pending.idempotency_key;
-    let reply =
-        ledger::commit(mux, actor, key, OPERATION, &pending.fingerprint, &value, replayed)?;
+    let reply = ledger::commit(mux, actor, key, OPERATION, &pending.fingerprint, &value, replayed)?;
     // A leftover entry only costs a lookup: the ledger now answers the key.
     let _ = store.finish_pending(key);
     Ok(reply)

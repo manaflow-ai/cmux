@@ -1009,8 +1009,8 @@ impl WorkspaceRegistry {
                             stored_result_json,
                             i64::try_from(previous_revision)
                                 .context("resource revision exceeds SQLite range")?,
-                                mutation_actor_json(&mutation.actor),
-                            ],
+                            mutation_actor_json(&mutation.actor),
+                        ],
                     )?;
                     prune_resource_mutations(&tx)?;
                     tx.commit()?;

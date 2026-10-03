@@ -7,8 +7,8 @@
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
-use cmux_local_auth::launch_credential::{Claims, LaunchKeys, VerifyError};
 use cmux_local_auth::Actor;
+use cmux_local_auth::launch_credential::{Claims, LaunchKeys, VerifyError};
 
 use super::*;
 
@@ -53,7 +53,9 @@ impl LaunchIdentity {
                 if let Some(path) = path.as_deref()
                     && let Err(error) = write_keys(path, &keys)
                 {
-                    eprintln!("cmux-tui: launch keys were not saved ({error}); they last this run only");
+                    eprintln!(
+                        "cmux-tui: launch keys were not saved ({error}); they last this run only"
+                    );
                 }
                 keys
             }
@@ -143,9 +145,8 @@ impl Mux {
         // `validation.invalid` on field `credential`, reason `credential_*`:
         // the request is refused before any owner sees it, never retried
         // as the user.
-        let refuse = |reason: &'static str| {
-            ResourceError::validation_invalid(Some("credential"), reason)
-        };
+        let refuse =
+            |reason: &'static str| ResourceError::validation_invalid(Some("credential"), reason);
         let Some(credential) = credential.filter(|credential| !credential.is_empty()) else {
             return Ok(Actor::local_user());
         };
@@ -167,10 +168,7 @@ impl Mux {
 }
 
 fn unix_seconds() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_secs())
-        .unwrap_or(0)
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|elapsed| elapsed.as_secs()).unwrap_or(0)
 }
 
 fn random_key() -> anyhow::Result<[u8; 32]> {

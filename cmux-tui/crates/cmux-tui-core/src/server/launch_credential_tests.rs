@@ -58,14 +58,15 @@ fn a_terminal_credential_on_the_local_socket_stamps_the_terminal() {
     let mux = Mux::new_for_test("launch-credential-wire", crate::SurfaceOptions::default());
     let surface = mux.new_workspace(None, None).unwrap();
     let terminal = surface.terminal_public_id().cloned().unwrap();
-    let workspace = crate::resource_api::public_session_snapshot(&mux).unwrap()["workspaces"][0]
-        ["id"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    let workspace =
+        crate::resource_api::public_session_snapshot(&mux).unwrap()["workspaces"][0]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
     let credential = mux.mint_terminal_credential(&terminal).unwrap();
 
-    let reply = send(&mux, ClientTransport::Unix, rename("by-agent", &workspace, Some(&credential)));
+    let reply =
+        send(&mux, ClientTransport::Unix, rename("by-agent", &workspace, Some(&credential)));
     assert_eq!(reply["ok"], true, "{reply}");
     let actor: cmux_local_auth::Actor =
         serde_json::from_str(&actor_of(&mux, "by-agent").unwrap()).unwrap();
@@ -83,11 +84,11 @@ fn a_bad_credential_or_a_remote_one_is_refused_before_any_write() {
     let mux = Mux::new_for_test("launch-credential-refuse", crate::SurfaceOptions::default());
     let surface = mux.new_workspace(None, None).unwrap();
     let terminal = surface.terminal_public_id().cloned().unwrap();
-    let workspace = crate::resource_api::public_session_snapshot(&mux).unwrap()["workspaces"][0]
-        ["id"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    let workspace =
+        crate::resource_api::public_session_snapshot(&mux).unwrap()["workspaces"][0]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
     let credential = mux.mint_terminal_credential(&terminal).unwrap();
     let mut tampered = credential.clone();
     tampered.pop();
