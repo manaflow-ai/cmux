@@ -104,6 +104,7 @@ final class SidebarRailView: NSView {
 
     private func makeItem(_ id: LayoutItemID) -> SidebarItemRowView {
         let view = SidebarItemRowView()
+        view.isRailButton = true
         view.onPress = { [weak self] in self?.onActivate?(id) }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
@@ -116,6 +117,7 @@ final class SidebarRailView: NSView {
 
     private func makeMore() -> SidebarItemRowView {
         let view = SidebarItemRowView()
+        view.isRailButton = true
         view.onPress = { [weak self, weak view] in
             guard let self, let view else { return }
             overflowMenu().popUp(positioning: nil, at: NSPoint(x: view.bounds.maxX, y: view.bounds.minY), in: view)

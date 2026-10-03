@@ -79,10 +79,10 @@ final class SidebarBridge {
         guard let windowState = state else { return }
         observation = Task { [weak self] in
             // `state.id` is read inside: the launch window adopts a saved id.
-            for await (sections, launching) in Observations({
+            for await (sections, launching, failed) in Observations({
                 Self.liveSections(machines, registry: registry, window: windowState)
             }) {
-                self?.show(sections, launching: launching)
+                self?.show(sections, launching: launching, failed: failed)
             }
         }
         profileObservation = Task { [weak self] in
@@ -132,13 +132,13 @@ final class SidebarBridge {
             model.profiles = saved.sidebarProfiles
             model.activeProfileID = saved.sidebarActiveProfileID
         }
-        let (sections, launching) = Self.liveSections(services.machines, registry: windows.registry, window: state)
-        show(sections, launching: launching)
+        let (sections, launching, failed) = Self.liveSections(services.machines, registry: windows.registry, window: state)
+        show(sections, launching: launching, failed: failed)
     }
 
     /// Shows `live` with loading sections filled from the seed, then saves it.
-    private func show(_ live: [SidebarRowSection], launching: Bool) {
-        let sections = seed.merge(live, launching: launching)
+    private func show(_ live: [SidebarRowSection], launching: Bool, failed: Set<MachineID>) {
+        let sections = seed.merge(live, launching: launching, failed: failed)
         if model.sections != sections { model.sections = sections }
         if !launching || sections.contains(where: { $0.workspaces.contains { $0.rowState != .placeholder } }) { markReadyForReveal() }
         recordSnapshot()
@@ -180,14 +180,16 @@ final class SidebarBridge {
         services.launchReveal.markReady(.sidebar)
     }
 
-    /// The window's live sidebar and whether the app is still launching
-    /// (its saved rows stand in until then). Rows from the daemon's launch
-    /// snapshot are `.stale` until the live tree replaces them.
+    /// The window's live sidebar, whether the app is still launching (its
+    /// saved rows stand in until then), and the Cloud machines whose first
+    /// connection gave up (their launch placeholders end). Rows from the
+    /// daemon's launch snapshot are `.stale` until the live tree replaces them.
     static func liveSections(_ machines: MachineRegistry, registry: WindowRegistryStore,
-                             window: WindowState) -> ([SidebarRowSection], Bool) {
+                             window: WindowState) -> ([SidebarRowSection], Bool, Set<MachineID>) {
         var sections = Self.sections(machines, members: registry.members(of: window.id), profile: window.profileID)
         if machines.local.store.isProvisional { sections = SidebarSeed.stale(sections) }
-        return (sections, isLaunching(machines.local, registry: registry))
+        let failed = Set(machines.cloud.filter { $0.daemon.startup.isUnavailable }.map { MachineID($0.daemon.machineID) })
+        return (sections, isLaunching(machines.local, registry: registry), failed)
     }
 
     /// Until the saved windows are restored from the live tree, unless the

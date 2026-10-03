@@ -1,0 +1,31 @@
+/* The header's summary button and popover (summary/SummaryButton.tsx): a menu surface of titled lists. Rows are 28px, text truncates, every control has the theme's hover, press and focus steps on the Motion hover fade. */
+.acpmux-summary{position:relative;flex:none;display:flex}
+.acpmux-summary-button{display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:6px;background:none;color:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-summary-button:hover,.acpmux-summary-button[aria-expanded="true"]{background:color-mix(in srgb,currentColor 8%,transparent)}
+.acpmux-summary-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
+.acpmux-summary-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+.acpmux-summary-popover{position:absolute;top:calc(100% + 6px);right:0;left:auto;bottom:auto;margin:0;border:0;z-index:5;width:288px;max-height:min(540px,70vh);overflow:auto;padding:4px 6px 6px;box-sizing:border-box;border-radius:12px;background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 10px 30px var(--agent-shadow,rgb(0 0 0/.35));color:var(--agent-text);font-size:13px;line-height:18px;outline:none}
+.acpmux-summary-section+.acpmux-summary-section{margin-top:4px}
+.acpmux-summary-title{margin:0;padding:8px 8px 4px;color:var(--agent-muted);font-size:12px;font-weight:500;line-height:16px}
+.acpmux-summary-list{margin:0;padding:0;list-style:none}
+.acpmux-summary-row{display:flex;align-items:center;gap:8px;width:100%;height:28px;padding:0 8px;box-sizing:border-box;border:0;border-radius:7px;background:none;color:inherit;font:inherit;text-align:left;text-decoration:none;cursor:default}
+.acpmux-summary-row>svg{flex:none;color:var(--agent-muted)}
+.acpmux-summary-text{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.acpmux-summary-meta{flex:none;color:var(--agent-muted);font-size:12px;font-variant-numeric:tabular-nums}
+.acpmux-summary-link,.acpmux-summary-more{transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-summary-link:hover,.acpmux-summary-more:hover{background:var(--acpmux-menu-hover)}
+.acpmux-summary-link:active,.acpmux-summary-more:active{background:color-mix(in srgb,var(--agent-text) 18%,var(--acpmux-base))}
+.acpmux-summary-link:focus-visible,.acpmux-summary-more:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
+.acpmux-summary-link:disabled{color:var(--agent-muted)}
+.acpmux-summary-link[data-state=open]>svg{color:var(--agent-success,var(--acpmux-add,#3fb950))}
+.acpmux-summary-link[data-state=merged]>svg{color:var(--agent-ansi-5,#a371f7)}
+.acpmux-summary-link[data-state=closed]>svg{color:var(--agent-danger)}
+.acpmux-summary-more{display:block;width:100%;height:26px;padding:0 8px;border:0;border-radius:7px;background:none;color:var(--agent-muted);font:inherit;font-size:12px;text-align:left;cursor:default}
+.acpmux-summary-stack{flex:none;display:flex;padding-left:4px}
+.acpmux-summary-dot{width:14px;height:14px;margin-left:-4px;box-sizing:border-box;border-radius:50%;border:2px solid var(--acpmux-menu-bg);background:var(--agent-ansi-4,#58a6ff)}
+.acpmux-summary-dot[data-tone="1"]{background:var(--agent-ansi-2,#3fb950)}
+.acpmux-summary-dot[data-tone="2"]{background:var(--agent-ansi-6,#39c5cf)}
+.acpmux-summary-dot[data-tone="3"]{background:var(--agent-ansi-5,#a371f7)}
+.acpmux-summary-dot[data-state=failed]{background:var(--agent-danger)}
+.acpmux-summary-dot[data-state=running]{box-shadow:0 0 0 1px var(--agent-accent)}
+.acpmux-summary-empty{margin:0;padding:10px 8px;color:var(--agent-muted);font-size:12px;line-height:16px}

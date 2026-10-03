@@ -57,6 +57,14 @@ const scenarios = {
     pane: { x: 0, y: 0, width: 1200, height: 1000 },
     anchor: { text: "The reconnect test fails about one run in five", top: 72 },
   },
+  // A capture: a turn that fetched pages, ran subagents, edited files, opened and merged pull
+  // requests and scheduled wakeups, with the header's summary popover open over it.
+  summary: {
+    fixture: "summary-turn.json",
+    scale: 2,
+    pane: { x: 0, y: 0, width: 1200, height: 800 },
+    open: ".acpmux-summary-button",
+  },
   // The mock daemon's seeded workspace as it opens (mockFixture.ts): the populated sidebar
   // and its worked session, with no recorded script or prompt. A whole-window capture.
   workspace: {
@@ -154,6 +162,10 @@ async function run(browser, name, scenario) {
     // A scenario without its own anchor (workspace) scrolls `--anchor` text to the top of the pane.
     const anchor = anchorText ? { top: 0, ...scenario.anchor, text: anchorText } : scenario.anchor;
     if (anchor) await scrollToAnchor(page, { ...anchor, edge: !referencePath || Boolean(anchorText) });
+    if (scenario.open) {
+      await page.click(scenario.open);
+      await page.waitForSelector(`${scenario.open}[aria-expanded="true"]`);
+    }
     await settle(page);
     const shot = PNG.sync.read(await page.screenshot({ animations: "disabled", caret: "hide" }));
     if (errors.length) throw new Error(`${name}: the page threw: ${errors.join("; ")}`);

@@ -34,7 +34,7 @@ public final class SidebarRailColumnView: NSView {
         addSubview(rail)
         // task-owner: this view (cancelled in deinit); event-driven (Observation)
         observation = Task { [weak self, model] in
-            for await _ in Observations({ (model.layout, model.itemInfo, model.suppressedApps, model.activeProfileID, Metrics.sidebarRowHeight, Metrics.lineWidth(Metrics.dividerThickness)) }) {
+            for await _ in Observations({ (model.layout, model.itemInfo, model.suppressedApps, model.activeProfileID, Metrics.iconSize, Metrics.lineWidth(Metrics.dividerThickness)) }) {
                 self?.refresh()
             }
         }
@@ -56,9 +56,10 @@ public final class SidebarRailColumnView: NSView {
     }
 
     /// Sizes from the design tokens, read at layout time so density and
-    /// `appearance.borders` apply live.
+    /// `appearance.borders` apply live. Like the Codex rail: tiles twice the
+    /// icon size (32pt compact), a grid step apart.
     public static func metrics(width: CGFloat, topInset: CGFloat) -> SidebarRailMetrics {
-        SidebarRailMetrics(width: width, buttonSize: Metrics.sidebarRowHeight + Metrics.space2, buttonGap: Metrics.space1,
+        SidebarRailMetrics(width: width, buttonSize: Metrics.iconSize * 2 + Metrics.space2, buttonGap: Metrics.space4,
                            sectionGap: Metrics.space2, lineWidth: Metrics.lineWidth(Metrics.dividerThickness),
                            lineInset: Metrics.space3, topInset: topInset, bottomInset: Metrics.space3)
     }
