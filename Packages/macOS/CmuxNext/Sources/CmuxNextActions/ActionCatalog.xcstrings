@@ -28958,127 +28958,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open cmux.json"
+            "value": "Open cmux-next.json"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux.json を開く"
+            "value": "cmux-next.json を開く"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "فتح cmux.json"
+            "value": "فتح cmux-next.json"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Otvori cmux.json"
+            "value": "Otvori cmux-next.json"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Åbn cmux.json"
+            "value": "Åbn cmux-next.json"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux.json öffnen"
+            "value": "cmux-next.json öffnen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abrir cmux.json"
+            "value": "Abrir cmux-next.json"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ouvrir cmux.json"
+            "value": "Ouvrir cmux-next.json"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Apri cmux.json"
+            "value": "Apri cmux-next.json"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បើក cmux.json"
+            "value": "បើក cmux-next.json"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux.json 열기"
+            "value": "cmux-next.json 열기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Åpne cmux.json"
+            "value": "Åpne cmux-next.json"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Otwórz cmux.json"
+            "value": "Otwórz cmux-next.json"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Abrir cmux.json"
+            "value": "Abrir cmux-next.json"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Открыть cmux.json"
+            "value": "Открыть cmux-next.json"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เปิด cmux.json"
+            "value": "เปิด cmux-next.json"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux.json’u Aç"
+            "value": "cmux-next.json’u Aç"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Відкрити cmux.json"
+            "value": "Відкрити cmux-next.json"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mở cmux.json"
+            "value": "Mở cmux-next.json"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "打开 cmux.json"
+            "value": "打开 cmux-next.json"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "開啟 cmux.json"
+            "value": "開啟 cmux-next.json"
           }
         }
       }

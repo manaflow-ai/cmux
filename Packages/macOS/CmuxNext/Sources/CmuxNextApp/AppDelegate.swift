@@ -118,10 +118,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// cmux.json settings (density, shortcut overrides) and the tagged
+    /// cmux-next.json settings (density, shortcut overrides) and the tagged
     /// control socket (`action.list/describe/run`) over the same registry.
     private func startSettingsAndControl(registry: ActionRegistry) {
-        let settings = SettingsController(registry: registry)
+        let fileURL: URL
+        do {
+            fileURL = try CmuxConfigFile.prepareDefaultURL()
+        } catch {
+            logger.error("cmux-next config bootstrap failed: \(String(describing: error), privacy: .public)")
+            fileURL = CmuxConfigFile.defaultURL()
+        }
+        let settings = SettingsController(registry: registry, fileURL: fileURL)
         settings.applyManagedFeaturesNow()
         ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloud.auth).start()
         self.settings = settings
