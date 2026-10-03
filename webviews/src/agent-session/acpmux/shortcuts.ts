@@ -13,6 +13,8 @@ export const SHORTCUT_ACTIONS = {
   permissionRevoke: "agentPane.permission.revoke",
   permissionRefresh: "agentPane.permission.refresh",
   permissionExpand: "agentPane.permission.expand",
+  /// Copy Tab Link: on an agent tab it copies the chat's link, as the header's Copy chat link does.
+  copyTabLink: "palette.copySurfaceLink",
 } as const;
 
 /// Keycaps by action id, such as `{"agentPane.searchChats": "⌘K"}`. An action without a

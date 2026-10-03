@@ -20,6 +20,9 @@ import Testing
             "agentPane.permission.allowOnce": "⌥⌘1", "agentPane.permission.allowChat": "⌥⌘2",
             "agentPane.permission.deny": "⌥⌘3", "agentPane.permission.expand": "⌥⌘4",
         ])
+        // Copy chat link shows Copy Tab Link's key once the user binds one.
+        registry.setShortcutOverride(Shortcut("l", modifiers: [.command, .option]), for: "palette.copySurfaceLink")
+        #expect(AgentPaneShortcuts.read(registry).labels["palette.copySurfaceLink"] == "⌥⌘L")
     }
 
     @Test func handsTheLabelsToThePageBridge() throws {

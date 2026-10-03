@@ -47,6 +47,19 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// Where the page is shown when it is not a pane tab (`"quick"`: the
     /// quick panel's compact composer). Pages that predate it ignore it.
     public var surface: AgentPaneSurface?
+    /// This build's URL scheme (`cmux`, `cmux-dev`, `cmux-dev-<tag>`), for
+    /// the links the page copies (`links.ts` `sessionLink`). Pages that
+    /// predate it ignore it.
+    public var linkScheme: String?
+    /// True for a tab a `cmux://session/<id>` link opened: `sessionId`
+    /// must exist. When the daemon has no such session the page says so
+    /// instead of falling back to the most recent one, and marks nothing
+    /// seen. Pages that predate it fall back as before.
+    public var sessionMustExist: Bool?
+    /// The turn a `cmux://session/<id>#turn-<turnId>` link names: the page
+    /// scrolls to it once its row renders, and gives up quietly after a few
+    /// seconds. Handed out once.
+    public var revealTurn: String?
 
     public init(transport: Transport, endpoint: String? = nil, token: String? = nil, sessionId: String? = nil, newSession: Bool? = nil) {
         protocolVersion = Self.currentVersion

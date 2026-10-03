@@ -204,19 +204,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Web, `ssh:` and `x-man-page:` links (cmux as their handler) open as
-    /// tabs; `<scheme>://auth-callback` from the browser fallback of
-    /// sign-in goes to Cloud auth.
+    /// tabs; links in this build's scheme (`cmux://tab/…`) run `link.open`;
+    /// `<scheme>://auth-callback` from the browser fallback of sign-in goes
+    /// to Cloud auth.
     @objc private func handleURLEvent(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
         guard let text = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue, let url = URL(string: text) else { return }
-        if services?.externalOpen.open(url) == true { return }
-        let cloud = services?.cloud
-        Task { _ = await cloud?.auth.handleCallback(url) }
+        routeOpenedURL(url)
     }
 
     /// Files opened with cmux (scripts, folders, HTML) and URLs delivered
-    /// without an Apple event.
+    /// without an Apple event, routed like the Apple event's.
     func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls { services?.externalOpen.open(url) }
+        for url in urls { routeOpenedURL(url) }
+    }
+
+    /// One route for every URL macOS hands cmux (`OpenedURLRouting`): the
+    /// sign-in callback to Cloud auth first, in every form auth accepts,
+    /// then `ExternalOpenRouter`.
+    private func routeOpenedURL(_ url: URL) {
+        guard let services else { return }
+        let auth = services.cloud.auth
+        let destination = OpenedURLRouting.route(url, isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) })
+        guard destination == .auth else { return }
+        Task { _ = await auth.handleCallback(url) }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

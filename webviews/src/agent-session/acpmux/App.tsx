@@ -47,6 +47,8 @@ import { DATE, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conve
 import { DateLine } from "./conversation/DateLine";
 import { SearchChats } from "./SearchChats";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
+import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
+import { CopyChatLink } from "./CopyChatLink";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
 import { HostError } from "./HostError";
@@ -87,6 +89,9 @@ declare global {
       command?(name: string): void;
       /// The app's shortcuts as the user bound them, keyed by action id (shortcuts.ts).
       applyShortcuts?(labels: Record<string, string>): void;
+      /// Scrolls to a turn a `cmux://session/<id>#turn-<turnId>` link names (links.ts), once its row
+      /// renders; gives up quietly after a few seconds.
+      revealTurn?(turnId: string): void;
     };
     cmuxAcpmuxRegistry?: {
       register(
@@ -980,6 +985,9 @@ function AcpmuxPane() {
       applyShortcuts(labels) {
         setShortcuts(readShortcuts(labels));
       },
+      revealTurn(turnId) {
+        void revealTurnWhenShown(turnId);
+      },
       applyCustomization(customization) {
         if ("themeCSS" in customization) {
           let style = document.getElementById("acpmux-user-theme") as HTMLStyleElement | null;
@@ -1040,6 +1048,9 @@ function AcpmuxPane() {
           handoffStrings?: unknown;
           checkpointStrings?: unknown;
           surface?: unknown;
+          linkScheme?: unknown;
+          sessionMustExist?: boolean;
+          revealTurn?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         if (!reconnect) setSurface(readSurface(host.surface));
@@ -1054,6 +1065,8 @@ function AcpmuxPane() {
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
         // Mock mode runs this same client against an in-page daemon.
         const mock = host.transport === "mock";
+        // Links copy in this build's scheme; only the hostless mock page falls back to Release's.
+        setLinkScheme(host.linkScheme, mock ? FALLBACK_LINK_SCHEME : undefined);
         if (mock)
           setCheckpointVariant(
             new URLSearchParams(window.location.search).get("checkpointVariant") === "expanded"
@@ -1158,6 +1171,8 @@ function AcpmuxPane() {
         client.snapshot();
         // A resumed chat is the tab's session from the start, so restoring the tab reopens it.
         if (client.adopted) void persistSession(client.adopted);
+        // A `#turn-<turnId>` link that opened this tab: scroll once the turn's row renders.
+        if (typeof host.revealTurn === "string") void revealTurnWhenShown(host.revealTurn);
         // Onboarding's first task runs without a Send press, once. If the chat cannot start,
         // the prompt waits in the composer instead of vanishing.
         const prompt = pendingPrompt;
@@ -1397,6 +1412,7 @@ function AcpmuxPane() {
                     {header.status && <span className="acpmux-status">{header.status}</span>}
                   </div>
                   <div className="acpmux-handoff-header-tools">
+                    <CopyChatLink sessionId={snapshot.sessionId} />
                     {checkpoints.supported && (
                       <button type="button" className="acpmux-checkpoint-open" onClick={checkpoints.show}>
                         {checkpointLabels.createCheckpoint}
@@ -1421,6 +1437,11 @@ function AcpmuxPane() {
                   </div>
                 </header>
                 {!diffView && checkpoints.review}
+                {snapshot.missingSession && (
+                  <p className="acpmux-link-missing" role="alert">
+                    {t("link.sessionMissing")}
+                  </p>
+                )}
                 {!reviewing && snapshot.handoff?.error && (
                   <p className="acpmux-handoff-error" role="alert">
                     {snapshot.handoff.error}

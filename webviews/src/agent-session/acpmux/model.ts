@@ -109,6 +109,9 @@ export type AcpmuxSnapshot = {
   canLoadOlder: boolean;
   /** The agent's slash commands, for the composer's `/` menu. */
   commands?: SlashCommand[];
+  /** A `cmux://session/<id>` link named this session and the daemon has none: the pane says so
+   * instead of showing another chat. Unset once a session is selected. */
+  missingSession?: string;
 };
 
 export type RowChange = { added: AcpmuxRow[]; updated: AcpmuxRow[]; removed: string[] };

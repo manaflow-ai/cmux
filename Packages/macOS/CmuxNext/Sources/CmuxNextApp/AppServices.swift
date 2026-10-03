@@ -32,6 +32,9 @@ final class AppServices {
     /// selection, shown workspace or key window (true outside action runs:
     /// direct UI gestures are the user's). Set by `ActionRouting`.
     var viewChangeAllowed = true
+    /// Brings a window forward for a jump (`revealTab`, a `cmux://` link).
+    /// Tests replace it to record the intent without ordering windows in.
+    var showJumpWindow: @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
     private(set) var cloud: CloudService!
     /// SSH machines (Connect to Machine…).
     private(set) var ssh: SSHService!
@@ -136,7 +139,7 @@ final class AppServices {
     /// Browser profiles: records, the new-tab cascade, each tab's store.
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
-    private(set) lazy var agentTabs = AgentTabStore(tag: environment.tag, registry: registry)
+    private(set) lazy var agentTabs = AgentTabStore(tag: environment.tag, registry: registry, linkScheme: linkScheme)
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
     private(set) lazy var quickComposer = makeQuickComposer()
     /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps
@@ -280,7 +283,11 @@ final class AppServices {
         for (workspace, _) in machines.allWorkspaces {
             for screen in workspace.screens {
                 for pane in screen.panes {
-                    if let tab = pane.tabs.first(where: { $0.id == id }) { return (tab, pane) }
+                    // A tab first seen without a `tab_` resource id keeps
+                    // its first id; links name it by the resource id.
+                    if let tab = pane.tabs.first(where: { $0.id == id || $0.snapshot.tabResourceID?.rawValue == id }) {
+                        return (tab, pane)
+                    }
                 }
             }
         }

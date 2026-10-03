@@ -162,6 +162,9 @@ public nonisolated enum AgentPaneReply {
         if let prompt = handshake.prompt { value["prompt"] = prompt }
         if let adopt = handshake.adopt { value["adopt"] = adopt.reply }
         if let surface = handshake.surface { value["surface"] = surface.rawValue }
+        if let linkScheme = handshake.linkScheme { value["linkScheme"] = linkScheme }
+        if let sessionMustExist = handshake.sessionMustExist { value["sessionMustExist"] = sessionMustExist }
+        if let revealTurn = handshake.revealTurn { value["revealTurn"] = revealTurn }
         value["handoffStrings"] = AgentPaneHandoffStrings().values
         value["checkpointStrings"] = AgentPaneCheckpointStrings().values
         return success(value)

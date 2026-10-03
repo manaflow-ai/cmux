@@ -8207,6 +8207,17 @@
       "id" : "app.unhide",
       "mcp" : "offered",
       "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "link open",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "link.open",
+      "mcp" : "offered",
+      "palette" : "offered"
     }
   ],
   "version" : 1
