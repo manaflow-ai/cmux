@@ -76,6 +76,28 @@ struct CloudMachineOrderingTests {
         #expect(fixture.base.provider.refreshCount == 0)
     }
 
+    @Test("Machines under the Cloud Machines section reorder by drag", arguments: [false, true])
+    func sectionedDrag(toEnd: Bool) throws {
+        let fixture = CloudMachineOrderingFixture(sectioned: true)
+        defer { fixture.close() }
+        let coordinator = fixture.coordinator
+        let outline = try #require(coordinator.outlineView)
+        let section = try #require(fixture.section)
+        let drag = try fixture.begin(toEnd ? "a" : "d")
+        // Between two machines AppKit proposes the section with a child index.
+        let index = toEnd ? 4 : 0
+        #expect(coordinator.outlineView(outline, validateDrop: drag.info,
+            proposedItem: section, proposedChildIndex: index) == .move)
+        #expect(coordinator.outlineView(outline, acceptDrop: drag.info, item: section, childIndex: index))
+        #expect(fixture.order == (toEnd ? ["b", "c", "d", "a"] : ["d", "a", "b", "c"]))
+        #expect(coordinator.nodes.first?.id == section.id, "machines stay under the section")
+        #expect(fixture.machines.contains { if case .machineEndSpacer = $0.kind { return true }; return false },
+                "the section keeps its closing gap")
+        try fixture.end(drag)
+        let restored = CloudMachinePinStore(defaults: fixture.base.defaults, scopeProvider: { "user:a|team:one" })
+        #expect(restored.orderedMachineIDs(["a", "b", "c", "d"]) == fixture.order)
+    }
+
     @Test("Crossing the pin boundary clamps the move without drawing a hint", arguments: [false, true])
     func pinBoundary(pinnedSource: Bool) throws {
         let fixture = CloudMachineOrderingFixture()
