@@ -105,6 +105,16 @@ final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
 
     var systemWideRefusals: Set<ActionID> { services.globalHotKeys.conflicts }
 
+    /// Escape in the focused Settings page closes that page tab. Cmd-W uses
+    /// the shared close-tab action path, so both gestures remove the same
+    /// internal page and leave no popup behind.
+    func closeSettingsPane() {
+        guard let pane = services.windows.active?.focusedPane,
+              let selected = pane.stripModel.selectedID,
+              LocalPageTab.page(of: selected.rawValue) == .settings else { return }
+        pane.close([selected])
+    }
+
     var rooms: [SettingsListRow]? {
         let local = services.machines.local
         guard local.supports(DaemonCapabilities.shared.profiles) else { return nil }
