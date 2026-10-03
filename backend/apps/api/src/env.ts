@@ -135,6 +135,8 @@ export interface Env {
    * until Lawrence sets the value (Stripe TEST only). Missing = 0 = no metered run may start.
    */
   readonly AUTOMATION_CAP_CEILING_USD?: string
+  /** Worker Loader (Dynamic Workers): Tier 1 code automations (code-run.ts). Absent = code runs fail with body.unsupported. */
+  readonly LOADER?: WorkerLoader
   /** code.storage organization for team code repositories (decisions A12, C1); staging and development share one (A2). */
   readonly CODE_STORAGE_ORG?: string
   /** Secret: PKCS#8 PEM of that organization's ES256 key. Code automations refuse to pin without it. */

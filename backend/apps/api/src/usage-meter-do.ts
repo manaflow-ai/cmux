@@ -1,7 +1,7 @@
 import type { Principal } from "@cmux/ownership"
 import { UsageRecord, type Meter, type UsageSummary } from "@cmux/protocol"
 import { Schema } from "effect"
-import { ceilingUsd, METERS, summarize, usageDomain, utcMonth, type UsageState } from "./domains/usage.ts"
+import { ceilingUsd, MONEY_METERS, recordMicros, METERS, summarize, usageDomain, utcMonth, type MeterCounter, type UsageState } from "./domains/usage.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 
@@ -38,16 +38,19 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
       key TEXT PRIMARY KEY, meter TEXT NOT NULL, quantity REAL NOT NULL, month TEXT NOT NULL, source TEXT NOT NULL,
       run TEXT, automation TEXT, step TEXT, attempt INTEGER, commit_sha TEXT, observed_at INTEGER NOT NULL, recorded_at INTEGER NOT NULL)`)
     ctx.storage.sql.exec(`CREATE INDEX IF NOT EXISTS usage_ledger_recorded ON usage_ledger (recorded_at)`)
-    ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS usage_month (month TEXT NOT NULL, meter TEXT NOT NULL, quantity REAL NOT NULL, PRIMARY KEY (month, meter))`)
+    // usd_micros: integer micro-dollars, the only money column (summed exactly).
+    ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS usage_month (month TEXT NOT NULL, meter TEXT NOT NULL, quantity REAL NOT NULL, usd_micros INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (month, meter))`)
+    const cols = ctx.storage.sql.exec<{ name: string }>(`PRAGMA table_info(usage_month)`).toArray()
+    if (!cols.some((c) => c.name === "usd_micros")) ctx.storage.sql.exec(`ALTER TABLE usage_month ADD COLUMN usd_micros INTEGER NOT NULL DEFAULT 0`)
   }
 
   private ceiling() {
     return ceilingUsd(this.env.AUTOMATION_CAP_CEILING_USD)
   }
 
-  private counters(month: string): Map<Meter, number> {
-    const rows = this.ctx.storage.sql.exec<{ meter: string; quantity: number }>(`SELECT meter, quantity FROM usage_month WHERE month = ?`, month).toArray()
-    return new Map(rows.filter((r) => (METERS as ReadonlyArray<string>).includes(r.meter)).map((r) => [r.meter as Meter, Number(r.quantity)]))
+  private counters(month: string): Map<Meter, MeterCounter> {
+    const rows = this.ctx.storage.sql.exec<{ meter: string; quantity: number; usd_micros: number }>(`SELECT meter, quantity, usd_micros FROM usage_month WHERE month = ?`, month).toArray()
+    return new Map(rows.filter((r) => (METERS as ReadonlyArray<string>).includes(r.meter)).map((r) => [r.meter as Meter, { quantity: Number(r.quantity), usd_micros: Number(r.usd_micros) }]))
   }
 
   private summaryFor(entity: string, now: number): UsageSummary {
@@ -92,6 +95,11 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
           continue
         }
         const v = r.value
+        // Count meters are whole units: a fraction is a harness bug, never a charge.
+        if (!MONEY_METERS.has(v.meter) && !Number.isInteger(v.quantity)) {
+          invalid++
+          continue
+        }
         const month = utcMonth(now)
         const inserted = sql.exec(
           `INSERT OR IGNORE INTO usage_ledger (key, meter, quantity, month, source, run, automation, step, attempt, commit_sha, observed_at, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -102,7 +110,10 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
           continue
         }
         recorded++
-        sql.exec(`INSERT INTO usage_month (month, meter, quantity) VALUES (?, ?, ?) ON CONFLICT (month, meter) DO UPDATE SET quantity = quantity + excluded.quantity`, month, v.meter, v.quantity)
+        sql.exec(
+          `INSERT INTO usage_month (month, meter, quantity, usd_micros) VALUES (?, ?, ?, ?) ON CONFLICT (month, meter) DO UPDATE SET quantity = quantity + excluded.quantity, usd_micros = usd_micros + excluded.usd_micros`,
+          month, v.meter, v.quantity, recordMicros(v.meter, v.quantity)
+        )
       }
     })
     if (invalid > 0) console.error(JSON.stringify({ msg: "usage records refused", team: entity, invalid }))

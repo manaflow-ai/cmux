@@ -46,18 +46,37 @@ export const ceilingUsd = (raw: string | undefined): number => {
 
 export const effectiveCap = (state: UsageState, ceiling: number) => (state.team_cap_usd === null ? ceiling : Math.min(state.team_cap_usd, ceiling))
 
-const round6 = (n: number) => Math.round(n * 1e6) / 1e6
+/** Meters whose quantity is money: recorded as USD, summed as integer micro-dollars. */
+export const MONEY_METERS: ReadonlySet<Meter> = new Set(["model.spend_usd"])
 
-/** Summary of one month's counters against the cap in force. */
-export const summarize = (state: UsageState, month: string, counters: ReadonlyMap<Meter, number>, ceiling: number): UsageSummary => {
+/**
+ * Money is never summed as floats. Count meters (steps, CPU ms, invocations, workers,
+ * requests) keep exact integer quantities and are priced once per month at summary time,
+ * so sub-micro unit prices (one CPU ms is 0.02 micro-dollars) never round away. Money
+ * meters accumulate integer micro-dollars per record.
+ */
+export const recordMicros = (meter: Meter, quantity: number) => (MONEY_METERS.has(meter) ? Math.round(quantity * 1_000_000) : 0)
+const priceMicros = (meter: Meter, c: MeterCounter) => (MONEY_METERS.has(meter) ? c.usd_micros : Math.round(c.quantity * COST_USD_PER_UNIT[meter] * 1_000_000))
+
+export interface MeterCounter {
+  readonly quantity: number
+  readonly usd_micros: number
+}
+
+const usd = (micros: number) => micros / 1_000_000
+
+/** Summary of one month's counters against the cap in force (the cap compares integer micro-dollars). */
+export const summarize = (state: UsageState, month: string, counters: ReadonlyMap<Meter, MeterCounter>, ceiling: number): UsageSummary => {
   const meters = METERS.map((meter) => {
-    const quantity = counters.get(meter) ?? 0
-    return { meter, unit: meterUnit[meter], quantity, usd: round6(quantity * COST_USD_PER_UNIT[meter]) }
+    const c = counters.get(meter) ?? { quantity: 0, usd_micros: 0 }
+    const micros = priceMicros(meter, c)
+    return { meter, unit: meterUnit[meter], quantity: c.quantity, usd: usd(micros), micros }
   })
-  const total = round6(meters.reduce((n, m) => n + m.usd, 0))
+  const totalMicros = meters.reduce((n, m) => n + m.micros, 0)
   const cap = effectiveCap(state, ceiling)
-  const stopped: UsageStopReason | null = ceiling <= 0 ? "cap.not_configured" : total >= cap ? "cap.reached" : null
-  return { owner: state.owner, month, meters, total_usd: total, cap_usd: cap, ceiling_usd: ceiling, team_cap_usd: state.team_cap_usd, stopped }
+  const stopped: UsageStopReason | null = ceiling <= 0 ? "cap.not_configured" : totalMicros >= Math.round(cap * 1_000_000) ? "cap.reached" : null
+  const total = usd(totalMicros)
+  return { owner: state.owner, month, meters: meters.map(({ micros: _m, ...line }) => line), total_usd: total, cap_usd: cap, ceiling_usd: ceiling, team_cap_usd: state.team_cap_usd, stopped }
 }
 
 export const usageDomain: Domain<UsageState> = {

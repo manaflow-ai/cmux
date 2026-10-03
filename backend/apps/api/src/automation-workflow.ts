@@ -1,4 +1,5 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers"
+import { CodeRunError, runCode } from "./code-run.ts"
 import type { Env } from "./env.ts"
 import type { AutomationRunParams, RunReport } from "./scheduler-do.ts"
 
@@ -30,13 +31,15 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
         return
       }
       if (p.body.type === "code") {
-        // Tier 1 loader (Dynamic Workers) lands after the usage ledger and the hard cap (automations-plan.md slices 2-3):
-        // no tenant code runs before its usage is metered and capped.
-        await report("unsupported", {
-          state: "failed",
-          step: -1,
-          error: { code: "body.unsupported", message: "code runs need the Tier 1 loader, which this backend does not have yet" }
-        })
+        // Tier 1: the tenant's Workflows code in a Dynamic Worker, metered and capped (code-run.ts).
+        try {
+          await runCode(this.env, step, { team: p.owner, run: p.run, automation: p.automation, ref: p.body.ref, input: p.input }, event.timestamp)
+        } catch (e) {
+          const code = e instanceof CodeRunError ? e.code : e instanceof Error && /^(budget|limit|step)\./.test(e.name) ? e.name : "run.failed"
+          await report("fail", { state: "failed", step: -1, error: { code, message: String(e instanceof Error ? e.message : e).slice(0, 500) } })
+          return
+        }
+        await report("finish", { state: "succeeded", step: -1 })
         return
       }
       const steps = p.body.steps
