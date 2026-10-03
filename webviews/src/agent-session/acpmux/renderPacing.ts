@@ -26,12 +26,18 @@ export class AdaptiveRenderRate {
     const elapsed = this.changedAt === undefined ? Number.POSITIVE_INFINITY : now - this.changedAt;
     if (this.fullRate) {
       if (AdaptiveRenderRate.lateShare(intervals, displayInterval) > AdaptiveRenderRate.overloaded) {
-        this.backoff = elapsed < this.backoff ? Math.min(this.backoff * 2, AdaptiveRenderRate.maximumBackoff) : AdaptiveRenderRate.firstBackoff;
+        this.backoff =
+          elapsed < this.backoff
+            ? Math.min(this.backoff * 2, AdaptiveRenderRate.maximumBackoff)
+            : AdaptiveRenderRate.firstBackoff;
         this.fullRate = false;
         this.changedAt = now;
         return false;
       }
-    } else if (elapsed >= this.backoff && AdaptiveRenderRate.lateShare(intervals, capped) <= AdaptiveRenderRate.recovered) {
+    } else if (
+      elapsed >= this.backoff &&
+      AdaptiveRenderRate.lateShare(intervals, capped) <= AdaptiveRenderRate.recovered
+    ) {
       this.fullRate = true;
       this.changedAt = now;
       return true;
@@ -45,7 +51,9 @@ export class AdaptiveRenderRate {
   }
 
   private static lateShare(intervals: number[], expected: number): number {
-    return intervals.filter((interval) => interval > expected * AdaptiveRenderRate.lateFactor).length / intervals.length;
+    return (
+      intervals.filter((interval) => interval > expected * AdaptiveRenderRate.lateFactor).length / intervals.length
+    );
   }
 }
 

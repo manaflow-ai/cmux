@@ -58,19 +58,29 @@ test("a display near sixty hertz stays at its rate", () => {
 test("a non-adaptive host never receives a render-rate update", async () => {
   const calls: [string, Record<string, unknown> | undefined][] = [];
   const policy = new AdaptiveRenderRate();
-  await reportScrollPacing(scroll(display, 4, 12.5), async <T>(method, params) => {
-    calls.push([method, params]);
-    return { adaptive: false, displayInterval: display } as T;
-  }, policy, () => start);
+  await reportScrollPacing(
+    scroll(display, 4, 12.5),
+    async <T>(method, params) => {
+      calls.push([method, params]);
+      return { adaptive: false, displayInterval: display } as T;
+    },
+    policy,
+    () => start,
+  );
   expect(calls).toEqual([["pane.framePacing", { intervals: scroll(display, 4, 12.5) }]]);
 });
 
 test("a changed decision is sent through the existing bridge", async () => {
   const calls: [string, Record<string, unknown> | undefined][] = [];
   const policy = new AdaptiveRenderRate();
-  await reportScrollPacing(scroll(display, 4, 12.5), async <T>(method, params) => {
-    calls.push([method, params]);
-    return { adaptive: true, displayInterval: display } as T;
-  }, policy, () => start);
+  await reportScrollPacing(
+    scroll(display, 4, 12.5),
+    async <T>(method, params) => {
+      calls.push([method, params]);
+      return { adaptive: true, displayInterval: display } as T;
+    },
+    policy,
+    () => start,
+  );
   expect(calls[1]).toEqual(["pane.renderRate", { full: false }]);
 });
