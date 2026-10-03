@@ -1,5 +1,6 @@
 public import CmuxNextActions
 public import CmuxNextDesign
+public import CoreGraphics
 
 private nonisolated enum AppearanceSettingsSchema {
     static var descriptors: [SettingDescriptor] {
