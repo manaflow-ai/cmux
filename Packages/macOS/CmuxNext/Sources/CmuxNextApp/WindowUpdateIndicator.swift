@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextSidebar
 import CmuxNextUpdater
+import CmuxNextWakeups
 import Observation
 
 /// The update circle in one window's rail (right above Account) and the
@@ -22,8 +23,9 @@ final class WindowUpdateIndicator {
     private let registry: ActionRegistry
     private weak var column: SidebarRailColumnView?
     private var observation: Task<Void, Never>?
-    private var noteTimer: Task<Void, Never>?
+    private let noteTimer = DemandTimer(owner: "WindowUpdateIndicator.note")
     private let menuTarget = MenuTarget()
+    private var shown: UpdateIndicatorPhase = .hidden
 
     init(updater: UpdaterService, registry: ActionRegistry, column: SidebarRailColumnView) {
         self.updater = updater
@@ -43,45 +45,38 @@ final class WindowUpdateIndicator {
 
     isolated deinit {
         observation?.cancel()
-        noteTimer?.cancel()
+        noteTimer.cancel()
     }
 
     private func show(_ phase: UpdateIndicatorPhase) {
-        column?.showsAccessory = phase.showsCircle
+        // A note keeps the slot (with no disc) so its pill sits where the circle would.
+        column?.showsAccessory = phase != .hidden
         circle.show(phase, toolTip: phase.toolTip)
         if let text = phase.pillText { showPill(text) } else { pill.isHidden = true }
-        if case .note = phase { scheduleNoteDismiss() }
-    }
-
-    private func scheduleNoteDismiss() {
-        noteTimer?.cancel()
-        // task-owner: this indicator; one bounded delay per note, replaced by the next.
-        noteTimer = Task { [weak updater] in
-            try? await Task.sleep(for: Self.noteDuration)
-            guard !Task.isCancelled else { return }
-            updater?.dismissIndicatorNote()
+        if case .note = phase {
+            if phase != shown { noteTimer.schedule(after: Self.noteDuration) { @MainActor [weak updater] in updater?.dismissIndicatorNote() } }
+        } else {
+            noteTimer.cancel()
         }
+        shown = phase
     }
 
-    /// The pill to the right of the circle, over the sidebar. A note shows
-    /// there even while the circle is hidden (the slot it would take).
+    /// The pill just right of the rail, level with the circle's slot, over
+    /// the sidebar. The slot is pinned to the rail's bottom, so the pill
+    /// keeps its distance from the window's bottom-left corner on resize.
     private func showPill(_ text: String) {
         pill.text = text
         guard let column, let content = column.window?.contentView else { return }
+        column.layoutSubtreeIfNeeded()
+        guard let slot = column.layoutResult.accessory else { return }
         if pill.superview !== content { content.addSubview(pill, positioned: .above, relativeTo: nil) }
-        let slot = column.layoutResult.accessory ?? Self.noteSlot(in: column)
         let anchor = column.convert(slot, to: content)
+        let rail = column.convert(column.bounds, to: content)
         let height = (slot.height - Metrics.space2 * 2).rounded()
         let width = pill.fittingWidth(height: height)
-        pill.frame = CGRect(x: anchor.maxX + Metrics.space2, y: anchor.midY - height / 2, width: width, height: height)
+        pill.frame = CGRect(x: rail.maxX + Metrics.space2, y: (anchor.midY - height / 2).rounded(), width: width, height: height)
+        pill.autoresizingMask = content.isFlipped ? [.maxXMargin, .minYMargin] : [.maxXMargin, .maxYMargin]
         pill.isHidden = false
-    }
-
-    /// Where the circle would sit: above the bottom band.
-    private static func noteSlot(in column: SidebarRailColumnView) -> CGRect {
-        let metrics = SidebarRailColumnView.metrics(width: column.bounds.width, topInset: column.topInset)
-        let bottomTop = column.layoutResult.buttons.map(\.frame.minY).max() ?? column.bounds.height
-        return CGRect(x: 0, y: bottomTop - metrics.buttonGap - metrics.buttonSize, width: column.bounds.width, height: metrics.buttonSize)
     }
 
     private func menu() -> NSMenu {

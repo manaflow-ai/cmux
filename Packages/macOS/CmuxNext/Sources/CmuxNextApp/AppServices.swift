@@ -270,8 +270,8 @@ final class AppServices {
         let updateSheet = UpdateSheetController(source: UpdateSheetModel(service: updater))
         self.updateSheet = updateSheet
         updater.presentUpdateUI = { [weak self] in updateSheet.present(in: self?.windows.active?.window) }
-        // Relaunching into an update keeps every terminal: no quit sheet.
-        updater.willRelaunch = { [weak self] in self?.quit.origins.record(.explicit(.keep)) }
+        updater.willRelaunch = { [weak self] in self?.quit.origins.record(.explicit(.keep)) } // keeps every terminal
+        updater.showsIndicator = { DesignSettings.shared.rail != .off }
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {
                 for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }

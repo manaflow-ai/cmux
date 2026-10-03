@@ -114,6 +114,7 @@ public final class UpdaterService {
     /// has its result (nil) or failed (the reason).
     @discardableResult
     public func checkForUpdates() -> Task<String?, Never>? {
+        if needsSheet { presentUpdateUI?() }
         switch disabledReason {
         case .managedPolicy:
             log.append("check suppressed (managed policy)")
@@ -163,6 +164,7 @@ public final class UpdaterService {
     /// check (the shared driver's attempt flow, so never a stale version).
     public func installAvailableUpdate() throws {
         guard let controller, disabledReason == nil else { throw UpdaterUnavailable(reason: disabledReason) }
+        if needsSheet { presentUpdateUI?() }
         controller.model.setOverrideState(nil)
         if controller.stagedUpdate != nil { return controller.installStagedUpdate() }
         controller.installWhenStaged()

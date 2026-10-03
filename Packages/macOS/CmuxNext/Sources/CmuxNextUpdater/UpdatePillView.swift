@@ -41,6 +41,11 @@ public final class UpdatePillView: NSView {
         (label.intrinsicContentSize.width + height).rounded(.up)
     }
 
+    override public func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsLayout = true
+    }
+
     override public func layout() {
         super.layout()
         surface.frame = bounds

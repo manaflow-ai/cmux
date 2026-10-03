@@ -37,6 +37,13 @@ extension UpdaterService {
         if let state = controller?.model.effectiveState, case .error = state { state.cancel() }
     }
 
+    /// Whether a check or install opens the sheet instead of relying on the
+    /// circle: the managed explanation, a required minimum version (no
+    /// Later), or no circle on screen (window rail off).
+    var needsSheet: Bool {
+        disabledReason == .managedPolicy || requiredMinimumVersion != nil || !showsIndicator()
+    }
+
     /// The release notes for the waiting update, or nil.
     public var indicatorReleaseNotesURL: URL? {
         guard case .ready(let version?) = indicatorPhase else { return nil }

@@ -1,5 +1,6 @@
 public import CmuxUpdater
 import Foundation
+@preconcurrency import Sparkle
 
 /// What the rail's update circle shows. cmux-next never opens an update
 /// sheet: updates download in the background, a downloaded one waits as
@@ -100,7 +101,12 @@ extension UpdateIndicatorPhase {
     }
 
     /// Whether the ring spins: work with no measured progress.
-    public var spins: Bool { false }
+    public var spins: Bool {
+        switch self {
+        case .checking, .installing, .downloading(progress: nil): true
+        case .hidden, .downloading, .ready, .note: false
+        }
+    }
 
     /// The circle menu's titles.
     public static var installTitle: String { UpdaterStrings.install }

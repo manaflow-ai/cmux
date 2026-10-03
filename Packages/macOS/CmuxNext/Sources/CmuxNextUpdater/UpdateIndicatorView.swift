@@ -47,6 +47,11 @@ public final class UpdateIndicatorView: NSView {
         needsDisplay = true
     }
 
+    override public func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
     /// The disc's diameter: the rail's icon box, like the account avatar.
     var discDiameter: CGFloat { (min(bounds.width, bounds.height) - Metrics.space2 * 2).rounded() }
 
@@ -76,21 +81,20 @@ public final class UpdateIndicatorView: NSView {
             glyph.contents = Self.downloadGlyph(side: glyph.bounds.width, color: Palette.highlightText)
         }
         disc.opacity = hover.state.pressed ? 0.8 : 1
+        disc.isHidden = !phase.showsCircle
         let showsRing: Bool
         switch phase {
-        case .ready:
-            showsRing = false
         case .downloading(let progress?):
             showsRing = true
             ring.strokeEnd = max(0.05, progress)
         case .checking, .downloading, .installing:
             showsRing = true
             ring.strokeEnd = 0.75
-        case .hidden, .note:
+        case .hidden, .ready, .note:
             showsRing = false
         }
-        let spins = showsRing && ring.strokeEnd == 0.75
-        glyph.isHidden = showsRing
+        let spins = phase.spins
+        glyph.isHidden = showsRing || !phase.showsCircle
         ring.isHidden = !showsRing
         if spins != spinning {
             spinning = spins
