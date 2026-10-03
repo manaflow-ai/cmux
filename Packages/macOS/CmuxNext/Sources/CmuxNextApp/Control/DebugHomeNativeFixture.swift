@@ -32,7 +32,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
 
     static func open(services: AppServices) -> JSONValue {
         if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(DebugHomeNativeFixture()) }
-        let view = services.pages.show(.homeNativeFixture, in: services.windows.active, focus: false)
+        let view = services.pages.show(.homeNativeFixture, in: services.windows.active, focus: true)
         return .object(["ok": .bool(view != nil), "page": .string(InternalPageID.homeNativeFixture.rawValue)])
     }
 }
