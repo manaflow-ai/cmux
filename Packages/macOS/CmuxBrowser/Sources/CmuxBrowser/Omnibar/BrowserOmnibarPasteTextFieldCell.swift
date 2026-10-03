@@ -1,8 +1,13 @@
 public import AppKit
+import CmuxFoundation
 
 /// Text-field cell that supplies an omnibar-aware field editor for every paste entrypoint.
 public final class BrowserOmnibarPasteTextFieldCell: NSTextFieldCell {
-    private lazy var pasteFieldEditor = BrowserOmnibarPasteFieldEditor()
+    private lazy var pasteFieldEditor: BrowserOmnibarPasteFieldEditor = {
+        let editor = BrowserOmnibarPasteFieldEditor()
+        editor.cmuxDisableTypingSubstitutions()
+        return editor
+    }()
 
     /// Creates an editable, selectable omnibar text-field cell.
     ///

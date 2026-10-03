@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxBrowser
 import SwiftUI
 
@@ -181,6 +182,7 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
         }
         textView.drawsBackground = false
         textView.isRichText = false
+        textView.cmuxDisableTypingSubstitutions()
         textView.allowsUndo = true
         textView.font = BrowserDesignModeTokenStyle.font
         textView.textColor = NSColor.white.withAlphaComponent(0.96)

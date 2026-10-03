@@ -39,6 +39,8 @@ CHECKS = (
     ("remote-tmux-waits-tests", "static_analysis", "Remote-tmux time-based wait lint tests", ["bash", "scripts/lint-remote-tmux-no-polling.test.sh"]),
     ("remote-tmux-waits", "static_analysis", "Remote-tmux time-based waits", ["bash", "scripts/lint-remote-tmux-no-polling.sh"]),
     ("feature-flags", "static_analysis", "Feature flag policy", ["python3", "scripts/lint-feature-flags.py"]),
+    ("text-input-substitutions-tests", "tests", "Text input substitution lint tests", ["python3", "tests/test_lint_text_input_substitutions.py"]),
+    ("text-input-substitutions", "static_analysis", "Text views disable typing substitutions", ["python3", "scripts/lint-text-input-substitutions.py"]),
 )
 
 
@@ -76,6 +78,8 @@ CHECK_INPUTS = {
                           "scripts/remote-tmux-polling-baseline.txt"),
     "feature-flags": ("web/*", "Sources/*", "Packages/*", "ios/*", "CLI/*",
                       "scripts/retired-feature-flags.txt"),
+    "text-input-substitutions-tests": ("scripts/lint-text-input-substitutions.py", "Sources/*", "Packages/*"),
+    "text-input-substitutions": ("Sources/*", "Packages/*"),
 }
 
 

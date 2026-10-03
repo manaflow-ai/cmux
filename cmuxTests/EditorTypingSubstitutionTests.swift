@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -60,6 +61,49 @@ struct EditorTypingSubstitutionTests {
             saved == Data(Self.typedSource.utf8),
             "saved file differs from typed text: \(String(decoding: saved, as: UTF8.self).debugDescription)"
         )
+    }
+
+    @Test("shared setup keeps typed text verbatim in any text view")
+    func sharedSetupKeepsTypedTextVerbatim() async {
+        await Self.withSystemSubstitutionsEnabled {
+            let textView = NSTextView()
+            textView.cmuxDisableTypingSubstitutions()
+            Self.type(Self.typedSource, into: textView)
+
+            #expect(textView.string == Self.typedSource)
+            #expect(!textView.isAutomaticQuoteSubstitutionEnabled)
+            #expect(!textView.isAutomaticDashSubstitutionEnabled)
+            #expect(!textView.isAutomaticTextReplacementEnabled)
+            #expect(!textView.isAutomaticSpellingCorrectionEnabled)
+            #expect(!textView.isAutomaticDataDetectionEnabled)
+            #expect(!textView.isAutomaticLinkDetectionEnabled)
+            #expect(!textView.isAutomaticTextCompletionEnabled)
+            #expect(!textView.smartInsertDeleteEnabled)
+        }
+    }
+
+    /// Text fields (AppKit and SwiftUI) edit through their window's field
+    /// editor, which AppKit creates. It starts from the defaults
+    /// `CmuxPlainTextInput.installAppDefaults` sets at launch.
+    @Test("text field editing starts with typing substitutions off")
+    func fieldEditorStartsWithSubstitutionsOff() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 80),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: true
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let field = NSTextField(string: "")
+        window.contentView?.addSubview(field)
+
+        let fieldEditor = try #require(window.fieldEditor(true, for: field) as? NSTextView)
+
+        #expect(!fieldEditor.isAutomaticQuoteSubstitutionEnabled)
+        #expect(!fieldEditor.isAutomaticDashSubstitutionEnabled)
+        #expect(!fieldEditor.isAutomaticTextReplacementEnabled)
+        #expect(!fieldEditor.isAutomaticSpellingCorrectionEnabled)
     }
 
     /// Types `text` one character at a time, the way keyboard input arrives,

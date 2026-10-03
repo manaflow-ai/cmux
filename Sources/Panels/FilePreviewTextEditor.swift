@@ -406,6 +406,7 @@ extension SavingTextView {
         textView.isSelectable = true
         textView.allowsUndo = true
         textView.isRichText = false
+        textView.cmuxDisableTypingSubstitutions()
         textView.importsGraphics = false
         textView.usesFindPanel = true
         textView.usesFontPanel = false
