@@ -525,7 +525,9 @@ fn add_section(section: &Section, index: i64, sections: &mut Vec<Section>) -> Re
         Content::App if section.owning_app_id().is_none() || !section.items.is_empty() => {
             return Err(Reject::InvalidContribution);
         }
-        Content::Items if section.contribution.is_some() => return Err(Reject::InvalidContribution),
+        Content::Items if section.contribution.is_some() => {
+            return Err(Reject::InvalidContribution);
+        }
         _ => {}
     }
     validate_title(section.title.as_ref())?;
