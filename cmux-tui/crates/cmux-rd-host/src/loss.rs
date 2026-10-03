@@ -12,6 +12,8 @@ pub struct LossMeter {
 
 impl LossMeter {
     pub fn on_sent(&mut self, seq: u16) {
+        // A reused sequence number (after the u16 wrap) starts unreported.
+        self.arrived.remove(&seq);
         self.order.push_back(seq);
         while self.order.len() > 8192 {
             if let Some(old) = self.order.pop_front() {

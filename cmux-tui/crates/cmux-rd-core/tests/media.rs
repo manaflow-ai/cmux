@@ -205,3 +205,24 @@ fn a_frame_larger_than_one_fec_block_goes_without_parity_and_reassembles() {
     assert_eq!(released.len(), 1);
     assert_eq!(released[0].body, big);
 }
+
+#[test]
+fn a_shard_of_another_length_is_refused() {
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    let mut r = Reassembler::new(1_000_000);
+    let out = p.packetize(1, flags::KEYFRAME, &body(1, 3000, true), 0).expect("packetize");
+    let (h0, payload0) = DatagramHeader::decode(&out.datagrams[0]).expect("decode");
+    // A forged oversized copy of shard 1 arrives first and must not be stored.
+    let (h1, payload1) = DatagramHeader::decode(&out.datagrams[1]).expect("decode");
+    let mut forged = payload1.to_vec();
+    forged.extend_from_slice(&[0u8; 60_000]);
+    assert!(r.push(&h0, payload0, 0).is_empty());
+    assert!(r.push(&h1, &forged, 0).is_empty());
+    let mut released = Vec::new();
+    for d in &out.datagrams[1..] {
+        let (h, payload) = DatagramHeader::decode(d).expect("decode");
+        released.extend(r.push(&h, payload, 0));
+    }
+    assert_eq!(released.len(), 1);
+    assert_eq!(released[0].body, body(1, 3000, true));
+}

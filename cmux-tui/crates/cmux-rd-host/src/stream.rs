@@ -16,7 +16,7 @@ use crate::Res;
 use cmux_rd_core::cc::{CcConfig, CongestionController, PathKind};
 use cmux_rd_core::flow::{FlowAction, FrameGate, Rect};
 use cmux_rd_core::input::InputApplier;
-use cmux_rd_core::packetize::{parity_for, Packetizer};
+use cmux_rd_core::packetize::{parity_for, PacketizeError, Packetizer};
 use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
 use cmux_rd_proto::{
@@ -350,8 +350,20 @@ impl MediaSession {
         let parity = parity_for(data_shards, self.loss, idr);
         let packets = self
             .packetizer
-            .packetize(frame, if idr { flags::KEYFRAME } else { 0 }, &body, parity)
-            .map_err(|e| format!("{e:?}"))?;
+            .packetize(frame, if idr { flags::KEYFRAME } else { 0 }, &body, parity);
+        let packets = match packets {
+            Ok(p) => p,
+            Err(PacketizeError::FrameTooLarge) => {
+                // Too large to send (about 4.6 MB): drop it, halve the bitrate, start over
+                // with a new keyframe instead of ending the session.
+                self.enc.set_bitrate(self.enc.kbps() / 2);
+                self.force_idr = true;
+                self.gate.clear_in_flight();
+                self.au = body.access_unit;
+                return Ok(());
+            }
+            Err(e) => return Err(format!("{e:?}").into()),
+        };
         for (i, datagram) in packets.datagrams.iter().enumerate() {
             self.out.send(stream, datagram)?;
             let seq = packets.first_transport_seq.wrapping_add(i as u16);
