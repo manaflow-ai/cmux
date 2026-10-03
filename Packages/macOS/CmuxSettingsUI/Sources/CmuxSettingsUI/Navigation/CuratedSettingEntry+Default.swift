@@ -443,14 +443,6 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .betaFeatures, id: "feed", title: String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"), synonyms: "Feed feed right sidebar agent decisions permissions questions approval beta unstable"),
             .init(
                 section: .betaFeatures,
-                id: "cloudMachines",
-                title: String(localized: "settings.betaFeatures.cloudMachines", defaultValue: "Cloud Machines"),
-                detailText: String(localized: "settings.betaFeatures.cloudMachines.subtitle", defaultValue: "Adds Cloud Machines to the right sidebar, Settings, the command palette, and the new workspace menu. Cloud Machines also require a remote rollout; with this off, the Cloud tunnel and fleet polling stay off."),
-                paths: ["cloud.beta.machines.enabled"],
-                synonyms: "cloud machines vm virtual machine right sidebar persistent computer beta unstable"
-            ),
-            .init(
-                section: .betaFeatures,
                 id: "conversationSidebar",
                 title: String(localized: "settings.betaFeatures.conversationSidebar", defaultValue: "Conversation Sidebar"),
                 paths: ["sidebar.beta.conversations.enabled"],
