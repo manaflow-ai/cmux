@@ -40,6 +40,7 @@ import { t } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
+import { SummaryButton } from "./summary/SummaryButton";
 import type { HunkDecision, HunkReview } from "./changes/hunkReview";
 import { configureDictation, deliverDictation, useDictation } from "./dictation";
 import type { DictationUpdate } from "./dictationText";
@@ -820,6 +821,20 @@ function AcpmuxPane() {
       }),
     [],
   );
+  // An output in the summary opens the changes of the last turn that wrote it, at that file.
+  const openOutput = useCallback(
+    (path: string) => {
+      const row = [...snapshot.rows]
+        .reverse()
+        .find(
+          (candidate) =>
+            candidate.kind === "activity" &&
+            candidate.items?.some((item) => item.tool?.diffs?.some((change) => change.path === path)),
+        );
+      if (row) openDiff(row.id, path);
+    },
+    [snapshot.rows, openDiff],
+  );
   const closedByUser = useRef(false);
   const closeDiff = useCallback(() => {
     closedByUser.current = true;
@@ -1533,6 +1548,7 @@ function AcpmuxPane() {
                     {header.status && <span className="acpmux-status">{header.status}</span>}
                   </div>
                   <div className="acpmux-handoff-header-tools">
+                    <SummaryButton rows={snapshot.rows} onOpenOutput={quick ? undefined : openOutput} />
                     <CopyChatLink sessionId={snapshot.sessionId} />
                     {checkpoints.supported && (
                       <button type="button" className="acpmux-checkpoint-open" onClick={checkpoints.show}>
