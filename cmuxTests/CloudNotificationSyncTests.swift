@@ -117,6 +117,67 @@ struct CloudNotificationSyncTests {
         #expect(evicted.removed == [a.id], "a delivered row the machine dropped is withdrawn locally")
     }
 
+    @Test func explicitUnreadOverlaySurvivesRestartAndReadClearsIt() throws {
+        let row = Self.row("overlay", terminal: "term-overlay", readBy: [Self.me])
+        var state = CloudNotificationSyncState(manuallyUnreadTerminalIDs: ["term-overlay"])
+        #expect(CloudNotificationSyncReducer.unreadTerminalIDs(rows: [row], clientID: Self.me, state: state) == ["term-overlay"])
+
+        let encoded = try JSONEncoder().encode(state)
+        state = try JSONDecoder().decode(CloudNotificationSyncState.self, from: encoded)
+        #expect(state.manuallyUnreadTerminalIDs == ["term-overlay"])
+
+        state.manuallyUnreadTerminalIDs.removeAll { $0 == "term-overlay" }
+        #expect(CloudNotificationSyncReducer.unreadTerminalIDs(rows: [row], clientID: Self.me, state: state).isEmpty)
+    }
+
+    @Test func terminalNotificationAssociationsSurviveRestartForOfflineReadActions() throws {
+        let row = Self.row("offline-association", terminal: "term-offline")
+        let planned = CloudNotificationSyncReducer.plan(
+            rows: [row], clientID: Self.me, state: CloudNotificationSyncState()
+        )
+        #expect(planned.state.notificationIDsByTerminalID == ["term-offline": [row.id]])
+
+        let data = try JSONEncoder().encode(planned.state)
+        let restored = try JSONDecoder().decode(CloudNotificationSyncState.self, from: data)
+        #expect(restored.notificationIDsByTerminalID["term-offline"] == [row.id])
+    }
+
+    @Test @MainActor func offlineManualUnreadUpdatesCloudTreeProjectionImmediately() throws {
+        let defaultsName = "cmux.tests.cloud-manual-unread.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let machineID = "offline-machine"
+        let hub = CloudNotificationSyncHub(
+            persistenceStore: CloudNotificationSyncStore(defaults: defaults)
+        )
+
+        hub.setManualUnread(terminalIDs: ["term-offline"], machineID: machineID, unread: true)
+        #expect(hub.unreadTerminalIDs[machineID] == ["term-offline"])
+
+        hub.setManualUnread(terminalIDs: ["term-offline"], machineID: machineID, unread: false)
+        #expect(hub.unreadTerminalIDs[machineID] == nil)
+        #expect(hub.persistenceStore.load(machineID: machineID).manuallyUnreadTerminalIDs.isEmpty)
+    }
+
+    @Test @MainActor func offlineTerminalReadActionsUseDurableNotificationAssociations() throws {
+        let defaultsName = "cmux.tests.cloud-offline-associations.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let store = CloudNotificationSyncStore(defaults: defaults)
+        store.save(
+            CloudNotificationSyncState(notificationIDsByTerminalID: [
+                "term-offline": ["notification-1", "notification-2"]
+            ]),
+            machineID: "offline-machine"
+        )
+        let hub = CloudNotificationSyncHub(persistenceStore: store)
+
+        #expect(
+            hub.notificationIDs(for: ["term-offline"], machineID: "offline-machine")
+                == ["notification-1", "notification-2"]
+        )
+    }
+
     @Test func subtitleDecodesWhenTheMachineSentOne() throws {
         let object: [String: Any] = [
             "id": "notification_0000000000000000000000000000abce", "title": "Build done",

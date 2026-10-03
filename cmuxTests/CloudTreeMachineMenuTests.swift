@@ -283,6 +283,49 @@ struct CloudTreeMachineMenuTests {
         #expect(recorder.openWorkspaces.allSatisfy { $0.machine == machine && $0.workspace.id == workspace.id && $0.group == group })
     }
 
+    @Test("A Cloud workspace menu exposes its read-state toggle without selecting it")
+    func workspaceMenuOffersReadStateToggle() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let machine = SurfaceMachineID.cloud(Self.machineID)
+        let workspace = SurfaceRemoteWorkspace(id: "ws-read-state", name: "Read State", index: 0, focused: true)
+        let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: "term-read-state")
+        let resource = SurfaceResource(
+            id: resourceID, title: "shell", detail: nil, lifecycle: .running,
+            agent: nil, remoteWorkspace: workspace,
+            remoteViews: [SurfaceRemoteView(tabID: "tab-read-state", workspace: workspace)],
+            port: nil, url: nil
+        )
+        let child = CloudTreeNode(
+            id: "terminal-read-state",
+            kind: .terminal(CloudTreeTerminalRow(
+                resource: resource, isOpen: false, viewBadge: nil, hasUnreadNotification: true
+            ))
+        )
+        let node = CloudTreeNode(
+            id: "workspace-read-state",
+            kind: .workspace(machine: machine, workspace, terminalCount: 1, hiddenTabCount: 0, openIn: nil),
+            children: [child]
+        )
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(defaults: UserDefaults(suiteName: "cloud-tree-read-state-\(UUID())")!),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        defer { _ = container }
+        coordinator.apply(nodes: [node])
+        let menu = try #require(coordinator.contextMenu(forRow: 0))
+        #expect(menu.items.map(\.title).contains(Self.title("cloudTree.menu.markWorkspaceRead", "Mark Workspace as Read")))
+        #expect(!menu.items.map(\.title).contains(Self.title("cloudTree.menu.markWorkspaceUnread", "Mark Workspace as Unread")))
+        try Self.choose(Self.title("cloudTree.menu.markWorkspaceRead", "Mark Workspace as Read"), in: menu)
+        let action = try #require(recorder.workspaceUnreadActions.first)
+        #expect(action.machine == machine)
+        #expect(action.workspaceID == workspace.id)
+        #expect(action.terminalIDs == [resourceID.key])
+        #expect(!action.unread)
+    }
+
     @Test("Double-clicking machines and remote workspaces routes to their rename actions")
     func doubleClickRenamesCloudRows() throws {
         let recorder = CloudTreeMenuVerbRecorder()
@@ -919,6 +962,9 @@ struct CloudTreeMachineMenuTests {
             copyToPasteboard: { _ in },
             copyPortLink: { _ in },
             refresh: {},
+            setWorkspaceUnread: { machine, workspaceID, terminalIDs, unread in
+                recorder.workspaceUnreadActions.append((machine, workspaceID, terminalIDs, unread))
+            },
             openRemoteTerminal: { machine, group, resource, view, openIn in
                 recorder.ownerNavigations.append((machine: machine, group: group, resource: resource, view: view, openIn: openIn))
             }
@@ -949,4 +995,5 @@ private final class CloudTreeMenuVerbRecorder {
     var networkEdits: [(String, String?)] = []
     var agentUpdateChanges: [(String, Bool)] = []
     var renamedRemoteViews: [(SurfaceResourceID, String)] = []
+    var workspaceUnreadActions: [(machine: SurfaceMachineID, workspaceID: String, terminalIDs: Set<String>, unread: Bool)] = []
 }

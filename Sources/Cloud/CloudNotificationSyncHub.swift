@@ -55,6 +55,18 @@ final class CloudNotificationSyncHub {
         syncs[machineID]
     }
 
+    /// Returns durable daemon row ids for terminal-scoped read-state actions.
+    /// A disconnected machine has no live sync, so the persisted association
+    /// is the source of truth until its next snapshot arrives.
+    func notificationIDs(for terminalIDs: Set<String>, machineID: String) -> [String] {
+        guard !terminalIDs.isEmpty else { return [] }
+        if let sync = syncs[machineID] {
+            return sync.notificationIDs(for: terminalIDs)
+        }
+        let state = persistenceStore.load(machineID: machineID)
+        return Set(terminalIDs.flatMap { state.notificationIDsByTerminalID[$0] ?? [] }).sorted()
+    }
+
     func setUnread(_ terminalIDs: Set<String>, machineID: String) {
         if terminalIDs.isEmpty {
             guard unreadTerminalIDs.removeValue(forKey: machineID) != nil else { return }
@@ -171,6 +183,39 @@ final class CloudNotificationSyncHub {
         persistenceStore.save(next, machineID: machineID)
     }
 
+    /// Applies the explicit Cloud-sidebar unread overlay even while a machine
+    /// has no live provider. The next sync loads this durable state.
+    func setManualUnread(terminalIDs: Set<String>, machineID: String, unread: Bool) {
+        guard !terminalIDs.isEmpty else { return }
+        if let sync = syncs[machineID] {
+            if unread {
+                sync.markUnread(terminalIDs: terminalIDs)
+            } else {
+                sync.markRead(terminalIDs: terminalIDs)
+            }
+            return
+        }
+        var state = persistenceStore.load(machineID: machineID)
+        let before = state
+        if unread {
+            state.manuallyUnreadTerminalIDs = Array(Set(state.manuallyUnreadTerminalIDs).union(terminalIDs)).sorted()
+        } else {
+            state.manuallyUnreadTerminalIDs.removeAll { terminalIDs.contains($0) }
+        }
+        guard state != before else { return }
+        persistenceStore.save(state, machineID: machineID)
+        // There is no live sync to publish the reducer result for an offline
+        // machine, so update the tree projection immediately and let the next
+        // provider registration reconcile it from durable state.
+        var projected = unreadTerminalIDs[machineID] ?? []
+        if unread {
+            projected.formUnion(terminalIDs)
+        } else {
+            projected.subtract(terminalIDs)
+        }
+        setUnread(projected, machineID: machineID)
+    }
+
     /// An exact feed-record read has already changed the local sidebar. Fold
     /// its Cloud correlation keys before the store publisher's next delivery,
     /// so both sidebar projections change in the same turn.
@@ -183,6 +228,31 @@ final class CloudNotificationSyncHub {
         }
         for (machineID, ids) in byMachine {
             noteRead(notificationIDs: ids, machineID: machineID)
+        }
+    }
+
+    /// Mirrors an explicit Cloud-tree read-state action onto feed records
+    /// already delivered on this Mac. A remote workspace can have no local
+    /// tab, so the Cloud sync remains the authoritative row overlay.
+    func markLocalNotifications(
+        notificationIDs ids: [String],
+        machineID: String,
+        unread: Bool
+    ) {
+        guard !ids.isEmpty, let store else { return }
+        let wanted = Set(ids)
+        let localIDs = store.notifications.compactMap { notification -> UUID? in
+            guard let key = notification.correlationKey,
+                  let source = CloudNotificationCorrelation.parse(key),
+                  source.machineID == machineID,
+                  wanted.contains(source.notificationID) else { return nil }
+            return notification.id
+        }
+        guard !localIDs.isEmpty else { return }
+        if unread {
+            store.markNotificationFeedUnread(ids: Set(localIDs))
+        } else {
+            store.markNotificationFeedRead(ids: Set(localIDs))
         }
     }
 }

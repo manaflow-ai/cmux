@@ -753,12 +753,25 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 let openTitle = openIn == nil
                     ? String(localized: "cloudTree.menu.openWorkspace", defaultValue: "Open Workspace")
                     : String(localized: "cloudTree.menu.selectWorkspace", defaultValue: "Go to Workspace")
+                let terminalIDs = Set(node.children.compactMap { child -> String? in
+                    guard case .terminal(let row) = child.kind else { return nil }
+                    return row.resource.id.key
+                })
+                let unread = node.hasUnreadAttention
                 return [
                     item(openTitle) { [weak self] in self?.open(node) },
                     item(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) { [nodeActions] in nodeActions.newTerminal(machine, workspace.id) },
                     .separator(),
                     item(String(localized: "cloudTree.menu.renameWorkspace", defaultValue: "Rename\u{2026}")) { [nodeActions] in nodeActions.renameWorkspace(machine, workspace) },
                     item(String(localized: "cloudTree.menu.copyWorkspaceID", defaultValue: "Copy Workspace ID")) { [nodeActions] in nodeActions.copyToPasteboard(workspace.id) },
+                    .separator(),
+                    item(
+                        unread
+                            ? String(localized: "cloudTree.menu.markWorkspaceRead", defaultValue: "Mark Workspace as Read")
+                            : String(localized: "cloudTree.menu.markWorkspaceUnread", defaultValue: "Mark Workspace as Unread")
+                    ) { [nodeActions] in
+                        nodeActions.setWorkspaceUnread(machine, workspace.id, terminalIDs, !unread)
+                    },
                     .separator(),
                     // One close verb, same path as the row's hover ×: the workspace and
                     // its terminals go together (nothing lingers as a pool row).

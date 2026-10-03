@@ -84,6 +84,9 @@ struct CloudTreeNodeActions {
     /// cell by the outline coordinator.
     var selectMachineDetailTab: @MainActor (_ machine: SurfaceMachineID, _ tab: CloudTreeMachineDetailTab) -> Void = { _, _ in }
     var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }
+    /// Marks notifications represented by a remote workspace row read or
+    /// unread without selecting that workspace.
+    var setWorkspaceUnread: @MainActor (_ machine: SurfaceMachineID, _ remoteWorkspaceID: String, _ terminalIDs: Set<String>, _ unread: Bool) -> Void = { _, _, _, _ in }
     /// Navigates a nested terminal through its owning Cloud workspace.
     var openRemoteTerminal: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ resource: SurfaceResourceID, _ view: SurfaceRemoteView?, _ openIn: UUID?) -> Void = { _, _, _, _, _ in }
 
@@ -589,6 +592,35 @@ struct CloudTreeNodeActions {
             })
         }
         actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
+        actions.setWorkspaceUnread = { machine, remoteWorkspaceID, terminalIDs, unread in
+            let machineID = machine.rawValue
+            var allTerminalIDs = terminalIDs
+            allTerminalIDs.formUnion(catalog().snapshot.resources.compactMap { resource in
+                guard resource.id.machine == machine,
+                      resource.id.kind == .terminal,
+                      resource.remoteWorkspace?.id == remoteWorkspaceID else { return nil }
+                return resource.id.key
+            })
+            guard !allTerminalIDs.isEmpty else { return }
+            let notificationIDs = CloudNotificationSyncHub.shared.notificationIDs(
+                for: allTerminalIDs,
+                machineID: machineID
+            )
+            CloudNotificationSyncHub.shared.setManualUnread(
+                terminalIDs: allTerminalIDs,
+                machineID: machineID,
+                unread: unread
+            )
+            if !unread { CloudNotificationSyncHub.shared.noteRead(notificationIDs: notificationIDs, machineID: machineID) }
+            CloudNotificationSyncHub.shared.markLocalNotifications(
+                notificationIDs: notificationIDs,
+                machineID: machineID,
+                unread: unread
+            )
+            // Keep the remote workspace in the action contract even though
+            // terminal ids are the daemon notification's current identity.
+            _ = remoteWorkspaceID
+        }
         actions.refreshMachine = refreshMachine
         actions.discoverPorts = refreshMachine
         actions.newDisplay = { machine in
