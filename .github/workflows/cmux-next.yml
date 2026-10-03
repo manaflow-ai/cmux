@@ -44,6 +44,11 @@ on:
     paths:
       - App/**
       - cmux.xcodeproj/**
+      # Base pushes still run the full side workflow for every package input;
+      # only pull requests use the focused package routing below.
+      - Packages/macOS/**
+      - Packages/Shared/**
+      - Packages/iOS/**
       - scripts/cmux-next/bundle-*.sh
       - scripts/cmux-next/embed-cef.sh
       - scripts/build-diff-sidecar.sh
