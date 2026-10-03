@@ -87,6 +87,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private var watchedLink: CloudMachineLink?
     private var changeWatcherID: UUID?
     private var scheduledRefresh: Task<Void, Never>?
+    /// A daemon reconnect must upgrade any already-queued ordinary refresh to
+    /// a forced graph read instead of preserving the pre-reconnect graph.
     private var scheduledRefreshForce = false
     private var portsCache: (ports: [Int], at: Date)?
     var portDiscovery = CloudPortDiscovery()
@@ -1603,7 +1605,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         watchedLink = nil
         changeWatcherID = nil
         catalog.markCloudStateStale(on: machine, reason: "event_feed_ended")
-        scheduleRefresh()
+        scheduleRefresh(force: true)
     }
     private func handle(_ change: CloudMachineLink.Change, from link: CloudMachineLink) async {
         // Events from a retired link can arrive after a reconnect. They are
