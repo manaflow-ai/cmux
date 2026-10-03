@@ -38,6 +38,7 @@ enum AgentHandlers {
         registry.bind("palette.computerUse.screenRecording", run: { _ in try openPrivacyPane("Privacy_ScreenCapture", context) })
         registry.bindAgentPane { invocation in
             guard let pane = context.scope(invocation).pane else { return context.refuse(MiscHandlerStrings.noPane) }
+            if invocation.origin == .user { context.services.newTabKinds.record(.agent, folder: pane.selectedTab?.cwd) }
             pane.newAgentTab()
         }
         // The composer's mic (CmuxNextAgentPane). Held from the keyboard, it

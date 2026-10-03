@@ -23,6 +23,7 @@ enum TabHandlers {
         registry.bind("newSurface", invoke: { TabLifecycle.newTerminal(ctx, $0) })
         registry.bind("newTab.sameKind", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0) })
         registry.bind(NewTabPage.action, invoke: { ctx.paneController($0)?.newTabPage() })
+        registry.bind(NewTabPage.focusLocation, invoke: { ctx.paneController($0)?.focusLocation($0) })
         registry.bind("openBrowser", invoke: { TabLifecycle.newBrowser(ctx, $0) })
         registry.bind("openBrowser.webkit", invoke: { TabLifecycle.newBrowser(ctx, $0, engine: .webkit) })
         let chromiumReason: @MainActor () -> String? = { ctx.services.cache.browserTabs?.cefUnavailableReason() }

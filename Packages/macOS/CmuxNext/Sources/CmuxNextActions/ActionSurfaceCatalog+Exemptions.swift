@@ -203,7 +203,7 @@ nonisolated extension ActionSurfaceCatalog {
             "focusLeft", "focusRight", "focusUp", "focusDown", "focusPreviousPane", "focusNextPane",
             "canvasRevealFocusedPane", "nextSurface", "prevSurface", "selectSurfaceByNumber",
             "screen.next", "screen.previous", "screen.select", "screen.selectLast", "focusTextBoxInput",
-            "focusBrowserAddressBar", "focusRightSidebar", "vaultFocusSession", "jumpToUnread",
+            "focusBrowserAddressBar", "focusLocation", "focusRightSidebar", "vaultFocusSession", "jumpToUnread",
             "markOldestUnreadAndJumpNext", "notificationOpen", "computerUseFocus", "computerUseFocusCallingTerminal",
             "column.focusLeft", "column.focusRight", "focusHistoryBack", "focusHistoryForward", "focusHistoryLast",
         ],

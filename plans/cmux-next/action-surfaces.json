@@ -2328,6 +2328,17 @@
       "palette" : "offered"
     },
     {
+      "cli" : "focusMove",
+      "cli_name" : "tab focus-location",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "id" : "focusLocation",
+      "mcp" : "focusMove",
+      "palette" : "offered"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "tab new-terminal",
       "context_menu" : "offered",

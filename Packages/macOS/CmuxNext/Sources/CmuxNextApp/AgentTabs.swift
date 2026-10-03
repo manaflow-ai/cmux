@@ -167,11 +167,14 @@ final class AgentTabStore {
             newTab: newTabPages[key]?.page
         )
         model.onSessionChange = { [weak self] session in
+            self?.newTabPages[key]?.handler.becameChat()
             self?.sessions[key] = session
             self?.newTabPages[key] = nil
         }
-        model.onOpenTab = { [weak self] kind, text in self?.newTabPages[key]?.handler.open(key, kind, text) }
+        model.onOpenTab = { [weak self] kind, text, cwd in self?.newTabPages[key]?.handler.open(key, kind, text, cwd) }
+        model.onJump = { [weak self] target, id in self?.newTabPages[key]?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPages[key]?.handler.editShortcut(kind) }
+        model.onSetDefaultKind = { [weak self] kind in self?.newTabPages[key]?.handler.setDefaultKind(kind) }
         model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate) else { return nil }
         view.customization = customization.current
@@ -182,6 +185,9 @@ final class AgentTabStore {
     }
 
     func existingView(_ key: String) -> AgentPaneView? { views[key] }
+
+    /// The tab still shows the new tab page (it has not become a chat).
+    func isNewTabPage(_ key: String) -> Bool { newTabPages[key] != nil }
 
     /// A new chat outside any pane (onboarding's first task), on the same
     /// daemon and page as the tabs. The caller owns it and closes it.

@@ -1232,9 +1232,9 @@ function AcpmuxPane() {
   const showNewTab = newTab !== undefined && !snapshot.sessionId && snapshot.rows.length === 0;
   // The page's recent sessions stand in for the session list, which opens on demand (All sessions).
   const shellSidebar = showNewTab && sidebar === "auto" ? "closed" : sidebar;
-  const openFromNewTab = (kind: TabKind, text: string) => {
+  const openFromNewTab = (kind: TabKind, text: string, cwd?: string) => {
     if (kind !== "agent") {
-      void callNative("tab.open", { kind, text });
+      void callNative("tab.open", cwd ? { kind, text, cwd } : { kind, text });
       return;
     }
     setNewTab(undefined);
@@ -1364,8 +1364,13 @@ function AcpmuxPane() {
               initialKind={newTab.initialKind}
               cwd={newTab.cwd}
               host={newTab.host}
+              location={newTab.location}
+              defaultKind={newTab.defaultKind}
+              onSetDefaultKind={(kind) => void callNative("tab.setDefaultKind", { kind })}
+              omnibar={newTab.omnibar}
               chips={ComposerChips}
               onSubmit={openFromNewTab}
+              onJump={(target, id) => void callNative("tab.jump", { target, id })}
               onOpenSession={(sessionId) => {
                 setNewTab(undefined);
                 selectSession(sessionId);

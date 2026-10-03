@@ -334,6 +334,12 @@ public final class AgentPaneView: NSView {
         self?.webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
+    /// Focus Location Bar on a new tab page: the field takes the keyboard and
+    /// selects its text, wherever focus was on the page.
+    public func focusLocation() {
+        evaluateScript("window.dispatchEvent(new Event('acpmux-focus-location'))")
+    }
+
     /// Pushes ``customization`` to the page, even an empty one (it clears
     /// what removed files left behind).
     func applyCustomization() {
