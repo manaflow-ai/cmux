@@ -112,6 +112,12 @@ the TypeScript core must agree, and the generator records the full effects).
  "memory": [{"name", "fn": "to_lines"|"decompose"|"wake_cover"|"wake"|"zoom", "args", "result"}]}
 ```
 
+JSON text rule (coordinator, 2026-10-03): JSON that the cores render into prompt text (a
+permission's `rawInput`, the `turn_error` fallback) uses sorted keys in both languages. Number text
+still differs for integer-valued floats (TypeScript `1`, Rust `1.0`). This gap is accepted: corpus
+cases carry no floats in that JSON, one unit test per language pins the current text, and no code
+compares that text across the cores (compare parsed values only).
+
 Rules: effects compare as exact JSON values in order (`log` effects are not compared); `persist` compares the whole state; times come only
 from `now`. Case groups: wake rule (1:1, group, DM, mention, reply to the Chief, retracted, own
 message), catch-up from the read cursor with paging, turn folding (steer, queue, error, replay at or
