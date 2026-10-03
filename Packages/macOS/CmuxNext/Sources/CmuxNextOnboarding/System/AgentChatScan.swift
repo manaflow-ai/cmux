@@ -1,0 +1,54 @@
+public import Foundation
+
+/// The chats cmux can resume: Claude Code and Codex sessions, the two
+/// harnesses acpmux adopts. Uses the project scan's locations and folder
+/// rules, so a chat shows only under a project the projects step would list.
+///
+/// - Claude Code: the file name is the session id; a `summary` record names
+///   the chat, else the first prompt does. Prompts are `user` records with
+///   text that isn't a tool result, a meta record or injected `<...>` context.
+/// - Codex: `session_meta.payload.id` is the session id; prompts are
+///   `event_msg` `user_message` records, else `response_item` user messages.
+public nonisolated struct AgentChatScan: Sendable {
+    public var projects: AgentProjectScan
+    /// The newest chats returned; older ones add nothing a user would pick.
+    public var limit = 200
+    /// Bytes read per session file; a longer chat's count stops there.
+    public var bytesPerFile = 8 * 1024 * 1024
+
+    public init(projects: AgentProjectScan) {
+        self.projects = projects
+    }
+
+    /// The chats, newest first.
+    public func run() -> [AgentChat] {
+        let claude = AgentProjectScan.files(in: projects.claude.appending(path: "projects"), depth: 1, ext: "jsonl")
+            .map { (AgentApp.claudeCode, $0) }
+        let codex = AgentProjectScan.files(in: projects.codex.appending(path: "sessions"), depth: 3, ext: "jsonl")
+            .filter { $0.lastPathComponent.hasPrefix("rollout-") }
+            .map { (AgentApp.codex, $0) }
+        let dated = (claude + codex).map { ($0.0, $0.1, AgentProjectScan.modified($0.1)) }.sorted { $0.2 > $1.2 }
+        var chats: [AgentChat] = []
+        for (app, file, modified) in dated where chats.count < limit {
+            if let chat = read(app, file, modified: modified), projects.keeps(folder: chat.folder) {
+                chats.append(chat)
+            }
+        }
+        return chats
+    }
+
+    func read(_ app: AgentApp, _ file: URL, modified: Date) -> AgentChat? {
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: bytesPerFile) else { return nil }
+        var reader = ChatRecordReader(app: app)
+        if app == .claudeCode { reader.sessionID = file.deletingPathExtension().lastPathComponent }
+        for line in data.split(separator: UInt8(ascii: "\n")) {
+            guard let record = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any] else { continue }
+            reader.add(record)
+        }
+        guard let id = reader.sessionID, let cwd = reader.cwd, reader.prompts > 0 else { return nil }
+        return AgentChat(sessionID: id, app: app, folder: URL(fileURLWithPath: cwd, isDirectory: true).standardizedFileURL,
+                         title: reader.summary ?? reader.firstPrompt ?? "", prompts: reader.prompts, lastActive: modified)
+    }
+}
