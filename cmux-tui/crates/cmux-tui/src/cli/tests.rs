@@ -274,7 +274,9 @@ fn cmux_daemon_and_cmux_tui_server_are_the_lifecycle() {
             .unwrap_or_else(|| panic!("cmux-tui server {action}"));
         assert_eq!(lifecycle_action(&["daemon", action], Surface::Cmux).as_ref(), Some(&want));
         assert_eq!(lifecycle_action(&["daemon", action], Surface::CmuxTui).as_ref(), Some(&want));
-        assert_eq!(lifecycle_action(&["srv", action], Surface::Cmux).as_ref(), Some(&want));
+        assert_eq!(lifecycle_action(&["srv", action], Surface::CmuxTui).as_ref(), Some(&want));
+        // `srv` is not a scope on `cmux`.
+        assert_eq!(lifecycle_action(&["srv", action], Surface::Cmux), None, "{action}");
         // No hidden `server` alias of the lifecycle on `cmux`.
         assert_eq!(lifecycle_action(&["server", action], Surface::Cmux), None, "{action}");
     }
@@ -285,6 +287,8 @@ fn cmux_daemon_and_cmux_tui_server_are_the_lifecycle() {
     assert!(lifecycle("server", Surface::CmuxTui));
     assert!(lifecycle("daemon", Surface::CmuxTui));
     assert!(!lifecycle("server", Surface::Cmux));
+    assert!(!lifecycle("srv", Surface::Cmux));
+    assert!(lifecycle("srv", Surface::CmuxTui));
     // `cmux daemon --help` is the lifecycle help; `cmux help server` is the
     // machine server's.
     let Ok(ParsedCommand::Help(Some(topic))) =
@@ -306,21 +310,76 @@ fn cmux_daemon_and_cmux_tui_server_are_the_lifecycle() {
 #[test]
 fn cmux_server_is_the_machine_server() {
     // Decision D1: on `cmux`, `server …` goes to cmux_server::cli.
-    let args = |line: &[&str], surface| machine_server::args_for(&strings(line), surface);
-    assert_eq!(args(&["server", "status"], Surface::Cmux), Some(strings(&["status"])));
+    let args = |line: &[&str], surface| {
+        machine_server::args_for(&strings(line), surface).map(|r| r.map_err(|(e, _)| e.0))
+    };
+    assert_eq!(args(&["server", "status"], Surface::Cmux), Some(Ok(strings(&["status"]))));
     assert_eq!(
         args(&["--json", "server", "upgrade", "--channel-url", "https://c.example"], Surface::Cmux),
-        Some(strings(&["upgrade", "--channel-url", "https://c.example", "--json"]))
+        Some(Ok(strings(&["upgrade", "--channel-url", "https://c.example", "--json"])))
     );
-    assert_eq!(args(&["server", "--help"], Surface::Cmux), Some(strings(&["--help"])));
+    assert_eq!(args(&["server", "--help"], Surface::Cmux), Some(Ok(strings(&["--help"]))));
     assert_eq!(args(&["server", "status"], Surface::CmuxTui), None, "cmux-tui keeps the lifecycle");
     assert_eq!(args(&["daemon", "status"], Surface::Cmux), None);
     assert_eq!(args(&["workspace", "list"], Surface::Cmux), None);
     // The routed words parse as the machine server's `status` verb.
-    let routed = args(&["server", "status"], Surface::Cmux).unwrap();
-    let parsed = cmux_server::cli::parse(&routed).unwrap();
-    assert_eq!(parsed.verb_str(), "status");
-    assert!(!machine_server::release_version().is_empty());
+    let routed = args(&["server", "status"], Surface::Cmux).unwrap().unwrap();
+    assert_eq!(cmux_server::cli::parse(&routed).unwrap().verb_str(), "status");
+}
+
+#[test]
+fn cmux_server_refuses_global_options_that_do_not_apply() {
+    // CLI owner condition: refused with a usage error, never dropped.
+    for (line, option) in [
+        (vec!["--session", "build", "server", "status"], "--session"),
+        (vec!["--socket", "/tmp/x.sock", "server", "status"], "--socket"),
+        (vec!["server", "status", "--quiet"], "--quiet"),
+        (vec!["--jsonl", "server", "status"], "--jsonl"),
+        (vec!["--all-sessions", "server", "status"], "--all-sessions"),
+        (vec!["--app-socket", "/tmp/a.sock", "server", "install"], "--app-socket"),
+    ] {
+        let Some(Err((error, _))) = machine_server::args_for(&strings(&line), Surface::Cmux) else {
+            panic!("{line:?} was accepted");
+        };
+        assert!(error.0.contains(option) && error.0.contains("--json"), "{line:?}: {}", error.0);
+    }
+    // The ones that apply pass through.
+    let routed = machine_server::args_for(
+        &strings(&["--idempotency-key", "k1", "server", "pin", "1.2.3"]),
+        Surface::Cmux,
+    );
+    assert_eq!(
+        routed.map(|r| r.ok()),
+        Some(Some(strings(&["pin", "1.2.3", "--idempotency-key=k1"])))
+    );
+}
+
+#[test]
+fn old_lifecycle_verbs_under_cmux_server_point_to_cmux_daemon() {
+    // Released `uvx cmux server stop|start|stats|reload-config|ensure`:
+    // a usage error (exit 2) with the hint, no alias. `status` is a machine
+    // server verb and is not refused.
+    for verb in ["start", "ensure", "stats", "stop", "reload-config"] {
+        let Some(Err((error, output))) =
+            machine_server::args_for(&strings(&["--json", "server", verb]), Surface::Cmux)
+        else {
+            panic!("server {verb} was routed");
+        };
+        assert!(error.0.contains(&format!("run `cmux daemon {verb}`")), "{}", error.0);
+        assert_eq!(output, OutputMode::Json, "the error keeps the output mode");
+    }
+    assert!(matches!(
+        machine_server::args_for(&strings(&["server", "status"]), Surface::Cmux),
+        Some(Ok(_))
+    ));
+}
+
+#[test]
+fn the_cmux_version_scale_is_one_number() {
+    // min_cmux_version compares against the cmux binary's version; the
+    // standalone cmux-server reports cmux_server_core's constant.
+    assert_eq!(machine_server::release_version(), cmux_server_core::manifest::CMUX_VERSION);
+    assert_eq!(cmux_server::cli::running_version(), machine_server::release_version());
 }
 
 #[test]

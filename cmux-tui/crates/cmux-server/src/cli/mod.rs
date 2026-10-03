@@ -115,12 +115,16 @@ fn run_with_code(ctx: &Context<'_>, args: &[String]) -> u8 {
     }
 }
 
+/// Errors go to stderr, as every other `cmux` scope writes them: one JSON
+/// object with `--json`, else one human line.
 fn fail(json: bool, e: &Error) -> u8 {
-    if json {
+    let mut stderr = std::io::stderr().lock();
+    let _ = if json {
         let body = json!({"error": {"kind": e.kind.as_str(), "message": e.message}});
-        let _ = writeln!(std::io::stdout(), "{body}");
-    }
-    let _ = writeln!(std::io::stderr(), "cmux server: {}", e.message);
+        writeln!(stderr, "{body}")
+    } else {
+        writeln!(stderr, "cmux server: {}", e.message)
+    };
     e.kind.code()
 }
 

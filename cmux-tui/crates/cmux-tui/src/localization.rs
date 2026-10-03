@@ -1164,7 +1164,6 @@ pub(crate) struct LocalServerMessages {
     pub unknown_scope: &'static str,
     pub unknown_server_action: &'static str,
     pub suggestion: &'static str,
-    pub server_is_machine_server: &'static str,
     pub unexpected_after_stop: &'static str,
     pub stop_timeout: &'static str,
 }
@@ -1418,7 +1417,6 @@ static ENGLISH: Catalog = Catalog {
         unknown_scope: "unknown resource scope \"{scope}\".",
         unknown_server_action: "unknown server action \"{action}\".",
         suggestion: "Did you mean `{candidate}`?",
-        server_is_machine_server: "`cmux server` runs this machine as a cmux server (`cmux server --help`); the session daemon is `cmux daemon`",
         unexpected_after_stop: "local server sent unexpected data after accepting shutdown",
         stop_timeout: "timed out waiting for the local server to stop",
     },
@@ -2192,7 +2190,6 @@ static JAPANESE: Catalog = Catalog {
         unknown_scope: "不明なリソーススコープ \"{scope}\"。",
         unknown_server_action: "不明なサーバー操作 \"{action}\"。",
         suggestion: "`{candidate}` のことですか？",
-        server_is_machine_server: "`cmux server` はこのマシンを cmux サーバーとして動かします（`cmux server --help`）。セッションデーモンは `cmux daemon` です",
         unexpected_after_stop: "停止を受理した後にローカルサーバーが予期しないデータを送信しました",
         stop_timeout: "ローカルサーバーの停止待機がタイムアウトしました",
     },
@@ -2855,6 +2852,9 @@ fn system_locale() -> String {
         .or_else(|_| std::env::var("LANG"))
         .unwrap_or_default()
 }
+
+mod server_mount;
+pub(crate) use server_mount::server_mount;
 
 #[cfg(test)]
 mod tests;
