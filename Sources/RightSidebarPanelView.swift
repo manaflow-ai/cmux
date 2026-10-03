@@ -74,6 +74,8 @@ struct RightSidebarPanelView: View {
     let onOpenFilePreview: (String) -> Void
     let onOpenAsPane: (RightSidebarMode) -> Void
     let onClose: () -> Void
+    let cloudActivationCoordinator: CloudActivationCoordinator = AppDelegate.shared?.cloudActivationCoordinator
+        ?? CloudActivationCoordinator.unconfigured()
     /// Live data context for the Custom mode's JS/Swift sidebar (built by the
     /// window's ContentView, which owns the unread model this view never sees).
     let customSidebarDataContext: (Date) -> [String: SwiftValue]
@@ -95,8 +97,6 @@ struct RightSidebarPanelView: View {
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @AppStorage(RightSidebarBetaFeatureSettings.feedEnabledKey)
     private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
-    @AppStorage(RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-    private var cloudMachinesBetaEnabled = RightSidebarBetaFeatureSettings.defaultCloudMachinesEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     /// The right rail's OWN worker client. Never share the left sidebar's:
     /// the remote host swaps files in place on one client, so a shared client
@@ -114,7 +114,7 @@ struct RightSidebarPanelView: View {
         _ = managedPolicyRevision
         return RightSidebarMode.availableModes(
             feedEnabled: feedEnabled,
-            machinesEnabled: CloudMachinesFeature.isEnabled
+            machinesEnabled: CloudMachinesFeature.isAvailable
         )
     }
 
@@ -206,7 +206,6 @@ struct RightSidebarPanelView: View {
             else { fileExplorerState.cloudTeamPickerPresentation.isPresented = false }
         }
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
-        .onChange(of: cloudMachinesBetaEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onReceive(NotificationCenter.default.publisher(for: RightSidebarTabPreferences.didChangeNotification)) { _ in
             refreshModeAvailabilityAndFocusIfNeeded()
         }
@@ -466,7 +465,8 @@ struct RightSidebarPanelView: View {
                     machinePinStore: AppDelegate.shared?.cloudMachinePinStore,
                     devicesModel: devicesModel,
                     tabManager: tabManager,
-                    teamPickerPresentation: fileExplorerState.cloudTeamPickerPresentation
+                    teamPickerPresentation: fileExplorerState.cloudTeamPickerPresentation,
+                    activationCoordinator: cloudActivationCoordinator
                 )
             case .customSidebar:
                 customSidebarPanel

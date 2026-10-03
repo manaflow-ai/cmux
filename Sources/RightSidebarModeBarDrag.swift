@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import CmuxSidebar
 import SwiftUI
 
 /// Owns a mode bar tab drag. Inside the bar the real tab follows the pointer
@@ -124,11 +125,18 @@ final class RightSidebarModeBarDragController {
         removeMouseUpMonitor()
         endedStartLocation = current.startLocation
         guard !current.isCarriedOut else { return }
-        let order = current.layout.reordered(current.modes, slot: current.slot)
+        let authoritative = RightSidebarTabPreferences.orderedModes().filter { $0.isAvailable() && ($0 == current.mode || !RightSidebarTabPreferences.isHidden($0)) }
+        let source = authoritative.firstIndex(of: current.mode)
+        var order = authoritative
+        if let source, !order.isEmpty {
+            let item = order.remove(at: source)
+            let target = min(max(current.slot, 0), order.count)
+            order.insert(item, at: target)
+        }
         withAnimation(animation) {
             // The bar reads the saved order in the same update that clears
             // the offsets, so position and offset animate together.
-            if current.slot != current.layout.source {
+            if let source, source != min(max(current.slot, 0), max(0, authoritative.count - 1)) {
                 RightSidebarTabPreferences.setDisplayedOrder(order)
             }
             session = nil

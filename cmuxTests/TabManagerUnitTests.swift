@@ -277,12 +277,25 @@ private func runGit(
 
 @MainActor
 final class TabManagerChildExitCloseTests: XCTestCase {
+    private var previousCloudActivationMarker: Any?
+
     override func setUpWithError() throws {
         try super.setUpWithError()
+        previousCloudActivationMarker = UserDefaults.standard.object(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+        UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
         try XCTSkipIf(
             ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26,
             "macOS 26 aborts while forming weak references during these AppKit window fixtures"
         )
+    }
+
+    override func tearDown() {
+        if let previousCloudActivationMarker {
+            UserDefaults.standard.set(previousCloudActivationMarker, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+        }
+        super.tearDown()
     }
 
     func testChildExitOnLastPanelClosesSelectedWorkspaceAndKeepsIndexStable() {

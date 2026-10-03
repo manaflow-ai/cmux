@@ -39,11 +39,7 @@ final class CloudTreeMachineReorderLift: NSObject {
     /// Row views this drag has moved or styled, reset when it ends.
     private let touched = NSHashTable<NSTableRowView>.weakObjects()
     private var isFinishing = false
-    /// When the mouse button was first seen up during the drag; a drag whose
-    /// end AppKit never reported is cancelled after a short grace.
-    private var buttonUpSince: CFTimeInterval?
-    /// Ends a drag whose end was never reported (set by the coordinator).
-    var onDragLost: (() -> Void)?
+    private let liftStyle = CloudTreeMachineLiftStyle()
 
     private static let shiftKey = "cmux.machineLift.shift"
     private static let liftZ: CGFloat = 10
@@ -112,7 +108,6 @@ final class CloudTreeMachineReorderLift: NSObject {
             collapsedIDs: closing.map(\.id),
             placement: layout.placement(dragOffset: 0)
         )
-        buttonUpSince = nil
         animateGhosts(ghosts, before: before)
         land(from: before, excluding: source.id, fadingIn: false)
         if let pointer = pointerY() { update(pointerY: pointer) }
@@ -127,16 +122,6 @@ final class CloudTreeMachineReorderLift: NSObject {
 
     @objc private func tick() {
         guard session != nil, let pointer = pointerY() else { return }
-        if NSEvent.pressedMouseButtons & 1 == 0 {
-            let now = CACurrentMediaTime()
-            if let since = buttonUpSince, now - since > 0.3 {
-                onDragLost?()
-                return
-            }
-            buttonUpSince = buttonUpSince ?? now
-        } else {
-            buttonUpSince = nil
-        }
         update(pointerY: pointer)
     }
 
@@ -165,10 +150,10 @@ final class CloudTreeMachineReorderLift: NSObject {
                 layer.removeAnimation(forKey: Self.shiftKey)
                 Self.setShift(placement.sourceOffset + Self.remainingCloseShift(session), on: layer)
                 layer.zPosition = Self.liftZ
-                CloudTreeMachineLiftStyle.apply(to: rowView, animated: true)
+                liftStyle.apply(to: rowView, animated: true)
                 return
             }
-            CloudTreeMachineLiftStyle.remove(from: rowView, animated: false)
+            liftStyle.remove(from: rowView, animated: false)
             layer.zPosition = 0
             let target = placement.rowOffsets[row] ?? 0
             if session.targets[row, default: 0] != target {
@@ -288,8 +273,8 @@ final class CloudTreeMachineReorderLift: NSObject {
             touched.add(rowView)
             if node.id == liftedID {
                 layer.zPosition = Self.liftZ
-                CloudTreeMachineLiftStyle.apply(to: rowView, animated: false)
-                CloudTreeMachineLiftStyle.remove(from: rowView, animated: !reduceMotion)
+                liftStyle.apply(to: rowView, animated: false)
+                liftStyle.remove(from: rowView, animated: !reduceMotion)
             }
             guard !reduceMotion else { return }
             if let delta, abs(delta) > 0.5 {
@@ -313,7 +298,7 @@ final class CloudTreeMachineReorderLift: NSObject {
             layer.removeAnimation(forKey: Self.shiftKey)
             Self.setShift(0, on: layer)
             layer.zPosition = 0
-            CloudTreeMachineLiftStyle.remove(from: rowView, animated: false)
+            liftStyle.remove(from: rowView, animated: false)
         }
         touched.removeAllObjects()
     }
@@ -359,10 +344,11 @@ final class CloudTreeMachineReorderLift: NSObject {
         CATransaction.setCompletionBlock {
             MainActor.assumeIsolated { ghosts.forEach { $0.layer.removeFromSuperlayer() } }
         }
+        let machinesByID = outline.visibleItemsByID()
         for ghost in ghosts {
             // The rows fold toward where their machine now stands.
             var travel: CGFloat = 0
-            if let machine = outline.findItem(nodeID: ghost.machineID), let old = before[ghost.machineID] {
+            if let machine = machinesByID[ghost.machineID], let old = before[ghost.machineID] {
                 let row = outline.row(forItem: machine)
                 if row >= 0 { travel = outline.rect(ofRow: row).minY - old }
             }
@@ -410,11 +396,15 @@ final class CloudTreeMachineReorderLift: NSObject {
 }
 
 extension NSOutlineView {
-    /// The displayed item for a Cloud node id, if it is on a visible row.
-    func findItem(nodeID: String) -> CloudTreeNode? {
+    /// Resolves all visible Cloud nodes in one pass for drag cleanup and animation.
+    func visibleItemsByID() -> [String: CloudTreeNode] {
+        var result: [String: CloudTreeNode] = [:]
         for row in 0..<numberOfRows {
-            if let node = item(atRow: row) as? CloudTreeNode, node.id == nodeID { return node }
+            if let node = item(atRow: row) as? CloudTreeNode { result[node.id] = node }
         }
-        return nil
+        return result
     }
+
+    /// The displayed item for a Cloud node id, if it is on a visible row.
+    func findItem(nodeID: String) -> CloudTreeNode? { visibleItemsByID()[nodeID] }
 }
