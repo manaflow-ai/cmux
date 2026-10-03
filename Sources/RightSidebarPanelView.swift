@@ -270,8 +270,9 @@ struct RightSidebarPanelView: View {
                 .coordinateSpace(.named(RightSidebarModeBarDragController.coordinateSpace))
                 .layoutPriority(1)
                 Spacer(minLength: 0)
-                // Always present, so the bar keeps its shape in every tab.
-                openAsPaneButton(mode: fileExplorerState.mode)
+                if fileExplorerState.mode.canOpenAsPane, fileExplorerState.mode.isAvailable() {
+                    openAsPaneButton(mode: fileExplorerState.mode)
+                }
                 closeButton
             }
         }
@@ -315,9 +316,8 @@ struct RightSidebarPanelView: View {
     }
 
     private func openAsPaneButton(mode: RightSidebarMode) -> some View {
-        let canOpen = mode.canOpenAsPane && mode.isAvailable()
-        return Button {
-            if canOpen { onOpenAsPane(mode) } else { NSSound.beep() }
+        Button {
+            onOpenAsPane(mode)
         } label: {
             HeaderChromeIconStyle.symbol("rectangle.split.2x1")
         }
@@ -331,12 +331,7 @@ struct RightSidebarPanelView: View {
             isVisible: true
         )
         .rightSidebarHeaderControlAlignment()
-        .safeHelp(canOpen
-            ? String(localized: "rightSidebar.openAsPane.tooltip", defaultValue: "Open as pane")
-            : String.localizedStringWithFormat(
-                String(localized: "rightSidebar.openAsPane.unavailable", defaultValue: "%@ can't open as a pane yet"),
-                mode.label
-            ))
+        .safeHelp(String(localized: "rightSidebar.openAsPane.tooltip", defaultValue: "Open as pane"))
         .accessibilityLabel(
             String.localizedStringWithFormat(
                 String(localized: "rightSidebar.openAsPane.accessibilityLabel", defaultValue: "Open %@ as Pane"),
