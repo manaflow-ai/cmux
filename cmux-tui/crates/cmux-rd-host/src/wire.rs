@@ -169,7 +169,13 @@ pub fn harden_tcp(s: &TcpStream) {
     let set = |level: i32, name: i32, value: i32| {
         // SAFETY: setsockopt with a valid fd and a pointer to a local int.
         unsafe {
-            libc::setsockopt(fd, level, name, (&value as *const i32).cast(), std::mem::size_of::<i32>() as libc::socklen_t);
+            libc::setsockopt(
+                fd,
+                level,
+                name,
+                (&value as *const i32).cast(),
+                std::mem::size_of::<i32>() as libc::socklen_t,
+            );
         }
     };
     set(libc::SOL_SOCKET, libc::SO_KEEPALIVE, 1);

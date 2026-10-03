@@ -39,7 +39,15 @@ pub fn open(cfg: &EncCfg<'_>) -> Res<Box<dyn H264Encoder>> {
     match cfg.codec {
         "openh264" => Ok(Box::new(OpenH264::new(cfg)?)),
         #[cfg(feature = "x264")]
-        "x264" => Ok(Box::new(crate::x264::X264::new(cfg.width, cfg.height, cfg.fps, cfg.kbps, cfg.threads, cfg.preset, cfg.profile)?)),
+        "x264" => Ok(Box::new(crate::x264::X264::new(
+            cfg.width,
+            cfg.height,
+            cfg.fps,
+            cfg.kbps,
+            cfg.threads,
+            cfg.preset,
+            cfg.profile,
+        )?)),
         other => Err(format!("codec {other} not available in this build").into()),
     }
 }
@@ -132,8 +140,14 @@ impl OpenH264 {
         unsafe {
             ok(vt.InitializeExt.ok_or("no InitializeExt")?(enc, &p), "initialize")?;
             let set = vt.SetOption.ok_or("no SetOption")?;
-            ok(set(enc, ENCODER_OPTION_TRACE_LEVEL, (&mut trace as *mut c_int).cast::<c_void>()), "trace level")?;
-            ok(set(enc, ENCODER_OPTION_DATAFORMAT, (&mut fmt as *mut c_int).cast::<c_void>()), "data format")?;
+            ok(
+                set(enc, ENCODER_OPTION_TRACE_LEVEL, (&mut trace as *mut c_int).cast::<c_void>()),
+                "trace level",
+            )?;
+            ok(
+                set(enc, ENCODER_OPTION_DATAFORMAT, (&mut fmt as *mut c_int).cast::<c_void>()),
+                "data format",
+            )?;
         }
         Ok(this)
     }
@@ -153,7 +167,12 @@ impl H264Encoder for OpenH264 {
         let src = SSourcePicture {
             iColorFormat: videoFormatI420 as c_int,
             iStride: [pic.width as c_int, (pic.width / 2) as c_int, (pic.width / 2) as c_int, 0],
-            pData: [pic.y.as_ptr().cast_mut(), pic.u.as_ptr().cast_mut(), pic.v.as_ptr().cast_mut(), std::ptr::null_mut()],
+            pData: [
+                pic.y.as_ptr().cast_mut(),
+                pic.u.as_ptr().cast_mut(),
+                pic.v.as_ptr().cast_mut(),
+                std::ptr::null_mut(),
+            ],
             iPicWidth: pic.width as c_int,
             iPicHeight: (pic.y.len() / pic.width.max(1)) as c_int,
             uiTimeStamp: pts.saturating_mul(16),
@@ -198,7 +217,11 @@ impl H264Encoder for OpenH264 {
         let mut info = SBitrateInfo { iLayer: SPATIAL_LAYER_ALL, iBitrate: (kbps * 1000) as c_int };
         // SAFETY: a valid SBitrateInfo for the duration of each call on a live encoder.
         let rc = unsafe {
-            set(self.enc, ENCODER_OPTION_MAX_BITRATE, (&mut info as *mut SBitrateInfo).cast::<c_void>());
+            set(
+                self.enc,
+                ENCODER_OPTION_MAX_BITRATE,
+                (&mut info as *mut SBitrateInfo).cast::<c_void>(),
+            );
             set(self.enc, ENCODER_OPTION_BITRATE, (&mut info as *mut SBitrateInfo).cast::<c_void>())
         };
         if rc == 0 {

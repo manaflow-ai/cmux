@@ -16,7 +16,8 @@ use std::time::Duration;
 pub fn run(opts: &Opts) -> Res<()> {
     // No default: the host must listen only on a private VPC or overlay address in phase 1,
     // because the hello's principal claims are trusted until the link token arrives.
-    let bind: IpAddr = opts.get("bind").ok_or("--bind <private VPC or overlay address> is required")?.parse()?;
+    let bind: IpAddr =
+        opts.get("bind").ok_or("--bind <private VPC or overlay address> is required")?.parse()?;
     if !is_private(bind) && opts.get("allow-non-private") != Some("1") {
         return Err(format!(
             "--bind {bind} is not a loopback, RFC 1918, CGNAT (100.64/10) or ULA address; phase 1 trusts the hello's \

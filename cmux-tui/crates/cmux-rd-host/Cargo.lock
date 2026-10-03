@@ -48,6 +48,7 @@ dependencies = [
  "cmux-rd-proto",
  "libc",
  "openh264",
+ "openh264-sys2",
  "serde",
  "serde_json",
  "x11rb",
