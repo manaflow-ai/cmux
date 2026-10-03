@@ -20,6 +20,7 @@ extension SettingsSchema {
         "window.titlebar",
         "window.rail",
         "tabs.newTabKind",
+        "newTerminal.opensWorkspace",
         "palette.scopes.tabs.prefix",
         "palette.scopes.workspaces.prefix",
         "palette.scopes.commands.prefix",
