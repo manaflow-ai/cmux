@@ -26,6 +26,34 @@
       "title" : "When Quitting",
       "type" : "string"
     },
+    "appearance.backdropArt" : {
+      "default" : "none",
+      "description" : "A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above.",
+      "enum" : [
+        "none",
+        "wheat-field-with-cypresses",
+        "met-saint-catherine-436908",
+        "met-woman-man-casement-436896",
+        "met-women-picking-olives-436536",
+        "met-sunflowers-436524"
+      ],
+      "title" : "Backdrop Art",
+      "type" : "string"
+    },
+    "appearance.background" : {
+      "default" : "none",
+      "description" : "Choose a bundled public-domain painting or a macOS system wallpaper behind the window material.",
+      "enum" : [
+        "none",
+        "wheat-field-with-cypresses",
+        "met-saint-catherine-436908",
+        "met-woman-man-casement-436896",
+        "met-women-picking-olives-436536",
+        "met-sunflowers-436524"
+      ],
+      "title" : "Background",
+      "type" : "string"
+    },
     "appearance.backgroundBlur" : {
       "description" : "Unset, the window follows Ghostty's background-opacity and background-blur.",
       "enum" : [
@@ -64,6 +92,12 @@
       "title" : "Density",
       "type" : "string"
     },
+    "appearance.experimentalControls" : {
+      "default" : false,
+      "description" : "Show the wallpaper grid and live appearance tuner while they are being integrated.",
+      "title" : "Experimental Appearance Controls",
+      "type" : "boolean"
+    },
     "appearance.focusIndicator" : {
       "default" : "both",
       "description" : "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither.",
@@ -76,11 +110,35 @@
       "title" : "Focused Pane",
       "type" : "string"
     },
+    "appearance.glassTransparency" : {
+      "default" : 0,
+      "description" : "How much of the desktop or wallpaper shows through the glass.",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Glass Transparency",
+      "type" : "number"
+    },
+    "appearance.hue" : {
+      "default" : 0.5,
+      "description" : "Shift the tint color around the hue wheel.",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Hue",
+      "type" : "number"
+    },
     "appearance.metrics.chromeFontSize" : {
       "description" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
       "maximum" : 16,
       "minimum" : 10,
       "title" : "Interface Size",
+      "type" : "number"
+    },
+    "appearance.saturation" : {
+      "default" : 1,
+      "description" : "Increase or reduce the tint color intensity.",
+      "maximum" : 2,
+      "minimum" : 0,
+      "title" : "Saturation",
       "type" : "number"
     },
     "appearance.statusIndicator.color" : {

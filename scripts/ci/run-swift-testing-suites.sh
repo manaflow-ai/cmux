@@ -2,18 +2,6 @@
 
 set -euo pipefail
 
-if [ "${1:-}" = "__generate-metadata" ]; then
-  CMUX_UPDATE_ACTION_SURFACES=1 swift test --package-path Packages/macOS/CmuxNext --filter SettingsSchemaExportTests
-  CMUX_UPDATE_MDM_SCHEMA=1 swift test --package-path Packages/macOS/CmuxNext --filter ManagedPreferencesManifestTests
-  for file in schemas/settings/settings-schema.json docs/mdm/com.manaflow.cmux.plist docs/mdm/com.manaflow.cmux.json docs/mdm/cmux-example.mobileconfig docs/mdm/com.manaflow.cmux.intune.plist docs/mdm/managed-preferences.md; do
-    echo "CMUX_GENERATED_FILE_BEGIN:$file"
-    base64 < "$file" | tr -d "\n"
-    echo
-    echo "CMUX_GENERATED_FILE_END:$file"
-  done
-  exit 0
-fi
-
 if [ "$#" -ne 1 ]; then
   echo "usage: $0 <package-path>" >&2
   exit 2

@@ -478,6 +478,60 @@
 			<string>string</string>
 		</dict>
 		<dict>
+			<key>pfm_default</key>
+			<string>none</string>
+			<key>pfm_description</key>
+			<string>A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above.</string>
+			<key>pfm_name</key>
+			<string>appearance.backdropArt</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>none</string>
+				<string>wheat-field-with-cypresses</string>
+				<string>met-saint-catherine-436908</string>
+				<string>met-woman-man-casement-436896</string>
+				<string>met-women-picking-olives-436536</string>
+				<string>met-sunflowers-436524</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Backdrop Art</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>none</string>
+			<key>pfm_description</key>
+			<string>Choose a bundled public-domain painting or a macOS system wallpaper behind the window material.</string>
+			<key>pfm_name</key>
+			<string>appearance.background</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>none</string>
+				<string>wheat-field-with-cypresses</string>
+				<string>met-saint-catherine-436908</string>
+				<string>met-woman-man-casement-436896</string>
+				<string>met-women-picking-olives-436536</string>
+				<string>met-sunflowers-436524</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Background</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Show the wallpaper grid and live appearance tuner while they are being integrated.</string>
+			<key>pfm_name</key>
+			<string>appearance.experimentalControls</string>
+			<key>pfm_title</key>
+			<string>Experimental Appearance Controls</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
 			<key>pfm_description</key>
 			<string>How much of the theme color covers the material behind the window.</string>
 			<key>pfm_name</key>
@@ -507,6 +561,54 @@
 			<string>Material</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>0</integer>
+			<key>pfm_description</key>
+			<string>How much of the desktop or wallpaper shows through the glass.</string>
+			<key>pfm_name</key>
+			<string>appearance.glassTransparency</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Glass Transparency</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<real>0.5</real>
+			<key>pfm_description</key>
+			<string>Shift the tint color around the hue wheel.</string>
+			<key>pfm_name</key>
+			<string>appearance.hue</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Hue</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>1</integer>
+			<key>pfm_description</key>
+			<string>Increase or reduce the tint color intensity.</string>
+			<key>pfm_name</key>
+			<string>appearance.saturation</string>
+			<key>pfm_range_max</key>
+			<real>2</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Saturation</string>
+			<key>pfm_type</key>
+			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
