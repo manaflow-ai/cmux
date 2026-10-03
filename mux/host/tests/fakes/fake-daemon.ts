@@ -29,6 +29,10 @@ export class FakeDaemon {
   rejectAgentSends = 0;
   agentReject = "agent_rate";
   capabilities = ["local-conversations-v1"];
+  /** `<cmd>:<conversation>` -> reason: the owner refuses that read (a reject, not a lost connection). */
+  readonly refuse = new Map<string, string>();
+  /** Commands whose replies are withheld (a stuck request). */
+  readonly hold = new Set<string>();
   private server!: Server;
   private readonly clients = new Set<Socket>();
   private readonly subscribers = new Set<Socket>();
@@ -137,7 +141,7 @@ export class FakeDaemon {
             error_code: error instanceof Reject ? "conversation_rejected" : "bad_request",
           };
         }
-        if (!socket.destroyed) socket.write(`${JSON.stringify(reply)}\n`);
+        if (!socket.destroyed && !this.hold.has(request.cmd)) socket.write(`${JSON.stringify(reply)}\n`);
         this.notify();
       }
     });
@@ -167,6 +171,8 @@ export class FakeDaemon {
   }
 
   private handle(request: Request): unknown {
+    const refusal = this.refuse.get(`${request.cmd}:${String(request.conversation)}`);
+    if (refusal) throw new Reject(refusal);
     switch (request.cmd) {
       case "identify":
         return { app: "fake-daemon", version: "0.0.0", protocol: 2, capabilities: this.capabilities, session: "test", pid: process.pid };

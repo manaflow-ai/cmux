@@ -450,6 +450,23 @@ function disconnectCases(): CorpusCase[] {
     cases.push(c.end());
   }
 
+  {
+    const c = new CaseBuilder("refusal: the owner refuses a snapshot, a history page or the list: the task is skipped, the inbox goes on, no reconnect");
+    const a = summary("conv_a");
+    const g = summary("conv_g", [ME, ANA, MUX]);
+    start(c, a);
+    c.feed({ kind: "conversations_listed", conversations: [a, g] });
+    c.step({ kind: "fetch_refused", conversation: "conv_a", reason: "snapshot_unavailable" } as unknown as Input, ["fetch_snapshot"], (e) =>
+      c.check(c.get(e, "fetch_snapshot").conversation === "conv_g", "the next conversation"),
+    );
+    c.step({ kind: "snapshot", conversation: g, messages: [msg("conv_g", 3, "user_ana", "late")] }, ["fetch_history"]);
+    c.step({ kind: "fetch_refused", conversation: "conv_g", reason: "history_unavailable" } as unknown as Input, ["ready"]);
+    c.step({ kind: "disconnected", port: "daemon" }, []);
+    c.step({ kind: "daemon_connected", conversation: a }, ["list_conversations"]);
+    c.step({ kind: "fetch_refused", reason: "list_unavailable" } as unknown as Input, ["ready"]);
+    cases.push(c.end());
+  }
+
   return cases;
 }
 

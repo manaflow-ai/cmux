@@ -317,3 +317,19 @@ describe("owner turn budget", () => {
     expect(muxReplies(w.daemon.messages(conv)).length).toBe(1);
   }, 15000);
 });
+
+describe("owner refusals", () => {
+  test("a refused snapshot skips that conversation; the host does not reconnect", async () => {
+    const w = await setup();
+    const broken = w.daemon.createConversation("broken", [
+      { id: USER_LOCAL, kind: "human", display_name: "Test User" },
+      { id: AGENT_MUX, kind: "agent", display_name: "mux", agent_class: "mux", acp_session: "mux" },
+    ]);
+    w.daemon.refuse.set(`conversation-snapshot:${broken}`, "snapshot_unavailable");
+    const host = w.host();
+    host.start();
+    await host.ready;
+    expect(w.daemon.requests.filter((r) => r.cmd === "identify").length).toBe(1);
+    expect(w.lines.some((line) => line.includes("refused") && line.includes(broken))).toBe(true);
+  }, 5000);
+});
