@@ -2274,6 +2274,10 @@
       "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
     }
   },
+  "sessionIndex.agent.cursor": {
+    "class": "brand",
+    "source": "Cursor"
+  },
   "sessionIndex.agent.grok": {
     "source": "Grok",
     "identityLocales": {
