@@ -4220,6 +4220,11 @@ impl Mux {
         self.terminal_ends.lock().unwrap().clone()
     }
 
+    /// Whether a terminal's host may run while it has no runtime here.
+    pub(crate) fn terminal_is_pending(&self, terminal_id: &str) -> bool {
+        self.pending_terminals.lock().unwrap().values().any(|(id, _)| id == terminal_id)
+    }
+
     /// Mark a terminal pending. Takes the registry lock briefly to resolve
     /// its public id; the caller must not hold the registry or state lock.
     #[cfg(unix)]
