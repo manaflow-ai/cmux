@@ -169,10 +169,22 @@ mirror. Target, decided by the store inside the commit that causes it:
 | --- | --- |
 | Last tab closed by a client (Cmd-W, CLI, TUI) | remove the tab; the workspace empties and closes (user decision 8.3, same for every client) |
 | Last process exits normally and its tab is not kept (`keep_on_exit` false) | same as above, caused by the session host's typed `exited` event |
-| Terminal host lost (outcome `unknown`: crash, kill, reboot), or a process ended by a signal at or after the daemon began shutting down (logout, `server stop`, SIGTERM to the daemon; the shutdown start is recorded durably so a restarted daemon classifies exits found at adoption) | nothing is removed: the tab becomes `dead` with a Respawn action, or respawns per policy; the workspace never empties (principle 3) |
+| Terminal host lost (outcome `unknown`: crash, kill, reboot), or a process ended by a signal from 2 s before to 60 s after the daemon began shutting down (logout, `server stop`, SIGTERM to the daemon; the shutdown start is recorded durably so a restarted daemon classifies exits found at adoption) | nothing is removed: the tab becomes `dead` with a Respawn action, or respawns per policy; the workspace never empties (principle 3) |
 | A move, drag or tear-off takes the last tab out | the move op names the source workspace as closing; it closes in the same commit (tear-off is one op) |
 | `workspace.create` | creates the workspace with its first terminal in one op; there is no empty workspace for a client to repair |
 | Legacy empty workspace found at open (older builds, hard kill) | the store gives it a terminal once at open, recorded in the journal |
+
+Logout race (2026-10-02): logout signals the shell and the daemon at the same time, so a
+shell's signal exit can reach the daemon before it records its shutdown start. A signal
+exit is final only once the 2 s lead has passed: until then the daemon commits the exit
+receipt without removing the tab, then classifies the receipt again (a shutdown that
+started meanwhile makes it a host loss). A daemon that stops first leaves the receipt to
+the next one, which classifies it against the recorded window with the same result. The
+receipt records no provenance (the public `TerminalExit` shape is closed and older
+daemons reject unknown receipt keys), so an older host's status-less exit and an
+abandoned launch read as host losses after a restart: the tab stays dead, the safe side
+of principle 3. A separate provenance table keyed by the receipt revision is the path if
+that ever matters.
 
 Restart of a host-lost tab (user decision 2026-10-02): a dead tab shows one-click
 Restart (same cwd and command); the setting `terminal.restartLostTerminals` (default

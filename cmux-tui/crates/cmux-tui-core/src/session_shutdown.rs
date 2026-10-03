@@ -8,6 +8,12 @@
 //! signal while the owner runs normally (a user's `kill`, Ctrl-C ending the
 //! shell) and every exit with a status stay real ends.
 //!
+//! A shutdown window runs from [`SESSION_SHUTDOWN_LEAD_MS`] before the
+//! shutdown start to [`SESSION_SHUTDOWN_WINDOW_MS`] after it, or to the next
+//! owner's start if that is sooner. A signal exit after the window is a real
+//! end again, so a daemon that hangs in its shutdown cannot keep later exits
+//! dead.
+//!
 //! Logout signals the shell and the daemon at the same time, so a shell's
 //! signal exit can reach the owner before the owner records its shutdown
 //! start. The classification of such an exit is final only once the lead has
@@ -38,6 +44,9 @@ use crate::terminal_host_protocol::{TerminalExit, TerminalExitOutcome};
 /// as part of the shutdown. Logout signals every process of the session at
 /// once, so a shell can die a moment before the owner records the start.
 pub(crate) const SESSION_SHUTDOWN_LEAD_MS: u64 = 2_000;
+
+/// How long after its start a shutdown window lasts at most.
+pub(crate) const SESSION_SHUTDOWN_WINDOW_MS: u64 = 60_000;
 
 /// The marker file next to a registry database.
 pub(crate) fn owner_shutdown_marker_path(database: &Path) -> PathBuf {
@@ -178,6 +187,7 @@ impl SessionShutdownClock {
     }
 
     fn within(start_ms: u64, end_ms: u64, exited_at_ms: u64) -> bool {
+        let end_ms = end_ms.min(start_ms.saturating_add(SESSION_SHUTDOWN_WINDOW_MS));
         (start_ms.saturating_sub(SESSION_SHUTDOWN_LEAD_MS)..end_ms).contains(&exited_at_ms)
     }
 
@@ -378,7 +388,7 @@ mod tests {
     #[test]
     fn a_shutdown_window_ends_sixty_seconds_after_its_start() {
         let previous = SessionShutdownClock::new(Some((100_000, 400_000)));
-        let limit = 160_000;
+        let limit = 100_000 + SESSION_SHUTDOWN_WINDOW_MS;
         assert!(matches!(previous.classify(signal_end(limit - 1)), TerminalEnd::HostLost(_)));
         for at in [limit, 300_000] {
             let end = previous.classify(signal_end(at));
@@ -390,7 +400,7 @@ mod tests {
 
         let own = SessionShutdownClock::new(None);
         own.begin_at(50_000);
-        let limit = 110_000;
+        let limit = 50_000 + SESSION_SHUTDOWN_WINDOW_MS;
         assert!(matches!(own.classify(signal_end(limit - 1)), TerminalEnd::HostLost(_)));
         for at in [limit, 200_000] {
             let end = own.classify(signal_end(at));
