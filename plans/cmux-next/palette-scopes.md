@@ -359,8 +359,14 @@ Recommendation: `token` + `all` + `menu` (the defaults). `token` is the most vis
 
 ## 9. Decisions
 
-- DECISION D-PS1: name in the manifest. RECOMMEND `contributes.paletteScopes` (not `scopes`, which is the permission list), and fold lane 3's proposed `searchProviders` (gap S4) into it as `federates: true`, because one contribution then serves the root search, the scope chip and `palette.query`.
-- DECISION D-PS2: Esc at a level opened by its shortcut. RECOMMEND close (clear the query first), with Backspace as the way to the root, because a user who pressed Cmd-Shift-A expects Esc to dismiss, and Backspace is the decided way back (PA2).
-- DECISION D-PS3: Tab. RECOMMEND Tab enters (keyword, scope row, drill) and falls back to the Actions menu, because PA2 asks that Tab enters a scope and Cmd-K still opens the Actions menu.
-- DECISION D-PS4: prefixes for app scopes. RECOMMEND none by default (keyword only; users can assign one), because one-character prefixes are scarce and a third-party app should not take one.
-- DECISION D-PS5: item actions. RECOMMEND typed `ActionRef`s only for app items (no closures), because closures cannot be listed, bound, audited or called by agents.
+Accepted by the coordinator, 2026-10-02 (recorded with PR 16849):
+
+| # | Decision | Status |
+| --- | --- | --- |
+| D-PS1 | Manifest key `contributes.paletteScopes` (not `scopes`, the permission list) until manifest v2, then the interface `cmux.palette.scope/1` (section 6.9); lane 3's `searchProviders` (gap S4) folds in as `federates: true` | accepted |
+| D-PS2 | Esc on a scope opened by its shortcut clears the query, then closes; Backspace on the empty query is the way to the root. A text prompt opened by a shortcut or menu closes on the first Esc | accepted, built |
+| D-PS3 | Tab enters a scope first (keyword, scope row, drill), else opens the Actions menu; Shift-Tab leaves a scope; Cmd-K keeps the Actions menu | accepted, built |
+| D-PS4 | App scopes get a keyword only; single-character prefixes stay with built-in scopes; users may assign a prefix to any scope in `cmux.json` | accepted (user assignment: not built yet) |
+| D-PS5 | App items carry typed `ActionRef`s only, never closures | accepted, built in PR 16844 |
+| D-PS6 | Remove the duplicate command `view` field in favor of `mode` in a later manifest PR (app platform lead) | accepted, open |
+| D-PS7 | Defaults: the `token` chip, `all` entry gestures, the Actions menu on Tab (section 7) | accepted, built (Debug Settings keep the other variants) |
