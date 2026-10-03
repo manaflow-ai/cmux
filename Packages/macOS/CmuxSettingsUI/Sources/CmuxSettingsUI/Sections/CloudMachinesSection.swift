@@ -63,7 +63,10 @@ public struct CloudMachinesSection: View {
                     planIncludesCloud = nil
                     return
                 }
-                planIncludesCloud = await hostActions.cloudMachinesPlanIncludesCloud()
+                let includesCloud = await hostActions.cloudMachinesPlanIncludesCloud()
+                // A newer check (account switch, app reactivation) owns the row now.
+                guard !Task.isCancelled else { return }
+                planIncludesCloud = includesCloud
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 planCheckGeneration &+= 1

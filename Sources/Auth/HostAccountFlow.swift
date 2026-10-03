@@ -30,6 +30,9 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// state so a rebuilt Cloud panel keeps showing Enable Cloud or Upgrade
     /// instead of falling back to "Checking your cmux plan…".
     private(set) var billingPlanIdentityID: String?
+    /// The most recent plan request. Only it may write, so an older request
+    /// that finishes late cannot overwrite a newer answer.
+    @ObservationIgnored private var billingPlanRequestID: UUID?
     /// Whether `isProActive` is a real answer for the signed-in account.
     var hasLoadedBillingPlan: Bool {
         guard let billingPlanIdentityID else { return false }
@@ -260,6 +263,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
             billingPlanIdentityID = nil
             return
         }
+        let requestID = UUID()
+        billingPlanRequestID = requestID
         var request = URLRequest(url: AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan"))
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -273,8 +278,9 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            // The account may have changed while the request was in flight.
-            guard currentIdentity?.id == identityID else { return }
+            // The account may have changed, or a newer request started, while
+            // this one was in flight.
+            guard currentIdentity?.id == identityID, billingPlanRequestID == requestID else { return }
             guard let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode) else {
                 forgetBillingPlanUnlessKnown(for: identityID)
@@ -287,7 +293,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         } catch {
             // A cancelled request (the panel went away) says nothing about the plan.
             if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
-            guard currentIdentity?.id == identityID else { return }
+            guard currentIdentity?.id == identityID, billingPlanRequestID == requestID else { return }
             forgetBillingPlanUnlessKnown(for: identityID)
         }
     }

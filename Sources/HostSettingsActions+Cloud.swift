@@ -74,8 +74,12 @@ extension HostSettingsActions {
     }
 
     func cloudMachinesPlanIncludesCloud() async -> Bool? {
-        guard let flow = AppDelegate.shared?.auth?.accountFlow, flow.isAuthenticated else { return nil }
+        guard let flow = AppDelegate.shared?.auth?.accountFlow, flow.isAuthenticated,
+              let accountID = flow.currentIdentity?.id else { return nil }
         await flow.refreshBillingPlan()
+        // Only answer for the account that asked; a switch mid-check means
+        // this answer belongs to someone else.
+        guard !Task.isCancelled, flow.currentIdentity?.id == accountID else { return nil }
         // Same answer the Cloud tab uses, so both show Upgrade for Free plans.
         return flow.hasLoadedBillingPlan ? flow.isProActive : nil
     }
