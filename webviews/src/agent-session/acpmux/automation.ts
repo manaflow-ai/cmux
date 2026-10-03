@@ -2,6 +2,7 @@ import { focusedArea } from "./composerFocus";
 import { sessionModels } from "./modelCatalog";
 import { turnFiles } from "./diff";
 import type { AcpmuxSnapshot } from "./model";
+import { permissionKeys, permissionOption } from "./permissionKeys";
 import type { PermissionDecision } from "./permissions/protocol";
 
 // Automation verbs for the DEBUG `debug.agent_pane` socket method (window.cmuxAcpmuxDebug).
@@ -94,8 +95,9 @@ export function selectSession(host: AutomationHost, sessionId: string) {
 }
 
 /// Answers the pending ask the way its panel does: a grouped ask with `decision`
-/// (default allow_once), a single ask with `optionId` (default its first allowing option,
-/// or its first denying option when `allow` is false).
+/// (default allow_once), a single ask with `optionId` (default the option the card's y key
+/// picks, or its n key when `allow` is false: once, never an "always" option, which would
+/// leave a standing rule behind a scripted answer).
 export async function answerPermission(
   host: AutomationHost,
   options: { optionId?: string; allow?: boolean; decision?: PermissionDecision } = {},
@@ -116,7 +118,7 @@ export async function answerPermission(
   const allow = options.allow !== false;
   const option = options.optionId
     ? permission.options.find((candidate) => candidate.id === options.optionId)
-    : permission.options.find((candidate) => candidate.allow === allow);
+    : permissionOption(permission.options, permissionKeys(permission.options), allow ? "y" : "n");
   if (!option) return { error: "no matching option", options: permission.options };
   await host.call("chat.permission", { permissionId: permission.permissionId, optionId: option.id });
   return { answered: permission.permissionId, optionId: option.id };
