@@ -1,5 +1,5 @@
 import { env, exports } from "cloudflare:workers"
-import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
+import { runInDurableObject } from "cloudflare:test"
 import type { Principal, ReduceContext } from "@cmux/ownership"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
@@ -144,7 +144,8 @@ describe("install revocation reaches the team SSH KRL (workerd)", () => {
     const b = (await op(p)).value.serial as number
     const other = (await op({ ...p, identity: "inst_00000000000000000093", install: "inst_00000000000000000093" })).value.serial as number
     expect((await mutate(token, "install.revoke", { install: INST })).ok).toBe(true)
-    await runDurableObjectAlarm(userStub as unknown as DurableObjectStub)
+    // The alarm may already be running on its own; drive the same wake work directly (it is idempotent).
+    await inDO(userStub, async (instance) => instance.onWake(Date.now()))
     const view = (await teamStub.readOp(team, { identity: `session:${user}`, kind: "session", user, team }, "team_vm.ssh_ca", {})).value
     expect(krlSerials(view.krl)).toEqual([a, b])
     expect(krlSerials(view.krl)).not.toContain(other)
@@ -164,7 +165,9 @@ describe("install revocation reaches the team SSH KRL (workerd)", () => {
     const serial = (await teamStub.sshOp(team, p, { op: "team_vm.ssh_cert", params: { public_key: await sshLine() }, idempotency_key: crypto.randomUUID() })).value.serial as number
     expect(await teamStub.revokeInstallCerts(team, "user_00000000000000000099", INST)).toEqual({ ok: true, revoked: [] })
     expect(await teamStub.revokeInstallCerts(team, user, INST)).toEqual({ ok: true, revoked: [serial] })
-    // Idempotent: a repeated notice changes nothing.
-    expect(await teamStub.revokeInstallCerts(team, user, INST)).toEqual({ ok: true, revoked: [] })
+    // Idempotent: a repeated notice replays the same answer and adds nothing to the KRL.
+    const before = (await teamStub.readOp(team, { identity: `session:${user}`, kind: "session", user, team }, "team_vm.ssh_ca", {})).value.krl_version
+    expect(await teamStub.revokeInstallCerts(team, user, INST)).toEqual({ ok: true, revoked: [serial] })
+    expect((await teamStub.readOp(team, { identity: `session:${user}`, kind: "session", user, team }, "team_vm.ssh_ca", {})).value.krl_version).toBe(before)
   })
 })

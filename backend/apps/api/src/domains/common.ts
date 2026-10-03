@@ -242,6 +242,23 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
     } as CloudOpDef
   ],
   [
+    "install.ssh_revoke_done",
+    {
+      name: "install.ssh_revoke_done",
+      owner: "cloud:UserDO",
+      class: "mutation",
+      risk: "mutate-own",
+      target: "install",
+      principals: ["system"],
+      params: Schema.Struct({ install: InstallId }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: every team confirmed the KRL entries for a revoked install's SSH certificates.",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
     "server.install_revoked",
     {
       name: "server.install_revoked",

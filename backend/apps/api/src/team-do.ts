@@ -14,7 +14,7 @@ import { stackServer, type StackServer } from "./stack-server.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
 import { mayEnrollServer, type ServerEnrollRefused } from "./domains/team-servers.ts"
 import { sshCaView } from "./domains/team-ssh.ts"
-import { sshExternal } from "./team-ssh-ca.ts"
+import { revokeInstallCerts, sshExternal } from "./team-ssh-ca.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
 /** TeamDO.signInRules result (policy-gate.ts). */
@@ -270,6 +270,27 @@ export class TeamDO extends OwnerDO<TeamState> {
       },
       principal,
       frame
+    )
+  }
+
+  /**
+   * RPC from UserDO only (S4): `user` revoked `install`. Every unexpired team SSH certificate of
+   * that install (and only that user's) goes into the KRL, and the install gets no new one.
+   */
+  async revokeInstallCerts(entity: string, user: string, install: string): Promise<{ ok: boolean; revoked: Array<number> }> {
+    const engine = this.bind(entity)
+    return revokeInstallCerts(
+      {
+        state: () => this.boundEngine?.currentState ?? engine.currentState,
+        team: entity,
+        stream: engine.stream,
+        kek: this.env.INTEGRATIONS_KEK,
+        sql: this.ctx.storage.sql,
+        now: () => Date.now(),
+        submitSystem: (op, params, key) => this.submitSystem(op, params, key)
+      },
+      user,
+      install
     )
   }
 

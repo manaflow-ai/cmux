@@ -1,7 +1,7 @@
 import type { OwnerFrame, Principal, RejectFrame, ResultFrame } from "@cmux/ownership"
 import { SSH_AGENT_FORCE_COMMAND, SSH_TEAMS_EXTENSION, TeamVmSshCaRotate, TeamVmSshCert, TeamVmSshCertRevoke } from "@cmux/protocol"
 import { decodeParams } from "./domains/common.ts"
-import { linuxUserFor, MAX_CERT_MS } from "./domains/team-ssh.ts"
+import { KRL_GRACE_MS, linuxUserFor, MAX_CERT_MS } from "./domains/team-ssh.ts"
 import type { TeamState } from "./domains/team.ts"
 import { open, seal, type SealedSecret } from "./integrations/crypto.ts"
 import type { DomainReply } from "./team-domain-external.ts"
@@ -50,6 +50,8 @@ export const ensureSshTables = (sql: SqlStorage) => {
   )
   sql.exec(`CREATE INDEX IF NOT EXISTS ssh_certs_identity ON ssh_certs (identity, issued_at)`)
   sql.exec(`CREATE INDEX IF NOT EXISTS ssh_certs_user ON ssh_certs (user, issued_at)`)
+  // Installs that UserDO revoked (S4): no new certificate, kept a day (tokens live 10 minutes).
+  sql.exec(`CREATE TABLE IF NOT EXISTS ssh_revoked_installs (install TEXT PRIMARY KEY, user TEXT NOT NULL, at INTEGER NOT NULL)`)
   sql.exec(`CREATE TABLE IF NOT EXISTS ssh_requests (identity TEXT NOT NULL, idem TEXT NOT NULL, op TEXT NOT NULL, hash TEXT NOT NULL, reply TEXT, at INTEGER NOT NULL, PRIMARY KEY (identity, idem))`)
 }
 
@@ -174,6 +176,8 @@ const issue = async (deps: SshCaDeps, p: Principal, params: CertParams) => {
     const keyId = `${p.agent ?? user}/${p.grant ?? "session"}/${p.install ?? "session"}/${hex(nonce.slice(0, 6).buffer)}`
     const validAfter = now - SKEW_MS
     const validBefore = now + Math.min(params.validity_minutes ?? 30, MAX_CERT_MS / 60_000) * 60_000
+    // An install revoked during this request's awaits gets nothing (the notice came before this row).
+    if (p.install && deps.sql.exec(`SELECT 1 FROM ssh_revoked_installs WHERE install = ?`, p.install).toArray().length > 0) throw new Refusal("auth.forbidden", "this install was revoked")
     // Logged before the signing await, so the rate limit and a concurrent revoke by user or install see it.
     deps.sql.exec(
       `INSERT INTO ssh_certs (serial, identity, user, install, key_id, class, generation, issued_at, valid_before) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -245,6 +249,27 @@ const revoke = (deps: SshCaDeps, p: Principal, params: RevokeParams, key: string
   // The request's own replay row (ssh_requests) is the idempotency record; the ledger key is per attempt, so a
   // refused attempt (a full list) is not replayed after the cause is gone.
   return committed(deps.submitSystem("team_vm.ssh_certs_revoked", { serials, by, admin, reason: params.reason ?? "" }, `ssh-revoke:${key}`)) as { revoked: Array<number>; krl_version: number }
+}
+
+/** UserDO revoked `install` of `user` (S4): record it, then revoke its unexpired certificates. Idempotent. */
+export const revokeInstallCerts = async (deps: SshCaDeps, user: string, install: string): Promise<{ ok: boolean; revoked: Array<number> }> => {
+  ensureSshTables(deps.sql)
+  const now = deps.now()
+  deps.sql.exec(`DELETE FROM ssh_revoked_installs WHERE at < ?`, now - RETAIN_MS)
+  deps.sql.exec(`INSERT OR IGNORE INTO ssh_revoked_installs (install, user, at) VALUES (?, ?, ?)`, install, user, now)
+  const serials = deps.sql
+    .exec<{ serial: number; valid_before: number; generation: number }>(`SELECT serial, valid_before, generation FROM ssh_certs WHERE install = ? AND user = ? AND valid_before > ?`, install, user, now - KRL_GRACE_MS)
+    .toArray()
+    .map((r) => ({ serial: r.serial, valid_before: r.valid_before, generation: r.generation }))
+  if (serials.length === 0 || !deps.state().team) return { ok: true, revoked: [] }
+  const key = hex(await crypto.subtle.digest("SHA-256", enc.encode(`${user}|${install}|${serials.map((s) => s.serial).join(",")}`)))
+  try {
+    const v = committed(deps.submitSystem("team_vm.ssh_certs_revoked", { serials, by: `system:user:${user}`, admin: true, reason: "install revoked" }, `ssh-install-revoked:${key}`)) as { revoked: Array<number> }
+    return { ok: true, revoked: v.revoked }
+  } catch (e) {
+    console.error(JSON.stringify({ msg: "install certificate revocation refused", install, code: e instanceof Refusal ? e.code : "error" }))
+    return { ok: false, revoked: [] }
+  }
 }
 
 const rotate = async (deps: SshCaDeps, p: Principal, compromised: boolean) => {

@@ -81,7 +81,39 @@ export class UserDO extends OwnerDO<UserState> {
 
   protected override nextWakeAt(): number | null {
     this.boundInbox()
-    return this.inbox.nextWakeAt()
+    const inbox = this.inbox.nextWakeAt()
+    const pending = Object.keys(this.boundEngine?.currentState.ssh_revoke_pending ?? {}).length > 0 ? Math.max(Date.now(), this.sshRetryAt ?? 0) : null
+    return inbox === null ? pending : pending === null ? inbox : Math.min(inbox, pending)
+  }
+
+  /** Backoff after a failed KRL notice (in memory: a restart retries at once). */
+  private sshRetryAt: number | null = null
+  private sshAttempts = 0
+
+  /**
+   * Delivers pending KRL notices for revoked installs to each team's TeamDO and clears each one
+   * when every team confirmed (S4). TeamDO's side is idempotent, so a retry after a crash is safe.
+   */
+  protected override async onWake(now: number): Promise<void> {
+    const engine = this.existing()
+    const pending = Object.entries(engine?.currentState.ssh_revoke_pending ?? {})
+    if (pending.length === 0 || (this.sshRetryAt !== null && now < this.sshRetryAt)) return
+    for (const [install, n] of pending) {
+      try {
+        for (const team of n.teams) {
+          const r = (await this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)).revokeInstallCerts(team, n.user, install)) as { ok: boolean }
+          if (!r.ok) throw new Error("refused")
+        }
+        this.submitSystem("install.ssh_revoke_done", { install }, `ssh-revoke-done:${install}:${n.at}`)
+      } catch (e) {
+        this.sshAttempts += 1
+        this.sshRetryAt = now + Math.min(5 * 60_000, 1000 * 2 ** this.sshAttempts)
+        console.error(JSON.stringify({ msg: "team ssh krl notice failed", install, error: String(e) }))
+        return
+      }
+    }
+    this.sshAttempts = 0
+    this.sshRetryAt = null
   }
 
   protected override onPrune(): void {
