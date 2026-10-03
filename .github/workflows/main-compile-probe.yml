@@ -90,8 +90,15 @@ jobs:
           if [ -x "$helper" ]; then
             status=0
             "$helper" take "$root" --wait 900 >/dev/null || status=$?
+            placed="$(cat "${RUNNER_TEMP:-/nonexistent}/glaeda-canonical-root" 2>/dev/null || true)"
             case "$status" in
-              0|2) ;;
+              0) ;;
+              2)
+                [ "$placed" = "$root" ] || {
+                  echo "::error::glaeda placed this job in ${placed:-no root}, not $root";
+                  exit 1;
+                }
+                ;;
               *) echo "::error::could not hold $root for this job (glaeda-canonical-root exit $status)"; exit 1 ;;
             esac
           fi
