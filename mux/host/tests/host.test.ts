@@ -319,7 +319,6 @@ describe("owner turn budget", () => {
   }, 15000);
 });
 
-import { takeLock } from "../src/lock.ts";
 describe("owner refusals", () => {
   test("a refused snapshot skips that conversation; the host does not reconnect", async () => {
     const w = await setup();

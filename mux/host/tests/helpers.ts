@@ -84,6 +84,8 @@ export function fakeClock(): FakeClock {
 export async function advanceUntil(clock: FakeClock, done: () => boolean, stepMs = 1_000): Promise<void> {
   for (let i = 0; i < 200 && !done(); i++) {
     await Bun.sleep(10);
+    // Check again after the wait: one step too many would fire the new connection's own deadline.
+    if (done()) return;
     clock.advance(stepMs);
   }
 }
