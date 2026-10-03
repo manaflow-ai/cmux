@@ -12,7 +12,7 @@ import { join } from "node:path";
 const realFs = { ...fsModule };
 const { mkdtempSync, rmSync, utimesSync, writeFileSync: realWriteFile } = realFs;
 
-type Fn = "readFileSync" | "writeSync" | "writeFileSync" | "rmSync";
+type Fn = "readFileSync" | "writeSync" | "writeFileSync" | "rmSync" | "fstatSync";
 /** `path`: fire only for a call on this path. */
 type Hook = { fns: Fn[]; path?: string; run: () => void } | undefined;
 let hook: Hook;
@@ -40,6 +40,10 @@ mock.module("node:fs", () => ({
     realFs.writeFileSync(...args);
     fire("writeFileSync");
   },
+  fstatSync: (...args: Parameters<typeof realFs.fstatSync>) => {
+    fire("fstatSync");
+    return realFs.fstatSync(...args);
+  },
   rmSync: (...args: Parameters<typeof realFs.rmSync>) => {
     fire("rmSync", args[0]);
     realFs.rmSync(...args);
@@ -47,8 +51,9 @@ mock.module("node:fs", () => ({
 }));
 
 let takeLock: (path: string) => (() => void) | undefined;
+let lockHolder: (path: string) => number | undefined;
 beforeAll(async () => {
-  ({ takeLock } = await import("../src/lock.ts"));
+  ({ takeLock, lockHolder } = await import("../src/lock.ts"));
 });
 
 const dirs: string[] = [];
@@ -119,5 +124,19 @@ describe("MUX_HOME lock races", () => {
     const winners = [first, second].filter(Boolean).length;
     expect(winners).toBe(1);
     expect(Number(String(realFs.readFileSync(path, "utf8")).split("\n")[0])).toBe(process.pid);
+  });
+
+  test("an upgrade check that throws refuses and leaves the flock free", () => {
+    const path = lockPath();
+    const older = Bun.spawn(["/bin/sleep", "30"]);
+    try {
+      // Pid-only text naming a live process: the upgrade check stats the file, and that throws.
+      realWriteFile(path, String(older.pid));
+      hook = { fns: ["fstatSync"], run: () => { throw new Error("stat failed"); } };
+      expect(takeLock(path)).toBeUndefined();
+      expect(lockHolder(path)).toBeUndefined();
+    } finally {
+      older.kill();
+    }
   });
 });
