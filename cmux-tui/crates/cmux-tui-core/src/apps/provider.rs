@@ -99,9 +99,38 @@ fn error_body(body: Value) -> Value {
     out
 }
 
+/// What the daemon knows about the registering connection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProviderClaim {
+    /// The connection's stamped actor is `agent:<id>` (crate::actor).
+    pub agent: bool,
+    /// The connection declared `set-client-info` kind `app`.
+    pub app_kind: bool,
+}
+
 impl Supervisor {
-    /// `apps-provider-register`.
-    pub fn register_provider(&self, client: u64, families: Vec<String>) -> Result<Value, ApiError> {
+    /// `apps-provider-register`. Two gates (app platform lead, 2026-10-03):
+    /// an agent connection is refused outright (the real barrier against an
+    /// agent in a pane), and the connection must have declared kind `app`
+    /// (self-declared; see the residual risk in app-op-routing.md).
+    pub fn register_provider(
+        &self,
+        client: u64,
+        claim: ProviderClaim,
+        families: Vec<String>,
+    ) -> Result<Value, ApiError> {
+        if claim.agent {
+            return Err(ApiError::new(
+                "apps.provider.forbidden",
+                "agent connections cannot provide app ops",
+            ));
+        }
+        if !claim.app_kind {
+            return Err(ApiError::new(
+                "apps.provider.forbidden",
+                "only the cmux app (set-client-info kind app) can provide app ops",
+            ));
+        }
         if families.is_empty() {
             return Err(ApiError::new("bad-request", "families must not be empty"));
         }
