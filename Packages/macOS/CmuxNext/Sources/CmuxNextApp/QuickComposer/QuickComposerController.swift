@@ -12,8 +12,8 @@ final class QuickComposerController {
     private let makeChat: () -> AgentPaneView?
     private let makeWindow: () -> any QuickComposerWindow
     /// Opens `session` (nil: a new chat) as a tab in the main window and
-    /// brings that window forward.
-    private let openInWindow: (String?) -> Void
+    /// brings that window forward; false when there was nowhere to open it.
+    private let openInWindow: (String?) -> Bool
     private var window: (any QuickComposerWindow)?
     /// The hosted chat, kept while the panel is hidden.
     private(set) var chat: AgentPaneView?
@@ -22,7 +22,7 @@ final class QuickComposerController {
     init(
         makeChat: @escaping () -> AgentPaneView?,
         makeWindow: @escaping () -> any QuickComposerWindow,
-        openInWindow: @escaping (String?) -> Void
+        openInWindow: @escaping (String?) -> Bool
     ) {
         self.makeChat = makeChat
         self.makeWindow = makeWindow
@@ -59,8 +59,8 @@ final class QuickComposerController {
     /// window, and the panel starts over empty next time.
     func openChatInWindow(session: String?) {
         hide()
-        openInWindow(session ?? chat?.model.sessionId)
-        guard let used = chat else { return }
+        // Nowhere to open it (no window yet): the chat stays in the panel.
+        guard openInWindow(session ?? chat?.model.sessionId), let used = chat else { return }
         chat = nil
         // The page's request is still being answered; close it after.
         // task-owner: one-shot close of the handed-off page

@@ -192,6 +192,35 @@ test("⌘Return on a first prompt opens the window once its session has started"
   ]);
 });
 
+test("a failed send cancels the ⌘Return hand-off, so a later session does not move the chat", async () => {
+  await mount("quick", snapshot(undefined));
+  host.cmuxAcpmuxActions!["chat.send"] = async (params) => {
+    calls.push(["chat.send", params]);
+    throw new Error("acpmux went away");
+  };
+  await type("start something");
+  await key("Enter", { metaKey: true });
+  await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot("s4")));
+  expect(methods()).toEqual(["chat.send"]);
+});
+
+test("Escape after ⌘Return cancels the hand-off and dismisses", async () => {
+  await mount("quick", snapshot(undefined));
+  let land: () => void = () => {};
+  host.cmuxAcpmuxActions!["chat.send"] = (params) => {
+    calls.push(["chat.send", params]);
+    return new Promise((resolve) => (land = () => resolve(null)));
+  };
+  await type("start something");
+  await key("Enter", { metaKey: true });
+  await key("Escape");
+  await act(async () => {
+    land();
+    host.cmuxAcpmuxBridge!.receive(snapshot("s5"));
+  });
+  expect(methods()).toEqual(["chat.send", "quick.dismiss"]);
+});
+
 test("⌘Return with an empty composer opens a started chat without sending, and does nothing before one", async () => {
   await mount("quick", snapshot(undefined));
   await key("Enter", { metaKey: true });

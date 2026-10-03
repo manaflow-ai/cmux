@@ -18,13 +18,15 @@ extension AppServices {
 
     /// The same placement as New Agent Chat: the focused pane of the active
     /// window. The user asked to go there, so the window comes forward and
-    /// cmux activates.
-    private func openQuickChat(session: String?) {
+    /// cmux activates. False when no window has a focused pane: a window is
+    /// reopened, and the chat stays in the panel until it can move.
+    private func openQuickChat(session: String?) -> Bool {
         guard let controller = windows.active, let pane = controller.focusedPane, let window = controller.window else {
             windows.reopenOrCreateWindow()
-            return
+            return false
         }
         pane.showAgentTab(agentTabs.open(in: pane.paneKey, of: pane.daemon.store, session: session))
         WindowActivation.show(window, .focus)
+        return true
     }
 }

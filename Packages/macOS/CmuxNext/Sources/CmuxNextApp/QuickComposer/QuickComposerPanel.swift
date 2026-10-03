@@ -90,14 +90,22 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow {
         onCancel?()
     }
 
-    /// Cmd-W hides the panel; it never reaches the main menu, whose Close
-    /// Tab would close the tab of the window behind.
+    /// Cmd-W hides the panel. The page gets every key first; of the rest,
+    /// editing keys (copy, paste, select all, undo, redo) go on to the Edit
+    /// menu, and other command keys stop here, since the main menu would act
+    /// on the window behind (Close Tab, New Tab, Quit).
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return super.performKeyEquivalent(with: event) }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function])
-        if event.type == .keyDown, flags == .command, event.charactersIgnoringModifiers?.lowercased() == "w" {
+        let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
+        if flags == .command, key == "w" {
             onCancel?()
             return true
         }
-        return super.performKeyEquivalent(with: event)
+        if super.performKeyEquivalent(with: event) { return true }
+        let editing = (flags == .command && Self.editingKeys.contains(key)) || (flags == [.command, .shift] && key == "z")
+        return flags.contains(.command) && !editing
     }
+
+    private static let editingKeys: Set<String> = ["a", "c", "v", "x", "z"]
 }

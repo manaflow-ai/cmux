@@ -861,19 +861,33 @@ function AcpmuxPane() {
   const surfaceRef = useRef(surface);
   surfaceRef.current = surface;
   // Escape that no menu, picker or palette took hides the Quick Composer, keeping its draft.
-  useEscapeToDismiss(quick, () => void callNative(QUICK_MESSAGES.dismiss).catch(() => undefined));
-  // ⌘Return in the Quick Composer opens its chat in a window, once the chat has a session: a
-  // first prompt's send starts one, so the ask waits for it.
-  const openInWindowPending = useRef(false);
-  const openInWindow = (sent: boolean) => {
-    if (snapshot.sessionId) postOpenInWindow(snapshot.sessionId);
-    else if (sent) openInWindowPending.current = true;
+  // ⌘Return in the Quick Composer opens its chat in a window. With a prompt it waits until the
+  // prompt is on its way (closing the page sooner drops it) and the chat has a session; a send
+  // that fails, or Escape, cancels the hand-off.
+  const handOff = useRef({ pending: false, landed: false });
+  const flushOpenInWindow = () => {
+    const sessionId = sessionIdRef.current;
+    if (!handOff.current.pending || !handOff.current.landed || !sessionId) return;
+    handOff.current.pending = false;
+    postOpenInWindow(sessionId);
   };
-  useEffect(() => {
-    if (!openInWindowPending.current || !snapshot.sessionId) return;
-    openInWindowPending.current = false;
-    postOpenInWindow(snapshot.sessionId);
-  }, [snapshot.sessionId]);
+  const promptLanded = useRef(() => {});
+  promptLanded.current = () => {
+    handOff.current.landed = true;
+    flushOpenInWindow();
+  };
+  const cancelOpenInWindow = () => {
+    handOff.current.pending = false;
+  };
+  const openInWindow = (sent: boolean) => {
+    if (sent) handOff.current = { pending: true, landed: false };
+    else if (snapshot.sessionId) postOpenInWindow(snapshot.sessionId);
+  };
+  useEffect(flushOpenInWindow, [snapshot.sessionId]);
+  useEscapeToDismiss(quick, () => {
+    cancelOpenInWindow();
+    void callNative(QUICK_MESSAGES.dismiss).catch(() => undefined);
+  });
   const rowsRef = useRef(new Map<string, AcpmuxRow>());
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(undefined);
@@ -1071,7 +1085,10 @@ function AcpmuxPane() {
         const send = async (text: string) => {
           const sessionId = await client.ensureSession();
           await persistSession(sessionId);
-          return client.send(text);
+          const turn = client.send(text);
+          // The prompt is written; a Quick Composer hand-off can close this page now.
+          promptLanded.current();
+          return turn;
         };
         window.cmuxAcpmuxActions = {
           "chat.send": ({ text }) => send(String(text ?? "")),
@@ -1230,7 +1247,7 @@ function AcpmuxPane() {
       onSend={(text) => {
         // Until acpmux connects nothing takes a prompt; the composer keeps it.
         if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
-        void callNative("chat.send", { text });
+        callNative("chat.send", { text }).then(() => promptLanded.current(), cancelOpenInWindow);
       }}
       onStop={() => void callNative("chat.cancel")}
       onProject={(cwd) => void callNative("chat.new", { cwd }).catch(() => undefined)}

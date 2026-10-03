@@ -27,7 +27,13 @@ enum AgentHandlers {
         }
         registry.bind("agentActivity.open", run: { _ in context.services.agentActivityPage.open() })
         // Quick Agent Chat: the global hot key, palette, menu and CLI toggle one floating panel.
-        registry.bind("palette.quickAgentChat", run: { _ in context.services.quickComposer.toggle() })
+        // The panel takes the keyboard from the frontmost app, so automation
+        // cannot open it unless it asks for focus.
+        registry.bind("palette.quickAgentChat", run: { invocation in
+            guard invocation.allowsViewChange else { return context.refuse(MiscHandlerStrings.quickChatNeedsFocus) }
+            guard context.services.agentTabs.canHostChat else { return context.refuse(MiscHandlerStrings.quickChatUnavailable) }
+            context.services.quickComposer.toggle()
+        })
         registry.bind("palette.computerUse.accessibility", run: { _ in try openPrivacyPane("Privacy_Accessibility", context) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in try openPrivacyPane("Privacy_ScreenCapture", context) })
         registry.bindAgentPane { invocation in

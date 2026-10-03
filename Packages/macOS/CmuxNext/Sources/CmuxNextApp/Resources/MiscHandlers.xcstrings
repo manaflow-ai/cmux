@@ -3669,6 +3669,268 @@
         }
       }
     },
+    "handlers.misc.failed.quickChatNeedsFocus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quick Agent Chat opens from the keyboard, palette or menu. It does not take the keyboard for automation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クイックエージェントチャットはキーボード、パレット、メニューから開きます。自動化のためにキーボードを奪うことはありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُفتح دردشة الوكيل السريعة من لوحة المفاتيح أو لوحة الأوامر أو القائمة. ولا تستحوذ على لوحة المفاتيح لأغراض الأتمتة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brzi chat s agentom otvara se s tastature, palete ili menija. Ne preuzima tastaturu za automatizaciju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hurtig agentchat åbnes fra tastaturet, paletten eller menuen. Den overtager ikke tastaturet til automatisering."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schneller Agent-Chat öffnet sich über Tastatur, Befehlspalette oder Menü. Für Automatisierung übernimmt er die Tastatur nicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El chat rápido con agente se abre desde el teclado, la paleta o el menú. No toma el teclado para la automatización."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chat agent rapide s’ouvre depuis le clavier, la palette ou le menu. Il ne prend pas le clavier pour l’automatisation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La chat rapida con l’agente si apre da tastiera, palette o menu. Non prende la tastiera per l’automazione."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែកភ្នាក់ងាររហ័សបើកពីក្ដារចុច ផ្ទាំងពាក្យបញ្ជា ឬម៉ឺនុយ។ វាមិនយកក្ដារចុចសម្រាប់ស្វ័យប្រវត្តិកម្មទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "빠른 에이전트 채팅은 키보드, 팔레트 또는 메뉴에서 열립니다. 자동화를 위해 키보드를 가져가지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rask agentchat åpnes fra tastaturet, paletten eller menyen. Den tar ikke over tastaturet for automatisering."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szybki czat z agentem otwiera się z klawiatury, palety lub menu. Nie przejmuje klawiatury na potrzeby automatyzacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O chat rápido com agente abre pelo teclado, paleta ou menu. Ele não toma o teclado para automação."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Быстрый чат с агентом открывается с клавиатуры, из палитры или меню. Для автоматизации он не перехватывает клавиатуру."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชทเอเจนต์ด่วนเปิดได้จากแป้นพิมพ์ พาเล็ต หรือเมนู และจะไม่แย่งแป้นพิมพ์เพื่อการทำงานอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hızlı Ajan Sohbeti klavyeden, paletten veya menüden açılır. Otomasyon için klavyeyi devralmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Швидкий чат з агентом відкривається з клавіатури, палітри або меню. Для автоматизації він не перехоплює клавіатуру."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trò chuyện nhanh với tác tử mở từ bàn phím, bảng lệnh hoặc menu. Nó không chiếm bàn phím cho tự động hóa."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快速智能体聊天可从键盘、命令面板或菜单打开。它不会为自动化操作占用键盘。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快速代理聊天可從鍵盤、命令面板或選單開啟。它不會為自動化操作佔用鍵盤。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.quickChatUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quick Agent Chat needs the agent page, which this build does not include."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クイックエージェントチャットにはエージェントページが必要ですが、このビルドには含まれていません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحتاج دردشة الوكيل السريعة إلى صفحة الوكيل، وهي غير مضمّنة في هذا الإصدار."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brzi chat s agentom treba stranicu agenta, koju ova verzija ne sadrži."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hurtig agentchat kræver agentsiden, som denne version ikke indeholder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schneller Agent-Chat benötigt die Agent-Seite, die in diesem Build fehlt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El chat rápido con agente necesita la página del agente, que esta compilación no incluye."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chat agent rapide nécessite la page agent, absente de cette version."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La chat rapida con l’agente richiede la pagina dell’agente, che questa build non include."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែកភ្នាក់ងាររហ័សត្រូវការទំព័រភ្នាក់ងារ ដែលកំណែនេះមិនមាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "빠른 에이전트 채팅에는 에이전트 페이지가 필요하지만 이 빌드에는 포함되어 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rask agentchat trenger agentsiden, som denne versjonen ikke har."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szybki czat z agentem wymaga strony agenta, której ta kompilacja nie zawiera."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O chat rápido com agente precisa da página do agente, que esta versão não inclui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Для быстрого чата с агентом нужна страница агента, которой нет в этой сборке."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชทเอเจนต์ด่วนต้องใช้หน้าเอเจนต์ ซึ่งบิลด์นี้ไม่มี"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hızlı Ajan Sohbeti ajan sayfasına ihtiyaç duyar; bu derleme onu içermiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Для швидкого чату з агентом потрібна сторінка агента, якої немає в цій збірці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trò chuyện nhanh với tác tử cần trang tác tử, nhưng bản dựng này không có."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快速智能体聊天需要智能体页面，但此版本未包含该页面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快速代理聊天需要代理頁面，但此版本未包含該頁面。"
+          }
+        }
+      }
+    },
     "handlers.misc.failed.noAgentChat": {
       "extractionState": "manual",
       "localizations": {

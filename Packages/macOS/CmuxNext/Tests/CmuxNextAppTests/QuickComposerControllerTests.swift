@@ -31,6 +31,7 @@ struct QuickComposerControllerTests {
         var chatsMade = 0
         var opened: [String?] = []
         var canHostChat = true
+        var canOpen = true
         lazy var controller = QuickComposerController(
             makeChat: { [unowned self] in
                 guard self.canHostChat else { return nil }
@@ -38,7 +39,10 @@ struct QuickComposerControllerTests {
                 return AgentPaneView(model: AgentPaneModel(host: MockAgentPaneHost()))
             },
             makeWindow: { [unowned self] in self.window },
-            openInWindow: { [unowned self] session in self.opened.append(session) }
+            openInWindow: { [unowned self] session in
+                self.opened.append(session)
+                return self.canOpen
+            }
         )
     }
 
@@ -102,6 +106,18 @@ struct QuickComposerControllerTests {
         controller.show()
         #expect(harness.chatsMade == 2)
         #expect(controller.chat?.model.sessionId == nil)
+    }
+
+    @Test func aHandOffWithNowhereToOpenKeepsTheChat() async throws {
+        let harness = Harness()
+        harness.canOpen = false
+        let controller = harness.controller
+        controller.show()
+        let chat = try #require(controller.chat)
+        _ = await chat.model.respond(to: .persistSession("s-1"))
+        _ = await chat.model.respond(to: .quickOpenInWindow(sessionId: nil))
+        #expect(harness.opened == ["s-1"])
+        #expect(controller.chat === chat)
     }
 
     @Test func aBuildWithoutTheAgentPageShowsNothing() {
