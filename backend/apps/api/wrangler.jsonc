@@ -28,6 +28,7 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }, { "tag": "v3", "new_sqlite_classes": ["ConnectionDO", "AccountIndexDO"] }, { "tag": "v4", "new_sqlite_classes": ["FeedDO"] }, { "tag": "v5", "new_sqlite_classes": ["DomainDO"] }, { "tag": "v6", "new_sqlite_classes": ["ConversationDO", "MuxDO", "AddressDO"] }, { "tag": "v7", "new_sqlite_classes": ["PairingDO"] }, { "tag": "v8", "new_sqlite_classes": ["HostDO"] }, { "tag": "v9", "new_sqlite_classes": ["UsageMeterDO"] }, { "tag": "v10", "new_sqlite_classes": ["TeamVmDO"] }],
   "ratelimits": [{ "name": "SSO_DISCOVER_LIMIT", "namespace_id": "1101", "simple": { "limit": 30, "period": 60 } }, { "name": "PAIR_BEGIN_LIMIT", "namespace_id": "1111", "simple": { "limit": 10, "period": 60 } }, { "name": "GOOGLE_HOOK_FAIL_LIMIT", "namespace_id": "1131", "simple": { "limit": 60, "period": 60 } }],
   "workflows": [{ "name": "cmux-automation-run-local", "binding": "AUTOMATION_RUN", "class_name": "AutomationRunWorkflow" }],
+      "worker_loaders": [{ "binding": "LOADER" }],
   "env": {
     "development": {
       "name": "cmux-api-development",
@@ -48,6 +49,7 @@
         ]
       },
       "workflows": [{ "name": "cmux-automation-run-development", "binding": "AUTOMATION_RUN", "class_name": "AutomationRunWorkflow" }],
+      "worker_loaders": [{ "binding": "LOADER" }],
       "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }, { "tag": "v3", "new_sqlite_classes": ["ConnectionDO", "AccountIndexDO"] }, { "tag": "v4", "new_sqlite_classes": ["FeedDO"] }, { "tag": "v5", "new_sqlite_classes": ["DomainDO"] }, { "tag": "v6", "new_sqlite_classes": ["ConversationDO", "MuxDO", "AddressDO"] }, { "tag": "v7", "new_sqlite_classes": ["PairingDO"] }, { "tag": "v8", "new_sqlite_classes": ["HostDO"] }, { "tag": "v9", "new_sqlite_classes": ["UsageMeterDO"] }, { "tag": "v10", "new_sqlite_classes": ["TeamVmDO"] }],
       "ratelimits": [{ "name": "SSO_DISCOVER_LIMIT", "namespace_id": "1101", "simple": { "limit": 30, "period": 60 } }, { "name": "PAIR_BEGIN_LIMIT", "namespace_id": "1111", "simple": { "limit": 10, "period": 60 } }, { "name": "GOOGLE_HOOK_FAIL_LIMIT", "namespace_id": "1131", "simple": { "limit": 60, "period": 60 } }],
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "395af91311c0494a91da6876b0df6d49" }, { "binding": "HYPERDRIVE_RO", "id": "cb712d90da9d42fb84ac975275e0b6c8" }]
@@ -72,6 +74,7 @@
         ]
       },
       "workflows": [{ "name": "cmux-automation-run-staging", "binding": "AUTOMATION_RUN", "class_name": "AutomationRunWorkflow" }],
+      "worker_loaders": [{ "binding": "LOADER" }],
       "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }, { "tag": "v3", "new_sqlite_classes": ["ConnectionDO", "AccountIndexDO"] }, { "tag": "v4", "new_sqlite_classes": ["FeedDO"] }, { "tag": "v5", "new_sqlite_classes": ["DomainDO"] }, { "tag": "v6", "new_sqlite_classes": ["ConversationDO", "MuxDO", "AddressDO"] }, { "tag": "v7", "new_sqlite_classes": ["PairingDO"] }, { "tag": "v8", "new_sqlite_classes": ["HostDO"] }, { "tag": "v9", "new_sqlite_classes": ["UsageMeterDO"] }, { "tag": "v10", "new_sqlite_classes": ["TeamVmDO"] }],
       "ratelimits": [{ "name": "SSO_DISCOVER_LIMIT", "namespace_id": "1102", "simple": { "limit": 30, "period": 60 } }, { "name": "PAIR_BEGIN_LIMIT", "namespace_id": "1112", "simple": { "limit": 10, "period": 60 } }, { "name": "GOOGLE_HOOK_FAIL_LIMIT", "namespace_id": "1132", "simple": { "limit": 60, "period": 60 } }],
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "9761093781aa4d6f8a1ad00848663266" }, { "binding": "HYPERDRIVE_RO", "id": "10bbf30d021f40db9a52eae8d0deb523" }],
@@ -97,6 +100,7 @@
         ]
       },
       "workflows": [{ "name": "cmux-automation-run-production", "binding": "AUTOMATION_RUN", "class_name": "AutomationRunWorkflow" }],
+      "worker_loaders": [{ "binding": "LOADER" }],
       "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }, { "tag": "v3", "new_sqlite_classes": ["ConnectionDO", "AccountIndexDO"] }, { "tag": "v4", "new_sqlite_classes": ["FeedDO"] }, { "tag": "v5", "new_sqlite_classes": ["DomainDO"] }, { "tag": "v6", "new_sqlite_classes": ["ConversationDO", "MuxDO", "AddressDO"] }, { "tag": "v7", "new_sqlite_classes": ["PairingDO"] }, { "tag": "v8", "new_sqlite_classes": ["HostDO"] }, { "tag": "v9", "new_sqlite_classes": ["UsageMeterDO"] }, { "tag": "v10", "new_sqlite_classes": ["TeamVmDO"] }],
       "ratelimits": [{ "name": "SSO_DISCOVER_LIMIT", "namespace_id": "1103", "simple": { "limit": 30, "period": 60 } }, { "name": "PAIR_BEGIN_LIMIT", "namespace_id": "1113", "simple": { "limit": 10, "period": 60 } }, { "name": "GOOGLE_HOOK_FAIL_LIMIT", "namespace_id": "1133", "simple": { "limit": 60, "period": 60 } }],
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "ef387ca3b20b4ea7878e02746d9545ef" }, { "binding": "HYPERDRIVE_RO", "id": "6badee5cbb964e9f9c09c6f175a14c85" }],
