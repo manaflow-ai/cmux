@@ -9,8 +9,9 @@ import CmuxNextSettings
 /// `debug.sticky`) ends in `apply`: the layout model validates and emits
 /// the intent, the daemon's `set-column-sticky` changes the layout, and the
 /// app shows it when the daemon's snapshot arrives (no optimistic copy).
-/// Disabled with the daemon's reason until the pinned cmux-tui serves
-/// `sticky-columns-v1`.
+/// Disabled with the daemon's reason on a daemon without
+/// `sticky-columns-v1` (an older remote machine; the bundled same-tree
+/// daemon serves it, check-daemon-capabilities.sh).
 enum StickyColumnHandlers {
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         let capability = DaemonCapabilities.shared.stickyColumns

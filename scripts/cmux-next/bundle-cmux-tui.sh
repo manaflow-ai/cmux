@@ -13,7 +13,9 @@
 #
 # Source order:
 #   1. CMUX_NEXT_TUI_BIN (a local cargo build or any hosted artifact),
-#   2. tree mode (dev, tagged and fleet builds): the hosted build of this
+#   2. tree mode (dev, tagged and fleet builds): a cmux-tui the fleet compiled
+#      from this source (CMUX_TUI_CLIENT_LOCAL whose build commit has this
+#      checkout's key, source=tree-local-build), else the hosted build of this
 #      checkout's own cmux-tui tree, cmux-tui/target/hosted/tree/<key>/cmux-tui
 #      (`scripts/cmux-next/pin-cmux-tui.sh path`). scripts/reload.sh fetches it
 #      before building; by hand, `scripts/cmux-next/pin-cmux-tui.sh fetch`.
@@ -73,6 +75,11 @@ elif [[ "$mode" == tree ]]; then
   [[ "$arch" == aarch64 ]] || { echo "error: same-tree cmux-tui is published for arm64 only; set CMUX_NEXT_TUI_BIN on $arch" >&2; exit 1; }
   key="$("$pin_script" key)"
   tree_binary="$("$pin_script" path --tree)"
+fi
+if [[ -z "$src" && "$mode" == tree ]] && "$pin_script" local-build "${CMUX_TUI_CLIENT_LOCAL:-}"; then
+  src="$CMUX_TUI_CLIENT_LOCAL"
+  source_kind="tree-local-build"
+elif [[ -z "$src" && "$mode" == tree ]]; then
   tree_dir="$(dirname "$tree_binary")"
   if [[ ! -f "$tree_binary" || ! -f "$tree_dir/cmux-tui.sha256" ]]; then
     echo "error: the same-tree cmux-tui $key is not downloaded; run scripts/cmux-next/pin-cmux-tui.sh fetch (or set CMUX_NEXT_TUI_BIN)" >&2
@@ -91,7 +98,7 @@ elif [[ "$mode" == tree ]]; then
     [[ "$expected_commit" == - ]] && expected_commit=""
     [[ "$run_id" == - ]] && run_id=""
   fi
-else
+elif [[ -z "$src" ]]; then
   if [[ -f "$pin_file" && "$arch" == aarch64 ]]; then
     expected_commit="$(awk -F= '$1=="commit"{print $2}' "$pin_file")"
     run_id="$(awk -F= '$1=="run"{print $2}' "$pin_file")"

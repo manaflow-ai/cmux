@@ -5,7 +5,7 @@ import Testing
 
 /// The state resources against the pinned branch cmux-tui: the store
 /// mirrors them from `session.events`, and the v2 mutations land in it.
-@Suite(.enabled(if: RealBinary.isBranchBuild, "needs the pinned branch cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"),
+@Suite(.enabled(if: RealBinary.isBranchBuild, "needs the same-tree cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"),
        .timeLimit(.minutes(2)), .liveDaemon)
 struct BranchStateResourcesTests {
     /// Waits for `condition` on the store, observing it (no polling).

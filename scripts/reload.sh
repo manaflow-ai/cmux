@@ -2021,7 +2021,7 @@ fi
 cmux_next_tui_version="$APP_PATH/Contents/Resources/bin/cmux-tui.version"
 cmux_next_tui_source="$(awk -F= '$1=="source"{print $2}' "$cmux_next_tui_version" 2>/dev/null || true)"
 case "$cmux_next_tui_source" in
-  tree-hosted|pinned-hosted|override)
+  tree-hosted|tree-local-build|pinned-hosted|override)
     echo "Bundled cmux-tui: $(tr '\n' ' ' < "$cmux_next_tui_version")"
     ;;
   *)

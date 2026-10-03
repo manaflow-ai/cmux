@@ -398,7 +398,7 @@ done
 # Tagged reloads bundle only the same-tree hosted cmux-tui (or the pin, or an
 # explicit CMUX_NEXT_TUI_BIN override); any other source fails the reload.
 if ! grep -A3 -F 'case "$cmux_next_tui_source" in' "$ROOT_DIR/scripts/reload.sh" |
-   grep -Fq -- 'tree-hosted|pinned-hosted|override)'; then
+   grep -Fq -- 'tree-hosted|tree-local-build|pinned-hosted|override)'; then
   echo "FAIL: tagged reloads must reject a cmux-tui that is not the same-tree hosted build"
   exit 1
 fi

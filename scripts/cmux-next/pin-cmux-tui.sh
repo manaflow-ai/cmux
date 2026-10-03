@@ -18,7 +18,11 @@
 #   cmux-tui/target/hosted/tree/<key>/cmux-tui and checks the published
 #   sha256. When the key is not published yet it waits, printing progress, up
 #   to CMUX_TUI_TREE_WAIT_SECONDS (default 2700), then fails. It never falls
-#   back to another binary. To publish the tree of an unmerged branch:
+#   back to another binary. A fleet build that already compiled this source
+#   (the cmux recipe's cmux_tui_client phase sets CMUX_TUI_CLIENT_LOCAL)
+#   is used instead when its build commit has the same key: `fetch` then
+#   downloads nothing, and the bundle phase records source=tree-local-build.
+#   To publish the tree of an unmerged branch:
 #     git push origin HEAD:refs/heads/cmux-tui-pin-<short-sha>
 #     gh workflow run cmux-tui-artifacts.yml --ref cmux-tui-pin-<short-sha>
 #   (dispatch only when the push started no run: a push starts one only when
@@ -44,6 +48,7 @@
 #
 # Usage: pin-cmux-tui.sh fetch [--tree|--pin] | path [--tree|--pin] | key [--rev <rev>]
 #        | resolve-commit (the commit that published this tree, for nightly)
+#        | local-build <binary> (exit 0 when that build has this checkout's key)
 #        | show | pin --commit <sha> [--verified-run <id>]
 set -euo pipefail
 
@@ -171,9 +176,23 @@ refuse_unpushed_source() {
   exit 1
 }
 
+# True when <binary> reports a build commit whose tree key is this
+# checkout's: the fleet compiled it from this source.
+local_build_matches() {
+  local binary="$1" commit
+  [[ -n "$binary" && -x "$binary" ]] || return 1
+  commit="$("$binary" --version 2>/dev/null | head -n 1 | sed -n 's/.*(\([0-9a-f]\{40\}\).*/\1/p')"
+  [[ -n "$commit" ]] || return 1
+  [[ "$(tree_key "$commit" 2>/dev/null)" == "$(tree_key HEAD)" ]]
+}
+
 fetch_tree() {
   local key dir binary url actual temp_dir
   key="$(tree_key HEAD)"
+  if local_build_matches "${CMUX_TUI_CLIENT_LOCAL:-}"; then
+    echo "same-tree cmux-tui $key: using the local build of this source, $CMUX_TUI_CLIENT_LOCAL"
+    return 0
+  fi
   refuse_dirty_source
   dir="$(tree_dir "$key")"
   binary="$dir/cmux-tui"
@@ -310,6 +329,9 @@ PY
     ;;
   resolve-commit)
     resolve_tree_commit
+    ;;
+  local-build)
+    local_build_matches "${1:-}"
     ;;
   key)
     rev=HEAD
