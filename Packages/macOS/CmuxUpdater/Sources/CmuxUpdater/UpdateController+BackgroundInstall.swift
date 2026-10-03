@@ -13,9 +13,11 @@ extension UpdateController {
 
     /// The downloaded update waiting for ``installStagedUpdate()``, or nil.
     public var stagedUpdate: SUAppcastItem? {
-        nil
+        driver.stagedItem
     }
 
     /// Installs the staged update and relaunches. No-op without one.
-    public func installStagedUpdate() {}
+    public func installStagedUpdate() {
+        driver.installStaged()
+    }
 }

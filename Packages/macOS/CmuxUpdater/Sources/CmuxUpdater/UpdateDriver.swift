@@ -37,8 +37,9 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// Opt-in background installs (see `UpdateDriver+BackgroundInstall.swift`); off keeps the
     /// prompt-driven flow unchanged.
     var installsInBackground = false
-    /// The update downloaded in the background and waiting for the user, if any.
-    var stagedAppcastItem: SUAppcastItem?
+    /// The update a background check accepted, and its held install once it is ready.
+    var backgroundItem: SUAppcastItem?
+    var stagedInstall: (() -> Void)?
     /// Holds a ready update's relaunch while agents are mid-turn or commands are running.
     let relaunchGate: UpdateRelaunchGate
 
@@ -94,6 +95,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         available.reply.onConsumed = { [weak self] reply, choice, source in
             self?.handlePromptReply(reply, choice: choice, source: source)
         }
+        if installsInBackground { return acceptInBackground(available) }
         setStateAfterMinimumCheckDelay(.updateAvailable(available))
     }
 
@@ -178,6 +180,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func showReady(toInstallAndRelaunch reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         log.append("show ready to install")
+        if installsInBackground { return stageInBackground(reply) }
         reply(.install)
     }
 
@@ -349,7 +352,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         }
     }
 
-    private func setState(_ newState: UpdateState) {
+    func setState(_ newState: UpdateState) {
         cancelPendingCheckTransition()
         checkTimeoutTask?.cancel()
         checkTimeoutTask = nil
