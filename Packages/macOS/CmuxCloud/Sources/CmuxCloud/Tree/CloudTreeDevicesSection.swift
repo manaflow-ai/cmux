@@ -25,7 +25,7 @@ public struct CloudTreeDevicesSection: Equatable, Sendable {
     public var incomingAccessEnabled: Bool = false
     public var discoveryManaged: Bool = false
     public var incomingAccessManaged: Bool = false
-    /// Whether Cloud/Beta availability permits either device preference.
+    /// Whether Cloud availability permits either device preference.
     public var available: Bool = true
     /// A refresh of the devices list is running; the header's refresh icon spins.
     public var isRefreshing: Bool = false

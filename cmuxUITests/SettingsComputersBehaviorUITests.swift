@@ -26,7 +26,7 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
         super.tearDown()
     }
 
-    /// Forces the Cloud Machines flag on and sets the Beta Features opt-in.
+    /// Forces the Cloud Machines flag on and sets the activation marker.
     /// Plist-typed booleans: the flag reader accepts only real booleans, so a
     /// bare "YES" string via the argument domain never enables it. The
     /// argument domain also reaches a tagged bundle's defaults, which a write
@@ -205,12 +205,12 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
         navigate(window, to: "Devices")
         let discovery = toggle(window, id: discoveryToggleID)
         let incomingAccess = toggle(window, id: incomingAccessToggleID)
-        // Match the note's own wording: "Beta Features" alone also matches
+        // Match the note's own wording: the old beta-label text also matches
         // the sidebar row and would pass without the note.
         let reason = window.staticTexts
-            .matching(NSPredicate(format: "label BEGINSWITH %@ OR value BEGINSWITH %@", "Turn on Cloud Machines", "Turn on Cloud Machines"))
+            .matching(NSPredicate(format: "label BEGINSWITH %@ OR value BEGINSWITH %@", "Enable Cloud Machines", "Enable Cloud Machines"))
             .firstMatch
-        XCTAssertTrue(reason.waitForExistence(timeout: 4), "Devices should say to turn on Cloud Machines in Beta Features")
+        XCTAssertTrue(reason.waitForExistence(timeout: 4), "Devices should say to enable Cloud Machines in the Cloud tab")
 
         let screenshot = XCTAttachment(screenshot: window.screenshot())
         screenshot.name = "Devices section while Cloud Machines is off"

@@ -120,8 +120,8 @@ struct CloudPortsVPNAffordanceTests {
         #expect(row.searchableTitle == ":33015")
         let cell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
         cell.configure(node: row, machineActions: machineActions(), nodeActions: nodeActions())
-        // Port rows carry no inline open action (#16350): a port with no
-        // process name has no hover text and is labelled by its number.
+        // Port rows carry no inline open action: a port with no process name
+        // has no hover text and is labelled by its number.
         #expect(cell.toolTip == nil)
         #expect(cell.accessibilityLabel() == "Port 33015")
     }
@@ -243,8 +243,9 @@ struct CloudPortsVPNAffordanceTests {
             content.layoutSubtreeIfNeeded()
             // Only the row's own labels: on macOS 15 a titled NSButton has an extra
             // NSTextField descendant that AppKit sizes, not this row.
-            let labels = content.subviews.compactMap { $0 as? NSTextField }
-            #expect(labels.count == 2)
+            let labels = content.subviews.compactMap { $0 as? NSTextField }.filter { !$0.isHidden }
+            let expectedLabelCount = status.state == .loading ? 1 : 2
+            #expect(labels.count == expectedLabelCount)
             for label in labels {
                 let cell = try #require(label.cell)
                 let needed = cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: label.frame.width,

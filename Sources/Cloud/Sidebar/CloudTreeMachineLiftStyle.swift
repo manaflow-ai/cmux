@@ -5,13 +5,13 @@ import QuartzCore
 /// hover highlight's shape with a soft shadow, so the rows it passes over
 /// never show through it.
 @MainActor
-enum CloudTreeMachineLiftStyle {
+struct CloudTreeMachineLiftStyle {
     private static let layerName = "cmux.machineLift.card"
     private static let fadeIn: TimeInterval = 0.12
     private static let fadeOut: TimeInterval = 0.28
     private static let shadowOpacity: Float = 0.22
 
-    static func apply(to rowView: NSTableRowView, animated: Bool) {
+    func apply(to rowView: NSTableRowView, animated: Bool) {
         guard let host = rowView.layer else { return }
         let card = existingCard(in: host) ?? makeCard(in: host)
         CATransaction.begin()
@@ -25,7 +25,7 @@ enum CloudTreeMachineLiftStyle {
         CATransaction.commit()
         guard card.opacity != 1 else { return }
         if animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            fade(card, to: 1, duration: fadeIn)
+            fade(card, to: 1, duration: Self.fadeIn)
         } else {
             card.removeAllAnimations()
             CATransaction.begin()
@@ -35,10 +35,10 @@ enum CloudTreeMachineLiftStyle {
         }
     }
 
-    static func remove(from rowView: NSTableRowView, animated: Bool) {
+    func remove(from rowView: NSTableRowView, animated: Bool) {
         guard let host = rowView.layer, let card = existingCard(in: host), card.opacity != 0 else { return }
         if animated {
-            fade(card, to: 0, duration: fadeOut)
+            fade(card, to: 0, duration: Self.fadeOut)
         } else {
             card.removeAllAnimations()
             CATransaction.begin()
@@ -48,18 +48,18 @@ enum CloudTreeMachineLiftStyle {
         }
     }
 
-    private static func existingCard(in host: CALayer) -> CALayer? {
-        host.sublayers?.first { $0.name == layerName }
+    private func existingCard(in host: CALayer) -> CALayer? {
+        host.sublayers?.first { $0.name == Self.layerName }
     }
 
-    private static func makeCard(in host: CALayer) -> CALayer {
+    private func makeCard(in host: CALayer) -> CALayer {
         let card = CALayer()
-        card.name = layerName
+        card.name = Self.layerName
         card.opacity = 0
         card.cornerRadius = CloudTreeHoverStyle.cornerRadius
         card.cornerCurve = .continuous
         card.shadowColor = NSColor.black.cgColor
-        card.shadowOpacity = shadowOpacity
+        card.shadowOpacity = Self.shadowOpacity
         card.shadowRadius = 8
         card.shadowOffset = .zero
         // Below the hover fill and the cell, above nothing: the card replaces
@@ -70,7 +70,7 @@ enum CloudTreeMachineLiftStyle {
 
     /// The hover highlight's horizontal extent over the full row height, so
     /// the card reads as the row's own highlight, raised.
-    private static func cardRect(in rowView: NSTableRowView) -> CGRect {
+    private func cardRect(in rowView: NSTableRowView) -> CGRect {
         let bounds = rowView.bounds
         let leading = (rowView as? CloudTreeRowView)?.highlightLeading ?? CloudTreeHoverStyle.horizontalInset
         let x = min(leading, max(0, bounds.width - CloudTreeHoverStyle.horizontalInset))
@@ -82,7 +82,7 @@ enum CloudTreeMachineLiftStyle {
 
     /// The window ground with the hover shade mixed in. A selected machine's
     /// selection layer sits above the card, so it keeps reading as selected.
-    private static func fill(for rowView: NSTableRowView) -> CGColor {
+    private func fill(for rowView: NSTableRowView) -> CGColor {
         var color = NSColor.windowBackgroundColor.cgColor
         rowView.effectiveAppearance.performAsCurrentDrawingAppearance {
             let tint = CloudTreeHoverStyle.hoverOpacity
@@ -92,7 +92,7 @@ enum CloudTreeMachineLiftStyle {
         return color
     }
 
-    private static func fade(_ card: CALayer, to opacity: Float, duration: TimeInterval) {
+    private func fade(_ card: CALayer, to opacity: Float, duration: TimeInterval) {
         let animation = CABasicAnimation(keyPath: "opacity")
         animation.fromValue = (card.presentation() ?? card).opacity
         animation.toValue = opacity
