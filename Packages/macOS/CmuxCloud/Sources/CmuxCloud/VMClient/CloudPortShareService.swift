@@ -16,7 +16,24 @@ public struct CloudPortShareService {
         port: Int
     ) async throws -> VMPublication {
         let matches = try await client.listPublications(vmID: vmID, port: port)
-        let protected = matches.first { $0.accessMode == .personal || $0.accessMode == .team }
+        // A share copied from the Cloud tree is intended for the current team,
+        // so teammates with the same account access can open it after signing in.
+        // Passing nil for both fields relied on a backend default that is not
+        // stable across account and team scopes, and could leave the publication
+        // unavailable even though the request appeared to succeed.
+        let resolvedTeamID = await client.auth.resolvedTeamID
+        let selectedTeamID = resolvedTeamID.flatMap { teamID in
+            let trimmed = teamID.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        let requestedAccessMode: VMPublicationAccessMode = selectedTeamID == nil ? .personal : .team
+        let protected = matches.first {
+            guard $0.accessMode == requestedAccessMode else { return false }
+            if requestedAccessMode == .team {
+                return $0.teamID == selectedTeamID
+            }
+            return $0.teamID == nil
+        }
         if let publicPublication = matches.first(where: { $0.accessMode == .public }), protected == nil {
             throw CloudPortShareError.publicPublication(hostname: publicPublication.hostname)
         }
@@ -28,8 +45,8 @@ public struct CloudPortShareService {
                 vmID: vmID,
                 port: port,
                 hostname: nil,
-                accessMode: nil,
-                teamID: nil
+                accessMode: requestedAccessMode,
+                teamID: selectedTeamID
             )
         }
         if publication.state != "active" {
