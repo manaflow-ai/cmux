@@ -243,14 +243,14 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "workspace new",
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarBackground"
       ],
       "id" : "newTab",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
@@ -529,14 +529,14 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "workspace close",
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
       ],
       "id" : "closeWorkspace",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
@@ -1411,7 +1411,7 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "space create",
       "context_menu" : "offered",
       "context_menus" : [
@@ -1419,7 +1419,7 @@
         "profile"
       ],
       "id" : "space.new",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
@@ -2396,14 +2396,14 @@
       "palette" : "duplicateOfDefault"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "tab close",
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
       ],
       "id" : "closeTab",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
@@ -2447,6 +2447,17 @@
         "tab"
       ],
       "id" : "renameTab",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "app show-tab",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "id" : "tab.focus",
       "mcp" : "offered",
       "palette" : "offered"
     },
@@ -3091,7 +3102,7 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "screen new",
       "context_menu" : "offered",
       "context_menus" : [
@@ -3099,7 +3110,7 @@
         "screenBar"
       ],
       "id" : "screen.new",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
@@ -3126,14 +3137,14 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "screen close",
       "context_menu" : "offered",
       "context_menus" : [
         "screen"
       ],
       "id" : "screen.close",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
@@ -4028,25 +4039,25 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "browser back",
       "context_menu" : "offered",
       "context_menus" : [
         "browserPage"
       ],
       "id" : "browserBack",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "browser forward",
       "context_menu" : "offered",
       "context_menus" : [
         "browserPage"
       ],
       "id" : "browserForward",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
@@ -7254,14 +7265,14 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "pane close",
       "context_menu" : "offered",
       "context_menus" : [
         "pane"
       ],
       "id" : "closePane",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {

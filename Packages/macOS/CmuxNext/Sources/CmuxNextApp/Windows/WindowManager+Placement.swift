@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextSidebar
 
@@ -6,6 +7,9 @@ struct PendingPlacement {
     var window: String
     var slot: WorkspaceSlot?
     var then: (@MainActor @Sendable (String, SidebarBridge) -> Void)?
+    /// The action run that asked for the placement: `then` runs later,
+    /// outside its task, and keeps its view-change permission.
+    var run: ActionRunScope? = ActionRunScope.current
 }
 
 // Placing new workspaces (New Workspace Above/Below/at Top/in This Group, a
@@ -25,7 +29,7 @@ extension WindowManager {
             if let position = pending.slot?.position(moving: [id], section: section, in: sections) {
                 bridge.place([SidebarWorkspaceID(id)], at: position, in: sections)
             }
-            pending.then?(id, bridge)
+            ViewChangePolicy.carrying(pending.run) { pending.then?(id, bridge) }
         }
     }
 

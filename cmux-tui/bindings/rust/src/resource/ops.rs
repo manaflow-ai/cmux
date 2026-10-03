@@ -47,6 +47,7 @@ pub(crate) const SCREEN_FOCUS: &str = "screen.focus";
 pub(crate) const SCREEN_CLOSE: &str = "screen.close";
 pub(crate) const SCREEN_LAYOUT_EXPORT: &str = "screen.layout.export";
 pub(crate) const SCREEN_LAYOUT_UNDO: &str = "screen.layout.undo";
+pub(crate) const SCREEN_COLUMN_UPDATE: &str = "column.update";
 pub(crate) const PANE_LIST: &str = "pane.list";
 pub(crate) const PANE_GET: &str = "pane.get";
 pub(crate) const PANE_CREATE: &str = "pane.create";

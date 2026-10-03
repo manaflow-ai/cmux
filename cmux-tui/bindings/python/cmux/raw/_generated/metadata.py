@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '4a59825cd43eedde1d1abef1833d07e90af4b64773ad9eacd346e4966b461d4c'
+IR_SHA256 = '9db25213cb8861aa38070472e063471f073e76674033258697acacca8a4398b7'
 
 
 @dataclass(frozen=True)
@@ -1473,6 +1473,24 @@ COMMANDS = {
             'url': CommandFieldMetadata(None, None),
         },
     ),
+    'new-conversation-tab': CommandMetadata(
+        'new-conversation-tab',
+        'control',
+        12,
+        'conversation-tabs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'cols': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'mutation_id': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
+            'owner': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'rows': CommandFieldMetadata(None, None),
+            'workspace': CommandFieldMetadata(None, None),
+        },
+    ),
     'new-frontend-browser-tab': CommandMetadata(
         'new-frontend-browser-tab',
         'control',
@@ -1484,6 +1502,7 @@ COMMANDS = {
             'cols': CommandFieldMetadata(None, None),
             'engine': CommandFieldMetadata(None, None),
             'favicon_url': CommandFieldMetadata(None, None),
+            'owner': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
             'profile_id': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
@@ -2630,6 +2649,7 @@ COMMANDS = {
         None,
         {
             'favicon_url': CommandFieldMetadata(None, None),
+            'owner': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
             'title': CommandFieldMetadata(None, None),
             'url': CommandFieldMetadata(None, None),

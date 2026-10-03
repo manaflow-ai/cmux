@@ -4,7 +4,7 @@ https://posthog.com/newsletter/feature-flag-mistakes.
 
 Registries:
   - web/app/lib/feature-flags.ts   (FEATURE_FLAGS object literals)
-  - any Swift file under Packages/, CLI/ or ios/ (FLAG(key: ...) comments)
+  - any Swift file under Packages/ or ios/ (FLAG(key: ...) comments)
 
 Enforced rules:
   1. Naming: kebab-case, a type suffix (-release / -experiment /
@@ -75,7 +75,7 @@ def swift_registry_files() -> list[str]:
     """
     out = subprocess.run(
         ["git", "grep", "-l", "--untracked", "--fixed-strings", FLAG_DECLARATION, "--",
-         "Packages", "CLI", "ios", ":!*node_modules*"],
+         "Packages", "ios", ":!*node_modules*"],
         cwd=REPO, capture_output=True, text=True,
     )
     return sorted({line.strip() for line in out.stdout.splitlines() if line.strip()})
@@ -115,7 +115,7 @@ def collect_flags() -> tuple[list[dict], list[str]]:
 def grep_key_files(key: str) -> set[str]:
     out = subprocess.run(
         ["git", "grep", "-l", "--untracked", "--fixed-strings", key, "--",
-         "web", "Packages", "ios", "CLI",
+         "web", "Packages", "ios",
          ":!*node_modules*"],
         cwd=REPO, capture_output=True, text=True,
     )

@@ -525,6 +525,57 @@ fn indeterminate_mutation_is_preserved_exactly_and_never_retried() {
 
 #[cfg(unix)]
 #[test]
+fn a_mutation_that_fails_after_sending_prints_its_idempotency_key() {
+    // The daemon closes without answering: the outcome is unknown.
+    let (output, requests) =
+        fake_resource_cli_with_mode("", &["workspace", "create", "--name", "x"], FakeReply::Close);
+    assert_eq!(output.status.code(), Some(3), "stderr:\n{}", stderr(&output));
+    let key = requests[0]["idempotency_key"].as_str().unwrap().to_owned();
+    let text = stderr(&output);
+    assert!(text.contains(&format!("idempotency key: {key}")), "{text}");
+    assert!(text.contains(&format!("--idempotency-key {key}")), "{text}");
+
+    // JSON output carries it as `details.idempotency_key`.
+    let (output, requests) =
+        fake_resource_cli(&["workspace", "create", "--name", "x"], FakeReply::Close);
+    let key = requests[0]["idempotency_key"].clone();
+    let last = stderr(&output).lines().last().map(|line| parse_single_json(line.as_bytes()));
+    assert_eq!(last.unwrap()["details"]["idempotency_key"], key);
+
+    // A daemon error keeps its own fields and gains the key.
+    let error =
+        json!({"code": "operation.failed", "message": "no", "details": {}, "retryable": false});
+    let (output, requests) = fake_resource_cli(&["workspace", "create"], FakeReply::Failure(error));
+    assert_eq!(output.status.code(), Some(1));
+    let printed = parse_single_json(&output.stderr);
+    assert_eq!(printed["code"], "operation.failed");
+    assert_eq!(printed["details"]["idempotency_key"], requests[0]["idempotency_key"]);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_retry_with_the_printed_key_sends_the_same_key() {
+    let (output, requests) = fake_resource_cli(
+        &["--idempotency-key", "mutation-retry-7", "workspace", "create"],
+        FakeReply::Success(created_path()),
+    );
+    assert_success(&output);
+    assert_eq!(requests[0]["idempotency_key"], "mutation-retry-7");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_failed_read_prints_no_idempotency_key() {
+    let error =
+        json!({"code": "operation.failed", "message": "no", "details": {}, "retryable": false});
+    let (output, _) =
+        fake_resource_cli_with_mode("", &["workspace", "list"], FakeReply::Failure(error));
+    assert_eq!(output.status.code(), Some(1));
+    assert!(!stderr(&output).contains("idempotency"), "{}", stderr(&output));
+}
+
+#[cfg(unix)]
+#[test]
 fn output_modes_keep_success_on_stdout_and_diagnostics_on_stderr() {
     let result = json!({
         "workspaces": [
@@ -1235,6 +1286,8 @@ impl RequestCase {
 enum FakeReply {
     Success(Value),
     Failure(Value),
+    /// Read the request, then close the connection without an answer.
+    Close,
 }
 
 #[cfg(unix)]
@@ -1277,6 +1330,10 @@ fn fake_resource_cli_with_mode(
                     "ok": false,
                     "error": error
                 }),
+                FakeReply::Close => {
+                    requests.push(request);
+                    return requests;
+                }
             };
             requests.push(request);
             writeln!(stream, "{response}").unwrap();

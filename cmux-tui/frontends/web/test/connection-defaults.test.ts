@@ -8,9 +8,7 @@ describe("WebSocket URL defaults", () => {
   });
 
   it("uses the documented secure port beside a remotely hosted frontend", () => {
-    expect(defaultWebSocketUrl("my-mac.tail0000.ts.net")).toBe(
-      "wss://my-mac.tail0000.ts.net:8443",
-    );
+    expect(defaultWebSocketUrl("my-mac.tail0000.ts.net")).toBe("wss://my-mac.tail0000.ts.net:8443");
   });
 
   it("takes the socket URL from the query and the token only from the fragment", () => {

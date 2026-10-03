@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "4a59825cd43eedde1d1abef1833d07e90af4b64773ad9eacd346e4966b461d4c";
+pub const ir_sha256 = "9db25213cb8861aa38070472e063471f073e76674033258697acacca8a4398b7";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -1470,10 +1470,12 @@ pub const TabBrowserStatus = enum {
 pub const TabKind = enum {
     pty,
     browser,
+    conversation,
 
     pub fn fromWire(value: []const u8) !@This() {
         if (std.mem.eql(u8, value, "pty")) return .pty;
         if (std.mem.eql(u8, value, "browser")) return .browser;
+        if (std.mem.eql(u8, value, "conversation")) return .conversation;
         return error.UnknownEnumValue;
     }
 
@@ -1481,6 +1483,7 @@ pub const TabKind = enum {
         return switch (self) {
             .pty => "pty",
             .browser => "browser",
+            .conversation => "conversation",
         };
     }
 };
@@ -4694,10 +4697,37 @@ pub fn newBrowserTab(client: anytype, request: NewBrowserTabRequest) !wire.Decod
     );
 }
 
+pub const NewConversationTabRequest = struct {
+    cols: wire.Field(u16) = .absent,
+    conversation: []const u8,
+    mutation_id: wire.Field([]const u8) = .absent,
+    origin: wire.Field([]const u8) = .absent,
+    owner: []const u8,
+    pane: wire.Field(Id) = .absent,
+    rows: wire.Field(u16) = .absent,
+    workspace: wire.Field(Id) = .absent,
+};
+
+pub const NewConversationTabResult = JsonValue;
+
+pub fn newConversationTab(client: anytype, request: NewConversationTabRequest) !wire.Decoded(NewConversationTabResult) {
+    return client.callTyped(
+        NewConversationTabResult,
+        .{
+            .name = "new-conversation-tab",
+            .authority = "control",
+            .since = 12,
+            .capability = "conversation-tabs-v1",
+        },
+        request,
+    );
+}
+
 pub const NewFrontendBrowserTabRequest = struct {
     cols: wire.Field(u16) = .absent,
     engine: []const u8,
     favicon_url: wire.Field([]const u8) = .absent,
+    owner: wire.Field([]const u8) = .absent,
     pane: wire.Field(Id) = .absent,
     profile_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
@@ -6636,6 +6666,7 @@ pub fn updateBrowserProfile(client: anytype, request: UpdateBrowserProfileReques
 
 pub const UpdateFrontendBrowserTabRequest = struct {
     favicon_url: wire.Field([]const u8) = .absent,
+    owner: wire.Field([]const u8) = .absent,
     surface: Id,
     title: wire.Field([]const u8) = .absent,
     url: wire.Field([]const u8) = .absent,
@@ -7959,7 +7990,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 207;
+pub const command_count: usize = 208;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -8070,6 +8101,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "move-workspace-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
     .{ .name = "move-workspace-to-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
     .{ .name = "new-browser-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "new-conversation-tab", .authority = "control", .since = 12, .capability = "conversation-tabs-v1", .stream = null },
     .{ .name = "new-frontend-browser-tab", .authority = "control", .since = 12, .capability = "frontend-browser-tabs-v1", .stream = null },
     .{ .name = "new-pane", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "new-pane-right", .authority = "control", .since = 9, .capability = "viewport-splits-v1", .stream = null },

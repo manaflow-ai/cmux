@@ -1,0 +1,58 @@
+import Foundation
+
+/// How a `DaemonConnection` connects, reconnects and bounds its requests.
+public struct DaemonConnectionConfiguration: Sendable {
+    public var clientName: String
+    public var requiredCapabilities: [String]
+    public var advertisedCapabilities: [String]
+    public var treeEvents: TreeEventMode
+    /// Spacing and budget of reconnect attempts.
+    public var retry: RetryPolicy
+    /// A connection that stays up this long resets the reconnect backoff.
+    public var healthyAfter: Duration
+    /// Extra events that may let a reconnect succeed (network, sign-in).
+    /// The connection also watches its daemon socket through it.
+    public var retryWake: RetryWake?
+    /// Deadline for every control-plane request (architecture.md 5a).
+    /// A miss throws `DaemonError.timedOut`; nil disables it (tests only).
+    public var requestTimeout: Duration?
+    /// Deadline for `list-workspaces` snapshots, which can be large.
+    public var snapshotTimeout: Duration?
+    /// Deadline for commands that launch a terminal host
+    /// (`TerminalSpawningRequest`): cmux-tui's own 3 s launch bound plus margin.
+    public var spawnTimeout: Duration?
+    /// Per-terminal `env` the convenience spawn calls send when the daemon
+    /// supports `terminal-env-v1` and the caller passed none. Nil sends none.
+    public var terminalEnvironment: (@Sendable () async -> [String: String])?
+    /// Opens `session.events` after each connect for the daemon's state
+    /// resources (`DaemonStore.session`); off sends nothing extra.
+    public var sessionEvents: Bool
+
+    public init(
+        clientName: String = "cmux-next",
+        requiredCapabilities: [String] = DaemonCapabilities.shared.required,
+        advertisedCapabilities: [String] = DaemonCapabilities.shared.advertised,
+        treeEvents: TreeEventMode = .deltas,
+        retry: RetryPolicy = .reconnect,
+        healthyAfter: Duration = .seconds(10),
+        retryWake: RetryWake? = nil,
+        requestTimeout: Duration? = DaemonConnection.defaultRequestTimeout,
+        snapshotTimeout: Duration? = .seconds(10),
+        spawnTimeout: Duration? = DaemonConnection.defaultSpawnTimeout,
+        terminalEnvironment: (@Sendable () async -> [String: String])? = TerminalEnvironment.instance.shared(),
+        sessionEvents: Bool = false
+    ) {
+        self.clientName = clientName
+        self.requiredCapabilities = requiredCapabilities
+        self.advertisedCapabilities = advertisedCapabilities
+        self.treeEvents = treeEvents
+        self.retry = retry
+        self.healthyAfter = healthyAfter
+        self.retryWake = retryWake
+        self.requestTimeout = requestTimeout
+        self.snapshotTimeout = snapshotTimeout
+        self.spawnTimeout = requestTimeout == nil ? nil : spawnTimeout
+        self.terminalEnvironment = terminalEnvironment
+        self.sessionEvents = sessionEvents
+    }
+}

@@ -248,6 +248,7 @@ MODEL_BY_PATH = {
     'commands/move-workspace-group/request': models.MoveWorkspaceGroupRequest,
     'commands/move-workspace-to-group/request': models.MoveWorkspaceToGroupRequest,
     'commands/new-browser-tab/request': models.NewBrowserTabRequest,
+    'commands/new-conversation-tab/request': models.NewConversationTabRequest,
     'commands/new-frontend-browser-tab/request': models.NewFrontendBrowserTabRequest,
     'commands/new-pane/request': models.NewPaneRequest,
     'commands/new-pane-right/request': models.NewPaneRightRequest,

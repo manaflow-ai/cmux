@@ -379,6 +379,32 @@ public final class Options {
     public record ScreenRename(Mutation mutation, String name) {
         public ScreenRename { mutation = mut(mutation); Objects.requireNonNull(name, "name"); }
     }
+    /**
+     * Pins, unpins, or resizes one viewport column ({@code column.update}).
+     * {@code column} is the column's split ID. Set {@code sticky},
+     * {@code width}, or both; {@code edge} ("left" or "right") and
+     * {@code mode} ("docked" or "overlay") apply only when sticky is true.
+     */
+    public record ColumnUpdate(
+        Mutation mutation,
+        String column,
+        Optional<Boolean> sticky,
+        Optional<String> edge,
+        Optional<String> mode,
+        Optional<Double> width
+    ) {
+        public ColumnUpdate {
+            mutation = mut(mutation);
+            Objects.requireNonNull(column, "column");
+            sticky = opt(sticky);
+            edge = opt(edge);
+            mode = opt(mode);
+            width = opt(width);
+            if (sticky.isEmpty() && width.isEmpty()) {
+                throw new IllegalArgumentException("set sticky, width, or both");
+            }
+        }
+    }
     public record PaneRename(Mutation mutation, String name) {
         public PaneRename { mutation = mut(mutation); Objects.requireNonNull(name, "name"); }
     }
