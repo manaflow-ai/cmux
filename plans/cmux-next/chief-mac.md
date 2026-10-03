@@ -116,6 +116,13 @@ memory functions. Rust runs it with `include_str!` in `cmux-chief/tests/corpus.r
 it in `bun test`. A required check runs both (the corpus is the contract, like
 `cmux-conversation-conformance/1`).
 
+Reply keys: `turn:<session>:<seq>` while the mux log's identity (the `at` of its seq 1 event)
+equals host.json's `acpmuxLog`; after a reset (acpmux refused the saved cursor, a different
+identity for the same session, or a non-empty log of a session host.json does not know) they are
+`turn:<session>:<epoch>:<seq>` with epoch = max(identity, previous epoch + 1), or now when host.json
+lost the session. The replay of a reset posts no promptless turn. acpmux exposes no log generation
+id (an import keeps the bundle's session id and createdAt), so the identity is the first event's `at`.
+
 Float gap (coordinator rule): JSON text inside prompts and replies is canonical (sorted keys,
 compact), but the cores write floats differently (`{"x":1.0}` is `{"x":1}` in TypeScript and
 `{"x":1.0}` in Rust serde_json). No code compares that text between the cores, and corpus cases
