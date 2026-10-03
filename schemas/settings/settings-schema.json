@@ -568,6 +568,405 @@
     },
     {
       "accepts" : [
+        "even",
+        "halve"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.splitEven",
+            "text" : "Even"
+          },
+          "value" : "even"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.splitHalve",
+            "text" : "Halve the Pane"
+          },
+          "value" : "halve"
+        }
+      ],
+      "default" : "even",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.splitSizing.help",
+        "text" : "Even gives every pane in the column the same size after a split."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.splitSizing",
+      "keywords" : [
+        "split",
+        "equal",
+        "size"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "layout",
+        "splitSizing"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.layout.splitSizing",
+        "text" : "Split Sizing"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "matchCurrent",
+        "fitScreen",
+        "fixed"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.matchCurrent",
+            "text" : "Match Current Column"
+          },
+          "value" : "matchCurrent"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.fitScreen",
+            "text" : "Fit Visible Columns"
+          },
+          "value" : "fitScreen"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.fixedWidth",
+            "text" : "Fixed Width"
+          },
+          "value" : "fixed"
+        }
+      ],
+      "default" : "matchCurrent",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "layout.newColumnWidth",
+      "keywords" : [
+        "width",
+        "column"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "layout",
+        "newColumnWidth"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.layout.newColumnWidthMode",
+        "text" : "New Column Sizing"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "nearest",
+        "right",
+        "left",
+        "top",
+        "bottom"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.nearestEdge",
+            "text" : "Nearest Edge"
+          },
+          "value" : "nearest"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.right",
+            "text" : "Right"
+          },
+          "value" : "right"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.left",
+            "text" : "Left"
+          },
+          "value" : "left"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.top",
+            "text" : "Top"
+          },
+          "value" : "top"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.bottom",
+            "text" : "Bottom"
+          },
+          "value" : "bottom"
+        }
+      ],
+      "default" : "nearest",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "layout.stickyColumnEdge",
+      "keywords" : [
+        "sticky",
+        "pin",
+        "column"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "layout",
+        "stickyColumnEdge"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.layout.stickyColumnEdge",
+        "text" : "Sticky Column Edge"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "docked",
+        "overlay"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.docked",
+            "text" : "Docked"
+          },
+          "value" : "docked"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.overlay",
+            "text" : "Floating"
+          },
+          "value" : "overlay"
+        }
+      ],
+      "default" : "docked",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "layout.stickyColumnMode",
+      "keywords" : [
+        "sticky",
+        "floating",
+        "overlay",
+        "dock"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "layout",
+        "stickyColumnMode"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.layout.stickyColumnMode",
+        "text" : "Sticky Column Mode"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "columnMajor",
+        "rowMajor"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.columnMajor",
+            "text" : "Side Docks Full Height"
+          },
+          "value" : "columnMajor"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.rowMajor",
+            "text" : "Top and Bottom Docks Full Width"
+          },
+          "value" : "rowMajor"
+        }
+      ],
+      "default" : "columnMajor",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "layout.frameOrientation",
+      "keywords" : [
+        "dock",
+        "frame",
+        "orientation",
+        "corner",
+        "sticky"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "layout",
+        "frameOrientation"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.layout.frameOrientation",
+        "text" : "Dock Corners"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        80,
+        800,
+        440
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : 200,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "layout.minimumPaneWidth",
+      "keywords" : [
+        "split",
+        "size",
+        "width"
+      ],
+      "kind" : "number",
+      "path" : [
+        "layout",
+        "minimumPaneWidth"
+      ],
+      "range" : {
+        "max" : 800,
+        "min" : 80,
+        "placeholder" : 80,
+        "step" : 10,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -640,
+        1520,
+        "1"
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.layout.minimumPaneWidth",
+        "text" : "Minimum Pane Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        32,
+        600,
+        316
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : 64,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "layout.minimumPaneHeight",
+      "keywords" : [
+        "split",
+        "size",
+        "height"
+      ],
+      "kind" : "number",
+      "path" : [
+        "layout",
+        "minimumPaneHeight"
+      ],
+      "range" : {
+        "max" : 600,
+        "min" : 32,
+        "placeholder" : 32,
+        "step" : 4,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -536,
+        1168,
+        "1"
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.layout.minimumPaneHeight",
+        "text" : "Minimum Pane Height"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "@",
         "#",
         ">",
@@ -1612,405 +2011,6 @@
       "title" : {
         "key" : "settings.tasks.layout",
         "text" : "Tasks Layout"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "even",
-        "halve"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.splitEven",
-            "text" : "Even"
-          },
-          "value" : "even"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.splitHalve",
-            "text" : "Halve the Pane"
-          },
-          "value" : "halve"
-        }
-      ],
-      "default" : "even",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.columns",
-        "text" : "Columns"
-      },
-      "help" : {
-        "key" : "settings.layout.splitSizing.help",
-        "text" : "Even gives every pane in the column the same size after a split."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "layout.splitSizing",
-      "keywords" : [
-        "split",
-        "equal",
-        "size"
-      ],
-      "kind" : "choice",
-      "path" : [
-        "layout",
-        "splitSizing"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "general",
-      "title" : {
-        "key" : "settings.layout.splitSizing",
-        "text" : "Split Sizing"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "matchCurrent",
-        "fitScreen",
-        "fixed"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.matchCurrent",
-            "text" : "Match Current Column"
-          },
-          "value" : "matchCurrent"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.fitScreen",
-            "text" : "Fit Visible Columns"
-          },
-          "value" : "fitScreen"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.fixedWidth",
-            "text" : "Fixed Width"
-          },
-          "value" : "fixed"
-        }
-      ],
-      "default" : "matchCurrent",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.columns",
-        "text" : "Columns"
-      },
-      "help" : null,
-      "kept_on_reset_all" : false,
-      "key" : "layout.newColumnWidth",
-      "keywords" : [
-        "width",
-        "column"
-      ],
-      "kind" : "choice",
-      "path" : [
-        "layout",
-        "newColumnWidth"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "general",
-      "title" : {
-        "key" : "settings.layout.newColumnWidthMode",
-        "text" : "New Column Sizing"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "nearest",
-        "right",
-        "left",
-        "top",
-        "bottom"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.nearestEdge",
-            "text" : "Nearest Edge"
-          },
-          "value" : "nearest"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.right",
-            "text" : "Right"
-          },
-          "value" : "right"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.left",
-            "text" : "Left"
-          },
-          "value" : "left"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.top",
-            "text" : "Top"
-          },
-          "value" : "top"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.bottom",
-            "text" : "Bottom"
-          },
-          "value" : "bottom"
-        }
-      ],
-      "default" : "nearest",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.columns",
-        "text" : "Columns"
-      },
-      "help" : null,
-      "kept_on_reset_all" : false,
-      "key" : "layout.stickyColumnEdge",
-      "keywords" : [
-        "sticky",
-        "pin",
-        "column"
-      ],
-      "kind" : "choice",
-      "path" : [
-        "layout",
-        "stickyColumnEdge"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "general",
-      "title" : {
-        "key" : "settings.layout.stickyColumnEdge",
-        "text" : "Sticky Column Edge"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "docked",
-        "overlay"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.docked",
-            "text" : "Docked"
-          },
-          "value" : "docked"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.overlay",
-            "text" : "Floating"
-          },
-          "value" : "overlay"
-        }
-      ],
-      "default" : "docked",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.columns",
-        "text" : "Columns"
-      },
-      "help" : null,
-      "kept_on_reset_all" : false,
-      "key" : "layout.stickyColumnMode",
-      "keywords" : [
-        "sticky",
-        "floating",
-        "overlay",
-        "dock"
-      ],
-      "kind" : "choice",
-      "path" : [
-        "layout",
-        "stickyColumnMode"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "general",
-      "title" : {
-        "key" : "settings.layout.stickyColumnMode",
-        "text" : "Sticky Column Mode"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "columnMajor",
-        "rowMajor"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.columnMajor",
-            "text" : "Side Docks Full Height"
-          },
-          "value" : "columnMajor"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.rowMajor",
-            "text" : "Top and Bottom Docks Full Width"
-          },
-          "value" : "rowMajor"
-        }
-      ],
-      "default" : "columnMajor",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.columns",
-        "text" : "Columns"
-      },
-      "help" : null,
-      "kept_on_reset_all" : false,
-      "key" : "layout.frameOrientation",
-      "keywords" : [
-        "dock",
-        "frame",
-        "orientation",
-        "corner",
-        "sticky"
-      ],
-      "kind" : "choice",
-      "path" : [
-        "layout",
-        "frameOrientation"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "general",
-      "title" : {
-        "key" : "settings.layout.frameOrientation",
-        "text" : "Dock Corners"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        80,
-        800,
-        440
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "default" : 200,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.columns",
-        "text" : "Columns"
-      },
-      "help" : null,
-      "kept_on_reset_all" : false,
-      "key" : "layout.minimumPaneWidth",
-      "keywords" : [
-        "split",
-        "size",
-        "width"
-      ],
-      "kind" : "number",
-      "path" : [
-        "layout",
-        "minimumPaneWidth"
-      ],
-      "range" : {
-        "max" : 800,
-        "min" : 80,
-        "placeholder" : 80,
-        "step" : 10,
-        "unit" : "points"
-      },
-      "refuses" : [
-        -640,
-        1520,
-        "1"
-      ],
-      "section" : "general",
-      "title" : {
-        "key" : "settings.layout.minimumPaneWidth",
-        "text" : "Minimum Pane Width"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        32,
-        600,
-        316
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "default" : 64,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.columns",
-        "text" : "Columns"
-      },
-      "help" : null,
-      "kept_on_reset_all" : false,
-      "key" : "layout.minimumPaneHeight",
-      "keywords" : [
-        "split",
-        "size",
-        "height"
-      ],
-      "kind" : "number",
-      "path" : [
-        "layout",
-        "minimumPaneHeight"
-      ],
-      "range" : {
-        "max" : 600,
-        "min" : 32,
-        "placeholder" : 32,
-        "step" : 4,
-        "unit" : "points"
-      },
-      "refuses" : [
-        -536,
-        1168,
-        "1"
-      ],
-      "section" : "general",
-      "title" : {
-        "key" : "settings.layout.minimumPaneHeight",
-        "text" : "Minimum Pane Height"
       },
       "validation" : "portable"
     },
@@ -5273,7 +5273,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "f9d0e34f2604d9f5d78d41becf5515643674f22b19afaa37c669c7633ee93aa0",
+  "schema_hash" : "b807282e04c420031ea45ae1fd7308b700725dc477f1f8f282be96e782699321",
   "sections" : [
     {
       "id" : "general",
