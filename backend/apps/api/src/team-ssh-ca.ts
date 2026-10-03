@@ -134,15 +134,16 @@ const signer = (deps: SshCaDeps, generation: number): Promise<CryptoKey> => {
 type CertParams = { public_key: string; validity_minutes?: number; class?: "human" | "agent" }
 
 /**
- * Which class this caller may have. A person's session: either. An install: `agent` with
- * mutate-own; `human` only on a Mac or CLI install whose grant covers execute. An agent
- * principal or a team server: `agent` only or nothing (server.md: servers never get SSH access).
+ * Which class this caller may have. A person's signed-in session: either. An install token: only
+ * `agent` (force-command), with mutate-own, because a token does not show whether a person or an
+ * agent holds it (D28, coordinator decision 2026-10-03). An agent principal: `agent` only. A team
+ * server: nothing (server.md: servers never get SSH access).
  */
 const classFor = (s: TeamState, p: Principal, requested: "human" | "agent" | undefined): "human" | "agent" => {
   if (p.kind === "install" && p.install && (s.server_revocations?.[p.install] || Object.values(s.hosts).some((h) => h.kind === "server" && h.enrolled_by === p.install)))
     throw new Refusal("team_vm.ssh_class_refused", "a team server does not get SSH certificates")
   const classes = p.grant_classes ?? []
-  const human = !p.agent && (p.kind === "session" || (p.kind === "install" && classes.includes("execute") && (p.install_kind === "mac" || p.install_kind === "cli")))
+  const human = !p.agent && p.kind === "session"
   const agent = p.kind === "session" || (p.kind === "install" && classes.includes("mutate-own"))
   const cls = requested ?? (p.kind === "session" && !p.agent ? "human" : "agent")
   if (cls === "human" ? !human : !agent) throw new Refusal("team_vm.ssh_class_refused", `this caller may not have a ${cls} certificate`)
