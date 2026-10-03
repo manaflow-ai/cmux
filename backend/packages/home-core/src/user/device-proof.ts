@@ -64,14 +64,19 @@ export const verifyPresence = (jwk: unknown, payload: ProofPayload, signature: s
   }
 }
 
+// Plain Uint8Array helpers: the Worker's Buffer typings lack Node's read and compare methods.
+const u16 = (b: Uint8Array, at: number) => (b[at]! << 8) | b[at + 1]!
+const u32 = (b: Uint8Array, at: number) => ((b[at]! << 24) >>> 0) + (b[at + 1]! << 16) + (b[at + 2]! << 8) + b[at + 3]!
+const sameBytes = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i])
+
 /** Minimal CBOR reader for the App Attest assertion: a map of text keys to byte strings. */
 const readCborMap = (buf: Buffer): Record<string, Buffer> | null => {
   let i = 0
   const len = (info: number): number | null => {
     if (info < 24) return info
     if (info === 24) return i < buf.length ? buf[i++]! : null
-    if (info === 25) return i + 2 <= buf.length ? ((i += 2), buf.readUInt16BE(i - 2)) : null
-    if (info === 26) return i + 4 <= buf.length ? ((i += 4), buf.readUInt32BE(i - 4)) : null
+    if (info === 25) return i + 2 <= buf.length ? ((i += 2), u16(buf, i - 2)) : null
+    if (info === 26) return i + 4 <= buf.length ? ((i += 4), u32(buf, i - 4)) : null
     return null
   }
   const head = (): [number, number] | null => (i < buf.length ? [buf[i]! >> 5, buf[i++]! & 31] : null)
@@ -85,7 +90,7 @@ const readCborMap = (buf: Buffer): Record<string, Buffer> | null => {
     if (!kh || kh[0] !== 3) return null
     const kl = len(kh[1])
     if (kl === null || i + kl > buf.length) return null
-    const key = buf.subarray(i, i + kl).toString("utf8")
+    const key = new TextDecoder().decode(buf.subarray(i, i + kl))
     i += kl
     const vh = head()
     if (!vh || vh[0] !== 2) return null
@@ -120,8 +125,8 @@ export const verifyAppAttest = (key: AppAttestKey, payload: ProofPayload, assert
   const auth = map?.authenticatorData
   const sig = map?.signature
   if (!auth || !sig || auth.length < 37) return { ok: false }
-  if (!auth.subarray(0, 32).equals(Buffer.from(key.app_id_hash, "base64url"))) return { ok: false }
-  const counter = auth.readUInt32BE(33)
+  if (!sameBytes(auth.subarray(0, 32), Buffer.from(key.app_id_hash, "base64url"))) return { ok: false }
+  const counter = u32(auth, 33)
   if (counter <= key.counter) return { ok: false }
   const clientDataHash = createHash("sha256").update(proofMessage(payload)).digest()
   const nonce = createHash("sha256").update(Buffer.concat([auth, clientDataHash])).digest()
