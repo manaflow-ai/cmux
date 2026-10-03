@@ -168,7 +168,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         info.contextMenus = surfaces["context_menus"] as? [String] ?? []
         // Snapshot for `action.list`; `action.run` re-reads it live.
         info.unavailableReason = registry.unavailableReason(for: descriptor.id)
-        info.disabledFeature = registry.disabledFeature(of: descriptor)?.rawValue
+        info.disabledFeature = registry.disabledFeature(for: descriptor.id)?.rawValue
         info.isDestructive = descriptor.isDestructive
         info.startsTerminal = descriptor.startsTerminal
         info.isCLI = descriptor.cli

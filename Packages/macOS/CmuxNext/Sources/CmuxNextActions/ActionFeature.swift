@@ -27,21 +27,15 @@ public nonisolated enum ActionFeature: String, CaseIterable, Sendable, Hashable 
     }
 }
 
-extension ActionRegistry {
-    /// False when an administrator turned off the action's feature.
-    public func allowsByPolicy(_ descriptor: ActionDescriptor) -> Bool {
-        disabledFeature(of: descriptor) == nil
-    }
-
-    /// The turned-off feature `descriptor` belongs to, or nil.
-    public func disabledFeature(of descriptor: ActionDescriptor) -> ActionFeature? {
-        guard !disabledFeatures.isEmpty, let feature = ActionFeature.feature(of: descriptor),
-              disabledFeatures.contains(feature) else { return nil }
+extension ActionFeature {
+    /// The feature in `disabled` that `descriptor` belongs to, or nil.
+    public static func turnedOff(_ descriptor: ActionDescriptor, in disabled: Set<ActionFeature>) -> ActionFeature? {
+        guard !disabled.isEmpty, let feature = feature(of: descriptor), disabled.contains(feature) else { return nil }
         return feature
     }
+}
 
-    /// The turned-off feature of the action `id`, or nil.
-    public func disabledFeature(for id: ActionID) -> ActionFeature? {
-        descriptor(for: id).flatMap(disabledFeature(of:))
-    }
+extension ActionRegistry {
+    /// The turned-off feature of the action `id`, or nil (DisabledFeatures).
+    public func disabledFeature(for id: ActionID) -> ActionFeature? { descriptor(for: id).flatMap { ActionFeature.turnedOff($0, in: disabledFeatures) } }
 }

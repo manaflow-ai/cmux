@@ -245,7 +245,7 @@ public final class ActionRegistry {
     /// required context is present, and it is not debug-only without developer tools (`DevTools`).
     public func isAvailable(_ id: ActionID, in context: ActionContext? = nil) -> Bool {
         guard let descriptor = descriptor(for: id) else { return isBound(id) }
-        return allowsByPolicy(descriptor) && Self.isAvailable(descriptor, in: context ?? self.context)
+        return ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil && Self.isAvailable(descriptor, in: context ?? self.context)
     }
 
     /// `isAvailable(_:in:)` with the facts the invocation's explicit target
