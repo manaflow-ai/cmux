@@ -46,11 +46,15 @@ export class FeedDO extends OwnerDO<FeedState> {
     }), FEED_ENGINE_OPTIONS)
   }
 
-  /** Events written before the text redaction existed are scrubbed once, on first bind. */
+  /**
+   * Events written without the text redaction (before it existed, or by a stale deploy) are
+   * scrubbed on bind past a per-object high-water mark. v2: the v1 run-once markers missed
+   * events a stale build wrote after the first scrub (2026-10-03), so v2 rescans once.
+   */
   protected override bind(entity: string) {
     const engine = super.bind(entity)
-    engine.scrubStoredParams("feed.post", "feed-text-v1")
-    engine.scrubStoredParams("feed.adopt", "feed-text-v1-adopt")
+    engine.scrubStoredParams("feed.post", "feed-text-v2")
+    engine.scrubStoredParams("feed.adopt", "feed-text-v2-adopt")
     return engine
   }
 
