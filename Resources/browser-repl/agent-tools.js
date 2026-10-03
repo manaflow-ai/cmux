@@ -1095,16 +1095,17 @@
     async function storageState(options = {}, fromPage) {
       if (options === null || typeof options !== "object") throw new Error(`session.storageState: options: expected an object, got ${JSON.stringify(options)}`);
       const urls = options.urls ? [].concat(options.urls) : null;
+      const page = fromPage || currentPage();
       let site = null;
       if (!options.all && !urls) {
-        const page = fromPage || currentPage();
         const url = page && !page._closed ? String(page.url()) : "";
         const hostname = /^https?:/i.test(url) ? new core.URL(url).hostname : "";
         if (!hostname) throw new Error(`session.storageState: the current tab (${url || "none"}) has no site to scope to; open the site first, or pass { all: true } for the whole profile or { urls: [...] }`);
         site = siteOf(hostname);
       }
       const inScope = (hostname) => site === null || siteOf(hostname) === site;
-      const cookies = (await session.call("cookies.get", urls ? { urls } : {})).filter((c) => inScope(String(c.domain || "")));
+      // The cookies of the page's own data store (cookieScope).
+      const cookies = (await session.call("cookies.get", { ...cookieScope(page), ...(urls ? { urls } : {}) })).filter((c) => inScope(String(c.domain || "")));
       const origins = new Map();
       for (const page of [...session.pages.values()]) {
         if (page._closed || String(page._targetId).startsWith("lazy:")) continue;
@@ -1121,12 +1122,17 @@
       if (options.path) fs.writeFileSync(options.path, JSON.stringify(state, null, 2));
       return state;
     }
-    async function setStorageState(source) {
+    // A page's cookie calls name its tab, so the driver uses that tab's data
+    // store (a private tab's, or the session's proxy store), not another's.
+    function cookieScope(page) {
+      return page && !page._closed && typeof page._cookieScope === "function" ? page._cookieScope() : {};
+    }
+    async function setStorageState(source, fromPage) {
       const state = typeof source === "string" ? JSON.parse(fs.readFileSync(source, "utf8")) : source;
       if (!state || typeof state !== "object" || (!Array.isArray(state.cookies) && !Array.isArray(state.origins))) {
         throw new Error("session.setStorageState: expected { cookies, origins } (Playwright's storage state) or a path to one");
       }
-      if (state.cookies && state.cookies.length) await session.call("cookies.set", { cookies: state.cookies });
+      if (state.cookies && state.cookies.length) await session.call("cookies.set", { ...cookieScope(fromPage || currentPage()), cookies: state.cookies });
       let restored = 0;
       for (const { origin, localStorage } of state.origins || []) {
         if (!localStorage || !localStorage.length) continue;
@@ -1510,7 +1516,7 @@
     const c = context.call(this);
     const storage = this._session.agentStorage;
     // Scoped like session.storageState, to this page's site.
-    if (storage) Object.assign(c, { storageState: (options = {}) => storage.storageState(options, this), setStorageState: storage.setStorageState });
+    if (storage) Object.assign(c, { storageState: (options = {}) => storage.storageState(options, this), setStorageState: (source) => storage.setStorageState(source, this) });
     return c;
   };
 

@@ -2687,12 +2687,19 @@
       const opts = typeof nameOrOptions === "string" ? { name: nameOrOptions } : nameOrOptions || {};
       return this.frames().find((f) => (opts.name === undefined || f.name() === opts.name) && (opts.url === undefined || urlMatches("", f.url(), opts.url))) || null;
     }
+    // The tab's cookie calls name it: its cookies live in its own data store
+    // (a private tab's, or the session's proxy store, is not the user's
+    // profile). A lazy page has no tab yet; its store is the session's
+    // default one.
+    _cookieScope() {
+      return String(this._targetId).startsWith("lazy:") ? {} : { targetId: this._targetId };
+    }
     context() {
       const session = this._session;
       return {
         pages: () => [...session.pages.values()],
-        cookies: (urls) => session.call("cookies.get", { urls: urls === undefined ? undefined : [].concat(urls) }),
-        addCookies: (cookies) => session.call("cookies.set", { cookies }),
+        cookies: (urls) => session.call("cookies.get", { ...this._cookieScope(), urls: urls === undefined ? undefined : [].concat(urls) }),
+        addCookies: (cookies) => session.call("cookies.set", { ...this._cookieScope(), cookies }),
         clearCookies: (options) => this._clearCookies(options),
       };
     }
@@ -2713,8 +2720,7 @@
         if (typeof v !== "string" && !isRegExp(v)) throw new Error(`${title}: ${key}: expected a string or a RegExp, got ${JSON.stringify(v)}`);
         filters[key] = v;
       }
-      // A lazy page has no tab yet; its store is the session's default one.
-      const scope = String(this._targetId).startsWith("lazy:") ? {} : { targetId: this._targetId };
+      const scope = this._cookieScope();
       if (options.all) scope.all = true;
       // The driver refuses a tab with no site, and { all: true }, on the
       // user's profile, and knows which store this is.

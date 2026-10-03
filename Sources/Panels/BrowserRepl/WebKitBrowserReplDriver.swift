@@ -1976,12 +1976,20 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     /// The data store cookie calls use, and the tab it belongs to: the
-    /// target tab's, else the active tab's, else the default profile's.
+    /// target tab's (a tab this session can reach, else the call fails),
+    /// else the store the session's next tab opens in (its
+    /// `session.configure({ proxy })` store), else the active tab's, else
+    /// the default profile's. The runtime names the tab on every call a
+    /// page makes, so a private or proxied tab never reads or writes
+    /// another tab's store.
     @MainActor
     private func cookieTab(_ params: [String: Any]) throws -> (store: WKWebsiteDataStore, panel: BrowserPanel?) {
         if params["targetId"] != nil {
             let panel = try panel(params)
             return (panel.webView.configuration.websiteDataStore, panel)
+        }
+        if let proxyDataStore {
+            return (proxyDataStore, nil)
         }
         let panels = try browserPanels()
         let preferred = activeTargetID.flatMap(UUID.init(uuidString:)).flatMap { id in panels.first { $0.id == id } }
