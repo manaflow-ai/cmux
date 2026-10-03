@@ -74,11 +74,16 @@ public final class DesignSettings {
     public var focusIndicator: FocusIndicator = .both
     /// `appearance.tabBarBackground`: the tab strip's negative space.
     public var tabBarBackground: TabBarBackground = .window
+    /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler
+    /// when `focusIndicator` marks tabs.
+    public var inactiveTabStyle: InactiveTabStyle = .fade
 
     /// `focusIndicator` unless Debug Settings overrides it.
     public var effectiveFocusIndicator: FocusIndicator { FocusIndicatorTunables.indicator.override ?? focusIndicator }
     /// `tabBarBackground` unless Debug Settings overrides it.
     public var effectiveTabBarBackground: TabBarBackground { FocusIndicatorTunables.tabBarBackground.override ?? tabBarBackground }
+    /// `inactiveTabStyle` unless Debug Settings overrides it.
+    public var effectiveInactiveTabStyle: InactiveTabStyle { FocusIndicatorTunables.inactiveTabStyle.override ?? inactiveTabStyle }
     /// `window.titlebar`: minimal (no titlebar strip) or standard.
     public var titlebar: TitlebarStyle = .minimal
     /// `window.rail`: the window's icon rail, off by default.

@@ -134,12 +134,42 @@ export const authenticate = async (env: Env, token: string | undefined): Promise
   return iss === issuer(env) ? installPrincipal(env, token) : sessionPrincipal(env, token)
 }
 
-/** Verifies an ES256 raw (r||s) signature, base64url, with an install's public JWK. */
+/**
+ * DER ECDSA-Sig-Value (SEQUENCE { r INTEGER, s INTEGER }) to raw r||s for P-256, or null when
+ * malformed. iOS Security.framework (.ecdsaSignatureMessageX962SHA256) signs in DER.
+ */
+export const derToRawP256 = (der: Uint8Array): Uint8Array | null => {
+  if (der.length < 8 || der.length > 72 || der[0] !== 0x30 || der[1] !== der.length - 2) return null
+  const out = new Uint8Array(64)
+  let at = 2
+  for (const slot of [0, 32]) {
+    if (at + 2 > der.length || der[at] !== 0x02) return null
+    const len = der[at + 1]!
+    const start = at + 2
+    if (len < 1 || len > 33 || start + len > der.length) return null
+    let v = der.subarray(start, start + len)
+    // Minimal, non-negative INTEGERs only: no high bit without a pad, and a leading zero
+    // only to pad a high bit. A 33-byte value must be such a pad.
+    if (v[0]! & 0x80) return null
+    if (v.length > 1 && v[0] === 0 && (v[1]! & 0x80) === 0) return null
+    if (v.length === 33) v = v.subarray(1)
+    out.set(v, slot + 32 - v.length)
+    at = start + len
+  }
+  return at === der.length ? out : null
+}
+
+/** Verifies an ES256 signature (raw r||s, or DER from iOS), base64url, with an install's public JWK. */
 export const verifyInstallSignature = async (jwk: JsonWebKey, message: string, signatureB64u: string): Promise<boolean> => {
   try {
     const key = await crypto.subtle.importKey("jwk", { ...jwk, ext: true }, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"])
-    const sig = Uint8Array.from(atob(signatureB64u.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(signatureB64u.length / 4) * 4, "=")), (c) => c.charCodeAt(0))
-    return await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, sig, new TextEncoder().encode(message))
+    const bytes = Uint8Array.from(atob(signatureB64u.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(signatureB64u.length / 4) * 4, "=")), (c) => c.charCodeAt(0))
+    const data = new TextEncoder().encode(message)
+    const verify = (sig: Uint8Array) => crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, sig, data)
+    // 64 bytes is raw r||s, except a rare 64-byte DER signature: try raw, then DER.
+    if (bytes.length === 64 && (await verify(bytes))) return true
+    const der = derToRawP256(bytes)
+    return der ? await verify(der) : false
   } catch {
     return false
   }

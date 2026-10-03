@@ -12,7 +12,7 @@ A web UI (React, `webviews/src/agent-session/acpmux/`) in a native tab, themed b
 
 ![Agent pane, light](../images/window/light-agent-pane.png)
 
-## Bridge (`Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTheme.swift:17-52 (AgentPaneTheme.values)`)
+## Bridge (`Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTheme.swift:28-63 (AgentPaneTheme.values)`)
 
 | CSS variable | token |
 |---|---|
@@ -29,7 +29,7 @@ A web UI (React, `webviews/src/agent-session/acpmux/`) in a native tab, themed b
 
 ## Geometry and type
 
-Shell font 13px system. Header 44px (padding 0 8px), title 13px medium, status 12px textSecondary. Conversation 14px / 22.75px system-ui, column 720px, gutter 26.5px. User bubble (`.cv-user__bubble`) max-width 70%, padding 10.5px 16px 9.5px, radius 16px, fill text 5%. Inline code 13px ui-monospace (`.cv-code`); shell output 12px / 18px ui-monospace (`.cv-shell__body`). Composer box radius 22px with a 0.5px inset edge (text 18% over page), fill text 13% over page; field 15px / 22px, padding 15px 16px 8px; bar 48px; picker buttons 32px tall, radius 16px; Send 32px circle. Menus radius 12px, padding 6px, items 28px radius 8px, shadow 0 10px 30px. Session sidebar 292px; rail 48px with 34px buttons radius 9px. Sources: `acpmux/styles.css`, `acpmux/composerControls.css`, `acpmux/conversation/conversation.css:11-34 (:root), 58-62 (.cv-user__bubble), 131-133 (.cv-code), 605-612 (.cv-shell__body)`.
+Shell font 13px system. Header 44px (padding 0 8px), title 13px medium, status 12px textSecondary. Conversation 14px / 22.75px system-ui, column 720px, gutter 26.5px. User bubble (`.cv-user__bubble`) max-width 70%, padding 10.5px 16px 9.5px, radius 16px, fill text 5%. Inline code 13px ui-monospace (`.cv-code`); shell output 12px / 18px ui-monospace (`.cv-shell__body`). Composer box radius 22px with a 0.5px inset edge (text 18% over page), fill text 13% over page; field 15px / 22px, padding 15px 16px 8px; bar 48px; picker buttons 32px tall, radius 16px; Send 32px circle. Menus radius 12px, padding 6px, items 28px radius 8px, shadow 0 10px 30px. Session sidebar 292px; rail 48px with 34px buttons radius 9px. Sources: `acpmux/styles.css`, `acpmux/composerControls.css`, `acpmux/conversation/conversation.css:10-33 (:root), 58-62 (.cv-user__bubble), 131-133 (.cv-code), 605-612 (.cv-shell__body)`.
 
 ## States
 
@@ -57,4 +57,8 @@ Highlight (the theme's ANSI 4) is the one hue in chrome, and only these composer
 
 ## Borders none
 
-Target: under `appearance.borders = none` the agent pane draws no edge. The bridge sets `--agent-border` and `--agent-border-strong` to transparent. Today these edges still draw because they are not tied to the setting: the composer edge (`--acpmux-composer-edge`, a 0.5px inset at text 18%), menu and slash-menu edges, and the code block ring (`--cv-codeblock-ring`, 1px at text 11.5%). A code fix is in progress in a separate lane; ports implement the target.
+Under `appearance.borders = none` the agent pane draws no edge. The bridge sends `borders`, and `applyAgentTheme` sets `data-borders="none"` on the root (`webviews/src/agent-session/shared/theme.ts`). The stylesheets then clear `--agent-border`, `--agent-border-strong`, the composer, menu, slash-menu and tray edge (`--acpmux-composer-edge`), the pill edge (`--acpmux-pill-edge`), the code block ring (`--cv-codeblock-ring`) and the tool card ring (`--cv-card-ring`); checkboxes become a fill. Fills keep the surfaces apart.
+
+## Motion
+
+The bridge passes the hover, focus, fade-in and fade-out durations from the Motion policy (speed and Reduce Motion applied) as `--agent-motion-hover`, `--agent-motion-focus`, `--agent-motion-in` and `--agent-motion-out`.

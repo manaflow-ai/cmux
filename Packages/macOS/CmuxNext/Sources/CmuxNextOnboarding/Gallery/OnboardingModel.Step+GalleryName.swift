@@ -6,6 +6,7 @@ extension OnboardingModel.Step {
         switch self {
         case .role: "Role"
         case .firstTask: "First Task"
+        case .projects: "Projects"
         case .defaultBrowser: "Default Browser"
         case .importData: "Import"
         case .theme: "Theme"
