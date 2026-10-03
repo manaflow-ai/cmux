@@ -114,6 +114,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::SidebarViewResize
         | ResourceOperation::SidebarViewReload => OperationOwner::Auxiliary,
         ResourceOperation::GitCheckpointCreate
+        | ResourceOperation::GitCheckpointDiff
         | ResourceOperation::GitCheckpointGet
         | ResourceOperation::GitCheckpointList
         | ResourceOperation::GitCheckpointPin

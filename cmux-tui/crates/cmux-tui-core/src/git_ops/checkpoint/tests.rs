@@ -14,6 +14,9 @@ use serde_json::{Value, json};
 use crate::resource_router::handle_resource_message;
 use crate::{Mux, SurfaceOptions};
 
+#[path = "compare_tests.rs"]
+mod compare;
+
 fn temporary(name: &str) -> PathBuf {
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let folder =

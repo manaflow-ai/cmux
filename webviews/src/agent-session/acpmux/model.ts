@@ -2,6 +2,7 @@ import type { PermissionClientState } from "./permissions/protocol";
 import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
+import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
 
 export type AcpmuxRow = {
   id: string;
@@ -17,6 +18,8 @@ export type AcpmuxRow = {
   items?: AcpmuxActivity[];
   toolCount?: number;
   durationMs?: number;
+  /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
+  checkpoint?: SummaryCheckpoint;
   status?: string;
   error?: string;
   permission?: AcpmuxPermission;

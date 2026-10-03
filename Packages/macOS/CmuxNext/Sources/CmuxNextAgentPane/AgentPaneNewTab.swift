@@ -37,24 +37,16 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.cwd = cwd
         self.location = location
         self.omnibar = omnibar
-        self.projects = Array(projects.prefix(AgentPaneOmnibar.maximumEntries))
+        // Keep the host DTO lossless. The web page owns presentation limits and
+        // validation after the Codable handshake crosses the bridge.
+        self.projects = projects
         self.defaultKind = defaultKind
-    }
-
-    /// The `newTab` value of the handshake reply.
-    var reply: [String: Any] {
-        var value: [String: Any] = ["kind": kind.rawValue, "hotkeys": hotkeys, "omnibar": omnibar.reply]
-        if let cwd { value["cwd"] = cwd }
-        if let location { value["location"] = location }
-        if !projects.isEmpty { value["projects"] = projects }
-        if let defaultKind { value["defaultKind"] = defaultKind }
-        return value
     }
 }
 
 /// The location bar's suggestions from the app (#16651 follow-up): open tabs and
 /// workspaces to jump to, folders to open a terminal in, recent commands and pages.
-/// Capped per list; the page ranks and filters them as you type.
+/// The page validates and caps each list before ranking it.
 public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
     public struct Tab: Codable, Sendable, Equatable {
         public var id: String
@@ -94,38 +86,22 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
         }
     }
 
-    /// Longest list of each kind sent to the page.
-    public static let maximumEntries = 40
-
     public var tabs: [Tab]
     public var workspaces: [Workspace]
     public var folders: [String]
     public var commands: [String]
     public var history: [Page]
 
+    /// Bound used by native source queries before the DTO reaches the bridge.
+    /// The web page applies its own validation and presentation cap.
+    public static let maximumEntries = 40
+
     public init(tabs: [Tab] = [], workspaces: [Workspace] = [], folders: [String] = [], commands: [String] = [],
                 history: [Page] = []) {
-        let cap = Self.maximumEntries
-        self.tabs = Array(tabs.prefix(cap))
-        self.workspaces = Array(workspaces.prefix(cap))
-        self.folders = Array(folders.prefix(cap))
-        self.commands = Array(commands.prefix(cap))
-        self.history = Array(history.prefix(cap))
-    }
-
-    var reply: [String: Any] {
-        func optional(_ pairs: [(String, String?)]) -> [String: Any] {
-            Dictionary(uniqueKeysWithValues: pairs.compactMap { key, value in value.map { (key, $0 as Any) } })
-        }
-        return [
-            "tabs": tabs.map {
-                optional([("id", $0.id), ("kind", $0.kind.rawValue), ("title", $0.title), ("detail", $0.detail),
-                          ("workspace", $0.workspace)])
-            },
-            "workspaces": workspaces.map { optional([("id", $0.id), ("name", $0.name), ("detail", $0.detail)]) },
-            "folders": folders,
-            "commands": commands,
-            "history": history.map { optional([("url", $0.url), ("title", $0.title)]) },
-        ]
+        self.tabs = tabs
+        self.workspaces = workspaces
+        self.folders = folders
+        self.commands = commands
+        self.history = history
     }
 }

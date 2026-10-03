@@ -6,6 +6,7 @@ import { hostKind, sessionEntry, text, type AcpmuxSessionEntry } from "./session
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
 import { postNative } from "./native";
+import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { HandoffClient } from "./handoff/client";
 import { PermissionGroupClient } from "./permissions/client";
 import { supportsPermissionGroups, type PermissionDecision } from "./permissions/protocol";
@@ -664,7 +665,15 @@ export class AcpmuxDirectClient {
 
   /// acpmux serves no git methods: the native host runs them on the session host in the selected
   /// session's folder, and mock mode's in-page daemon answers them by session.
-  private git(method: "git.diff" | "git.status", params: Record<string, unknown>): Promise<unknown> {
+  /// One turn's repository changes: checkpoint `from` against checkpoint `to`.
+  gitCheckpointDiff(from: string, to: string): Promise<unknown> {
+    return this.git("git.checkpoint.diff", { from, to, include_patch: true });
+  }
+
+  private git(
+    method: "git.diff" | "git.status" | "git.checkpoint.diff",
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
     const sessionId = this.selectedSessionId;
     const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
     const entry = this.sessions.find((session) => session.sessionId === sessionId);
@@ -936,6 +945,7 @@ export class AcpmuxDirectClient {
           }
         }
         this.rows.delete("typing");
+        const checkpoint = event.kind === "turn_result" ? readSummaryCheckpoint(msg) : undefined;
         if (event.kind === "turn_result")
           this.rows.set(`summary-${event.seq}`, {
             id: `summary-${event.seq}`,
@@ -946,6 +956,7 @@ export class AcpmuxDirectClient {
             ...this.turnTotals(event.at),
             status: String(msg.status ?? "completed"),
             error: msg.errorText,
+            ...(checkpoint ? { checkpoint } : {}),
           });
         this.streamingAssistant = undefined;
         this.streamingAssistantMessageId = undefined;

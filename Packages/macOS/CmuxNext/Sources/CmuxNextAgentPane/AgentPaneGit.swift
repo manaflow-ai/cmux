@@ -20,6 +20,8 @@ public nonisolated enum AgentPaneGitRequest: Equatable, Sendable {
     case status(cwd: String)
     /// Files under `cwd` whose path matches `query`, best first.
     case filesSearch(cwd: String, query: String, limit: Int)
+    /// One turn's changes: checkpoint `from` against `to`, or the working tree.
+    case checkpointDiff(cwd: String, from: String, to: String?, includePatch: Bool)
 
     /// The longest query the session host takes, in characters.
     public static let maximumQueryLength = 256
@@ -33,6 +35,7 @@ public nonisolated enum AgentPaneGitRequest: Equatable, Sendable {
         case .diff: "git.diff"
         case .status: "git.status"
         case .filesSearch: "git.files.search"
+        case .checkpointDiff: "git.checkpoint.diff"
         }
     }
 
@@ -40,11 +43,16 @@ public nonisolated enum AgentPaneGitRequest: Equatable, Sendable {
     /// relative path against its own directory, not the chat's.
     public var cwd: String {
         switch self {
-        case .diff(let cwd, _, _), .status(let cwd), .filesSearch(let cwd, _, _): cwd
+        case .diff(let cwd, _, _), .status(let cwd), .filesSearch(let cwd, _, _), .checkpointDiff(let cwd, _, _, _): cwd
         }
     }
 
-    /// Nil unless `method` is one of the three and `params` name an absolute
+    /// A checkpoint id as the session host mints them: 1 to 128 visible ASCII characters.
+    static func isCheckpointId(_ id: String) -> Bool {
+        (1...128).contains(id.utf8.count) && id.utf8.allSatisfy { $0 > 0x20 && $0 < 0x7F }
+    }
+
+    /// Nil unless `method` is one of the four and `params` name an absolute
     /// folder (and, for a diff, one of the five scopes; for a search, a
     /// query of at most ``maximumQueryLength`` characters and a limit from 1
     /// to ``maximumSearchLimit``). A search names its folder as `cwd` or
@@ -53,6 +61,17 @@ public nonisolated enum AgentPaneGitRequest: Equatable, Sendable {
         let folder = params?["cwd"] ?? (method == "file.search" ? params?["path"] : nil)
         guard let cwd = folder as? String, cwd.hasPrefix("/"), !cwd.contains("\u{0}") else { return nil }
         switch method {
+        case "git.checkpoint.diff":
+            guard let from = params?["from"] as? String, Self.isCheckpointId(from) else { return nil }
+            // A `to` that is present but not an id is refused: dropping it would
+            // compare with the working tree, which is another read.
+            let to: String?
+            switch params?["to"] {
+            case nil, is NSNull: to = nil
+            case let id as String where Self.isCheckpointId(id): to = id
+            default: return nil
+            }
+            self = .checkpointDiff(cwd: cwd, from: from, to: to, includePatch: params?["include_patch"] as? Bool ?? false)
         case "file.search":
             guard let query = params?["query"] as? String, query.count <= Self.maximumQueryLength,
                   !query.contains("\u{0}") else { return nil }
