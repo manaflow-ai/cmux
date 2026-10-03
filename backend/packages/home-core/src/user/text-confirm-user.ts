@@ -160,7 +160,7 @@ export const reduceUserConfirm = (s: UserConfirmState, op: string, params: Param
       const challenge: Challenge = { nonce: ctx.newId("nonce"), install, new_level: to, expires_at: ctx.now + CHALLENGE_TTL_MS }
       const payload: ProofPayload = { op: LOWER_OP, user: env.user, install, new_level: to, nonce: challenge.nonce, expires_at: challenge.expires_at }
       // The exact bytes to sign, so clients never re-encode JSON.
-      const message = proofMessage(payload).toString("base64url")
+      const message = Buffer.from(proofMessage(payload)).toString("base64url" as BufferEncoding)
       return { ok: true, state: { ...s, challenges: [...live.filter((c) => c.install !== install), challenge].slice(-MAX_CHALLENGES) }, value: { sign: payload, message } }
     }
     case LOWER_OP: {
