@@ -191,6 +191,18 @@ extension TabManager: SidebarGitHosting {
     func mobileHostQuietDelay(for interval: TimeInterval) -> TimeInterval {
         MobileHostRequestActivity.quietDelay(for: interval)
     }
+
+    func terminalTypingIsActive(within interval: TimeInterval) -> Bool {
+        terminalTypingQuietDelay(for: interval) > 0
+    }
+
+    func terminalTypingQuietDelay(for interval: TimeInterval) -> TimeInterval {
+        guard let lastTypingActivityAt = AppDelegate.shared?.lastTypingActivityAt,
+              lastTypingActivityAt > 0 else {
+            return 0
+        }
+        return max(0, interval - (ProcessInfo.processInfo.systemUptime - lastTypingActivityAt))
+    }
 }
 
 extension SidebarPullRequestState {

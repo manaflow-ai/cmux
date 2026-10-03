@@ -4,6 +4,11 @@ internal import CmuxGit
 // MARK: - Probe scheduling, the per-directory snapshot pipeline, and apply.
 
 extension SidebarGitMetadataService {
+    /// Match the session autosave quiet period. A probe can read a large
+    /// repository off-main, but applying its snapshot still publishes sidebar
+    /// state on the main actor, where it would contend with active typing.
+    nonisolated static let terminalTypingQuietInterval: TimeInterval = 0.65
+
     public func scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
         workspaceId: UUID,
         panelId: UUID,
@@ -99,6 +104,26 @@ extension SidebarGitMetadataService {
         isLastAttempt: Bool,
         reason: String
     ) {
+        if host?.terminalTypingIsActive(within: Self.terminalTypingQuietInterval) == true {
+            workspaceGitProbeStateByKey[probeKey] = .idle
+            let delay = max(
+                Self.terminalTypingQuietInterval,
+                host?.terminalTypingQuietDelay(for: Self.terminalTypingQuietInterval) ?? 0
+            )
+            // This method is called by the current probe task. Schedule the
+            // replacement from a separate actor turn so cancelling the old
+            // task cannot also cancel the newly installed retry.
+            Task { @MainActor [weak self] in
+                guard let self, !Task.isCancelled else { return }
+                self.scheduleWorkspaceGitMetadataRefreshIfPossible(
+                    workspaceId: probeKey.workspaceId,
+                    panelId: probeKey.panelId,
+                    reason: "terminalTypingDeferred",
+                    delays: [delay]
+                )
+            }
+            return
+        }
         guard host?.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) != true else {
             workspaceGitProbeStateByKey[probeKey] = .idle
             scheduleWorkspaceGitMetadataRefreshIfPossible(
