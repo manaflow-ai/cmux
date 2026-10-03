@@ -63,3 +63,23 @@ impl WgNet {
         Ok((net, control))
     }
 }
+
+#[cfg(all(unix, test))]
+mod tests {
+    use super::*;
+
+    /// The hub's `--send-buffer` reaches the kernel: the socket reports the
+    /// small buffer (Linux doubles it), well under the default, and a
+    /// request below the floor gets the floor.
+    #[tokio::test]
+    async fn a_requested_send_buffer_reaches_the_socket() {
+        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let default = send_buffer(&socket).unwrap();
+        set_send_buffer(&socket, 32 * 1024).unwrap();
+        let small = send_buffer(&socket).unwrap();
+        assert!((32 * 1024..=64 * 1024).contains(&small), "default {default}, set {small}");
+        set_send_buffer(&socket, 1).unwrap();
+        let floor = send_buffer(&socket).unwrap();
+        assert!((MIN_SEND_BUFFER..=2 * MIN_SEND_BUFFER).contains(&floor), "floor {floor}");
+    }
+}
