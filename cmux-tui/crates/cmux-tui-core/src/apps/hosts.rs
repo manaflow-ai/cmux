@@ -294,6 +294,7 @@ impl Supervisor {
             || !live
             || !host.runs.is_empty()
             || !host.queued_runs.is_empty()
+            || host.inflight > 0
             || host.idle.is_some()
         {
             return vec![];
@@ -320,6 +321,7 @@ impl Supervisor {
             && host.idle.take().is_some()
             && !busy
             && host.runs.is_empty()
+            && host.inflight == 0
         {
             self.stop_host_locked(&mut inner, key);
         }
@@ -360,6 +362,7 @@ impl Supervisor {
             ));
         }
         let key = HostKey { app: app.to_string(), preview: false };
+        outs.extend(self.cancel_provider_calls_locked(inner, &key, "revoked"));
         if let Some(host) = inner.hosts.get_mut(&key) {
             host.grant = Grant { revoked: true, ..Grant::default() };
             host.queued_runs.clear();
@@ -381,11 +384,15 @@ impl Supervisor {
         if let Some(timer) = host.idle.take() {
             self.timers.cancel(timer);
         }
-        if let Some(process) = host.process.clone()
-            && matches!(host.state, HostState::Starting | HostState::Running)
-        {
+        let restarting = host
+            .process
+            .clone()
+            .filter(|_| matches!(host.state, HostState::Starting | HostState::Running));
+        if let Some(process) = restarting {
             host.state = HostState::Restarting;
             process.shutdown();
+            // Calls made under the old grant do not outlive it.
+            return self.cancel_provider_calls_locked(inner, &key, "revoked");
         }
         vec![]
     }
@@ -439,8 +446,7 @@ impl Supervisor {
                 vec![Out::Client(mount_key.client, event)]
             }
             FromHost::Call { cb, name, params, options } => {
-                self.call_locked(inner, key, cb, name, params, options);
-                vec![]
+                self.call_locked(inner, key, cb, name, params, options)
             }
             FromHost::Subscribe { sub, stream, .. } => {
                 self.subscribe_locked(inner, key, sub, stream)
@@ -523,6 +529,7 @@ impl Supervisor {
                 .into_iter()
                 .map(|r| Out::Respond(r, Err(ApiError::new("apps.host", exit.describe()))))
                 .collect();
+            outs.extend(self.cancel_provider_calls_locked(&mut inner, key, "host_exited"));
             let has_work = queued || inner.mounts.values().any(|m| m.host == *key);
             match state {
                 HostState::Restarting => {

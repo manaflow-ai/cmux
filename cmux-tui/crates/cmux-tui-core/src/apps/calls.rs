@@ -15,7 +15,7 @@ use super::grants::{Decision, GestureCheck, Grant, OpClass, ScopeTable, needs_ge
 use super::host::HostProcess;
 use super::mirror::Origin;
 use super::provider;
-use super::supervisor::{HostKey, Inner, Supervisor};
+use super::supervisor::{HostKey, Inner, Out, Supervisor};
 
 /// Calls one host may have in flight (the VM caps itself at 64 too, but the
 /// VM is untrusted).
@@ -44,12 +44,15 @@ impl Supervisor {
         op: String,
         mut params: Value,
         options: Value,
-    ) {
+    ) -> Vec<Out> {
         let host = inner.hosts.get(key).expect("host");
-        let Some(process) = host.process.clone() else { return };
+        let Some(process) = host.process.clone() else { return vec![] };
         let grant = host.grant.clone();
         let generation = host.generation;
-        let reject = |body: Value| process.send(&ToHost::Resolve { cb, ok: false, body });
+        let reject = |body: Value| {
+            process.send(&ToHost::Resolve { cb, ok: false, body });
+            Vec::new()
+        };
         if host.inflight >= MAX_INFLIGHT {
             return reject(
                 json!({ "code": "app.limit", "message": "too many calls in flight", "retryable": true }),
@@ -117,11 +120,16 @@ impl Supervisor {
         // fail at once when none is connected (APP-R1).
         let supervisor_op = op.starts_with("app.storage.") || op == "net.fetch";
         if !supervisor_op && !self.router.owns(&op) {
-            if !self.route_to_provider_locked(inner, key, cb, &op, params, origin, idempotency_key)
-            {
-                reject(provider::unavailable(&op));
+            if op == "integration.request" {
+                // The provider sees the method the grant check decided on.
+                provider::normalize_method(&mut params);
             }
-            return;
+            let routed =
+                self.route_to_provider_locked(inner, key, cb, &op, params, origin, idempotency_key);
+            return match routed {
+                Ok(outs) => outs,
+                Err(body) => reject(body),
+            };
         }
         inner.hosts.get_mut(key).expect("host").inflight += 1;
         let work =
@@ -139,10 +147,11 @@ impl Supervisor {
         });
         if let Err(e) = spawned {
             inner.hosts.get_mut(key).expect("host").inflight -= 1;
-            reject(
+            return reject(
                 json!({ "code": "operation.failed", "message": format!("no worker thread: {e}"), "retryable": true }),
             );
         }
+        vec![]
     }
 
     fn execute(&self, key: &HostKey, work: Work) -> Result<Value, Value> {
@@ -182,11 +191,17 @@ impl Supervisor {
 
     /// Writes the answer if the host that asked is still the current process.
     fn answer(&self, key: &HostKey, generation: u64, process: &Arc<HostProcess>, message: ToHost) {
-        let mut inner = self.inner.lock().unwrap();
-        if let Some(host) = inner.hosts.get_mut(key).filter(|h| h.generation == generation) {
+        let outs = {
+            let mut inner = self.inner.lock().unwrap();
+            let Some(host) = inner.hosts.get_mut(key).filter(|h| h.generation == generation) else {
+                return;
+            };
             host.inflight = host.inflight.saturating_sub(1);
             process.send(&message);
-        }
+            // The idle stop waits for calls in flight; this one is done.
+            self.idle_check_locked(&mut inner, key)
+        };
+        self.emit(outs);
     }
 }
 

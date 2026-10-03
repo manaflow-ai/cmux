@@ -175,6 +175,9 @@ pub(super) struct Inner {
 /// reach each host in lock order.
 pub(super) enum Out {
     Client(u64, Value),
+    /// An `apps-provider-request` to its provider; a failed send fails the
+    /// call at once (`provider.rs`).
+    Provider(u64, u64, Value),
     Broadcast(Value),
     Respond(Responder, Result<Value, ApiError>),
     StartEvents,
@@ -260,13 +263,13 @@ impl Supervisor {
         let outs = {
             let mut inner = self.inner.lock().unwrap();
             inner.sinks.remove(&client);
-            self.provider_disconnect_locked(&mut inner, client);
+            let provider_outs = self.provider_disconnect_locked(&mut inner, client);
             for set in inner.followers.values_mut() {
                 set.remove(&client);
             }
             let keys: Vec<MountKey> =
                 inner.mounts.keys().filter(|k| k.client == client).cloned().collect();
-            let mut outs = Vec::new();
+            let mut outs = provider_outs;
             for key in keys {
                 outs.extend(self.unmount_locked(&mut inner, &key));
             }
@@ -398,6 +401,11 @@ impl Supervisor {
                 Out::Client(client, value) => {
                     if let Some(sink) = sinks.get(&client) {
                         sink(&value);
+                    }
+                }
+                Out::Provider(client, request_id, event) => {
+                    if !sinks.get(&client).is_some_and(|sink| sink(&event)) {
+                        self.provider_send_failed(request_id);
                     }
                 }
                 Out::Broadcast(value) => {
