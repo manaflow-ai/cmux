@@ -231,7 +231,7 @@ private nonisolated enum AppearanceSettingsSchema {
                 title: SettingsText.keyed("settings.focusRing.showWhenSinglePane", "Show With One Pane"),
                 kind: .toggle, default: .bool(FocusRingSettings().showsForSinglePane)
             ),
-        ] + statusIndicator
+        ]
     }
 
     private static func appearancePoints(_ range: ClosedRange<CGFloat>, step: Double, placeholder: Double? = nil) -> SettingNumber {
