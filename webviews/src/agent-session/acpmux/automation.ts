@@ -121,6 +121,37 @@ export async function answerPermission(
   return { answered: permission.permissionId, optionId: option.id };
 }
 
+/// Switches the session's model as the composer's model picker does (chat.model), and its
+/// effort (chat.effort on the session's effort option) when `effort` is given.
+export async function setModel(host: AutomationHost, model: string, effort?: string) {
+  const snapshot = host.snapshot();
+  const offered = snapshot.catalog.find((harness) => harness.id === snapshot.summary?.harness)?.models ?? [];
+  if (!offered.some((entry) => entry.id === model)) {
+    return { error: `model ${JSON.stringify(model)} is not offered`, models: offered.map((entry) => entry.id) };
+  }
+  await host.call("chat.model", { modelId: model });
+  if (effort) {
+    const option = snapshot.summary?.configOptions?.find(
+      (candidate) =>
+        candidate.category === "thought_level" || candidate.id === "effort" || candidate.id === "reasoning_effort",
+    );
+    if (!option) return { model, error: "the session offers no effort option" };
+    await host.call("chat.effort", { configId: option.id, value: effort });
+  }
+  return { model, effort: effort ?? null };
+}
+
+/// The models the session's harness offers, with the current one.
+export function models(host: AutomationHost) {
+  const snapshot = host.snapshot();
+  const offered = snapshot.catalog.find((harness) => harness.id === snapshot.summary?.harness)?.models ?? [];
+  return {
+    harness: snapshot.summary?.harness ?? null,
+    current: snapshot.summary?.model ?? null,
+    models: offered.map((entry) => ({ id: entry.id, name: entry.name ?? null })),
+  };
+}
+
 /// Opens the changes view of the latest turn that edited files, as its "View changes" does.
 export function openChanges(host: AutomationHost) {
   const rows = host.snapshot().rows;
