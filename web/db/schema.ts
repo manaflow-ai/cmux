@@ -1756,6 +1756,9 @@ export const vaultUploadTombstones = pgTable(
     userId: text("user_id").notNull(),
     objectKey: text("object_key").notNull(),
     uploadObjectKey: text("upload_object_key").notNull(),
+    // Bytes the superseded upload URL may still have written. They stay
+    // charged to the user's quota until the staged object is deleted.
+    compressedSizeBytes: bigint("compressed_size_bytes", { mode: "number" }).notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },

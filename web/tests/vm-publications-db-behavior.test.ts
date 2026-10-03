@@ -1156,6 +1156,77 @@ describe("Cloud VM publication persistence", () => {
   );
 
   dbTest(
+    "binds a custom team publication audience to the VM's owning team",
+    async () => {
+      const repo = requiredRepository();
+      await insertVm("creator", "custom-team-vm", "team-a");
+      await insertVm("creator", "custom-personal-vm");
+      const shared = {
+        ownerUserId: "member-1",
+        billingTeamId: "team-a",
+        teamIds: ["team-a", "team-b"],
+        provider: "freestyle" as const,
+        providerVmId: "custom-team-vm",
+        port: 3_000,
+        accessMode: "team" as const,
+        now: NOW,
+      };
+
+      // A member of both teams cannot hand team-a's VM to team-b, either
+      // while registering a new custom zone or under an existing one.
+      await expectRepositoryError(
+        runRepository(repo.reservePublicationWithNewDomain({
+          ...shared,
+          teamId: "team-b",
+          domainHostname: "apps.example.test",
+          hostname: "apps.example.test",
+          kind: "custom",
+        })),
+        { _tag: "PublicationConflictError", reason: "invalid_access_policy" },
+      );
+      const owned = await runRepository(repo.reservePublicationWithNewDomain({
+        ...shared,
+        teamId: "team-a",
+        domainHostname: "team.example.test",
+        hostname: "team.example.test",
+        kind: "custom",
+      }));
+      expect(owned.publication.teamId).toBe("team-a");
+      await expectRepositoryError(
+        runRepository(repo.reservePublication({
+          ...shared,
+          teamId: "team-b",
+          domainId: owned.domain!.id,
+          hostname: "other.team.example.test",
+        })),
+        { _tag: "PublicationConflictError", reason: "invalid_access_policy" },
+      );
+      const sibling = await runRepository(repo.reservePublication({
+        ...shared,
+        teamId: "team-a",
+        domainId: owned.domain!.id,
+        hostname: "sibling.team.example.test",
+      }));
+      expect(sibling.publication.teamId).toBe("team-a");
+
+      // A personal VM has no owning team to share with.
+      await expectRepositoryError(
+        runRepository(repo.reservePublicationWithNewDomain({
+          ...shared,
+          ownerUserId: "creator",
+          billingTeamId: null,
+          providerVmId: "custom-personal-vm",
+          teamId: "team-b",
+          domainHostname: "personal.example.test",
+          hostname: "personal.example.test",
+          kind: "custom",
+        })),
+        { _tag: "PublicationConflictError", reason: "invalid_access_policy" },
+      );
+    },
+  );
+
+  dbTest(
     "lets a delete resume a publication left disabling by a failed sweep",
     async () => {
       const repo = requiredRepository();

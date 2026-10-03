@@ -577,6 +577,20 @@ function normalizedTeamId(
 }
 
 /**
+ * A team publication admits the members of the team that owns the VM, and
+ * no other team. Every reservation path checks the locked VM row, because the
+ * requested audience team is validated only against the caller's memberships.
+ * A personal VM has no owning team, so it cannot take a team audience.
+ */
+export function publicationAudienceFitsVm(
+  accessMode: CloudVmPublicationAccessMode,
+  teamId: string | null | undefined,
+  vm: { readonly billingTeamId: string | null },
+): boolean {
+  return accessMode !== "team" || (!!vm.billingTeamId && teamId === vm.billingTeamId);
+}
+
+/**
  * A team-billed VM is publishable by any current member of that team, and a
  * creator who has since left the team may not publish it. This mirrors the
  * `billingTeamId` guard every other VM route applies before `vmAccountScopeWhere`.
@@ -1120,6 +1134,9 @@ export function makeCloudVmPublicationRepository(getDb: typeof cloudDb): CloudVm
               .for("update")
               .limit(1);
             if (!vm) throw new PublicationNotFoundError({ resource: "vm" });
+            if (!publicationAudienceFitsVm(input.accessMode, teamId, vm)) {
+              throw new PublicationConflictError({ reason: "invalid_access_policy" });
+            }
             const [guard] = await tx
               .select({
                 teardownStartedAt: cloudVmPublicationVmGuards.teardownStartedAt,
@@ -1222,6 +1239,9 @@ export function makeCloudVmPublicationRepository(getDb: typeof cloudDb): CloudVm
               .for("update")
               .limit(1);
             if (!vm) throw new PublicationNotFoundError({ resource: "vm" });
+            if (!publicationAudienceFitsVm(input.accessMode, teamId, vm)) {
+              throw new PublicationConflictError({ reason: "invalid_access_policy" });
+            }
             const [guard] = await tx
               .select({
                 teardownStartedAt: cloudVmPublicationVmGuards.teardownStartedAt,
