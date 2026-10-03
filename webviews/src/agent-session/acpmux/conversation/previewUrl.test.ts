@@ -37,6 +37,9 @@ describe("a turn's local web page", () => {
   test("reads through a dev server's colour codes and a sentence's closing dot", () => {
     expect(latestLocalUrl(["  Local:   http://localhost:\x1b[1m5173\x1b[22m/"])).toBe("http://localhost:5173/");
     expect(latestLocalUrl(["It runs at http://localhost."])).toBe("http://localhost/");
+    expect(latestLocalUrl(["\x1b]8;;http://localhost:5173/\x07http://localhost:5173/\x1b]8;;\x07"])).toBe(
+      "http://localhost:5173/",
+    );
     expect(latestLocalUrl(["http://localhost:/x"])).toBeUndefined();
   });
 
