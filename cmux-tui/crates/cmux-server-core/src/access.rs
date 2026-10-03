@@ -7,6 +7,13 @@
 //! refuses to start and reports the path; it never repairs it silently,
 //! because a wrong owner on a shared directory (`/tmp`, `%ProgramData%`)
 //! means someone else created it first.
+//!
+//! One rule for modes (decision SV-R4): an existing directory is never
+//! changed. A policy path is refused when it is wider than its mode;
+//! narrower is accepted. 0700 is required only on the folders the server
+//! creates for secrets and state (the state directory, the socket
+//! directories); a store root holds only signed public packages and needs
+//! no more than "not writable by others" (0755).
 
 use crate::layout::Layout;
 use crate::platform::{HostPath, InstallMode, Platform};
@@ -123,8 +130,15 @@ pub fn access_policy(layout: &Layout) -> Vec<PathAccess> {
             // The LaunchDaemon runs as the account in its `UserName`.
             posix(state, user, None, 0o700),
         ],
-        (Platform::Linux | Platform::MacOs, InstallMode::User) => {
+        (Platform::Linux, InstallMode::User) => {
             vec![posix(root, user, None, 0o700), posix(state, user, None, 0o700)]
+        }
+        // The root is the shared `~/Library/Application Support/cmux`, which
+        // the app may have created 0755 before the server existed; requiring
+        // 0700 there would refuse every app-made install. Only the server's
+        // own `server/` state subfolder must be 0700 (decision SV-R4).
+        (Platform::MacOs, InstallMode::User) => {
+            vec![posix(root, user, None, 0o755), posix(state, user, None, 0o700)]
         }
         (Platform::Windows, InstallMode::System) => vec![
             windows(
