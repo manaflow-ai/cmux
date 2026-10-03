@@ -11,7 +11,7 @@ import {
   resolveEffectivePolicy,
   stricter,
   type PolicyRule
-} from "../src/core/policy.ts"
+} from "../src/policy.ts"
 
 describe("defaults from the spec", () => {
   test("HTTP methods map to op classes", () => {
@@ -38,8 +38,10 @@ describe("defaults from the spec", () => {
   test("op class to action and grant", () => {
     expect(defaultActionFor("read")).toBe("allow")
     expect(defaultActionFor("mutate-own")).toBe("allow")
+    expect(defaultActionFor("mutate-shared")).toBe("ask")
     expect(defaultActionFor("send-external")).toBe("ask")
     expect(defaultActionFor("execute")).toBe("ask")
+    expect(defaultActionFor("destructive")).toBe("block")
     expect(defaultActionFor("money")).toBe("block")
     expect(grantFor("allow")).toEqual({ granted: true, approval: "none" })
     expect(grantFor("ask")).toEqual({ granted: true, approval: "per_call" })

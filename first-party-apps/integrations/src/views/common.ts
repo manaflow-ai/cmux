@@ -1,7 +1,7 @@
 // Pieces every screen shares: the header, the notice line, status badges,
 // connection rows, the policy control, error states and the credit line.
 
-import type { ToolAction } from "../core/types.ts"
+import type { ToolAction } from "@cmux/integrations-core"
 import { t } from "../l10n.ts"
 import { displayName, needsAttention, statusLabel, statusTone, subtitle, type Connection } from "../model/connections.ts"
 import { providerInfo } from "../model/providers.ts"

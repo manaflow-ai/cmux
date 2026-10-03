@@ -36,6 +36,20 @@ import Testing
         #expect(!model.computerUse.permissions.screenRecording)
     }
 
+    /// A grant already queued when the step stops is dropped, not applied
+    /// after the step is gone.
+    @Test func aGrantQueuedBeforeStopIsNotApplied() async {
+        let source = MockComputerUsePermissionSource()
+        let model = ComputerUseStepModel(source: source)
+        model.start()
+        source.current.screenRecording = true
+        let following = model.task
+        model.stop()
+        // The cancelled loop runs to its end, so whatever it would apply has been.
+        await following?.value
+        #expect(model.permissions == .none)
+    }
+
     @Test func allowOpensTheListAndTheTileGoesWhenTheGrantLands() async {
         let source = MockComputerUsePermissionSource()
         let services = MockOnboardingServices()

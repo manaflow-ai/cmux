@@ -4215,6 +4215,28 @@
       "palette" : "offered"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "browser link-hints",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "id" : "browserLinkHints",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "browser link-hints-split",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "id" : "browserLinkHintsNewSplit",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "browser split-right",
       "context_menu" : "offered",
@@ -5632,83 +5654,6 @@
       ],
       "id" : "agentPane.searchChats",
       "mcp" : "liveInput",
-      "palette" : "offered"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "action agent-pane-permission-allow-once",
-      "context_menu" : "guiOnly",
-      "context_menus" : [
-
-      ],
-      "id" : "agentPane.permission.allowOnce",
-      "mcp" : "guiOnly",
-      "palette" : "offered"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "action agent-pane-permission-allow-chat",
-      "context_menu" : "guiOnly",
-      "context_menus" : [
-
-      ],
-      "id" : "agentPane.permission.allowChat",
-      "mcp" : "guiOnly",
-      "palette" : "offered"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "action agent-pane-permission-deny",
-      "context_menu" : "guiOnly",
-      "context_menus" : [
-
-      ],
-      "id" : "agentPane.permission.deny",
-      "mcp" : "guiOnly",
-      "palette" : "offered"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "action agent-pane-permission-expand",
-      "context_menu" : "guiOnly",
-      "context_menus" : [
-
-      ],
-      "id" : "agentPane.permission.expand",
-      "mcp" : "guiOnly",
-      "palette" : "offered"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "action agent-pane-permission-retry",
-      "context_menu" : "guiOnly",
-      "context_menus" : [
-
-      ],
-      "id" : "agentPane.permission.retry",
-      "mcp" : "guiOnly",
-      "palette" : "offered"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "action agent-pane-permission-revoke",
-      "context_menu" : "guiOnly",
-      "context_menus" : [
-
-      ],
-      "id" : "agentPane.permission.revoke",
-      "mcp" : "guiOnly",
-      "palette" : "offered"
-    },
-    {
-      "cli" : "guiOnly",
-      "cli_name" : "action agent-pane-permission-refresh",
-      "context_menu" : "guiOnly",
-      "context_menus" : [
-
-      ],
-      "id" : "agentPane.permission.refresh",
-      "mcp" : "guiOnly",
       "palette" : "offered"
     },
     {

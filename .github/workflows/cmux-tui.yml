@@ -82,7 +82,7 @@ jobs:
   msrv-check:
     name: Rust MSRV (1.91)
     needs: validate-inputs
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -165,7 +165,7 @@ jobs:
           - os: macos
             runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
           - os: linux
-            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -197,9 +197,30 @@ jobs:
       # verify-cmux-tui-hosted.sh dispatches on the branch under test, so a rerun on
       # the same branch builds incrementally; branch caches never reach main's scope.
       - name: Cache cargo build
+        id: cargo-cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: cmux-tui -> target
+          # One Linux key lets lint and test reuse each other's compiled crates.
+          shared-key: cmux-tui-${{ matrix.os }}
+
+      - name: Report cargo cache hit rate
+        if: always()
+        env:
+          CACHE_HIT: ${{ steps.cargo-cache.outputs.cache-hit }}
+          CACHE_SCOPE: ${{ matrix.os }}
+        run: |
+          hit_rate=0
+          if [[ "$CACHE_HIT" == "true" ]]; then
+            hit_rate=100
+          fi
+          {
+            echo "### Rust compile cache"
+            echo
+            echo "- scope: \`$CACHE_SCOPE\`"
+            echo "- exact cache hit: \`$CACHE_HIT\`"
+            echo "- hit rate: \`${hit_rate}%\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: cargo fmt
         id: rustfmt-check
@@ -231,7 +252,7 @@ jobs:
     name: valgrind-leak-check (startup)
     needs: validate-inputs
     if: inputs.mode == 'full'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     # Full behavior stays in the normal macOS and Linux suites. Valgrind owns
     # the bounded startup parsers and terminal replay state only.
     timeout-minutes: 40
@@ -446,7 +467,7 @@ jobs:
           - os: macos
             runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
           - os: linux
-            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -488,9 +509,29 @@ jobs:
       # verify-cmux-tui-hosted.sh dispatches on the branch under test, so a rerun on
       # the same branch builds incrementally; branch caches never reach main's scope.
       - name: Cache cargo build
+        id: cargo-cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: cmux-tui -> target
+          shared-key: cmux-tui-${{ matrix.os }}
+
+      - name: Report cargo cache hit rate
+        if: always()
+        env:
+          CACHE_HIT: ${{ steps.cargo-cache.outputs.cache-hit }}
+          CACHE_SCOPE: ${{ matrix.os }}
+        run: |
+          hit_rate=0
+          if [[ "$CACHE_HIT" == "true" ]]; then
+            hit_rate=100
+          fi
+          {
+            echo "### Rust compile cache"
+            echo
+            echo "- scope: \`$CACHE_SCOPE\`"
+            echo "- exact cache hit: \`$CACHE_HIT\`"
+            echo "- hit rate: \`${hit_rate}%\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Test isolated TUI test-runner policy
         run: python3 .github/scripts/test_run_cmux_tui_core_tests_isolated.py
@@ -552,7 +593,7 @@ jobs:
         run: |
           if [[ "$MODE" == "full" ]]; then
             # Process-heavy CLI tests can exceed the runner's child-process
-            # limit even on the 4-core and 6-core matrix runners.
+            # limit on the smaller macOS and Windows matrix runners.
             cargo test --workspace --exclude cmux-tui-core --locked -- --test-threads=2
             mkdir -p target
             cargo test -p cmux-tui-core --locked --no-run --message-format=json \
@@ -694,7 +735,7 @@ jobs:
           - os: macos
             runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
           - os: linux
-            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -780,7 +821,7 @@ jobs:
   bindings-e2e:
     needs: validate-inputs
     if: inputs.mode == 'full'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -888,7 +929,7 @@ jobs:
       # matrix plan-build made on attempt 1 is reused by that re-run).
       macos_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
       macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
-      linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+      linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
       windows_runner: windows-latest
       checkout_ref: ${{ inputs.commit }}
 
