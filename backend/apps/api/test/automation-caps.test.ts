@@ -109,13 +109,116 @@ describe("slice 4 capabilities (workerd)", { timeout: 60_000 }, () => {
     }
   })
 
-  it("refuses egress past the per-minute limit without recording it", async () => {
+  it("admits egress up to the per-minute limit, refuses at the cap, and counts only answered requests", async () => {
     const s = await setup("caps-rate")
     await inDO(testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(s.team)), async (m) => {
-      for (let i = 0; i < EGRESS_PER_MINUTE; i++) expect((await m.egress(s.team, `egress:k${i}`, Date.now())).limited).toBe(false)
-      expect(await m.egress(s.team, "egress:over", Date.now())).toMatchObject({ limited: true })
+      for (let i = 0; i < EGRESS_PER_MINUTE; i++) expect((await m.egressAdmit(s.team)).limited).toBe(false)
+      expect(await m.egressAdmit(s.team)).toMatchObject({ limited: true })
+      // Admission counts nothing; no ledger row per request.
+      expect(Number(m.ctx.storage.sql.exec("SELECT COUNT(*) AS n FROM usage_ledger WHERE meter = 'egress.requests'").toArray()[0].n)).toBe(0)
+      await m.egressDone(s.team)
     })
-    expect(await quantity(s.t, "egress.requests")).toBe(EGRESS_PER_MINUTE)
+    expect(await quantity(s.t, "egress.requests")).toBe(1)
+    expect((await op(s.t, "usage.cap.set", { cap_usd: 0 })).ok).toBe(true)
+    await inDO(testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(s.team)), async (m) => {
+      expect(await m.egressAdmit(s.team)).toMatchObject({ allowed: false })
+    })
+  })
+
+  it("never reaches cmux's own domains, strips edge headers, and refuses raw sockets", async () => {
+    const seen: Array<{ url: string; headers: Array<string> }> = []
+    egressTest.upstream = async (url, init) => {
+      seen.push({ url, headers: [...new Headers(init.headers).keys()].sort() })
+      return new Response("ok")
+    }
+    try {
+      const s = await setup("caps-zones")
+      const bad = await op(s.t, "automation.create", { name: "own", triggers: [{ type: "manual" }], body: { type: "code", ref: { commit: sha(3), path: "automations/own" }, egress: ["*.cmux.dev"] } })
+      expect(bad).toMatchObject({ ok: false })
+      expect(hostAllowed("api.cmux.dev", ["api.cmux.dev"])).toBe(false)
+      expect(hostAllowed("x.workers.dev", ["*.workers.dev"])).toBe(false)
+      testBundles.set(`${sha(4)}:automations/hdr`, `
+        import { WorkflowEntrypoint } from "cloudflare:workers";
+        import { connect } from "cloudflare:sockets";
+        export default class extends WorkflowEntrypoint {
+          async run(event, step) {
+            return await step.do("hdr", async () => {
+              await fetch("https://api.example.com/", { headers: { "x-ok": "1", "cf-ray": "x", "x-forwarded-host": "evil", "forwarded": "for=1", "true-client-ip": "1.2.3.4" } });
+              // The socket can only reach the gateway, which closes it: no byte ever comes back.
+              let sock = "refused";
+              try {
+                const c = connect({ hostname: "api.example.com", port: 443 });
+                const w = c.writable.getWriter();
+                await w.write(new TextEncoder().encode("GET / HTTP/1.0\\r\\n\\r\\n")).catch(() => {});
+                const got = await c.readable.getReader().read();
+                sock = got.done ? "refused" : "data";
+              } catch (e) { sock = "refused"; }
+              if (sock !== "refused") throw new Error("raw socket returned data");
+              return sock;
+            });
+          }
+        }`)
+      const id = await s.create("hdr", { type: "code", ref: { commit: sha(4), path: "automations/hdr" }, egress: ["api.example.com"] })
+      const run = await s.runToEnd(id)
+      expect(run, JSON.stringify(run)).toMatchObject({ state: "succeeded" })
+      expect(seen).toHaveLength(1)
+      expect(seen[0]!.headers).toEqual(["x-ok"])
+    } finally {
+      egressTest.upstream = undefined
+    }
+  })
+
+  it("bounds runs that automations start: depth, agent_prompt, and no continue reset", async () => {
+    const s = await setup("caps-chain")
+    // A steps automation that runs itself through an op step: depth 1, 2, 3, then refused.
+    const self = await s.create("self", { type: "steps", steps: [{ type: "note", text: "x" }] })
+    const updated = await op(s.t, "automation.update", { automation: self, body: { type: "steps", steps: [{ type: "op", op: "automation.run", params: { automation: self } }] } })
+    expect(updated.ok, JSON.stringify(updated)).toBe(true)
+    const first = await s.runToEnd(self)
+    expect(first.state).toBe("succeeded")
+    const scheduler = testEnv.SCHEDULER_DO.get(testEnv.SCHEDULER_DO.idFromName(s.team))
+    let depths: Array<number> = []
+    await inDO(scheduler, async (d) => {
+      const runs = Object.values(d.boundEngine.currentState.runs) as Array<{ trigger: { type: string; depth?: number } }>
+      depths = runs.filter((r) => r.trigger.type === "automation").map((r) => r.trigger.depth!).sort()
+    })
+    expect(depths).toEqual([1])
+    // Direct reducer path for deeper levels: an automation principal of a depth-3 run is refused.
+    await inDO(scheduler, async (d) => {
+      const state = d.boundEngine.currentState
+      const child = Object.values(state.runs).find((r: any) => r.trigger.type === "automation") as { id: string }
+      state.runs[child.id] = { ...state.runs[child.id], state: "running", trigger: { ...state.runs[child.id].trigger, depth: 3 } }
+      const principal = { kind: "agent", identity: `automation:${self}`, agent: self, run: child.id, team: s.team, grant_classes: ["read", "execute"] }
+      const r = await d.submit(s.team, principal, { t: "op", op: "automation.run", params: { automation: self }, idempotency_key: "deep", origin: "script" })
+      expect(r.frames.find((f: { t: string }) => f.t === "reject")).toMatchObject({ code: "automation.depth" })
+    })
+    const agent = await s.create("agent", { type: "agent_prompt", instructions: "x", workspace: { mode: "fresh_worktree" }, conversation: "fresh" })
+    const caller = await s.create("caller", { type: "steps", steps: [{ type: "op", op: "automation.run", params: { automation: agent } }] })
+    expect(await s.runToEnd(caller)).toMatchObject({ state: "failed", error: { code: "auth.forbidden" } })
+  })
+
+  it("a keyed mutation inside a tenant step is refused; outside a step it is a durable step that runs once", async () => {
+    const s = await setup("caps-journal")
+    const target = await s.create("target", steps)
+    testBundles.set(`${sha(5)}:automations/j`, `
+      import { WorkflowEntrypoint } from "cloudflare:workers";
+      export default class extends WorkflowEntrypoint {
+        async run(event, step) {
+          const cmux = this.env.cmux;
+          const inside = await step.do("inside", async () => {
+            try { await cmux.op("automation.run", { automation: ${JSON.stringify(target)} }, { idempotency_key: "in" }); return "ran"; } catch (e) { return String(e.message).split(":")[0]; }
+          });
+          if (inside !== "capability.in_step") throw new Error("inside: " + inside);
+          const a = await cmux.op("automation.run", { automation: ${JSON.stringify(target)} }, { idempotency_key: "out" });
+          await step.sleep("nap", 1);
+          const b = await cmux.op("automation.run", { automation: ${JSON.stringify(target)} }, { idempotency_key: "out" });
+          if (a.id !== b.id) throw new Error("two runs");
+          return a.id;
+        }
+      }`)
+    const caller = await s.create("j", { type: "code", ref: { commit: sha(5), path: "automations/j" } })
+    expect(await s.runToEnd(caller)).toMatchObject({ state: "succeeded" })
+    expect((await read(s.t, "automation.runs.list", { automation: target })).value.runs).toHaveLength(1)
   })
 
   it("env.cmux runs capability ops as the automation: reads, keyed mutations once, refusals", async () => {
@@ -126,17 +229,18 @@ describe("slice 4 capabilities (workerd)", { timeout: 60_000 }, () => {
       export default class extends WorkflowEntrypoint {
         async run(event, step) {
           const cmux = this.env.cmux;
+          // Mutations are their own durable steps, so they are called outside step.do.
+          const a = await cmux.op("automation.run", { automation: ${JSON.stringify(target)} }, { idempotency_key: "kick" });
+          const b = await cmux.op("automation.run", { automation: ${JSON.stringify(target)} }, { idempotency_key: "kick" });
           return await step.do("calls", async () => {
             const list = await cmux.op("automation.list", {});
-            const a = await cmux.op("automation.run", { automation: ${JSON.stringify(target)} }, { idempotency_key: "kick" });
-            const b = await cmux.op("automation.run", { automation: ${JSON.stringify(target)} }, { idempotency_key: "kick" });
             const errs = [];
-            for (const f of [() => cmux.op("automation.run", { automation: ${JSON.stringify(target)} }), () => cmux.op("usage.cap.set", { cap_usd: 0 }, { idempotency_key: "cap" }), () => cmux.op("automation.get", { automation: 5 })]) {
+            for (const f of [() => cmux.op("automation.run", { automation: ${JSON.stringify(target)} }), () => cmux.op("usage.cap.set", { cap_usd: 0 }), () => cmux.op("automation.get", { automation: 5 })]) {
               try { await f(); errs.push("none"); } catch (e) { errs.push(String(e.message).split(":")[0]); }
             }
             await cmux.log("info", "hello", { n: 1 });
             const out = { names: list.automations.map((x) => x.name).sort(), same: a.id === b.id, errs };
-            const want = { names: ["caller", "target"], same: true, errs: ["validation.invalid", "capability.denied", "validation.invalid"] };
+            const want = { names: ["caller", "target"], same: true, errs: ["validation.invalid", "validation.invalid", "validation.invalid"] };
             if (JSON.stringify(out) !== JSON.stringify(want)) throw new Error(JSON.stringify(out));
             return out;
           });

@@ -139,13 +139,15 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
   }
 
   /**
-   * The egress gateway's call per outbound request: the minute's limit first (a refused
-   * request records nothing), then one `egress.requests` record under the caller's unique
-   * key, then the cap. The gateway calls this once per request, so the key never repeats.
+   * The egress gateway's admission per outbound request: refused at the hard cap (checked
+   * first, nothing counted), then the minute's limit. Counting happens in `egressDone` after
+   * the upstream answered (review P2: no ledger row per request, no count for a refused or
+   * failed request).
    */
-  async egress(entity: string, key: string, observedAt: number): Promise<EgressAdmission> {
+  async egressAdmit(entity: string): Promise<EgressAdmission> {
     this.bind(entity)
     const now = Date.now()
+    if (this.summaryFor(entity, now).stopped !== null) return { limited: false, allowed: false }
     const minute = Math.floor(now / 60_000)
     const sql = this.ctx.storage.sql
     const limited = this.ctx.storage.transactionSync(() => {
@@ -155,9 +157,16 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
       sql.exec(`INSERT INTO egress_minute (id, minute, n) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET minute = excluded.minute, n = excluded.n`, minute, n + 1)
       return false
     })
-    if (limited) return { limited: true, allowed: true }
-    const r = await this.record(entity, [{ key, meter: "egress.requests", quantity: 1, source: "egress", observed_at: observedAt }])
-    return { limited: false, allowed: r.allowed && r.invalid === 0 }
+    return { limited, allowed: true }
+  }
+
+  /** One answered egress request: added to the month's `egress.requests` counter (no ledger row; price 0). */
+  async egressDone(entity: string): Promise<void> {
+    this.bind(entity)
+    this.ctx.storage.sql.exec(
+      `INSERT INTO usage_month (month, meter, quantity, usd_micros) VALUES (?, 'egress.requests', 1, ?) ON CONFLICT (month, meter) DO UPDATE SET quantity = quantity + 1, usd_micros = usd_micros + excluded.usd_micros`,
+      utcMonth(Date.now()), recordMicros("egress.requests", 1)
+    )
   }
 
   /** The cap check alone (a step boundary with nothing to record). */

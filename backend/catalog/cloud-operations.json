@@ -3379,6 +3379,20 @@
                   "kind": "primitive",
                   "name": "string"
                 }
+              },
+              "parent_run": {
+                "required": false,
+                "type": {
+                  "kind": "ref",
+                  "name": "RunId"
+                }
+              },
+              "depth": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
               }
             }
           }
@@ -9700,6 +9714,12 @@
                   },
                   "delivery_id": {
                     "type": "string"
+                  },
+                  "parent_run": {
+                    "$ref": "#/$defs/RunId"
+                  },
+                  "depth": {
+                    "type": "integer"
                   }
                 },
                 "required": [
@@ -9994,6 +10014,12 @@
                   },
                   "delivery_id": {
                     "type": "string"
+                  },
+                  "parent_run": {
+                    "$ref": "#/$defs/RunId"
+                  },
+                  "depth": {
+                    "type": "integer"
                   }
                 },
                 "required": [
