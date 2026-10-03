@@ -336,7 +336,7 @@ fn parse_command(
     if command_args[0] == "help" {
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
-            Some(scope) if matches!(scope.as_str(), "start" | "shorthands") => {
+            Some(scope) if matches!(scope.as_str(), "start" | "shorthands" | "docs" | "run") => {
                 Ok(ParsedCommand::Help(Some(scope.clone())))
             }
             Some(scope) if surface.accepts(shorthand::scope(scope)) => {
@@ -344,6 +344,12 @@ fn parse_command(
             }
             Some(scope) => Err(unknown_scope(scope, surface)),
         };
+    }
+    if let Some(command) = docs::command(&command_args, global.clone())? {
+        return Ok(command);
+    }
+    if let Some(command) = code_mode::command(&command_args, global.clone())? {
+        return Ok(command);
     }
     if has_help_option(&command_args) {
         let words = command_args
@@ -630,8 +636,12 @@ fn scope_help_for(
     scope: &str,
     catalog: &'static crate::localization::Catalog,
 ) -> Cow<'static, str> {
+    if let Some(text) = code_mode::scope_help(scope) {
+        return text;
+    }
     match scope {
         "shorthands" => Cow::Owned(shorthand::help(&catalog.local_server)),
+        "docs" => Cow::Borrowed(docs::help()),
         "server" => Cow::Borrowed(catalog.local_server.help),
         "server start" => Cow::Borrowed(catalog.local_server.start_help),
         "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),
