@@ -235,8 +235,9 @@ extension CmuxTuiSurfaceProvider {
         }
     }
 
-    func reprojectRestoredBrowserPanes(generation: UInt64) {
-        for resource in catalog.snapshot.resources(on: machine) where resource.kind != .terminal {
+    func reprojectRestoredBrowserPanes(generation: UInt64, resourceIDs: Set<SurfaceResourceID>? = nil) {
+        for resource in catalog.snapshot.resources(on: machine) where
+            resource.kind != .terminal && (resourceIDs == nil || resourceIDs!.contains(resource.id)) {
             for projection in catalog.projections(of: resource.id) where !materializedPanels.contains(projection.panelID) {
                 guard let browser = SurfacePaneFactory.browserPanel(panelID: projection.panelID, in: projection.workspaceID),
                       isCurrentLifecycleGeneration(generation), catalog.canRestoreProjection(projection) else { continue }

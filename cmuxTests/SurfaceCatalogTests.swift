@@ -325,7 +325,18 @@ struct SurfaceCatalogTests {
         func projectionDidEnd(_ projection: SurfaceProjection) { ended.append(projection) }
 
         var projectionsRestoredCalls = 0
-        func projectionsRestored() { projectionsRestoredCalls += 1 }
+        private var projectionsRestoredWaiter: CheckedContinuation<Void, Never>?
+        func projectionsRestored() {
+            projectionsRestoredCalls += 1
+            projectionsRestoredWaiter?.resume()
+            projectionsRestoredWaiter = nil
+        }
+
+        func waitForProjectionsRestored() async {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                projectionsRestoredWaiter = continuation
+            }
+        }
 
         @discardableResult
         func discardMaterialization(_ projection: SurfaceProjection) -> Bool {
@@ -570,9 +581,11 @@ struct SurfaceCatalogTests {
 
         // The provider's first graph can arrive after restore. Resolving the
         // pending record must wake it just like the already-published path.
+        let restoredWaiter = Task { await provider.waitForProjectionsRestored() }
+        await Task.yield()
         catalog.replaceResources([published, unpublished], on: machine, from: provider)
         #expect(catalog.projections(of: unpublished.id).map(\.panelID) == [latePanelID])
-        await Task.yield()
+        await restoredWaiter.value
         #expect(provider.projectionsRestoredCalls == 2)
     }
 

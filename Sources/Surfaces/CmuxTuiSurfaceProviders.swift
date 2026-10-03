@@ -1776,10 +1776,15 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
     func projectionsRestored() { reprojectRestoredPanes(generation: lifecycleGeneration) }
-    private func reprojectRestoredPanes(generation: UInt64) {
+    func projectionsRestored(resources: Set<SurfaceResourceID>) {
+        reprojectRestoredPanes(generation: lifecycleGeneration, resourceIDs: resources)
+    }
+    private func reprojectRestoredPanes(generation: UInt64, resourceIDs: Set<SurfaceResourceID>? = nil) {
         guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { return }
-        reprojectRestoredBrowserPanes(generation: generation)
-        let terminals = catalog.authoritativeSnapshot.resources(on: machine).filter { $0.kind == .terminal }
+        reprojectRestoredBrowserPanes(generation: generation, resourceIDs: resourceIDs)
+        let terminals = catalog.authoritativeSnapshot.resources(on: machine).filter {
+            $0.kind == .terminal && (resourceIDs == nil || resourceIDs!.contains($0.id))
+        }
         for terminal in terminals {
             for projection in catalog.projections(of: terminal.id) where !materializedPanels.contains(projection.panelID) {
                 guard cloudState.map({ catalog.cloudWorkspaceProjectionCoordinator.retainsProjection(projection, in: $0, catalog: catalog) }) != false,

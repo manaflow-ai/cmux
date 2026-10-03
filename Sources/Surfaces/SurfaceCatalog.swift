@@ -280,7 +280,7 @@ final class SurfaceCatalog {
             resourceIDsByMachine[machine, default: []].insert(resource.id)
         }
         if let info { machines[machine] = machineInfoPreservingCanonicalCloudState(info) }
-        resolvePendingRestoredProjections(on: machine)
+        let restoredProjectionIDs = resolvePendingRestoredProjections(on: machine)
         syncCloudTerminalTabIcons(on: machine)
         updateCloudDirectoryMetadata(on: machine)
         reconcileDeviceNames(on: machine)
@@ -293,6 +293,7 @@ final class SurfaceCatalog {
             )
         }
         notifyChange(for: machine)
+        if !restoredProjectionIDs.isEmpty { providers[machine]?.projectionsRestored(resources: restoredProjectionIDs) }
         return true
     }
 
@@ -302,9 +303,10 @@ final class SurfaceCatalog {
         guard accepts(writeFor: resource.machine, from: source) else { return }
         resources[resource.id] = resource
         resourceIDsByMachine[resource.machine, default: []].insert(resource.id)
-        resolvePendingRestoredProjections(on: resource.machine)
+        let restoredProjectionIDs = resolvePendingRestoredProjections(on: resource.machine)
         syncCloudTerminalTabIcons(on: resource.machine, affected: [resource.id])
         notifyChange(for: resource.machine)
+        if !restoredProjectionIDs.isEmpty { providers[resource.machine]?.projectionsRestored(resources: restoredProjectionIDs) }
     }
 
     /// Remove a resource, optionally validating the provider that requested the mutation.
@@ -467,10 +469,11 @@ final class SurfaceCatalog {
         }
         machines[state.machine] = machineInfoPreservingCanonicalCloudState(info, state: state)
         cloudWorkspaceCreationCoordinator.reconcile(state)
-        resolvePendingRestoredProjections(on: state.machine)
+        let restoredProjectionIDs = resolvePendingRestoredProjections(on: state.machine)
         syncCloudTerminalTabIcons(on: state.machine, affected: changed)
         updateCloudDirectoryMetadata(on: state.machine, affectedResourceIDs: freshnessChanged ? nil : affectedResourceIDs)
         notifyChange(for: state.machine)
+        if !restoredProjectionIDs.isEmpty { providers[state.machine]?.projectionsRestored(resources: restoredProjectionIDs) }
         return changed
     }
 
@@ -510,10 +513,11 @@ final class SurfaceCatalog {
         }
         machines[state.machine] = machineInfoPreservingCanonicalCloudState(info, state: state)
         cloudWorkspaceCreationCoordinator.reconcile(state)
-        resolvePendingRestoredProjections(on: state.machine)
+        let restoredProjectionIDs = resolvePendingRestoredProjections(on: state.machine)
         syncCloudTerminalTabIcons(on: state.machine, affected: changed)
         updateCloudDirectoryMetadata(on: state.machine)
         notifyChange(for: state.machine)
+        if !restoredProjectionIDs.isEmpty { providers[state.machine]?.projectionsRestored(resources: restoredProjectionIDs) }
         return changed
     }
 
@@ -557,10 +561,11 @@ final class SurfaceCatalog {
         }
         rebuildResourceIndex(for: machine)
         machines[machine] = machineInfoPreservingCanonicalCloudState(info)
-        resolvePendingRestoredProjections(on: machine)
+        let restoredProjectionIDs = resolvePendingRestoredProjections(on: machine)
         syncCloudTerminalTabIcons(on: machine)
         updateCloudDirectoryMetadata(on: machine)
         notifyChange(for: machine)
+        if !restoredProjectionIDs.isEmpty { providers[machine]?.projectionsRestored(resources: restoredProjectionIDs) }
     }
 
     /// Rebuilds the machine reverse index after a cloud transaction. Cloud
@@ -1389,8 +1394,13 @@ final class SurfaceCatalog {
         }
     }
 
-    private func resolvePendingRestoredProjections(on machine: SurfaceMachineID) {
+    /// Resolves staged projections for a newly published resource graph and returns only
+    /// the resource IDs that became live, so providers can rebind those panes without a
+    /// full-machine reprojection scan.
+    @discardableResult
+    private func resolvePendingRestoredProjections(on machine: SurfaceMachineID) -> Set<SurfaceResourceID> {
         var resolvedWorkspaceIDs = Set<UUID>()
+        var resolvedResourceIDs = Set<SurfaceResourceID>()
         let resolved = pendingRestoredProjections.takeResolvable(
             machine: machine,
             availableResources: Set(resources.keys),
@@ -1399,22 +1409,12 @@ final class SurfaceCatalog {
         for projection in resolved {
             recordCloudProjection(cloudPlacementCoordinator.resolvingLocalPreviewMembership(projection))
             resolvedWorkspaceIDs.insert(projection.workspaceID)
+            resolvedResourceIDs.insert(projection.resource)
         }
         for workspaceID in resolvedWorkspaceIDs {
             reconcileCloudWorkspaceBinding(localWorkspaceID: workspaceID)
         }
-        // Session restore commonly stages a Cloud browser before its provider
-        // has published the first resource graph. Once that graph resolves the
-        // pending projection, wake the provider so it rebinds the existing pane
-        // to the live port. Without this callback the projection is durable but
-        // the pane remains on the restore-time unavailable card forever.
-        if !resolved.isEmpty, providers[machine] != nil {
-            // Defer one main-actor turn so a provider can call catalog.restore
-            // while materializing without recursively re-entering this resolver.
-            Task { @MainActor [weak self] in
-                self?.providers[machine]?.projectionsRestored()
-            }
-        }
+        return resolvedResourceIDs
     }
 
     /// Observers get at most one notification per main-runloop turn: a burst of upserts
