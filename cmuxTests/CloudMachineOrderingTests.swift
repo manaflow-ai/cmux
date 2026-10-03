@@ -150,8 +150,10 @@ struct CloudMachineOrderingTests {
         let coordinator = fixture.coordinator
         let outline = try #require(coordinator.outlineView)
         outline.expandItem(try #require(fixture.section))
-        outline.expandItem(try fixture.root("a"), expandChildren: true)
-        outline.expandItem(try fixture.root("b"), expandChildren: true)
+        let a = try fixture.root("a")
+        let b = try fixture.root("b")
+        outline.expandItem(a, expandChildren: true)
+        outline.expandItem(b, expandChildren: true)
         fixture.base.container.layoutSubtreeIfNeeded()
         let source = try fixture.root("c")
         let frame = outline.rect(ofRow: outline.row(forItem: source))
@@ -159,7 +161,7 @@ struct CloudMachineOrderingTests {
         let resting = insets(outline)
         let drag = try fixture.begin("c")
         coordinator.beginMachineLift(drag.session, node: source, in: outline, pressY: frame.midY)
-        #expect(!outline.isItemExpanded(try fixture.root("a")) && !outline.isItemExpanded(try fixture.root("b")))
+        #expect(!outline.isItemExpanded(a) && !outline.isItemExpanded(b))
         // Past any glide the lift could run on its own.
         try await Task.sleep(for: .milliseconds(400))
         // A small nudge from where the hand pressed: a and b closed above c,
@@ -172,7 +174,8 @@ struct CloudMachineOrderingTests {
         #expect(abs(held - drag.info.draggingLocation.y) < 1, "the row stays under the hand: \(held) vs \(drag.info.draggingLocation.y)")
         try fixture.end(drag)
         #expect(fixture.order == ["a", "b", "c", "d"])
-        #expect(outline.isItemExpanded(try fixture.root("a")) && outline.isItemExpanded(try fixture.root("b")))
+        #expect(outline.isItemExpanded(try fixture.root("a")))
+        #expect(outline.isItemExpanded(try fixture.root("b")))
         #expect(insets(outline) == resting, "the lift gives its scroll range back: \(insets(outline)) vs \(resting)")
     }
 
