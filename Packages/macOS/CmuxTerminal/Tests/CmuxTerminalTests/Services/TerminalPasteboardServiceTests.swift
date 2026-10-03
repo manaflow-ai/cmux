@@ -7,6 +7,9 @@ import UniformTypeIdentifiers
 
 @testable import CmuxTerminal
 
+let cmuxPasteboardTestsEnabled =
+    ProcessInfo.processInfo.environment["CMUX_PASTEBOARD_TESTS"] != "0"
+
 /// A scratch pasteboard with a unique name, released when the test ends.
 private final class ScratchPasteboard {
     let pasteboard: NSPasteboard
@@ -99,7 +102,7 @@ struct TerminalShellEscapingTests {
 // could block every pool thread in such a request at once; the replies then
 // never arrive and the whole test process deadlocks.
 @MainActor
-@Suite("Pasteboard text contents")
+@Suite("Pasteboard text contents", .enabled(if: cmuxPasteboardTestsEnabled))
 struct PasteboardTextContentsTests {
     @Test func prefersUTF8PlainTextOverLossyTraditionalMacText() {
         let scratch = ScratchPasteboard()
@@ -218,7 +221,11 @@ struct PasteboardTextContentsTests {
 
 // On the main actor, not the cooperative pool: see PasteboardTextContentsTests.
 @MainActor
-@Suite("Clipboard write capture", .serialized)
+@Suite(
+    "Clipboard write capture",
+    .serialized,
+    .enabled(if: cmuxPasteboardTestsEnabled)
+)
 struct ClipboardWriteCaptureTests {
     @Test func capturesStandardWriteWithoutTouchingPasteboard() {
         let service = TerminalPasteboardService()
@@ -317,7 +324,10 @@ struct ClipboardWriteCaptureTests {
 
 // On the main actor, not the cooperative pool: see PasteboardTextContentsTests.
 @MainActor
-@Suite("Image materialization and temp-file ownership")
+@Suite(
+    "Image materialization and temp-file ownership",
+    .enabled(if: cmuxPasteboardTestsEnabled)
+)
 struct ImageMaterializationTests {
     @Test func materializesPNGIntoOwnedTemporaryFile() throws {
         let scratchDir = try makeScratchDirectory()

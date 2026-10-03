@@ -351,6 +351,9 @@ run_package_tests() {
   # symbol instead of the GhosttyKit archive.
   selected="$SELECTED_PACKAGES"
   test -f "$selected"
+  # NSPasteboard requires a GUI pasteboard server, which the headless SwiftPM
+  # lane does not provide. GUI-capable app-host runs can opt in explicitly.
+  export CMUX_PASTEBOARD_TESTS="${CMUX_PASTEBOARD_TESTS:-0}"
   echo "Testing $SELECTED_COUNT selected Swift packages."
   # SwiftPM emits an error-severity diagnostic while planning the
   # GhosttyKit binaryTarget (the xcframework's static archive is not

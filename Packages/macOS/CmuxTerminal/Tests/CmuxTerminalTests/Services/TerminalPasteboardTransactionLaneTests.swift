@@ -58,7 +58,11 @@ private func captureTransactionLanePasteboardContents(
 }
 
 @MainActor
-@Suite("Terminal pasteboard transaction lane", .serialized)
+@Suite(
+    "Terminal pasteboard transaction lane",
+    .serialized,
+    .enabled(if: cmuxPasteboardTestsEnabled)
+)
 struct TerminalPasteboardTransactionLaneTests {
     @Test("a write between two reads preserves process admission order")
     func writeBetweenReadsPreservesAdmissionOrder() async throws {
