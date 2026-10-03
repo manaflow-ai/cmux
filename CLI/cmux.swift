@@ -21357,6 +21357,12 @@ struct CMUXCLI {
                 remaining.append(arg)
                 continue
             }
+            if !pastTerminator, arg.hasPrefix("\(name)=") {
+                // Equals form (`--route=host:port`) is the same option as the
+                // split form; dropping it here silently discarded the value.
+                values.append(String(arg.dropFirst(name.count + 1)))
+                continue
+            }
             if !pastTerminator, arg == name, idx + 1 < args.count {
                 values.append(args[idx + 1])
                 skipNext = true

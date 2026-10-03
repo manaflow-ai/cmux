@@ -673,6 +673,7 @@
 		89930001AABBCCDDEEFF0001 /* CLIOmpHookBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89930001AABBCCDDEEFF0002 /* CLIOmpHookBindingTests.swift */; };
 		C11757000000000000000030 /* CLIOmpSupersededCleanupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000017 /* CLIOmpSupersededCleanupTests.swift */; };
 		C117570000000000000000A2 /* CLIPasteCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C117570000000000000000A1 /* CLIPasteCommandTests.swift */; };
+		C117570000000000000000A4 /* CLIRemotesAddRouteParsingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C117570000000000000000A3 /* CLIRemotesAddRouteParsingTests.swift */; };
 		C11757000000000000000031 /* CLIRelayQueuedHookRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000018 /* CLIRelayQueuedHookRegressionTests.swift */; };
 		C15873000000000000000001 /* CLIRemotesArgumentValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C15873000000000000000002 /* CLIRemotesArgumentValidationTests.swift */; };
 		C0F16B000000000000000001 /* CLIRemoteShellStartupPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F16B000000000000000002 /* CLIRemoteShellStartupPerformanceTests.swift */; };
@@ -5179,6 +5180,7 @@
 		89930001AABBCCDDEEFF0002 /* CLIOmpHookBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIOmpHookBindingTests.swift; sourceTree = "<group>"; };
 		C11757000000000000000017 /* CLIOmpSupersededCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIOmpSupersededCleanupTests.swift; sourceTree = "<group>"; };
 		C117570000000000000000A1 /* CLIPasteCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIPasteCommandTests.swift; sourceTree = "<group>"; };
+		C117570000000000000000A3 /* CLIRemotesAddRouteParsingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRemotesAddRouteParsingTests.swift; sourceTree = "<group>"; };
 		C11757000000000000000018 /* CLIRelayQueuedHookRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRelayQueuedHookRegressionTests.swift; sourceTree = "<group>"; };
 		C15873000000000000000002 /* CLIRemotesArgumentValidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRemotesArgumentValidationTests.swift; sourceTree = "<group>"; };
 		C0F16B000000000000000002 /* CLIRemoteShellStartupPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIRemoteShellStartupPerformanceTests.swift; sourceTree = "<group>"; };
@@ -8983,6 +8985,7 @@
 				C1175700000000000000001B /* CLITmuxCompatStoreConcurrencyTests.swift */,
 				C117570000000000000000B1 /* CLITmuxCompatBufferContentTests.swift */,
 				C117570000000000000000A1 /* CLIPasteCommandTests.swift */,
+				C117570000000000000000A3 /* CLIRemotesAddRouteParsingTests.swift */,
 				AE55A6E50000000000000006 /* CLIAgentMessageCommandTests.swift */,
 				AE55B7F6000000000000A001 /* CLISendDraftGuardTests.swift */,
 				C1175700000000000000001C /* CLIWindowHandleRoutingTests.swift */,
@@ -14051,6 +14054,7 @@
 				2C9251ADDC95C0A1551E89C2 /* CLILocalZellijLifecycleTests.swift in Sources */,
 				C11757000000000000000030 /* CLIOmpSupersededCleanupTests.swift in Sources */,
 				C117570000000000000000A2 /* CLIPasteCommandTests.swift in Sources */,
+				C117570000000000000000A4 /* CLIRemotesAddRouteParsingTests.swift in Sources */,
 				C11757000000000000000031 /* CLIRelayQueuedHookRegressionTests.swift in Sources */,
 				C15873000000000000000001 /* CLIRemotesArgumentValidationTests.swift in Sources */,
 				C11757000000000000000071 /* CLIRestoreSessionTransferTests.swift in Sources */,
