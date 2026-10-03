@@ -42,7 +42,9 @@ const encodeCursor = (h: SearchHit) => Buffer.from(JSON.stringify([h.created_at,
 const decodeCursor = (c: string): [string, string, number] | null => {
   try {
     const v = JSON.parse(Buffer.from(c, "base64url").toString("utf8")) as unknown
-    return Array.isArray(v) && v.length === 3 && typeof v[0] === "string" && typeof v[1] === "string" && typeof v[2] === "number" ? (v as [string, string, number]) : null
+    return Array.isArray(v) && v.length === 3 && typeof v[0] === "string" && !Number.isNaN(Date.parse(v[0])) && typeof v[1] === "string" && v[1].length <= 64 && Number.isSafeInteger(v[2])
+      ? (v as [string, string, number])
+      : null
   } catch {
     return null
   }
@@ -82,6 +84,9 @@ export const homeSearch = async (env: Env, principal: Principal, params: SearchP
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) return { ok: false, code: "validation.invalid", message: "invalid_limit" }
   const cursor = params.cursor ? decodeCursor(params.cursor) : undefined
   if (params.cursor && !cursor) return { ok: false, code: "validation.invalid", message: "invalid cursor" }
+  if (params.before !== undefined && (typeof params.before !== "string" || Number.isNaN(Date.parse(params.before)))) return { ok: false, code: "validation.invalid", message: "invalid before" }
+  // An install's grant must cover reads (sessions are the user).
+  if (principal.kind !== "session" && !(principal.grant_classes ?? []).includes("read")) return { ok: false, code: "auth.forbidden", message: "grant does not cover read" }
   if (!env.HYPERDRIVE_RO) return { ok: false, code: "home.not_configured", message: "search is not configured on this deployment" }
 
   const where = [
@@ -116,10 +121,12 @@ export const homeSearch = async (env: Env, principal: Principal, params: SearchP
 
   // Loaded on first search only (as in projection.ts): pg is CommonJS with node:net.
   const { default: pg } = await import("pg")
-  const client = new pg.Client({ connectionString: env.HYPERDRIVE_RO.connectionString })
-  await client.connect()
+  // Bounded: a short query cannot use the trigram index, so the server stops it after 3 s.
+  const client = new pg.Client({ connectionString: env.HYPERDRIVE_RO.connectionString, statement_timeout: 3000, query_timeout: 4000, connectionTimeoutMillis: 5000 })
   try {
-    const res = await client.query(sql, args)
+    const connected = await client.connect().then(() => true, () => false)
+    const res = connected ? await client.query(sql, args).catch(() => null) : null
+    if (!res) return { ok: false, code: "search.unavailable", message: "search failed or timed out; try a longer query" }
     const hits = res.rows.map((r) => hitOf(r, q))
     return { ok: true, value: { hits, ...(hits.length === limit ? { cursor: encodeCursor(hits[hits.length - 1]!) } : {}) } }
   } finally {

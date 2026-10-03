@@ -62,5 +62,10 @@ run("home.search on the projection", () => {
     if (first.ok) expect(first.value.hits[0]).toMatchObject({ title: "Plans", snippet: "after join: plan B", ranges: [{ start: 12, length: 4 }] })
     expect(ids(await homeSearch(env, as("user_ta"), { q: "plan", limit: 101 }))).toEqual(["ERR invalid_limit"])
     expect(ids(await homeSearch(env, as("user_ta"), { q: "" }))).toEqual(["ERR invalid_query"])
+    expect(ids(await homeSearch(env, as("user_ta"), { q: "plan", before: "not a time" }))).toEqual(["ERR invalid before"])
+    expect(ids(await homeSearch(env, as("user_ta"), { q: "plan", cursor: Buffer.from(JSON.stringify(["x", "conv_TA", 1.5])).toString("base64url") }))).toEqual(["ERR invalid cursor"])
+    // An install whose grant does not cover read finds nothing.
+    const install = { identity: "install:x", kind: "install", user: "user_ta", grant_classes: ["mutate-own"] } as never
+    expect(ids(await homeSearch(env, install, { q: "plan" }))).toEqual(["ERR grant does not cover read"])
   })
 })

@@ -284,7 +284,11 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         // Home search reads the PlanetScale projection through the read-only Hyperdrive (home-search.ts).
         if (payload.op === "home.search") {
           const r = yield* Effect.tryPromise({ try: () => homeSearch(env, reader, (payload.params ?? {}) as SearchParams), catch: unreachable })
-          if (!r.ok) return yield* r.code === "auth.forbidden" ? new Forbidden({ code: "auth.forbidden", message: r.message }) : new BadRequest({ code: "validation.invalid", message: r.message })
+          if (!r.ok) {
+            if (r.code === "auth.forbidden") return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
+            if (r.code === "search.unavailable") return yield* new OwnerUnreachable({ code: "owner.unreachable", message: r.message, retryable: true })
+            return yield* new BadRequest({ code: "validation.invalid", message: r.message })
+          }
           return { op: payload.op, value: r.value, stream: `search:${reader.user}`, revision: "0" }
         }
         if (providerReadOpNames.has(payload.op) || googleReadOpNames.has(payload.op)) {
