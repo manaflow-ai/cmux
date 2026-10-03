@@ -86,8 +86,8 @@ enum CloudHandlers {
 
     @MainActor static func reveal(_ surface: SurfaceID, in pane: PaneModel, workspaceID: String, _ context: AppActionContext) {
         let select: (PaneController) -> Void = { controller in
-            controller.pendingSelectSurface = surface
-            controller.syncStripFromStore()
+            // Through the run's view-change gate (ActionRunScope).
+            controller.selectWhenReported(surface: surface)
         }
         if let controller = context.services.paneController(for: pane) {
             select(controller)
