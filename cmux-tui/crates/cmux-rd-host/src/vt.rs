@@ -419,7 +419,8 @@ impl H264Encoder for VideoToolbox {
             *o = Output::default();
         }
         // `pts` is the capture time in microseconds (the trait's contract).
-        let time = CMTime { value: pts, timescale: 1_000_000, flags: K_CM_TIME_FLAGS_VALID, epoch: 0 };
+        let time =
+            CMTime { value: pts, timescale: 1_000_000, flags: K_CM_TIME_FLAGS_VALID, epoch: 0 };
         // SAFETY: encoding our pixel buffer on our session; CompleteFrames runs the output
         // callback before it returns, so the result is ready afterwards.
         let status = unsafe {
