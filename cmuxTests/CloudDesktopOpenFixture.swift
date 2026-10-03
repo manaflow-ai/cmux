@@ -157,6 +157,12 @@ final class CloudDesktopOpenFixture {
     }
 
     func waitForOpen() async {
+        // Ownership rejection is synchronous: the first click reports the
+        // hint before returning, and there is no open operation to complete.
+        if !failures.isEmpty {
+            assertTaskWindowRemainsUnfocused()
+            return
+        }
         var iterator = completion.stream.makeAsyncIterator()
         _ = await iterator.next()
         assertTaskWindowRemainsUnfocused()
