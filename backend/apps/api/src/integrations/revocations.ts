@@ -1,6 +1,7 @@
 import type { IntegrationProvider } from "@cmux/protocol"
 import type { Env } from "../env.ts"
 import { aadFor, open, type SealedSecret } from "./crypto.ts"
+import { permanentStopFailure } from "./gmail-stop.ts"
 import type { Credential, Http, ProviderImpl } from "./provider-core.ts"
 
 /**
@@ -118,7 +119,8 @@ export const drainRevocations = async (
               stopped = true
             } catch (e) {
               const reason = e instanceof Error ? `${e.name}: ${e.message}`.slice(0, 200) : "users.stop failed"
-              if (now - Number(r.first_at) < STOP_BEFORE_REVOKE_MS) throw new Error(`watch stop pending: ${reason}`)
+              // A refused token or a removed grant is permanent: record it now; anything else retries for a while.
+              if (!permanentStopFailure(e) && now - Number(r.first_at) < STOP_BEFORE_REVOKE_MS) throw new Error(`watch stop pending: ${reason}`)
               stopFailed?.(r.connection, r.stop_alias, reason)
               stopped = true
             }

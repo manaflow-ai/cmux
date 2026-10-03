@@ -105,6 +105,9 @@ export const handleGooglePubsub = async (request: Request, env: Env): Promise<Re
   const noted = await index.noteDeliveries(links.map((l, i) => ({ ...l, ok: results[i]!.status === "fulfilled" })))
   const failing = noted.filter((_l, i) => results[i]!.status === "rejected")
   const retry = failing.some((l) => l.failures < LINK_DEAD_AFTER)
+  // A dead-lettered link reads history from its kept cursor once, on its next alarm (best effort).
+  const dead = failing.filter((l) => l.failures >= LINK_DEAD_AFTER)
+  await Promise.allSettled(dead.map((l) => env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(l.team)).watchSoon(l.team, l.connection, "catch_up")))
   console.error(JSON.stringify({ msg: retry ? "google pubsub: push handoff failed" : "google pubsub: dead-lettered for failing links", message: n.messageId, failing: failing.map((l) => ({ connection: l.connection, failures: l.failures })) }))
   return text(retry ? 503 : 204)
 }

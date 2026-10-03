@@ -7,7 +7,7 @@ import type { Env } from "./env.ts"
 import { aadFor, open, seal, type SealedSecret } from "./integrations/crypto.ts"
 import type { ExternalReply, ProviderEvent } from "./integrations/external.ts"
 import { createWatchTable, nextWatchAt, recordStopFailure, watchOf } from "./integrations/gmail-push.ts"
-import { dropGmailWatch, onGmailPush, runWatchWork, startWatchSafely, renewSoon, stopWatchWith, type GooglePush, type WatchHost } from "./integrations/google-watches.ts"
+import { onDisconnect, onGmailPush, runWatchWork, startWatchSafely, stopWatchWith, watchSoon, type GooglePush, type WatchHost } from "./integrations/google-watches.ts"
 import { createRevocationTable, drainRevocations, nextRevocationAt, takeCredentialForRevocation } from "./integrations/revocations.ts"
 import { ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
@@ -178,14 +178,13 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const result = frames.find((f) => f.t === "result")
     const c = result && result.t === "result" ? (result.value as Connection) : undefined
     if (!c || c.status !== "revoked") return
-    // Gmail: users.stop runs with the credential before the revoke (best effort, never blocks the disconnect).
+    // Gmail: users.stop runs with the credential before the revoke (google-watches.ts onDisconnect).
     const stopAlias = watchOf(this.ctx.storage.sql, c.id)?.alias ?? null
-    if (takeCredentialForRevocation(this.ctx.storage.sql, c, providers[c.provider], Date.now(), stopAlias)) {
-      // Arm the alarm now (afterCommit ran before this row existed), then try at once.
-      this.scheduleAlarm()
-      void this.revokeAtProviders(Date.now())
-    }
-    void dropGmailWatch(this.watchHost(), c.id)
+    const taken = takeCredentialForRevocation(this.ctx.storage.sql, c, providers[c.provider], Date.now(), stopAlias)
+    // Arm the alarm now (afterCommit ran before this row existed), then try at once.
+    if (taken) this.scheduleAlarm()
+    if (taken) void this.revokeAtProviders(Date.now())
+    void onDisconnect(this.watchHost(), c.id, stopAlias, taken)
     if (c.account) void this.index(c.account.key).remove(c.owner, c.id).catch((e) => console.error(JSON.stringify({ msg: "account index remove failed", connection: c.id, error: String(e) })))
   }
 
@@ -389,16 +388,17 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     }
   }
 
-  /** RPC: another connection's disconnect stopped this mailbox's watch while this one linked; renew now. */
-  async renewWatchSoon(entity: string, connection: string): Promise<void> {
-    this.bind(entity)
-    await renewSoon(this.ctx.storage, connection, Date.now())
+  /** RPC: renew this watch now (another connection's stop ended it) or catch up once after a dead-lettered push. */
+  async watchSoon(entity: string, connection: string, what: "renew" | "catch_up"): Promise<void> {
+    if (this.boundTo(entity)) await watchSoon(this.ctx.storage, connection, what, Date.now())
   }
+
+  /** Whether this object already owns `entity` (RPCs from routes never create or rebind an object). */
+  private boundTo = (entity: string) => this.ctx.storage.sql.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`).toArray()[0]?.entity === entity
 
   /** RPC from the Google push routes (ingress/google-hooks.ts), after they verified the request. */
   async googlePush(entity: string, push: GooglePush): Promise<{ status: string; delivered: number }> {
-    const bound = this.ctx.storage.sql.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`).toArray()[0]
-    if (!bound || bound.entity !== entity) return { status: "ignored", delivered: 0 }
+    if (!this.boundTo(entity)) return { status: "ignored", delivered: 0 }
     const c = this.bind(entity).currentState.connections[push.connection]
     // Calendar channels arrive with slice G2; until then a calendar push is ignored.
     return push.kind === "gmail" ? onGmailPush(this.watchHost(), c, push.historyId) : { status: "ignored", delivered: 0 }

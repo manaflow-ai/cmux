@@ -17,6 +17,7 @@ import {
   type NewMessage
 } from "./gmail-push.ts"
 import { googleRefresh } from "./google.ts"
+import { permanentStopFailure, stopMailboxOnce } from "./gmail-stop.ts"
 import { ProviderError, type Credential, type Http } from "./provider-core.ts"
 
 /**
@@ -56,7 +57,7 @@ export const wantsGmailWatch = (env: Env, c: Connection) =>
 export const ensureGmailWatch = async (h: WatchHost, c: Connection, now: number): Promise<void> => {
   if (!wantsGmailWatch(h.env, c)) return
   if (!c.account) {
-    await stopAndDropWatch(h, c.id, now)
+    await stopAndDropWatch(h, c.id, now, c)
     return
   }
   const alias = gmailAlias(c.account.name)
@@ -158,10 +159,25 @@ export const onGmailPush = async (h: WatchHost, c: Connection | undefined, histo
  */
 export const stopWatchWith = async (env: Env, http: Http, provider: string, credential: Credential, alias: string, connection: string): Promise<void> => {
   if (provider !== "gmail") return
-  const fresh = (await googleRefresh(env, http, credential)) ?? credential
-  await stopGmailWatch(http, token(fresh))
+  await stopMailboxOnce(env, alias, connection, () => stopWithCredential(env, http, credential))
+  await renewOthers(env, alias, connection)
+}
+
+/** users.stop; a 401 gets one forced refresh and one retry before it counts as permanent. */
+const stopWithCredential = async (env: Env, http: Http, credential: Credential) => {
+  try {
+    await stopGmailWatch(http, token((await googleRefresh(env, http, credential)) ?? credential))
+  } catch (e) {
+    if (!(e instanceof ProviderError && e.code === "needs_reauth") || credential.kind !== "oauth") throw e
+    const forced = await googleRefresh(env, http, { ...credential, expires_at: 0 })
+    await stopGmailWatch(http, token(forced ?? credential))
+  }
+}
+
+/** Connections that linked the mailbox while it was being stopped renew their watch now. */
+const renewOthers = async (env: Env, alias: string, connection: string) => {
   const others = (await env.ACCOUNT_INDEX_DO.get(env.ACCOUNT_INDEX_DO.idFromName(alias)).list()).filter((l) => l.connection !== connection)
-  await Promise.allSettled(others.map((l) => env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(l.team)).renewWatchSoon(l.team, l.connection)))
+  await Promise.allSettled(others.map((l) => env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(l.team)).watchSoon(l.team, l.connection, "renew")))
 }
 
 /** The alarm's watch work: renew due watches; run the fallback history read while push is unhealthy. */
@@ -199,9 +215,28 @@ export const runWatchWork = async (h: WatchHost, connections: Readonly<Record<st
     } catch (e) {
       console.error(JSON.stringify({ msg: "gmail fallback read failed", connection: c.id, error: e instanceof ProviderError ? e.code : "unknown" }))
     }
-    // Only an unhealthy watch keeps polling; a healthy one waits for pushes.
-    h.sql.exec(`UPDATE google_watches SET fallback_at = ? WHERE connection = ? AND (failures > 0 OR expires_at <= ?)`, now + FALLBACK_INTERVAL_MS, c.id, now)
+    // Only an unhealthy watch keeps polling; a healthy one waits for pushes. A read that failed or found
+    // no cursor leaves its time in the past: move it out too, so a failing read never spins the alarm.
+    h.sql.exec(
+      `UPDATE google_watches SET fallback_at = ? WHERE connection = ? AND (failures > 0 OR expires_at <= ? OR (fallback_at IS NOT NULL AND fallback_at <= ?))`,
+      now + FALLBACK_INTERVAL_MS,
+      c.id,
+      now,
+      now
+    )
   }
+}
+
+/**
+ * The watch side of a disconnect: forget the row and the alias; when the
+ * credential could not be kept for the stop, record the failure, unless
+ * another connection still uses the mailbox (then no stop was needed).
+ */
+export const onDisconnect = async (h: WatchHost, connection: string, alias: string | null, credentialKept: boolean): Promise<void> => {
+  await dropGmailWatch(h, connection)
+  if (!alias || credentialKept) return
+  const others = (await h.env.ACCOUNT_INDEX_DO.get(h.env.ACCOUNT_INDEX_DO.idFromName(alias)).list().catch(() => [])).filter((l) => l.connection !== connection)
+  if (others.length === 0) recordStopFailure(h.sql, connection, alias, "no stored credential to stop the watch", Date.now())
 }
 
 /**
@@ -238,19 +273,27 @@ export const stopAndDropWatch = async (h: WatchHost, connection: string, now: nu
     const others = (await h.env.ACCOUNT_INDEX_DO.get(h.env.ACCOUNT_INDEX_DO.idFromName(row.alias)).list()).filter((l) => l.connection !== connection)
     if (others.length > 0) return done()
     if (!c) return done("the connection is gone; no credential to stop the watch")
-    await stopGmailWatch(h.http, token(await h.credential(c)))
+    await stopMailboxOnce(h.env, row.alias, connection, async () => stopWithCredential(h.env, h.http, await h.credential(c)))
     done()
+    await renewOthers(h.env, row.alias, connection).catch(() => undefined)
   } catch (e) {
     const reason = e instanceof ProviderError ? `${e.code}: ${e.message}` : "users.stop failed"
-    if (now - since >= STOP_GIVE_UP_MS) return done(reason)
+    // A refused token or a removed grant never recovers: record it now instead of retrying for a day.
+    if (permanentStopFailure(e) || now - since >= STOP_GIVE_UP_MS) return done(reason)
     const failures = Number(row.stop_failures) + 1
     h.sql.exec(`UPDATE google_watches SET stop_failures = ?, renew_at = ? WHERE connection = ?`, failures, now + Math.min(3600_000, 60_000 * 2 ** failures), connection)
   }
 }
 
-/** Renews a watch at the next alarm, armed now (never moving an earlier alarm later). */
-export const renewSoon = async (storage: DurableObjectStorage, connection: string, now: number): Promise<void> => {
-  storage.sql.exec(`UPDATE google_watches SET renew_at = ? WHERE connection = ? AND stop_since IS NULL`, now, connection)
+/**
+ * Makes the next alarm renew the watch (`renew`: another connection's stop
+ * ended the shared watch) or read history from the kept cursor once
+ * (`catch_up`: a push for this connection was dead-lettered). Arms the alarm
+ * now, never moving an earlier alarm later; repeated calls stay one pending read.
+ */
+export const watchSoon = async (storage: DurableObjectStorage, connection: string, what: "renew" | "catch_up", now: number): Promise<void> => {
+  if (what === "renew") storage.sql.exec(`UPDATE google_watches SET renew_at = ? WHERE connection = ? AND stop_since IS NULL`, now, connection)
+  else storage.sql.exec(`UPDATE google_watches SET fallback_at = MIN(COALESCE(fallback_at, ?), ?) WHERE connection = ? AND stop_since IS NULL`, now, now, connection)
   const current = await storage.getAlarm()
   if (current === null || current > now) await storage.setAlarm(now)
 }
