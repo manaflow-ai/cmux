@@ -246,6 +246,7 @@ struct MachinesPanelView: View {
         return status
     }
 
+    /// Renders the Cloud team header with its team scope and Invite action.
     var controlBar: some View {
         CloudTeamPickerHeader(
             accountFlow: accountFlow,

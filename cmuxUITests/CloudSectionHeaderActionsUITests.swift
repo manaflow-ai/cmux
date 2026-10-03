@@ -34,6 +34,7 @@ final class CloudSectionHeaderActionsUITests: XCTestCase {
         super.tearDown()
     }
 
+    /// Verifies every Cloud machine creation entry point opens one shared sheet.
     func testCloudMachinesPlusOpensOneNewMachineSheetLikeCmdY() {
         let app = launchSignedInApp()
         defer { app.terminate() }
