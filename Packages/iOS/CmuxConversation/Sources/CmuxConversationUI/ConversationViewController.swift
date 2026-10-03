@@ -32,7 +32,7 @@ public final class ConversationViewController: UIViewController {
     let options: ConversationPresentationOptions
 
     let layout = ConversationTranscriptLayout()
-    private(set) lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+    private(set) lazy var collectionView = TranscriptCollectionView(frame: .zero, collectionViewLayout: layout)
     let header = ConversationHeaderView()
     let composer = ConversationComposerView()
     let composerContainer = UIView()
@@ -59,6 +59,8 @@ public final class ConversationViewController: UIViewController {
     var activeFlights: [String: UIView] = [:]
     /// Incoming rows inserted by the current update, popped in after it applies.
     var arrivingRowIDs: [String] = []
+    /// The incoming message replacing a typing indicator in the current change.
+    var typingHandoffRowID: String?
     private var hasPositionedInitially = false
     private var lastBottomInset: CGFloat = 0
     /// Whether the reader is following the bottom. Only the reader's own
@@ -220,6 +222,7 @@ public final class ConversationViewController: UIViewController {
         // A reader pinned to the bottom stays pinned as the keyboard, drawer or
         // composer changes the inset; a reader scrolled up stays where they are.
         collectionView.contentInset = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
+        collectionView.edgeBottomInset = bottom
         collectionView.verticalScrollIndicatorInsets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
         if old.top != top { layout.invalidateLayout() }
         if !collectionView.isTracking, hasPositionedInitially {
@@ -384,13 +387,25 @@ public final class ConversationViewController: UIViewController {
         let replacesTyping = inserted.contains { indexPath in
             if case .message = newRows[indexPath.item] { return true } else { return false }
         }
+        var removedTyping = false
         if animateLive, replacesTyping {
             for indexPath in deleted where indexPath.item < rows.count {
                 if case .typing = rows[indexPath.item], let cell = collectionView.cellForItem(at: indexPath) {
                     UIView.performWithoutAnimation { cell.contentView.alpha = 0 }
+                    removedTyping = true
                 }
             }
         }
+        // The message that takes the indicator's place shows at full opacity
+        // from the first frame, so the hand-off never passes through an empty frame.
+        if removedTyping, let handoff = inserted.last(where: { indexPath in
+            if case let .message(model) = newRows[indexPath.item] { return !model.isOutgoing } else { return false }
+        }) {
+            typingHandoffRowID = newIDs[handoff.item]
+        }
+        // Non-animated changes (a page landing) can regroup visible rows
+        // (spacing, tail, sender name); rows that move a few points glide.
+        let screenBefore = animateLive ? [:] : visibleScreenTops()
 
         let updates = {
             self.rows = newRows
@@ -437,19 +452,70 @@ public final class ConversationViewController: UIViewController {
                 self.collectionView.layoutIfNeeded()
                 self.restore(anchor)
             }
+            glideRegrouped(from: screenBefore)
         }
         appearances = appearances.filter { flyingRowIDs.contains($0.key) }
         popArrivals(scrollShift: scrollShift)
     }
 
-    /// New incoming bubbles (and the typing indicator) grow from the bottom
-    /// edge of their run of new rows, as in Messages. A run's visible height
-    /// tracks the scroll spring's progress, so the rows above (moving up by
-    /// `scrollShift` on that spring) are never overlapped, whether one message
-    /// arrives or a whole burst; and nothing slides up from behind the composer.
+    private struct ScreenPlace { var rowTop: CGFloat; var bubbleTop: CGFloat }
+
+    private func visibleScreenTops() -> [String: ScreenPlace] {
+        var places: [String: ScreenPlace] = [:]
+        let y = collectionView.contentOffset.y
+        for indexPath in collectionView.indexPathsForVisibleItems where indexPath.item < rows.count {
+            guard let frame = layout.frame(at: indexPath.item) else { continue }
+            let bubble = bubbleTop(at: indexPath.item) ?? frame.minY
+            places[rows[indexPath.item].id] = ScreenPlace(rowTop: frame.minY - y, bubbleTop: bubble - y)
+        }
+        return places
+    }
+
+    /// Rows that a non-animated change moved on screen (for example rows below
+    /// an anchor whose run grouping or quote changed when an older page landed)
+    /// start at their old place and glide, instead of stepping. A row glides
+    /// only by the movement its top and its bubble share: the anchor (bubble
+    /// held, row grew above it) and a row that grew inside itself stay put, so
+    /// no glide pushes new content over its neighbors.
+    private func glideRegrouped(from before: [String: ScreenPlace]) {
+        guard !before.isEmpty else { return }
+        let after = visibleScreenTops()
+        #if DEBUG
+        var moved: [String] = []
+        #endif
+        for (id, place) in after {
+            guard let old = before[id], let indexPath = indexPath(for: id),
+                  let cell = collectionView.cellForItem(at: indexPath) else { continue }
+            let rowDelta = place.rowTop - old.rowTop
+            let bubbleDelta = place.bubbleTop - old.bubbleTop
+            let shared = rowDelta * bubbleDelta <= 0 ? 0 : (abs(rowDelta) < abs(bubbleDelta) ? rowDelta : bubbleDelta)
+            guard abs(shared) >= 0.5, abs(shared) <= 120 else { continue }
+            #if DEBUG
+            moved.append(String(format: "%.1f", shared))
+            #endif
+            UIView.performWithoutAnimation {
+                cell.contentView.transform = CGAffineTransform(translationX: 0, y: -shared)
+            }
+            UIView.animate(withDuration: 0.28, delay: 0, options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]) {
+                cell.contentView.transform = .identity
+            }
+        }
+        #if DEBUG
+        NSLog("imsgp.glide before=%d after=%d moved=%@", before.count, after.count, moved.joined(separator: ","))
+        #endif
+    }
+
+    /// New incoming bubbles (and the typing indicator) appear at their final
+    /// place on screen, scaling from 0.8 at their tail corner with a fade
+    /// (Messages, criterion 8.1). Rows above move up by `scrollShift` on the
+    /// same spring; each new bubble is masked to the space those rows have
+    /// already vacated, so nothing overlaps in any frame and nothing slides up
+    /// from behind the composer. Bursts reveal bottom-up as one region.
     private func popArrivals(scrollShift: CGFloat) {
         let ids = arrivingRowIDs
         arrivingRowIDs = []
+        let handoff = typingHandoffRowID
+        typingHandoffRowID = nil
         let items = ids.compactMap { indexPath(for: $0)?.item }.sorted()
         var runs: [[Int]] = []
         for item in items {
@@ -459,33 +525,45 @@ public final class ConversationViewController: UIViewController {
                 runs.append([item])
             }
         }
-        // Near zero, not zero: Core Animation interpolates scale and translation
-        // separately, so scale(p) == progress(p) keeps the run's top on the rows above.
-        let startScale: CGFloat = 0.02
+        let startScale: CGFloat = 0.8
+        let shift = max(0, scrollShift)
         for run in runs {
-            let frames = run.compactMap { layout.frame(at: $0) }
-            guard let bottom = frames.map(\.maxY).max() else { continue }
+            guard let runTop = run.compactMap({ layout.frame(at: $0)?.minY }).min() else { continue }
             for item in run {
                 guard let cell = collectionView.cellForItem(at: IndexPath(item: item, section: 0)),
                       let frame = layout.frame(at: item) else { continue }
-                var pivotX = frame.minX
+                let size = frame.size
+                var pivot = CGPoint(x: 0, y: size.height)
                 if let cell = cell as? MessageCell, let content = cell.cellLayout?.contentFrame {
-                    pivotX = frame.minX + content.minX
+                    pivot = CGPoint(x: content.minX, y: content.maxY)
                 } else if let cell = cell as? TypingCell {
-                    pivotX = frame.minX + cell.indicator.frame.minX
+                    pivot = CGPoint(x: cell.indicator.frame.minX, y: cell.indicator.frame.maxY)
                 }
-                let tx = (1 - startScale) * (pivotX - frame.midX)
-                let ty = (1 - startScale) * (bottom - frame.midY) - scrollShift
+                let tx = (1 - startScale) * (pivot.x - size.width / 2)
+                let ty = (1 - startScale) * (pivot.y - size.height / 2) - shift
+                // Local y above which the cell is still covered by the rows
+                // moving up; it reaches the run top (<= 0 here) as they finish.
+                let coveredStart = runTop - frame.minY + shift
+                let coveredEnd = runTop - frame.minY
+                let maskHeight = size.height * 4 + 2 * shift
+                let mask = ArrivalRevealMask(frame: CGRect(x: -size.width, y: coveredStart, width: size.width * 3, height: maskHeight))
+                let isHandoff = rows[item].id == handoff
                 UIView.performWithoutAnimation {
+                    cell.contentView.mask = shift > 0 ? mask : nil
                     cell.contentView.transform = CGAffineTransform(translationX: tx, y: ty).scaledBy(x: startScale, y: startScale)
-                    cell.contentView.alpha = 0
+                    cell.contentView.alpha = isHandoff ? 1 : 0
                 }
-                // The same spring as the scroll, so growth and scroll share progress.
+                // The same spring as the scroll, so reveal and scroll share progress.
                 UIView.animate(withDuration: 0.42, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
                     cell.contentView.transform = .identity
+                    mask.frame.origin.y = coveredEnd
+                } completion: { _ in
+                    if cell.contentView.mask === mask { cell.contentView.mask = nil }
                 }
-                UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
-                    cell.contentView.alpha = 1
+                if !isHandoff {
+                    UIView.animate(withDuration: 0.18, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
+                        cell.contentView.alpha = 1
+                    }
                 }
             }
         }
@@ -660,6 +738,50 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
 
     func transcriptAppearance(at index: Int) -> ConversationTranscriptLayout.Appearance {
         appearances[rows[index].id] ?? .none
+    }
+}
+
+/// The transcript reports the composer band (and keyboard) as its bottom
+/// safe area, so the system bottom scroll edge effect covers the composer
+/// wherever it sits instead of the screen edge behind the keyboard. Content
+/// insets are managed by hand (adjustment is off), so this changes nothing else.
+final class TranscriptCollectionView: UICollectionView {
+    var edgeBottomInset: CGFloat = 0 {
+        didSet { if edgeBottomInset != oldValue { safeAreaInsetsDidChange() } }
+    }
+
+    override var safeAreaInsets: UIEdgeInsets {
+        var insets = super.safeAreaInsets
+        insets.bottom = max(insets.bottom, edgeBottomInset)
+        return insets
+    }
+}
+
+/// The arrival reveal edge: opaque below, with a short feather at its top so
+/// the edge that follows the rows moving up never reads as a hard cut.
+final class ArrivalRevealMask: UIView {
+    static let feather: CGFloat = 10
+
+    override class var layerClass: AnyClass { CAGradientLayer.self }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        let gradient = layer as! CAGradientLayer
+        gradient.colors = [UIColor.clear.cgColor, UIColor.black.cgColor, UIColor.black.cgColor]
+        updateStops()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateStops()
+    }
+
+    private func updateStops() {
+        let edge = bounds.height > 0 ? Self.feather / bounds.height : 0
+        (layer as! CAGradientLayer).locations = [0, NSNumber(value: Double(edge)), 1]
     }
 }
 #endif

@@ -97,6 +97,7 @@ final class MessageCell: UICollectionViewCell {
         shiftable.layer.removeAllAnimations()
         shiftable.transform = .identity
         contentView.transform = .identity
+        contentView.mask = nil
     }
 
     func configure(model: MessageRowModel, layout: MessageCellLayout, text: NSAttributedString) {
@@ -534,6 +535,7 @@ final class TypingCell: UICollectionViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         contentView.transform = .identity
+        contentView.mask = nil
         indicator.transform = .identity
         indicator.alpha = 1
     }
