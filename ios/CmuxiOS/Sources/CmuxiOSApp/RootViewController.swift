@@ -56,7 +56,7 @@ final class RootViewController: UIViewController {
             install(SignInScreen.make(coordinator: container.auth.coordinator))
         case .signedIn(let account):
             showHome(account: account)
-            container.signedIn()
+            container.signedIn(account: account)
             DebugLaunchTasks.signedIn(container: container)
         }
     }
