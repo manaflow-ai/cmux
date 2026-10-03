@@ -10,13 +10,18 @@
 use std::path::PathBuf;
 
 use ghostty_vt::{
-    Callbacks, SnapshotPhase, Terminal, reencode_ready, snapshot_envelope_version,
+    Callbacks, Rgb, SnapshotPhase, Terminal, reencode_ready, snapshot_envelope_version,
     snapshot_ready_len, snapshot_records, snapshot_tag, snapshot_version,
 };
 
 /// The session host's default scrollback budget (cmux-tui-core
 /// `DEFAULT_SCROLLBACK_LIMIT_BYTES`).
 const HOST_SCROLLBACK_BYTES: usize = 50_000_000;
+/// Default colors the frontend sends the session host (`set-default-colors`)
+/// for Ghostty's default theme. The cross check configures the surface with
+/// the same values (crosscheck/run.sh).
+const HOST_DEFAULT_FOREGROUND: Rgb = Rgb { r: 0xff, g: 0xff, b: 0xff };
+const HOST_DEFAULT_BACKGROUND: Rgb = Rgb { r: 0x28, g: 0x2c, b: 0x34 };
 
 struct Case {
     name: String,
@@ -79,6 +84,7 @@ fn terminal_corpus_snapshots_encode_ready_and_complete() {
         let mut term =
             Terminal::new(case.cols, case.rows, HOST_SCROLLBACK_BYTES, Callbacks::default())
                 .unwrap();
+        term.set_default_colors(Some(HOST_DEFAULT_FOREGROUND), Some(HOST_DEFAULT_BACKGROUND), None);
         term.vt_write(&bytes);
         let ready = term.encode_snapshot(SnapshotPhase::Ready).unwrap();
         let complete = term.encode_snapshot(SnapshotPhase::Complete).unwrap();

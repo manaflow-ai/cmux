@@ -26,7 +26,7 @@ struct SurfaceRef: @unchecked Sendable { let raw: ghostty_surface_t }
 nonisolated(unsafe) var app: ghostty_app_t?
 let outputQueue = DispatchQueue(label: "crosscheck.output")
 
-func encode(_ surface: ghostty_surface_t, _ phase: ghostty_surface_snapshot_phase_e) -> [UInt8]? {
+@Sendable func encode(_ surface: ghostty_surface_t, _ phase: ghostty_surface_snapshot_phase_e) -> [UInt8]? {
     let sink = Sink()
     let ok = ghostty_surface_encode_snapshot(surface, { userdata, bytes, len in
         let sink = Unmanaged<Sink>.fromOpaque(userdata!).takeUnretainedValue()
@@ -51,19 +51,52 @@ func records(_ data: [UInt8]) -> [(UInt16, ArraySlice<UInt8>)] {
 
 let tagNames: [UInt16: String] = [1: "TERMINAL", 2: "SCREEN", 3: "PAGE", 4: "HISTORY", 5: "READY", 6: "FINISH", 7: "CONTINUATION"]
 
-func compare(_ label: String, _ phone: [UInt8], _ host: [UInt8]) -> String {
-    if phone == host { return "\(label) equal (\(host.count) B)" }
-    let a = records(phone), b = records(host)
+/// TERMINAL header fields (snapshot/terminal.zig) named in a report.
+let terminalFields: [(Range<Int>, String)] = [
+    (0..<4, "grid"), (4..<12, "pixel size"), (12..<20, "scroll region"), (20..<21, "status display"),
+    (21..<25, "screens"), (25..<29, "previous codepoint"), (29..<30, "cursor is-default"),
+    (30..<31, "cursor default style"), (31..<32, "cursor default blink"), (32..<33, "shell redraw"),
+    (33..<34, "modify-other-keys"), (34..<38, "mouse"), (38..<39, "password input"),
+    (39..<47, "current modes"), (47..<55, "saved modes"), (55..<63, "default modes"),
+    (63..<71, "background"), (71..<79, "foreground"), (79..<87, "cursor color"),
+    (87..<103, "scrollback limits"),
+]
+
+/// The one documented normalization: the TERMINAL pixel size (payload bytes
+/// 4..<12). The host terminal has no font, so it reports no pixel size; the
+/// surface reports its font's. Every other byte must match.
+func normalizedRecords(_ data: [UInt8]) -> [(UInt16, [UInt8])] {
+    records(data).map { tag, bytes in
+        var payload = Array(bytes.dropFirst(10))
+        if tag == 1 && payload.count >= 12 { for i in 4..<12 { payload[i] = 0 } }
+        return (tag, payload)
+    }
+}
+
+func compare(_ label: String, _ phone: [UInt8], _ host: [UInt8]) -> (Bool, String) {
+    if phone == host { return (true, "\(label) equal (\(host.count) B)") }
+    let a = normalizedRecords(phone), b = normalizedRecords(host)
     var diffs: [String] = []
     if Array(phone.prefix(10)) != Array(host.prefix(10)) { diffs.append("envelope") }
     for i in 0..<max(a.count, b.count) {
         let left = i < a.count ? a[i] : nil, right = i < b.count ? b[i] : nil
-        if left?.0 != right?.0 || left.map({ Array($0.1) }) != right.map({ Array($0.1) }) {
-            let name = tagNames[right?.0 ?? left?.0 ?? 0] ?? "?"
-            diffs.append("\(name)#\(i)")
+        guard left?.0 != right?.0 || left?.1 != right?.1 else { continue }
+        let name = tagNames[right?.0 ?? left?.0 ?? 0] ?? "?"
+        if let l = left, let r = right, l.0 == 1, r.0 == 1 {
+            let fields = terminalFields.filter { range, _ in
+                range.upperBound <= min(l.1.count, r.1.count) && Array(l.1[range]) != Array(r.1[range])
+            }.map(\.1)
+            let tail = Array(l.1.dropFirst(103)) != Array(r.1.dropFirst(103)) ? ["tabs/palette/pwd/title"] : []
+            diffs.append("TERMINAL[\((fields + tail).joined(separator: "+"))]")
+        } else if let l = left, let r = right {
+            let first = zip(l.1, r.1).firstIndex { $0 != $1 } ?? min(l.1.count, r.1.count)
+            diffs.append("\(name)#\(i)@\(first) (\(l.1.count) vs \(r.1.count) B)")
+        } else {
+            diffs.append("\(name)#\(i) missing")
         }
     }
-    return "\(label) DIFFERS phone \(phone.count) B host \(host.count) B records \(diffs.prefix(8).joined(separator: ","))"
+    if diffs.isEmpty { return (true, "\(label) equal after pixel-size normalization (\(host.count) B)") }
+    return (false, "\(label) DIFFERS phone \(phone.count) B host \(host.count) B: \(diffs.prefix(8).joined(separator: ", "))")
 }
 
 @MainActor
@@ -106,8 +139,9 @@ func run() {
         let hostReady = try! [UInt8](Data(contentsOf: hostDir.appendingPathComponent("\(c.name).ready.ghostsnp")))
         let hostComplete = try! [UInt8](Data(contentsOf: hostDir.appendingPathComponent("\(c.name).complete.ghostsnp")))
         let excluded = c.features.contains { $0.contains("excluded") }
-        let r = compare("READY", ready, hostReady), k = compare("COMPLETE", complete, hostComplete)
-        if (ready != hostReady || complete != hostComplete) && !excluded { allEqual = false }
+        let (readyEqual, r) = compare("READY", ready, hostReady)
+        let (completeEqual, k) = compare("COMPLETE", complete, hostComplete)
+        if !(readyEqual && completeEqual) && !excluded { allEqual = false }
         print("case \(c.name)\(excluded ? " (excluded feature)" : ""): \(r); \(k)")
         ghostty_surface_free(raw)
     }

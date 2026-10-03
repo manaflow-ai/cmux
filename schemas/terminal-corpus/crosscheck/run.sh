@@ -23,8 +23,18 @@ echo "$sha  $work/kit.zip" | shasum -a 256 -c -
 (cd "$work" && unzip -q kit.zip)
 x="$work/GhosttyNextKit.xcframework"
 
-# 3. The surface side, with the host's scrollback budget (50 MB).
-printf 'scrollback-limit = 50000000\n' > "$work/ghostty.conf"
+# 3. The surface side, configured like the session host's terminal:
+#    - scrollback budget 50 MB (cmux-tui DEFAULT_SCROLLBACK_LIMIT_BYTES);
+#    - the default colors the frontend sends the host (Ghostty's theme);
+#    - no cursor-blink default (libghostty-vt's default cursor policy);
+#    - legacy grapheme width: the host terminal leaves mode 2027 off.
+cat > "$work/ghostty.conf" <<'CONF'
+scrollback-limit = 50000000
+foreground = ffffff
+background = 282c34
+cursor-style-blink = false
+grapheme-width-method = legacy
+CONF
 xcrun --sdk macosx swiftc -O -swift-version 6 -target arm64-apple-macos13 \
   -I "$x/macos-arm64/Headers" "$here/main.swift" "$x/macos-arm64/libghostty-internal.a" \
   -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework CoreVideo \
