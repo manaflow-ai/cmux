@@ -68,6 +68,9 @@ public nonisolated struct SidebarRailLayout: Hashable, Sendable {
     /// height overflows) in the last top slot that fits, whose own item
     /// moves into the list; nil when nothing overflows or no slot fits.
     public var more: CGRect?
+    /// The App's accessory (the update circle), right above the bottom
+    /// band; nil when none was asked for.
+    public var accessory: CGRect?
 
     public static let empty = SidebarRailLayout(buttons: [], separators: [], overflow: [], more: nil)
 
@@ -86,21 +89,28 @@ public nonisolated struct SidebarRailLayout: Hashable, Sendable {
     /// - Parameter room: The room the window shows (room-scoped sections).
     /// - Parameter height: The rail's height.
     /// - Parameter metrics: The sizes.
-    /// - Returns: The buttons and lines. The bottom band always shows;
-    ///   capped items and top-band buttons that would reach it go under a
-    ///   More button.
+    /// - Parameter accessory: Whether to keep one button slot above the
+    ///   bottom band for the App's accessory.
+    /// - Returns: The buttons and lines. The bottom band and the accessory
+    ///   always show; capped items and top-band buttons that would reach
+    ///   them go under a More button.
     public static func make(document: SidebarLayoutDocument, room: String?, height: CGFloat,
-                            metrics m: SidebarRailMetrics) -> SidebarRailLayout {
+                            metrics m: SidebarRailMetrics, accessory: Bool = false) -> SidebarRailLayout {
         let bands = document.bands(room: room)
         let bottom = stack(columns(bands.below, capsRows: false), moreAfter: nil, metrics: m)
         let bottomTop = height - m.bottomInset - bottom.height
         let bottomButtons = bottom.buttons.map { offset($0, by: bottomTop) }
         let bottomLines = bottom.lines.map { $0.rect.offsetBy(dx: 0, dy: bottomTop) }
+        let bandTop = bottomButtons.isEmpty ? height - m.bottomInset : bottomTop - m.buttonGap
+        let accessoryFrame = accessory
+            ? CGRect(x: ((m.width - m.buttonSize) / 2).rounded(), y: bandTop - m.buttonSize, width: m.buttonSize, height: m.buttonSize)
+            : nil
 
         let topColumns = columns(bands.above, capsRows: true)
         let capped = Set(topColumns.flatMap(\.capped))
         let top = stack(topColumns, moreAfter: topColumns.firstIndex { !$0.capped.isEmpty }, metrics: m)
-        let limit = bottomButtons.isEmpty ? height - m.bottomInset : bottomTop - m.sectionGap
+        let limit = accessoryFrame.map { $0.minY - m.sectionGap }
+            ?? (bottomButtons.isEmpty ? height - m.bottomInset : bottomTop - m.sectionGap)
         let topButtons = top.buttons.map { offset($0, by: m.topInset) }
         var kept = topButtons.filter { $0.frame.maxY <= limit }
         var spilled = Set(topButtons.filter { $0.frame.maxY > limit }.map(\.item))
@@ -123,7 +133,8 @@ public nonisolated struct SidebarRailLayout: Hashable, Sendable {
         // A line belongs to the section below it: it shows only while that
         // section keeps a button (the More button counts).
         let topLines = top.lines.filter { keptSections.contains($0.before) }.map { $0.rect.offsetBy(dx: 0, dy: m.topInset) }
-        return SidebarRailLayout(buttons: kept + bottomButtons, separators: topLines + bottomLines, overflow: overflow, more: more)
+        return SidebarRailLayout(buttons: kept + bottomButtons, separators: topLines + bottomLines, overflow: overflow, more: more,
+                                 accessory: accessoryFrame)
     }
 
     /// The item ids each band section shows: item sections only, items this

@@ -27,7 +27,11 @@ import Testing
         #expect(service.disabledReason == .developmentBuild)
         let failure = await service.checkForUpdates()?.value
         #expect(failure == nil)
-        #expect(presented == 1)
+        // Nothing asks: the result is a note beside the rail circle.
+        #expect(presented == 0)
+        #expect(service.indicatorPhase == .note(UpdaterStrings.upToDate, isError: false))
+        service.dismissIndicatorNote()
+        #expect(service.indicatorPhase == .hidden)
         #expect(fetcher.requested.count == 1)
         #expect(service.lastProbe?.outcome == .upToDate(latest: AppcastItem(version: "106", displayVersion: "0.64.25",
             title: "0.64.25", minimumSystemVersion: SystemVersion("14.0"),
@@ -69,6 +73,10 @@ import Testing
         #expect(defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey) == 3600)
         #expect(service.status.automaticChecks)
         #expect(!service.status.automaticDownloads)
+        // cmux-next downloads in the background on its own updater only:
+        // SUAutomaticallyUpdate stays off for the legacy app sharing the domain.
+        #expect(service.controller?.installsUpdatesInBackground == true)
+        #expect(!defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
     }
 
     @Test func channelSwitchOnlyToTheCounterpart() {

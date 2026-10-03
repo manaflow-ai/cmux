@@ -9,8 +9,10 @@ import Observation
 /// a read-only probe of the same feed.
 ///
 /// One per process, owned by the App. Action handlers call ``checkForUpdates()``,
-/// ``installAvailableUpdate()`` and ``switchChannel(to:)``; the update sheet
-/// renders ``UpdateSheetModel`` over this service.
+/// ``installAvailableUpdate()`` and ``switchChannel(to:)``. Nothing asks: updates
+/// download in the background and wait as the rail's update circle
+/// (``indicatorPhase``), and a check that finds nothing leaves a short note.
+/// The update sheet (``UpdateSheetModel``) opens only for a failure's details.
 @MainActor
 @Observable
 public final class UpdaterService {
@@ -28,9 +30,18 @@ public final class UpdaterService {
     public internal(set) var managedChannel: AppChannelSwitchTarget?
     /// `MinimumVersion` from the managed policy, or nil.
     public internal(set) var managedMinimumVersion: String?
+    /// Whether the circle shows the last probe's result (the user asked, in a
+    /// build without Sparkle).
+    public internal(set) var showsProbeResult = false
+    /// A fixed circle phase for screenshots (`debug.update_indicator`).
+    public var debugIndicatorPhase: UpdateIndicatorPhase?
 
-    /// Asks the App to show the update sheet (set by the App).
+    /// Asks the App to show the update sheet (set by the App): a failure's
+    /// details only.
     @ObservationIgnored public var presentUpdateUI: (() -> Void)?
+    /// Sparkle is about to relaunch into the update (set by the App: the quit
+    /// keeps every terminal).
+    @ObservationIgnored public var willRelaunch: (() -> Void)?
     @ObservationIgnored private let policy: ManagedUpdatePolicy
     @ObservationIgnored private let prober: UpdateProber
     @ObservationIgnored private let defaults: UserDefaults
@@ -59,7 +70,8 @@ public final class UpdaterService {
         // The managed policy is re-read by the driver on every start and check,
         // so it is not a reason to skip building it.
         if enableSparkle, identity.sparkleDisabledReason(managedPolicyDisablesUpdates: false) == nil {
-            controller = UpdateController(log: log, defaults: defaults, isDisabledByPolicy: { policy.disablesUpdates })
+            let controller = UpdateController(log: log, defaults: defaults, isDisabledByPolicy: { policy.disablesUpdates })
+            self.controller = controller
         } else {
             controller = nil
         }
@@ -87,10 +99,11 @@ public final class UpdaterService {
         recheckRequiredUpdate()
     }
 
-    /// The user asked to check. Shows the update sheet; with Sparkle it starts
-    /// a foreground Sparkle check, else a read-only probe (never under a
-    /// managed policy, which forbids touching the feed). The returned task
-    /// finishes when a probe has its result (nil) or failed (the reason).
+    /// The user asked to check. With Sparkle it starts a foreground Sparkle
+    /// check (a found update downloads, no sheet), else a read-only probe
+    /// whose result the circle notes (never under a managed policy, which
+    /// forbids touching the feed). The returned task finishes when a probe
+    /// has its result (nil) or failed (the reason).
     @discardableResult
     public func checkForUpdates() -> Task<String?, Never>? {
         presentUpdateUI?()
@@ -137,13 +150,18 @@ public final class UpdaterService {
         return task
     }
 
-    /// Installs the newest update: re-resolves the feed first so it never
-    /// installs a stale version (the shared driver's attempt flow).
+    /// Installs and relaunches: the downloaded update at once, the one
+    /// downloading as soon as it is ready, else the newest after a fresh
+    /// check (the shared driver's attempt flow, so never a stale version).
     public func installAvailableUpdate() throws {
         guard let controller, disabledReason == nil else { throw UpdaterUnavailable(reason: disabledReason) }
-        presentUpdateUI?()
         controller.model.setOverrideState(nil)
-        controller.attemptUpdate()
+        if controller.stagedUpdate != nil { return controller.installStagedUpdate() }
+        controller.installWhenStaged()
+        switch controller.model.state {
+        case .startingDownload, .downloading, .extracting: return
+        default: controller.attemptUpdate()
+        }
     }
 
     /// Opens the other release app (stable <-> NIGHTLY), downloading,
@@ -214,6 +232,7 @@ extension UpdaterService: UpdateActionDelegate {
     /// `applicationShouldTerminate` path.
     public func updaterWillRelaunchApplication() {
         log.append("relaunching for update")
+        willRelaunch?()
     }
 
     /// A relaunch interrupts nothing (the daemon keeps every terminal and
