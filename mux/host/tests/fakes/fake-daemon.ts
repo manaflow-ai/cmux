@@ -61,6 +61,11 @@ export class FakeDaemon {
     this.subscribers.clear();
   }
 
+  /** Open client connections. */
+  get clientCount(): number {
+    return this.clients.size;
+  }
+
   get subscriberCount(): number {
     return this.subscribers.size;
   }

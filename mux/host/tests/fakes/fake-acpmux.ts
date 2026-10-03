@@ -82,6 +82,11 @@ export class FakeAcpmux {
     return permissionId;
   }
 
+  /** Open client connections. */
+  get clientCount(): number {
+    return this.clients.size;
+  }
+
   private accept(socket: Socket): void {
     this.clients.add(socket);
     socket.setEncoding("utf8");

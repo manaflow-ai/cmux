@@ -396,3 +396,42 @@ describe("failed start", () => {
     release?.();
   });
 });
+
+/** Waits (real time, bounded) for the fake server to see its sockets close. */
+async function settle(open: () => number, at: number): Promise<number> {
+  for (let i = 0; i < 100 && open() > at; i++) await Bun.sleep(10);
+  return open();
+}
+
+describe("connect handshake deadlines", () => {
+  test("a stuck daemon identify: each deadline closes its socket, so retries leak none", async () => {
+    const w = await setup();
+    const clock = fakeClock();
+    w.daemon.hold.add("identify");
+    w.host({ clock, requestTimeoutMs: 1_000 }).start();
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await w.daemon.until(() => w.daemon.requests.filter((r) => r.cmd === "identify").length >= attempt);
+      clock.advance(1_000); // the connect deadline
+      await Bun.sleep(5);
+      clock.advance(1_000); // the reconnect backoff, when it runs on the injected clock
+    }
+    await w.daemon.until(() => w.daemon.requests.filter((r) => r.cmd === "identify").length >= 4);
+    expect(await settle(() => w.daemon.clientCount, 1)).toBe(1);
+  }, 10_000);
+
+  test("a stuck acpmux initialize: each deadline closes its socket, so retries leak none", async () => {
+    const w = await setup();
+    const clock = fakeClock();
+    w.acpmux.hold.add("initialize");
+    w.host({ clock, requestTimeoutMs: 1_000 }).start();
+    const initializes = () => w.acpmux.calls.filter((c) => c.method === "initialize").length;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await w.acpmux.until(() => initializes() >= attempt);
+      clock.advance(1_000);
+      await Bun.sleep(5);
+      clock.advance(1_000);
+    }
+    await w.acpmux.until(() => initializes() >= 4);
+    expect(await settle(() => w.acpmux.clientCount, 1)).toBe(1);
+  }, 10_000);
+});
