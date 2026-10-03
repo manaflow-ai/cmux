@@ -126,6 +126,23 @@ enum FileExternalOpenAction {
     }
 }
 
+/// Resolves the file that the command palette's file actions operate on.
+@MainActor
+enum FilePreviewCommandTarget {
+    /// Returns nil for any panel that is not a file preview, and for a preview
+    /// whose file is gone, so callers can report failure instead of asking
+    /// Launch Services to open a stale path.
+    static func fileURL(
+        for panel: (any Panel)?,
+        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+    ) -> URL? {
+        guard let filePreviewPanel = panel as? FilePreviewPanel else { return nil }
+        let fileURL = URL(fileURLWithPath: filePreviewPanel.filePath)
+        guard fileExists(fileURL.path) else { return nil }
+        return fileURL
+    }
+}
+
 enum FileExternalOpenText {
     static var openWithMenu: String {
         String(localized: "filePreview.openWith.menu", defaultValue: "Open With")
