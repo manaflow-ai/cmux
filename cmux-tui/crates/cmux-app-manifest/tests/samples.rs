@@ -58,7 +58,8 @@ mod apps {
                     &std::fs::read_to_string(dir.join(file)).expect("catalog"),
                 )
                 .expect("catalog json");
-                for (op, entry) in catalog["operations"].as_object().expect("operations") {
+                for entry in catalog["operations"].as_array().expect("operations") {
+                    let op = entry["name"].as_str().expect("name");
                     let export =
                         entry["export"].as_str().unwrap_or_else(|| panic!("{op} needs an export"));
                     assert!(
