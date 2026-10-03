@@ -643,7 +643,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         case let .timestamp(_, date):
             (view as? MacTimestampRowView)?.configure(date: date)
         case .loadingOlder:
-            break
+            (view as? MacSpinnerRowView)?.spinner.startAnimation(nil)
         case .conversationStart:
             (view as? MacConversationStartRowView)?.configure(title: serviceTitle, subtitle: String(localized: "conversation.start.encrypted", defaultValue: "Encrypted", bundle: .module))
         case let .typing(ids):

@@ -592,7 +592,7 @@ final class MacSpinnerRowView: MacFlippedView {
     let spinner = NSProgressIndicator()
     /// Tall enough that the spinner clears the toolbar's soft scroll edge
     /// when the reader reaches the top while a page loads.
-    static let height: CGFloat = 56
+    static let height: CGFloat = 64
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -600,6 +600,7 @@ final class MacSpinnerRowView: MacFlippedView {
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = false
         addSubview(spinner)
+        spinner.startAnimation(nil)
         setAccessibilityIdentifier("conversation.loadingOlder")
         setAccessibilityLabel(String(localized: "conversation.loadingOlder", defaultValue: "Loading earlier messages", bundle: .module))
     }
