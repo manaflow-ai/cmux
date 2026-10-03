@@ -280,7 +280,7 @@ COPY cmux-prompt.bash /etc/cmux/prompt.bash
 # submodules instead of importing every installed package per keystroke.
 COPY cmux-python-completion.bash /usr/local/share/bash-completion/completions/python
 RUN for f in /usr/share/bash-completion/completions/python?*; do \
-       ln -sf python "/usr/local/share/bash-completion/completions/${f##*/}"; \
+       if [ -e "$f" ]; then ln -sf python "/usr/local/share/bash-completion/completions/${f##*/}"; fi; \
      done \
   && bash -n /usr/local/share/bash-completion/completions/python
 RUN echo cmux > /etc/cmux/vm-name

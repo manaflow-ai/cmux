@@ -6,6 +6,9 @@
 # completion for ghost text after each keystroke, so `python -m http.` stalled
 # typing. Keep the stock completion and list only the parent package's
 # submodules, which imports at most that one package.
+# Without the stock file there is no `complete` registration to amend; fail
+# so the loader moves on to the next search directory.
+[ -r /usr/share/bash-completion/completions/python ] || return 1
 . /usr/share/bash-completion/completions/python
 
 _python_modules()
