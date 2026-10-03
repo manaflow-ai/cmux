@@ -13,6 +13,9 @@ on:
   pull_request_target:
     types: [synchronize]
 
+env:
+  SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
+
 permissions: {}
 
 concurrency:
