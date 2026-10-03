@@ -611,7 +611,8 @@ export class Core {
     // A promptless turn in the replay of a reset log was posted (or not) by the log's past.
     if (!promptId) return this.resetReplay ? undefined : this.state.defaultConversation || undefined;
     const entry = this.state.prompts[promptId];
-    if (!entry) return undefined;
+    // An answered prompt's turn was posted already (a reset replay meets it again).
+    if (!entry || isAnswered(this.state, promptId)) return undefined;
     return entry.conversation || this.state.defaultConversation || undefined;
   }
 
