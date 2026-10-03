@@ -152,7 +152,13 @@ extension CMUXCLI {
                 return
             }
             guard argument.hasPrefix("--") else {
-                throw CLIError(message: "new-surface: unexpected argument '\(argument)'")
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.newSurface.error.unexpectedArgument",
+                        defaultValue: "new-surface: unexpected argument '%@'"
+                    ),
+                    argument
+                ))
             }
 
             let parts = argument.split(
@@ -162,12 +168,24 @@ extension CMUXCLI {
             )
             let option = String(parts[0])
             guard valueOptions.contains(option) else {
-                throw CLIError(message: "new-surface: unknown option '\(option)'")
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.newSurface.error.unknownOption",
+                        defaultValue: "new-surface: unknown option '%@'"
+                    ),
+                    option
+                ))
             }
 
             if parts.count == 2 {
                 guard !parts[1].isEmpty else {
-                    throw CLIError(message: "new-surface: \(option) requires a value")
+                    throw CLIError(message: String(
+                        format: String(
+                            localized: "cli.newSurface.error.optionRequiresValue",
+                            defaultValue: "new-surface: %@ requires a value"
+                        ),
+                        option
+                    ))
                 }
                 index += 1
                 continue
@@ -175,11 +193,23 @@ extension CMUXCLI {
 
             let valueIndex = index + 1
             guard valueIndex < args.count else {
-                throw CLIError(message: "new-surface: \(option) requires a value")
+                throw CLIError(message: String(
+                        format: String(
+                            localized: "cli.newSurface.error.optionRequiresValue",
+                            defaultValue: "new-surface: %@ requires a value"
+                        ),
+                        option
+                    ))
             }
             let value = args[valueIndex]
             guard value != "--", !value.hasPrefix("--") else {
-                throw CLIError(message: "new-surface: \(option) requires a value")
+                throw CLIError(message: String(
+                        format: String(
+                            localized: "cli.newSurface.error.optionRequiresValue",
+                            defaultValue: "new-surface: %@ requires a value"
+                        ),
+                        option
+                    ))
             }
             index += 2
         }
