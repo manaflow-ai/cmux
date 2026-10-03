@@ -680,6 +680,8 @@ export type TeamIntegrationPolicy = {
   readonly updated_by: string | null
 }
 
+export type TeamJournalStream = "tasks" | "mail" | "memory" | "files"
+
 export type TeamMember = {
   readonly user: UserId
   readonly role: "owner" | "admin" | "member"
@@ -2133,6 +2135,54 @@ export interface CloudOps {
       readonly epoch: number
     }
   }
+  /** Append one seq range (at most 100,000 seqs, 1 MiB) to a team journal stream; returns after the write is durable. A replay of the same range returns the stored acknowledgement. A writer whose reply was lost and whose epoch has since moved gets journal.stale_epoch even though its row is stored. Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b). */
+  readonly "team_vm.journal.append": {
+    readonly params: {
+      readonly stream: TeamJournalStream
+      readonly epoch: number
+      readonly first_seq: number
+      readonly last_seq: number
+      readonly bytes: string
+      readonly sha256: string
+    }
+    readonly result: {
+      readonly stream: TeamJournalStream
+      readonly first_seq: number
+      readonly last_seq: number
+      readonly epoch: number
+      readonly high_water: number
+      readonly replayed: boolean
+    }
+  }
+  /** The last seq a team journal stream holds. Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b). */
+  readonly "team_vm.journal.high_water": {
+    readonly params: {
+      readonly stream: TeamJournalStream
+    }
+    readonly result: {
+      readonly stream: TeamJournalStream
+      readonly high_water: number
+      readonly epoch: number
+    }
+  }
+  /** Whole journal entries from a seq on, for restore (up to about 4 MiB per call; `more` asks for the next call). Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b). */
+  readonly "team_vm.journal.read": {
+    readonly params: {
+      readonly stream: TeamJournalStream
+      readonly from_seq: number
+    }
+    readonly result: {
+      readonly entries: ReadonlyArray<{
+        readonly first_seq: number
+        readonly last_seq: number
+        readonly epoch: number
+        readonly sha256: string
+        readonly bytes: string
+      }>
+      readonly high_water: number
+      readonly more: boolean
+    }
+  }
   /** Release a wake lease you hold, so the team VM may pause when no other lease is active. */
   readonly "team_vm.lease.release": {
     readonly params: {
@@ -2502,6 +2552,9 @@ export const cloudOpMeta = {
   "sso.connection.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "sso.connection.set_secret": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team_vm.ensure_awake": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-shared" },
+  "team_vm.journal.append": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-own" },
+  "team_vm.journal.high_water": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
+  "team_vm.journal.read": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
   "team_vm.lease.release": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-own" },
   "team_vm.status": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
   "team.device.compliance": { class: "read", owner: "cloud:TeamDO", risk: "read" },

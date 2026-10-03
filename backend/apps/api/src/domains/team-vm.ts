@@ -1,5 +1,5 @@
 import type { Domain, ReduceResult } from "@cmux/ownership"
-import { TeamVmDriverResultParams, TeamVmEnsureAwake, TeamVmLeaseRelease, TeamVmLeasesExpireParams } from "@cmux/protocol"
+import { TeamVmBindInstallParams, TeamVmDriverResultParams, TeamVmEnsureAwake, TeamVmLeaseRelease, TeamVmLeasesExpireParams } from "@cmux/protocol"
 import { Schema, Exit } from "effect"
 import { admit, decodeParams, reject } from "./common.ts"
 import { grantClasses } from "../home-admit.ts"
@@ -29,6 +29,8 @@ export interface TeamVmState {
   readonly slug: string | null
   /** Increments with each new VM for the team; 0 before the first. */
   readonly epoch: number
+  /** The VM's own install for `epoch` (set at bind); the only journal writer. Cleared when the epoch changes. */
+  readonly vm_install?: string | null
   readonly leases: Readonly<Record<string, TeamVmLease>>
   readonly pending: TeamVmPending | null
   readonly last_error: { readonly code: string; readonly message: string; readonly at: number } | null
@@ -112,6 +114,16 @@ export const teamVmDomain: Domain<TeamVmState> = {
         return { ok: true, state: { ...state, leases, updated_at: ctx.now }, value: { expired: Object.keys(state.leases).length - Object.keys(leases).length } }
       }
 
+      case "team_vm.bind_install": {
+        const d = decodeInternal<typeof TeamVmBindInstallParams.Type>(TeamVmBindInstallParams, params)
+        if (!d.ok) return d
+        // Only the current VM may bind, and only once per epoch (a second install for the same epoch is refused).
+        if (state.vm === null || d.value.epoch !== state.epoch) return reject("team_vm.stale_epoch", "bind is for another epoch")
+        if (state.vm_install && state.vm_install !== d.value.install) return reject("team_vm.already_bound", "this epoch's VM install is already bound")
+        if (state.vm_install === d.value.install) return { ok: true, state, value: { install: d.value.install, epoch: state.epoch }, changed: false }
+        return { ok: true, state: { ...state, vm_install: d.value.install, updated_at: ctx.now }, value: { install: d.value.install, epoch: state.epoch } }
+      }
+
       case "team_vm.driver_result": {
         const d = decodeInternal<typeof TeamVmDriverResultParams.Type>(TeamVmDriverResultParams, params)
         if (!d.ok) return d
@@ -125,6 +137,7 @@ export const teamVmDomain: Domain<TeamVmState> = {
             ...state,
             vm: null,
             slug: null,
+            vm_install: null,
             status: "provisioning",
             pending: { action: "create", attempts: 0, retry_at: ctx.now + PENDING_SAFETY_MS },
             last_error: { code: "team_vm.vm_missing", message: r.error.message, at: ctx.now },
@@ -153,6 +166,7 @@ export const teamVmDomain: Domain<TeamVmState> = {
             vm: r.vm,
             slug: r.slug,
             epoch: state.epoch + 1,
+            vm_install: null,
             status: observedStatus(r.observed),
             pending: r.observed === "running" ? null : { action: "start", attempts: 0, retry_at: ctx.now + PENDING_SAFETY_MS },
             last_error: null,

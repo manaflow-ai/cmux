@@ -97,7 +97,9 @@ One journal per (team, stream); streams `tasks`, `mail`, `memory`, `files`. Entr
 - `journal.append`: requires `first_seq = high_water + 1` (contiguous); a replay of the same (stream, first_seq) with the same last_seq and sha256 returns the stored acknowledgement; any other replay is a conflict; refused when `epoch` is lower than the record's epoch. Returns after the DO storage write is durable. Only the team VM's own install may append.
 - `journal.high_water {stream}` returns the last `last_seq`.
 - `journal.read {stream, from_seq}` returns whole entries (restore).
-- Compaction moves old entries to R2 segments under `teams/<team>/journal/<stream>/` through the DO's binding; reads stitch R2 segments and the DO tail.
+- Compaction (follow-up slice S6b) moves old entries to R2 segments under `teams/<team>/journal/<stream>/` through the DO's binding; reads stitch R2 segments and the DO tail. Until S6b, the object refuses appends with `journal.full` above 8 GB of journal bytes, so the VM record in the same database keeps working.
+- Limits: one entry at most 1 MiB and 100,000 seqs; seqs stay below 2^50; one read returns about 4 MiB of whole entries (sizes are read first, blobs only up to the cut-off).
+- Binding: `team_vm.bind_install` (internal) records the VM's own install per epoch; the public bind route must prove the VM's instance identity first (lane 1 bind, lane 10 pairing; not built). Until then only tests bind, so the journal is unreachable in deployments.
 
 ## 4a. Journal store (measured 2026-10-03, from a Freestyle VM in San Francisco)
 

@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
-import { TeamId } from "./schemas.ts"
+import { InstallId, TeamId } from "./schemas.ts"
 
 /**
  * The team VM (plans/cmux-next/team-vm-plan.md S2, spec/team-vm.md). TeamVmDO, one per team,
@@ -82,7 +82,70 @@ export const TeamVmLeaseRelease = def({
   mcp: { expose: "never", group: "team" }
 })
 
-export const teamVmOps = [TeamVmStatusRead, TeamVmEnsureAwake, TeamVmLeaseRelease] as const satisfies readonly CloudOpDef[]
+export const JournalStreamName = Schema.Literals(["tasks", "mail", "memory", "files"]).annotate({ identifier: "TeamJournalStream" })
+const Seq = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))
+const JournalAckSchema = Schema.Struct({ stream: JournalStreamName, first_seq: Seq, last_seq: Seq, epoch: Schema.Int, high_water: Schema.Int, replayed: Schema.Boolean })
+const journalDocs = " Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b)."
+
+export const TeamVmJournalAppend = def({
+  name: "team_vm.journal.append",
+  owner: "cloud:TeamVmDO",
+  class: "mutation",
+  risk: "mutate-own",
+  target: "team",
+  principals: ["install"],
+  params: Schema.Struct({
+    stream: JournalStreamName,
+    epoch: Schema.Int,
+    first_seq: Seq,
+    last_seq: Seq,
+    /** The entry's bytes, base64 (at most 1 MiB decoded). */
+    bytes: Schema.String,
+    /** Lowercase hex SHA-256 of the decoded bytes; checked by the owner. */
+    sha256: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/))
+  }),
+  result: JournalAckSchema,
+  errors: [...mutationErrors, "journal.gap", "journal.conflict", "journal.stale_epoch", "journal.too_large", "journal.full", "team_vm.not_bound"],
+  docs: "Append one seq range (at most 100,000 seqs, 1 MiB) to a team journal stream; returns after the write is durable. A replay of the same range returns the stored acknowledgement. A writer whose reply was lost and whose epoch has since moved gets journal.stale_epoch even though its row is stored." + journalDocs,
+  cli: { path: "team journal append", visible: false },
+  mcp: { expose: "never", group: "team" }
+})
+
+export const TeamVmJournalHighWater = def({
+  name: "team_vm.journal.high_water",
+  owner: "cloud:TeamVmDO",
+  class: "read",
+  risk: "read",
+  target: "team",
+  principals: ["install"],
+  params: Schema.Struct({ stream: JournalStreamName }),
+  result: Schema.Struct({ stream: JournalStreamName, high_water: Schema.Int, epoch: Schema.Int }),
+  errors: ["auth.unauthenticated", "auth.forbidden", "team_vm.not_bound"],
+  docs: "The last seq a team journal stream holds." + journalDocs,
+  cli: { path: "team journal high-water", visible: false },
+  mcp: { expose: "never", group: "team" }
+})
+
+export const TeamVmJournalRead = def({
+  name: "team_vm.journal.read",
+  owner: "cloud:TeamVmDO",
+  class: "read",
+  risk: "read",
+  target: "team",
+  principals: ["install"],
+  params: Schema.Struct({ stream: JournalStreamName, from_seq: Seq }),
+  result: Schema.Struct({
+    entries: Schema.Array(Schema.Struct({ first_seq: Seq, last_seq: Seq, epoch: Schema.Int, sha256: Schema.String, bytes: Schema.String })),
+    high_water: Schema.Int,
+    more: Schema.Boolean
+  }),
+  errors: ["auth.unauthenticated", "auth.forbidden", "team_vm.not_bound"],
+  docs: "Whole journal entries from a seq on, for restore (up to about 4 MiB per call; `more` asks for the next call)." + journalDocs,
+  cli: { path: "team journal read", visible: false },
+  mcp: { expose: "never", group: "team" }
+})
+
+export const teamVmOps = [TeamVmStatusRead, TeamVmEnsureAwake, TeamVmLeaseRelease, TeamVmJournalAppend, TeamVmJournalHighWater, TeamVmJournalRead] as const satisfies readonly CloudOpDef[]
 
 export const TeamVmDriverResultParams = Schema.Struct({
   /** Which provider call finished. */
@@ -103,6 +166,9 @@ export const TeamVmDriverResultParams = Schema.Struct({
 
 export const TeamVmLeasesExpireParams = Schema.Struct({ now: Schema.Int })
 
+/** The install of the VM's own `cmux` (after bind) for one epoch; only that install may append to the journal. */
+export const TeamVmBindInstallParams = Schema.Struct({ install: InstallId, epoch: Schema.Int })
+
 const internal = (name: string, params: Schema.Top, docs: string): CloudOpDef =>
   ({
     name,
@@ -122,5 +188,6 @@ const internal = (name: string, params: Schema.Top, docs: string): CloudOpDef =>
 /** Ops only TeamVmDO itself submits (after a provider call, from its alarm). Not exported to the catalog. */
 export const teamVmInternalOps: ReadonlyArray<CloudOpDef> = [
   internal("team_vm.driver_result", TeamVmDriverResultParams, "Internal: a provider call (create or start) finished."),
-  internal("team_vm.leases_expire", TeamVmLeasesExpireParams, "Internal: drop wake leases that expired before `now`.")
+  internal("team_vm.leases_expire", TeamVmLeasesExpireParams, "Internal: drop wake leases that expired before `now`."),
+  internal("team_vm.bind_install", TeamVmBindInstallParams, "Internal: the VM's own install for the current epoch (journal writer).")
 ]

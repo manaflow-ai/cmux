@@ -853,6 +853,18 @@
       "scope": "team_vm:write",
       "class": "mutation"
     },
+    "team_vm.journal.append": {
+      "scope": "team_vm:write",
+      "class": "mutation"
+    },
+    "team_vm.journal.high_water": {
+      "scope": "team_vm:read",
+      "class": "read"
+    },
+    "team_vm.journal.read": {
+      "scope": "team_vm:read",
+      "class": "read"
+    },
     "team_vm.lease.release": {
       "scope": "team_vm:write",
       "class": "mutation"

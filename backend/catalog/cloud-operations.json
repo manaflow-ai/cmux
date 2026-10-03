@@ -3928,6 +3928,15 @@
         }
       }
     },
+    "TeamJournalStream": {
+      "kind": "enum",
+      "values": [
+        "tasks",
+        "mail",
+        "memory",
+        "files"
+      ]
+    },
     "TeamMember": {
       "kind": "object",
       "fields": {
@@ -36517,6 +36526,583 @@
             "description": "Last observed state of the team VM. `none`: never created. `failed`: the last provider call failed for good; the next ensure_awake retries."
           }
         }
+      }
+    },
+    "team_vm.journal.append": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "stream": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamJournalStream"
+            }
+          },
+          "epoch": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "first_seq": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "last_seq": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "bytes": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "sha256": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "stream": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "TeamJournalStream"
+                }
+              },
+              "first_seq": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "last_seq": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "epoch": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "high_water": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "replayed": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "journal.conflict",
+        "journal.full",
+        "journal.gap",
+        "journal.stale_epoch",
+        "journal.too_large",
+        "revision.conflict",
+        "team_vm.not_bound",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamVmDO",
+      "risk": "mutate-own",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team journal append",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Append one seq range (at most 100,000 seqs, 1 MiB) to a team journal stream; returns after the write is durable. A replay of the same range returns the stored acknowledgement. A writer whose reply was lost and whose epoch has since moved gets journal.stale_epoch even though its row is stored. Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "stream": {
+            "$ref": "#/$defs/TeamJournalStream"
+          },
+          "epoch": {
+            "type": "integer"
+          },
+          "first_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "last_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "bytes": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "stream",
+          "epoch",
+          "first_seq",
+          "last_seq",
+          "bytes",
+          "sha256"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamJournalStream": {
+            "type": "string",
+            "enum": [
+              "tasks",
+              "mail",
+              "memory",
+              "files"
+            ]
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "stream": {
+            "$ref": "#/$defs/TeamJournalStream"
+          },
+          "first_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "last_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "epoch": {
+            "type": "integer"
+          },
+          "high_water": {
+            "type": "integer"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "stream",
+          "first_seq",
+          "last_seq",
+          "epoch",
+          "high_water",
+          "replayed"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamJournalStream": {
+            "type": "string",
+            "enum": [
+              "tasks",
+              "mail",
+              "memory",
+              "files"
+            ]
+          }
+        }
+      }
+    },
+    "team_vm.journal.high_water": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "stream": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamJournalStream"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "stream": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamJournalStream"
+            }
+          },
+          "high_water": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "epoch": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "team_vm.not_bound"
+      ],
+      "owner": "cloud:TeamVmDO",
+      "risk": "read",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "team journal high-water",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "The last seq a team journal stream holds. Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "stream": {
+            "$ref": "#/$defs/TeamJournalStream"
+          }
+        },
+        "required": [
+          "stream"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamJournalStream": {
+            "type": "string",
+            "enum": [
+              "tasks",
+              "mail",
+              "memory",
+              "files"
+            ]
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "stream": {
+            "$ref": "#/$defs/TeamJournalStream"
+          },
+          "high_water": {
+            "type": "integer"
+          },
+          "epoch": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stream",
+          "high_water",
+          "epoch"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamJournalStream": {
+            "type": "string",
+            "enum": [
+              "tasks",
+              "mail",
+              "memory",
+              "files"
+            ]
+          }
+        }
+      }
+    },
+    "team_vm.journal.read": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "stream": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamJournalStream"
+            }
+          },
+          "from_seq": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "entries": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "object",
+                "fields": {
+                  "first_seq": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "int64"
+                    }
+                  },
+                  "last_seq": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "int64"
+                    }
+                  },
+                  "epoch": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "int64"
+                    }
+                  },
+                  "sha256": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string"
+                    }
+                  },
+                  "bytes": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "high_water": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "more": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "team_vm.not_bound"
+      ],
+      "owner": "cloud:TeamVmDO",
+      "risk": "read",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "team journal read",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Whole journal entries from a seq on, for restore (up to about 4 MiB per call; `more` asks for the next call). Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "stream": {
+            "$ref": "#/$defs/TeamJournalStream"
+          },
+          "from_seq": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "stream",
+          "from_seq"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamJournalStream": {
+            "type": "string",
+            "enum": [
+              "tasks",
+              "mail",
+              "memory",
+              "files"
+            ]
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "first_seq": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "last_seq": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "epoch": {
+                  "type": "integer"
+                },
+                "sha256": {
+                  "type": "string"
+                },
+                "bytes": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "first_seq",
+                "last_seq",
+                "epoch",
+                "sha256",
+                "bytes"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "high_water": {
+            "type": "integer"
+          },
+          "more": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "entries",
+          "high_water",
+          "more"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
       }
     },
     "team_vm.lease.release": {

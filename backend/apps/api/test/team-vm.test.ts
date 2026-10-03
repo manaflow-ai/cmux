@@ -11,6 +11,8 @@ interface TeamVmStub {
   readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<unknown>
   fakeControl(cmd: { fail_next?: number; pause_all?: boolean; delete_all?: boolean }): Promise<{ creates: number; starts: number }>
   fakeAlarm(aheadMs: number): Promise<void>
+  bindInstall(entity: string, install: string, epoch: number): Promise<SubmitResult>
+  journalAppend(entity: string, principal: Principal, frame: { t: "op"; op: string; params: unknown; idempotency_key: string; origin: "cli" }): Promise<SubmitResult>
 }
 const namespace = (env as unknown as { TEAM_VM_DO: DurableObjectNamespace }).TEAM_VM_DO
 const ns = { get: (id: DurableObjectId) => namespace.get(id) as unknown as TeamVmStub, idFromName: (n: string) => namespace.idFromName(n) }
@@ -105,6 +107,19 @@ describe("team VM reducer", () => {
     expect(bad.state).toMatchObject({ status: "failed", pending: null, last_error: { code: "team_vm.provider_refused" } })
   })
 
+  it("binds the VM's install once per epoch, and a new VM clears the binding", () => {
+    let s = must(apply(teamVmDomain.initial(), "team_vm.ensure_awake", { reason: "ssh" }, alice)).state
+    expect(apply(s, "team_vm.bind_install", { install: "inst_00000000000000000081", epoch: 0 }, system)).toMatchObject({ ok: false, code: "team_vm.stale_epoch" })
+    s = must(apply(s, "team_vm.driver_result", { action: "create", epoch: 0, ok: true, vm: "vm1", slug: "s-e1", observed: "running" }, system)).state
+    expect(apply(s, "team_vm.bind_install", { install: "inst_00000000000000000081", epoch: 1 }, alice)).toMatchObject({ ok: false })
+    s = must(apply(s, "team_vm.bind_install", { install: "inst_00000000000000000081", epoch: 1 }, system)).state
+    expect(s.vm_install).toBe("inst_00000000000000000081")
+    expect(apply(s, "team_vm.bind_install", { install: "inst_00000000000000000082", epoch: 1 }, system)).toMatchObject({ ok: false, code: "team_vm.already_bound" })
+    s = must(apply(s, "team_vm.ensure_awake", { reason: "tasks" }, alice)).state
+    s = must(apply(s, "team_vm.driver_result", { action: "start", epoch: 1, ok: false, error: { code: "team_vm.vm_missing", message: "read VM: 404" }, final: true }, system)).state
+    expect(s.vm_install).toBeNull()
+  })
+
   it("only the holder releases a lease; expiry drops past leases only", () => {
     const r = must(apply(teamVmDomain.initial(), "team_vm.ensure_awake", { reason: "ssh", lease_seconds: 60 }, alice, 1_000))
     const lease = (r.value as { lease: string }).lease
@@ -192,5 +207,59 @@ describe("TeamVmDO with the fake provider", { timeout: 30_000 }, () => {
     const stub = ns.get(ns.idFromName(TEAM))
     const r = result((await stub.ensureAwake(TEAM, { ...alice, team: OTHER }, op("team_vm.ensure_awake", { reason: "ssh" }))).frames)
     expect(r).toMatchObject({ t: "reject", code: "auth.forbidden" })
+  })
+})
+
+const enc = new TextEncoder()
+const b64 = (t: string) => btoa(t)
+const hex = async (t: string) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(t))), (b) => b.toString(16).padStart(2, "0")).join("")
+const append = async (stub: TeamVmStub, team: string, p: Principal, a: { stream: string; epoch: number; first: number; last: number; text: string; sha?: string }) =>
+  result(
+    (
+      await stub.journalAppend(team, p, op("team_vm.journal.append", { stream: a.stream, epoch: a.epoch, first_seq: a.first, last_seq: a.last, bytes: b64(a.text), sha256: a.sha ?? (await hex(a.text)) }))
+    ).frames
+  )
+
+describe("team journal in TeamVmDO", { timeout: 30_000 }, () => {
+  const T = "team_00000000000000000075"
+  const VM_INSTALL = "inst_00000000000000000075"
+  const vm: Principal = { identity: `install:${VM_INSTALL}`, user: ALICE, team: T, kind: "install", install: VM_INSTALL, grant_classes: ["read", "mutate-own"] }
+
+  it("only the bound VM install appends; ranges are contiguous, replays return the stored ack, other replays conflict", async () => {
+    const stub = ns.get(ns.idFromName(T))
+    await stub.ensureAwake(T, { ...alice, team: T }, op("team_vm.ensure_awake", { reason: "ssh" }))
+    expect(await append(stub, T, vm, { stream: "tasks", epoch: 1, first: 1, last: 3, text: "a" })).toMatchObject({ t: "reject", code: "team_vm.not_bound" })
+    result((await stub.bindInstall(T, VM_INSTALL, 1)).frames)
+    // A member's session and another install of the team are refused: the journal holds every person's files.
+    expect(await append(stub, T, { ...alice, team: T }, { stream: "tasks", epoch: 1, first: 1, last: 3, text: "a" })).toMatchObject({ t: "reject", code: "auth.forbidden" })
+    expect(await append(stub, T, { ...vm, install: "inst_00000000000000000076", identity: "install:x" }, { stream: "tasks", epoch: 1, first: 1, last: 3, text: "a" })).toMatchObject({
+      t: "reject",
+      code: "auth.forbidden"
+    })
+    expect(await append(stub, T, vm, { stream: "tasks", epoch: 1, first: 1, last: 3, text: "ops 1-3" })).toMatchObject({ t: "result", value: { high_water: 3, replayed: false } })
+    expect(await append(stub, T, vm, { stream: "tasks", epoch: 1, first: 1, last: 3, text: "ops 1-3" })).toMatchObject({ t: "result", value: { high_water: 3, replayed: true } })
+    expect(await append(stub, T, vm, { stream: "tasks", epoch: 1, first: 1, last: 3, text: "different" })).toMatchObject({ t: "reject", code: "journal.conflict" })
+    expect(await append(stub, T, vm, { stream: "tasks", epoch: 1, first: 5, last: 5, text: "gap" })).toMatchObject({ t: "reject", code: "journal.gap", details: { high_water: 3 } })
+    expect(await append(stub, T, vm, { stream: "tasks", epoch: 0, first: 4, last: 4, text: "old" })).toMatchObject({ t: "reject", code: "journal.stale_epoch" })
+    expect(await append(stub, T, vm, { stream: "tasks", epoch: 1, first: 4, last: 4, text: "x", sha: "0".repeat(64) })).toMatchObject({ t: "reject", code: "validation.invalid" })
+    expect(await append(stub, T, vm, { stream: "tasks", epoch: 1, first: 4, last: 6, text: "ops 4-6" })).toMatchObject({ t: "result", value: { high_water: 6 } })
+    // A range wider than 100,000 seqs is refused, so no writer can push the seq out of safe integers.
+    expect(await append(stub, T, vm, { stream: "tasks", epoch: 1, first: 7, last: 7 + 100_000, text: "wide" })).toMatchObject({ t: "reject", code: "validation.invalid" })
+    // Streams are independent.
+    expect(await append(stub, T, vm, { stream: "mail", epoch: 1, first: 1, last: 1, text: "msg" })).toMatchObject({ t: "result", value: { high_water: 1 } })
+  })
+
+  it("reads whole entries back for restore, only for the VM install", async () => {
+    const stub = ns.get(ns.idFromName(T))
+    const hw = (await stub.readOp(T, vm, "team_vm.journal.high_water", { stream: "tasks" })) as { ok: boolean; value: { high_water: number; epoch: number } }
+    expect(hw).toMatchObject({ ok: true, value: { high_water: 6, epoch: 1 } })
+    const r = (await stub.readOp(T, vm, "team_vm.journal.read", { stream: "tasks", from_seq: 2 })) as { ok: boolean; value: { entries: Array<{ first_seq: number; last_seq: number; bytes: string }>; more: boolean } }
+    expect(r.ok).toBe(true)
+    expect(r.value.entries.map((e) => [e.first_seq, e.last_seq, atob(e.bytes)])).toEqual([
+      [1, 3, "ops 1-3"],
+      [4, 6, "ops 4-6"]
+    ])
+    expect(r.value.more).toBe(false)
+    expect(await stub.readOp(T, { ...alice, team: T }, "team_vm.journal.read", { stream: "tasks", from_seq: 1 })).toMatchObject({ ok: false, code: "auth.forbidden" })
   })
 })

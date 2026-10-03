@@ -237,6 +237,13 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           }
           return toResponse(payload.op, r.frames)
         }
+        // The team journal: a durable append in TeamVmDO's side tables, outside the op ledger (the range is its own key).
+        if (payload.op === "team_vm.journal.append") {
+          const p = yield* principalFor(def.owner, principal)
+          const stub = env.TEAM_VM_DO.get(env.TEAM_VM_DO.idFromName(p.team!))
+          const r = yield* Effect.tryPromise({ try: () => rpc<SubmitResult>(stub.journalAppend(p.team!, p, { t: "op", ...frame })), catch: unreachable })
+          return toResponse(payload.op, r.frames)
+        }
         // The team VM: commit the lease, then the DO runs the provider calls and answers with their outcome.
         if (payload.op === "team_vm.ensure_awake") {
           const p = yield* principalFor(def.owner, principal)
