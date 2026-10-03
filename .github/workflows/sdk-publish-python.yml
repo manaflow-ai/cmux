@@ -24,6 +24,10 @@ on:
 permissions: {}
 
 env:
+  # libghostty-vt always builds from the ghostty-next gitlink: an empty
+  # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
+  # as unset).
+  CMUX_GHOSTTY_SRC: ""
   RUST_TOOLCHAIN: "1.95.0"
 
 concurrency:

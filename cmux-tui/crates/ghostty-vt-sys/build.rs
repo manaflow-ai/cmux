@@ -15,9 +15,11 @@ fn main() {
     // the Mac app's GhosttyKit source and is never used here: a missing
     // ghostty-next checkout is a hard error, not a fallback.
     // CMUX_GHOSTTY_SRC overrides the source for out-of-tree builds.
+    // An empty CMUX_GHOSTTY_SRC means unset: CI workflows set it empty so a
+    // runner-level value can never redirect the build away from the gitlink.
     let ghostty_dir = match env::var("CMUX_GHOSTTY_SRC") {
-        Ok(p) => PathBuf::from(p),
-        Err(_) => manifest_dir.join("../../../ghostty-next"),
+        Ok(p) if !p.is_empty() => PathBuf::from(p),
+        _ => manifest_dir.join("../../../ghostty-next"),
     };
     let ghostty_dir = require_vt_source(&ghostty_dir);
 

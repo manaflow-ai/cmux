@@ -22,6 +22,12 @@ concurrency:
   group: cmux-tui-testbox-${{ inputs.testbox_id }}
   cancel-in-progress: false
 
+env:
+  # libghostty-vt always builds from the ghostty-next gitlink: an empty
+  # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
+  # as unset).
+  CMUX_GHOSTTY_SRC: ""
+
 jobs:
   cmux-tui-rust:
     env:

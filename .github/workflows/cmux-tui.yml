@@ -33,6 +33,12 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # libghostty-vt always builds from the ghostty-next gitlink: an empty
+  # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
+  # as unset).
+  CMUX_GHOSTTY_SRC: ""
+
 jobs:
   validate-inputs:
     name: validate exact commit request
