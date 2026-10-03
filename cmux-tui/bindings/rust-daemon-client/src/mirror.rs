@@ -9,13 +9,19 @@
 //! concept (the Swift app keeps its window records in a frontend projection),
 //! so the mirror keeps `frontend_projections` verbatim for a later stage and
 //! models workspaces > screens > panes > tabs (> terminal | browser).
+//!
+//! Personal state: the mirror also keeps the workspace groups and the
+//! personal sidebar order (workspace placements) from the snapshot's
+//! `extra.state` and the `state_upsert` / `state_delete` changes
+//! (`mirror_state`).
 
+use crate::mirror_state::{self, StateChange};
 use cmux::{
     BrowserId, BrowserSnapshot, ClientSnapshot, ConnectedClientId, Cursor, FrontendProjectionId,
     FrontendProjectionSnapshot, PaneId, PaneSnapshot, ResourceChange, ResourceEntitySnapshot,
     ResourceKind, ResourceReference, ResourceSnapshot, ScreenId, ScreenSnapshot, SessionDeltaEvent,
-    SessionEvent, SessionSnapshot, TabId, TabSnapshot, TerminalId, TerminalSnapshot, WorkspaceId,
-    WorkspaceSnapshot,
+    SessionEvent, SessionSnapshot, TabId, TabSnapshot, TerminalId, TerminalSnapshot,
+    WorkspaceGroupSnapshot, WorkspaceId, WorkspacePlacementSnapshot, WorkspaceSnapshot,
 };
 use std::collections::BTreeMap;
 use std::fmt;
@@ -40,6 +46,14 @@ pub enum MirrorChange {
     Browser(Change<BrowserId>),
     Client(Change<ConnectedClientId>),
     FrontendProjection(Change<FrontendProjectionId>),
+    /// A personal workspace group, by its state id (`grp_…`).
+    WorkspaceGroup(Change<String>),
+    /// A workspace's place in the personal sidebar order, by placement id
+    /// (`<session registry id>/<workspace ref>`).
+    WorkspacePlacement(Change<String>),
+    /// A state resource the mirror does not keep (tab group, room, closed
+    /// item, window record, ...), by its `resource` name.
+    IgnoredState(String),
     /// A resource the mirror does not keep (machine, notification, agent,
     /// pairing request, sidebar view) or an unknown change kind.
     Ignored(Option<ResourceKind>),
@@ -67,6 +81,8 @@ pub enum MirrorError {
     RevisionGap { mirror: u64, previous: u64 },
     /// An upsert's value kind does not match its declared resource.
     Mismatch(ResourceKind),
+    /// A state change of a kept resource is malformed.
+    InvalidState { resource: String, reason: String },
 }
 
 impl fmt::Display for MirrorError {
@@ -80,6 +96,9 @@ impl fmt::Display for MirrorError {
                 write!(f, "delta continues revision {previous}, mirror is at {mirror}")
             }
             Self::Mismatch(kind) => write!(f, "upsert value does not match resource {kind:?}"),
+            Self::InvalidState { resource, reason } => {
+                write!(f, "invalid {resource} state change: {reason}")
+            }
         }
     }
 }
@@ -99,6 +118,11 @@ pub struct Mirror {
     pub browsers: BTreeMap<BrowserId, BrowserSnapshot>,
     pub clients: BTreeMap<ConnectedClientId, ClientSnapshot>,
     pub frontend_projections: BTreeMap<FrontendProjectionId, FrontendProjectionSnapshot>,
+    /// Personal workspace groups by state id.
+    pub workspace_groups: BTreeMap<String, WorkspaceGroupSnapshot>,
+    /// The personal sidebar order by placement id. It can name workspaces
+    /// of other sessions (`workspace.workspace_id` is `None` for those).
+    pub workspace_placements: BTreeMap<String, WorkspacePlacementSnapshot>,
 }
 
 fn keyed<I: Ord, T>(items: Vec<T>, id: impl Fn(&T) -> I) -> BTreeMap<I, T> {
@@ -125,6 +149,7 @@ impl Mirror {
 
     /// Replaces everything with `snapshot`.
     pub fn reset(&mut self, snapshot: ResourceSnapshot) {
+        let (workspace_groups, workspace_placements) = mirror_state::from_extra(&snapshot.extra);
         *self = Self {
             cursor: Some(snapshot.cursor),
             session: Some(snapshot.session),
@@ -136,6 +161,8 @@ impl Mirror {
             browsers: keyed(snapshot.browsers, |b| b.id.clone()),
             clients: keyed(snapshot.clients, |c| c.id.clone()),
             frontend_projections: keyed(snapshot.frontend_projections, |p| p.id.clone()),
+            workspace_groups,
+            workspace_placements,
         };
     }
 
@@ -175,17 +202,27 @@ impl Mirror {
                 previous: delta.previous_revision,
             });
         }
-        // Validate before mutating so a bad delta leaves the mirror intact.
+        // Validate (and decode state changes) before mutating so a bad delta
+        // leaves the mirror intact.
+        let mut states = Vec::with_capacity(delta.changes.len());
         for change in &delta.changes {
-            if let ResourceChange::Upsert { resource, value, .. } = change
-                && !value_matches(*resource, value)
-            {
-                return Err(MirrorError::Mismatch(*resource));
-            }
+            states.push(match change {
+                ResourceChange::Upsert { resource, value, .. } => {
+                    if !value_matches(*resource, value) {
+                        return Err(MirrorError::Mismatch(*resource));
+                    }
+                    None
+                }
+                ResourceChange::Unknown { kind, raw } => mirror_state::decode(kind, raw)?,
+                ResourceChange::Delete { .. } => None,
+            });
         }
         let mut applied = Vec::with_capacity(delta.changes.len());
-        for change in delta.changes {
-            applied.push(self.apply_change(change));
+        for (change, state) in delta.changes.into_iter().zip(states) {
+            applied.push(match state {
+                Some(state) => self.apply_state(state),
+                None => self.apply_change(change),
+            });
         }
         self.cursor = Some(delta.cursor);
         if let Some(session) = &mut self.session {
@@ -250,6 +287,82 @@ impl Mirror {
             }
             ResourceChange::Unknown { .. } => MirrorChange::Ignored(None),
         }
+    }
+
+    fn apply_state(&mut self, change: StateChange) -> MirrorChange {
+        match change {
+            StateChange::GroupUpsert(id, group) => {
+                MirrorChange::WorkspaceGroup(upsert(&mut self.workspace_groups, id, group))
+            }
+            StateChange::GroupDelete(id) => remove(&mut self.workspace_groups, &id).map_or_else(
+                || MirrorChange::IgnoredState(mirror_state::WORKSPACE_GROUP.to_string()),
+                MirrorChange::WorkspaceGroup,
+            ),
+            StateChange::PlacementUpsert(id, placement) => MirrorChange::WorkspacePlacement(
+                upsert(&mut self.workspace_placements, id, placement),
+            ),
+            StateChange::PlacementDelete(id) => remove(&mut self.workspace_placements, &id)
+                .map_or_else(
+                    || MirrorChange::IgnoredState(mirror_state::WORKSPACE_PLACEMENT.to_string()),
+                    MirrorChange::WorkspacePlacement,
+                ),
+            StateChange::Other(resource) => MirrorChange::IgnoredState(resource),
+        }
+    }
+
+    // MARK: - Personal sidebar queries
+
+    /// Workspace groups in order.
+    pub fn workspace_groups_ordered(&self) -> Vec<&WorkspaceGroupSnapshot> {
+        let mut out: Vec<_> = self.workspace_groups.values().collect();
+        out.sort_by(|a, b| a.index.cmp(&b.index).then_with(|| a.id.cmp(&b.id)));
+        out
+    }
+
+    /// Placements in the personal sidebar order.
+    pub fn placements_ordered(&self) -> Vec<&WorkspacePlacementSnapshot> {
+        let mut out: Vec<_> = self.workspace_placements.values().collect();
+        out.sort_by(|a, b| {
+            a.index
+                .cmp(&b.index)
+                .then_with(|| a.workspace.placement_id().cmp(&b.workspace.placement_id()))
+        });
+        out
+    }
+
+    /// The placement of a live workspace of this session.
+    pub fn placement_of(&self, workspace: &WorkspaceId) -> Option<&WorkspacePlacementSnapshot> {
+        self.workspace_placements
+            .values()
+            .find(|p| p.workspace.workspace_id.as_ref() == Some(workspace))
+    }
+
+    /// The live workspaces of this session in a group, in personal order.
+    /// Members from other sessions are left out.
+    pub fn group_members(&self, group: &str) -> Vec<WorkspaceId> {
+        self.placements_ordered()
+            .into_iter()
+            .filter(|p| p.group_id.as_deref() == Some(group))
+            .filter_map(|p| p.workspace.workspace_id.clone())
+            .filter(|id| self.workspaces.contains_key(id))
+            .collect()
+    }
+
+    /// This session's workspaces in the personal sidebar order: placed ones
+    /// by placement index, then the unplaced ones in daemon order.
+    pub fn workspaces_in_personal_order(&self) -> Vec<&WorkspaceSnapshot> {
+        let mut out: Vec<&WorkspaceSnapshot> = self
+            .placements_ordered()
+            .into_iter()
+            .filter_map(|p| p.workspace.workspace_id.as_ref())
+            .filter_map(|id| self.workspaces.get(id))
+            .collect();
+        for workspace in self.workspaces_ordered() {
+            if !out.iter().any(|w| w.id == workspace.id) {
+                out.push(workspace);
+            }
+        }
+        out
     }
 
     // MARK: - Ordered tree queries
