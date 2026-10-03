@@ -914,8 +914,14 @@ jobs:
               sleep 1
             done
             scripts/ci/clear-dirs.sh "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
-            if compile_once; then
-              status=0
+            if scripts/ci/compile-app-host-test-product.sh canonical-resolve \
+              "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
+              "$PWD/.ci-source-packages"; then
+              if compile_once; then
+                status=0
+              else
+                status=$?
+              fi
             else
               status=$?
             fi
