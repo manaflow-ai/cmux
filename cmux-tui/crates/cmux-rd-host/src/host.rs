@@ -370,7 +370,14 @@ mod tests {
 
     #[test]
     fn an_http_request_is_closed_before_any_reply() {
-        for prefix in ["GET / HTTP/1.1\r\n", "POST /x HTTP/1.1\r\n", "OPTIONS * HTTP/1.1", "PUT /", "HEAD /", "CONNECT a:1"] {
+        for prefix in [
+            "GET / HTTP/1.1\r\n",
+            "POST /x HTTP/1.1\r\n",
+            "OPTIONS * HTTP/1.1",
+            "PUT /",
+            "HEAD /",
+            "CONNECT a:1",
+        ] {
             let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
             let addr = listener.local_addr().expect("addr");
             let mut client = std::net::TcpStream::connect(addr).expect("connect");
