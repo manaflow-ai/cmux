@@ -833,6 +833,30 @@ function turnCases(): CorpusCase[] {
   }
 
   {
+    const c = new CaseBuilder("turns: outstanding prompts are resent in the order they were recorded (order, absent = 0, then id); a new prompt gets the next order", {
+      defaultConversation: "conv_a",
+      muxSessionId: "s_old",
+      prompts: {
+        msg_a: { conversation: "conv_a", text: "second", order: 2 },
+        msg_b: { conversation: "conv_a", text: "first", order: 1 },
+        old: { conversation: "conv_a", text: "from an older host.json" },
+      },
+    } as Partial<HostStateData>);
+    c.step({ kind: "acpmux_connected", session_id: MUX_SESSION, sessions: [], events: [] }, ["persist", "prompt", "prompt", "prompt"], (e) => {
+      const ids = e.filter((x) => x.kind === "prompt").map((x) => (x as Of<"prompt">).prompt_id);
+      c.check(ids.join() === "old,msg_b,msg_a", `recorded order, got ${ids.join()}`);
+    });
+    c.step({ kind: "daemon_connected", conversation: summary("conv_a") }, ["list_conversations"]);
+    c.step({ kind: "conversations_listed", conversations: [summary("conv_a")] }, ["fetch_snapshot"]);
+    const m1 = msg("conv_a", 1, USER_LOCAL, "new");
+    c.step({ kind: "snapshot", conversation: summary("conv_a"), messages: [m1] }, ["persist", "prompt"], (e) => {
+      const entry = c.persisted(e).prompts[m1.id] as { order?: number };
+      c.check(entry.order === 3, `next order, got ${entry.order}`);
+    });
+    cases.push(c.end());
+  }
+
+  {
     const c = new CaseBuilder("typing: no typing while the daemon is down; the reply waits in the outbox; acpmux loss turns typing off", {
       defaultConversation: "conv_a",
     });
