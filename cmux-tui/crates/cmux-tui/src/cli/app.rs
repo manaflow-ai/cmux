@@ -798,7 +798,7 @@ fn warn_unstable_handles(method: &str, value: &Value, output: OutputMode) {
         && output == OutputMode::Human
         && value.get("handles_stable") == Some(&Value::Bool(false))
     {
-        eprintln!("{}", super::coderouter::messages::messages().handles_unstable);
+        eprintln!("{}", crate::localization::catalog().app_control.handles_unstable);
     }
 }
 

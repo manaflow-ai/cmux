@@ -146,3 +146,46 @@ fn private_process_modes_run_under_the_cmux_name() {
         assert!(!output.stdout.is_empty() || !stderr.is_empty(), "{args:?} printed nothing");
     }
 }
+
+/// A one-connection app socket that answers every request with `result`.
+fn fake_app(
+    dir: &std::path::Path,
+    result: serde_json::Value,
+) -> (PathBuf, std::thread::JoinHandle<()>) {
+    use std::io::{BufRead, BufReader, Write};
+    let socket = dir.join("app.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    let handle = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let mut line = String::new();
+        while reader.read_line(&mut line).unwrap() > 0 {
+            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+            line.clear();
+            let reply = serde_json::json!({"id": request["id"], "ok": true, "result": result});
+            writeln!(writer, "{reply}").unwrap();
+        }
+    });
+    (socket, handle)
+}
+
+#[test]
+fn accounts_list_warns_on_stderr_when_handles_are_not_stable() {
+    for (stable, warns) in [(false, true), (true, false)] {
+        let names = Names::new(&format!("handles-{stable}"));
+        let result =
+            serde_json::json!({"signed_in": true, "handles_stable": stable, "providers": []});
+        let (socket, app) = fake_app(&names.dir, result);
+        let socket = socket.display().to_string();
+        let output = names.run("cmux", &["--app-socket", &socket, "accounts", "list"]);
+        app.join().unwrap();
+        let stderr = text(&output.stderr);
+        assert!(output.status.success(), "{stderr}");
+        assert_eq!(
+            stderr.contains("account handles change after restart: Keychain unavailable"),
+            warns,
+            "handles_stable {stable}: {stderr}"
+        );
+    }
+}

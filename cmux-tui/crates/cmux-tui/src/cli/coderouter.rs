@@ -24,7 +24,6 @@ use serde_json::{Map, Value, json};
 use super::{GlobalArgs, OutputMode, UsageError};
 
 mod accounts;
-pub(crate) mod messages;
 
 use accounts::{SelectorError, account_id, account_lines, redact_emails};
 
@@ -507,7 +506,7 @@ fn status(client: &mut AppClient, team: Option<&str>) -> Result<(Value, Option<V
 /// The text form of `coderouter status`: sign-in state, then one line per
 /// Claude account. It never prints the user's email.
 fn status_text(payload: &Map<String, Value>) -> Value {
-    let messages = messages::messages();
+    let messages = &crate::localization::catalog().coderouter;
     let signed_in = payload.get("signed_in").and_then(Value::as_bool).unwrap_or(false);
     if !signed_in {
         return json!(messages.status_signed_out);

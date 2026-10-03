@@ -228,7 +228,10 @@ fn account_text_shows_the_handle_and_never_the_server_account() {
         json!("acct_one  anthropic_oauth  sk-…1  (work)  active")
     );
     assert!(!account_lines(Some(&accounts)).to_string().contains("srv-secret"));
-    assert_eq!(account_lines(Some(&json!([]))), json!(messages::messages().no_accounts));
+    assert_eq!(
+        account_lines(Some(&json!([]))),
+        json!(crate::localization::catalog().coderouter.no_accounts)
+    );
 }
 
 #[test]

@@ -4,8 +4,6 @@
 
 use serde_json::{Value, json};
 
-use super::messages::messages;
-
 /// A selector that names no account, or several.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct SelectorError {
@@ -41,7 +39,7 @@ pub(crate) fn account_id(selector: &str, accounts: &Value) -> Result<String, Sel
     let catalog = &crate::localization::catalog().coderouter;
     let error = |message: String| SelectorError { message, candidates: Vec::new() };
     if looks_like_email(selector) {
-        return Err(error(messages().account_email_selector.to_owned()));
+        return Err(error(catalog.account_email_selector.to_owned()));
     }
     let accounts = accounts.as_array().map(Vec::as_slice).unwrap_or_default();
     let field =
@@ -101,7 +99,7 @@ pub(crate) fn account_lines(accounts: Option<&Value>) -> Value {
         .map(|accounts| accounts.iter().map(|account| account_line(account, true)).collect())
         .unwrap_or_default();
     if lines.is_empty() {
-        return json!(messages().no_accounts);
+        return json!(crate::localization::catalog().coderouter.no_accounts);
     }
     json!(lines.join("\n"))
 }
