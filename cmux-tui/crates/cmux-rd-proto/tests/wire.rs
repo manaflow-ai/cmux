@@ -203,3 +203,23 @@ fn many_small_frames_in_one_chunk_are_all_read() {
     assert_eq!(d.next_frame().expect("frame"), Some((STREAM_CONTROL, b"abc".to_vec())));
     assert_eq!(d.buffered(), 0);
 }
+
+/// The stream carrier bytes of `{"t":"stop"}` then a 3-byte datagram. The
+/// same vector is pinned in cmux-rd-host's src/wire.rs tests (which also
+/// round-trip it through the host's writer and reader).
+#[test]
+fn stream_framing_matches_the_golden_vector() {
+    use cmux_rd_proto::{STREAM_CONTROL, STREAM_DATAGRAM, StreamDeframer, encode_stream_frame};
+    const GOLDEN: &[u8] = &[
+        1, 12, 0, 0, 0, b'{', b'"', b't', b'"', b':', b'"', b's', b't', b'o', b'p', b'"', b'}', 2,
+        3, 0, 0, 0, 7, 7, 7,
+    ];
+    let mut bytes = Vec::new();
+    encode_stream_frame(STREAM_CONTROL, br#"{"t":"stop"}"#, &mut bytes).expect("control");
+    encode_stream_frame(STREAM_DATAGRAM, &[7, 7, 7], &mut bytes).expect("datagram");
+    assert_eq!(bytes, GOLDEN);
+    let mut d = StreamDeframer::default();
+    d.extend(GOLDEN);
+    assert_eq!(d.next_frame().expect("frame"), Some((STREAM_CONTROL, br#"{"t":"stop"}"#.to_vec())));
+    assert_eq!(d.next_frame().expect("frame"), Some((STREAM_DATAGRAM, vec![7, 7, 7])));
+}
