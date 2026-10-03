@@ -908,12 +908,15 @@ jobs:
             # tree and retry once from the already-resolved source packages;
             # real compiler errors still fail without a retry.
             echo "::warning::stale DerivedData dependency output detected; retrying compile from a clean tree"
+            compile_workers_running() {
+              pgrep -f "^(xcodebuild|swift-frontend|swiftc|clang|ld)( .*|$).*${CMUX_COMPILE_ADMISSION_DERIVED_DATA}" >/dev/null 2>&1
+            }
             wait_seconds=0
-            while [ "$wait_seconds" -lt 60 ] && pgrep -f "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" >/dev/null 2>&1; do
+            while [ "$wait_seconds" -lt 60 ] && compile_workers_running; do
               wait_seconds=$((wait_seconds + 1))
               sleep 1
             done
-            if pgrep -f "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" >/dev/null 2>&1; then
+            if compile_workers_running; then
               echo "::error::compile workers remain after 60 seconds; refusing to replace their build state"
               exit "$status"
             fi
