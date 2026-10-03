@@ -72,6 +72,8 @@ pub(crate) fn dispatch(
 struct Repository {
     root: PathBuf,
     overrides: Vec<String>,
+    /// A private index every run reads instead of the repository's own.
+    index: Option<PathBuf>,
 }
 
 impl Repository {
@@ -91,11 +93,22 @@ impl Repository {
         let root = PathBuf::from(root);
         let overrides =
             filter_overrides(&root).map_err(|failure| git_failed(operation, &failure))?;
-        Ok(Self { root, overrides })
+        Ok(Self { root, overrides, index: None })
     }
 
     fn run(&self, arguments: &[&str], max_stdout: usize) -> Result<GitOutput, GitFailure> {
-        run_git(&self.root, &self.overrides, arguments, max_stdout)
+        run::run_git_with_index(
+            &self.root,
+            &self.overrides,
+            self.index.as_deref(),
+            arguments,
+            max_stdout,
+        )
+    }
+
+    /// This repository read through `index` instead of its own index.
+    fn with_index(&self, index: PathBuf) -> Self {
+        Self { root: self.root.clone(), overrides: self.overrides.clone(), index: Some(index) }
     }
 
     /// The commit a revision names, or `None`.

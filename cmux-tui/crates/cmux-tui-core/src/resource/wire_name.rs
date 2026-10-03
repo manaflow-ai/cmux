@@ -43,6 +43,7 @@ impl ResourceOperation {
             Self::FrontendProjectionGet => "frontend_projection.get",
             Self::FrontendProjectionPut => "frontend_projection.put",
             Self::GitCheckpointCreate => "git.checkpoint.create",
+            Self::GitCheckpointDiff => "git.checkpoint.diff",
             Self::GitCheckpointGet => "git.checkpoint.get",
             Self::GitCheckpointList => "git.checkpoint.list",
             Self::GitCheckpointPin => "git.checkpoint.pin",

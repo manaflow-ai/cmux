@@ -33,6 +33,7 @@
     "frontend_projection.get",
     "frontend_projection.put",
     "git.checkpoint.create",
+    "git.checkpoint.diff",
     "git.checkpoint.get",
     "git.checkpoint.list",
     "git.checkpoint.pin",

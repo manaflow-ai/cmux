@@ -202,6 +202,8 @@ pub enum ResourceOperation {
     FrontendProjectionPut,
     #[serde(rename = "git.checkpoint.create")]
     GitCheckpointCreate,
+    #[serde(rename = "git.checkpoint.diff")]
+    GitCheckpointDiff,
     #[serde(rename = "git.checkpoint.get")]
     GitCheckpointGet,
     #[serde(rename = "git.checkpoint.list")]
@@ -587,6 +589,7 @@ impl ResourceOperation {
                 | Self::ClientGet
                 | Self::PairingRequestList
                 | Self::FrontendProjectionGet
+                | Self::GitCheckpointDiff
                 | Self::GitCheckpointGet
                 | Self::GitCheckpointList
                 | Self::GitDiff
