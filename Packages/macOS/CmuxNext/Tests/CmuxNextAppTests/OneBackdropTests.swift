@@ -1,0 +1,92 @@
+import AppKit
+@testable import CmuxNextApp
+import CmuxNextDesign
+import CmuxNextSettings
+import Testing
+
+/// One backdrop per window (plans/cmux-next/windows.md, Lawrence R31): with
+/// a see-through theme (background-opacity < 1, blur on) the main window
+/// has exactly one translucent backdrop, the root's material and tint,
+/// and every surface above it (sidebar, panes, strips, titlebar, docks)
+/// is clear, so everything reads as the same color. At opacity 1 the
+/// surfaces draw the token or stay clear.
+@MainActor
+@Suite(.serialized)
+struct OneBackdropTests {
+    /// A surface: a view that covers a large part of the window (a fill
+    /// there reads as a second background, not as a control or a mark).
+    private static func isSurface(_ view: NSView, in window: NSWindow) -> Bool {
+        guard let content = window.contentView else { return false }
+        let frame = view.convert(view.bounds, to: content)
+        let area = content.bounds.width * content.bounds.height
+        return area > 0 && frame.width * frame.height >= area * 0.04
+    }
+
+    /// The fill a view paints behind its subviews, if any is visible.
+    private static func fill(of view: NSView) -> String? {
+        if view.isHidden { return nil }
+        if let color = view.layer?.backgroundColor, color.alpha > 0.002 { return "layer \(color)" }
+        if let scroll = view as? NSScrollView, scroll.drawsBackground, scroll.backgroundColor.alphaComponent > 0 { return "scroll view" }
+        if let clip = view as? NSClipView, clip.drawsBackground, clip.backgroundColor.alphaComponent > 0 { return "clip view" }
+        if let text = view as? NSTextField, text.drawsBackground, (text.backgroundColor?.alphaComponent ?? 0) > 0 { return "text field" }
+        if let box = view as? NSBox, box.boxType == .custom, !box.isTransparent, box.fillColor.alphaComponent > 0 { return "box" }
+        return nil
+    }
+
+    /// Every surface view under `view` that paints a fill, skipping the backdrop.
+    private static func filledSurfaces(_ view: NSView, in window: NSWindow, skipping backdrop: NSView) -> [String] {
+        if view === backdrop || view.isHidden { return [] }
+        var found: [String] = []
+        if isSurface(view, in: window), let fill = fill(of: view) { found.append("\(type(of: view)) \(fill)") }
+        for sub in view.subviews { found += filledSurfaces(sub, in: window, skipping: backdrop) }
+        return found
+    }
+
+    private func mainWindow(opacity: Double, blur: Int) async throws -> (WindowController, WindowRootView) {
+        _ = NSApplication.shared
+        let services = ActionBindingCoverageTests.boundServices()
+        services.windows.ordersWindowsIn = false
+        services.daemon.store.apply(snapshot: try BrowserTabTests.tree())
+        let workspace = try #require(services.daemon.store.workspaces.first)
+        let controller = try #require(services.windows.openWindow(workspaces: [workspace.id]))
+        var input = ThemeScope.app.input
+        input.backgroundOpacity = opacity
+        input.backgroundBlur = blur
+        controller.themeScope.setOverride(ThemeSpec("Catppuccin Mocha")!, input: input, animated: false)
+        let window = try #require(controller.window)
+        window.contentView?.layoutSubtreeIfNeeded()
+        let root = try #require(window.contentView as? WindowRootView)
+        return (controller, root)
+    }
+
+    @Test func aSeeThroughMainWindowHasExactlyOneBackdrop() async throws {
+        let (controller, root) = try await mainWindow(opacity: 0.6, blur: 20)
+        let window = try #require(controller.window)
+        #expect(!root.backdrop.isOpaque)
+        #expect(!window.isOpaque)
+        #expect((window.backgroundColor?.alphaComponent ?? 1) < 0.01, "the window itself stays clear")
+        #expect(root.backdropView.tintColor != nil, "the one backdrop: the root's tint")
+        #expect(root.layer?.backgroundColor == nil, "the root paints nothing over its backdrop")
+        let filled = Self.filledSurfaces(root, in: window, skipping: root.backdropView)
+        #expect(filled.isEmpty, "surfaces with their own fill over the backdrop: \(filled)")
+    }
+
+    @Test func anOpaqueMainWindowsSurfacesDrawTheTokenOrNothing() async throws {
+        let (controller, root) = try await mainWindow(opacity: 1, blur: 0)
+        let window = try #require(controller.window)
+        let token = root.themeTokens.surfaceBackground.withAlpha(1)
+        var offenders: [String] = []
+        func walk(_ view: NSView) {
+            guard !view.isHidden else { return }
+            if Self.isSurface(view, in: window), let color = view.layer?.backgroundColor, color.alpha > 0.002,
+               let rgb = NSColor(cgColor: color)?.usingColorSpace(.sRGB),
+               abs(rgb.redComponent - token.red) > 0.004 || abs(rgb.greenComponent - token.green) > 0.004
+               || abs(rgb.blueComponent - token.blue) > 0.004 || rgb.alphaComponent < 0.999 {
+                offenders.append("\(type(of: view)) \(rgb)")
+            }
+            view.subviews.forEach(walk)
+        }
+        walk(root)
+        #expect(offenders.isEmpty, "surfaces that are neither the token nor clear: \(offenders)")
+    }
+}

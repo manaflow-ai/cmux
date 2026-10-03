@@ -1368,64 +1368,6 @@
     },
     {
       "accepts" : [
-        "window",
-        "darker"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.window",
-            "text" : "Window"
-          },
-          "value" : "window"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.darker",
-            "text" : "Darker"
-          },
-          "value" : "darker"
-        }
-      ],
-      "default" : "window",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.densityMotion",
-        "text" : "Density and Motion"
-      },
-      "help" : {
-        "key" : "settings.appearance.tabBarBackground.help",
-        "text" : "Window uses the window's own background around the tabs; Darker shades the tab bar."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "appearance.tabBarBackground",
-      "keywords" : [
-        "tab",
-        "strip",
-        "background",
-        "bar"
-      ],
-      "kind" : "choice",
-      "path" : [
-        "appearance",
-        "tabBarBackground"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "appearance",
-      "title" : {
-        "key" : "settings.appearance.tabBarBackground",
-        "text" : "Tab Bar Background"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "fade",
         "tonal",
         "quiet"
@@ -4258,7 +4200,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "2a8bde74ad844d2839d7d5c6866a641bc3dccfd9be8f34404f95895ea902ab5d",
+  "schema_hash" : "26ba6a4a3c76158bfe8332fc149321a3ddb6f61bb4ce3cb5da974364fdf30b5a",
   "sections" : [
     {
       "id" : "general",

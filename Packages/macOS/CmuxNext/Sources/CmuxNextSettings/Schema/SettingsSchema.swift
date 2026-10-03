@@ -227,17 +227,6 @@ public nonisolated enum SettingsSchema {
                 default: .string(PaneFocusSettings.focusIndicatorFallback.rawValue), keywords: ["focus", "active", "pane", "tab", "ring"]
             ),
             SettingDescriptor(
-                PaneFocusSettings.tabBarBackgroundPath, section: .appearance, group: look,
-                title: SettingsText.keyed("settings.appearance.tabBarBackground", "Tab Bar Background"),
-                help: SettingsText.keyed("settings.appearance.tabBarBackground.help",
-                                        "Window uses the window's own background around the tabs; Darker shades the tab bar."),
-                kind: .choice([
-                    SettingChoice(TabBarBackground.window.rawValue, SettingsText.keyed("settings.choice.window", "Window")),
-                    SettingChoice(TabBarBackground.darker.rawValue, SettingsText.keyed("settings.choice.darker", "Darker")),
-                ]),
-                default: .string(PaneFocusSettings.tabBarBackgroundFallback.rawValue), keywords: ["tab", "strip", "background", "bar"]
-            ),
-            SettingDescriptor(
                 PaneFocusSettings.inactiveTabStylePath, section: .appearance, group: look,
                 title: SettingsText.keyed("settings.focus.inactiveTabStyle", "Unfocused Pane Tabs"),
                 help: SettingsText.keyed("settings.focus.inactiveTabStyle.help",

@@ -123,16 +123,6 @@
       "title" : "Line Width",
       "type" : "number"
     },
-    "appearance.tabBarBackground" : {
-      "default" : "window",
-      "description" : "Window uses the window's own background around the tabs; Darker shades the tab bar.",
-      "enum" : [
-        "window",
-        "darker"
-      ],
-      "title" : "Tab Bar Background",
-      "type" : "string"
-    },
     "appearance.theme" : {
       "description" : "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it.",
       "title" : "Theme",

@@ -104,8 +104,6 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var borders: BorderMode = BordersSetting.fallback
     /// `appearance.focusIndicator`; "both" when unset or invalid.
     public var focusIndicator: FocusIndicator = PaneFocusSettings.focusIndicatorFallback
-    /// `appearance.tabBarBackground`; "window" when unset or invalid.
-    public var tabBarBackground: TabBarBackground = PaneFocusSettings.tabBarBackgroundFallback
     /// `focus.inactiveTabStyle`; "fade" when unset or invalid.
     public var inactiveTabStyle: InactiveTabStyle = PaneFocusSettings.inactiveTabStyleFallback
     /// `window.titlebar`; "minimal" when unset or invalid.
@@ -196,10 +194,6 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
             root, at: PaneFocusSettings.focusIndicatorPath, fallback: PaneFocusSettings.focusIndicatorFallback)
         snapshot.focusIndicator = indicator
         if let indicatorDiagnostic { snapshot.diagnostics.append(indicatorDiagnostic) }
-        let (tabBarBackground, tabBarDiagnostic) = PaneFocusSettings.parse(
-            root, at: PaneFocusSettings.tabBarBackgroundPath, fallback: PaneFocusSettings.tabBarBackgroundFallback)
-        snapshot.tabBarBackground = tabBarBackground
-        if let tabBarDiagnostic { snapshot.diagnostics.append(tabBarDiagnostic) }
         let (inactiveTabStyle, inactiveTabDiagnostic) = PaneFocusSettings.parse(
             root, at: PaneFocusSettings.inactiveTabStylePath, fallback: PaneFocusSettings.inactiveTabStyleFallback)
         snapshot.inactiveTabStyle = inactiveTabStyle

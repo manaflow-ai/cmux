@@ -38,7 +38,6 @@ extension SettingsSchema {
         "appearance.metrics.chromeFontSize",
         "appearance.borders",
         "appearance.focusIndicator",
-        "appearance.tabBarBackground",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",
         "layout.panePadding",
