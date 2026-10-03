@@ -686,12 +686,22 @@
     },
     {
       "accepts" : [
+        "nearest",
         "right",
-        "left"
+        "left",
+        "top",
+        "bottom"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.nearestEdge",
+            "text" : "Nearest Edge"
+          },
+          "value" : "nearest"
+        },
         {
           "title" : {
             "key" : "settings.choice.right",
@@ -705,9 +715,23 @@
             "text" : "Left"
           },
           "value" : "left"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.top",
+            "text" : "Top"
+          },
+          "value" : "top"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.bottom",
+            "text" : "Bottom"
+          },
+          "value" : "bottom"
         }
       ],
-      "default" : "right",
+      "default" : "nearest",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.columns",
