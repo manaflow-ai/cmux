@@ -32,10 +32,25 @@ const publicMarketingSources = [
   `/${localePrefix}/wall-of-love`,
 ];
 
+/**
+ * Home invite links (app/i): personal links, so never in a shared cache, never
+ * indexed, and never leaked through a Referer. Listed after the site-wide rule
+ * so its Referrer-Policy wins.
+ */
+export const inviteHeaders = [
+  { key: "Cache-Control", value: "private, no-store, max-age=0" },
+  { key: "X-Robots-Tag", value: "noindex, nofollow" },
+  { key: "Referrer-Policy", value: "no-referrer" },
+];
+
 export const securityHeaderRules = [
   {
     source: "/:path*",
     headers: securityHeaders,
+  },
+  {
+    source: "/i/:code",
+    headers: inviteHeaders,
   },
   ...publicMarketingSources.map((source) => ({
     source,
