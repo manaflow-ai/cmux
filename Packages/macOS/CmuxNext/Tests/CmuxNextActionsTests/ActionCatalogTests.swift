@@ -84,7 +84,7 @@ import Testing
     }
 
     @Test func countsByDomainMatchInventory() {
-        let expected = try #require(Self.generatedCounts())
+        let expected = try Self.generatedCounts()
         var counts: [ActionCategory: Int] = [:]
         for descriptor in ActionCatalog.all { counts[descriptor.category, default: 0] += 1 }
         for category in ActionCategory.allCases where category != .other {
