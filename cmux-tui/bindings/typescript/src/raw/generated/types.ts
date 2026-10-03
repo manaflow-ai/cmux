@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR bde47abe8ff2614238a6745a2f306ff5814abf6c271a9dca0a0ae41c9995f03f. */
+/* cmux-tui mux protocol 12, IR 9db25213cb8861aa38070472e063471f073e76674033258697acacca8a4398b7. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -765,6 +765,17 @@ export type SizingIdentity = {
 };
 
 export type SplitDirection = "right" | "down";
+
+export type SplitRespawn = {
+  "cwd"?: (string) | null;
+  "engine"?: (string) | null;
+  "env"?: (Record<string, string>) | null;
+  "kind": string;
+  "profile_id"?: (string) | null;
+  "shell_args"?: (Array<string>) | null;
+  "terminal_id"?: (string) | null;
+  "url"?: (string) | null;
+};
 
 export type SurfaceResult = {
   "surface": Id;

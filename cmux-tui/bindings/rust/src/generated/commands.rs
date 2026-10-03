@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR bde47abe8ff2614238a6745a2f306ff5814abf6c271a9dca0a0ae41c9995f03f.
+// cmux-tui mux protocol 12, IR 9db25213cb8861aa38070472e063471f073e76674033258697acacca8a4398b7.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -431,6 +431,104 @@ pub struct CloseWorkspaceRequest {
 pub type CloseWorkspaceResult = T::WorkspaceMutationResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationAgentTokenRequest {
+    pub participant: String,
+}
+
+#[rustfmt::skip]
+pub type ConversationAgentTokenResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationBindRequest {
+    pub participant: String,
+    pub token: String,
+}
+
+#[rustfmt::skip]
+pub type ConversationBindResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationCreateRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub actor: Optional<String>,
+    pub idempotency_key: String,
+    pub participants: Nullable<T::JsonValue>,
+    pub title: String,
+}
+
+#[rustfmt::skip]
+pub type ConversationCreateResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationHistoryRequest {
+    pub before_seq: u64,
+    pub conversation: String,
+    pub limit: u32,
+}
+
+#[rustfmt::skip]
+pub type ConversationHistoryResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ConversationListRequest {
+}
+
+#[rustfmt::skip]
+pub type ConversationListResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationOpRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub actor: Optional<String>,
+    pub conversation: String,
+    pub idempotency_key: String,
+    pub op: Nullable<T::JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type ConversationOpResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationSearchRequest {
+    pub limit: u32,
+    pub query: String,
+}
+
+#[rustfmt::skip]
+pub type ConversationSearchResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationSnapshotRequest {
+    pub conversation: String,
+    pub tail: u32,
+}
+
+#[rustfmt::skip]
+pub type ConversationSnapshotResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationTypingRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub actor: Optional<String>,
+    pub conversation: String,
+    pub on: bool,
+}
+
+#[rustfmt::skip]
+pub type ConversationTypingResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CopyRequestMode {
     #[serde(rename = "screen")]
@@ -824,6 +922,15 @@ pub type GetBrowserProviderResult = T::BrowserProviderSnapshot;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct GetCellPixelsRequest {
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetFrontendBrowserHistoryRequest {
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type GetFrontendBrowserHistoryResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1233,6 +1340,8 @@ pub struct MoveTabToSplitRequest {
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub ratio: Optional<f32>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub respawn: Optional<T::SplitRespawn>,
     pub surface: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub transaction: Optional<String>,
@@ -2066,6 +2175,16 @@ pub type SetDefaultColorsResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetFrontendBrowserHistoryRequest {
+    pub history: Nullable<T::JsonValue>,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type SetFrontendBrowserHistoryResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetPersonalTerminalRequest {
     pub session_id: String,
     pub terminal_key: String,
@@ -2813,6 +2932,42 @@ impl CmuxClient {
         self.execute(&CLOSE_WORKSPACE_METADATA, &request)
     }
 
+    pub fn conversation_agent_token(&mut self, request: ConversationAgentTokenRequest) -> Result<ConversationAgentTokenResult> {
+        self.execute(&CONVERSATION_AGENT_TOKEN_METADATA, &request)
+    }
+
+    pub fn conversation_bind(&mut self, request: ConversationBindRequest) -> Result<ConversationBindResult> {
+        self.execute(&CONVERSATION_BIND_METADATA, &request)
+    }
+
+    pub fn conversation_create(&mut self, request: ConversationCreateRequest) -> Result<ConversationCreateResult> {
+        self.execute(&CONVERSATION_CREATE_METADATA, &request)
+    }
+
+    pub fn conversation_history(&mut self, request: ConversationHistoryRequest) -> Result<ConversationHistoryResult> {
+        self.execute(&CONVERSATION_HISTORY_METADATA, &request)
+    }
+
+    pub fn conversation_list(&mut self, request: ConversationListRequest) -> Result<ConversationListResult> {
+        self.execute(&CONVERSATION_LIST_METADATA, &request)
+    }
+
+    pub fn conversation_op(&mut self, request: ConversationOpRequest) -> Result<ConversationOpResult> {
+        self.execute(&CONVERSATION_OP_METADATA, &request)
+    }
+
+    pub fn conversation_search(&mut self, request: ConversationSearchRequest) -> Result<ConversationSearchResult> {
+        self.execute(&CONVERSATION_SEARCH_METADATA, &request)
+    }
+
+    pub fn conversation_snapshot(&mut self, request: ConversationSnapshotRequest) -> Result<ConversationSnapshotResult> {
+        self.execute(&CONVERSATION_SNAPSHOT_METADATA, &request)
+    }
+
+    pub fn conversation_typing(&mut self, request: ConversationTypingRequest) -> Result<ConversationTypingResult> {
+        self.execute(&CONVERSATION_TYPING_METADATA, &request)
+    }
+
     pub fn copy(&mut self, request: CopyRequest) -> Result<T::CopyResult> {
         self.execute(&COPY_METADATA, &request)
     }
@@ -2945,6 +3100,10 @@ impl CmuxClient {
 
     pub fn get_cell_pixels(&mut self, request: GetCellPixelsRequest) -> Result<T::GetCellPixelsResult> {
         self.execute(&GET_CELL_PIXELS_METADATA, &request)
+    }
+
+    pub fn get_frontend_browser_history(&mut self, request: GetFrontendBrowserHistoryRequest) -> Result<GetFrontendBrowserHistoryResult> {
+        self.execute(&GET_FRONTEND_BROWSER_HISTORY_METADATA, &request)
     }
 
     pub fn get_frontend_projection(&mut self, request: GetFrontendProjectionRequest) -> Result<GetFrontendProjectionResult> {
@@ -3096,6 +3255,10 @@ impl CmuxClient {
     }
 
     pub fn move_tab_to_split(&mut self, request: MoveTabToSplitRequest) -> Result<MoveTabToSplitResult> {
+        if !request.respawn.is_missing() {
+            self.require_protocol_field("move-tab-to-split", 12)?;
+            self.require_capability_field("move-tab-to-split", "tab-split-respawn-v1")?;
+        }
         self.execute(&MOVE_TAB_TO_SPLIT_METADATA, &request)
     }
 
@@ -3488,6 +3651,10 @@ impl CmuxClient {
             self.require_protocol_field("set-default-colors", 9)?;
         }
         self.execute(&SET_DEFAULT_COLORS_METADATA, &request)
+    }
+
+    pub fn set_frontend_browser_history(&mut self, request: SetFrontendBrowserHistoryRequest) -> Result<SetFrontendBrowserHistoryResult> {
+        self.execute(&SET_FRONTEND_BROWSER_HISTORY_METADATA, &request)
     }
 
     pub fn set_personal_terminal(&mut self, request: SetPersonalTerminalRequest) -> Result<SetPersonalTerminalResult> {

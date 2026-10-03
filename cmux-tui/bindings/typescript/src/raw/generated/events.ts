@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR bde47abe8ff2614238a6745a2f306ff5814abf6c271a9dca0a0ae41c9995f03f. */
+/* cmux-tui mux protocol 12, IR 9db25213cb8861aa38070472e063471f073e76674033258697acacca8a4398b7. */
 
 
 import type * as T from "./types.js";
@@ -80,6 +80,21 @@ export type ColorsChangedEvent = { event: "colors-changed" } & {
 
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type ConfigReloadRequestedEvent = { event: "config-reload-requested" } & {
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ConversationChangedEvent = { event: "conversation-changed" } & {
+  "change": (T.JsonValue) | null;
+  "conversation": string;
+  "rev": bigint;
+  "transaction": (string) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ConversationTypingEvent = { event: "conversation-typing" } & {
+  "conversation": string;
+  "on": boolean;
+  "participant": string;
 };
 
 /** Protocol v12; emission: emitted; streams: control. */
@@ -482,6 +497,8 @@ export type KnownCmuxEvent =
   | ClientDetachedEvent
   | ColorsChangedEvent
   | ConfigReloadRequestedEvent
+  | ConversationChangedEvent
+  | ConversationTypingEvent
   | DaemonShutdownEvent
   | DetachedEvent
   | EmptyEvent
@@ -542,6 +559,8 @@ export type KnownSubscribeEvent =
   | ClientChangedEvent
   | ClientDetachedEvent
   | ConfigReloadRequestedEvent
+  | ConversationChangedEvent
+  | ConversationTypingEvent
   | EmptyEvent
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent

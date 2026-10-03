@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'bde47abe8ff2614238a6745a2f306ff5814abf6c271a9dca0a0ae41c9995f03f'
+IR_SHA256 = '9db25213cb8861aa38070472e063471f073e76674033258697acacca8a4398b7'
 
 
 @dataclass(frozen=True)
@@ -438,6 +438,118 @@ COMMANDS = {
             'workspace': CommandFieldMetadata(None, None),
         },
     ),
+    'conversation-agent-token': CommandMetadata(
+        'conversation-agent-token',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'participant': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-bind': CommandMetadata(
+        'conversation-bind',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'participant': CommandFieldMetadata(None, None),
+            'token': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-create': CommandMetadata(
+        'conversation-create',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'actor': CommandFieldMetadata(None, None),
+            'idempotency_key': CommandFieldMetadata(None, None),
+            'participants': CommandFieldMetadata(None, None),
+            'title': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-history': CommandMetadata(
+        'conversation-history',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'before_seq': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-list': CommandMetadata(
+        'conversation-list',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'conversation-op': CommandMetadata(
+        'conversation-op',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'actor': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'idempotency_key': CommandFieldMetadata(None, None),
+            'op': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-search': CommandMetadata(
+        'conversation-search',
+        'local-admin',
+        12,
+        'conversation-search-v1',
+        ('local-admin',),
+        None,
+        {
+            'limit': CommandFieldMetadata(None, None),
+            'query': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-snapshot': CommandMetadata(
+        'conversation-snapshot',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'tail': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-typing': CommandMetadata(
+        'conversation-typing',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'actor': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'on': CommandFieldMetadata(None, None),
+        },
+    ),
     'copy': CommandMetadata(
         'copy',
         'control',
@@ -803,6 +915,17 @@ COMMANDS = {
         ('frontend',),
         None,
         {
+        },
+    ),
+    'get-frontend-browser-history': CommandMetadata(
+        'get-frontend-browser-history',
+        'control',
+        12,
+        'frontend-browser-history-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
         },
     ),
     'get-frontend-projection': CommandMetadata(
@@ -1254,6 +1377,7 @@ COMMANDS = {
             'edge': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
             'ratio': CommandFieldMetadata(None, None),
+            'respawn': CommandFieldMetadata(12, 'tab-split-respawn-v1'),
             'surface': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(None, None),
         },
@@ -2085,6 +2209,18 @@ COMMANDS = {
             'selection_fg': CommandFieldMetadata(9, None),
         },
     ),
+    'set-frontend-browser-history': CommandMetadata(
+        'set-frontend-browser-history',
+        'control',
+        12,
+        'frontend-browser-history-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'history': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
     'set-personal-terminal': CommandMetadata(
         'set-personal-terminal',
         'control',
@@ -2689,6 +2825,8 @@ EVENTS = {
     'client-list-invalidated': EventMetadata('client-list-invalidated', 9, None, ('subscribe',), 'serialized-never-emitted'),
     'colors-changed': EventMetadata('colors-changed', 6, None, ('attach-byte',), 'emitted'),
     'config-reload-requested': EventMetadata('config-reload-requested', 6, None, ('subscribe',), 'emitted'),
+    'conversation-changed': EventMetadata('conversation-changed', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
+    'conversation-typing': EventMetadata('conversation-typing', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
     'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),
     'detached': EventMetadata('detached', 5, None, ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
     'empty': EventMetadata('empty', 5, None, ('subscribe',), 'emitted'),
