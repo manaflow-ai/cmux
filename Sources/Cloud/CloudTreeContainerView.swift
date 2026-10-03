@@ -73,6 +73,7 @@ final class CloudTreeContainerView: NSView {
         scrollView.contentInsets = NSEdgeInsets(top: 6, left: 0, bottom: 6, right: 0)
         addSubview(scrollView)
         outlineView.onDocumentContentChanged = { [weak self] in self?.needsLayout = true }
+        outlineView.layoutHost = { [weak self] in self?.layoutSubtreeIfNeeded() }
         outlineView.frame = scrollView.contentView.bounds
         outlineView.autoresizingMask = [.width]
         NSLayoutConstraint.activate([

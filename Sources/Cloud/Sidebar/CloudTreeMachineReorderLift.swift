@@ -10,6 +10,12 @@ import QuartzCore
 /// lands each row from wherever it is on screen. The model is untouched until
 /// the drop; during the drag everything is a layer transform over an
 /// unchanged outline, laid out by `CloudTreeReorderLiftLayout`.
+///
+/// The held row never moves on its own. Closing rows, and opening them again
+/// at the end, is anchored on it: the list scrolls so the row's slot stays
+/// where the row stood, and whatever the scroll cannot take (a list too short
+/// to scroll) the whole list carries as one shift. The row is the press point
+/// plus the pointer's travel, so it stays under the hand for the whole drag.
 @MainActor
 final class CloudTreeMachineReorderLift: NSObject {
     private weak var outline: CloudTreeNSOutlineView?
@@ -19,19 +25,24 @@ final class CloudTreeMachineReorderLift: NSObject {
         let sourceID: String
         let layout: CloudTreeReorderLiftLayout
         let sourceRows: Range<Int>
-        /// Where the press landed. Only the pointer's travel from here picks
-        /// the slot; closing the machines above must not count as a move.
-        let grabY: CGFloat
-        /// How far closing the machines above moved the held row up. The row
-        /// starts there, under the hand, and glides into its closed slot.
-        let closeShift: CGFloat
-        let startTime: CFTimeInterval
+        /// The held row's top in the closed outline.
+        let sourceTop: CGFloat
+        /// Where on the held row the press landed, from its top.
+        let grabOffset: CGFloat
+        /// The shift every row carries so the held row's slot stays where the
+        /// row stood before the rows around it closed: the part of that
+        /// anchoring the scroll could not take.
+        let listShift: CGFloat
         /// Machines closed for the drag, opened again when it ends.
         let collapsedIDs: [String]
         var placement: CloudTreeReorderLiftLayout.Placement
         /// The translation each row was last sent toward, so a row only
         /// starts a new glide when its target flips.
         var targets: [Int: CGFloat] = [:]
+
+        /// The press point in the closed, shifted outline. Only the pointer's
+        /// travel from here picks the slot, so closing rows is never a move.
+        var grabY: CGFloat { sourceTop + listShift + grabOffset }
     }
 
     private var session: Session?
@@ -72,13 +83,20 @@ final class CloudTreeMachineReorderLift: NSObject {
         guard let outline else { return false }
         discard()
         let before = visualTops()
+        let scrollBefore = scrollOffset()
+        guard let held = outline.findItem(nodeID: source.id) else { return false }
+        let heldFrame = outline.rect(ofRow: outline.row(forItem: held))
+        let press = pressY ?? outline.lastMouseDownPoint?.y ?? pointerY() ?? heldFrame.midY
+        let grabOffset = min(max(press - heldFrame.minY, 0), heldFrame.height)
         let closing = siblings.compactMap { outline.findItem(nodeID: $0.id) }
-            // Keep the held node's own folder open. Collapsing it during the
-            // mouse-down path changes the block under the pointer and makes
-            // the row jump upward before the hand has moved.
-            .filter { $0.id != source.id && closes($0) && outline.isItemExpanded($0) }
+            .filter { closes($0) && outline.isItemExpanded($0) }
         let ghosts = closing.isEmpty ? [] : makeGhosts(under: Set(closing.map(\.id)))
-        if !closing.isEmpty { collapse(closing) }
+        if !closing.isEmpty {
+            collapse(closing)
+            // The document shrinks on the next layout pass, and the clip view
+            // may scroll when it does; settle both before anything is measured.
+            outline.layoutDocumentNow()
+        }
 
         let frames = (0..<outline.numberOfRows).map { outline.rect(ofRow: $0) }
         var blocks: [CloudTreeReorderLiftLayout.Block] = []
@@ -111,19 +129,31 @@ final class CloudTreeMachineReorderLift: NSObject {
             ghosts.forEach { $0.layer.removeFromSuperlayer() }
             return false
         }
-        let newTop = frames[sourceRows.lowerBound].minY
-        let oldTop = before[source.id] ?? newTop
-        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        session = Session(
+        let sourceTop = frames[sourceRows.lowerBound].minY
+        let listShift = scroll(rowTop: sourceTop, toScreenTop: heldFrame.minY - scrollBefore)
+        outline.layoutSubtreeIfNeeded()
+        // Every position from before, in the outline as it now scrolls.
+        let scrolled = scrollOffset() - scrollBefore
+        let anchored = before.mapValues { $0 + scrolled }
+        var session = Session(
             sequence: sequence, sourceID: source.id, layout: layout, sourceRows: sourceRows,
-            grabY: pressY ?? outline.lastMouseDownPoint?.y ?? pointerY() ?? newTop,
-            closeShift: reduceMotion ? 0 : oldTop - newTop, startTime: CACurrentMediaTime(),
+            sourceTop: sourceTop, grabOffset: grabOffset, listShift: listShift,
             collapsedIDs: closing.map(\.id),
             placement: layout.placement(dragOffset: 0)
         )
+        // Every row is sent to the list's shift below; a later target only
+        // glides a row when it differs from that.
+        for row in 0..<outline.numberOfRows where !sourceRows.contains(row) { session.targets[row] = listShift }
+        self.session = session
         self.onLeave = onLeave
-        animateGhosts(ghosts, before: before)
-        land(from: before, excluding: source.id, fadingIn: false)
+#if DEBUG
+        cmuxDebugLog(
+            "cloud.lift.begin source=\(source.id) closed=\(closing.count) grab=\(Int(grabOffset)) " +
+            "scrolled=\(Int(scrolled)) listShift=\(Int(listShift))"
+        )
+#endif
+        animateGhosts(ghosts, before: before, scrolled: scrolled, listShift: listShift)
+        land(from: anchored, excluding: source.id, fadingIn: false, rest: listShift)
         if let pointer = pointerY() { update(pointerY: pointer) }
 
         let link = outline.displayLink(target: self, selector: #selector(tick))
@@ -150,16 +180,6 @@ final class CloudTreeMachineReorderLift: NSObject {
     /// drag that can leave hands off to a native drag.
     private static let leaveMargin: CGFloat = 12
 
-    /// The part of the close shift the held row still carries: a critically
-    /// damped glide from under the hand into its closed slot.
-    private static func remainingCloseShift(_ session: Session) -> CGFloat {
-        guard session.closeShift != 0 else { return 0 }
-        let omega = 17.0
-        let t = max(0, CACurrentMediaTime() - session.startTime)
-        let remaining = exp(-omega * t) * (1 + omega * t)
-        return remaining < 0.002 ? 0 : session.closeShift * CGFloat(remaining)
-    }
-
     /// Moves the lifted row to the pointer and returns the slot it shows.
     @discardableResult
     func update(pointerY: CGFloat) -> Int? {
@@ -173,14 +193,14 @@ final class CloudTreeMachineReorderLift: NSObject {
             if session.sourceRows.contains(row) {
                 // Direct manipulation: never smoothed, or the row lags the hand.
                 layer.removeAnimation(forKey: Self.shiftKey)
-                Self.setShift(placement.sourceOffset + Self.remainingCloseShift(session), on: layer)
+                Self.setShift(session.listShift + placement.sourceOffset, on: layer)
                 layer.zPosition = Self.liftZ
                 liftStyle.apply(to: rowView, animated: true)
                 return
             }
             liftStyle.remove(from: rowView, animated: false)
             layer.zPosition = 0
-            let target = placement.rowOffsets[row] ?? 0
+            let target = session.listShift + (placement.rowOffsets[row] ?? 0)
             if session.targets[row, default: 0] != target {
                 session.targets[row] = target
                 if reduceMotion {
@@ -209,20 +229,29 @@ final class CloudTreeMachineReorderLift: NSObject {
     /// cancel; either way the machines closed for the drag open again and
     /// every row springs from where it is on screen to where it belongs.
     func finish(reopen: ([String]) -> Void, mutate: (() -> Bool)? = nil) -> Bool {
-        guard let session, outline != nil else { return false }
+        guard let session, let outline else { return false }
         displayLink?.invalidate()
         displayLink = nil
         onLeave = nil
-        let before = visualTops()
+        let before = visualTops(viewless: { session.listShift + (session.placement.rowOffsets[$0] ?? 0) })
+        let scrollBefore = scrollOffset()
         resetTouched()
         self.session = nil
         isFinishing = true
         let result = mutate?() ?? false
         reopen(session.collapsedIDs)
         // Row views exist only after layout; landing before it would snap.
-        outline?.layoutSubtreeIfNeeded()
+        outline.layoutDocumentNow()
+        // The row lands in the slot it showed (its own on a cancel), and the
+        // rows opening again make room around it rather than move it.
+        if let held = outline.findItem(nodeID: session.sourceID) {
+            let slot = session.sourceTop + session.listShift + (result ? session.placement.sourceSlotOffset : 0)
+            scroll(rowTop: outline.rect(ofRow: outline.row(forItem: held)).minY, toScreenTop: slot - scrollBefore)
+            outline.layoutSubtreeIfNeeded()
+        }
+        let scrolled = scrollOffset() - scrollBefore
         isFinishing = false
-        land(from: before, excluding: nil, fadingIn: true, liftedID: session.sourceID)
+        land(from: before.mapValues { $0 + scrolled }, excluding: nil, fadingIn: true, liftedID: session.sourceID)
         return result
     }
 
@@ -250,25 +279,53 @@ final class CloudTreeMachineReorderLift: NSObject {
 
     private func pointerY() -> CGFloat? { pointer()?.y }
 
-    /// Where each visible row is on screen right now, by node id: its frame
-    /// plus whatever translation it is showing mid-flight.
-    private func visualTops() -> [String: CGFloat] {
+    /// Where each row stands right now, by node id: its frame plus whatever
+    /// translation it is showing mid-flight. A row with no view (off screen)
+    /// stands where `viewless` puts it.
+    private func visualTops(viewless: (Int) -> CGFloat = { _ in 0 }) -> [String: CGFloat] {
         guard let outline else { return [:] }
-        var tops: [String: CGFloat] = [:]
+        var shifts: [Int: CGFloat] = [:]
         outline.enumerateAvailableRowViews { rowView, row in
-            guard let node = outline.item(atRow: row) as? CloudTreeNode else { return }
-            let shift = (rowView.layer?.presentation() ?? rowView.layer)
+            shifts[row] = (rowView.layer?.presentation() ?? rowView.layer)
                 .flatMap { $0.value(forKeyPath: "transform.translation.y") as? CGFloat } ?? 0
-            tops[node.id] = outline.rect(ofRow: row).minY + shift
+        }
+        var tops: [String: CGFloat] = [:]
+        for row in 0..<outline.numberOfRows {
+            guard let node = outline.item(atRow: row) as? CloudTreeNode else { continue }
+            tops[node.id] = outline.rect(ofRow: row).minY + (shifts[row] ?? viewless(row))
         }
         return tops
     }
 
-    /// Springs every visible row from its old on-screen top to its frame.
-    /// A row that was not on screen before (a machine's rows opening again)
-    /// travels with its machine and fades in.
+    /// How far the outline is scrolled: the top of what the clip view shows.
+    private func scrollOffset() -> CGFloat {
+        outline?.enclosingScrollView?.contentView.bounds.minY ?? 0
+    }
+
+    /// Scrolls so the row laid out at `rowTop` shows `screenTop` below the
+    /// top of the clip view, as near as the document allows, and returns
+    /// the shift the rows must carry to stand there anyway.
+    @discardableResult
+    private func scroll(rowTop: CGFloat, toScreenTop screenTop: CGFloat) -> CGFloat {
+        let wanted = rowTop - screenTop
+        guard let scrollView = outline?.enclosingScrollView else { return -wanted }
+        let clip = scrollView.contentView
+        var bounds = clip.bounds
+        bounds.origin.y = wanted
+        let reachable = clip.constrainBoundsRect(bounds).origin.y
+        if abs(reachable - clip.bounds.minY) > 0.5 {
+            clip.scroll(to: NSPoint(x: clip.bounds.minX, y: reachable))
+            scrollView.reflectScrolledClipView(clip)
+        }
+        return reachable - wanted
+    }
+
+    /// Springs every visible row from its old top to its frame shifted by
+    /// `rest`. A row that was not there before (a machine's rows opening
+    /// again) travels with its machine and fades in.
     private func land(
-        from before: [String: CGFloat], excluding excludedID: String?, fadingIn: Bool, liftedID: String? = nil
+        from before: [String: CGFloat], excluding excludedID: String?, fadingIn: Bool,
+        liftedID: String? = nil, rest: CGFloat = 0
     ) {
         guard let outline else { return }
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -308,11 +365,14 @@ final class CloudTreeMachineReorderLift: NSObject {
                 liftStyle.apply(to: rowView, animated: false)
                 liftStyle.remove(from: rowView, animated: !reduceMotion)
             }
-            guard !reduceMotion else { return }
-            if let delta, abs(delta) > 0.5 {
+            if !reduceMotion, let delta, abs(delta - rest) > 0.5 {
                 Self.setShift(delta, on: layer)
-                Self.glide(layer, to: 0)
+                Self.glide(layer, from: delta, to: rest)
+            } else if rest != 0 {
+                layer.removeAnimation(forKey: Self.shiftKey)
+                Self.setShift(rest, on: layer)
             }
+            guard !reduceMotion else { return }
             if appearing {
                 let fade = CABasicAnimation(keyPath: "opacity")
                 fade.fromValue = 0
@@ -370,7 +430,10 @@ final class CloudTreeMachineReorderLift: NSObject {
         return ghosts
     }
 
-    private func animateGhosts(_ ghosts: [Ghost], before: [String: CGFloat]) {
+    /// Folds each picture toward where its machine now stands. `before` is
+    /// from before the rows closed; `scrolled` is how far the outline has
+    /// scrolled since, which the pictures undo so they start where they were.
+    private func animateGhosts(_ ghosts: [Ghost], before: [String: CGFloat], scrolled: CGFloat, listShift: CGFloat) {
         guard let outline, !ghosts.isEmpty else { return }
         CATransaction.begin()
         CATransaction.setCompletionBlock {
@@ -379,13 +442,13 @@ final class CloudTreeMachineReorderLift: NSObject {
         let machinesByID = outline.visibleItemsByID()
         for ghost in ghosts {
             // The rows fold toward where their machine now stands.
-            var travel: CGFloat = 0
+            var travel = scrolled
             if let machine = machinesByID[ghost.machineID], let old = before[ghost.machineID] {
                 let row = outline.row(forItem: machine)
-                if row >= 0 { travel = outline.rect(ofRow: row).minY - old }
+                if row >= 0 { travel = outline.rect(ofRow: row).minY + listShift - old }
             }
             let move = CABasicAnimation(keyPath: "transform.translation.y")
-            move.fromValue = 0
+            move.fromValue = scrolled
             move.toValue = travel
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 1
@@ -411,10 +474,12 @@ final class CloudTreeMachineReorderLift: NSObject {
     }
 
     /// Glides a row's vertical shift to `target` on a soft spring, starting
-    /// from where the row is on screen so a retarget mid-glide never jumps.
-    /// Explicit animation: a view's backing layer ignores implicit actions.
-    private static func glide(_ layer: CALayer, to target: CGFloat) {
-        let current = (layer.presentation() ?? layer).value(forKeyPath: "transform.translation.y") as? CGFloat ?? 0
+    /// from `start`, or from where the row is on screen so a retarget
+    /// mid-glide never jumps. Explicit animation: a view's backing layer
+    /// ignores implicit actions.
+    private static func glide(_ layer: CALayer, from start: CGFloat? = nil, to target: CGFloat) {
+        let current = start
+            ?? (layer.presentation() ?? layer).value(forKeyPath: "transform.translation.y") as? CGFloat ?? 0
         let spring = CASpringAnimation(keyPath: "transform.translation.y")
         spring.fromValue = current
         spring.toValue = target

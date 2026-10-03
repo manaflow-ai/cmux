@@ -213,6 +213,15 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     }
     var onNativeDragPointerBoundary: (() -> Void)?
     var onDocumentContentChanged: (() -> Void)?
+    /// Lays out the host that sizes the document to its rows.
+    var layoutHost: (() -> Void)?
+
+    /// Sizes the document to its rows and lays the rows out now rather than
+    /// on the next pass, for a caller that measures or scrolls right after
+    /// rows open or close.
+    func layoutDocumentNow() {
+        if let layoutHost { layoutHost() } else { layoutSubtreeIfNeeded() }
+    }
 
     var treeStyle: CloudTreeStyle = CloudTreeStyleStore.current
 
