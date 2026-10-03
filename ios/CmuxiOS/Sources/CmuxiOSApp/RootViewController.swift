@@ -79,6 +79,9 @@ final class RootViewController: UIViewController {
         install(navigation)
         DebugLaunchTasks.homeShown(store: store, window: view.window)
         #if DEBUG
+        if let kind = ProcessInfo.processInfo.environment["CMUX_IOS_OPEN_CONVERSATION"] {
+            home.debugOpenFirstConversation(kind: kind)
+        }
         if ProcessInfo.processInfo.environment["CMUX_IOS_TERMINAL_PREVIEW"] == "1" {
             let terminal = DevTerminal.make()
             navigation.pushViewController(terminal, animated: false)

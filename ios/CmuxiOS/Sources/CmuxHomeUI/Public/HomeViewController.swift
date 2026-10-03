@@ -138,6 +138,19 @@ public final class HomeViewController: UIViewController {
         navigationController.pushViewController(screen, animated: !HomeMotion.reduceMotion)
     }
 
+    #if DEBUG
+    /// DEBUG ONLY (simulator screenshots): opens the first conversation whose
+    /// kind's name is `kind` (`chief`, `group`, `direct`) once the inbox has it.
+    public func debugOpenFirstConversation(kind: String) {
+        let store = self.store
+        Task { @MainActor [weak self] in
+            await HomeGallery.waitUntil(store) { store in store.rows.contains { "\($0.kind)" == kind } }
+            guard let id = store.rows.first(where: { "\($0.kind)" == kind })?.id else { return }
+            self?.openConversation(id, focus: nil)
+        }
+    }
+    #endif
+
     private func showFailure(_ rejection: HomeRejection) {
         let alert = UIAlertController(title: HomeText.actionFailedTitle, message: HomeText.explanation(for: rejection),
                                       preferredStyle: .alert)
