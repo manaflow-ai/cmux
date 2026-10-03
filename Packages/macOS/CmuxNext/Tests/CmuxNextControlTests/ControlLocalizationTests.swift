@@ -31,10 +31,7 @@ struct ControlLocalizationTests {
     }
 
     @Test func unsupportedReasonsAndErrorsFormatArguments() {
-        #expect(CompatErrors.unsupported("x").message == "unsupported in cmux-next: x")
-        #expect(CompatErrors.notFound("workspace", "workspace:9").message == "workspace not found: workspace:9")
         #expect(ControlError.busy(pending: 3, limit: 2).message == "cmux is busy (3 queued requests, limit 2); retry later")
-        #expect(CompatUnsupported.reason(for: "canvas.tidy") == "canvas layout was removed in cmux-next")
     }
 
     /// Format specifiers by argument, ignoring positional prefixes (`%1$@` == `%@`).

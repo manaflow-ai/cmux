@@ -1,3 +1,4 @@
+import CmuxNextDaemon
 import CmuxNextSidebar
 import Testing
 @testable import CmuxNextBridge
@@ -14,18 +15,34 @@ struct SidebarMappingTests {
         #expect(sections[0].workspaces[0].unread == .count(1))
     }
 
-    @Test func hookStatusIsTheLiveLineAndCwdStaysPassive() throws {
+    /// The daemon's workspace status is the live line and its progress the
+    /// bar; without a status, a terminal's parsed OSC 9;4 progress shows.
+    @Test func daemonStatusIsTheLiveLineAndCwdStaysPassive() throws {
         let store = try BridgeFixture.store()
         let machine = SidebarMachine(id: .local, name: "Mac", kind: .local)
-        let beta = try #require(store.sidebarSections.flatMap(\.workspaces).first { $0.displayName == "beta" })
-        let sections = SidebarMapping.shared.sections(store.sidebarSections, machine: machine) { $0 == beta.id ? "Running · 50%" : nil }
-        let mappedBeta = try #require(sections[0].workspaces.first { $0.title == "beta" })
-        #expect(mappedBeta.status == "Running · 50%")
-        #expect(mappedBeta.liveDetail == "Running · 50%")
         // The cwd never becomes a second line on its own.
         let plain = SidebarMapping.shared.sections(store.sidebarSections, machine: machine)
-        for ws in plain[0].workspaces { #expect(ws.liveDetail == nil) }
-        #expect(plain[0].workspaces.first { $0.title == "beta" }?.subtitle == mappedBeta.subtitle)
+        for ws in plain[0].workspaces { #expect(ws.liveDetail == nil && ws.progress == nil) }
+
+        let beta = try #require(store.sidebarSections.flatMap(\.workspaces).first { $0.displayName == "beta" })
+        let terminal = try #require(beta.screens.flatMap(\.panes).flatMap(\.tabs).first?.terminalResourceID)
+        let betaID = try #require(beta.resourceID)
+        var state = SessionStateMirror()
+        state.workspaceStatus[betaID] = WorkspaceStatus(workspaceID: betaID, entries: [.init(key: "agent", text: "Running")],
+                                                        progress: .init(value: 0.5))
+        state.terminalProgress[terminal] = TerminalProgressReport(state: .error, value: 30)
+        store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: .sessionState(.snapshot(state)))])
+
+        let mapped = { try #require(SidebarMapping.shared.sections(store.sidebarSections, machine: machine)[0].workspaces.first { $0.title == "beta" }) }
+        #expect(try mapped().status == "Running")
+        #expect(try mapped().liveDetail == "Running")
+        #expect(try mapped().progress == SidebarProgress(value: 0.5))
+        #expect(try mapped().subtitle == plain[0].workspaces.first { $0.title == "beta" }?.subtitle)
+
+        // Without a reported progress, the terminal's parsed one shows.
+        state.workspaceStatus[betaID]?.progress = nil
+        store.apply(batch: [DaemonEventEnvelope(sequence: 2, event: .sessionState(.snapshot(state)))])
+        #expect(try mapped().progress == SidebarProgress(value: 0.3, isError: true))
     }
 
     @Test func dropPositionMapsToRootIndexAfterRemoval() {

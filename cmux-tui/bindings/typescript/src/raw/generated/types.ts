@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 4a59825cd43eedde1d1abef1833d07e90af4b64773ad9eacd346e4966b461d4c. */
+/* cmux-tui mux protocol 12, IR bde47abe8ff2614238a6745a2f306ff5814abf6c271a9dca0a0ae41c9995f03f. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -766,17 +766,6 @@ export type SizingIdentity = {
 
 export type SplitDirection = "right" | "down";
 
-export type SplitRespawn = {
-  "cwd"?: (string) | null;
-  "engine"?: (string) | null;
-  "env"?: (Record<string, string>) | null;
-  "kind": string;
-  "profile_id"?: (string) | null;
-  "shell_args"?: (Array<string>) | null;
-  "terminal_id"?: (string) | null;
-  "url"?: (string) | null;
-};
-
 export type SurfaceResult = {
   "surface": Id;
   "terminal_id"?: (string) | null;
@@ -789,7 +778,7 @@ export type Tab = {
   "browser_source": ("external" | "launched") | null;
   "browser_status"?: ("starting" | "live" | "failed") | null;
   "dead": boolean;
-  "kind": "pty" | "browser";
+  "kind": "pty" | "browser" | "conversation";
   "name": (string) | null;
   "notification"?: (NotificationMarker) | null;
   "short_id"?: string;

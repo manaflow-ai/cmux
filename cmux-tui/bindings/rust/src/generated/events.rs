@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 4a59825cd43eedde1d1abef1833d07e90af4b64773ad9eacd346e4966b461d4c.
+// cmux-tui mux protocol 12, IR bde47abe8ff2614238a6745a2f306ff5814abf6c271a9dca0a0ae41c9995f03f.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -123,23 +123,6 @@ pub struct ColorsChangedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ConfigReloadRequestedEvent {
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ConversationChangedEvent {
-    pub change: Nullable<T::JsonValue>,
-    pub conversation: String,
-    pub rev: u64,
-    pub transaction: Nullable<String>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ConversationTypingEvent {
-    pub conversation: String,
-    pub on: bool,
-    pub participant: String,
 }
 
 #[rustfmt::skip]
@@ -650,8 +633,6 @@ pub enum Event {
     ClientListInvalidated(ClientListInvalidatedEvent),
     ColorsChanged(ColorsChangedEvent),
     ConfigReloadRequested(ConfigReloadRequestedEvent),
-    ConversationChanged(ConversationChangedEvent),
-    ConversationTyping(ConversationTypingEvent),
     DaemonShutdown(DaemonShutdownEvent),
     Detached(DetachedEvent),
     Empty(EmptyEvent),
@@ -715,8 +696,6 @@ impl Event {
             Self::ClientListInvalidated(_) => Some("client-list-invalidated"),
             Self::ColorsChanged(_) => Some("colors-changed"),
             Self::ConfigReloadRequested(_) => Some("config-reload-requested"),
-            Self::ConversationChanged(_) => Some("conversation-changed"),
-            Self::ConversationTyping(_) => Some("conversation-typing"),
             Self::DaemonShutdown(_) => Some("daemon-shutdown"),
             Self::Detached(_) => Some("detached"),
             Self::Empty(_) => Some("empty"),
@@ -779,8 +758,6 @@ impl Event {
             Self::ClientListInvalidated(_) => Some(&CLIENT_LIST_INVALIDATED_EVENT_METADATA),
             Self::ColorsChanged(_) => Some(&COLORS_CHANGED_EVENT_METADATA),
             Self::ConfigReloadRequested(_) => Some(&CONFIG_RELOAD_REQUESTED_EVENT_METADATA),
-            Self::ConversationChanged(_) => Some(&CONVERSATION_CHANGED_EVENT_METADATA),
-            Self::ConversationTyping(_) => Some(&CONVERSATION_TYPING_EVENT_METADATA),
             Self::DaemonShutdown(_) => Some(&DAEMON_SHUTDOWN_EVENT_METADATA),
             Self::Detached(_) => Some(&DETACHED_EVENT_METADATA),
             Self::Empty(_) => Some(&EMPTY_EVENT_METADATA),
@@ -910,22 +887,6 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("config-reload-requested") => match serde_json::from_value::<ConfigReloadRequestedEvent>(raw.clone()) {
             Ok(event) => Event::ConfigReloadRequested(event),
-            Err(error) => Event::Unknown(UnknownEvent {
-                name,
-                raw,
-                decode_error: Some(error.to_string()),
-            }),
-        },
-        Some("conversation-changed") => match serde_json::from_value::<ConversationChangedEvent>(raw.clone()) {
-            Ok(event) => Event::ConversationChanged(event),
-            Err(error) => Event::Unknown(UnknownEvent {
-                name,
-                raw,
-                decode_error: Some(error.to_string()),
-            }),
-        },
-        Some("conversation-typing") => match serde_json::from_value::<ConversationTypingEvent>(raw.clone()) {
-            Ok(event) => Event::ConversationTyping(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

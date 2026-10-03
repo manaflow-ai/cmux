@@ -99,9 +99,15 @@ public struct ControlActionInfo: Sendable, Hashable {
     /// Starts a terminal (`ActionDescriptor.startsTerminal`): `action.run`
     /// with `wait` uses the terminal start deadline.
     public var startsTerminal = false
+    /// Has a purpose outside the GUI: the CLI offers it by `cliName`
+    /// (`ActionDescriptor.cli`).
+    public var isCLI = false
     /// The CLI waits for the work's result (`ActionDescriptor.waitsForResult`);
     /// `action.run` with `wait` then gets the result deadline.
     public var waitsForResult = false
+    /// The action's purpose is a view change (`ActionDescriptor.focuses`):
+    /// it focuses or shows even when run from the CLI without `focus`.
+    public var focuses = false
 
     public init(
         id: String, title: String, category: String, categoryTitle: String, cliName: String, symbol: String,
@@ -148,7 +154,9 @@ public struct ControlActionInfo: Sendable, Hashable {
             "debug_only": .bool(isDebugOnly),
             "destructive": .bool(isDestructive),
             "starts_terminal": .bool(startsTerminal),
+            "cli": .bool(isCLI),
             "waits_for_result": .bool(waitsForResult),
+            "focuses": .bool(focuses),
         ]
         if let mainMenu { members["main_menu"] = .string(mainMenu) }
         if let unavailableReason { members["unavailable_reason"] = .string(unavailableReason) }
@@ -221,10 +229,22 @@ public struct ControlCatalog: Sendable {
         return nil
     }
 
+        if let index = indexByCLIName[spaced] { return actions[index] }
+        if let index = indexByCLIName[Self.renamedCLIName(spaced)] { return actions[index] }
+        return nil
+    }
+
+    /// Resolves a CLI name only (`tab-group create`, extra spaces allowed).
+    public func resolveCLIName(_ name: String) -> ControlActionInfo? {
+        let spaced = name.split(whereSeparator: { $0 == " " }).joined(separator: " ")
+        return indexByCLIName[spaced].map { actions[$0] }
+    }
+
     /// The current name of a CLI name from before Rooms became Spaces
     /// (`room create`, `workspace move-to-room`); every other name as is.
     static func renamedCLIName(_ name: String) -> String {
         name.replacingOccurrences(of: "room", with: "space")
+    }
     }
 
     func isAvailable(_ action: ControlActionInfo) -> Bool {

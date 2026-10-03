@@ -334,18 +334,12 @@ def test_what_the_nightly_ships_is_read_back_from_the_project() -> None:
     """The bundled set is derived, not listed, so a new resource cannot slip."""
     detect, nightly = ci_scripts()
 
-    # The cmux-next target copies only built products (the CLI) and package
-    # resources, so no repository path is bundled directly today. Whatever a
-    # later resource phase adds must name a path that exists and must rebuild.
+    # The cmux-next target bundles built products, package resources and a
+    # few SOURCE_ROOT resources. Every bundled path must exist and rebuild.
     bundled = nightly.bundled_paths(ROOT)
     for path in bundled:
         assert (ROOT / path).exists(), f"{path} is bundled but missing"
         assert nightly.build_inputs_changed([path])[0], f"{path} is bundled but does not rebuild"
-
-    # The cmux-cli product is copied into the bundle, so CLI sources ship
-    # without a Release compile ever covering them.
-    assert not detect.classify_files(["CLI/cmux_open.swift"]).release_build
-    assert nightly.build_inputs_changed(["CLI/cmux_open.swift"])[0]
 
     # The resolver's path list decides which client gets bundled.
     tui = nightly.tui_client_paths(ROOT)

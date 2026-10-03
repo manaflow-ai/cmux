@@ -19,7 +19,7 @@ public struct TabItemMapping {
             icon: .symbol(isBrowser ? "globe" : (tab.dead ? "xmark.octagon" : "terminal")),
             isPinned: tab.pinned,
             isUnread: tab.hasUnread,
-            isBusy: busy.state.isLoading,
+            isBusy: busy.state.isLoading || isReportingProgress(tab),
             status: status(tab),
             // The strip's location field: web pages only (`TabLocation`).
             location: isBrowser ? TabLocation(address: tab.url) : nil
@@ -40,7 +40,16 @@ public struct TabItemMapping {
         switch tab.agent?.state {
         case .blocked: .needsInput
         case .done: .success
-        default: tab.dead ? .failure : .none
+        default: tab.dead || tab.progress?.state == .error ? .failure : .none
+        }
+    }
+
+    /// The daemon parsed running OSC 9;4 progress for the tab's terminal
+    /// (every terminal, shown or not).
+    func isReportingProgress(_ tab: TabModel) -> Bool {
+        switch tab.progress?.state {
+        case .normal?, .indeterminate?: true
+        default: false
         }
     }
 }

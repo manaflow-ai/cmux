@@ -55,8 +55,6 @@ final class AppServices {
     private(set) var previews: TabPreviewSource!
     /// CPU and memory for the hover cards and `resources` (sampled on demand).
     private(set) var resources: AppResourceSource!
-    /// App side of the cmux CLI compat layer (window/focus state, intents).
-    private(set) var compat: AppCompatFrontend!
     let presentation = ContentPresentationScheduler()
     /// Blank-pane invariant, checked after each presentation settle.
     let surfaceInvariant = SurfaceInvariantMonitor()
@@ -66,8 +64,6 @@ final class AppServices {
     /// No-activate mode only: gives back a keyboard the user did not give.
     var keyboardGuard: NoActivateKeyboardGuard?
     var keyboardGuardObservers: [any NSObjectProtocol] = []
-    /// Hook statuses shown in sidebar rows (`set_status`).
-    let statusBoard = WorkspaceStatusBoard()
     private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
     /// Reopen Closed Tab history; set when the tab handlers bind.
     var closedTabs: ClosedTabTracker?
@@ -246,7 +242,6 @@ final class AppServices {
         }
         dragSession = TabDragSession(services: self)
         previews = TabPreviewSource(cache: cache)
-        compat = AppCompatFrontend(services: self)
         remoteTerminals = RemoteTerminalService(services: self)
         remoteTerminals.start()
         WorkspaceClose.willClose = { [weak self] workspace in self?.remoteTerminals.workspaceClosing(workspace) }

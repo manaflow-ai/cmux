@@ -38,7 +38,7 @@ enum CloudHandlers {
     static func machine(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> CloudMachineSession {
         let machines = context.services.machines
         if let target = invocation.target, target.kind == .machine {
-            guard let session = machines.session(target.id) else { throw ActionFailure(message: RefusalStrings.notShownInAnyWindow(target.description)) }
+            guard let session = machines.session(target.id) else { throw ActionFailure.notFound(RefusalStrings.notShownInAnyWindow(target.description)) }
             return session
         }
         if let state = context.services.windows.active?.state, let session = machines.session(state.machineID) { return session }

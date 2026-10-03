@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "4a59825cd43eedde1d1abef1833d07e90af4b64773ad9eacd346e4966b461d4c";
+inline constexpr std::string_view kProtocolIrSha256 = "bde47abe8ff2614238a6745a2f306ff5814abf6c271a9dca0a0ae41c9995f03f";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -132,7 +132,6 @@ enum class SizeReason;
 struct SizeState;
 struct SizingIdentity;
 enum class SplitDirection;
-struct SplitRespawn;
 struct SurfaceResult;
 struct Tab;
 struct TabRef;
@@ -192,15 +191,6 @@ struct CloseTabGroupRequest;
 struct CloseTabsRequest;
 struct CloseTerminalRequest;
 struct CloseWorkspaceRequest;
-struct ConversationAgentTokenRequest;
-struct ConversationBindRequest;
-struct ConversationCreateRequest;
-struct ConversationHistoryRequest;
-struct ConversationListRequest;
-struct ConversationOpRequest;
-struct ConversationSearchRequest;
-struct ConversationSnapshotRequest;
-struct ConversationTypingRequest;
 struct CopyRequest;
 struct CreateBookmarkRequest;
 struct CreateBrowserProfileRequest;
@@ -227,7 +217,6 @@ struct FocusPaneRequest;
 struct ForgetSessionRequest;
 struct GetBrowserProviderRequest;
 struct GetCellPixelsRequest;
-struct GetFrontendBrowserHistoryRequest;
 struct GetFrontendProjectionRequest;
 struct GetSizeStateRequest;
 struct IdentifyRequest;
@@ -273,6 +262,7 @@ struct MoveWorkspaceRequest;
 struct MoveWorkspaceGroupRequest;
 struct MoveWorkspaceToGroupRequest;
 struct NewBrowserTabRequest;
+struct NewConversationTabRequest;
 struct NewFrontendBrowserTabRequest;
 struct NewPaneRequest;
 struct NewPaneRightRequest;
@@ -327,7 +317,6 @@ struct SetClientInfoRequest;
 struct SetClientSizingRequest;
 struct SetColumnStickyRequest;
 struct SetDefaultColorsRequest;
-struct SetFrontendBrowserHistoryRequest;
 struct SetPersonalTerminalRequest;
 struct SetPersonalWorkspaceRequest;
 struct SetProfileFollowsRequest;
@@ -383,8 +372,6 @@ struct ClientDetachedEvent;
 struct ClientListInvalidatedEvent;
 struct ColorsChangedEvent;
 struct ConfigReloadRequestedEvent;
-struct ConversationChangedEvent;
-struct ConversationTypingEvent;
 struct DaemonShutdownEvent;
 struct DetachedEvent;
 struct EmptyEvent;
@@ -1158,84 +1145,6 @@ struct ConfigReloadRequestedEvent {
     friend bool operator==(const ConfigReloadRequestedEvent&, const ConfigReloadRequestedEvent&) = default;
 };
 
-struct ConversationAgentTokenRequest {
-    std::string participant{};
-    friend bool operator==(const ConversationAgentTokenRequest&, const ConversationAgentTokenRequest&) = default;
-};
-
-struct ConversationBindRequest {
-    std::string participant{};
-    std::string token{};
-    friend bool operator==(const ConversationBindRequest&, const ConversationBindRequest&) = default;
-};
-
-struct JsonValue {
-    Json value{};
-    friend bool operator==(const JsonValue&, const JsonValue&) = default;
-};
-
-struct ConversationChangedEvent {
-    std::optional<JsonValue> change{};
-    std::string conversation{};
-    std::uint64_t rev{};
-    std::optional<std::string> transaction{};
-    friend bool operator==(const ConversationChangedEvent&, const ConversationChangedEvent&) = default;
-};
-
-struct ConversationCreateRequest {
-    Field<std::string> actor{};
-    std::string idempotency_key{};
-    std::optional<JsonValue> participants{};
-    std::string title{};
-    friend bool operator==(const ConversationCreateRequest&, const ConversationCreateRequest&) = default;
-};
-
-struct ConversationHistoryRequest {
-    std::uint64_t before_seq{};
-    std::string conversation{};
-    std::uint32_t limit{};
-    friend bool operator==(const ConversationHistoryRequest&, const ConversationHistoryRequest&) = default;
-};
-
-struct ConversationListRequest {
-    friend bool operator==(const ConversationListRequest&, const ConversationListRequest&) = default;
-};
-
-struct ConversationOpRequest {
-    Field<std::string> actor{};
-    std::string conversation{};
-    std::string idempotency_key{};
-    std::optional<JsonValue> op{};
-    Field<std::string> transaction{};
-    friend bool operator==(const ConversationOpRequest&, const ConversationOpRequest&) = default;
-};
-
-struct ConversationSearchRequest {
-    std::uint32_t limit{};
-    std::string query{};
-    friend bool operator==(const ConversationSearchRequest&, const ConversationSearchRequest&) = default;
-};
-
-struct ConversationSnapshotRequest {
-    std::string conversation{};
-    std::uint32_t tail{};
-    friend bool operator==(const ConversationSnapshotRequest&, const ConversationSnapshotRequest&) = default;
-};
-
-struct ConversationTypingEvent {
-    std::string conversation{};
-    bool on{};
-    std::string participant{};
-    friend bool operator==(const ConversationTypingEvent&, const ConversationTypingEvent&) = default;
-};
-
-struct ConversationTypingRequest {
-    Field<std::string> actor{};
-    std::string conversation{};
-    bool on{};
-    friend bool operator==(const ConversationTypingRequest&, const ConversationTypingRequest&) = default;
-};
-
 enum class CopyRequestMode {
     screen,
     selection,
@@ -1274,6 +1183,11 @@ struct CreateBookmarkRequest {
     std::string title{};
     Field<std::string> url{};
     friend bool operator==(const CreateBookmarkRequest&, const CreateBookmarkRequest&) = default;
+};
+
+struct JsonValue {
+    Json value{};
+    friend bool operator==(const JsonValue&, const JsonValue&) = default;
 };
 
 struct CreateBrowserProfileRequest {
@@ -1664,11 +1578,6 @@ struct GetCellPixelsResult {
     std::vector<CellPixelSurface> surfaces{};
     std::uint16_t width_px{};
     friend bool operator==(const GetCellPixelsResult&, const GetCellPixelsResult&) = default;
-};
-
-struct GetFrontendBrowserHistoryRequest {
-    Id surface{};
-    friend bool operator==(const GetFrontendBrowserHistoryRequest&, const GetFrontendBrowserHistoryRequest&) = default;
 };
 
 struct GetFrontendProjectionRequest {
@@ -2066,6 +1975,7 @@ enum class TabBrowserStatus {
 enum class TabKind {
     pty,
     browser,
+    conversation,
 };
 
 struct Tab {
@@ -2267,23 +2177,10 @@ struct MoveTabToNewWorkspaceRequest {
     friend bool operator==(const MoveTabToNewWorkspaceRequest&, const MoveTabToNewWorkspaceRequest&) = default;
 };
 
-struct SplitRespawn {
-    Field<std::string> cwd{};
-    Field<std::string> engine{};
-    Field<std::map<std::string, std::string, std::less<>>> env{};
-    std::string kind{};
-    Field<std::string> profile_id{};
-    Field<std::vector<std::string>> shell_args{};
-    Field<std::string> terminal_id{};
-    Field<std::string> url{};
-    friend bool operator==(const SplitRespawn&, const SplitRespawn&) = default;
-};
-
 struct MoveTabToSplitRequest {
     std::string edge{};
     Id pane{};
     Field<float> ratio{};
-    Field<SplitRespawn> respawn{};
     Id surface{};
     Field<std::string> transaction{};
     friend bool operator==(const MoveTabToSplitRequest&, const MoveTabToSplitRequest&) = default;
@@ -2361,10 +2258,23 @@ struct NewBrowserTabRequest {
     friend bool operator==(const NewBrowserTabRequest&, const NewBrowserTabRequest&) = default;
 };
 
+struct NewConversationTabRequest {
+    Field<std::uint16_t> cols{};
+    std::string conversation{};
+    Field<std::string> mutation_id{};
+    Field<std::string> origin{};
+    std::string owner{};
+    Field<Id> pane{};
+    Field<std::uint16_t> rows{};
+    Field<Id> workspace{};
+    friend bool operator==(const NewConversationTabRequest&, const NewConversationTabRequest&) = default;
+};
+
 struct NewFrontendBrowserTabRequest {
     Field<std::uint16_t> cols{};
     std::string engine{};
     Field<std::string> favicon_url{};
+    Field<std::string> owner{};
     Field<Id> pane{};
     Field<std::string> profile_id{};
     Field<std::uint16_t> rows{};
@@ -3233,12 +3143,6 @@ struct SetDefaultColorsRequest {
     friend bool operator==(const SetDefaultColorsRequest&, const SetDefaultColorsRequest&) = default;
 };
 
-struct SetFrontendBrowserHistoryRequest {
-    std::optional<JsonValue> history{};
-    Id surface{};
-    friend bool operator==(const SetFrontendBrowserHistoryRequest&, const SetFrontendBrowserHistoryRequest&) = default;
-};
-
 struct SetPersonalTerminalRequest {
     std::string session_id{};
     std::string terminal_key{};
@@ -3717,6 +3621,7 @@ struct UpdateBrowserProfileRequest {
 
 struct UpdateFrontendBrowserTabRequest {
     Field<std::string> favicon_url{};
+    Field<std::string> owner{};
     Id surface{};
     Field<std::string> title{};
     Field<std::string> url{};
@@ -4627,12 +4532,6 @@ struct Codec<SplitDirection> {
 };
 
 template <>
-struct Codec<SplitRespawn> {
-    static Result<Json> encode(const SplitRespawn& value);
-    static Result<SplitRespawn> decode(const Json& value);
-};
-
-template <>
 struct Codec<SurfaceResult> {
     static Result<Json> encode(const SurfaceResult& value);
     static Result<SurfaceResult> decode(const Json& value);
@@ -4987,60 +4886,6 @@ struct Codec<CloseWorkspaceRequest> {
 };
 
 template <>
-struct Codec<ConversationAgentTokenRequest> {
-    static Result<Json> encode(const ConversationAgentTokenRequest& value);
-    static Result<ConversationAgentTokenRequest> decode(const Json& value);
-};
-
-template <>
-struct Codec<ConversationBindRequest> {
-    static Result<Json> encode(const ConversationBindRequest& value);
-    static Result<ConversationBindRequest> decode(const Json& value);
-};
-
-template <>
-struct Codec<ConversationCreateRequest> {
-    static Result<Json> encode(const ConversationCreateRequest& value);
-    static Result<ConversationCreateRequest> decode(const Json& value);
-};
-
-template <>
-struct Codec<ConversationHistoryRequest> {
-    static Result<Json> encode(const ConversationHistoryRequest& value);
-    static Result<ConversationHistoryRequest> decode(const Json& value);
-};
-
-template <>
-struct Codec<ConversationListRequest> {
-    static Result<Json> encode(const ConversationListRequest& value);
-    static Result<ConversationListRequest> decode(const Json& value);
-};
-
-template <>
-struct Codec<ConversationOpRequest> {
-    static Result<Json> encode(const ConversationOpRequest& value);
-    static Result<ConversationOpRequest> decode(const Json& value);
-};
-
-template <>
-struct Codec<ConversationSearchRequest> {
-    static Result<Json> encode(const ConversationSearchRequest& value);
-    static Result<ConversationSearchRequest> decode(const Json& value);
-};
-
-template <>
-struct Codec<ConversationSnapshotRequest> {
-    static Result<Json> encode(const ConversationSnapshotRequest& value);
-    static Result<ConversationSnapshotRequest> decode(const Json& value);
-};
-
-template <>
-struct Codec<ConversationTypingRequest> {
-    static Result<Json> encode(const ConversationTypingRequest& value);
-    static Result<ConversationTypingRequest> decode(const Json& value);
-};
-
-template <>
 struct Codec<CopyRequest> {
     static Result<Json> encode(const CopyRequest& value);
     static Result<CopyRequest> decode(const Json& value);
@@ -5194,12 +5039,6 @@ template <>
 struct Codec<GetCellPixelsRequest> {
     static Result<Json> encode(const GetCellPixelsRequest& value);
     static Result<GetCellPixelsRequest> decode(const Json& value);
-};
-
-template <>
-struct Codec<GetFrontendBrowserHistoryRequest> {
-    static Result<Json> encode(const GetFrontendBrowserHistoryRequest& value);
-    static Result<GetFrontendBrowserHistoryRequest> decode(const Json& value);
 };
 
 template <>
@@ -5470,6 +5309,12 @@ template <>
 struct Codec<NewBrowserTabRequest> {
     static Result<Json> encode(const NewBrowserTabRequest& value);
     static Result<NewBrowserTabRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<NewConversationTabRequest> {
+    static Result<Json> encode(const NewConversationTabRequest& value);
+    static Result<NewConversationTabRequest> decode(const Json& value);
 };
 
 template <>
@@ -5794,12 +5639,6 @@ template <>
 struct Codec<SetDefaultColorsRequest> {
     static Result<Json> encode(const SetDefaultColorsRequest& value);
     static Result<SetDefaultColorsRequest> decode(const Json& value);
-};
-
-template <>
-struct Codec<SetFrontendBrowserHistoryRequest> {
-    static Result<Json> encode(const SetFrontendBrowserHistoryRequest& value);
-    static Result<SetFrontendBrowserHistoryRequest> decode(const Json& value);
 };
 
 template <>
@@ -6130,18 +5969,6 @@ template <>
 struct Codec<ConfigReloadRequestedEvent> {
     static Result<Json> encode(const ConfigReloadRequestedEvent& value);
     static Result<ConfigReloadRequestedEvent> decode(const Json& value);
-};
-
-template <>
-struct Codec<ConversationChangedEvent> {
-    static Result<Json> encode(const ConversationChangedEvent& value);
-    static Result<ConversationChangedEvent> decode(const Json& value);
-};
-
-template <>
-struct Codec<ConversationTypingEvent> {
-    static Result<Json> encode(const ConversationTypingEvent& value);
-    static Result<ConversationTypingEvent> decode(const Json& value);
 };
 
 template <>

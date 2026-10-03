@@ -12,6 +12,9 @@ nonisolated final class SurfaceBridge: @unchecked Sendable {
     /// Main-actor only. Weak so a late callback after the view deinitializes
     /// is a no-op.
     @MainActor weak var view: TerminalSurfaceView?
+    /// The font scale after each font size change (nil: the configured
+    /// size), `TerminalFontScale.observe`.
+    @MainActor var onFontScaleChange: ((Double?) -> Void)?
 
     init(input: TerminalInputSink) {
         self.input = input

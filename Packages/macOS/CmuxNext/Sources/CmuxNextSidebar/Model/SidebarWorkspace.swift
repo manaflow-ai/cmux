@@ -43,6 +43,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// Live daemon data, a saved row drawn before the daemon answered, or a
     /// placeholder (`SidebarRowState`).
     public var rowState: SidebarRowState
+    /// Determinate or indeterminate bar under the row: the workspace's
+    /// reported progress, else a terminal's OSC 9;4 progress.
+    public var progress: SidebarProgress?
 
     public init(
         id: WorkspaceID,
@@ -54,7 +57,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         unread: UnreadState = .none,
         activity: StatusIndicatorState = .idle,
         activityStyle: StatusIndicatorStyle? = nil,
-        rowState: SidebarRowState = .live
+        rowState: SidebarRowState = .live,
+        progress: SidebarProgress? = nil
     ) {
         self.id = id
         self.machineID = machineID
@@ -66,6 +70,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.activity = activity
         self.activityStyle = activityStyle
         self.rowState = rowState
+        self.progress = progress
     }
 }
 

@@ -94,8 +94,7 @@ def classify(paths: list[str], *, event: str, macos: str) -> dict[str, bool]:
                                               "contents.xcworkspacedata", ".gitignore"}:
             routes["linux_guard_history"] = True
             routes["linux_guard_source"] = True
-        elif path.startswith(("CLI/", "Resources/", "Packages/",
-                              "cmuxCLITests/", "cmuxCLITestSupport/", "cmux.xcodeproj/",
+        elif path.startswith(("Resources/", "Packages/", "cmux.xcodeproj/",
                               "cmux.xcworkspace/", "ios/")):
             routes["linux_guard_source"] = True
         elif path.startswith(("web/", "webviews/", "cmux-tui/")):

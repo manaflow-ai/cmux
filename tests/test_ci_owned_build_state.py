@@ -850,7 +850,7 @@ class Prefer(Fixture):
 
     def recorded_with_package_change(self, changed):
         record = self.recorded(changed)
-        record["Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/F.swift"] = ["stale", 1]
+        record["Packages/macOS/CmuxNext/Sources/CmuxNextApp/F.swift"] = ["stale", 1]
         return record
 
     def test_rebuilds_app_only_for_a_package_swift_source(self):
@@ -1234,7 +1234,7 @@ class Wiring(unittest.TestCase):
         self.assertTrue(keep["if"].startswith("steps.hosted-compile.outcome == 'success'"))
         self.assertLess(index("Compile app-host test product"), index("Keep this owned Mac's DerivedData"))
         # Staging and packaging rewrite Build/Products and the xctestruns.
-        for later in ("Stage compiled package frameworks", "Package compiled app-host test product"):
+        for later in ("Package compiled app-host test product",):
             self.assertLess(index("Keep this owned Mac's DerivedData"), index(later), later)
         self.assertTrue(self.step("Keep this owned Mac's build state")["if"].startswith("always()"))
 

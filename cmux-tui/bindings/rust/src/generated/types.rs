@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 4a59825cd43eedde1d1abef1833d07e90af4b64773ad9eacd346e4966b461d4c.
+// cmux-tui mux protocol 12, IR bde47abe8ff2614238a6745a2f306ff5814abf6c271a9dca0a0ae41c9995f03f.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1265,26 +1265,6 @@ pub enum SplitDirection {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SplitRespawn {
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub cwd: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub engine: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub env: Optional<BTreeMap<String, String>>,
-    pub kind: String,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub profile_id: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub shell_args: Optional<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub terminal_id: Optional<String>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub url: Optional<String>,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SurfaceResult {
     pub surface: Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1320,6 +1300,8 @@ pub enum TabKind {
     Pty,
     #[serde(rename = "browser")]
     Browser,
+    #[serde(rename = "conversation")]
+    Conversation,
 }
 
 #[rustfmt::skip]
