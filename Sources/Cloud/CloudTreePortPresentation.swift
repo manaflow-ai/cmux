@@ -15,7 +15,7 @@ struct CloudTreePortPresentation {
     }
 
     var toolTip: String? {
-        String(localized: "cloudTree.port.openInCmux.help", defaultValue: "Open in cmux. No VPN setup needed.")
+        resource.detail
     }
 
     var accessibilityLabel: String {
@@ -25,7 +25,6 @@ struct CloudTreePortPresentation {
         } else {
             portLabel = title
         }
-        let openAction = String(localized: "fileExplorer.contextMenu.openInCmux", defaultValue: "Open in cmux")
-        return [portLabel, openAction].joined(separator: ", ")
+        return [portLabel, detail].compactMap { $0 }.joined(separator: ", ")
     }
 }
