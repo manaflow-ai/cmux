@@ -91,15 +91,14 @@ struct EditorTypingSubstitutionTests {
         // opt-out for this fixture; installAppDefaults itself must preserve a
         // user's persistent override.
         let defaults = UserDefaults.standard
-        let savedValues = Self.systemSubstitutionDefaultsKeys.map { defaults.object(forKey: $0) }
+        let globalDomain = defaults.volatileDomain(forName: UserDefaults.globalDomain)
         defer {
-            for (key, value) in zip(Self.systemSubstitutionDefaultsKeys, savedValues) {
-                defaults.set(value, forKey: key)
-            }
+            defaults.setVolatileDomain(globalDomain, forName: UserDefaults.globalDomain)
         }
-        for key in Self.systemSubstitutionDefaultsKeys {
-            defaults.set(false, forKey: key)
-        }
+        defaults.setVolatileDomain(
+            Dictionary(uniqueKeysWithValues: Self.systemSubstitutionDefaultsKeys.map { ($0, false) }),
+            forName: UserDefaults.globalDomain
+        )
         CmuxPlainTextInput.installAppDefaults(defaults)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 80),
