@@ -144,7 +144,20 @@ export class TeamDO extends OwnerDO<TeamState> {
   protected override async onWake(now: number): Promise<void> {
     if (this.revokeRetryAt === null || now >= this.revokeRetryAt) await this.flushServerRevocations(this.boundEngine?.currentState.team?.id ?? "")
     await this.recheckDomains(now)
-    await this.syncRunPolicy(now)
+    try {
+      await this.syncIntegration(now)
+    } finally {
+      // After the integration push, so a slow SchedulerDO never delays it (review P3).
+      await this.syncRunPolicy(now)
+    }
+  }
+
+  /** RPC from SchedulerDO (fail closed): the run class as TeamDO would push it now. */
+  async runPolicy(entity: string): Promise<{ version: number; runs_allowed: boolean }> {
+    return runSyncPush(this.bind(entity).currentState)
+  }
+
+  private async syncIntegration(now: number): Promise<void> {
     const engine = this.boundEngine
     let state = engine?.currentState
     if (!state?.team || (!integrationSyncPending(state) && !releasePending(state))) return

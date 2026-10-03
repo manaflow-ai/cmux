@@ -16,7 +16,7 @@ import { checkCron, nextFire } from "../cron.ts"
 import { admit, decodeParams, reject, requirePersonalTeamAdmin } from "./common.ts"
 import { automationOutbox, countDeploy, reduceDeploy } from "./scheduler-code.ts"
 import { MAX_ACTIVE_RUNS_PER_TEAM, MAX_OPEN_RUNS_PER_TEAM, queueFull, rateLimited, takeRunToken, type RunBucket } from "./scheduler-limits.ts"
-import { applyRunPolicy, policyDenied, runsAllowed, type RunPolicy } from "./scheduler-policy.ts"
+import { reduceRunPolicy, runPolicyRefusal, type RunPolicy } from "./scheduler-policy.ts"
 import { personalTeamIdFor } from "./user.ts"
 
 /**
@@ -71,7 +71,7 @@ export interface SchedulerState {
   readonly deploys?: { readonly day: string; readonly count: number }
   /** Run-creation token bucket (abuse limit, scheduler-limits.ts). */
   readonly rate?: RunBucket
-  /** TeamDO's push of the run class of agents.allowedClasses (scheduler-policy.ts); absent = allowed. */
+  /** TeamDO's push of the run class of agents.allowedClasses (scheduler-policy.ts); absent = not synced, no runs. */
   readonly run_policy?: RunPolicy
 }
 
@@ -197,7 +197,8 @@ const startRun = (
   trigger: Run["trigger"],
   ctx: ReduceContext
 ): { state: SchedulerState; run: RunRecord; outbox: Array<OutboxItem> } | { rejected: ReturnType<typeof rateLimited> } => {
-  if (!runsAllowed(state.run_policy)) return { rejected: policyDenied() }
+  const refused = runPolicyRefusal(state.run_policy)
+  if (refused) return { rejected: refused }
   const rate = takeRunToken(state.rate, ctx.now)
   if (!rate) return { rejected: rateLimited() }
   if (Object.values(state.runs).filter((r) => !TERMINAL.has(r.state)).length >= MAX_OPEN_RUNS_PER_TEAM) return { rejected: queueFull() }
@@ -399,8 +400,11 @@ export const schedulerDomain: Domain<SchedulerState> = {
         const next_at = spec.type === "cron" ? nextFire(spec.expr, spec.tz, Math.max(d.value.scheduled_at, ctx.now)) : null
         const updated = withNextRun({ ...a, triggers: a.triggers.map((x) => (x.id === t.id ? { ...x, next_at } : x)) })
         const base = { ...state, automations: { ...state.automations, [a.id]: updated } }
-        // Runs not allowed by team policy: the schedule moves on and no run starts (a retry would loop).
-        if (!runsAllowed(state.run_policy)) return { ok: true, state: base, value: { skipped: "policy.denied" }, outbox: [automationOutbox(updated)] }
+        // Runs denied by team policy: the schedule moves on and no run starts (a retry would loop).
+        // Not synced yet: a retryable refusal, the alarm retries after SchedulerDO pulls the policy.
+        const refused = runPolicyRefusal(state.run_policy)
+        if (refused?.code === "policy.denied") return { ok: true, state: base, value: { skipped: "policy.denied" }, outbox: [automationOutbox(updated)] }
+        if (refused) return refused
         const r = startRun(base, updated, { id: t.id, type: spec.type, scheduled_at: d.value.scheduled_at }, ctx)
         if ("rejected" in r) return r.rejected
         return { ok: true, state: r.state, value: publicRun(r.run), outbox: [automationOutbox(updated), ...r.outbox] }
@@ -465,18 +469,7 @@ export const schedulerDomain: Domain<SchedulerState> = {
       case "scheduler.run_policy": {
         const d = decodeParams<RunPolicy>(internalByName.get(op)!, params)
         if (!d.ok) return d
-        const next = applyRunPolicy(state.run_policy, d.value)
-        if (!next) return { ok: true, state, value: state.run_policy ?? null, changed: false }
-        if (next.runs_allowed) return { ok: true, state: { ...state, run_policy: next }, value: next }
-        // A deny also cancels queued runs without a Workflow; started runs keep running (coordinator 2026-10-03).
-        let runs: Readonly<Record<string, RunRecord>> = state.runs
-        const outbox: Array<OutboxItem> = []
-        for (const id of Object.keys(state.automations)) {
-          const c = cancelQueued(runs, id, ctx.now, "your team no longer allows automation runs (agents.allowedClasses)")
-          runs = c.runs
-          outbox.push(...c.outbox)
-        }
-        return { ok: true, state: { ...state, run_policy: next, runs }, value: next, outbox }
+        return reduceRunPolicy(state, d.value, (runs, automation) => cancelQueued(runs, automation, ctx.now, "your team no longer allows automation runs (agents.allowedClasses)"))
       }
 
       case "automation.settings.set": {
