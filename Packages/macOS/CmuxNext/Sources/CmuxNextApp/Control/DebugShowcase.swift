@@ -32,7 +32,7 @@ enum DebugShowcase {
         }
         if params["focus"]?.boolValue == true {
             pane.showAgentTab(key)
-            WindowActivation.show(window.window, .focus)
+            if let nsWindow = window.window { WindowActivation.show(nsWindow, .focus) }
         }
         services.feed.startIfSignedIn()
         let workspace = pane.daemon.store.workspace(containing: pane.pane.handle)?.id ?? ""
