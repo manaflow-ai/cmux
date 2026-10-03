@@ -385,10 +385,15 @@ public final class BrowserChromeView: NSView {
         updateColors()
     }
 
+    /// The chrome sits on the window's one backdrop: it draws the surface
+    /// token where panes paint it (an opaque window) and nothing over a
+    /// see-through window (plans/cmux-next/windows.md).
     private func updateColors() {
+        let paints = WindowBackdrop(themeTokens).panesPaintBackground
         performWithTheme {
-            layer?.backgroundColor = Palette.contentBackground.cgColor
-            toolbar.layer?.backgroundColor = OmnibarStyle.toolbarBackground.cgColor
+            let surface = paints ? Palette.surfaceBackground.cgColor : nil
+            layer?.backgroundColor = surface
+            toolbar.layer?.backgroundColor = surface
             separator.layer?.backgroundColor = Palette.separator.cgColor
             contentContainer.layer?.borderColor = Palette.separator.cgColor
         }
