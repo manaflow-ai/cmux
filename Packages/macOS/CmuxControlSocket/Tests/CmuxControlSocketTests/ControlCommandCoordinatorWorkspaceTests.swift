@@ -26,6 +26,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
     private func summary(id: UUID = UUID(), title: String, customTitle: String?) -> ControlWorkspaceSummary {
         ControlWorkspaceSummary(
             id: id,
+            stableID: id,
             title: title,
             customTitle: customTitle,
             customDescription: nil,
@@ -57,6 +58,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
         }
 
         #expect(row["id"] == .string(workspaceID.uuidString))
+        #expect(row["stable_id"] == .string(workspaceID.uuidString))
         #expect(row["title"] == .string("Manual name"))
         #expect(row["custom_title"] == .string("Manual name"))
         #expect(row["has_custom_title"] == .bool(true))

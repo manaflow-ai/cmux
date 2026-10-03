@@ -3,8 +3,10 @@ public import Foundation
 /// One workspace row of the `system.tree` snapshot (the legacy
 /// `v2TreeWorkspaceNode` dictionary, minus the coordinator-minted refs).
 public struct ControlSystemTreeWorkspaceNode: Sendable, Equatable {
-    /// The workspace's identifier.
+    /// The workspace's live runtime identifier.
     public let workspaceID: UUID
+    /// The workspace's restart-stable identifier, when the app can provide it.
+    public let stableWorkspaceID: UUID?
     /// The workspace's index within its window's tab list.
     public let index: Int
     /// The workspace's display title.
@@ -26,7 +28,8 @@ public struct ControlSystemTreeWorkspaceNode: Sendable, Equatable {
     /// Creates a workspace node.
     ///
     /// - Parameters:
-    ///   - workspaceID: The workspace's identifier.
+    ///   - workspaceID: The workspace's live runtime identifier.
+    ///   - stableWorkspaceID: The workspace's restart-stable identifier, if available.
     ///   - index: The index within the window's tab list.
     ///   - title: The display title.
     ///   - description: The custom description, if any.
@@ -36,6 +39,7 @@ public struct ControlSystemTreeWorkspaceNode: Sendable, Equatable {
     ///   - layout: The split-layout tree, or `nil` when unavailable.
     public init(
         workspaceID: UUID,
+        stableWorkspaceID: UUID? = nil,
         index: Int,
         title: String,
         description: String?,
@@ -45,6 +49,7 @@ public struct ControlSystemTreeWorkspaceNode: Sendable, Equatable {
         layout: ControlSystemTreeLayoutNode? = nil
     ) {
         self.workspaceID = workspaceID
+        self.stableWorkspaceID = stableWorkspaceID
         self.index = index
         self.title = title
         self.description = description

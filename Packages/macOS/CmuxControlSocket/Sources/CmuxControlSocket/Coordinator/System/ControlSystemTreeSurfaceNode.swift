@@ -8,8 +8,10 @@ public import Foundation
 /// order and pre-sorts them per pane by `indexInPane ?? index`, exactly as the
 /// legacy body sorted its dictionaries.
 public struct ControlSystemTreeSurfaceNode: Sendable, Equatable {
-    /// The surface's panel identifier.
+    /// The surface's live panel identifier.
     public let surfaceID: UUID
+    /// The surface's restart-stable identifier, when the app can provide it.
+    public let stableSurfaceID: UUID?
     /// The surface's index in the workspace's ordered-panels enumeration.
     public let index: Int
     /// The panel type's raw value.
@@ -44,7 +46,8 @@ public struct ControlSystemTreeSurfaceNode: Sendable, Equatable {
     /// Creates a surface node.
     ///
     /// - Parameters:
-    ///   - surfaceID: The surface's panel identifier.
+    ///   - surfaceID: The surface's live panel identifier.
+    ///   - stableSurfaceID: The surface's restart-stable identifier, if available.
     ///   - index: The ordered-panels enumeration index.
     ///   - typeRawValue: The panel type's raw value.
     ///   - title: The resolved display title.
@@ -59,6 +62,7 @@ public struct ControlSystemTreeSurfaceNode: Sendable, Equatable {
     ///   - dockScopeRawValue: The Dock scope for a Dock-hosted surface.
     public init(
         surfaceID: UUID,
+        stableSurfaceID: UUID? = nil,
         index: Int,
         typeRawValue: String,
         title: String,
@@ -74,6 +78,7 @@ public struct ControlSystemTreeSurfaceNode: Sendable, Equatable {
         dockScopeRawValue: String? = nil
     ) {
         self.surfaceID = surfaceID
+        self.stableSurfaceID = stableSurfaceID
         self.index = index
         self.typeRawValue = typeRawValue
         self.title = title

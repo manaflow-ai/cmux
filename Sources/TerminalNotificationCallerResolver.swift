@@ -27,12 +27,14 @@ extension TerminalController {
             "window_id": v2OrNull(callerWindowId?.uuidString),
             "window_ref": v2Ref(kind: .window, uuid: callerWindowId),
             "workspace_id": workspace.id.uuidString,
+            "stable_workspace_id": workspace.stableId.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
         ]
 
         if let surfaceId {
             guard let target = workspace.controlSurfaceTarget(for: surfaceId) else { return nil }
             payload["surface_id"] = target.surfaceID.uuidString
+            payload["stable_surface_id"] = target.panel.stableSurfaceId.uuidString
             payload["surface_ref"] = v2Ref(kind: .surface, uuid: target.surfaceID)
             payload["tab_id"] = target.surfaceID.uuidString
             payload["tab_ref"] = v2TabRef(uuid: target.surfaceID)
@@ -42,6 +44,7 @@ extension TerminalController {
             payload["pane_ref"] = v2Ref(kind: .pane, uuid: target.paneID)
         } else {
             payload["surface_id"] = NSNull()
+            payload["stable_surface_id"] = NSNull()
             payload["surface_ref"] = NSNull()
             payload["tab_id"] = NSNull()
             payload["tab_ref"] = NSNull()

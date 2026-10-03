@@ -291,6 +291,7 @@ struct ControlCommandCoordinatorSurfaceTests {
             windowID: nil,
             surfaces: [ControlSurfaceSummary(
                 surfaceID: surfaceID,
+                stableSurfaceID: surfaceID,
                 typeRawValue: "simulator",
                 title: "Simulator",
                 isFocused: true,
@@ -325,6 +326,7 @@ struct ControlCommandCoordinatorSurfaceTests {
             return
         }
         #expect(row["simulator_id"] == .string("SIM-UDID"))
+        #expect(row["stable_id"] == .string(surfaceID.uuidString))
         #expect(row["device_name"] == .string("iPad Pro 13-inch (M5)"))
         #expect(row["state"] == .string("Booted"))
     }

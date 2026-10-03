@@ -433,6 +433,8 @@ import Testing
         let workspaceIDBefore = try #require(focusedBefore["workspace_id"] as? String)
         let paneIDBefore = try #require(focusedBefore["pane_id"] as? String)
         let surfaceIDBefore = try #require(focusedBefore["surface_id"] as? String)
+        let stableWorkspaceIDBefore = try #require(focusedBefore["stable_workspace_id"] as? String)
+        let stableSurfaceIDBefore = try #require(focusedBefore["stable_surface_id"] as? String)
 
         let responseText = await Task.detached {
             TerminalController.shared.v2RemoteTmuxWindow(
@@ -456,6 +458,8 @@ import Testing
         #expect(focusedAfter["workspace_id"] as? String == workspaceIDBefore)
         #expect(focusedAfter["pane_id"] as? String == paneIDBefore)
         #expect(focusedAfter["surface_id"] as? String == surfaceIDBefore)
+        #expect(focusedAfter["stable_workspace_id"] as? String == stableWorkspaceIDBefore)
+        #expect(focusedAfter["stable_surface_id"] as? String == stableSurfaceIDBefore)
     }
 }
 
