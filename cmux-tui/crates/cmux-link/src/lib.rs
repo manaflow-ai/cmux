@@ -14,9 +14,11 @@
 //! - [`sftp`]: a small SFTP v3 client over `ssh -s sftp` stdio.
 //! - [`fs`]: the Finder `fs.*` operations on a root of an SFTP host.
 //! - [`bulk`] and [`job`]: credit-window byte channels and copy jobs.
+//! - [`drop`]: pure plans for `terminal.drop` and `agent.attach`.
 
 pub mod bulk;
 pub mod conn;
+pub mod drop;
 pub mod fs;
 pub mod host_key;
 pub mod ids;
