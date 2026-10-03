@@ -7847,6 +7847,7 @@ final class cmuxUITests: XCTestCase {
     func testTerminalOverviewToolbarOpensAndPreservesTerminalPicker() throws {
         let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
             "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": "1",
+            "CMUX_UITEST_SUPPRESS_WHATS_NEW": "1",
         ])
         defer { app.terminate() }
 
