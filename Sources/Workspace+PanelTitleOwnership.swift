@@ -68,9 +68,13 @@ extension Workspace {
         )
         // A remote tmux mirror tab rename propagates to `rename-window`.
         if propagateToRemoteTmux, isRemoteTmuxMirror {
-            AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
-                workspaceId: id, panelId: panelId, title: trimmed
-            )
+            if let remotePane = remoteTmuxControlPane(surfaceID: panelId) {
+                _ = remotePane.requestRename(title: trimmed)
+            } else {
+                AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
+                    workspaceId: id, panelId: panelId, title: trimmed
+                )
+            }
         }
         return true
     }

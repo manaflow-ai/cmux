@@ -88,4 +88,8 @@ struct RemoteTmuxControlPaneLocation {
     func requestKill() -> Bool {
         owner.requestKillPane(pane.tmuxPaneID)
     }
+
+    func requestRename(title: String) -> Bool {
+        owner.requestRenamePane(pane.tmuxPaneID, title: title)
+    }
 }
