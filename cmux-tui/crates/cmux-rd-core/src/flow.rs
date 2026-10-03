@@ -19,8 +19,8 @@ impl Rect {
     pub fn union(self, other: Rect) -> Rect {
         let x0 = self.x.min(other.x);
         let y0 = self.y.min(other.y);
-        let x1 = (self.x + self.width).max(other.x + other.width);
-        let y1 = (self.y + self.height).max(other.y + other.height);
+        let x1 = self.x.saturating_add(self.width).max(other.x.saturating_add(other.width));
+        let y1 = self.y.saturating_add(self.height).max(other.y.saturating_add(other.height));
         Rect { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }
     }
 }
@@ -105,7 +105,8 @@ impl FrameGate {
             return FlowAction::Wait;
         }
         self.pending = None;
-        self.last_sent += 1;
+        // Frame numbers start at 1; at 60 fps u32 lasts over two years per session.
+        self.last_sent = self.last_sent.saturating_add(1);
         self.last_encode_us = Some(now_us);
         FlowAction::Encode { damage, frame: self.last_sent }
     }

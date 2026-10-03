@@ -3,7 +3,7 @@
 //! only when its reference frame was released (so a frame that predicts from
 //! a lost frame is never decoded and shown corrupted).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 
 use cmux_rd_proto::{DatagramHeader, DatagramKind, FrameBody, REF_NONE, flags};
 
@@ -45,7 +45,18 @@ pub struct Reassembler {
     finished_through: u32,
     losses: Vec<FrameLoss>,
     need_recovery: bool,
+    /// Recently released frames that a recovery frame may reference.
+    released_recent: VecDeque<u32>,
 }
+
+/// Most frames waiting for shards at once; datagrams of further frames are ignored.
+pub const MAX_PENDING_FRAMES: usize = 64;
+
+/// How far ahead of the newest finished frame a frame number may be.
+pub const MAX_FRAME_LEAD: u32 = 4096;
+
+/// Released frames a recovery frame may reference.
+pub const RECOVERY_WINDOW: usize = 64;
 
 impl Reassembler {
     /// `deadline_us`: how long a frame may wait for missing shards.
@@ -57,6 +68,7 @@ impl Reassembler {
             finished_through: 0,
             losses: Vec::new(),
             need_recovery: false,
+            released_recent: VecDeque::new(),
         }
     }
 
@@ -84,8 +96,13 @@ impl Reassembler {
         payload: &[u8],
         now_us: u64,
     ) -> Vec<CompleteFrame> {
+        let too_far = self.finished_through != 0
+            && header.frame > self.finished_through.saturating_add(MAX_FRAME_LEAD);
+        let no_room = self.pending.len() >= MAX_PENDING_FRAMES && !self.pending.contains_key(&header.frame);
         if !matches!(header.kind, DatagramKind::Video | DatagramKind::Fec)
             || header.frame <= self.finished_through
+            || too_far
+            || no_room
         {
             self.expire(now_us);
             return self.release_ready();
@@ -197,8 +214,17 @@ impl Reassembler {
             self.finished_through = self.finished_through.max(frame);
             let keyframe = p.flags & flags::KEYFRAME != 0 || body.ref_frame == REF_NONE;
             let referenced = self.last_released != 0 && body.ref_frame == self.last_released;
-            if keyframe || referenced {
+            let recovers = p.flags & flags::RECOVERY != 0 && self.released_recent.contains(&body.ref_frame);
+            if keyframe || referenced || recovers {
                 self.last_released = frame;
+                if keyframe {
+                    // An IDR flushes every reference before it.
+                    self.released_recent.clear();
+                }
+                if self.released_recent.len() >= RECOVERY_WINDOW {
+                    self.released_recent.pop_front();
+                }
+                self.released_recent.push_back(frame);
                 self.need_recovery = false;
                 out.push(CompleteFrame { frame, flags: p.flags, body });
             } else {

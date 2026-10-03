@@ -112,7 +112,7 @@ fn feed(
             *seq = seq.wrapping_add(1);
         }
         *now += 16_667;
-        cc.on_feedback(&arrivals, 0.0);
+        cc.on_feedback(&arrivals, 0.0, *now);
     }
 }
 
@@ -136,7 +136,7 @@ fn rising_delay_lowers_the_target_and_flat_delay_raises_it() {
             seq = seq.wrapping_add(1);
         }
         now += 16_667;
-        cc.on_feedback(&arrivals, 0.0);
+        cc.on_feedback(&arrivals, 0.0, now);
     }
     assert_eq!(cc.usage(), Usage::Overuse);
     assert!(cc.target_bps() < high);
@@ -154,7 +154,7 @@ fn relay_path_caps_the_target_at_once() {
 fn heavy_loss_cuts_the_target() {
     let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
     let before = cc.target_bps();
-    cc.on_feedback(&[], 0.4);
+    cc.on_feedback(&[], 0.4, 0);
     assert!(cc.target_bps() < before);
 }
 
@@ -179,4 +179,61 @@ fn ladder_keeps_text_sharp_and_motion_smooth() {
     assert!(relay.fps <= 15);
     let slow_encoder = choose(LadderInput { encode_us: 40_000, target_bps: 100_000_000, ..base });
     assert!(slow_encoder.fps <= 25);
+}
+
+#[test]
+fn feedback_without_arrivals_never_raises_the_target() {
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectLan);
+    let start = cc.target_bps();
+    for i in 0..1_000u64 {
+        cc.on_feedback(&[], 0.0, i * 50_000);
+    }
+    assert_eq!(cc.target_bps(), start);
+}
+
+#[test]
+fn growth_is_bounded_by_elapsed_time() {
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectLan);
+    let start = cc.target_bps() as f64;
+    let (mut seq, mut now) = (0u16, 0u64);
+    // 60 feedbacks in about one second.
+    feed(&mut cc, &mut seq, &mut now, 0, 60);
+    assert!((cc.target_bps() as f64) < start * 1.2);
+}
+
+#[test]
+fn send_times_survive_sequence_wrap() {
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectLan);
+    let (mut seq, mut now) = (u16::MAX - 5, 0u64);
+    feed(&mut cc, &mut seq, &mut now, 0, 2);
+    let mut arrivals = Vec::new();
+    for i in 0..10u64 {
+        cc.on_sent(seq, now + i * 100);
+        arrivals.push(Arrival { transport_seq: seq, arrival_us: (now + i * 100 + 5_000 + i * 2_000) as u32 });
+        seq = seq.wrapping_add(1);
+    }
+    cc.on_feedback(&arrivals, 0.0, now + 16_667);
+    assert_eq!(cc.usage(), Usage::Overuse);
+}
+
+#[test]
+fn a_skipped_gap_is_reported_once_so_the_host_releases_keys() {
+    let mut a = InputApplier::new(10);
+    let later = cmux_rd_proto::InputPacket { first_seq: 2, events: vec![InputEvent::Key { usage: 4, down: true }] };
+    a.accept(&later, 0);
+    a.tick(10);
+    assert!(a.take_skipped_gap());
+    assert!(!a.take_skipped_gap());
+}
+
+#[test]
+fn releases_are_resent_until_acknowledged() {
+    let mut s = InputSender::new();
+    s.push(InputEvent::Key { usage: 4, down: false });
+    for _ in 0..10 {
+        let p = s.packet().expect("release stays queued");
+        assert_eq!(p.events.len(), 1);
+    }
+    s.ack(1);
+    assert!(s.packet().is_none());
 }

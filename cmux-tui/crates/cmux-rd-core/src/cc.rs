@@ -5,7 +5,7 @@
 //! grow. Loss caps the target further. The target drives the encoder per frame;
 //! nothing is ever queued to "catch up".
 
-use std::collections::BTreeMap;
+use std::collections::{HashMap, VecDeque};
 
 use cmux_rd_proto::Arrival;
 
@@ -56,7 +56,10 @@ pub struct CongestionController {
     config: CcConfig,
     target_bps: u64,
     path: PathKind,
-    sent_us: BTreeMap<u16, u64>,
+    sent_us: HashMap<u16, u64>,
+    /// Send order, for evicting the oldest entries (sequence numbers wrap).
+    sent_order: VecDeque<u16>,
+    last_increase_us: Option<u64>,
     /// Smoothed one-way delay change per feedback (microseconds).
     trend_us: f64,
     last_delay_us: Option<i64>,
@@ -69,7 +72,9 @@ impl CongestionController {
             config,
             target_bps: config.start_bps,
             path,
-            sent_us: BTreeMap::new(),
+            sent_us: HashMap::new(),
+            sent_order: VecDeque::new(),
+            last_increase_us: None,
             trend_us: 0.0,
             last_delay_us: None,
             usage: Usage::Normal,
@@ -94,8 +99,11 @@ impl CongestionController {
     /// Records the send time of a datagram.
     pub fn on_sent(&mut self, transport_seq: u16, now_us: u64) {
         self.sent_us.insert(transport_seq, now_us);
-        while self.sent_us.len() > 4096 {
-            self.sent_us.pop_first();
+        self.sent_order.push_back(transport_seq);
+        while self.sent_order.len() > 4096 {
+            if let Some(old) = self.sent_order.pop_front() {
+                self.sent_us.remove(&old);
+            }
         }
     }
 
@@ -109,9 +117,11 @@ impl CongestionController {
         self.clamp();
     }
 
-    /// Processes one feedback: arrivals and the fraction of shards lost since
-    /// the previous feedback (0.0 to 1.0).
-    pub fn on_feedback(&mut self, arrivals: &[Arrival], loss: f64) {
+    /// Processes one feedback received at `now_us`: arrivals and the fraction
+    /// of shards lost since the previous feedback (0.0 to 1.0). The target
+    /// grows only on evidence (feedback with arrivals and a flat delay), by
+    /// at most 8 % per second of elapsed time.
+    pub fn on_feedback(&mut self, arrivals: &[Arrival], loss: f64, now_us: u64) {
         let mut deltas = Vec::new();
         for a in arrivals {
             let Some(sent) = self.sent_us.remove(&a.transport_seq) else { continue };
@@ -140,10 +150,18 @@ impl CongestionController {
             Usage::Normal
         };
         let mut target = self.target_bps as f64;
+        let evidence = !deltas.is_empty();
         match self.usage {
             Usage::Overuse => target *= 0.85,
-            Usage::Normal => target *= 1.05,
-            Usage::Underuse => {}
+            Usage::Normal if evidence => {
+                let elapsed_s = self
+                    .last_increase_us
+                    .map_or(0.1, |t| now_us.saturating_sub(t) as f64 / 1_000_000.0)
+                    .min(1.0);
+                target *= 1.0 + 0.08 * elapsed_s;
+                self.last_increase_us = Some(now_us);
+            }
+            Usage::Normal | Usage::Underuse => {}
         }
         if loss > 0.10 {
             target *= 1.0 - 0.5 * loss.min(1.0);

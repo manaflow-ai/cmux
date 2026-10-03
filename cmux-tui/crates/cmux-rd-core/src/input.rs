@@ -1,6 +1,10 @@
 //! Input over unreliable datagrams: the viewer repeats each event in later
-//! packets until the host acknowledges it (at most [`MAX_SENDS`] times); the
-//! host applies every sequence number exactly once and in order.
+//! packets until the host acknowledges it (press and motion events at most
+//! [`MAX_SENDS`] times; key and button releases until acknowledged, so a lost
+//! release never leaves a key held on the host); the host applies every
+//! sequence number exactly once and in order. The engine checks
+//! `SessionTable::may_inject_input` for every event it injects and calls
+//! [`InputApplier::reset`] when control ends.
 
 use std::collections::{BTreeMap, VecDeque};
 
@@ -35,7 +39,7 @@ impl InputSender {
     /// Queues an event and returns its sequence number.
     pub fn push(&mut self, event: InputEvent) -> u32 {
         let seq = self.next_seq;
-        self.next_seq += 1;
+        self.next_seq = self.next_seq.wrapping_add(1);
         self.queue.push_back(Outgoing { event, sends: 0 });
         seq
     }
@@ -44,7 +48,7 @@ impl InputSender {
     pub fn ack(&mut self, applied: u32) {
         while self.base <= applied && !self.queue.is_empty() {
             self.queue.pop_front();
-            self.base += 1;
+            self.base = self.base.wrapping_add(1);
         }
     }
 
@@ -52,9 +56,9 @@ impl InputSender {
     /// left, starting at the oldest such event. Events that used all sends are
     /// dropped from the front (the host skips the gap after its timeout).
     pub fn packet(&mut self) -> Option<InputPacket> {
-        while self.queue.front().is_some_and(|o| o.sends >= MAX_SENDS) {
+        while self.queue.front().is_some_and(|o| o.sends >= MAX_SENDS && !is_release(&o.event)) {
             self.queue.pop_front();
-            self.base += 1;
+            self.base = self.base.wrapping_add(1);
         }
         if self.queue.is_empty() {
             return None;
@@ -69,6 +73,10 @@ impl InputSender {
     }
 }
 
+fn is_release(event: &InputEvent) -> bool {
+    matches!(event, InputEvent::Key { down: false, .. } | InputEvent::Button { down: false, .. })
+}
+
 /// Host side: in-order, exactly-once application.
 #[derive(Debug)]
 pub struct InputApplier {
@@ -77,17 +85,38 @@ pub struct InputApplier {
     gap_since_us: Option<u64>,
     gap_timeout_us: u64,
     max_held: usize,
+    skipped_gap: bool,
 }
 
 impl InputApplier {
     /// `gap_timeout_us`: how long a missing event may block later ones.
     pub fn new(gap_timeout_us: u64) -> Self {
-        Self { next: 1, held: BTreeMap::new(), gap_since_us: None, gap_timeout_us, max_held: 1024 }
+        Self {
+            next: 1,
+            held: BTreeMap::new(),
+            gap_since_us: None,
+            gap_timeout_us,
+            max_held: 1024,
+            skipped_gap: false,
+        }
     }
 
     /// Newest applied sequence number (the `InputAck` value).
     pub fn applied(&self) -> u32 {
-        self.next - 1
+        self.next.wrapping_sub(1)
+    }
+
+    /// True once after the applier skipped a missing event: the engine then
+    /// releases every key and button it holds down on the host.
+    pub fn take_skipped_gap(&mut self) -> bool {
+        std::mem::take(&mut self.skipped_gap)
+    }
+
+    /// Drops held events (control ended or the session stopped); later
+    /// sequence numbers continue from the next expected one.
+    pub fn reset(&mut self) {
+        self.held.clear();
+        self.gap_since_us = None;
     }
 
     /// Accepts a packet and returns the events to inject now, in order.
@@ -111,7 +140,7 @@ impl InputApplier {
         loop {
             if let Some(event) = self.held.remove(&self.next) {
                 out.push(event);
-                self.next += 1;
+                self.next = self.next.wrapping_add(1);
                 self.gap_since_us = None;
                 continue;
             }
@@ -123,6 +152,7 @@ impl InputApplier {
             if now_us.saturating_sub(since) >= self.gap_timeout_us {
                 self.next = first_held;
                 self.gap_since_us = None;
+                self.skipped_gap = true;
                 continue;
             }
             break;

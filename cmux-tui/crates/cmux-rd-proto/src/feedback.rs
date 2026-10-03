@@ -1,5 +1,13 @@
 use crate::error::{DecodeError, Reader};
 
+/// Most arrivals in one feedback; with the other limits a feedback payload
+/// stays under 1,100 bytes, inside every session's `max_datagram`.
+pub const MAX_ARRIVALS: usize = 128;
+/// Most frames with NACKs in one feedback.
+pub const MAX_NACK_FRAMES: usize = 4;
+/// Most shard indexes per NACKed frame.
+pub const MAX_NACK_INDEXES: usize = 32;
+
 /// Arrival of one datagram at the viewer, by transport sequence number.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Arrival {
@@ -36,17 +44,17 @@ impl Feedback {
         out.extend_from_slice(&self.acked_frame.to_le_bytes());
         out.extend_from_slice(&self.decode_us.to_le_bytes());
         out.push(u8::from(self.need_recovery));
-        let arrivals = &self.arrivals[..self.arrivals.len().min(u16::MAX as usize)];
+        let arrivals = &self.arrivals[..self.arrivals.len().min(MAX_ARRIVALS)];
         out.extend_from_slice(&(arrivals.len() as u16).to_le_bytes());
         for a in arrivals {
             out.extend_from_slice(&a.transport_seq.to_le_bytes());
             out.extend_from_slice(&a.arrival_us.to_le_bytes());
         }
-        let nacks = &self.nacks[..self.nacks.len().min(u8::MAX as usize)];
+        let nacks = &self.nacks[..self.nacks.len().min(MAX_NACK_FRAMES)];
         out.push(nacks.len() as u8);
         for nack in nacks {
             out.extend_from_slice(&nack.frame.to_le_bytes());
-            let idx = &nack.indexes[..nack.indexes.len().min(u8::MAX as usize)];
+            let idx = &nack.indexes[..nack.indexes.len().min(MAX_NACK_INDEXES)];
             out.push(idx.len() as u8);
             for i in idx {
                 out.extend_from_slice(&i.to_le_bytes());

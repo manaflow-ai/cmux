@@ -90,6 +90,13 @@ pub enum Deny {
     NoSession,
     /// The person at the host refused.
     ConsentDenied,
+    /// A mux opened the pane but named no interactive client of its user to
+    /// receive the stream (a mux never receives frames itself).
+    NoViewerClient,
+    /// An idempotency key was replayed with different parameters.
+    KeyReused,
+    /// The session skipped consent under an unattended grant that no longer applies.
+    UnattendedRevoked,
 }
 
 /// The policy decision for a session request.
@@ -99,8 +106,47 @@ pub enum Admission {
         needs_consent: bool,
         /// The grant that allowed it, when the viewer is not the owner.
         via_grant: Option<String>,
+        /// Consent was waived by an unattended grant.
+        unattended: bool,
     },
     Deny(Deny),
+}
+
+/// The checks that do not depend on the console: hosting, class and grant.
+/// Returns the grant that allows `mode` (`None` for the owner's own access)
+/// and whether that grant waives consent.
+fn standing(
+    policy: &HostPolicy,
+    principal: &Principal,
+    mode: Mode,
+    now_ms: u64,
+) -> Result<(Option<&Grant>, bool), Deny> {
+    if !policy.enabled {
+        return Err(Deny::HostingDisabled);
+    }
+    let is_owner = principal.user == policy.owner_user;
+    match principal.class {
+        PrincipalClass::Agent | PrincipalClass::Run => return Err(Deny::AgentClass),
+        PrincipalClass::Mux => {
+            if mode == Mode::Control {
+                return Err(Deny::AgentControl);
+            }
+            if !is_owner {
+                return Err(Deny::NoGrant);
+            }
+        }
+        PrincipalClass::User => {}
+    }
+    let owner_direct =
+        is_owner && (principal.interactive || principal.class == PrincipalClass::Mux);
+    let grant = match live_grant(policy, &principal.user, mode, now_ms) {
+        Ok(g) => Some(g),
+        // The owner needs no grant; an unattended grant only removes the consent step.
+        Err(_) if owner_direct => None,
+        Err(deny) => return Err(deny),
+    };
+    let unattended = grant.is_some_and(|g| g.unattended && policy.unattended_allowed);
+    Ok((if owner_direct { grant.filter(|g| g.unattended) } else { grant }, unattended))
 }
 
 /// Decides a session request. `console_user` is the user logged in at the
@@ -113,34 +159,10 @@ pub fn admit(
     now_ms: u64,
 ) -> Admission {
     let Some(principal) = principal else { return Admission::Deny(Deny::NoPrincipal) };
-    if !policy.enabled {
-        return Admission::Deny(Deny::HostingDisabled);
-    }
-    let is_owner = principal.user == policy.owner_user;
-    match principal.class {
-        PrincipalClass::Agent | PrincipalClass::Run => return Admission::Deny(Deny::AgentClass),
-        PrincipalClass::Mux => {
-            if mode == Mode::Control {
-                return Admission::Deny(Deny::AgentControl);
-            }
-            if !is_owner {
-                return Admission::Deny(Deny::NoGrant);
-            }
-        }
-        PrincipalClass::User => {}
-    }
-    let owner_direct =
-        is_owner && (principal.interactive || principal.class == PrincipalClass::Mux);
-    let grant = if owner_direct {
-        // The owner's own unattended grant, when present, removes the consent step.
-        live_grant(policy, &principal.user, mode, now_ms).ok()
-    } else {
-        match live_grant(policy, &principal.user, mode, now_ms) {
-            Ok(g) => Some(g),
-            Err(deny) => return Admission::Deny(deny),
-        }
+    let (grant, unattended) = match standing(policy, principal, mode, now_ms) {
+        Ok(v) => v,
+        Err(deny) => return Admission::Deny(deny),
     };
-    let unattended = grant.is_some_and(|g| g.unattended && policy.unattended_allowed);
     let someone_else_at_console = console_user.is_some_and(|u| u != principal.user);
     let wants_consent = someone_else_at_console || policy.consent == ConsentRule::AskAlways;
     let needs_consent = wants_consent && !unattended;
@@ -149,8 +171,31 @@ pub fn admit(
     }
     Admission::Allow {
         needs_consent,
-        via_grant: if owner_direct { None } else { grant.map(|g| g.id.clone()) },
+        via_grant: grant.map(|g| g.id.clone()),
+        unattended: wants_consent && unattended,
     }
+}
+
+/// Re-checks a live session after a policy change or at a grant expiry.
+/// Consent already given stays valid; a session that skipped consent under
+/// an unattended grant ends when that grant no longer waives it.
+pub fn still_allowed(
+    policy: &HostPolicy,
+    principal: &Principal,
+    mode: Mode,
+    used_unattended: bool,
+    now_ms: u64,
+) -> Result<Option<String>, Deny> {
+    let (grant, unattended) = standing(policy, principal, mode, now_ms)?;
+    if used_unattended && !unattended {
+        return Err(Deny::UnattendedRevoked);
+    }
+    Ok(grant.map(|g| g.id.clone()))
+}
+
+/// The earliest future grant expiry, for the engine's one-shot timer.
+pub fn next_expiry_ms(policy: &HostPolicy, now_ms: u64) -> Option<u64> {
+    policy.grants.iter().filter_map(|g| g.expires_at_ms).filter(|&t| t > now_ms).min()
 }
 
 fn live_grant<'a>(

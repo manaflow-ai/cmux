@@ -100,7 +100,7 @@ proptest! {
         decode_us in any::<u32>(),
         need in any::<bool>(),
         arrivals in proptest::collection::vec((any::<u16>(), any::<u32>()), 0..50),
-        nacks in proptest::collection::vec((any::<u32>(), proptest::collection::vec(any::<u16>(), 0..10)), 0..5),
+        nacks in proptest::collection::vec((any::<u32>(), proptest::collection::vec(any::<u16>(), 0..10)), 0..4),
     ) {
         let feedback = Feedback {
             acked_frame: acked,
