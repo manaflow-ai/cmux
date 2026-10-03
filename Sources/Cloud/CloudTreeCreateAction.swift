@@ -10,9 +10,9 @@ enum CloudTreeCreateAction: Equatable {
     case newWorkspace(SurfaceMachineID)
     /// Leads a Cloud machine's Terminals tab.
     case newTerminal(SurfaceMachineID)
-    /// Leads a Cloud machine's Displays tab. The discovery bit is retained for
-    /// presentation compatibility, but creation itself always retries the
-    /// authoritative guest probe.
+    /// Leads a Cloud machine's Displays tab. `canCreate` is false while guest
+    /// display discovery is pending; the row looks the same, does nothing,
+    /// and its tooltip says why.
     case newDisplay(SurfaceMachineID, canCreate: Bool)
 
     var title: String {
@@ -53,8 +53,14 @@ enum CloudTreeCreateAction: Equatable {
             actions.newWorkspace(machine)
         case .newTerminal(let machine):
             actions.newTerminal(machine, nil)
-        case .newDisplay(let machine, _):
-            actions.newDisplay(machine)
+        case .newDisplay(let machine, let canCreate):
+            guard canCreate else {
+                actions.showHint(unavailableHelp ?? CloudGuestDisplaySnapshot.unavailableMessage)
+                return
+            }
+            CloudTreeRowHoverButtons.performDisplayCreationIfAvailable(canCreate) {
+                actions.newDisplay(machine)
+            }
         }
     }
 }
