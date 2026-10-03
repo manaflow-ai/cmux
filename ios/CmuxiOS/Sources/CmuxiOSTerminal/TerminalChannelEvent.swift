@@ -10,8 +10,8 @@ public enum TerminalChannelEvent: Sendable {
     /// The host's canonical grid from size-state. A grid change is followed by
     /// a `snapshot_ready` frame of the same generation.
     case grid(cols: Int, rows: Int, generation: UInt32)
-    /// The host throttled a `snapshot_request`; `requestID` names it when known.
-    case snapshotThrottled(retryAfterMilliseconds: Int, requestID: String?)
+    /// The host throttled the `snapshot_request` named by `requestID`.
+    case snapshotThrottled(retryAfterMilliseconds: Int, requestID: String)
     case path(TerminalPath, rttMilliseconds: Double?)
     case kicked(byDisplayName: String)
     case closed(reason: String)
