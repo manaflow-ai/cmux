@@ -157,15 +157,13 @@ import Testing
         #expect(presented == 1)
     }
 
-    /// A note's timeout leaves the state alone while the sheet shows its details.
-    @Test func aNoteOutlivesItsTimeoutWhileTheSheetIsOpen() async {
+    /// A probe's sheet reads the probe itself, so its note clears on time
+    /// even while the sheet is open (no later event would clear it).
+    @Test func aProbeNoteClearsOnTimeEvenWithTheSheetOpen() async {
         let (updater, _) = service(AppcastFixtures.identity(bundle: "com.cmuxterm.app.debug.t"), data: nil)
         _ = await updater.checkForUpdates()?.value
         #expect(updater.indicatorPhase == .note(UpdaterStrings.checkFailed, isError: true))
         updater.isSheetPresented = { true }
-        updater.dismissIndicatorNote()
-        #expect(updater.indicatorPhase == .note(UpdaterStrings.checkFailed, isError: true))
-        updater.isSheetPresented = { false }
         updater.dismissIndicatorNote()
         #expect(updater.indicatorPhase == .hidden)
     }

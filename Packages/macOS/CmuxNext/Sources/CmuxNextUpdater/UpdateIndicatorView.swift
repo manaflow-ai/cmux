@@ -139,7 +139,7 @@ public final class UpdateIndicatorView: NSView {
     override public func mouseUp(with event: NSEvent) {
         let inside = bounds.contains(convert(event.locationInWindow, from: nil))
         changeHover { $0.pressed = false }
-        if inside { onPress?() }
+        if inside, phase.showsCircle { onPress?() }
     }
 
     override public func menu(for event: NSEvent) -> NSMenu? { menuProvider?() }

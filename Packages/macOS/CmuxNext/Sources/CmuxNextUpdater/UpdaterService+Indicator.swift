@@ -32,7 +32,9 @@ extension UpdaterService {
 
     /// The note beside the circle timed out (up to date clears itself).
     public func dismissIndicatorNote() {
-        guard !isSheetPresented() else { return }
+        // Sparkle's error is what the open sheet shows; a probe's sheet reads
+        // the probe itself, so its note always clears.
+        guard controller == nil || !isSheetPresented() else { return }
         if case .note = debugIndicatorPhase { debugIndicatorPhase = nil }
         showsProbeResult = false
         if let state = controller?.model.effectiveState, case .error = state { state.cancel() }
