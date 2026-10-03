@@ -5,11 +5,11 @@ import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { complianceFor, devicePolicyFor, publicToken } from "./domains/team-enrollment.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
-import { currentPolicy, integrationSlice, POLICY_HISTORY_LIMIT, policyAt } from "./domains/team-policy.ts"
+import { currentPolicy, enforcedOn, integrationSlice, POLICY_HISTORY_LIMIT, policyAt, ssoServable, type PolicyValues } from "./domains/team-policy.ts"
 import { domainExternal, RESOLVERS, txtAnswers, type DomainReply, type Http } from "./team-domain-external.ts"
 import { nextRecheckAt, RECHECK_MS, txtContains } from "./domains/team-domains.ts"
 import { ssoExternal } from "./team-sso-external.ts"
-import { ssoCallback, ssoSessionConnection, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-login.ts"
+import { ssoCallback, ssoMaxAgeMs, ssoSessionConnection, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-login.ts"
 import { stackServer, type StackServer } from "./stack-server.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
 import { mayEnrollServer, type ServerEnrollRefused } from "./domains/team-servers.ts"
@@ -319,15 +319,18 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   /**
    * Sign-in rules of this team for one user (enterprise P17-4): whether a Stack session needs this
-   * team's SSO (sso.enforce; owners exempt unless sso.enforceForOwners), the minimum client
-   * version, and the agent classes grants may be minted for. Read by the Worker, cached briefly.
+   * team's SSO (sso.enforce with mode enforced, while an active connection serves a verified domain;
+   * owners exempt unless sso.enforceForOwners), the minimum client version, and the agent classes
+   * grants may be minted for. `user` need not be a member: the Worker also asks the team that owns
+   * the user's email domain (policy-gate.ts). Read by the Worker, cached briefly.
    */
   async signInRules(entity: string, user: string): Promise<SignInRules> {
     const state = this.bind(entity).currentState
-    const values = currentPolicy(state).values as Record<string, { value: unknown } | undefined>
+    const policy = currentPolicy(state).values as PolicyValues
+    const values = policy as Record<string, { value: unknown } | undefined>
     const role = state.members?.[user]?.role
-    const enforce = values["sso.enforce"]?.value === true
-    const owners = values["sso.enforceForOwners"]?.value === true
+    const enforce = enforcedOn(policy, "sso.enforce") && ssoServable(state)
+    const owners = enforcedOn(policy, "sso.enforceForOwners")
     const min = values["updates.minimumVersion"]?.value
     const classes = values["agents.allowedClasses"]?.value
     return {
@@ -340,7 +343,7 @@ export class TeamDO extends OwnerDO<TeamState> {
   /** Whether this team's SSO created the Stack session `refreshTokenId` for `stackUser` (sso.enforce, P17-4). */
   async ssoSession(entity: string, refreshTokenId: string, stackUser: string): Promise<boolean> {
     const state = this.bind(entity).currentState
-    const connection = ssoSessionConnection(this.ctx.storage.sql, refreshTokenId, stackUser, Date.now())
+    const connection = ssoSessionConnection(this.ctx.storage.sql, refreshTokenId, stackUser, Date.now(), ssoMaxAgeMs(state))
     // A disabled or deleted connection ends its sessions' standing.
     return connection !== undefined && state.sso_connections?.[connection]?.state === "active"
   }

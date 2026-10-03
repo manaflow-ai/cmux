@@ -43,6 +43,11 @@ export interface Principal {
   readonly sso_team?: string
   /** The Stack session's refresh token id (Stack-signed claim `refresh_token_id`). */
   readonly stack_session?: string
+  /**
+   * Install tokens only: the user's email domain when the token was minted (our own signed claim,
+   * from UserDO's record of the user's email), so sso.enforce can find the team that owns the domain.
+   */
+  readonly email_domain?: string
   readonly owned_agents?: ReadonlyArray<{ readonly id: string; readonly display_name: string }>
   /** Op classes of the principal's grant, resolved by the grant's owner (UserDO) for other owners. */
   readonly grant_classes?: ReadonlyArray<string>

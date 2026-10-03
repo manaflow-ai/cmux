@@ -35,7 +35,7 @@ import type { RedeemResult } from "./user-do.ts"
 import { pairApprove, pairPreview } from "./pair-routes.ts"
 import { conversationMutate, conversationRead } from "./home-routes.ts"
 import { homeSearch, type SearchParams } from "./home-search.ts"
-import { signInRules, ssoRefusal, versionRefusal, withSsoSession } from "./policy-gate.ts"
+import { signInRules, ssoGate, versionRefusal, withAnySsoSession } from "./policy-gate.ts"
 import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
 
 /** DO RPC stubs erase union result types; the DO methods define them. */
@@ -178,10 +178,12 @@ const AuthLive = HttpApiBuilder.group(CloudApi, "auth", (handlers) =>
           catch: () => new Forbidden({ code: "auth.forbidden", message: "token mint failed" })
         })
         if (!r.ok) return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
-        // Team policy (P17-4): updates.minimumVersion against x-cmux-client-version.
+        // Team policy (P17-4): SSO (own team and the email domain's team), updates.minimumVersion against x-cmux-client-version.
         const request = yield* HttpServerRequest.HttpServerRequest
         const rules = yield* Effect.promise(() => signInRules(env, r.team, r.user))
-        const refusedMint = ssoRefusal({ identity: r.install, kind: "install", user: r.user, team: r.team, ...(r.sso_team ? { sso_team: r.sso_team } : {}) }, rules) ?? versionRefusal(request.headers["x-cmux-client-version"] ?? null, rules)
+        const minted = { identity: r.install, kind: "install" as const, user: r.user, team: r.team, ...(r.sso_team ? { sso_team: r.sso_team } : {}), ...(r.email_domain ? { email_domain: r.email_domain } : {}) }
+        const gate = yield* Effect.promise(() => ssoGate(env, minted))
+        const refusedMint = gate.refusal ?? versionRefusal(request.headers["x-cmux-client-version"] ?? null, rules)
         if (refusedMint) return yield* new PolicyRefused(refusedMint)
         const { token, expires_at } = yield* Effect.promise(() => mintAccessToken(env, r))
         return { access_token: token, token_type: "Bearer" as const, expires_at, user: r.user, team: r.team, install: r.install, grant: r.grant }
@@ -193,7 +195,8 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
   handlers
     .handle("mutate", ({ payload }) =>
       Effect.gen(function* () {
-        const principal = toPrincipal(yield* CurrentPrincipal)
+        const shape = yield* CurrentPrincipal
+        const principal = toPrincipal(shape)
         const def = cloudOpByName.get(payload.op)
         if (!def || def.class !== "mutation") return yield* new BadRequest({ code: "validation.invalid", message: `unknown mutation ${payload.op}` })
         if (!payload.idempotency_key) return yield* new BadRequest({ code: "validation.invalid", message: "mutations require idempotency_key" })
@@ -299,7 +302,15 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           })
           return toResponse(payload.op, home.frames)
         }
-        const { frames } = yield* submitTo(def.owner, principal, frame)
+        // install.register binds the install to the SSO team whose sign-in created this session (P17-4). The
+        // Stack session id only finds that team; owners never receive it (their ledgers record the principal).
+        let submitter = principal
+        if (payload.op === "install.register" && shape.stack_session && !principal.sso_team) {
+          const stackSession = shape.stack_session
+          const found = yield* Effect.promise(() => withAnySsoSession(env, { ...principal, stack_session: stackSession }))
+          if (found.sso_team) submitter = { ...principal, sso_team: found.sso_team }
+        }
+        const { frames } = yield* submitTo(def.owner, submitter, frame)
         const response = toResponse(payload.op, frames)
         if (payload.op === "integration.connect" && response.ok) {
           const c = response.value as Connection
@@ -414,13 +425,11 @@ const AuthorizationLive = Layer.succeed(Authorization)(
       Effect.gen(function* () {
         const authed = yield* Effect.promise(() => authenticate(env, Redacted.value(credential)))
         if (!authed || !authed.user || !authed.team) return yield* new Unauthenticated({ code: "auth.unauthenticated", message: "missing or invalid bearer token" })
-        // Team policy (P17-4): a team that enforces SSO refuses sessions and installs not from its SSO.
-        const rules = yield* Effect.promise(() => signInRules(env, authed.team!, authed.user!))
-        const p = yield* Effect.promise(() => withSsoSession(env, authed, rules))
-        {
-          const refused = ssoRefusal(p, rules)
-          if (refused) return yield* new PolicyRefused(refused)
-        }
+        // Team policy (P17-4): the principal's team and the team that owns the user's email domain refuse
+        // sessions and installs not from their SSO.
+        const gate = yield* Effect.promise(() => ssoGate(env, authed))
+        if (gate.refusal) return yield* new PolicyRefused(gate.refusal)
+        const p = gate.principal
         const shape: CurrentPrincipalShape = {
           kind: p.kind === "session" ? "session" : "install",
           identity: p.identity,
@@ -432,7 +441,8 @@ const AuthorizationLive = Layer.succeed(Authorization)(
           ...(p.email !== undefined ? { email: p.email } : {}),
           ...(p.email_verified !== undefined ? { email_verified: p.email_verified } : {}),
           ...(p.display_name ? { display_name: p.display_name } : {}),
-          ...(p.sso_team ? { sso_team: p.sso_team } : {})
+          ...(p.sso_team ? { sso_team: p.sso_team } : {}),
+          ...(p.stack_session ? { stack_session: p.stack_session } : {})
         }
         return yield* Effect.provideService(httpEffect, CurrentPrincipal, shape)
       })

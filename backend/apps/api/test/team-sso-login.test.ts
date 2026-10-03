@@ -247,7 +247,7 @@ describe("OIDC sign-in (workerd)", () => {
     clearSignInRules()
 
     // pat's token names pat's personal team; the domain's team still requires its SSO.
-    expect((await op(pat, "user.ensure", {})).error?.code).toBe("auth.sso_required")
+    expect((await op(pat, "user.ensure", {})).code).toBe("auth.sso_required")
     const patWire = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${pat}` } })
     expect(patWire.status).toBe(403)
     expect((await mint(patInstall)).status).toBe(403)

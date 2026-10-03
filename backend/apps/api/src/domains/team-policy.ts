@@ -11,6 +11,7 @@ import {
 import { Exit, Schema } from "effect"
 import { canonicalJson } from "@cmux/ownership"
 import { decodeParams, reject } from "./common.ts"
+import type { SsoState } from "./team-sso.ts"
 
 export type Policy = typeof TeamPolicy.Type
 export type PolicyValues = typeof TeamPolicyValues.Type
@@ -38,15 +39,23 @@ type Result<S> = { ok: true; state: S; value: unknown; changed?: boolean } | ({ 
 const invalid = (message: string, details?: unknown) => reject("policy.invalid", message, details)
 
 /**
- * Cross-key invariants the schema alone cannot express (spec/enterprise.md 4.3).
- * Phase 2a has no SSO connections yet, so enforcing SSO would lock the team out.
+ * Whether the team can serve SSO sign-in now: an active connection that serves at least one of the
+ * team's verified domains (the condition sign-in discovery and the OIDC callback need). Enforced SSO
+ * is accepted only while this holds, and the sign-in gate applies it only while this holds, so a
+ * disabled connection or a lapsed domain never locks the team's users out.
  */
-const checkInvariants = (values: PolicyValues, sso: { activeConnections: number; verifiedDomains: number }): Reject | undefined => {
-  const on = (k: "sso.enforce" | "sso.enforceForOwners") => values[k]?.value === true && values[k]?.mode === "enforced"
-  if ((on("sso.enforce") || on("sso.enforceForOwners")) && (sso.activeConnections === 0 || sso.verifiedDomains === 0)) {
-    return { code: "policy.invalid", message: "sso.enforce needs an active SSO connection and a verified domain" }
+export const ssoServable = (state: SsoState): boolean =>
+  Object.values(state.sso_connections ?? {}).some((c) => c.state === "active" && c.domains.some((d) => state.domains?.[d]?.state === "verified"))
+
+/** A team-scoped boolean key is on only with mode `enforced`; a recommended (default) value enforces nothing. */
+export const enforcedOn = (values: PolicyValues, key: "sso.enforce" | "sso.enforceForOwners"): boolean => values[key]?.value === true && values[key]?.mode === "enforced"
+
+/** Cross-key invariants the schema alone cannot express (spec/enterprise.md 4.3). */
+const checkInvariants = (values: PolicyValues, state: SsoState): Reject | undefined => {
+  if ((enforcedOn(values, "sso.enforce") || enforcedOn(values, "sso.enforceForOwners")) && !ssoServable(state)) {
+    return { code: "policy.invalid", message: "sso.enforce needs an active SSO connection that serves a verified domain" }
   }
-  if (on("sso.enforceForOwners") && !on("sso.enforce")) {
+  if (enforcedOn(values, "sso.enforceForOwners") && !enforcedOn(values, "sso.enforce")) {
     return { code: "policy.invalid", message: "sso.enforceForOwners needs sso.enforce" }
   }
   return undefined
@@ -72,9 +81,7 @@ const commitVersion = <S extends PolicyState>(
   return { ok: true, state: { ...state, policy, policy_history: history }, value: policy }
 }
 
-const ssoFacts = { activeConnections: 0, verifiedDomains: 0 }
-
-export const reducePolicyUpdate = <S extends PolicyState>(state: S, params: unknown, ctx: ReduceContext): Result<S> => {
+export const reducePolicyUpdate = <S extends PolicyState & SsoState>(state: S, params: unknown, ctx: ReduceContext): Result<S> => {
   const d = decodeParams<typeof TeamPolicyUpdate.params.Type>(TeamPolicyUpdate, params)
   if (!d.ok) return d
   const current = currentPolicy(state)
@@ -103,12 +110,12 @@ export const reducePolicyUpdate = <S extends PolicyState>(state: S, params: unkn
   const size = policyBytes(next)
   if (size > MAX_POLICY_BYTES) return invalid(`team policy is ${size} bytes; the limit is ${MAX_POLICY_BYTES}`)
   const values = next as PolicyValues
-  const bad = checkInvariants(values, ssoFacts)
+  const bad = checkInvariants(values, state)
   if (bad) return { ok: false, ...bad }
   return commitVersion(state, values, ctx, { reason: d.value.reason ?? null, rollback_of: null })
 }
 
-export const reducePolicyRollback = <S extends PolicyState>(state: S, params: unknown, ctx: ReduceContext): Result<S> => {
+export const reducePolicyRollback = <S extends PolicyState & SsoState>(state: S, params: unknown, ctx: ReduceContext): Result<S> => {
   const d = decodeParams<typeof TeamPolicyRollback.params.Type>(TeamPolicyRollback, params)
   if (!d.ok) return d
   const current = currentPolicy(state)
@@ -118,7 +125,7 @@ export const reducePolicyRollback = <S extends PolicyState>(state: S, params: un
   const target = d.value.version === 0 ? { values: {} as PolicyValues } : (state.policy_history ?? []).find((v) => v.version === d.value.version)
   if (!target) return reject("selector.not_found", `policy version ${d.value.version} is not retained`)
   // Invariants are rechecked: a version valid then may lock the team out now.
-  const bad = checkInvariants(target.values, ssoFacts)
+  const bad = checkInvariants(target.values, state)
   if (bad) return { ok: false, ...bad }
   return commitVersion(state, target.values, ctx, { reason: d.value.reason ?? null, rollback_of: d.value.version })
 }
