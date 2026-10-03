@@ -165,11 +165,7 @@ extension ControlCommandCoordinator {
                 }
                 let relayScoped = params["_cmux_remote_workspace_id"] != nil
                 if surface.isTerminal, !relayScoped {
-                    item["requested_working_directory"] = orNull(surface.requestedWorkingDirectory)
-                    item["initial_command"] = orNull(surface.initialCommand)
-                    item["tmux_start_command"] = orNull(surface.tmuxStartCommand)
-                    item["resume_binding"] = surfaceResumeBindingPayload(surface.resumeBinding)
-                    item["render_health"] = orNull(surface.renderHealthRawValue)
+                    item.merge(surfaceTerminalMetadata(surface)) { _, value in value }
                 }
                 if surface.typeRawValue == "simulator" {
                     item["simulator_id"] = orNull(surface.simulatorDeviceID)
