@@ -12,7 +12,16 @@ import { join } from "node:path"
 const url = process.env.SCRATCH_URL
 const run = url ? describe : describe.skip
 const root = join(import.meta.dir, "..")
-const body = (text: string) => text.slice(text.indexOf("import {")).replace(/\r/g, "").replace(/\n{3,}/g, "\n\n").trim()
+// drizzle-kit pull assigns index operator classes (`.op("text_ops")`) nondeterministically across
+// runs (seen in CI: int8_ops on a text column), so they are not compared; the columns, order,
+// uniqueness and methods still are.
+const body = (text: string) =>
+  text
+    .slice(text.indexOf("import {"))
+    .replace(/\r/g, "")
+    .replace(/\.op\("[a-z0-9_]+"\)/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
 
 run("Drizzle schema", () => {
   it("matches the migrated database (drizzle-kit pull)", () => {
