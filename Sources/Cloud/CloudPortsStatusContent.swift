@@ -31,7 +31,6 @@ final class CloudPortsStatusContent: NSView {
         messageLabel.textColor = .secondaryLabelColor
         actionButton.bezelStyle = .inline
         actionButton.controlSize = .small
-        actionButton.focusRingType = .none
         actionButton.target = self
         actionButton.action = #selector(performAction)
         actionButton.setAccessibilityRole(.button)
