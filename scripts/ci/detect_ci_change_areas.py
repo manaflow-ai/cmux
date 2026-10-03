@@ -1087,6 +1087,9 @@ def is_web_change(path: str) -> bool:
         ".gitattributes",
         "scripts/install-git-hooks.sh",
         "tests/test_install_git_hooks.py",
+    "tests/test_bundle_autoregen.py",
+    "scripts/ci/bundle_autoregen.py",
+    ".github/workflows/cmux-next-bundle-autoregen.yml",
     }
 
 
