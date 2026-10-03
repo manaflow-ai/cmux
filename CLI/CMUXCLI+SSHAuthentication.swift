@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import CmuxFoundation
 
 extension CMUXCLI {
     /// Runs an `ssh` argv interactively in the user's terminal so password /
@@ -30,6 +31,7 @@ extension CMUXCLI {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = Array(sshArgv.dropFirst())
+        process.environment = SSHLocaleEnvironment().sanitized(ProcessInfo.processInfo.environment)
         var credentialDirectory: URL?
         defer { if let credentialDirectory { try? FileManager.default.removeItem(at: credentialDirectory) } }
         if let passwordCredential {

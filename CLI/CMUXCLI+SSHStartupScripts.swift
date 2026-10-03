@@ -280,7 +280,7 @@ extension CMUXCLI {
             shellQuote(resolvedExecutableURL()?.path ?? (args.first ?? "cmux")),
             "__ssh-terminal-exit-prompt",
         ].joined(separator: " ")
-        var scriptLines: [String] = []
+        var scriptLines: [String] = [SSHLocaleEnvironment().shellSetup]
         if !shellFeaturesBootstrap.isEmpty {
             scriptLines.append(shellFeaturesBootstrap)
         }

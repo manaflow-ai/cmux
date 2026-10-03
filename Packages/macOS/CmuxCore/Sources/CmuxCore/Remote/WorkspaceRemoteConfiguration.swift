@@ -473,15 +473,16 @@ extension WorkspaceRemoteConfiguration {
         return ["SSH_AUTH_SOCK": agentSocketPath]
     }
 
-    /// Full process environment for spawned ssh/scp processes with
-    /// `SSH_AUTH_SOCK` overridden, or `nil` when no agent socket is configured.
+    /// Full environment for ssh/scp with a portable ctype and the configured agent
+    /// socket, or `nil` when the inherited environment needs no changes.
     public var sshProcessEnvironment: [String: String]? {
-        guard let agentSocketPath = self.agentSocketPath else {
-            return nil
+        let inherited = ProcessInfo.processInfo.environment
+        var environment = SSHLocaleEnvironment().sanitized(inherited)
+        if let agentSocketPath = self.agentSocketPath {
+            environment["SSH_AUTH_SOCK"] = agentSocketPath
+            return environment
         }
-        var environment = ProcessInfo.processInfo.environment
-        environment["SSH_AUTH_SOCK"] = agentSocketPath
-        return environment
+        return environment == inherited ? nil : environment
     }
 
     /// SSH options propagated to a forked agent workspace (durable subset).

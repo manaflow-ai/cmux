@@ -134,11 +134,16 @@ final class SimulatorFramebufferFramePublisher {
             || frame.height != lastEnqueuedHeight
             || geometry != lastEnqueuedGeometry
         let now = clock.now
-        let frameInterval = prioritizeNextEnqueue
-            ? interactiveFrameInterval
-            : minimumFrameInterval
+        let prioritizeFrame = prioritizeNextEnqueue
         prioritizeNextEnqueue = false
-        let deadline = lastEnqueuedInstant.advanced(by: frameInterval)
+        // Input priority applies to the next real framebuffer callback. Do
+        // not put that callback behind a main-actor timer: interactive input
+        // needs the newest pixels immediately, and this also avoids timer
+        // starvation on macOS 15 under package-test load.
+        let interactiveDeadline = lastEnqueuedInstant.advanced(by: interactiveFrameInterval)
+        let deadline = prioritizeFrame
+            ? min(now, interactiveDeadline)
+            : lastEnqueuedInstant.advanced(by: minimumFrameInterval)
         if geometryChanged || now >= deadline {
             pacingTask?.cancel()
             pacingTask = nil

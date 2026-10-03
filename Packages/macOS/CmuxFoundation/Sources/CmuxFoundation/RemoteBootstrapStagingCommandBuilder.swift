@@ -42,9 +42,7 @@ public struct RemoteBootstrapStagingCommandBuilder: Sendable {
     public var preparationShellScript: String {
         let encodedBootstrapScript = Data(bootstrapScript.utf8).base64EncodedString()
         let installCommand = "/bin/sh -c \(remoteInstallShellScript.remoteCommandShellQuoted)"
-        let sshPrefix = installerSSHArguments
-            .map(\.remoteCommandShellQuoted)
-            .joined(separator: " ")
+        let sshPrefix = SSHLocaleEnvironment().shellCommandPrefix(arguments: installerSSHArguments)
         return [
             "cmux_workspace_id=\"${CMUX_WORKSPACE_ID:-}\"",
             "cmux_surface_id=\"${CMUX_SURFACE_ID:-}\"",
