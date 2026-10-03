@@ -9,18 +9,10 @@
   if (!S) return;
   const { URL, URLSearchParams } = root.CmuxBrowserRepl.core;
   const ORIGIN = "https://www.youtube.com";
-  // The hosts a caption track URL may name. Track URLs come from page data,
-  // and transcript fetches send the session's cookies.
-  const CAPTION_HOSTS = ["www.youtube.com", "m.youtube.com", "youtube.com"];
-  // A track's URL resolved against YouTube, or null when it is not https on a caption host.
-  function captionURL(raw) {
-    try {
-      const u = new URL(raw, ORIGIN);
-      return u.protocol === "https:" && CAPTION_HOSTS.includes(u.hostname) ? u : null;
-    } catch {
-      return null;
-    }
-  }
+  // Caption URLs come from page data and are fetched with the session's
+  // cookies: only https on YouTube's caption hosts (api.js, shared with
+  // page.exportContent). Page functions get the host list as an argument.
+  const { youtubeCaptionURL: captionURL, YOUTUBE_CAPTION_HOSTS: CAPTION_HOSTS } = root.CmuxBrowserRepl.api;
 
   function videoId(input, name) {
     const s = String(input || "").trim();

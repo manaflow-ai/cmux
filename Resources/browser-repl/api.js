@@ -394,6 +394,21 @@
     return u.searchParams.get("v");
   }
 
+  // The hosts a YouTube caption track URL may name. Track URLs come from page
+  // data and caption fetches send the session's cookies, so every caption
+  // fetch (page.exportContent, sites.youtube) goes through youtubeCaptionURL.
+  const YOUTUBE_CAPTION_HOSTS = Object.freeze(["www.youtube.com", "m.youtube.com", "youtube.com"]);
+  // A caption track URL resolved against `base`, or null when it is not https
+  // on one of YOUTUBE_CAPTION_HOSTS.
+  function youtubeCaptionURL(raw, base = "https://www.youtube.com") {
+    try {
+      const u = new core.URL(String(raw), base);
+      return u.protocol === "https:" && YOUTUBE_CAPTION_HOSTS.includes(u.hostname) ? u : null;
+    } catch {
+      return null;
+    }
+  }
+
   // YouTube's json3 caption format to plain text, one caption per line.
   function transcriptText(json3) {
     const lines = [];
@@ -436,9 +451,11 @@
           return (list || []).map((t) => ({ baseUrl: t.baseUrl, lang: t.languageCode, kind: t.kind || null }));
         });
         if (!tracks.length) throw new Error(`page.exportContent: video ${id} has no captions`);
-        const want = options.lang ? tracks.find((t) => t.lang === options.lang) : tracks.find((t) => t.kind !== "asr") || tracks[0];
-        if (!want) throw new Error(`page.exportContent: video ${id} has no ${options.lang} captions; available: ${tracks.map((t) => t.lang).join(", ")}`);
-        const r = await fetch(new core.URL(want.baseUrl, pageURL).href + "&fmt=json3");
+        const usable = tracks.map((t) => ({ ...t, url: youtubeCaptionURL(t.baseUrl, pageURL) })).filter((t) => t.url);
+        if (!usable.length) throw new Error(`page.exportContent: video ${id} has no captions on YouTube's caption hosts (${YOUTUBE_CAPTION_HOSTS.join(", ")})`);
+        const want = options.lang ? usable.find((t) => t.lang === options.lang) : usable.find((t) => t.kind !== "asr") || usable[0];
+        if (!want) throw new Error(`page.exportContent: video ${id} has no ${options.lang} captions; available: ${usable.map((t) => t.lang).join(", ")}`);
+        const r = await fetch(want.url.href + "&fmt=json3");
         if (!r.ok) throw new Error(`page.exportContent: captions request returned HTTP ${r.status}`);
         const file = target(options, ".txt");
         fs.writeFileSync(file, transcriptText(await r.json()));
@@ -749,5 +766,5 @@
     return { globals, show, importModule, state };
   }
 
-  ns.api = { createGlobals, createPath, createFs, inspect, Image, imageSize, pageMarkdown, googleExportURL, youtubeVideoId, transcriptText };
+  ns.api = { createGlobals, createPath, createFs, inspect, Image, imageSize, pageMarkdown, googleExportURL, youtubeVideoId, youtubeCaptionURL, YOUTUBE_CAPTION_HOSTS, transcriptText };
 })(typeof globalThis !== "undefined" ? globalThis : this);
