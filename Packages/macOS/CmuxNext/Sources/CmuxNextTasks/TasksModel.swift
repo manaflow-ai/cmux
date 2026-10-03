@@ -24,6 +24,10 @@ public final class TasksModel {
 
     /// Client view state (never sent to the owner).
     public var selection: String?
+    /// Which tasks the layouts show (client view state; My Tasks sets `.mine`).
+    public var scope: TasksScope = .all
+    /// Agent harnesses the Assignee control offers (the App may narrow it).
+    public var knownAgents: [String] = TaskAssigneeChoices.defaultAgents
 
     private let source: any TasksSource
     private var statusByID: [String: TaskStatusItem] = [:]
@@ -49,10 +53,25 @@ public final class TasksModel {
     public var visibleTasks: [TaskItem] {
         var tasks = confirmed
         for intent in pending {
-            intent.apply(to: &tasks, statuses: statusByID, prefix: keyPrefix)
+            intent.apply(to: &tasks, statuses: statusByID, prefix: keyPrefix, me: me?.stableID)
         }
         return tasks.values.filter { !$0.archived && !$0.deleted }.sorted { ($0.sortKey, $0.number) < ($1.sortKey, $1.number) }
     }
+
+    /// The tasks the layouts show: `visibleTasks` narrowed by `scope`.
+    public var shownTasks: [TaskItem] {
+        let tasks = visibleTasks
+        switch scope {
+        case .all: return tasks
+        case .mine:
+            guard let me = me?.stableID else { return [] }
+            return tasks.filter { $0.assignee?.stableID == me }
+        }
+    }
+
+    /// True before the first snapshot: the owner never answered, so the
+    /// pane shows how to start it instead of empty layouts.
+    public var neverConnected: Bool { me == nil && confirmed.isEmpty && statuses.isEmpty }
 
     public func status(_ id: String) -> TaskStatusItem? { statusByID[id] }
 
@@ -63,12 +82,7 @@ public final class TasksModel {
     }
 
     public func isPending(_ task: String) -> Bool {
-        pending.contains { intent in
-            switch intent.kind {
-            case let .setStatus(t, _), let .move(t, _, _, _), let .archive(t): t == task
-            case let .create(id, _, _): id == task
-            }
-        }
+        pending.contains { $0.task == task }
     }
 
     // MARK: - Intents

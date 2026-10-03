@@ -20,6 +20,7 @@ enum AppActions {
         PaletteScopeHandlers.bind(into: registry, context: context)
         BookmarkHandlers.bind(into: registry, context: context)
         AppStoreHandlers.bind(into: registry, context: context)
+        TasksHandlers.bind(into: registry, context: context)
         ServerHandlers.bind(into: registry, context: context)
         WorkspaceHandlers.bind(into: registry, context: context)
         WorkspaceVerbHandlers.bind(into: registry, context: context)
