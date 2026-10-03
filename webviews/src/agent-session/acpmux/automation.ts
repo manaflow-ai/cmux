@@ -1,3 +1,4 @@
+import { focusedArea } from "./composerFocus";
 import { turnFiles } from "./diff";
 import type { AcpmuxSnapshot } from "./model";
 import type { PermissionDecision } from "./permissions/protocol";
@@ -55,6 +56,8 @@ export function automationState(host: AutomationHost) {
       })),
     changedFiles: turnFiles(snapshot.rows).map((file) => file.path),
     diff: host.diff(),
+    /// What has the page's focus: composer, none, or the focused element.
+    focus: focusedArea(typeof document === "undefined" ? null : document.activeElement),
   };
 }
 

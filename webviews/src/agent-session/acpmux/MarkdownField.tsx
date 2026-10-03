@@ -1,4 +1,5 @@
 import React, { useCallback, useImperativeHandle, useLayoutEffect, useRef } from "react";
+import { COMPOSER_READY_EVENT } from "./composerFocus";
 import {
   Editor,
   defaultValueCtx,
@@ -216,6 +217,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         view.current = made.ctx.get(editorViewCtx);
         showPlaceholder(known.current);
         applyAttributes();
+        window.dispatchEvent(new window.Event(COMPOSER_READY_EVENT));
       });
     return () => {
       disposed = true;
