@@ -1,6 +1,7 @@
 import { env, exports } from "cloudflare:workers"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
+import { authenticate } from "../src/auth.ts"
 import { clearSignInRules, ssoRefusal, versionAtLeast } from "../src/policy-gate.ts"
 
 /** Enterprise P17-4: sso.enforce, updates.minimumVersion and agents.allowedClasses enforced by the server. */
@@ -42,6 +43,16 @@ describe("team sign-in policy (P17-4)", { timeout: 60_000 }, () => {
     expect(ssoRefusal({ ...base, sso_team: "team_other" }, rules)?.code).toBe("auth.sso_required")
     expect(ssoRefusal({ ...base, sso_team: "team_t" }, rules)).toBeUndefined()
     expect(ssoRefusal(base, { ...rules, sso_required: false })).toBeUndefined()
+  })
+
+  it("a token claim cannot satisfy sso.enforce: a Stack session never carries the team's SSO by itself", async () => {
+    // Hexclave/Stack access tokens carry a fixed claim set; whatever a token says about SSO is not ours.
+    const forged = await sessionToken("gate-forger", { cmux_sso_team: "team_t" })
+    const p = await authenticate(env as never, forged)
+    expect(p?.kind).toBe("session")
+    expect(p?.sso_team).toBeUndefined()
+    const rules = { sso_required: true, minimum_version: null, allowed_classes: [] }
+    expect(ssoRefusal({ ...p!, team: "team_t" }, rules)?.code).toBe("auth.sso_required")
   })
 
   it("compares client versions", () => {
