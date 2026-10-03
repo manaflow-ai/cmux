@@ -11,13 +11,15 @@ const ROW_ICON = rowIconSize(12);
 
 /// The chat's summary, a section per kind of thing it produced. Empty sections are left out.
 /// Pull requests and sources are links, so they open, copy and open in a new tab as links do;
-/// an output opens the changes view at that file.
+/// an output opens the changes view at that file. Following a link calls `onFollow`.
 export function SummaryPopover({
   summary,
   onOpenOutput,
+  onFollow,
 }: {
   summary: SessionSummary;
   onOpenOutput?: (path: string) => void;
+  onFollow?: () => void;
 }) {
   if (isEmptySummary(summary)) return <p className="acpmux-summary-empty">{t("summary.empty")}</p>;
   return (
@@ -43,6 +45,7 @@ export function SummaryPopover({
             <a
               className="acpmux-summary-row acpmux-summary-link"
               href={pr.url}
+              onClick={onFollow}
               data-state={pr.state}
               title={`${pr.repo}#${pr.number}${pr.state === "open" ? "" : ` · ${t(`summary.pr.${pr.state}`)}`}`}
             >
@@ -86,7 +89,12 @@ export function SummaryPopover({
         row={(source) => (
           <li key={source.url ?? source.label}>
             {source.url ? (
-              <a className="acpmux-summary-row acpmux-summary-link" href={source.url} title={source.url}>
+              <a
+                className="acpmux-summary-row acpmux-summary-link"
+                href={source.url}
+                title={source.url}
+                onClick={onFollow}
+              >
                 <Icon name="link.web" size={ROW_ICON} row />
                 <span className="acpmux-summary-text">{source.label}</span>
               </a>

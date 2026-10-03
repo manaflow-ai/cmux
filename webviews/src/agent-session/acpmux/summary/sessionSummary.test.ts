@@ -82,6 +82,21 @@ describe("session summary", () => {
     ]);
   });
 
+  test("a merge naming another repository leaves a pull request with the same number open", () => {
+    const summary = sessionSummary(
+      rows(
+        shell("gh pr create --fill", "https://github.com/a/b/pull/5"),
+        shell("gh pr create --fill", "https://github.com/c/d/pull/5"),
+        shell("gh-merge-green c/d#5 --squash"),
+        shell("gh pr close https://github.com/x/y/pull/5"),
+      ),
+    );
+    expect(summary.pullRequests.map((pr) => [pr.repo, pr.state])).toEqual([
+      ["a/b", "open"],
+      ["c/d", "merged"],
+    ]);
+  });
+
   test("subagents are titled think calls, with their state", () => {
     const summary = sessionSummary(
       rows(

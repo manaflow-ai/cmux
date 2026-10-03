@@ -36,6 +36,7 @@ export function SummaryButton({
         <dialog ref={popover} open tabIndex={-1} aria-label={t("summary.open")} className="acpmux-summary-popover">
           <SummaryPopover
             summary={summary}
+            onFollow={() => setOpen(false)}
             onOpenOutput={
               onOpenOutput &&
               ((path) => {

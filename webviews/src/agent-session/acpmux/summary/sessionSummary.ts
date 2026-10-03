@@ -22,6 +22,10 @@ export type SessionSummary = {
 const PR_URL = /https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/g;
 /// `--title "..."`, `--title '...'`, `--title=...` or `-t "..."` on a `gh pr create` line.
 const TITLE = /(?:--title[= ]|-t )(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+))/;
+/// `gh pr merge|close` with a number, `#N` or a pull request URL, and `gh-merge-green owner/repo#N`.
+const PR_ARGUMENT = String.raw`(?:https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/|#)?(\d+)`;
+const MERGE = new RegExp(String.raw`\bgh\s+pr\s+merge\s+${PR_ARGUMENT}|\bgh-merge-green\s+([\w.-]+\/[\w.-]+)?#(\d+)`);
+const CLOSE = new RegExp(String.raw`\bgh\s+pr\s+close\s+${PR_ARGUMENT}`);
 const URL = /https?:\/\/[^\s"'<>)]+/;
 
 const tools = (rows: readonly AcpmuxRow[]): Tool[] =>
@@ -48,12 +52,14 @@ function pullRequests(all: readonly Tool[]): SummaryPullRequest[] {
           });
       continue;
     }
-    const merged = /\bgh\s+pr\s+merge\s+(?:\S*\/pull\/)?#?(\d+)|\bgh-merge-green\s+\S*#(\d+)/.exec(command);
-    const closed = /\bgh\s+pr\s+close\s+(?:\S*\/pull\/)?#?(\d+)/.exec(command);
-    const match = merged ?? closed;
+    const merged = MERGE.exec(command);
+    const match = merged ?? CLOSE.exec(command);
     if (!match || !succeeded(tool)) continue;
-    const number = Number(match[1] ?? match[2]);
-    for (const pr of found.values()) if (pr.number === number) pr.state = merged ? "merged" : "closed";
+    // A URL or `owner/repo#N` names its repository; a bare number could be any of them.
+    const repo = match[1] ?? match[3];
+    const number = Number(match[2] ?? match[4]);
+    for (const pr of found.values())
+      if (pr.number === number && (!repo || repo === pr.repo)) pr.state = merged ? "merged" : "closed";
   }
   return [...found.values()];
 }

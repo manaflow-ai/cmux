@@ -108,3 +108,13 @@ test("a press outside closes it, and a second press on the button toggles it shu
   expect(popover()).toBeNull();
   await unmount();
 });
+
+test("following a pull request link closes the summary", async () => {
+  const { button, popover, unmount } = await render([]);
+  await act(async () => button.click());
+  const link = popover()!.querySelector<HTMLAnchorElement>("a.acpmux-summary-link")!;
+  link.addEventListener("click", (event) => event.preventDefault());
+  await act(async () => link.click());
+  expect(popover()).toBeNull();
+  await unmount();
+});
