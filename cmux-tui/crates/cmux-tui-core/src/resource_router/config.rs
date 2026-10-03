@@ -30,6 +30,7 @@ pub(super) fn dispatch(
     mux: &Arc<Mux>,
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
+    debug_assert!(handles(request.envelope.operation));
     mux.resolve_resource_path(ResourceTarget::Session, &request.selectors)?;
     let operation = request.envelope.operation;
     let fields = &request.fields;
