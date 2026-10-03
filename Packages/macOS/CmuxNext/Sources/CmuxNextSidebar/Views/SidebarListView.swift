@@ -2,7 +2,6 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextWakeups
 import QuartzCore
-
 /// Scrollable document view that renders the sidebar tree.
 ///
 /// Why a custom layer-backed list instead of NSOutlineView: the drag we want
@@ -15,7 +14,6 @@ import QuartzCore
 /// and only rows near the viewport get views (see `realizationRect`).
 final class SidebarListView: NSView {
     let model: SidebarModel
-
     var displayed = SidebarLayout.empty
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
@@ -45,23 +43,19 @@ final class SidebarListView: NSView {
     /// Offered a row drag whose pointer left the sidebar sideways (another
     /// window, outside every window); true takes it over.
     var onDragHandoff: ((SidebarDragHandoff) -> Bool)?
-
     /// Hover time before an external tab drag over a row selects it.
     var springLoadDelay: Duration = .milliseconds(500)
     /// Clock for the spring-load delay; tests inject a manual clock.
     var springLoadClock: any Clock<Duration> = ContinuousClock()
-
     /// A title click's collapse toggle waiting out the double-click interval.
     var pendingGroupToggle: PendingGroupToggle?
     /// How long a group title click waits for a second click.
     var groupToggleDelay: Duration = .milliseconds(Int(NSEvent.doubleClickInterval * 1000))
     /// Clock for the group toggle delay; tests inject a manual clock.
     var clickClock: any Clock<Duration> = ContinuousClock()
-
     /// Builds the right-click menu for a target (filled by the App from the
     /// action registry). Nil means no context menu.
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
-
     init(model: SidebarModel) {
         self.model = model
         super.init(frame: .zero)
@@ -74,21 +68,16 @@ final class SidebarListView: NSView {
         hoverCard.list = self
         inlineRename.list = self
     }
-
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
-
     isolated deinit {
         // The frame client deactivates in its own deinit (touching the lazy
         // property here would create one that weakly captures a dying self).
         pendingGroupToggle?.task.cancel()
         NotificationCenter.default.removeObserver(self)
     }
-
     // MARK: - Window occlusion
-
     private var observedWindow: NSWindow?
-
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // A move to another window (or none) ends this list's card only.
@@ -102,26 +91,20 @@ final class SidebarListView: NSView {
             center.addObserver(self, selector: #selector(windowOcclusionChanged), name: NSWindow.didChangeOcclusionStateNotification, object: window)
         }
     }
-
     @objc private func windowOcclusionChanged(_ note: Notification) {
         setWindowVisible(window?.occlusionState.contains(.visible) ?? false)
     }
-
     /// Pauses (or resumes) every row's activity animation.
     func setWindowVisible(_ visible: Bool) {
         for row in subviews {
             for case let indicator as StatusIndicatorView in row.subviews { indicator.isWindowVisible = visible }
         }
     }
-
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
-
     var metrics: SidebarLayoutMetrics { .standard }
     var inset: CGFloat { SidebarStyle.horizontalInset }
-
     // MARK: - Reload
-
     /// Recomputes layout from the model and animates rows to their frames.
     func reload(animated: Bool) {
         workspaces = [:]
@@ -147,7 +130,6 @@ final class SidebarListView: NSView {
         applyKeepingViewport(SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: true)),
                              animated: animated)
     }
-
     func options(includeGap: Bool) -> SidebarLayoutOptions {
         var o = SidebarLayoutOptions()
         o.filterMatches = model.filterMatches
@@ -170,18 +152,15 @@ final class SidebarListView: NSView {
         }
         return o
     }
-
     func frame(for row: SidebarRow) -> NSRect {
         NSRect(x: inset, y: row.y, width: max(0, bounds.width - inset * 2), height: row.height)
     }
-
     /// Rows get views only inside the viewport plus overscan, so 1,000
     /// workspaces cost the same per frame as 40.
     func realizationRect() -> NSRect {
         let visible = enclosingScrollView?.contentView.bounds ?? bounds
         return visible.insetBy(dx: 0, dy: -SidebarStyle.overscan)
     }
-
     func apply(_ layout: SidebarLayout, animated: Bool) {
         // Rows moved, appeared or left under a possibly still pointer.
         defer { updateHover() }
@@ -193,7 +172,6 @@ final class SidebarListView: NSView {
         var appearing: [(SidebarRowView, NSRect)] = []
         var keep = Set<SidebarRowKey>()
         let animate = animated && !old.rows.isEmpty
-
         for row in layout.rows {
             let target = frame(for: row)
             let existing = rowViews[row.key]
@@ -223,7 +201,6 @@ final class SidebarListView: NSView {
                 targets.append((view, target))
             }
         }
-
         var leaving: [SidebarRowView] = []
         for (key, view) in rowViews where !keep.contains(key) {
             rowViews[key] = nil
@@ -233,13 +210,11 @@ final class SidebarListView: NSView {
                 leaving.append(view)
             }
         }
-
         let pillFrame = activePillFrame(in: layout)
         let gapFrame = layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) }
         decorations.frame = bounds
         decorations.setPill(pillFrame, animated: animate)
         decorations.setGap(gapFrame, animated: animate)
-
         let moves = {
             for (view, target) in targets {
                 view.animator().frame = target
@@ -271,14 +246,12 @@ final class SidebarListView: NSView {
             self.pruneOffscreen()
         })
     }
-
     func activePillFrame(in layout: SidebarLayout) -> NSRect? {
         guard let active = model.activeWorkspaceID,
               !suppressed.contains(.workspace(active)),
               let row = layout.row(for: .workspace(active)) else { return nil }
         return frame(for: row)
     }
-
     func configure(_ view: SidebarRowView, row: SidebarRow, animated: Bool) {
         view.isHovered = hoveredKey == row.key && drag == nil
         switch (row.key, view) {
@@ -303,13 +276,11 @@ final class SidebarListView: NSView {
             break
         }
     }
-
     func updateDocumentHeight() {
         let clipHeight = enclosingScrollView?.contentView.bounds.height ?? 0
         let height = max(displayed.totalHeight, clipHeight)
         if frame.height != height { setFrameSize(NSSize(width: frame.width, height: height)) }
     }
-
     override func setFrameSize(_ newSize: NSSize) {
         let widthChanged = newSize.width != frame.width
         super.setFrameSize(newSize)
@@ -323,7 +294,6 @@ final class SidebarListView: NSView {
         decorations.frame = bounds
         decorations.setPill(activePillFrame(in: displayed), animated: false)
     }
-
     /// Adds views for rows scrolled into range and drops far-away ones.
     func realizeVisibleRows() {
         guard !isShiftingViewport else { return }
@@ -342,7 +312,6 @@ final class SidebarListView: NSView {
         pruneOffscreen()
         updateHover()
     }
-
     func pruneOffscreen() {
         let keepRect = realizationRect().insetBy(dx: 0, dy: -SidebarStyle.overscan)
         for row in displayed.rows {
@@ -352,15 +321,12 @@ final class SidebarListView: NSView {
             rowViews[row.key] = nil
         }
     }
-
     /// The selectable rows in visual order (placeholders left out).
     var visibleWorkspaceOrder: [WorkspaceID] {
         let placeholders = Set(model.allWorkspaces.filter { $0.rowState == .placeholder }.map(\.id))
         return displayed.rows.compactMap { if case let .workspace(id) = $0.key, !placeholders.contains(id) { id } else { nil } }
     }
-
     // MARK: - Hover
-
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach(removeTrackingArea)
@@ -370,14 +336,12 @@ final class SidebarListView: NSView {
             owner: self
         ))
     }
-
     override func mouseMoved(with event: NSEvent) { updateHover(event.locationInWindow) }
     override func mouseEntered(with event: NSEvent) { updateHover(event.locationInWindow) }
     override func mouseExited(with event: NSEvent) {
         setHovered(nil)
         hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
     }
-
     /// Hover after a pointer event (`windowPoint`), or after rows moved or
     /// scrolled under a possibly still pointer (no point: the coordinator's
     /// pointer location, and the card re-hit-tests as a geometry change).
@@ -394,12 +358,10 @@ final class SidebarListView: NSView {
         guard visibleRect.contains(point) else { return setHovered(nil) }
         setHovered(displayed.row(at: point.y)?.key)
     }
-
     func setHovered(_ key: SidebarRowKey?) {
         guard key != hoveredKey else { return }
         if let hoveredKey { rowViews[hoveredKey]?.isHovered = false }
         hoveredKey = key
         if let key { rowViews[key]?.isHovered = true }
     }
-
 }

@@ -1,20 +1,16 @@
 import AppKit
-
 // Row view reuse through `rowPool`: views exist only for rows near the
 // viewport, and leaving rows return to the pool.
-
 extension SidebarListView {
     func dequeue(_ key: SidebarRowKey) -> SidebarRowView {
         let view = rowPool.take(for: key)
         wire(view, key: key)
         return view
     }
-
     func recycle(_ view: SidebarRowView) {
         view.removeFromSuperview()
         rowPool.put(view)
     }
-
     /// Per-key callbacks, set on every dequeue so recycled views never keep
     /// a previous row's target.
     private func wire(_ view: SidebarRowView, key: SidebarRowKey) {
