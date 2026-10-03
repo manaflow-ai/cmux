@@ -41,7 +41,7 @@ final class RowFormat {
 }
 
 /// Every user-facing string of the renderer (Resources/Localizable.xcstrings).
-@MainActor
+/// Nonisolated: row bitmaps draw some of them off the main actor.
 enum HomeStrings {
     static var today: String { String(localized: "separator.today", defaultValue: "Today", bundle: .module) }
     static var yesterday: String { String(localized: "separator.yesterday", defaultValue: "Yesterday", bundle: .module) }
