@@ -97,9 +97,9 @@ final class GroupHeaderRowView: SidebarRowView {
             pin.contentTintColor = Palette.textTertiary
             chevron.contentTintColor = Palette.textTertiary
             let tint = SidebarStyle.color(color)
-            pill.backgroundColor = color == .grey
-                ? Palette.sidebarStep.withAlphaComponent(0.7).cgColor
-                : tint.withAlphaComponent(0.20).cgColor
+            // Group headers use the title and color dot as their affordance.
+            // Keep the layer allocated for reuse, but never render a capsule.
+            pill.backgroundColor = nil
             // Fills only: a drop onto the group tints the row in its color.
             if isDropTarget {
                 paintFill(color == .grey ? Palette.selectionFill : tint.withAlphaComponent(0.16))
@@ -132,11 +132,8 @@ final class GroupHeaderRowView: SidebarRowView {
         name.isHidden = renaming
 
         var trailing = b.width - Metrics.space3
-        pill.frame = NSRect(x: Metrics.space1, y: Metrics.space1,
-                            width: max(0, b.width - Metrics.space2),
-                            height: max(0, b.height - Metrics.space2))
-        pill.cornerRadius = SidebarStyle.rowCornerRadius
-        pill.isHidden = false
+        pill.frame = .zero
+        pill.isHidden = true
         let control = SidebarStyle.controlSize
         addButton.isHidden = !isHovered
         editButton.isHidden = !isHovered
