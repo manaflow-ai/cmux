@@ -19389,6 +19389,137 @@
         }
       }
     },
+    "settings.appearance.backgroundBlur.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unset, the window follows Ghostty's background-opacity and background-blur."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عند عدم التعيين، تتبع النافذة background-opacity وbackground-blur في Ghostty."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kad nije postavljeno, prozor prati Ghostty postavke background-opacity i background-blur."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når den ikke er angivet, følger vinduet Ghosttys background-opacity og background-blur."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ohne Wert folgt das Fenster Ghosttys background-opacity und background-blur."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sin valor, la ventana sigue background-opacity y background-blur de Ghostty."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sans valeur, la fenêtre suit background-opacity et background-blur de Ghostty."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se non impostato, la finestra segue background-opacity e background-blur di Ghostty."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未設定の場合、ウインドウはGhosttyのbackground-opacityとbackground-blurに従います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពេលមិនបានកំណត់ បង្អួចធ្វើតាម background-opacity និង background-blur របស់ Ghostty។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "설정하지 않으면 윈도우는 Ghostty의 background-opacity와 background-blur를 따릅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uten verdi følger vinduet Ghosttys background-opacity og background-blur."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bez wartości okno stosuje background-opacity i background-blur z Ghostty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sem valor, a janela segue background-opacity e background-blur do Ghostty."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Без значения окно следует background-opacity и background-blur из Ghostty."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หากไม่ได้ตั้งค่า หน้าต่างจะใช้ background-opacity และ background-blur ของ Ghostty"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ayarlanmadığında pencere Ghostty'nin background-opacity ve background-blur değerlerini izler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Без значення вікно дотримується background-opacity і background-blur з Ghostty."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi chưa đặt, cửa sổ theo background-opacity và background-blur của Ghostty."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未设置时，窗口跟随 Ghostty 的 background-opacity 和 background-blur。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未設定時，視窗跟隨 Ghostty 的 background-opacity 和 background-blur。"
+          }
+        }
+      }
+    },
     "settings.choice.frosted": {
       "extractionState": "manual",
       "localizations": {

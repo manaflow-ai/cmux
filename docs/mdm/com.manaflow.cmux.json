@@ -27,7 +27,7 @@
       "type" : "string"
     },
     "appearance.backgroundBlur" : {
-      "description" : "appearance.backgroundBlur",
+      "description" : "Unset, the window follows Ghostty's background-opacity and background-blur.",
       "enum" : [
         "frosted",
         "glass",
