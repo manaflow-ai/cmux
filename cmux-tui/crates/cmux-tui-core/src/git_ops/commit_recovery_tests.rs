@@ -63,7 +63,7 @@ fn a_lost_reply_is_recovered_once_when_a_hook_rewrites_the_subject() {
     assert_eq!(refused(&commit(&mux, &repository, fields.clone(), "k-rewrite")).0, "store_failed");
     let made = git(&repository, &["rev-parse", "HEAD"]);
     assert_eq!(git(&repository, &["log", "-1", "--format=%s"]), "[TICKET-1] Fix it");
-    let retry = ok(&commit(&mux, &repository, fields.clone(), "k-rewrite"));
+    let retry = ok(&commit(&mux, &repository, fields, "k-rewrite"));
     assert_eq!(
         (retry["replayed"].as_bool(), retry["value"]["commit"].as_str()),
         (Some(true), Some(made.as_str()))
