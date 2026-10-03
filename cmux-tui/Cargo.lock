@@ -836,6 +836,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-link"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "bytes",
+ "getrandom 0.3.4",
+ "proptest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-motion"
 version = "0.1.0"
 dependencies = [
@@ -894,6 +909,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-link",
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",

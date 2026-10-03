@@ -14,7 +14,7 @@ const FLAGS_WITH_VALUE: &[u8] = b"BDEFIJLOPQRSWbceilmopw";
 /// `--` ends option parsing, so the destination can't be read as an option.
 /// OpenSSH keeps the first value it reads for each `-o` keyword, so the
 /// forwarding overrides go before the caller's options.
-pub(crate) fn background_ssh_arguments(
+pub fn background_ssh_arguments(
     port: Option<u16>,
     extra_args: &[String],
     destination: &str,

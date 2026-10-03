@@ -16,7 +16,7 @@ use crate::provider::{
     ProviderCapabilities, ProviderError, SupportedClientAuthModes, TransportProvider,
     sanitized_route,
 };
-use crate::ssh_args::background_ssh_arguments;
+use cmux_link::ssh_args::background_ssh_arguments;
 
 const SSH_GRACEFUL_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 

@@ -39,6 +39,7 @@ members = [
     "crates/cmux-tui",
     "crates/cmux-wg",
     "crates/cmux-transport",
+    "crates/cmux-link",
     "crates/cmux-tasks-core",
     "crates/cmux-tasks",
     "crates/cmux-server-core",
@@ -71,6 +72,7 @@ default-members = [
     "crates/cmux-tui",
     "crates/cmux-wg",
     "crates/cmux-transport",
+    "crates/cmux-link",
     "crates/cmux-tasks-core",
     "crates/cmux-tasks",
     "crates/cmux-server-core",
@@ -111,6 +113,7 @@ cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
 cmux-wg = { path = "crates/cmux-wg" }
+cmux-link = { path = "crates/cmux-link" }
 cmux-tui-machine-agent-protocol = { path = "crates/cmux-tui-machine-agent-protocol" }
 cmux-tui-machine-protocol = { path = "crates/cmux-tui-machine-protocol" }
 anyhow = "1"

@@ -22,6 +22,7 @@ async-trait.workspace = true
 axum.workspace = true
 base64.workspace = true
 bytes.workspace = true
+cmux-link.workspace = true
 cmux-pty.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-tui-core.workspace = true

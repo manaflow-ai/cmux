@@ -14,7 +14,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{Mutex, mpsc};
 
-use crate::ssh_args::background_ssh_arguments;
+use cmux_link::ssh_args::background_ssh_arguments;
 
 const SSH_BOOTSTRAP_OUTPUT_LIMIT: usize = 4_096;
 /// Printed by the staging command when the remote can decompress an upload.
