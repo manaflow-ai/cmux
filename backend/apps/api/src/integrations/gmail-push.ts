@@ -32,11 +32,28 @@ export interface NewMessage {
   readonly labels: ReadonlyArray<string>
 }
 
-export const createWatchTable = (sql: SqlStorage) =>
+export const createWatchTable = (sql: SqlStorage) => {
   sql.exec(`CREATE TABLE IF NOT EXISTS google_watches (
     connection TEXT PRIMARY KEY, kind TEXT NOT NULL, owner TEXT NOT NULL, alias TEXT NOT NULL, cursor TEXT,
     expires_at INTEGER NOT NULL, renew_at INTEGER NOT NULL, failures INTEGER NOT NULL DEFAULT 0,
-    fallback_at INTEGER)`)
+    fallback_at INTEGER, stop_since INTEGER, stop_failures INTEGER NOT NULL DEFAULT 0)`)
+  // Objects created by 1990f1df4d9 have the table without the stop columns.
+  const columns = sql.exec<{ name: string }>(`PRAGMA table_info(google_watches)`).toArray().map((c) => c.name)
+  if (!columns.includes("stop_since")) sql.exec(`ALTER TABLE google_watches ADD COLUMN stop_since INTEGER`)
+  if (!columns.includes("stop_failures")) sql.exec(`ALTER TABLE google_watches ADD COLUMN stop_failures INTEGER NOT NULL DEFAULT 0`)
+  // Watches whose users.stop never succeeded (CASA evidence: Google may still send this mailbox's ids).
+  sql.exec(`CREATE TABLE IF NOT EXISTS watch_stop_failures (connection TEXT PRIMARY KEY, alias TEXT NOT NULL, reason TEXT NOT NULL, at INTEGER NOT NULL)`)
+}
+
+/** How long users.stop is retried before the failure is recorded and the watch forgotten. */
+export const STOP_GIVE_UP_MS = 24 * 3600_000
+/** Recorded stop failures are kept this long. */
+export const STOP_FAILURE_RETENTION_MS = 30 * 24 * 3600_000
+
+export const recordStopFailure = (sql: SqlStorage, connection: string, alias: string, reason: string, now: number) => {
+  sql.exec(`INSERT OR REPLACE INTO watch_stop_failures (connection, alias, reason, at) VALUES (?, ?, ?, ?)`, connection, alias, reason.slice(0, 200), now)
+  console.error(JSON.stringify({ msg: "gmail watch stop failed for good", connection, reason: reason.slice(0, 200) }))
+}
 
 export interface WatchRow {
   readonly connection: string
@@ -48,6 +65,9 @@ export interface WatchRow {
   readonly renew_at: number
   readonly failures: number
   readonly fallback_at: number | null
+  /** Set while the watch is being stopped (users.stop pending); such a row never routes pushes. */
+  readonly stop_since: number | null
+  readonly stop_failures: number
 }
 
 export const watchOf = (sql: SqlStorage, connection: string): WatchRow | undefined =>

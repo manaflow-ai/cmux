@@ -6,8 +6,8 @@ import { decodeParams } from "./domains/common.ts"
 import type { Env } from "./env.ts"
 import { aadFor, open, seal, type SealedSecret } from "./integrations/crypto.ts"
 import type { ExternalReply, ProviderEvent } from "./integrations/external.ts"
-import { createWatchTable, nextWatchAt } from "./integrations/gmail-push.ts"
-import { dropGmailWatch, onGmailPush, runWatchWork, startWatchSafely, type GooglePush, type WatchHost } from "./integrations/google-watches.ts"
+import { createWatchTable, nextWatchAt, recordStopFailure, watchOf } from "./integrations/gmail-push.ts"
+import { dropGmailWatch, onGmailPush, runWatchWork, startWatchSafely, renewSoon, stopWatchWith, type GooglePush, type WatchHost } from "./integrations/google-watches.ts"
 import { createRevocationTable, drainRevocations, nextRevocationAt, takeCredentialForRevocation } from "./integrations/revocations.ts"
 import { ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
@@ -178,7 +178,9 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const result = frames.find((f) => f.t === "result")
     const c = result && result.t === "result" ? (result.value as Connection) : undefined
     if (!c || c.status !== "revoked") return
-    if (takeCredentialForRevocation(this.ctx.storage.sql, c, providers[c.provider], Date.now())) {
+    // Gmail: users.stop runs with the credential before the revoke (best effort, never blocks the disconnect).
+    const stopAlias = watchOf(this.ctx.storage.sql, c.id)?.alias ?? null
+    if (takeCredentialForRevocation(this.ctx.storage.sql, c, providers[c.provider], Date.now(), stopAlias)) {
       // Arm the alarm now (afterCommit ran before this row existed), then try at once.
       this.scheduleAlarm()
       void this.revokeAtProviders(Date.now())
@@ -190,7 +192,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   /** Provider-side revocations after disconnects (G5); the alarm retries what is left. */
   private async revokeAtProviders(now: number) {
     try {
-      await drainRevocations(this.ctx.storage.sql, this.env, this.http, providers, (key) => this.index(key).list(), now)
+      await drainRevocations(this.ctx.storage.sql, this.env, this.http, providers, (key) => this.index(key).list(), now, (provider, cred, alias, connection) => stopWatchWith(this.env, this.http, provider, cred, alias, connection), (connection, alias, reason) => recordStopFailure(this.ctx.storage.sql, connection, alias, reason, Date.now()))
       // A failed attempt outside an alarm still needs one: never move an earlier alarm later.
       const next = nextRevocationAt(this.ctx.storage.sql)
       if (next === null) return
@@ -379,8 +381,18 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
         const scheduler = this.env.SCHEDULER_DO.get(this.env.SCHEDULER_DO.idFromName(c.owner))
         await scheduler.deliverEvent(c.owner, { connection: c.id, sharing: c.sharing, created_by: c.created_by, provider: "gmail", event: "mail.message.received", delivery_id: m.message_id, payload: { connection: c.id, ...m } })
       },
+      background: (work) => {
+        this.scheduleAlarm()
+        this.ctx.waitUntil(work)
+      },
       status: (c, status, detail) => void this.submitSystem("connection.status", { connection: c.id, status, ...(detail ? { detail } : {}) }, `status:${c.id}:watch:${status}:${Date.now()}`)
     }
+  }
+
+  /** RPC: another connection's disconnect stopped this mailbox's watch while this one linked; renew now. */
+  async renewWatchSoon(entity: string, connection: string): Promise<void> {
+    this.bind(entity)
+    await renewSoon(this.ctx.storage, connection, Date.now())
   }
 
   /** RPC from the Google push routes (ingress/google-hooks.ts), after they verified the request. */

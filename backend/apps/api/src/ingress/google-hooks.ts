@@ -21,6 +21,14 @@ import { readRawBody } from "./verify.ts"
 const GOOGLE_JWKS = "https://www.googleapis.com/oauth2/v3/certs"
 const ISSUERS = ["https://accounts.google.com", "accounts.google.com"]
 const SKEW_SECONDS = 300
+/** Pub/Sub signs a fresh token per delivery; anything older is a replay. */
+const MAX_TOKEN_AGE = "15m"
+/**
+ * After this many consecutive failed handoffs to one link, its deliveries are
+ * dead-lettered (logged, recorded in AccountIndexDO, answered 204), so one
+ * broken connection cannot make Pub/Sub retry every link for 7 days.
+ */
+export const LINK_DEAD_AFTER = 5
 
 export const calendarAlias = (channel: string) => `gcal:channel:${channel}`
 
@@ -45,7 +53,7 @@ export const verifyPubsubToken = async (env: Env, authorization: string | null):
   const token = authorization?.match(/^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/)?.[1]
   if (!token) return false
   try {
-    const { payload } = await jwtVerify(token, keys(env), { algorithms: ["RS256"], issuer: ISSUERS, audience: env.GOOGLE_PUBSUB_AUDIENCE!, clockTolerance: SKEW_SECONDS, requiredClaims: ["exp", "iat"] })
+    const { payload } = await jwtVerify(token, keys(env), { algorithms: ["RS256"], issuer: ISSUERS, audience: env.GOOGLE_PUBSUB_AUDIENCE!, clockTolerance: SKEW_SECONDS, maxTokenAge: MAX_TOKEN_AGE, requiredClaims: ["exp", "iat"] })
     return payload.email === env.GOOGLE_PUBSUB_SERVICE_ACCOUNT && payload.email_verified === true
   } catch {
     return false
@@ -73,22 +81,32 @@ export const handleGooglePubsub = async (request: Request, env: Env): Promise<Re
   if (!env.GOOGLE_PUBSUB_AUDIENCE || !env.GOOGLE_PUBSUB_SERVICE_ACCOUNT) return text(503)
   // No DO call, and no body read, before the token is verified.
   if (!(await verifyPubsubToken(env, request.headers.get("authorization")))) return refuse(env, request, 401)
-  // After a valid token every answer is 204: a nack makes Pub/Sub redeliver for a day, and the
-  // ConnectionDO's 15-minute fallback catches up on anything a failed pull missed.
+  // An undecodable notification after a valid token is acknowledged: a nack only makes Pub/Sub redeliver it for a day.
   const raw = await readRawBody(request, 64 * 1024)
   const n = raw.ok ? decodeNotification(raw.text) : undefined
   if (!n) {
     console.error(JSON.stringify({ msg: "google pubsub: undecodable notification" }))
     return text(204)
   }
-  // An unknown address answers 204 too: Pub/Sub must not retry a notification nobody wants.
-  const links = await env.ACCOUNT_INDEX_DO.get(env.ACCOUNT_INDEX_DO.idFromName(gmailAlias(n.address))).list()
+  // The handoff is quick: each ConnectionDO records a safety fallback time, arms its alarm and pulls
+  // history in its own background, so a slow Gmail call never delays this answer. Only a failed
+  // handoff answers 5xx (Pub/Sub retries); a handoff that succeeded is never lost, because the
+  // alarm reads history if the background pull is cut off.
+  const index = env.ACCOUNT_INDEX_DO.get(env.ACCOUNT_INDEX_DO.idFromName(gmailAlias(n.address)))
+  const links = await index.list()
   const results = await Promise.allSettled(
     links.map(({ team, connection }) => env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(team)).googlePush(team, { kind: "gmail", connection, historyId: n.historyId, messageId: n.messageId }))
   )
-  const failed = results.filter((r) => r.status === "rejected").length
-  if (failed) console.error(JSON.stringify({ msg: "google pubsub: push handling failed", message: n.messageId, failed, links: links.length }))
-  return text(204)
+  if (results.every((r) => r.status === "fulfilled")) {
+    if (links.length) await index.noteDeliveries(links.map((l) => ({ ...l, ok: true }))).catch(() => undefined)
+    return text(204)
+  }
+  // Retry (503) only while some failing link is not yet dead-lettered.
+  const noted = await index.noteDeliveries(links.map((l, i) => ({ ...l, ok: results[i]!.status === "fulfilled" })))
+  const failing = noted.filter((_l, i) => results[i]!.status === "rejected")
+  const retry = failing.some((l) => l.failures < LINK_DEAD_AFTER)
+  console.error(JSON.stringify({ msg: retry ? "google pubsub: push handoff failed" : "google pubsub: dead-lettered for failing links", message: n.messageId, failing: failing.map((l) => ({ connection: l.connection, failures: l.failures })) }))
+  return text(retry ? 503 : 204)
 }
 
 /**

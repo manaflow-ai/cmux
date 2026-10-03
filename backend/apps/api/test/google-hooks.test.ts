@@ -4,6 +4,7 @@ import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import type { Http } from "../src/integrations/providers.ts"
 import { handleGoogleCalendar } from "../src/ingress/google-hooks.ts"
+import { createRevocationTable } from "../src/integrations/revocations.ts"
 
 const testEnv = env as unknown as Record<string, any>
 const worker = (exports as unknown as { default: Fetcher }).default
@@ -39,6 +40,15 @@ const fakeHttp = (routes: Record<string, (req: Request) => Promise<Response> | R
     return key ? routes[key]!(req) : new Response("not found", { status: 404 })
   }
   return { http, calls }
+}
+
+/** Pushes are acknowledged first and handled after the answer: wait for the effect. */
+const eventually = async (check: () => Promise<boolean>, ms = 5000) => {
+  for (const end = Date.now() + ms; Date.now() < end; ) {
+    if (await check()) return
+    await new Promise((r) => setTimeout(r, 25))
+  }
+  throw new Error("condition not reached in time")
 }
 
 /** A Pub/Sub push token as Google signs it. */
@@ -87,6 +97,7 @@ describe("Google Pub/Sub receiver", () => {
     const c = await op(token, "integration.connect", { provider: "gmail", scopes: ["gmail.send", "gmail.modify"] })
     const conn = c.json.value.connection.id as string
     let history = { history: [] as Array<unknown>, historyId: "100" }
+    let gate: Promise<void> = Promise.resolve()
     const fake = fakeHttp({
       "https://oauth2.googleapis.com/token": () => ok({ access_token: "ya29.p", refresh_token: "1//p", expires_in: 3599, scope: `${G}gmail.send ${G}gmail.modify` }),
       "https://openidconnect.googleapis.com/v1/userinfo": () => ok({ sub: "push-1", email: "Push.User@Example.com", email_verified: true }),
@@ -94,10 +105,12 @@ describe("Google Pub/Sub receiver", () => {
         expect(((await req.json()) as { topicName: string }).topicName).toBe(testEnv.GOOGLE_PUBSUB_TOPIC)
         return ok({ historyId: "100", expiration: String(Date.now() + 7 * 24 * 3600_000) })
       },
-      [`${GMAIL}/history`]: (req) => {
+      [`${GMAIL}/history`]: async (req) => {
         expect(new URL(req.url).searchParams.get("labelId")).toBe("INBOX")
+        await gate
         return ok(history)
-      }
+      },
+      [`${GMAIL}/stop`]: () => new Response(null, { status: 204 })
     })
     const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team))
     await inDO(connections, async (instance) => {
@@ -122,14 +135,28 @@ describe("Google Pub/Sub receiver", () => {
       ],
       historyId: "102"
     }
+    const listRuns = async () => (await read(token, "automation.runs.list", { automation: auto.json.value.id })).json.value.runs as Array<{ trigger: { delivery_id: string } }>
+    // The push is acknowledged while Gmail's history call is still running (it waits on `gate`).
+    let release!: () => void
+    gate = new Promise<void>((r) => (release = r))
     // The address in the notification is matched case-insensitively.
     expect((await push("push.user@EXAMPLE.com", 102, await pubsubToken())).status).toBe(204)
-    let runs = (await read(token, "automation.runs.list", { automation: auto.json.value.id })).json.value.runs
-    expect(runs).toHaveLength(2)
+    expect(await listRuns()).toHaveLength(0)
+    release()
+    await eventually(async () => (await listRuns()).length === 2)
+    let runs = await listRuns()
+    await eventually(async () => {
+      let cursor = ""
+      await inDO(connections, async (_i, s) => {
+        cursor = String(s.storage.sql.exec("SELECT cursor FROM google_watches").one().cursor)
+      })
+      return cursor === "102"
+    })
     // Redelivery of the same notification: the cursor moved, history is empty, no new runs.
     history = { history: [], historyId: "102" }
     expect((await push("push.user@example.com", 102, await pubsubToken())).status).toBe(204)
-    runs = (await read(token, "automation.runs.list", { automation: auto.json.value.id })).json.value.runs
+    await new Promise((r) => setTimeout(r, 100))
+    runs = await listRuns()
     expect(runs).toHaveLength(2)
 
     // Stored: ids only. No subject, sender, snippet or body anywhere in the object.
@@ -137,16 +164,19 @@ describe("Google Pub/Sub receiver", () => {
       expect(s.storage.sql.exec("SELECT cursor FROM google_watches").one()).toEqual({ cursor: "102" })
     })
     // One run per new message, keyed by connection and Gmail message id (the run input holds only these ids).
-    expect(runs.map((r: { trigger: { delivery_id: string } }) => r.trigger.delivery_id).sort()).toEqual([`${conn}:msgA`, `${conn}:msgB`])
+    expect(runs.map((r) => r.trigger.delivery_id).sort()).toEqual([`${conn}:msgA`, `${conn}:msgB`])
 
-    // Disconnect drops the watch and the alias: a later push reaches nobody.
+    // Disconnect drops the watch and the alias, and stops the watch at Gmail (users.stop): a later push reaches nobody.
     await op(token, "integration.revoke", { connection: conn })
-    await inDO(connections, async (_i, s) => {
+    await inDO(connections, async (instance, s) => {
       expect(s.storage.sql.exec("SELECT * FROM google_watches").toArray()).toHaveLength(0)
+      await instance.revokeAtProviders(Date.now() + 5 * 60_000)
     })
+    expect(fake.calls.some((c) => c === `POST ${GMAIL}/stop`)).toBe(true)
     history = { history: [{ id: "103", messagesAdded: [{ message: { id: "msgC", threadId: "thrC" } }] }], historyId: "103" }
     expect((await push("push.user@example.com", 103, await pubsubToken())).status).toBe(204)
-    expect((await read(token, "automation.runs.list", { automation: auto.json.value.id })).json.value.runs).toHaveLength(2)
+    await new Promise((r) => setTimeout(r, 100))
+    expect(await listRuns()).toHaveLength(2)
   })
 })
 
@@ -157,5 +187,20 @@ describe("Google Calendar receiver (not routed until G2)", () => {
     const e = { ...testEnv, ACCOUNT_INDEX_DO: undefined } as any
     expect((await handleGoogleCalendar(new Request("https://api.test/v1/hooks/google/calendar", { method: "POST" }), e)).status).toBe(400)
     expect((await handleGoogleCalendar(new Request("https://api.test/x", { method: "POST", headers: { "x-goog-channel-id": "../../etc" } }), e)).status).toBe(400)
+  })
+})
+
+describe("pending_revocations schema upgrade", () => {
+  it("adds stop_alias to a table created before it existed", async () => {
+    const stub = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName("team_schema_upgrade"))
+    await inDO(stub, async (_i, s) => {
+      s.storage.sql.exec("DROP TABLE IF EXISTS pending_revocations")
+      s.storage.sql.exec(`CREATE TABLE pending_revocations (connection TEXT PRIMARY KEY, owner TEXT NOT NULL, provider TEXT NOT NULL, account TEXT, generation INTEGER NOT NULL,
+        sealed TEXT NOT NULL, attempts INTEGER NOT NULL, first_at INTEGER NOT NULL, next_at INTEGER NOT NULL)`)
+      createRevocationTable(s.storage.sql)
+      createRevocationTable(s.storage.sql)
+      const cols = s.storage.sql.exec<{ name: string }>("PRAGMA table_info(pending_revocations)").toArray().map((c) => c.name)
+      expect(cols).toContain("stop_alias")
+    })
   })
 })

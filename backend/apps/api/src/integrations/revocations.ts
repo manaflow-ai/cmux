@@ -22,12 +22,17 @@ const MAX_BACKOFF_MS = 30 * 60_000
 /** A drain claims a row for this long before its provider call, so two drains never revoke one row twice. */
 const CLAIM_MS = 60_000
 
-type Row = { connection: string; owner: string; provider: string; account: string | null; generation: number; sealed: string; attempts: number; first_at: number; next_at: number }
+type Row = { connection: string; owner: string; provider: string; account: string | null; stop_alias: string | null; stop_done: number; generation: number; sealed: string; attempts: number; first_at: number; next_at: number }
 
-export const createRevocationTable = (sql: SqlStorage) =>
+export const createRevocationTable = (sql: SqlStorage) => {
   sql.exec(`CREATE TABLE IF NOT EXISTS pending_revocations (
-    connection TEXT PRIMARY KEY, owner TEXT NOT NULL, provider TEXT NOT NULL, account TEXT, generation INTEGER NOT NULL,
+    connection TEXT PRIMARY KEY, owner TEXT NOT NULL, provider TEXT NOT NULL, account TEXT, stop_alias TEXT, stop_done INTEGER NOT NULL DEFAULT 0, generation INTEGER NOT NULL,
     sealed TEXT NOT NULL, attempts INTEGER NOT NULL, first_at INTEGER NOT NULL, next_at INTEGER NOT NULL)`)
+  // Objects created by 1722e8ddd9c have the table without stop_alias.
+  const columns = sql.exec<{ name: string }>(`PRAGMA table_info(pending_revocations)`).toArray().map((c) => c.name)
+  if (!columns.includes("stop_alias")) sql.exec(`ALTER TABLE pending_revocations ADD COLUMN stop_alias TEXT`)
+  if (!columns.includes("stop_done")) sql.exec(`ALTER TABLE pending_revocations ADD COLUMN stop_done INTEGER NOT NULL DEFAULT 0`)
+}
 
 /**
  * Removes the connection's credential; when the provider can revoke, keeps
@@ -38,17 +43,20 @@ export const takeCredentialForRevocation = (
   sql: SqlStorage,
   c: { id: string; owner: string; provider: IntegrationProvider; account: { key: string } | null },
   impl: ProviderImpl | undefined,
-  now: number
+  now: number,
+  /** A push watch to stop before the revoke (Gmail users.stop), named by its alias. */
+  stopAlias: string | null = null
 ): boolean => {
   const row = sql.exec<{ generation: number; sealed: string }>(`SELECT generation, sealed FROM credentials WHERE connection = ?`, c.id).toArray()[0]
   sql.exec(`DELETE FROM credentials WHERE connection = ?`, c.id)
   if (!row || !impl?.revoke) return false
   sql.exec(
-    `INSERT OR REPLACE INTO pending_revocations (connection, owner, provider, account, generation, sealed, attempts, first_at, next_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+    `INSERT OR REPLACE INTO pending_revocations (connection, owner, provider, account, stop_alias, generation, sealed, attempts, first_at, next_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
     c.id,
     c.owner,
     c.provider,
     c.account?.key ?? null,
+    stopAlias,
     Number(row.generation),
     row.sealed,
     now,
@@ -65,8 +73,26 @@ export const nextRevocationAt = (sql: SqlStorage): number | null => {
 /** Linked connections of an account key (AccountIndexDO.list). */
 export type Linked = (accountKey: string) => Promise<ReadonlyArray<{ team: string; connection: string }>>
 
+/** Stops a provider push watch with the credential; throws on failure. */
+export type StopWatch = (provider: string, credential: Credential, alias: string, connection: string) => Promise<void>
+
+/** users.stop is retried this long before the revoke goes ahead without it (the failure is recorded). */
+export const STOP_BEFORE_REVOKE_MS = 6 * 3600_000
+
+/** Records a watch whose stop failed for good (the caller's table; see gmail-push.ts). */
+export type StopFailed = (connection: string, alias: string, reason: string) => void
+
 /** Runs every due revocation once. Never throws; never logs a token. */
-export const drainRevocations = async (sql: SqlStorage, env: Env, http: Http, providers: Readonly<Record<string, ProviderImpl>>, linked: Linked, now: number): Promise<void> => {
+export const drainRevocations = async (
+  sql: SqlStorage,
+  env: Env,
+  http: Http,
+  providers: Readonly<Record<string, ProviderImpl>>,
+  linked: Linked,
+  now: number,
+  stopWatch?: StopWatch,
+  stopFailed?: StopFailed
+): Promise<void> => {
   const due = sql.exec<Row>(`SELECT * FROM pending_revocations WHERE next_at <= ?`, now).toArray()
   for (const r of due) {
     // Claim before any await: a concurrent drain no longer sees this row as due.
@@ -77,13 +103,32 @@ export const drainRevocations = async (sql: SqlStorage, env: Env, http: Http, pr
       if (!impl?.revoke) outcome = "done"
       else if (!env.INTEGRATIONS_KEK) {
         console.error(JSON.stringify({ msg: "provider revocation skipped: no INTEGRATIONS_KEK", connection: r.connection, provider: r.provider }))
-        outcome = "done"
-      } else if (r.account && (await sharedGrantInUse(impl, linked, r.account, r.connection))) {
-        console.log(JSON.stringify({ msg: "provider revocation skipped: the grant is still used by another connection", connection: r.connection, provider: r.provider }))
+        if (r.stop_alias && !r.stop_done) stopFailed?.(r.connection, r.stop_alias, "no INTEGRATIONS_KEK to open the credential")
         outcome = "done"
       } else {
         const credential = JSON.parse(await open(env.INTEGRATIONS_KEK, JSON.parse(r.sealed) as SealedSecret, aadFor(r.connection, r.owner, r.provider, Number(r.generation)))) as Credential
-        outcome = await impl.revoke(env, http, credential)
+        // The watch is per mailbox, not per connection: stop it only when no other connection uses that mailbox.
+        // The stop runs before the revoke (the token dies with the grant) and is retried until it succeeds or
+        // STOP_BEFORE_REVOKE_MS passes; then the failure is recorded and the revoke goes ahead.
+        if (r.stop_alias && !r.stop_done && stopWatch) {
+          let stopped = (await linked(r.stop_alias)).some((l) => l.connection !== r.connection)
+          if (!stopped) {
+            try {
+              await stopWatch(r.provider, credential, r.stop_alias, r.connection)
+              stopped = true
+            } catch (e) {
+              const reason = e instanceof Error ? `${e.name}: ${e.message}`.slice(0, 200) : "users.stop failed"
+              if (now - Number(r.first_at) < STOP_BEFORE_REVOKE_MS) throw new Error(`watch stop pending: ${reason}`)
+              stopFailed?.(r.connection, r.stop_alias, reason)
+              stopped = true
+            }
+          }
+          if (stopped) sql.exec(`UPDATE pending_revocations SET stop_done = 1 WHERE connection = ? AND first_at = ?`, r.connection, r.first_at)
+        }
+        if (r.account && (await sharedGrantInUse(impl, linked, r.account, r.connection))) {
+          console.log(JSON.stringify({ msg: "provider revocation skipped: the grant is still used by another connection", connection: r.connection, provider: r.provider }))
+          outcome = "done"
+        } else outcome = await impl.revoke(env, http, credential)
       }
     } catch (e) {
       console.error(JSON.stringify({ msg: "provider revocation failed", connection: r.connection, provider: r.provider, error: e instanceof Error ? e.name : "unknown" }))

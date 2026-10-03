@@ -1,7 +1,22 @@
 import type { Connection } from "@cmux/protocol"
 import type { Env } from "../env.ts"
 import { usableScopes } from "./google.ts"
-import { FALLBACK_INTERVAL_MS, gmailAlias, gmailCurrentHistoryId, gmailHistorySince, MAX_RENEW_FAILURES, startGmailWatch, WATCH_RENEW_MS, watchOf, type NewMessage } from "./gmail-push.ts"
+import {
+  FALLBACK_INTERVAL_MS,
+  gmailAlias,
+  gmailCurrentHistoryId,
+  gmailHistorySince,
+  MAX_RENEW_FAILURES,
+  recordStopFailure,
+  startGmailWatch,
+  STOP_FAILURE_RETENTION_MS,
+  STOP_GIVE_UP_MS,
+  stopGmailWatch,
+  WATCH_RENEW_MS,
+  watchOf,
+  type NewMessage
+} from "./gmail-push.ts"
+import { googleRefresh } from "./google.ts"
 import { ProviderError, type Credential, type Http } from "./provider-core.ts"
 
 /**
@@ -23,6 +38,8 @@ export interface WatchHost {
   deliver(c: Connection, m: NewMessage): Promise<void>
   /** Health change of the connection (connection.status). */
   status(c: Connection, status: "active" | "error", detail?: string): void
+  /** Keeps work running after the RPC answered (the object stays alive; the alarm is the safety net). */
+  background(work: Promise<unknown>): void
 }
 
 const READ = ["gmail.readonly", "gmail.modify"]
@@ -39,7 +56,7 @@ export const wantsGmailWatch = (env: Env, c: Connection) =>
 export const ensureGmailWatch = async (h: WatchHost, c: Connection, now: number): Promise<void> => {
   if (!wantsGmailWatch(h.env, c)) return
   if (!c.account) {
-    await dropGmailWatch(h, c.id)
+    await stopAndDropWatch(h, c.id, now)
     return
   }
   const alias = gmailAlias(c.account.name)
@@ -47,27 +64,49 @@ export const ensureGmailWatch = async (h: WatchHost, c: Connection, now: number)
   const prior = watchOf(h.sql, c.id)
   h.sql.exec(
     `INSERT INTO google_watches (connection, kind, owner, alias, cursor, expires_at, renew_at, failures, fallback_at) VALUES (?, 'gmail', ?, ?, ?, ?, ?, 0, NULL)
-     ON CONFLICT (connection) DO UPDATE SET alias = excluded.alias, cursor = COALESCE(google_watches.cursor, excluded.cursor), expires_at = excluded.expires_at, renew_at = excluded.renew_at, failures = 0, fallback_at = NULL`,
+     ON CONFLICT (connection) DO UPDATE SET alias = excluded.alias, cursor = COALESCE(google_watches.cursor, excluded.cursor), expires_at = excluded.expires_at, renew_at = excluded.renew_at, failures = 0, stop_since = NULL, stop_failures = 0, fallback_at = CASE WHEN ? THEN google_watches.fallback_at ELSE NULL END`,
     c.id,
     c.owner,
     alias,
     prior?.cursor ?? w.historyId,
     w.expiration,
-    Math.min(now + WATCH_RENEW_MS, w.expiration - 3600_000)
+    Math.min(now + WATCH_RENEW_MS, w.expiration - 3600_000),
+    // A pull in flight keeps its safety fallback until it finishes.
+    pulling.has(c.id) ? 1 : 0
   )
   await h.alias("add", alias, c.owner, c.id)
   if (prior && prior.failures >= MAX_RENEW_FAILURES) h.status(c, "active")
 }
 
-/** One pull at a time per connection (a push, a redelivery and the fallback may overlap). */
-const pulling = new Map<string, Promise<{ delivered: number }>>()
+/**
+ * One pull at a time per connection (a push, a redelivery and the fallback
+ * may overlap). A request that arrives during a pull marks a rerun: the
+ * running pull may have read history before that request's mail existed.
+ */
+const pulling = new Map<string, { work: Promise<{ delivered: number }>; rerun: boolean }>()
 export const pullGmailHistory = (h: WatchHost, c: Connection): Promise<{ delivered: number }> => {
   const running = pulling.get(c.id)
-  if (running) return running
-  const work = pullOnce(h, c).finally(() => pulling.delete(c.id))
-  pulling.set(c.id, work)
-  return work
+  if (running) {
+    running.rerun = true
+    return running.work
+  }
+  const entry = { work: Promise.resolve({ delivered: 0 }), rerun: false }
+  entry.work = (async () => {
+    let delivered = 0
+    try {
+      do {
+        entry.rerun = false
+        delivered += (await pullOnce(h, c, () => entry.rerun)).delivered
+      } while (entry.rerun)
+    } finally {
+      pulling.delete(c.id)
+    }
+    return { delivered }
+  })()
+  pulling.set(c.id, entry)
+  return entry.work
 }
+export const pullRunning = (connection: string) => pulling.has(connection)
 
 /** Moves the cursor only forward (history ids are decimal and grow). */
 const advance = (h: WatchHost, connection: string, cursor: string) => {
@@ -77,7 +116,7 @@ const advance = (h: WatchHost, connection: string, cursor: string) => {
 }
 
 /** Reads history from the cursor, delivers each new message, then moves the cursor (a crash in between replays; deliveries dedupe). */
-const pullOnce = async (h: WatchHost, c: Connection): Promise<{ delivered: number }> => {
+const pullOnce = async (h: WatchHost, c: Connection, rerunPending: () => boolean): Promise<{ delivered: number }> => {
   const row = watchOf(h.sql, c.id)
   if (!row?.cursor) return { delivered: 0 }
   const t = token(await h.credential(c))
@@ -90,26 +129,39 @@ const pullOnce = async (h: WatchHost, c: Connection): Promise<{ delivered: numbe
   }
   for (const m of r.messages) await h.deliver(c, m)
   advance(h, c.id, r.cursor)
+  // A healthy watch needs no fallback once a pull succeeded and no newer request waits for a rerun.
+  if (!rerunPending()) h.sql.exec(`UPDATE google_watches SET fallback_at = NULL WHERE connection = ? AND failures = 0 AND expires_at > ?`, c.id, Date.now())
   // More history than one pull reads: continue from the next alarm instead of waiting for new mail.
   if (r.more) h.sql.exec(`UPDATE google_watches SET fallback_at = ? WHERE connection = ?`, Date.now(), c.id)
   return { delivered: r.messages.length }
 }
 
 /** A verified Pub/Sub push for this connection. A connection without a watch row ignores it. */
-export const onGmailPush = async (h: WatchHost, c: Connection | undefined, historyId: string): Promise<{ status: "ignored" | "pulled" | "failed"; delivered: number }> => {
+export const onGmailPush = async (h: WatchHost, c: Connection | undefined, historyId: string): Promise<{ status: "ignored" | "queued"; delivered: number }> => {
   if (!c || !wantsGmailWatch(h.env, c) || !/^[0-9]{1,20}$/.test(historyId)) return { status: "ignored", delivered: 0 }
   const row = watchOf(h.sql, c.id)
-  if (!row) return { status: "ignored", delivered: 0 }
+  if (!row || row.stop_since !== null) return { status: "ignored", delivered: 0 }
   // An old notification (Pub/Sub redelivery) is still safe: history is read from our cursor, not from its id.
-  try {
-    const r = await pullGmailHistory(h, c)
-    return { status: "pulled", delivered: r.delivered }
-  } catch (e) {
-    // The fallback read retries from the alarm; the push itself is acknowledged.
-    h.sql.exec(`UPDATE google_watches SET fallback_at = COALESCE(fallback_at, ?) WHERE connection = ?`, Date.now() + 60_000, c.id)
-    console.error(JSON.stringify({ msg: "gmail push pull failed", connection: c.id, error: e instanceof ProviderError ? e.code : "unknown" }))
-    return { status: "failed", delivered: 0 }
-  }
+  // Answer at once and pull in the background: a slow history call never delays the push's ack. The
+  // fallback time set first is the safety net: if this pull is cut off, the alarm reads again.
+  h.sql.exec(`UPDATE google_watches SET fallback_at = COALESCE(fallback_at, ?) WHERE connection = ?`, Date.now() + 60_000, c.id)
+  h.background(
+    pullGmailHistory(h, c).catch((e) => console.error(JSON.stringify({ msg: "gmail push pull failed", connection: c.id, error: e instanceof ProviderError ? e.code : "unknown" })))
+  )
+  return { status: "queued", delivered: 0 }
+}
+
+/**
+ * Gmail users.stop with a disconnected connection's credential (refreshed
+ * first when expired). A connection that linked the same mailbox meanwhile
+ * renews its watch at once, so the stop never leaves it without push.
+ */
+export const stopWatchWith = async (env: Env, http: Http, provider: string, credential: Credential, alias: string, connection: string): Promise<void> => {
+  if (provider !== "gmail") return
+  const fresh = (await googleRefresh(env, http, credential)) ?? credential
+  await stopGmailWatch(http, token(fresh))
+  const others = (await env.ACCOUNT_INDEX_DO.get(env.ACCOUNT_INDEX_DO.idFromName(alias)).list()).filter((l) => l.connection !== connection)
+  await Promise.allSettled(others.map((l) => env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(l.team)).renewWatchSoon(l.team, l.connection)))
 }
 
 /** The alarm's watch work: renew due watches; run the fallback history read while push is unhealthy. */
@@ -119,10 +171,12 @@ export const runWatchWork = async (h: WatchHost, connections: Readonly<Record<st
     now,
     now
   ).toArray()
+  h.sql.exec(`DELETE FROM watch_stop_failures WHERE at < ?`, now - STOP_FAILURE_RETENTION_MS)
   for (const r of rows) {
     const c = connections[r.connection]
     if (!c || !wantsGmailWatch(h.env, c)) {
-      await dropGmailWatch(h, r.connection)
+      // Scope lost, gate closed, connection gone or unhealthy: stop the watch at Gmail, then forget it.
+      await stopAndDropWatch(h, r.connection, now, c)
       continue
     }
     if (r.renew_at <= now) {
@@ -145,19 +199,60 @@ export const runWatchWork = async (h: WatchHost, connections: Readonly<Record<st
     } catch (e) {
       console.error(JSON.stringify({ msg: "gmail fallback read failed", connection: c.id, error: e instanceof ProviderError ? e.code : "unknown" }))
     }
-    h.sql.exec(`UPDATE google_watches SET fallback_at = ? WHERE connection = ?`, now + FALLBACK_INTERVAL_MS, c.id)
+    // Only an unhealthy watch keeps polling; a healthy one waits for pushes.
+    h.sql.exec(`UPDATE google_watches SET fallback_at = ? WHERE connection = ? AND (failures > 0 OR expires_at <= ?)`, now + FALLBACK_INTERVAL_MS, c.id, now)
   }
 }
 
 /**
- * Forgets the watch and its alias (disconnect, lost scope, closed gate). The
- * row is deleted synchronously; Google's watch then lapses within 7 days, and
- * its pushes reach nobody.
+ * Forgets the watch row and its alias at once. Only for a disconnect: the
+ * revocation drain then runs users.stop with the sealed credential, retried
+ * before the token is destroyed (revocations.ts). Every other drop goes
+ * through stopAndDropWatch.
  */
 export const dropGmailWatch = async (h: WatchHost, connection: string): Promise<void> => {
   const row = watchOf(h.sql, connection)
   h.sql.exec(`DELETE FROM google_watches WHERE connection = ?`, connection)
   if (row) await h.alias("remove", row.alias, row.owner, connection).catch(() => undefined)
+}
+
+/**
+ * Stops the watch at Gmail with the connection's own credential, then forgets
+ * it. The alias goes first, so no push routes here meanwhile. A failed
+ * users.stop keeps the row in the stopping state and the alarm retries with
+ * backoff; after STOP_GIVE_UP_MS the failure is recorded and the row goes.
+ * The watch is per mailbox: when another connection still links the mailbox,
+ * no stop is sent.
+ */
+export const stopAndDropWatch = async (h: WatchHost, connection: string, now: number, c?: Connection): Promise<void> => {
+  const row = watchOf(h.sql, connection)
+  if (!row) return
+  if (row.stop_since === null) h.sql.exec(`UPDATE google_watches SET stop_since = ?, fallback_at = NULL WHERE connection = ?`, now, connection)
+  const since = row.stop_since ?? now
+  await h.alias("remove", row.alias, row.owner, connection).catch(() => undefined)
+  const done = (reason?: string) => {
+    if (reason) recordStopFailure(h.sql, connection, row.alias, reason, now)
+    h.sql.exec(`DELETE FROM google_watches WHERE connection = ?`, connection)
+  }
+  try {
+    const others = (await h.env.ACCOUNT_INDEX_DO.get(h.env.ACCOUNT_INDEX_DO.idFromName(row.alias)).list()).filter((l) => l.connection !== connection)
+    if (others.length > 0) return done()
+    if (!c) return done("the connection is gone; no credential to stop the watch")
+    await stopGmailWatch(h.http, token(await h.credential(c)))
+    done()
+  } catch (e) {
+    const reason = e instanceof ProviderError ? `${e.code}: ${e.message}` : "users.stop failed"
+    if (now - since >= STOP_GIVE_UP_MS) return done(reason)
+    const failures = Number(row.stop_failures) + 1
+    h.sql.exec(`UPDATE google_watches SET stop_failures = ?, renew_at = ? WHERE connection = ?`, failures, now + Math.min(3600_000, 60_000 * 2 ** failures), connection)
+  }
+}
+
+/** Renews a watch at the next alarm, armed now (never moving an earlier alarm later). */
+export const renewSoon = async (storage: DurableObjectStorage, connection: string, now: number): Promise<void> => {
+  storage.sql.exec(`UPDATE google_watches SET renew_at = ? WHERE connection = ? AND stop_since IS NULL`, now, connection)
+  const current = await storage.getAlarm()
+  if (current === null || current > now) await storage.setAlarm(now)
 }
 
 /** A verified push from ingress/google-hooks.ts. */
