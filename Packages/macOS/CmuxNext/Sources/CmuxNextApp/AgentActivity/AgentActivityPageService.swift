@@ -37,7 +37,7 @@ final class AgentActivityPageService {
 
     private func makeSource() -> any AgentActivitySource {
         let environment = ProcessInfo.processInfo.environment
-        if DevTools.isEnabled, environment["CMUX_NEXT_AGENT_ACTIVITY_MOCK"] == "1" {
+        if services.environment.showcase || (DevTools.isEnabled && environment["CMUX_NEXT_AGENT_ACTIVITY_MOCK"] == "1") {
             return AgentActivityMockSource()
         }
         return AgentActivitySocketSource(configuration: .standard(machineName: AgentActivityPaneStrings.thisMac))

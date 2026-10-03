@@ -12,6 +12,8 @@ struct AppEnvironment: Sendable {
     /// app (agent preflights and background launches). Windows open ordered
     /// back and the app never activates itself.
     let noActivate: Bool
+    /// DEBUG showcase profile requested by `--showcase` or `CMUX_NEXT_SHOWCASE=1`.
+    let showcase: Bool
     /// `CMUX_NEXT_TEST_WINDOW_SCREEN` / `CMUX_NEXT_TEST_WINDOW_FRAME` with
     /// no-activate: where windows open for agent screenshots.
     let testWindow: TestWindowPlacement?
@@ -38,10 +40,16 @@ struct AppEnvironment: Sendable {
 
     static func current(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> AppEnvironment {
         let noActivate = environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
+#if DEBUG
+        let showcase = environment["CMUX_NEXT_SHOWCASE"] == "1" || ProcessInfo.processInfo.arguments.contains("--showcase")
+#else
+        let showcase = false
+#endif
         let launch = LaunchIdentity.current()
         return AppEnvironment(
             launch: launch,
             noActivate: noActivate,
+            showcase: showcase,
             testWindow: TestWindowPlacement.parse(environment, noActivate: noActivate),
             terminalEnvironment: terminalEnvironment(launch: launch, environment: environment),
             ghosttyResources: GhosttyRuntime.resourcesDirectory(environment: environment),

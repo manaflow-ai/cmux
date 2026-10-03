@@ -24,6 +24,15 @@ public final class SidebarRailColumnView: NSView {
     public var topInset: CGFloat = 0 {
         didSet { if oldValue != topInset { refresh() } }
     }
+    /// The App's accessory (the update circle), right above the bottom band
+    /// while `showsAccessory` holds; the top band makes room for it.
+    public var accessoryView: NSView? {
+        get { rail.accessoryView }
+        set { rail.accessoryView = newValue }
+    }
+    public var showsAccessory = false {
+        didSet { if oldValue != showsAccessory { refresh() } }
+    }
     private var observation: Task<Void, Never>?
 
     public init(model: SidebarModel) {
@@ -77,7 +86,8 @@ public final class SidebarRailColumnView: NSView {
             }
         }
         rail.update(SidebarRailView.Content(document: document, room: model.activeProfileID?.rawValue, infos: model.itemInfo,
-                                            toolTips: toolTips, metrics: Self.metrics(width: bounds.width, topInset: topInset)))
+                                            toolTips: toolTips, metrics: Self.metrics(width: bounds.width, topInset: topInset),
+                                            accessory: showsAccessory))
     }
 
     override public func setFrameSize(_ newSize: NSSize) {

@@ -79,6 +79,11 @@ public struct Palette {
     public static var danger: NSColor { color(\.danger, dynamic: PaletteDynamic.danger) }
     /// Connected / success: the theme's ANSI green.
     public static var success: NSColor { color(\.success, dynamic: PaletteDynamic.success) }
+    /// The one saturated call to action (the update circle): the theme's
+    /// ANSI blue.
+    public static var highlight: NSColor { color(\.highlight, dynamic: PaletteDynamic.highlight) }
+    /// Glyphs on `highlight`.
+    public static var highlightText: NSColor { color(\.highlightText, opaque: true, dynamic: PaletteDynamic.highlightText) }
 
     /// The app accent. Deliberately neutral so any control that reads the
     /// accent stays in the theme's grays.
