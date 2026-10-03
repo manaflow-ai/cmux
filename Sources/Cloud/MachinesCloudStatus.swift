@@ -42,7 +42,10 @@ struct MachinesCloudStatus: View {
                 perform: performListStatusAction
             )
         } else if let error = treeError {
-            let safeMessage = treeErrorMessage
+            // Tree actions provide already-sanitized, user-facing recovery
+            // text. Preserve it here so ownership hints are not replaced by
+            // the generic operation-failed fallback.
+            let safeMessage = error.isEmpty ? treeErrorMessage : error
             HStack(alignment: .firstTextBaseline, spacing: 5) {
                 Image(systemName: "exclamationmark.triangle")
                     .font(.system(size: 10, weight: .semibold))
