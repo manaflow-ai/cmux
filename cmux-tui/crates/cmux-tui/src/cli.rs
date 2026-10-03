@@ -6,9 +6,9 @@
 
 #[cfg(unix)]
 mod app;
+mod code_mode;
 #[cfg(unix)]
 mod coderouter;
-mod code_mode;
 mod command;
 mod docs;
 mod federation;

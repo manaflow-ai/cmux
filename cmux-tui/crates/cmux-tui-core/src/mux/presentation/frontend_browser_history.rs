@@ -121,6 +121,7 @@ mod tests {
             title: None,
             favicon_url: None,
             profile_id: None,
+            owner: None,
         };
         let browser = mux.new_frontend_browser_tab(Some(pane), record, None).unwrap().id;
         assert_eq!(mux.frontend_browser_history(browser).unwrap(), None);

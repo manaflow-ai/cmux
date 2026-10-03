@@ -11144,49 +11144,6 @@ fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .or_else(|| crate::state::home_error_code(error))
 }
 
-/// Answers a request line that did not decode into a command. The reply
-/// echoes the line's `id` whenever the line is a JSON object that carries
-/// one: replies can arrive out of order, so a client matches each reply to
-/// its request by id, and an id-less error would reach the wrong request.
-fn send_bad_request(writer: &MessageWriter, message: &str, error: &serde_json::Error) -> bool {
-    send_request_error(writer, undecodable_request_id(message), &format!("bad request: {error}"))
-}
-
-/// The `id` member of a request line that failed to decode, if the line is a JSON object.
-fn undecodable_request_id(message: &str) -> Option<Value> {
-    match serde_json::from_str::<Value>(message) {
-        Ok(Value::Object(mut object)) => object.remove("id"),
-        _ => None,
-    }
-}
-
-fn send_request_error(writer: &MessageWriter, id: Option<Value>, error: &str) -> bool {
-    send_request_error_with_delivery(writer, id, error, None)
-}
-
-fn send_request_error_with_delivery(
-    writer: &MessageWriter,
-    id: Option<Value>,
-    error: &str,
-    error_delivery: Option<ResponseErrorDelivery>,
-) -> bool {
-    send_response(
-        writer,
-        Response {
-            id,
-            ok: false,
-            data: None,
-            error: Some(error.to_string()),
-            error_code: None,
-            error_delivery,
-        },
-    )
-}
-
-fn send_response(writer: &MessageWriter, response: Response) -> bool {
-    serde_json::to_value(response).is_ok_and(|value| writer.send_control(&value).is_ok())
-}
-
 fn auth_token(message: &str) -> Option<String> {
     let value: Value = serde_json::from_str(message).ok()?;
     let object = value.as_object()?;
