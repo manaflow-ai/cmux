@@ -11,7 +11,6 @@ describe("mock transport", () => {
   const connectMock = async (
     snapshots: AcpmuxSnapshot[],
     delay: (ms: number) => Promise<void> = () => Promise.resolve(),
-    gitRoute?: "native" | "daemon",
   ) => {
     (globalThis as any).window ??= globalThis;
     return AcpmuxDirectClient.connect(
@@ -19,7 +18,6 @@ describe("mock transport", () => {
       (snapshot) => snapshots.push(snapshot),
       undefined,
       () => new MockAcpmuxSocket(delay) as unknown as WebSocket,
-      gitRoute,
     );
   };
   const until = async (done: () => boolean) => {
@@ -27,14 +25,9 @@ describe("mock transport", () => {
   };
 
   test("a file search outside a repository fails through the client with the service's code", async () => {
-    // Mock mode's in-page daemon answers file search; the native host does in the app.
-    const client = await connectMock([], undefined, "daemon");
+    const client = await connectMock([]);
     const failure = await client.fileSearch("~/Downloads", "x", 10).catch((error: unknown) => error);
-    expect(failure).toMatchObject({
-      code: "operation.failed",
-      details: { extra: { code: "not_a_repository" } },
-      message: "~/Downloads is not in a git repository",
-    });
+    expect(failure).toMatchObject({ code: "validation.invalid", message: "~/Downloads is not in a git repository" });
     expect(await client.fileSearch("~/code/acpmux", "trust", 10)).toMatchObject({
       root: "~/code/acpmux",
       results: [{ path: "src/trust.rs" }],
@@ -44,31 +37,6 @@ describe("mock transport", () => {
 
   /// Mock mode runs the real client against the in-page daemon, so a mock turn goes through the
   /// same event folding as an agent's.
-  test("in the app, a file search goes to the native host with the folder, not to acpmux", async () => {
-    const client = await connectMock([]);
-    const posted: { method: string; params: Record<string, unknown> }[] = [];
-    const saved = (globalThis as any).webkit;
-    (globalThis as any).webkit = {
-      messageHandlers: {
-        agentSession: {
-          postMessage: (message: { method: string; params: Record<string, unknown> }) => {
-            posted.push(message);
-            return Promise.resolve({ ok: true, value: { root: "/repo", search_root: "/repo", results: [] } });
-          },
-        },
-      },
-    };
-    try {
-      expect(await client.fileSearch("/repo", "app", 20)).toEqual({ root: "/repo", search_root: "/repo", results: [] });
-    } finally {
-      (globalThis as any).webkit = saved;
-      client.close();
-    }
-    expect(posted.map(({ method, params }) => ({ method, params }))).toEqual([
-      { method: "file.search", params: { cwd: "/repo", query: "app", limit: 20 } },
-    ]);
-  });
-
   test("a prompt streams a scripted turn through the real client", async () => {
     const snapshots: AcpmuxSnapshot[] = [];
     (globalThis as any).window ??= globalThis;

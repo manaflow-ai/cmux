@@ -55,21 +55,12 @@ function fuzzy(path: string, query: string): { matches: number[]; score: number 
   return { matches, score: (inName ? 0 : 1000) + gaps * 10 + path.length };
 }
 
-/// The wire reply: the projects are each a repository's top level, so `search_root` is `root`.
-export function mockFileSearch(
-  cwd: string | undefined,
-  query: unknown,
-  limit: unknown,
-): FileSearchResult & { search_root: string } {
+export function mockFileSearch(cwd: string | undefined, query: unknown, limit: unknown): FileSearchResult {
   const root = cwd ?? "~";
   // As the service: a folder outside a repository fails, naming the path.
-  if (!trees[root])
-    throw Object.assign(new Error(`${root} is not in a git repository`), {
-      code: "operation.failed",
-      details: { operation: "git.files.search", reason: `${root} is not in a git repository`, extra: { code: OUTSIDE_REPOSITORY } },
-    });
+  if (!trees[root]) throw Object.assign(new Error(`${root} is not in a git repository`), { code: OUTSIDE_REPOSITORY });
   const text = typeof query === "string" ? query.trim() : "";
-  if (!text) return { root, search_root: root, results: [] };
+  if (!text) return { root, results: [] };
   const max = Math.min(typeof limit === "number" && limit > 0 ? limit : 50, 200);
   const ranked = (trees[root] ?? [])
     .flatMap((path) => {
@@ -78,5 +69,5 @@ export function mockFileSearch(
     })
     .sort((left, right) => left.score - right.score || left.path.localeCompare(right.path));
   const results: FileMatch[] = ranked.slice(0, max).map(({ path, matches }) => ({ path, matches }));
-  return { root, search_root: root, results, truncated: ranked.length > max };
+  return { root, results, truncated: ranked.length > max };
 }

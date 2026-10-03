@@ -154,7 +154,7 @@ Registry rules:
 | State | Owner | Role |
 | --- | --- | --- |
 | items, lifecycle, answers, triage (read, seen, archived, snoozed), dedupe index, per-user push preferences | `FeedDO` (one per user) | single writer |
-| items posted while the DO is unreachable or the user has no account | the daemon's in-process local owner (`cmux-feed-core`, 9.1); `cmux-feed serve` only on a machine without a daemon | single writer of its own items until handoff |
+| items posted while the DO is unreachable or the user has no account | the local feed server (`cmux-feed serve`, the feed app's server in `local` mode, supervised by the daemon; never PTY code) | single writer of its own items until handoff |
 | attachment bytes | R2 (cloud), local store (local) | the owner writes the reference |
 | presence for push (which client is active and what it shows) | each client, sent as `presence.set` to `FeedDO`; kept in memory, never committed | client view state |
 | per-device presentation (banners, sounds, rings, dock badge) | config layer, cmux.json on that machine | owner |
@@ -171,7 +171,7 @@ The app manifest's `server` block (`{kind: native, binary, args, catalog, hosts:
 | Data | Scope | Owner | Why |
 | --- | --- | --- | --- |
 | a user's items, answers, triage, push prefs | per user | `cloud:FeedDO` (N10) | the feed is the path that wakes the user (push to the iPhone); it must not depend on a team VM that pauses when idle (D21) or a cmux server Mac that sleeps; personal accounts have no team host; every device must reach it |
-| items a daemon holds while offline or without an account | per user per machine | the daemon itself: `cmux-feed-core` runs in-process in cmux-tui, so a notification and its local `feed.post` are one journal commit (9.1, daemon owner ruling 2026-10-03). `cmux-feed serve` exists only for a machine without a daemon (a server or VM that runs no cmux-tui) | the same supervisor and catalog as server apps; the item's `home` (`local:<install>`) makes each item single-writer even though every machine runs one instance |
+| items a daemon holds while offline or without an account | per user per machine | the feed app's server in `local` mode: `cmux-feed serve` (Rust, `cmux-feed-core` reducer), supervised by the daemon like any server app, `data: durable` in the app data directory | the same supervisor and catalog as server apps; the item's `home` (`local:<install>`) makes each item single-writer even though every machine runs one instance |
 | team-scoped feed (later): requests addressed to a team or role ("any admin approves this deploy", first answer wins), shared team notices, team routing rules | per team | the feed app's server on the team host (`app:dev.cmux.feed`, hosts `team-vm`, `cmux-server`) | team data with one writer per team, exactly the server block's model |
 
 Manifest: `dev.cmux.feed` (publisher cmux, first-party, installed by default): `server {kind: native, binary: cmux-feed, args: [serve], catalog: catalog/feed-catalog.json, hosts: [local], data: durable}` for the fallback now, `team-vm` and `cmux-server` added with the team feed; `contributes.paneKinds: [{id: feed, renderer: native}]` (CmuxNextFeed), `statusItems` (menu bar count), `sidebarSections` (open requests), `commands` from the catalog, `feedKinds` renderers; `mcp: {group: feed}`.
@@ -329,16 +329,7 @@ Target:
 
 Migration (daemon journal): on first start of the new daemon, each entry of the 256-entry notification ledger becomes a local item (read when its marker was cleared), with the same dedupe key, so a step-1 cloud copy and the local item do not double. The `notification` event and `list-notifications` stay for one release as read-only projections of local items.
 
-Binding changes from the daemon owner's review (ad349, 2026-10-03; approved with these):
-- B1 Capability: the daemon half ships behind a new served capability `feed-local-owner-v1` (same tree, no pin wait since #17066). In the same daemon change the TUI sends `ack-tab-notifications` from its own dismissal policy. The app uses the explicit ack when the bundled daemon serves the capability and keeps working against an older daemon (remote or older hosts) that still clears on select-tab.
-- B2 In-process: `cmux-feed-core` runs inside the daemon; the notification and its local `feed.post` are one commit. Section 4.1 says `cmux-feed serve` serves only machines without a daemon.
-- B3 Handoff queue: at launch the app rebuilds its handoff queue from the daemon's items in `handing_off`, never from app memory. Test: kill the app between `handing_off` and `feed.adopt`, relaunch, the item reaches `moved` with the same key `adopt:<item>`.
-- B4 Migration: a ledger entry becomes READ if any `read_by` entry or the persisted ack exists, else unread. Idempotent: the dedupe key plus a journal marker.
-- B5 The moved-items cache is a non-authoritative projection, never a write target. A TUI ack on a moved item while no app holds a cloud credential is refused (`owner.unreachable`, retryable), not queued (U5).
-- B6 The actor (P8 shape) travels beside `origin`, outside the idempotency fingerprint.
-- B7 Coalescing (one pending post per terminal, latest wins) runs before the daemon commit, with a test.
-
-Open points for the daemon owner (answered by B1 to B7 where noted):
+Open points for the daemon owner:
 - TUI and iPhone clients without a cloud credential see only local items: a cloud item's ring needs the cloud stream. Proposal: the daemon keeps a read-only cache of moved items (id, context, read_at) fed by the app, so every client of that daemon still draws rings.
 - Journal cost: one local commit per notification (today the ledger write is in memory plus a persisted ack). OSC spam needs the coalescing rule from step 1 (one pending post per terminal, latest wins) inside the daemon.
 - Who stamps the actor of a read (P8 shape `{kind: user|terminal|acp_session, id, host, agent?}`): the daemon stamps local reads; FeedDO stamps cloud reads.

@@ -3,8 +3,7 @@ import CmuxNextDaemon
 import Foundation
 
 /// The agent pane's changes view reads git through the session host:
-/// `git.diff`, `git.status` and `git.files.search` with the chat session's
-/// folder as `path`.
+/// `git.diff` and `git.status` with the chat session's folder as `path`.
 /// The reads use a daemon connection of their own. The daemon answers one
 /// connection's requests in order, and a read can take seconds in a large
 /// repository, so on the control connection it would hold terminal and
@@ -84,8 +83,6 @@ extension AgentPaneGitRequest {
             ["path": .string(cwd), "scope": .string(scope.rawValue), "include_patch": .bool(includePatch)]
         case .status(let cwd):
             ["path": .string(cwd)]
-        case .filesSearch(let cwd, let query, let limit):
-            ["path": .string(cwd), "query": .string(query), "limit": .number(Double(limit))]
         }
     }
 }

@@ -166,12 +166,7 @@ test("only the newest query's answer lands, and a failed search says so", async 
   await act(async () => typeInto(field(), "ret"));
   await settle();
   await act(async () =>
-    pending[3]!.reject(
-      Object.assign(new Error("~/notes is not in a git repository"), {
-        code: "operation.failed",
-        details: { extra: { code: "not_a_repository" } },
-      }),
-    ),
+    pending[3]!.reject(Object.assign(new Error("~/notes is not in a git repository"), { code: "validation.invalid" })),
   );
   expect(note()).toBe("This folder isn't in a git repository");
 });
@@ -356,20 +351,14 @@ test("the mock daemon answers file.search for a folder, empty for no query, and 
   ).answer.bind(socket);
   expect(await answer("file.search", { path: "~/code/billing-service", query: "hook", limit: 10 })).toEqual({
     root: "~/code/billing-service",
-    search_root: "~/code/billing-service",
     results: [{ path: "stripe/webhooks.go", matches: [10, 11, 12, 13] }],
     truncated: false,
   });
   expect(await answer("file.search", { path: "~/code/billing-service", query: "" })).toEqual({
     root: "~/code/billing-service",
-    search_root: "~/code/billing-service",
     results: [],
   });
   const outside = await answer("file.search", { path: "~/Downloads", query: "x" }).catch((error: unknown) => error);
-  expect(outside).toMatchObject({
-    code: "operation.failed",
-    details: { extra: { code: "not_a_repository" } },
-    message: "~/Downloads is not in a git repository",
-  });
+  expect(outside).toMatchObject({ code: "validation.invalid", message: "~/Downloads is not in a git repository" });
   socket.close();
 });

@@ -9,30 +9,20 @@ public nonisolated enum AgentPaneGitScope: String, CaseIterable, Equatable, Send
     case branch
 }
 
-/// A read of the chat session's repository that the pane asks for:
-/// `git.diff` with `{cwd, scope, include_patch}`, `git.status` with
-/// `{cwd}`, or `file.search` with `{cwd or path, query, limit?}`. The App
-/// runs it as the session host's resource operation (`git.diff`,
-/// `git.status`, `git.files.search`) with `cwd` as its `path`; it reads the
-/// repository and changes nothing.
+/// A read of the chat session's repository that the changes view asks for:
+/// `git.diff` with `{cwd, scope, include_patch}` or `git.status` with
+/// `{cwd}`. The App runs it as the session host's resource operation of the
+/// same name with `cwd` as its `path`; it reads the repository and changes
+/// nothing.
 public nonisolated enum AgentPaneGitRequest: Equatable, Sendable {
     case diff(cwd: String, scope: AgentPaneGitScope, includePatch: Bool)
     case status(cwd: String)
-    /// Files under `cwd` whose path matches `query`, best first.
-    case filesSearch(cwd: String, query: String, limit: Int)
-
-    /// The longest query the session host takes, in characters.
-    public static let maximumQueryLength = 256
-    /// The session host's default and largest result counts.
-    public static let defaultSearchLimit = 50
-    public static let maximumSearchLimit = 200
 
     /// The session host's operation.
     public var operation: String {
         switch self {
         case .diff: "git.diff"
         case .status: "git.status"
-        case .filesSearch: "git.files.search"
         }
     }
 
@@ -40,32 +30,15 @@ public nonisolated enum AgentPaneGitRequest: Equatable, Sendable {
     /// relative path against its own directory, not the chat's.
     public var cwd: String {
         switch self {
-        case .diff(let cwd, _, _), .status(let cwd), .filesSearch(let cwd, _, _): cwd
+        case .diff(let cwd, _, _), .status(let cwd): cwd
         }
     }
 
-    /// Nil unless `method` is one of the three and `params` name an absolute
-    /// folder (and, for a diff, one of the five scopes; for a search, a
-    /// query of at most ``maximumQueryLength`` characters and a limit from 1
-    /// to ``maximumSearchLimit``). A search names its folder as `cwd` or
-    /// `path`.
+    /// Nil unless `method` is one of the two and `params` name an absolute
+    /// folder (and, for a diff, one of the five scopes).
     init?(method: String, params: [String: Any]?) {
-        let folder = params?["cwd"] ?? (method == "file.search" ? params?["path"] : nil)
-        guard let cwd = folder as? String, cwd.hasPrefix("/"), !cwd.contains("\u{0}") else { return nil }
+        guard let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), !cwd.contains("\u{0}") else { return nil }
         switch method {
-        case "file.search":
-            guard let query = params?["query"] as? String, query.count <= Self.maximumQueryLength,
-                  !query.contains("\u{0}") else { return nil }
-            let limit: Int
-            switch params?["limit"] {
-            case nil, is NSNull: limit = Self.defaultSearchLimit
-            case let number as NSNumber where CFGetTypeID(number) != CFBooleanGetTypeID():
-                guard let exact = Int(exactly: number.doubleValue),
-                      (1...Self.maximumSearchLimit).contains(exact) else { return nil }
-                limit = exact
-            default: return nil
-            }
-            self = .filesSearch(cwd: cwd, query: query, limit: limit)
         case "git.diff":
             guard let raw = params?["scope"] as? String, let scope = AgentPaneGitScope(rawValue: raw) else { return nil }
             self = .diff(cwd: cwd, scope: scope, includePatch: params?["include_patch"] as? Bool ?? false)

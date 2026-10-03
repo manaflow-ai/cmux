@@ -181,14 +181,6 @@
       "scope": "conversation:read",
       "class": "read"
     },
-    "conversation.import": {
-      "scope": "conversation:write",
-      "class": "mutation"
-    },
-    "conversation.import.commit": {
-      "scope": "conversation:write",
-      "class": "mutation"
-    },
     "conversation.settings.set": {
       "scope": "conversation:write",
       "class": "mutation"

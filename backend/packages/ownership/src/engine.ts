@@ -3,7 +3,6 @@ import { idFactory } from "./ids.ts"
 import { channelOf, Outbox, type OutboxRow } from "./outbox.ts"
 import { checkWrites, EMPTY_ROWS, readOnly, SqlRows, type RowWrite } from "./rows.ts"
 import { migrate, tablesFor, type Tables } from "./schema.ts"
-import { scrubStoredParams } from "./events-scrub.ts"
 import type { SqlStore } from "./sql.ts"
 import type {
   DecidedKey,
@@ -63,11 +62,6 @@ export interface EngineOptions {
     /** Tables whose writes never leave the owner (their keys may be secrets, for example token hashes). */
     readonly privateTables?: ReadonlyArray<string>
   }
-  /**
-   * Subscribers never replay ops from event params (they mirror owner-written data the owner
-   * attaches to each event, as FeedDO does). Allows `redact.params` without row mode.
-   */
-  readonly eventsNotReplayed?: boolean
   /** What subscribers see of the actor in events. Default: the full principal. */
   readonly eventActor?: (p: Principal) => Principal
 }
@@ -137,9 +131,7 @@ export class OwnerEngine<S, P = unknown> {
   ) {
     this.stream = options.stream
     this.now = options.now ?? Date.now
-    // Mirrors replay ops from event params, so redacting them needs row mode (events carry the
-    // effects) or an owner whose subscribers mirror owner-written data instead (eventsNotReplayed).
-    if (options.redact && !options.rowMode && !options.eventsNotReplayed) throw new Error(`redact needs rowMode or eventsNotReplayed (stream ${options.stream})`)
+    if (options.redact && !options.rowMode) throw new Error(`redact needs rowMode (stream ${options.stream})`)
     this.t = tablesFor(options.prefix)
     const t = this.t
     sql.transaction(() => {
@@ -402,11 +394,6 @@ export class OwnerEngine<S, P = unknown> {
     if (seq < 0) return false
     const n = this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM ${this.t.events} WHERE seq > ?`, seq)[0]?.n ?? 0
     return Number(n) === this.seq - seq
-  }
-
-  /** Rewrites stored `op` events with `redact.params`, once per `marker` (events-scrub.ts). */
-  scrubStoredParams(op: string, marker: string): number {
-    return scrubStoredParams(this.sql, this.t, this.options.redact?.params, op, marker)
   }
 
   /** When the oldest kept event was committed (ms), or null. */

@@ -394,22 +394,6 @@ PNGs in the lane's private scratch directory (`ui-variants/`, index.md lists eac
 8. The tail on a real path is set by loss recovery, not by the codec: one lost packet of a small frame cost 240 to 730 ms over TCP (retransmission timeout). This is the measured reason for RD4: media on datagrams with FEC, NACK within the RTT, and "resend the newest frame state" instead of waiting for the lost one; on a TCP carrier (phase 1 fallback, DO relay) the engine sends a tiny follow-up packet after each frame (a tail-loss probe) so the receiver acknowledges and the sender can fast-retransmit.
 9. Session teardown through the userspace WireGuard hub can lose the FIN (the host kept a dead session); the engine uses keepalive and a user timeout, and the question goes to lane 12.
 
-### 15.7 Phase-1 engine (P10, cmux-rd-host + cmux-rd-core, 2026-10-03)
-
-Real engine, not the prototype: `cmux.rd/1` datagrams over UDP (or one TCP stream), FEC, frame gate, delay-based congestion control, exactly-once input, session table and policy, per-launch token. Linux bench client (openh264 decode, 1080p, x264 profile baseline for that decoder), marker and text workloads, 0 lost samples in every row.
-
-| Encoder | Path | Marker G2G p50 / p95 ms | Text scroll fps | Text G2G p50 / p95 ms | Text Mbit/s |
-| --- | --- | --- | --- | --- | --- |
-| x264 ultrafast zerolatency (default) | loopback, 32-vCPU Testbox | 3.1 / 3.6 | 39.6 | 6.7 / 20.7 | 6.0 |
-| x264 ultrafast zerolatency (default) | in-VPC Freestyle, 4 vCPU host, UDP | 9.4 / 11.8 | 37 | 24 / 45 | 10.3 |
-| x264 ultrafast zerolatency (default) | same, stream carrier | 9.4 / 11.8 | 36.9 | 28 / 51 | 9.9 |
-| openh264 screen mode | in-VPC, UDP | 19.9 / 25.3 | 0.19 (collapsed: 50 recovery keyframes) | n/a | n/a |
-| openh264 camera mode | loopback | 4.5 / 4.9 | 2.3 (collapsed) | 508 / 851 | 6.2 |
-
-Known limit (accepted, coordinator 2026-10-03): software x264 costs about ONE CORE per 1080p text-scroll stream on a 4-vCPU Cloud VM (93 % of a core in-VPC). Hosts without a hardware encoder therefore cap concurrent streams by cores. Next slice: VideoToolbox for macOS hosts as another implementation of the same `H264Encoder` trait (the earlier Mac selftest measured about 5 ms per 1080p frame in hardware), then VA-API/NVENC on GPU Linux hosts.
-
-Findings that changed the engine: a frame larger than one FEC block (a big text keyframe) must go without parity instead of failing; loss must come from transport-sequence gaps, not from a per-feedback count; congestion control takes one minimum-delay sample per feedback so a keyframe burst is not read as a queue; damage settles for 1 ms so an app that draws one change in several requests is not captured torn.
-
 ## 16. Settings (all documented, defaults tested against docs)
 
 `remoteDesktop.quality` (auto | sharpText | smoothMotion | lowBandwidth), `remoteDesktop.maxFps` (auto = client display rate), `remoteDesktop.maxBitrateMbps` (auto), `remoteDesktop.codec` (auto | h264 | hevc | av1), `remoteDesktop.resolution` (matchPane | hostNative), `remoteDesktop.keyboard.mode` (auto | physical | text), `remoteDesktop.keyboard.sendSystemShortcuts` (false), `remoteDesktop.clipboard` (ownDevicesOnly | always | never), `remoteDesktop.audio` (false), `remoteDesktop.interactiveMaxRttMs` (80), `remoteDesktop.showPathBadge` (true), `remoteDesktop.relay.maxFps` (10), `remoteDesktop.relay.maxBitrateMbps` (4), `remoteDesktop.refineAfterMs` (120), host side `remoteDesktop.host.enabled` (false), `.consent` (askOthers | askAlways), `.consentTimeoutSeconds` (30), `.takeBackOnLocalInput` (true), `.virtualDisplay` (auto), `.maxSoftwareEncodeCores` (2), `.indicator.style` (border+pill | pill | menuBarOnly; DEV variants for Lawrence to pick).

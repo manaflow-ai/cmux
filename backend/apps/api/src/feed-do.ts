@@ -20,19 +20,6 @@ interface Presence {
  * Presence (which client is active) lives only in socket attachments: it is
  * client view state, used for the push decision, never committed.
  */
-/**
- * Feed events outlive items (30 days / 10,000 events), so their params never hold item text
- * (title, body, prompt, poster label): feed.post keeps only its type and kind, feed.adopt only
- * the item id. Clients mirror the owner-written items attached to each event, never ops.
- */
-const redactFeedParams = (op: string, params: unknown): unknown => {
-  const p = (params ?? {}) as { type?: unknown; kind?: unknown; item?: { id?: unknown } }
-  if (op === "feed.post") return { type: p.type, kind: p.kind, redacted: true }
-  if (op === "feed.adopt") return { item: { id: p.item?.id }, redacted: true }
-  return params
-}
-const FEED_ENGINE_OPTIONS = { eventsNotReplayed: true, redact: { params: redactFeedParams } }
-
 export class FeedDO extends OwnerDO<FeedState> {
   constructor(ctx: DurableObjectState, env: Env) {
     // Subscribers are the user's own clients; events show the acting install, never email or Stack ids.
@@ -43,15 +30,7 @@ export class FeedDO extends OwnerDO<FeedState> {
       ...(p.install ? { install: p.install } : {}),
       ...(p.install_kind ? { install_kind: p.install_kind } : {}),
       ...(p.agent ? { agent: p.agent } : {})
-    }), FEED_ENGINE_OPTIONS)
-  }
-
-  /** Events written before the text redaction existed are scrubbed once, on first bind. */
-  protected override bind(entity: string) {
-    const engine = super.bind(entity)
-    engine.scrubStoredParams("feed.post", "feed-text-v1")
-    engine.scrubStoredParams("feed.adopt", "feed-text-v1-adopt")
-    return engine
+    }))
   }
 
   protected read(state: FeedState, op: string, params: unknown, principal: Principal): ReadResult {

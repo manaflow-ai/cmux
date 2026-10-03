@@ -20,24 +20,19 @@ VM), never on a Mac: `cargo build --release`.
 
 ## Licensing and codecs
 
-- cmux-tui, including this crate, is GPL-3.0-or-later (Lawrence, 2026-10-03). The default
-  build links x264 (GPL-2.0-or-later, compatible) statically; building needs a static
-  `libx264.a` (Ubuntu's `libx264-dev` ships one). Before a build ships, add x264 and
-  openh264 with the linked versions to THIRD_PARTY_LICENSES.md. The workspace license field
-  in cmux-tui/Cargo.toml still says MIT until the license lane changes it.
-- The default encoder is x264 `ultrafast` with `zerolatency` (no B-frames, no lookahead,
-  scene-cut off, infinite GOP, ABR with a one-frame VBV that follows congestion control).
-  Measured on 1080p loopback (Testbox): text scroll 39 fps, G2G p50 9 ms, 6 Mbit/s;
-  marker G2G p50 3.5 ms. openh264 in screen mode reached 28 fps / p50 38 ms on text and
-  camera mode collapsed (2.3 fps).
-- openh264 (BSD-2-Clause, built from source) stays available with `--codec openh264`
-  (`--content screen|camera`). Patent note: Cisco's royalty-free H.264 license covers only
-  Cisco's prebuilt openh264 binary; neither a from-source openh264 nor x264 carries patent
-  coverage, so shipping H.264 encoding to users still needs a patent decision (D-RD1).
-- The encoder sits behind one trait (`encoder::H264Encoder`). Hardware encoders (VA-API,
-  NVENC, and VideoToolbox on macOS hosts) are later implementations of the same trait.
-- `--profile high` (default) is for the macOS pane's VideoToolbox decoder; the Linux bench
-  decoder (openh264) needs `--profile baseline` on the host (scripts/loopback-bench.sh sets it).
+- The crate is MIT, like the rest of cmux-tui. The default build contains only MIT and
+  BSD code: the H.264 encoder is openh264 (BSD-2-Clause), built from source.
+- openh264 patent note: Cisco's royalty-free H.264 patent license covers only Cisco's
+  prebuilt openh264 binary, downloaded separately to the user's machine. A build from
+  source (this crate's default) does not carry that coverage. Shipping H.264 encoding to
+  users needs either the Cisco binary path or a patent decision (remote-desktop.md D-RD1).
+- x264 (GPL-2.0-or-later) is available behind the `x264` cargo feature, which is OFF by
+  default. A binary built with it is a GPL binary. It is never part of shipped builds
+  unless Lawrence decides on a GPL build of this binary. It is never linked into the MIT
+  `cmux` binary: `cmux-rd` is a separate executable.
+- The encoder sits behind one trait (`encoder::H264Encoder`), so the codec is a build
+  feature and a `--codec` flag, not a code fork. Hardware encoders (VA-API, NVENC) are later
+  implementations of the same trait.
 
 ## Security (phase 1)
 

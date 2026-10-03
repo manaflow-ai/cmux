@@ -20,7 +20,7 @@ export interface Attachment {
 }
 
 /** Engine options a subclass may set: row mode and redaction (row-backed domains). */
-export type OwnerEngineOptions = Pick<EngineOptions, "rowMode" | "redact" | "eventsNotReplayed">
+export type OwnerEngineOptions = Pick<EngineOptions, "rowMode" | "redact">
 
 export interface SubmitResult {
   readonly frames: ReadonlyArray<OwnerFrame>
