@@ -38,6 +38,21 @@ public enum SettingsPresentation: String, Sendable, CaseIterable, TunableChoice 
 }
 
 /// Debug Settings declarations of the Settings window.
+/// Which Settings page a tab shows: the native views, or the web page served
+/// from the app bundle (plans/cmux-next/settings-react.md slice c; the
+/// default flips to web after the parity test, slice e).
+public enum SettingsSurface: String, Sendable, CaseIterable, TunableChoice {
+    case native
+    case web
+
+    public var tunableTitle: String {
+        switch self {
+        case .native: "Native views"
+        case .web: "Web page"
+        }
+    }
+}
+
 extension SettingsWindowLayout {
     public static let tunableSection = TunableSection(id: "settingsWindow", title: "Settings Window", symbol: "gearshape", order: 46)
 
@@ -50,5 +65,10 @@ extension SettingsWindowLayout {
         help: "Settings and Debug Settings open as a tab in the focused pane or as a separate window.",
         default: .pane, code: "SettingsWindowLayout.presentation")
 
-    public static var tunables: [TunableDescriptor] { [tunable.descriptor, presentation.descriptor] }
+    public static let surface = Tunable<SettingsSurface>.choice(
+        "settings.surface", tunableSection, "Page",
+        help: "The Settings tab shows the native views or the web page. New tabs follow it.",
+        default: .native, code: "SettingsWindowLayout.surface")
+
+    public static var tunables: [TunableDescriptor] { [tunable.descriptor, presentation.descriptor, surface.descriptor] }
 }

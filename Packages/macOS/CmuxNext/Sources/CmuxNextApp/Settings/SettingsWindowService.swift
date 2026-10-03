@@ -20,6 +20,12 @@ final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
     unowned let services: AppServices
     private var controller: SettingsWindowController?
     private var sharedModel: SettingsWindowModel?
+    /// Open web Settings pages, by tab key.
+    private var webPages: [String: WeakWebPage] = [:]
+    /// The route the next web page opens on (a show before the tab exists).
+    private var pendingWebRoute: String?
+
+    private struct WeakWebPage { weak var view: SettingsWebPageView? }
 
     init(services: AppServices) {
         self.services = services
@@ -47,6 +53,16 @@ final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
         }
         let model = sharedModel ?? SettingsWindowModel(settings: settings, registry: services.registry, host: self)
         sharedModel = model
+        if SettingsWindowLayout.presentation.value == .pane, SettingsWindowLayout.surface.value == .web,
+           let window = services.windows.active {
+            let pages = webPages.values.compactMap(\.view)
+            if pages.isEmpty {
+                pendingWebRoute = SettingsWebPageView.route(section: section?.rawValue, key: setting)
+            } else {
+                pages.forEach { $0.open(section: section?.rawValue, key: setting) }
+            }
+            if services.pages.show(.settings, in: window, focus: focus) != nil { return }
+        }
         if SettingsWindowLayout.presentation.value == .pane, let window = services.windows.active {
             if let anchor {
                 model.open(anchor)
@@ -91,6 +107,10 @@ final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
     var symbol: String { "gearshape" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
+        if SettingsWindowLayout.surface.value == .web, let page = makeWebPage(scope: window?.themeScope ?? .app) {
+            webPages[key] = WeakWebPage(view: page)
+            return page
+        }
         let model = sharedModel ?? services.settings.map { SettingsWindowModel(settings: $0, registry: services.registry, host: self) }
         sharedModel = model
         guard let model else { return NSView() }
@@ -98,7 +118,43 @@ final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
     }
 
     func tabClosed(_ key: String) {
+        webPages[key] = nil
         dropModelWhenUnused()
+    }
+
+    /// The web Settings page over the interim controller backend (the
+    /// daemon relay replaces it in slice b of settings-react.md).
+    private func makeWebPage(scope: ThemeScope) -> SettingsWebPageView? {
+        guard let settings = services.settings else { return nil }
+        let host = SettingsWebPageView.Host(
+            themeNames: { [weak self] in self?.themeNames ?? [] },
+            openNativeSection: { [weak self] section in
+                guard let self else { return }
+                try? self.showNativeWindow(section: SettingsSection(rawValue: section))
+            },
+            openConfigFile: { [weak self] in _ = self?.services.registry.perform("palette.openCmuxSettingsFile") }
+        )
+        let route = pendingWebRoute
+        pendingWebRoute = nil
+        return SettingsWebPageView(backend: ControllerSettingsBackend(settings: settings), host: host, scope: scope, initialRoute: route)
+    }
+
+    /// The native Settings window on `section`, for the sections the web
+    /// page does not render yet.
+    private func showNativeWindow(section: SettingsSection?) throws {
+        guard let settings = services.settings else { throw ActionFailure(message: RefusalStrings.settingsNotLoaded) }
+        let model = sharedModel ?? SettingsWindowModel(settings: settings, registry: services.registry, host: self)
+        sharedModel = model
+        if controller == nil {
+            let controller = SettingsWindowController(model: model)
+            controller.onClose = { [weak self] in
+                self?.controller = nil
+                self?.dropModelWhenUnused()
+            }
+            self.controller = controller
+        }
+        controller?.setThemeScope(services.windows.active?.themeScope ?? .app)
+        controller?.present(section: section, anchor: nil)
     }
 
     // MARK: SettingsWindowHost
