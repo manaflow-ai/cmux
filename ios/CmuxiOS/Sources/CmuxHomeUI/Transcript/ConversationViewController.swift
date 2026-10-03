@@ -36,7 +36,7 @@ final class ConversationViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = HomePalette.background
+        view.backgroundColor = CmuxiOSDesign.HomePalette.background
         navigationItem.largeTitleDisplayMode = .never
 
         let store = self.store

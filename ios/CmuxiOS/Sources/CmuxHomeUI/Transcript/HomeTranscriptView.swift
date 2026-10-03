@@ -35,7 +35,7 @@ final class HomeTranscriptView: UIView {
                                     deadline: HomeRunLoopDeadline())
         super.init(frame: .zero)
         controller.reduceMotion = UIAccessibility.isReduceMotionEnabled
-        backgroundColor = HomePalette.background
+        backgroundColor = CmuxiOSDesign.HomePalette.background
         addSubview(scroll)
         addSubview(field)
         addLayoutGuide(fieldGuide)
