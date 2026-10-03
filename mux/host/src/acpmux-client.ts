@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { AcpmuxEvent, SessionSummary } from "../../packages/brain/src/core/acp.ts";
 import { LineSocket } from "./line-socket.ts";
 
 // JSON-RPC 2.0 client for the acpmux daemon (newline JSON on its Unix
@@ -17,31 +18,8 @@ export interface Notification {
   params: Record<string, unknown>;
 }
 
-export type SessionStatus = "idle" | "ready" | "running" | "waiting" | "disconnected" | "closed";
-
-export interface SessionSummary {
-  sessionId: string;
-  name: string;
-  harness: string;
-  cwd: string;
-  status: SessionStatus;
-  pendingPermissions: number;
-  stateSeq: number;
-  lastSeq?: number;
-  turnCount?: number;
-  preview: string | null;
-  lastPrompt?: string | null;
-  tags: Record<string, string>;
-}
-
-export interface AcpmuxEvent {
-  sessionId?: string;
-  seq: number;
-  at?: number;
-  dir: string;
-  kind: string;
-  msg: Record<string, unknown>;
-}
+// The session and event shapes live in the brain core (packages/brain/src/core/acp.ts).
+export type { AcpmuxEvent, SessionStatus, SessionSummary } from "../../packages/brain/src/core/acp.ts";
 
 /** ACP stdio MCP server entry for session/new. */
 export interface McpServer {

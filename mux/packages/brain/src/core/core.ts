@@ -1,0 +1,715 @@
+import { type AcpmuxEvent, lastReply, type SessionStatus, type SessionSummary, TurnFolder } from "./acp.ts";
+import { AGENT_MUX, type Change, type Message, type Op, type Summary, type WorkStatus } from "./conversation.ts";
+import {
+  AGENT_GAP_RETRY_MS,
+  AGENT_GAP_TIMER_SLACK_MS,
+  childFinishedPrompt,
+  childPermissionPrompt,
+  excerpt,
+  inboxPrompt,
+  MUX_SESSION_NAME,
+  PAGE,
+  PARENT_TAG,
+  turnEnded,
+  turnKey,
+  wakes,
+  workPart,
+  workStatus,
+} from "./rules.ts";
+import { type ChildRecord, type HostStateData, isAnswered, loadState, markAnswered, plainState } from "./state.ts";
+
+// The sans-I/O brain host (plans/cmux-next/chief-mac.md section 3):
+// `core.step(input, nowMs) -> effects`. The single behavior source for the
+// Chief: mux/host is a thin I/O shell around it, the cloud MuxDO will be
+// another, and the Rust port (cmux-chief core.rs) must pass the corpus that
+// conformance/generate.ts writes from it.
+//
+// The shell does every read, write and timer the effects name and reports
+// results back as inputs. When a step changed the durable state, its first
+// effect is `persist`: the shell writes it before it runs the other effects
+// (write-ahead), so a crash only replays keyed effects that an owner dedupes.
+// Wire shapes are snake_case `kind` tags; the state is host.json (camelCase).
+
+/** The timer key of the one-shot outbox retry. */
+export const OUTBOX_TIMER = "outbox";
+
+export type Port = "daemon" | "acpmux";
+
+/** What the shell reports to the core. */
+export type Input =
+  /** The daemon port is up: the default conversation exists and writes are stamped agent_mux. */
+  | { kind: "daemon_connected"; conversation: Summary }
+  | { kind: "conversations_listed"; conversations: Summary[] }
+  | { kind: "snapshot"; conversation: Summary; messages: Message[] }
+  | { kind: "history"; conversation: string; messages: Message[] }
+  | { kind: "conversation_changed"; conversation: string; change: Change }
+  /** The owner answered a `conversation_op`: `reason` is set on a reject. */
+  | { kind: "op_result"; idempotency_key: string; reason?: string; change?: Change }
+  /**
+   * The acpmux port is up: the mux session exists and `events` is the attach
+   * replay. `cursor_reset`: acpmux refused the saved cursor (`cursor_future`,
+   * a re-imported session), so the replay starts at 0.
+   */
+  | {
+      kind: "acpmux_connected";
+      session_id: string;
+      sessions: SessionSummary[];
+      events: AcpmuxEvent[];
+      cursor_reset?: boolean;
+    }
+  | { kind: "acpmux_event"; event: AcpmuxEvent }
+  | { kind: "session_changed"; session: SessionSummary }
+  | { kind: "permission_pending"; session_id: string; permission_id: string; request: Record<string, unknown> }
+  /** The answer to `fetch_sessions` (an empty list when the request failed). */
+  | { kind: "sessions"; sessions: SessionSummary[] }
+  /** The answer to `fetch_child_events` (an empty list when the request failed). */
+  | { kind: "child_events"; session_id: string; events: AcpmuxEvent[] }
+  /** A `prompt` request returned (accepted or failed; a failed one is sent again on the next acpmux connect). */
+  | { kind: "prompt_settled"; prompt_id: string }
+  | { kind: "timer"; key: string }
+  | { kind: "disconnected"; port: Port };
+
+/** What the core asks the shell to do, in order. */
+export type Effect =
+  /** Write the durable state (always the first effect of its step). */
+  | { kind: "persist"; state: HostStateData }
+  /** Send as agent_mux; answer with `op_result`. */
+  | { kind: "conversation_op"; conversation: string; idempotency_key: string; op: Op }
+  | { kind: "typing"; conversation: string; on: boolean }
+  /** Prompt the mux session (delivery "turn", promptId = prompt_id); answer with `prompt_settled`. */
+  | { kind: "prompt"; prompt_id: string; text: string }
+  | { kind: "list_conversations" }
+  | { kind: "fetch_snapshot"; conversation: string; tail: number }
+  | { kind: "fetch_history"; conversation: string; before_seq: number; limit: number }
+  | { kind: "fetch_sessions" }
+  | { kind: "fetch_child_events"; session_id: string; after: number }
+  /** Close the port's connection; the shell reconnects with backoff. */
+  | { kind: "reconnect"; port: Port }
+  | { kind: "arm_timer"; key: string; at: number }
+  /** Both ports are up and a catch-up ran. */
+  | { kind: "ready" }
+  | { kind: "log"; line: string };
+
+/**
+ * Inbox work, one item at a time. `catch_up` and `ready` continue a running
+ * catch-up: they need only the daemon (a catch-up that started goes on when
+ * acpmux drops, as the old host's did; its prompts stay outstanding).
+ */
+type InboxItem =
+  | { type: "live"; message: Message }
+  | { type: "catch_up_all" }
+  | { type: "catch_up"; conversation: string }
+  | { type: "ready" };
+
+type Task =
+  | { type: "idle" }
+  | { type: "listing" }
+  /** A live message in a conversation the core has no summary for: its tail-1 snapshot. */
+  | { type: "summary"; message: Message }
+  | { type: "snapshot"; conversation: string }
+  | { type: "history"; summary: Summary; from: number; pending: Message[] }
+  | { type: "handling"; summary: Summary; queue: Message[]; waiting?: { promptId: string; seq: number } };
+
+const IDLE: Task = { type: "idle" };
+
+/** The brain host's core. `state` is durable; the rest is rebuilt on connect. */
+export class Core {
+  state: HostStateData;
+  private now = 0;
+  private dirty = false;
+  private effects: Effect[] = [];
+  private daemonUp = false;
+  private acpmuxUp = false;
+  private muxSession?: string;
+  private readonly summaries = new Map<string, Summary>();
+  /** Highest message seq the inbox handled per conversation (>= the agent_mux read cursor). */
+  private readonly handled = new Map<string, number>();
+  /** Message id -> author, for the reply-to-mux wake rule. */
+  private readonly authors = new Map<string, string>();
+  private folder = new TurnFolder();
+  /** Conversation where the mux is typing (its running turn's). */
+  private typingIn?: string;
+  private readonly sessionStatus = new Map<string, SessionStatus>();
+  private readonly sessionInfo = new Map<string, SessionSummary>();
+  /** Per child: the event seq when its previous turn ended (its next turn's events come after it). */
+  private readonly childTurnFloor = new Map<string, number>();
+  /** Children whose turn ended, waiting for `child_events`. */
+  private readonly pendingChildren = new Map<string, SessionSummary>();
+  /** Permission requests from sessions not known as children yet, waiting for `sessions`. */
+  private pendingPermissions: { sessionId: string; permissionId: string; request: Record<string, unknown> }[] = [];
+  private inbox: InboxItem[] = [];
+  private task: Task = IDLE;
+  /** The outbox head's idempotency key while the owner has not answered it. */
+  private outboxInflight?: string;
+
+  constructor(state: Partial<HostStateData> = {}) {
+    this.state = plainState(loadState(state));
+  }
+
+  step(input: Input, nowMs: number): Effect[] {
+    this.now = nowMs;
+    switch (input.kind) {
+      case "daemon_connected":
+        this.daemonConnected(input.conversation);
+        break;
+      case "conversations_listed":
+        this.listed(input.conversations);
+        break;
+      case "snapshot":
+        this.snapshot(input.conversation, input.messages);
+        break;
+      case "history":
+        this.history(input.conversation, input.messages);
+        break;
+      case "conversation_changed":
+        this.changed(input.conversation, input.change);
+        break;
+      case "op_result":
+        this.opResult(input.idempotency_key, input.reason, input.change);
+        break;
+      case "acpmux_connected":
+        this.acpmuxConnected(input.session_id, input.sessions, input.events, input.cursor_reset === true);
+        break;
+      case "acpmux_event":
+        if (input.event.sessionId !== undefined && input.event.sessionId === this.muxSession)
+          this.applyMuxEvent(input.event);
+        break;
+      case "session_changed":
+        this.sessionChanged(input.session);
+        break;
+      case "permission_pending":
+        this.permission(input.session_id, input.permission_id, input.request ?? {});
+        break;
+      case "sessions":
+        this.sessions(input.sessions);
+        break;
+      case "child_events": {
+        const session = this.pendingChildren.get(input.session_id);
+        if (session) {
+          this.pendingChildren.delete(input.session_id);
+          this.finishChild(session, lastReply(input.events));
+          this.flushOutbox();
+        }
+        break;
+      }
+      case "prompt_settled":
+        this.accept(input.prompt_id);
+        break;
+      case "timer":
+        if (input.key === OUTBOX_TIMER) this.flushOutbox();
+        break;
+      case "disconnected":
+        this.disconnected(input.port);
+        break;
+    }
+    this.drive();
+    const effects = this.effects;
+    this.effects = [];
+    if (this.dirty) {
+      this.dirty = false;
+      effects.unshift({ kind: "persist", state: plainState(this.state) });
+    }
+    return effects;
+  }
+
+  private emit(effect: Effect): void {
+    this.effects.push(effect);
+  }
+
+  private log(line: string): void {
+    this.emit({ kind: "log", line });
+  }
+
+  // MARK: daemon
+
+  private daemonConnected(conversation: Summary): void {
+    this.summaries.clear();
+    if (this.state.defaultConversation !== conversation.id) {
+      this.state.defaultConversation = conversation.id;
+      this.dirty = true;
+    }
+    this.remember(conversation);
+    this.daemonUp = true;
+    this.flushOutbox();
+    if (this.acpmuxUp) this.inbox.push({ type: "catch_up_all" });
+  }
+
+  private remember(summary: Summary): void {
+    this.summaries.set(summary.id, summary);
+    if (!this.handled.has(summary.id)) this.handled.set(summary.id, summary.read_cursors[AGENT_MUX] ?? 0);
+    if (summary.last_message) this.authors.set(summary.last_message.id, summary.last_message.author);
+  }
+
+  private changed(conversation: string, change: Change): void {
+    if (change.kind === "conversation") {
+      this.remember(change.conversation);
+    } else if (change.kind === "read-cursor") {
+      const summary = this.summaries.get(conversation);
+      if (summary)
+        summary.read_cursors[change.participant] = Math.max(summary.read_cursors[change.participant] ?? 0, change.seq);
+    } else if (change.kind === "message") {
+      this.authors.set(change.message.id, change.message.author);
+      if (this.daemonUp && this.acpmuxUp) this.inbox.push({ type: "live", message: change.message });
+    }
+  }
+
+  private disconnected(port: Port): void {
+    if (port === "daemon") {
+      this.daemonUp = false;
+      this.outboxInflight = undefined;
+      this.inbox = [];
+      // Every daemon read fails with the connection; a prompt-only handling task goes on.
+      if (this.task.type !== "handling") this.task = IDLE;
+      return;
+    }
+    this.acpmuxUp = false;
+    this.inbox = this.inbox.filter((item) => item.type === "catch_up" || item.type === "ready");
+    this.pendingPermissions = [];
+    if (this.typingIn) this.setTyping(this.typingIn, false);
+    // The old host settled every prompt waiter when acpmux closed: the inbox moves on and
+    // the prompt stays outstanding, resent on the next acpmux connect.
+    if (this.task.type === "handling" && this.task.waiting) this.accept(this.task.waiting.promptId);
+    // A child whose events fetch dies with the connection finishes with no reply text.
+    const children = [...this.pendingChildren.values()].sort((a, b) => compare(a.sessionId, b.sessionId));
+    this.pendingChildren.clear();
+    for (const session of children) this.finishChild(session, "");
+    if (children.length > 0) this.flushOutbox();
+  }
+
+  // MARK: inbox
+
+  /** Starts inbox work, one item at a time, while the ports it needs are up. */
+  private drive(): void {
+    while (this.task.type === "idle") {
+      const item = this.inbox[0];
+      if (!item) return;
+      const continuation = item.type === "catch_up" || item.type === "ready";
+      if (!this.daemonUp || (!continuation && !this.acpmuxUp)) return;
+      this.inbox.shift();
+      switch (item.type) {
+        case "live":
+          this.live(item.message);
+          break;
+        case "catch_up_all":
+          this.emit({ kind: "list_conversations" });
+          this.task = { type: "listing" };
+          break;
+        case "catch_up":
+          this.catchUp(item.conversation);
+          break;
+        case "ready":
+          this.emit({ kind: "ready" });
+          break;
+      }
+    }
+  }
+
+  private catchUp(conversation: string): void {
+    this.emit({ kind: "fetch_snapshot", conversation, tail: PAGE });
+    this.task = { type: "snapshot", conversation };
+  }
+
+  /** A live message: handle it in seq order, or catch the conversation up when the core missed some. */
+  private live(message: Message): void {
+    const summary = this.summaries.get(message.conversation);
+    if (!summary) {
+      this.emit({ kind: "fetch_snapshot", conversation: message.conversation, tail: 1 });
+      this.task = { type: "summary", message };
+      return;
+    }
+    this.liveWith(summary, message);
+  }
+
+  private liveWith(summary: Summary, message: Message): void {
+    if (!summary.participants.some((p) => p.id === AGENT_MUX)) return;
+    const handled = this.handled.get(summary.id) ?? 0;
+    if (message.seq <= handled) return;
+    if (message.seq > handled + 1) return this.catchUp(summary.id);
+    summary.last_seq = Math.max(summary.last_seq, message.seq);
+    this.task = { type: "handling", summary, queue: [message] };
+    this.process();
+  }
+
+  private listed(conversations: Summary[]): void {
+    if (this.task.type !== "listing") return;
+    const front: InboxItem[] = [];
+    for (const summary of conversations) {
+      this.remember(summary);
+      if (summary.participants.some((p) => p.id === AGENT_MUX))
+        front.push({ type: "catch_up", conversation: summary.id });
+    }
+    front.push({ type: "ready" });
+    this.inbox.unshift(...front);
+    this.task = IDLE;
+  }
+
+  private snapshot(summary: Summary, messages: Message[]): void {
+    const task = this.task;
+    if (task.type === "summary") {
+      if (task.message.conversation !== summary.id) return;
+      this.task = IDLE;
+      this.remember(summary);
+      this.liveWith(summary, task.message);
+      return;
+    }
+    if (task.type !== "snapshot" || task.conversation !== summary.id) return;
+    this.summaries.set(summary.id, summary);
+    const from = Math.max(this.handled.get(summary.id) ?? 0, summary.read_cursors[AGENT_MUX] ?? 0);
+    this.handled.set(summary.id, from);
+    for (const message of messages) this.authors.set(message.id, message.author);
+    this.page(
+      summary,
+      from,
+      messages.filter((m) => m.seq > from),
+    );
+  }
+
+  private history(conversation: string, older: Message[]): void {
+    const task = this.task;
+    if (task.type !== "history" || task.summary.id !== conversation) return;
+    if (older.length === 0) return this.handleAll(task.summary, task.pending);
+    this.page(task.summary, task.from, [...older.filter((m) => m.seq > task.from), ...task.pending]);
+  }
+
+  /** Pages back until the first missing message is in hand, then handles. */
+  private page(summary: Summary, from: number, pending: Message[]): void {
+    const first = pending[0];
+    if (first && first.seq > from + 1) {
+      this.emit({ kind: "fetch_history", conversation: summary.id, before_seq: first.seq, limit: PAGE });
+      this.task = { type: "history", summary, from, pending };
+      return;
+    }
+    this.handleAll(summary, pending);
+  }
+
+  private handleAll(summary: Summary, pending: Message[]): void {
+    this.task = { type: "handling", summary, queue: [...pending] };
+    this.process();
+  }
+
+  /** Handles queued messages in order; stops while a prompt waits for acpmux. */
+  private process(): void {
+    for (;;) {
+      const task = this.task;
+      if (task.type !== "handling" || task.waiting) return;
+      const message = task.queue.shift();
+      if (!message) {
+        this.task = IDLE;
+        return;
+      }
+      const summary = task.summary;
+      this.authors.set(message.id, message.author);
+      if (message.seq <= (this.handled.get(summary.id) ?? 0)) continue;
+      const wake =
+        !isAnswered(this.state, message.id) &&
+        wakes(summary, message, (id) => this.authors.get(id) === AGENT_MUX);
+      if (wake) {
+        this.state.prompts[message.id] = { conversation: summary.id, text: inboxPrompt(summary, message), seq: message.seq };
+        this.dirty = true;
+        task.waiting = { promptId: message.id, seq: message.seq };
+        // Without a session the prompt stays outstanding (sent on the next acpmux connect).
+        if (!this.sendPrompt(message.id)) this.accept(message.id);
+        return;
+      }
+      this.finishMessage(summary, message.seq);
+    }
+  }
+
+  /** The message is handled: agent_mux's read cursor moves past it. */
+  private finishMessage(summary: Summary, seq: number): void {
+    this.handled.set(summary.id, seq);
+    if (!this.daemonUp || seq <= (summary.read_cursors[AGENT_MUX] ?? 0)) return;
+    this.emit({
+      kind: "conversation_op",
+      conversation: summary.id,
+      idempotency_key: `cursor:${AGENT_MUX}:${seq}`,
+      op: { kind: "read_cursor.set", seq },
+    });
+  }
+
+  /** Emits the prompt for an outstanding entry; false without a session. */
+  private sendPrompt(promptId: string): boolean {
+    const entry = this.state.prompts[promptId];
+    if (!entry || !this.acpmuxUp || !this.muxSession) return false;
+    this.emit({ kind: "prompt", prompt_id: promptId, text: entry.text });
+    return true;
+  }
+
+  /** acpmux holds the prompt (or answered its request): the inbox moves on. */
+  private accept(promptId: string): void {
+    const task = this.task;
+    if (task.type !== "handling" || task.waiting?.promptId !== promptId) return;
+    const { seq } = task.waiting;
+    task.waiting = undefined;
+    this.finishMessage(task.summary, seq);
+    this.process();
+  }
+
+  // MARK: acpmux
+
+  private acpmuxConnected(sessionId: string, sessions: SessionSummary[], events: AcpmuxEvent[], cursorReset: boolean): void {
+    if (this.state.muxSessionId !== sessionId) {
+      this.state.muxSessionId = sessionId;
+      this.state.acpmuxSeq = 0;
+      this.dirty = true;
+    } else if (cursorReset) {
+      // The log is shorter than the saved cursor: replay it all; the owner dedupes replies.
+      this.state.acpmuxSeq = 0;
+    }
+    this.muxSession = sessionId;
+    for (const session of sessions) {
+      this.sessionStatus.set(session.sessionId, session.status);
+      this.sessionInfo.set(session.sessionId, session);
+    }
+    this.folder = new TurnFolder(this.state.acpmuxSeq);
+    for (const event of events) this.applyMuxEvent(event);
+    this.acpmuxUp = true;
+    // Prompts acpmux may have dropped with an old connection; it dedupes the rest by promptId.
+    for (const promptId of Object.keys(this.state.prompts).sort(compare)) this.sendPrompt(promptId);
+    this.reconcileChildren();
+    if (this.daemonUp) this.inbox.push({ type: "catch_up_all" });
+  }
+
+  private applyMuxEvent(event: AcpmuxEvent): void {
+    for (const output of this.folder.apply(event)) {
+      if (output.type === "accepted") {
+        this.accept(output.promptId);
+        continue;
+      }
+      const conversation = this.conversationFor(output.turn.promptId);
+      if (output.type === "started") {
+        if (conversation) this.setTyping(conversation, true);
+        continue;
+      }
+      const text = output.turn.text.trim() || (output.error ? `(turn failed: ${output.error})` : "");
+      if (conversation && text) {
+        const key = turnKey(this.muxSession ?? "", output.turn.turnSeq);
+        this.state.outbox.push({
+          conversation,
+          idempotency_key: key,
+          op: { kind: "message.send", client_msg_id: key, parts: [{ type: "text", text }] },
+        });
+      }
+      if (output.turn.promptId) markAnswered(this.state, output.turn.promptId);
+      this.state.acpmuxSeq = Math.max(this.state.acpmuxSeq, output.seq);
+      this.dirty = true;
+      this.flushOutbox();
+      if (conversation) this.setTyping(conversation, false);
+    }
+  }
+
+  private conversationFor(promptId: string | undefined): string | undefined {
+    return (promptId && this.state.prompts[promptId]?.conversation) || this.state.defaultConversation;
+  }
+
+  private setTyping(conversation: string, on: boolean): void {
+    this.typingIn = on ? conversation : undefined;
+    if (this.daemonUp) this.emit({ kind: "typing", conversation, on });
+  }
+
+  // MARK: outbox
+
+  /** Sends the outbox head; the next entry waits for its result. */
+  private flushOutbox(): void {
+    while (this.daemonUp && this.outboxInflight === undefined) {
+      const entry = this.state.outbox[0];
+      if (!entry) return;
+      if (entry.notBefore && this.now < entry.notBefore) return; // its one-shot timer flushes it
+      let op: Op | undefined = entry.op;
+      if (entry.child && entry.op.kind === "message.edit") {
+        const messageId = this.state.children[entry.child]?.messageId;
+        op = messageId ? { ...entry.op, message_id: messageId } : undefined;
+      }
+      if (!op) {
+        // An edit of a card whose send was never confirmed: nothing to edit.
+        this.state.outbox.shift();
+        this.dirty = true;
+        continue;
+      }
+      this.outboxInflight = entry.idempotency_key;
+      this.emit({ kind: "conversation_op", conversation: entry.conversation, idempotency_key: entry.idempotency_key, op });
+    }
+  }
+
+  private opResult(key: string, reason: string | undefined, change: Change | undefined): void {
+    if (this.outboxInflight !== key) {
+      // A read cursor op: the owner's change event updates the summary.
+      if (reason !== undefined && !reason.includes("cursor_regression")) this.log(`op ${key} rejected: ${reason}`);
+      return;
+    }
+    this.outboxInflight = undefined;
+    const head = this.state.outbox[0];
+    if (!head) return;
+    if (reason === undefined) {
+      if (head.child && head.op.kind === "message.send" && change?.kind === "message") {
+        const child = this.state.children[head.child];
+        if (child) child.messageId = change.message.id;
+      }
+    } else if (reason.includes("actor_mismatch")) {
+      // The binding was lost (the app replaced the token): reconnect, which
+      // binds again with the current token, and keep the entry.
+      this.log(`op ${key}: binding lost; reconnecting to bind again`);
+      this.emit({ kind: "reconnect", port: "daemon" });
+      return;
+    } else if (reason.includes("agent_rate") && !head.rateRetried) {
+      // The owner's agent turn budget: a reply sent inside the minimum gap is
+      // retried once, after the gap; anything else (agent_budget too) is dropped.
+      head.rateRetried = true;
+      head.notBefore = this.now + AGENT_GAP_RETRY_MS;
+      this.dirty = true;
+      this.log(`op ${key} inside the agent gap; retrying once after it`);
+      this.emit({ kind: "arm_timer", key: OUTBOX_TIMER, at: head.notBefore + AGENT_GAP_TIMER_SLACK_MS });
+      return;
+    } else {
+      this.log(`dropping rejected op ${key}: ${reason}`);
+    }
+    this.state.outbox.shift();
+    this.dirty = true;
+    this.flushOutbox();
+  }
+
+  // MARK: children (sessions tagged mux.parent=mux)
+
+  private isChild(session: SessionSummary): boolean {
+    return session.tags?.[PARENT_TAG] === MUX_SESSION_NAME && session.sessionId !== this.muxSession;
+  }
+
+  private sessionChanged(session: SessionSummary): void {
+    const before = this.sessionStatus.get(session.sessionId);
+    this.sessionStatus.set(session.sessionId, session.status);
+    this.sessionInfo.set(session.sessionId, session);
+    if (!this.isChild(session)) return;
+    const child = this.child(session);
+    if (turnEnded(before, session.status)) this.childFinished(session);
+    else if (session.status === "running" && child.status !== "running")
+      this.editWork(session.sessionId, session.name, "running", session.preview);
+    else if ((session.status === "closed" || session.status === "disconnected") && child.status === "running")
+      this.editWork(session.sessionId, session.name, "failed", session.preview);
+    this.flushOutbox();
+  }
+
+  /** The child's record, registered with a work card in the conversation the mux is answering when new. */
+  private child(session: SessionSummary): ChildRecord {
+    const existing = this.state.children[session.sessionId];
+    if (existing) return { ...existing };
+    const conversation = this.conversationFor(this.folder.running?.promptId) ?? "";
+    const child: ChildRecord = { conversation, name: session.name, status: "running", edits: 0 };
+    this.state.children[session.sessionId] = child;
+    if (conversation) {
+      const key = `work:${session.sessionId}`;
+      this.state.outbox.push({
+        conversation,
+        idempotency_key: key,
+        child: session.sessionId,
+        op: { kind: "message.send", client_msg_id: key, parts: [workPart(session.name, "running", session.lastPrompt)] },
+      });
+    }
+    this.dirty = true;
+    this.log(`child ${session.name} started (${session.sessionId})`);
+    return { ...child };
+  }
+
+  private editWork(sessionId: string, name: string, status: WorkStatus, preview?: string | null): void {
+    const child = this.state.children[sessionId];
+    if (!child) return;
+    child.status = status;
+    child.edits += 1;
+    if (child.conversation)
+      this.state.outbox.push({
+        conversation: child.conversation,
+        idempotency_key: `work:${sessionId}:${child.edits}`,
+        child: sessionId,
+        op: { kind: "message.edit", message_id: "", parts: [workPart(name, status, preview)] },
+      });
+    this.dirty = true;
+  }
+
+  private childFinished(session: SessionSummary): void {
+    if (this.acpmuxUp) {
+      const after = this.childTurnFloor.get(session.sessionId) ?? 0;
+      this.emit({ kind: "fetch_child_events", session_id: session.sessionId, after });
+      this.pendingChildren.set(session.sessionId, session);
+    } else {
+      this.finishChild(session, "");
+    }
+  }
+
+  private finishChild(session: SessionSummary, reply: string): void {
+    this.childTurnFloor.set(session.sessionId, session.lastSeq ?? 0);
+    this.editWork(session.sessionId, session.name, workStatus(session.status), excerpt(reply, 200) || session.preview);
+    const promptId = `child:${session.sessionId}:${session.turnCount ?? session.stateSeq}`;
+    this.state.prompts[promptId] = {
+      conversation: this.childConversation(session.sessionId),
+      text: childFinishedPrompt(session, reply),
+    };
+    this.dirty = true;
+    this.log(`child ${session.name} finished; telling the mux`);
+    this.sendPrompt(promptId);
+  }
+
+  private childConversation(sessionId: string): string {
+    return this.state.children[sessionId]?.conversation || (this.state.defaultConversation ?? "");
+  }
+
+  private permission(sessionId: string, permissionId: string, request: Record<string, unknown>): void {
+    const known = this.sessionInfo.get(sessionId);
+    if (!known?.tags?.[PARENT_TAG] && this.acpmuxUp) {
+      // Not known as a child yet: look the session up in a fresh session list.
+      this.pendingPermissions.push({ sessionId, permissionId, request });
+      this.emit({ kind: "fetch_sessions" });
+      return;
+    }
+    this.onPermission(known, sessionId, permissionId, request);
+  }
+
+  private sessions(sessions: SessionSummary[]): void {
+    const pending = this.pendingPermissions;
+    this.pendingPermissions = [];
+    for (const { sessionId, permissionId, request } of pending)
+      this.onPermission(
+        sessions.find((s) => s.sessionId === sessionId),
+        sessionId,
+        permissionId,
+        request,
+      );
+  }
+
+  private onPermission(
+    session: SessionSummary | undefined,
+    sessionId: string,
+    permissionId: string,
+    request: Record<string, unknown>,
+  ): void {
+    if (!session || !this.isChild(session)) return;
+    this.child(session);
+    this.editWork(sessionId, session.name, "waiting", session.preview);
+    const promptId = `perm:${sessionId}:${permissionId}`;
+    this.state.prompts[promptId] = {
+      conversation: this.childConversation(sessionId),
+      text: childPermissionPrompt(session, request),
+    };
+    this.dirty = true;
+    this.flushOutbox();
+    this.sendPrompt(promptId);
+  }
+
+  /** After a reconnect: children whose turn ended (or whose session is gone) while the host was away. */
+  private reconcileChildren(): void {
+    for (const sessionId of Object.keys(this.state.children).sort(compare)) {
+      const child = this.state.children[sessionId];
+      const session = this.sessionInfo.get(sessionId);
+      if (!session) {
+        if (child.status === "running" || child.status === "waiting") this.editWork(sessionId, child.name, "failed");
+        continue;
+      }
+      if (child.status === "running" && (session.status === "ready" || session.status === "idle"))
+        this.childFinished(session);
+    }
+    this.flushOutbox();
+  }
+}
+
+/** Code-unit order: the Rust core's BTreeMap order for ASCII ids. */
+function compare(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
