@@ -17,6 +17,7 @@ struct TasksView: View {
                 if model.scope == .mine {
                     ScopeBar(model: model)
                 }
+                NewTaskField(model: model)
                 switch layout {
                 case .list: TasksListView(model: model)
                 case .board: TasksBoardView(model: model)

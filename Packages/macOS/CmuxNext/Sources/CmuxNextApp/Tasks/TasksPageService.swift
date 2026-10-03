@@ -28,14 +28,17 @@ final class TasksPageService: InternalPageProvider {
     var model: TasksModel? { sharedModel }
 
     /// Shows the Tasks tab of the active window, else opens one. `scope`
-    /// is client view state, so it changes only when `focus` is true (a
-    /// user run); automation opens the tab and leaves the view as it is.
-    func show(scope: TasksScope, focus: Bool) throws {
+    /// (nil keeps it) and `newTask` (focus the title field) are client view
+    /// state, so they apply only when `focus` is true (a user run);
+    /// automation opens the tab and leaves the view as it is.
+    func show(scope: TasksScope?, newTask: Bool = false, focus: Bool) throws {
         guard let window = services.windows.active else { throw ActionFailure(message: RefusalStrings.noWindowOpen) }
         guard services.pages.show(.tasks, in: window, focus: focus) != nil else {
             throw ActionFailure(message: RefusalStrings.noWindowOpen)
         }
-        if focus { sharedModel?.scope = scope }
+        guard focus, let model = sharedModel else { return }
+        if let scope { model.scope = scope }
+        if newTask { model.focusNewTask() }
     }
 
     /// The layout the user setting asks for. Read in the pane's tracked
