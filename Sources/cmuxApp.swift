@@ -4973,8 +4973,10 @@ enum AppIconSettings {
 
     struct Environment {
         let isApplicationFinishedLaunching: () -> Bool
+        let systemStylesAppIcon: () -> Bool
         let imageForMode: (AppIconMode) -> NSImage?
         let setApplicationIconImage: (NSImage) -> Void
+        let restoreBundleIconImage: () -> Void
         let startAppearanceObservation: () -> Void
         let stopAppearanceObservation: () -> Void
         let notifyDockTilePlugin: () -> Void
@@ -4984,12 +4986,20 @@ enum AppIconSettings {
                 isApplicationFinishedLaunching: {
                     AppIconLaunchState.isApplicationFinishedLaunching()
                 },
+                systemStylesAppIcon: {
+                    // macOS 26 introduced the Dark, Clear and Tinted icon styles.
+                    if #available(macOS 26.0, *) { return true }
+                    return false
+                },
                 imageForMode: { mode in
                     guard let imageName = mode.imageName else { return nil }
                     return NSImage(named: imageName)
                 },
                 setApplicationIconImage: { icon in
                     NSApplication.shared.applicationIconImage = icon
+                },
+                restoreBundleIconImage: {
+                    NSApplication.shared.applicationIconImage = nil
                 },
                 startAppearanceObservation: {
                     AppIconAppearanceObserver.shared.startObserving()
@@ -5027,7 +5037,14 @@ enum AppIconSettings {
 
         switch mode {
         case .automatic:
-            environment.startAppearanceObservation()
+            if environment.systemStylesAppIcon() {
+                // The system styles the bundle icon, not a runtime image, so
+                // drop whatever an earlier light or dark selection installed.
+                environment.stopAppearanceObservation()
+                environment.restoreBundleIconImage()
+            } else {
+                environment.startAppearanceObservation()
+            }
         case .light:
             environment.stopAppearanceObservation()
             guard let icon = environment.imageForMode(.light) else { return }

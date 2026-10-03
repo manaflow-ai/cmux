@@ -786,6 +786,7 @@ final class AppIconSettingsTests: XCTestCase {
 
         let environment = AppIconSettings.Environment(
             isApplicationFinishedLaunching: { true },
+            systemStylesAppIcon: { false },
             imageForMode: { mode in
                 XCTAssertEqual(mode, .dark)
                 return expectedIcon
@@ -793,6 +794,7 @@ final class AppIconSettingsTests: XCTestCase {
             setApplicationIconImage: { icon in
                 receivedRuntimeIcon = icon
             },
+            restoreBundleIconImage: {},
             startAppearanceObservation: {
                 startObservationCallCount += 1
             },
@@ -812,13 +814,88 @@ final class AppIconSettingsTests: XCTestCase {
         XCTAssertEqual(stopObservationCallCount, 1)
     }
 
-    func testApplyAutomaticStartsObservationAndNotifiesDockTilePlugin() {
+    func testApplyAutomaticLeavesBundleIconToSystemThatStylesAppIcons() {
+        var dockTileNotificationCount = 0
+        var startObservationCallCount = 0
+        var stopObservationCallCount = 0
+        var restoreBundleIconCallCount = 0
+
+        let environment = AppIconSettings.Environment(
+            isApplicationFinishedLaunching: { true },
+            systemStylesAppIcon: { true },
+            imageForMode: { mode in
+                XCTFail("Automatic mode should not request a manual icon image: \(mode.rawValue)")
+                return nil
+            },
+            setApplicationIconImage: { _ in
+                XCTFail("A runtime icon opts out of the system's icon styles")
+            },
+            restoreBundleIconImage: {
+                restoreBundleIconCallCount += 1
+            },
+            startAppearanceObservation: {
+                startObservationCallCount += 1
+            },
+            stopAppearanceObservation: {
+                stopObservationCallCount += 1
+            },
+            notifyDockTilePlugin: {
+                dockTileNotificationCount += 1
+            }
+        )
+
+        AppIconSettings.applyIcon(.automatic, environment: environment)
+
+        XCTAssertEqual(dockTileNotificationCount, 1)
+        XCTAssertEqual(startObservationCallCount, 0)
+        XCTAssertEqual(stopObservationCallCount, 1)
+        XCTAssertEqual(restoreBundleIconCallCount, 1)
+    }
+
+    func testSwitchingFromLightToAutomaticClearsTheRuntimeOverride() {
+        let lightIcon = NSImage(size: NSSize(width: 16, height: 16))
+        var runtimeIcon: NSImage?
+        var restoreCallCount = 0
+        var stopObservationCallCount = 0
+
+        let environment = AppIconSettings.Environment(
+            isApplicationFinishedLaunching: { true },
+            systemStylesAppIcon: { true },
+            imageForMode: { _ in lightIcon },
+            setApplicationIconImage: { icon in
+                runtimeIcon = icon
+            },
+            restoreBundleIconImage: {
+                runtimeIcon = nil
+                restoreCallCount += 1
+            },
+            startAppearanceObservation: {},
+            stopAppearanceObservation: {
+                stopObservationCallCount += 1
+            },
+            notifyDockTilePlugin: {}
+        )
+
+        AppIconSettings.applyIcon(.light, environment: environment)
+        XCTAssertTrue(runtimeIcon === lightIcon)
+
+        AppIconSettings.applyIcon(.automatic, environment: environment)
+
+        // Without the reset the flat light bitmap stays installed and the
+        // system has nothing to style until the next launch.
+        XCTAssertNil(runtimeIcon)
+        XCTAssertEqual(restoreCallCount, 1)
+        XCTAssertEqual(stopObservationCallCount, 2)
+    }
+
+    func testApplyAutomaticObservesAppearanceOnSystemsWithoutIconStyles() {
         var dockTileNotificationCount = 0
         var startObservationCallCount = 0
         var stopObservationCallCount = 0
 
         let environment = AppIconSettings.Environment(
             isApplicationFinishedLaunching: { true },
+            systemStylesAppIcon: { false },
             imageForMode: { mode in
                 XCTFail("Automatic mode should not request a manual icon image: \(mode.rawValue)")
                 return nil
@@ -826,6 +903,7 @@ final class AppIconSettingsTests: XCTestCase {
             setApplicationIconImage: { _ in
                 XCTFail("Automatic mode should delegate live updates to the appearance observer")
             },
+            restoreBundleIconImage: {},
             startAppearanceObservation: {
                 startObservationCallCount += 1
             },
@@ -853,6 +931,7 @@ final class AppIconSettingsTests: XCTestCase {
 
         let environment = AppIconSettings.Environment(
             isApplicationFinishedLaunching: { false },
+            systemStylesAppIcon: { false },
             imageForMode: { _ in
                 imageRequestCount += 1
                 return NSImage(size: NSSize(width: 16, height: 16))
@@ -860,6 +939,7 @@ final class AppIconSettingsTests: XCTestCase {
             setApplicationIconImage: { _ in
                 runtimeIconSetCount += 1
             },
+            restoreBundleIconImage: {},
             startAppearanceObservation: {
                 startObservationCallCount += 1
             },
