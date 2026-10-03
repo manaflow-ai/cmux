@@ -1054,6 +1054,17 @@ def _validate_catalog_type(
                 # frontend projection (OWNERSHIP-PRINCIPLES window records).
                 "types.WindowRecordSnapshot.fields.record",
                 "operations.window_record.put.params.fields.record",
+                # Settings values are data the settings schema describes, not
+                # the catalog (plans/cmux-next/settings-react.md section 2):
+                # a value, a managed layer, and the rows that carry values.
+                "operations.settings.set.params.fields.value",
+                "operations.settings.team_policy.set.params.fields.layer",
+                "operations.settings.schema.result",
+                "operations.settings.list.result.items",
+                "operations.settings.get.result",
+                "operations.settings.snapshot.result",
+                "errors.settings.invalid.details.fields.accepted",
+                "errors.settings.invalid.details.fields.value",
             }
             is_explicit_extra = (
                 context.startswith("types.")

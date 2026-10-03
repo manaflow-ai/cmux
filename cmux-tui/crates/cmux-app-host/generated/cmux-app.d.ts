@@ -223,6 +223,7 @@ declare namespace Cmux {
   type SessionJournalRecord = { sequence: string; event_id: string; schema_version: number; kind: string; class: Cmux.JournalClass; replay: Cmux.JournalReplayPolicy; occurred_at_ms: string; committed_at_ms: string; producer: Cmux.JournalProducer; authority: Cmux.JournalAuthority | null; causation_id: string | null; correlation_id: string | null; causation_depth: number; subjects: Array<Cmux.JournalSubject>; sensitivity: Cmux.JournalSensitivity; payload: Cmux.JsonValue; resource_revision: string | null; previous_resource_revision: string | null }
   type SessionSnapshot = { id: string /* session_… */; machine_id: string /* machine_… */; name?: string; generation: string; revision: string; connected: boolean; extra?: Record<string, Cmux.JsonValue> }
   type SessionSnapshotItem = { kind: "snapshot"; cursor: Cmux.Cursor; reset_reason?: "initial" | "generation_changed" | "cursor_expired"; snapshot: Cmux.ResourceSnapshot }
+  type SettingsChange = { keys: Array<string> }
   type ShutdownResult = { accepted: boolean }
   type SidebarAttachItem = unknown
   type SidebarAttachPatch = { kind: "patch"; sidebar_view_id: string /* sidebar_view_… */; render: Cmux.RenderPatch }
@@ -1002,6 +1003,30 @@ interface CmuxGlobal {
         /** `session.window.title.set` (mutation, scope `session:write`) */
         set: CmuxOp<{ machine?: string; session?: string; title: string; expected_revision?: string }, Cmux.MutationResult<Cmux.EmptyResult>>
       }
+    }
+  }
+  settings: {
+    domains: {
+      /** `settings.domains.publish` (mutation, scope `settings:write`) */
+      publish: CmuxOp<{ machine?: string; session?: string; themes: Array<string>; font_families: Array<string>; sounds: Array<string> }, Cmux.MutationResult<Cmux.SettingsChange>>
+    }
+    /** `settings.get` (read, scope `settings:read`) */
+    get: CmuxOp<{ machine?: string; session?: string; key?: string; path?: Array<string> }, Cmux.JsonValue>
+    /** `settings.list` (read, scope `settings:read`) */
+    list: CmuxOp<{ machine?: string; session?: string; section?: string }, Array<Cmux.JsonValue>>
+    /** `settings.reset` (mutation, scope `settings:write`) */
+    reset: CmuxOp<{ machine?: string; session?: string; key?: string; path?: Array<string>; if_revision?: string; origin?: "user" | "cli" | "mcp" | "script" | "remote" | "app" }, Cmux.MutationResult<Cmux.SettingsChange>>
+    /** `settings.reset_all` (mutation, scope `settings:write`) */
+    reset_all: CmuxOp<{ machine?: string; session?: string; if_revision?: string; origin?: "user" | "cli" | "mcp" | "script" | "remote" | "app" }, Cmux.MutationResult<Cmux.SettingsChange>>
+    /** `settings.schema` (read, scope `settings:read`) */
+    schema: CmuxOp<{ machine?: string; session?: string }, Cmux.JsonValue>
+    /** `settings.set` (mutation, scope `settings:write`) */
+    set: CmuxOp<{ machine?: string; session?: string; key?: string; path?: Array<string>; value: Cmux.JsonValue; if_revision?: string; origin?: "user" | "cli" | "mcp" | "script" | "remote" | "app" }, Cmux.MutationResult<Cmux.SettingsChange>>
+    /** `settings.snapshot` (read, scope `settings:read`) */
+    snapshot: CmuxOp<{ machine?: string; session?: string }, Cmux.JsonValue>
+    team_policy: {
+      /** `settings.team_policy.set` (mutation, scope `settings:write`) */
+      set: CmuxOp<{ machine?: string; session?: string; layer: Cmux.JsonValue }, Cmux.MutationResult<Cmux.SettingsChange>>
     }
   }
   sidebar_view: {

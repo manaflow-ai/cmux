@@ -1791,6 +1791,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("session_id", std::move(encoded).value());
     }
+    if (value.settings_schema_hash) {
+        auto encoded = encode_value(*value.settings_schema_hash);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("settings_schema_hash", std::move(encoded).value());
+    }
     auto encoded_terminal_revision = encode_value(value.terminal_revision);
     if (!encoded_terminal_revision) return std::move(encoded_terminal_revision).error();
     object.emplace("terminal_revision", std::move(encoded_terminal_revision).value());
@@ -1923,6 +1928,12 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_session_id);
         if (!decoded) return std::move(decoded).error();
         result.session_id = std::move(decoded).value();
+    }
+    const Json* field_settings_schema_hash = value.find("settings_schema_hash");
+    if (field_settings_schema_hash) {
+        auto decoded = decode_value<std::string>(*field_settings_schema_hash);
+        if (!decoded) return std::move(decoded).error();
+        result.settings_schema_hash = std::move(decoded).value();
     }
     const Json* field_terminal_revision = value.find("terminal_revision");
     if (!field_terminal_revision) {
@@ -25216,6 +25227,65 @@ Result<ScrollChangedEvent> Codec<ScrollChangedEvent>::decode(const Json& value) 
     return result;
 }
 
+Result<Json> Codec<SettingsChangedEvent>::encode(const SettingsChangedEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("settings-changed")));
+    auto encoded_keys = encode_value(value.keys);
+    if (!encoded_keys) return std::move(encoded_keys).error();
+    object.emplace("keys", std::move(encoded_keys).value());
+    auto encoded_origin = encode_value(value.origin);
+    if (!encoded_origin) return std::move(encoded_origin).error();
+    object.emplace("origin", std::move(encoded_origin).value());
+    auto encoded_revision = encode_value(value.revision);
+    if (!encoded_revision) return std::move(encoded_revision).error();
+    object.emplace("revision", std::move(encoded_revision).value());
+    return Json(std::move(object));
+}
+
+Result<SettingsChangedEvent> Codec<SettingsChangedEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    SettingsChangedEvent result{};
+    const Json* field_keys = value.find("keys");
+    if (!field_keys) {
+        return make_error(ErrorCode::decode, "missing required field 'keys'");
+    }
+    if (field_keys) {
+        auto decoded = decode_value<std::vector<std::string>>(*field_keys);
+        if (!decoded) return std::move(decoded).error();
+        result.keys = std::move(decoded).value();
+    }
+    const Json* field_origin = value.find("origin");
+    if (!field_origin) {
+        return make_error(ErrorCode::decode, "missing required field 'origin'");
+    }
+    if (field_origin) {
+        auto decoded = decode_value<SettingsChangedEventOrigin>(*field_origin);
+        if (!decoded) return std::move(decoded).error();
+        result.origin = std::move(decoded).value();
+    }
+    const Json* field_revision = value.find("revision");
+    if (!field_revision) {
+        return make_error(ErrorCode::decode, "missing required field 'revision'");
+    }
+    if (field_revision) {
+        auto decoded = decode_value<std::uint64_t>(*field_revision);
+        if (!decoded) return std::move(decoded).error();
+        result.revision = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("settings-changed"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<SizeStateEvent>::encode(const SizeStateEvent& value) {
     (void)value;
     Json::Object object;
@@ -28015,6 +28085,30 @@ Result<GraphicsStatusEventKind> Codec<GraphicsStatusEventKind>::decode(const Jso
     return make_error(ErrorCode::decode, "unknown GraphicsStatusEventKind value");
 }
 
+Result<Json> Codec<SettingsChangedEventOrigin>::encode(const SettingsChangedEventOrigin& value) {
+    switch (value) {
+        case SettingsChangedEventOrigin::user: return Json(std::string("user"));
+        case SettingsChangedEventOrigin::cli: return Json(std::string("cli"));
+        case SettingsChangedEventOrigin::mcp: return Json(std::string("mcp"));
+        case SettingsChangedEventOrigin::script: return Json(std::string("script"));
+        case SettingsChangedEventOrigin::remote: return Json(std::string("remote"));
+        case SettingsChangedEventOrigin::app: return Json(std::string("app"));
+        case SettingsChangedEventOrigin::file: return Json(std::string("file"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<SettingsChangedEventOrigin> Codec<SettingsChangedEventOrigin>::decode(const Json& value) {
+    if (value == Json(std::string("user"))) return SettingsChangedEventOrigin::user;
+    if (value == Json(std::string("cli"))) return SettingsChangedEventOrigin::cli;
+    if (value == Json(std::string("mcp"))) return SettingsChangedEventOrigin::mcp;
+    if (value == Json(std::string("script"))) return SettingsChangedEventOrigin::script;
+    if (value == Json(std::string("remote"))) return SettingsChangedEventOrigin::remote;
+    if (value == Json(std::string("app"))) return SettingsChangedEventOrigin::app;
+    if (value == Json(std::string("file"))) return SettingsChangedEventOrigin::file;
+    return make_error(ErrorCode::decode, "unknown SettingsChangedEventOrigin value");
+}
+
 std::string_view Event::name() const noexcept {
     if (const auto* unknown = std::get_if<UnknownEvent>(&value)) {
         return unknown->name;
@@ -28218,6 +28312,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
     }
     if (name.value() == "scroll-changed") {
         auto decoded = decode_value<ScrollChangedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
+    if (name.value() == "settings-changed") {
+        auto decoded = decode_value<SettingsChangedEvent>(value);
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
@@ -28702,7 +28801,7 @@ constexpr std::array<CommandMetadata, 213> kCommands{{
     {"wait-for", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 58> kEvents{{
+constexpr std::array<EventMetadata, 59> kEvents{{
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"bell", 5U, "", "subscribe", "emitted"},
     {"bookmarks-changed", 12U, "bookmarks-v1", "subscribe", "emitted"},
@@ -28739,6 +28838,7 @@ constexpr std::array<EventMetadata, 58> kEvents{{
     {"screen-closed", 7U, "", "subscribe-deltas", "emitted"},
     {"screen-renamed", 7U, "", "subscribe-deltas", "emitted"},
     {"scroll-changed", 6U, "", "subscribe,attach-byte,attach-render,attach-browser", "emitted"},
+    {"settings-changed", 12U, "settings-v1", "subscribe", "emitted"},
     {"size-state", 12U, "shared-sizing-v1", "subscribe,attach-byte,attach-render", "emitted"},
     {"status", 5U, "", "subscribe", "emitted"},
     {"surface-exited", 5U, "", "subscribe", "emitted"},

@@ -1057,6 +1057,42 @@
       "scope": "session:write",
       "class": "mutation"
     },
+    "settings.domains.publish": {
+      "scope": "settings:write",
+      "class": "mutation"
+    },
+    "settings.get": {
+      "scope": "settings:read",
+      "class": "read"
+    },
+    "settings.list": {
+      "scope": "settings:read",
+      "class": "read"
+    },
+    "settings.reset": {
+      "scope": "settings:write",
+      "class": "mutation"
+    },
+    "settings.reset_all": {
+      "scope": "settings:write",
+      "class": "mutation"
+    },
+    "settings.schema": {
+      "scope": "settings:read",
+      "class": "read"
+    },
+    "settings.set": {
+      "scope": "settings:write",
+      "class": "mutation"
+    },
+    "settings.snapshot": {
+      "scope": "settings:read",
+      "class": "read"
+    },
+    "settings.team_policy.set": {
+      "scope": "settings:write",
+      "class": "mutation"
+    },
     "sidebar_view.ensure": {
       "scope": "sidebar_view:write",
       "class": "mutation"

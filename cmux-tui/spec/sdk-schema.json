@@ -1976,6 +1976,16 @@
      "nullable": true,
      "since": 12,
      "capability": "launch-snapshot-v1"
+    },
+    "settings_schema_hash": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "settings-v1"
     }
    },
    "additional_properties": false
@@ -20544,6 +20554,63 @@
       "type": {
        "kind": "scalar",
        "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "settings-changed": {
+   "since": 12,
+   "capability": "settings-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "settings-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "keys": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "origin": {
+      "type": {
+       "kind": "enum",
+       "values": [
+        "user",
+        "cli",
+        "mcp",
+        "script",
+        "remote",
+        "app",
+        "file"
+       ]
       },
       "presence": "required",
       "nullable": false

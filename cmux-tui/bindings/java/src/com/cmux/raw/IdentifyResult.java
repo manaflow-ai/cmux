@@ -23,6 +23,7 @@ public final class IdentifyResult implements WireValue {
     private final String registryId;
     private final String session;
     private final Field<String> sessionId;
+    private final Field<String> settingsSchemaHash;
     private final UInt64 terminalRevision;
     private final String version;
     private final UInt64 workspaceRevision;
@@ -45,6 +46,7 @@ public final class IdentifyResult implements WireValue {
         if (!builder.sessionSet) throw new IllegalArgumentException("session is required");
         this.session = Wire.nonNull(builder.session, "session");
         this.sessionId = builder.sessionId;
+        this.settingsSchemaHash = builder.settingsSchemaHash;
         if (!builder.terminalRevisionSet) throw new IllegalArgumentException("terminal_revision is required");
         this.terminalRevision = Wire.nonNull(builder.terminalRevision, "terminal_revision");
         if (!builder.versionSet) throw new IllegalArgumentException("version is required");
@@ -69,6 +71,7 @@ public final class IdentifyResult implements WireValue {
     public String registryId() { return registryId; }
     public String session() { return session; }
     public Field<String> sessionId() { return sessionId; }
+    public Field<String> settingsSchemaHash() { return settingsSchemaHash; }
     public UInt64 terminalRevision() { return terminalRevision; }
     public String version() { return version; }
     public UInt64 workspaceRevision() { return workspaceRevision; }
@@ -118,6 +121,10 @@ public final class IdentifyResult implements WireValue {
         if (!Wire.isMissing(rawSessionId)) {
             builder.sessionId(Wire.string(rawSessionId, "IdentifyResult.session_id"));
         }
+        Object rawSettingsSchemaHash = Wire.optional(object, "settings_schema_hash");
+        if (!Wire.isMissing(rawSettingsSchemaHash)) {
+            builder.settingsSchemaHash(Wire.string(rawSettingsSchemaHash, "IdentifyResult.settings_schema_hash"));
+        }
         Object rawTerminalRevision = Wire.required(object, "terminal_revision");
         builder.terminalRevision(Wire.uint64(rawTerminalRevision, "IdentifyResult.terminal_revision"));
         Object rawVersion = Wire.required(object, "version");
@@ -144,6 +151,7 @@ public final class IdentifyResult implements WireValue {
         Wire.put(object, "registry_id", registryId);
         Wire.put(object, "session", session);
         Wire.put(object, "session_id", sessionId);
+        Wire.put(object, "settings_schema_hash", settingsSchemaHash);
         Wire.put(object, "terminal_revision", terminalRevision);
         Wire.put(object, "version", version);
         Wire.put(object, "workspace_revision", workspaceRevision);
@@ -153,11 +161,11 @@ public final class IdentifyResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof IdentifyResult that)) return false;
-        return Objects.equals(buildCommit, that.buildCommit) && Objects.equals(capabilities, that.capabilities) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(launchSnapshotPath, that.launchSnapshotPath) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(machineName, that.machineName) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(session, that.session) && Objects.equals(sessionId, that.sessionId) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
+        return Objects.equals(buildCommit, that.buildCommit) && Objects.equals(capabilities, that.capabilities) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(launchSnapshotPath, that.launchSnapshotPath) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(machineName, that.machineName) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(session, that.session) && Objects.equals(sessionId, that.sessionId) && Objects.equals(settingsSchemaHash, that.settingsSchemaHash) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(buildCommit, capabilities, generation, ghosttyCommit, launchSnapshotPath, lifecycleReady, machineName, pid, protocol, registryId, session, sessionId, terminalRevision, version, workspaceRevision); }
+    public int hashCode() { return Objects.hash(buildCommit, capabilities, generation, ghosttyCommit, launchSnapshotPath, lifecycleReady, machineName, pid, protocol, registryId, session, sessionId, settingsSchemaHash, terminalRevision, version, workspaceRevision); }
 
     @Override
     public String toString() { return "IdentifyResult" + toWire(); }
@@ -180,6 +188,7 @@ public final class IdentifyResult implements WireValue {
         private String session;
         private boolean sessionSet;
         private Field<String> sessionId = Field.omitted();
+        private Field<String> settingsSchemaHash = Field.omitted();
         private UInt64 terminalRevision;
         private boolean terminalRevisionSet;
         private String version;
@@ -238,6 +247,10 @@ public final class IdentifyResult implements WireValue {
         }
         public Builder sessionId(String value) {
             this.sessionId = Field.of(value);
+            return this;
+        }
+        public Builder settingsSchemaHash(String value) {
+            this.settingsSchemaHash = Field.of(value);
             return this;
         }
         public Builder terminalRevision(UInt64 value) {

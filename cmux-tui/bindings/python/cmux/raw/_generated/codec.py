@@ -399,6 +399,7 @@ MODEL_BY_PATH = {
     'events/screen-closed/payload': models.ScreenClosedEvent,
     'events/screen-renamed/payload': models.ScreenRenamedEvent,
     'events/scroll-changed/payload': models.ScrollChangedEvent,
+    'events/settings-changed/payload': models.SettingsChangedEvent,
     'events/size-state/payload': models.SizeStateEvent,
     'events/status/payload': models.StatusEvent,
     'events/surface-exited/payload': models.SurfaceExitedEvent,
