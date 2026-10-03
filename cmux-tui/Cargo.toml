@@ -42,6 +42,7 @@ members = [
     "crates/cmux-tasks-core",
     "crates/cmux-tasks",
     "crates/cmux-server-core",
+    "crates/cmux-server",
     "crates/cmux-motion",
     "crates/cmux-theme-tokens",
     "crates/cmux-app-manifest",
@@ -74,6 +75,7 @@ default-members = [
     "crates/cmux-tasks-core",
     "crates/cmux-tasks",
     "crates/cmux-server-core",
+    "crates/cmux-server",
     "crates/cmux-motion",
     "crates/cmux-theme-tokens",
     "crates/cmux-app-manifest",
@@ -111,6 +113,8 @@ cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
 cmux-wg = { path = "crates/cmux-wg" }
+cmux-server = { path = "crates/cmux-server" }
+cmux-server-core = { path = "crates/cmux-server-core" }
 cmux-tui-machine-agent-protocol = { path = "crates/cmux-tui-machine-agent-protocol" }
 cmux-tui-machine-protocol = { path = "crates/cmux-tui-machine-protocol" }
 anyhow = "1"
