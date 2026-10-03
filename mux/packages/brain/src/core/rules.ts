@@ -64,9 +64,13 @@ export function inboxPrompt(summary: Summary, message: Message): string {
   return `[conversation ${summary.id} from ${author?.display_name ?? message.author}] ${messageText(message)}`;
 }
 
-/** The owner-side idempotency key (and client_msg_id) of a mux turn's reply. */
-export function turnKey(sessionId: string, turnSeq: number): string {
-  return `turn:${sessionId}:${turnSeq}`;
+/**
+ * The owner-side idempotency key (and client_msg_id) of a mux turn's reply:
+ * `turn:<session>:<turn seq>`, or `turn:<session>:<epoch>:<turn seq>` after a
+ * cursor_reset (a re-imported log reuses seqs).
+ */
+export function turnKey(sessionId: string, turnSeq: number, epoch?: number): string {
+  return epoch === undefined ? `turn:${sessionId}:${turnSeq}` : `turn:${sessionId}:${epoch}:${turnSeq}`;
 }
 
 /** Trimmed text cut to `limit` UTF-16 units with an ellipsis (a surrogate pair is never split). */

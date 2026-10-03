@@ -13,6 +13,8 @@ export interface HostStateData {
   /** The acpmux session id of the mux, and the seq of the last turn end the host settled. */
   muxSessionId?: string;
   acpmuxSeq: number;
+  /** Set by a cursor_reset of the same session: reply keys carry it from then on (rules.ts turnKey). */
+  acpmuxEpoch?: number;
   /** Prompts sent (or to send) to the mux whose turn has not ended: promptId -> where its reply goes. */
   prompts: Record<string, OutstandingPrompt>;
   /** Prompt ids whose turn ended (newest last, bounded): never prompted again. */

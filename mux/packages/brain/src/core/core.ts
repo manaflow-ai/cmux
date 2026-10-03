@@ -471,10 +471,16 @@ export class Core {
     if (this.state.muxSessionId !== sessionId) {
       this.state.muxSessionId = sessionId;
       this.state.acpmuxSeq = 0;
+      delete this.state.acpmuxEpoch;
       this.dirty = true;
     } else if (cursorReset) {
-      // The log is shorter than the saved cursor: replay it all; the owner dedupes replies.
+      // The log is shorter than the saved cursor (a re-imported session): replay it all.
+      // Its turn seqs restart, so reply keys get an epoch from now on: the `at` of the
+      // first replayed event (else now). Turns of prompts the core no longer holds post
+      // nothing (applyMuxEvent).
       this.state.acpmuxSeq = 0;
+      this.state.acpmuxEpoch = events[0]?.at ?? this.now;
+      this.dirty = true;
     }
     this.muxSession = sessionId;
     for (const session of sessions) {
@@ -496,14 +502,16 @@ export class Core {
         this.accept(output.promptId);
         continue;
       }
-      const conversation = this.conversationFor(output.turn.promptId);
+      const conversation = this.turnConversation(output.turn.promptId);
       if (output.type === "started") {
         if (conversation) this.setTyping(conversation, true);
         continue;
       }
       const text = output.turn.text.trim() || (output.error ? `(turn failed: ${output.error})` : "");
+      if (!conversation && output.turn.promptId)
+        this.log(`turn ${output.turn.turnSeq} answers prompt ${output.turn.promptId}, which is answered or lost; reply not posted`);
       if (conversation && text) {
-        const key = turnKey(this.muxSession ?? "", output.turn.turnSeq);
+        const key = turnKey(this.muxSession ?? "", output.turn.turnSeq, this.state.acpmuxEpoch);
         this.state.outbox.push({
           conversation,
           idempotency_key: key,
@@ -516,6 +524,18 @@ export class Core {
       this.flushOutbox();
       if (conversation) this.setTyping(conversation, false);
     }
+  }
+
+  /**
+   * Where a turn's typing and reply go: its prompt's conversation, the default
+   * one for a turn without a prompt, and none for a prompt the core no longer
+   * holds (answered, or lost): a replayed old turn posts nothing.
+   */
+  private turnConversation(promptId: string | undefined): string | undefined {
+    if (!promptId) return this.state.defaultConversation || undefined;
+    const entry = this.state.prompts[promptId];
+    if (!entry) return undefined;
+    return entry.conversation || this.state.defaultConversation || undefined;
   }
 
   private conversationFor(promptId: string | undefined): string | undefined {
