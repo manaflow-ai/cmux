@@ -177,7 +177,7 @@ final class MacMessageRowView: MacFlippedView {
     let failedBadge = NSImageView()
     /// Messages' hover control beside an image: a 29 pt glass circle 12 pt
     /// outside the image's outer edge, vertically centered, that saves it.
-    let saveButton: NSControl = MacGlassCircleButton(
+    let saveButton = MacGlassCircleButton(
         symbol: "square.and.arrow.down",
         label: String(localized: "conversation.image.save", defaultValue: "Save Image", bundle: .module),
         identifier: "conversation.image.save"
@@ -781,7 +781,7 @@ final class MacTypingRowView: MacFlippedView {
 }
 /// A Liquid Glass circle wrapping a borderless button (the glass bezel style
 /// throws from a table row's layout pass).
-final class MacGlassCircleButton: NSControl {
+final class MacGlassCircleButton: MacFlippedView {
     private let button: NSButton
 
     init(symbol: String, label: String, identifier: String) {
@@ -802,17 +802,17 @@ final class MacGlassCircleButton: NSControl {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var target: AnyObject? {
+    var target: AnyObject? {
         get { button.target }
         set { button.target = newValue }
     }
 
-    override var action: Selector? {
+    var action: Selector? {
         get { button.action }
         set { button.action = newValue }
     }
 
-    override func performClick(_ sender: Any?) {
+    func performClick(_ sender: Any?) {
         button.performClick(sender)
     }
 

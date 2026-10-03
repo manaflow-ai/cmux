@@ -782,29 +782,61 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
 
     private func reloadThread(animated: Bool) {
         guard let focus = threadFocus, let rootID = threadRootID else { return }
-        let threadRows = MacConversationRowBuilder.threadRows(rootID: rootID, store: store)
+        // The thread's rows stay crisp at their transcript positions while the
+        // rest blurs in place, as Messages does. Scroll so the newest thread
+        // row is visible first; a root scrolled off the top pins under the bar.
+        let threadIDs = Set(store.messages.filter { $0.id == rootID || $0.replyToID == rootID }.map(\.rowID))
+        var indexes: [Int] = []
+        for (index, row) in rows.enumerated() {
+            if case let .message(model) = row, threadIDs.contains(model.rowID) {
+                if index > 0, case .timestamp = rows[index - 1] { indexes.append(index - 1) }
+                indexes.append(index)
+            }
+        }
+        guard !indexes.isEmpty else { return }
+        if let last = indexes.last {
+            let rect = tableView.rect(ofRow: last)
+            let bottomLimit = scrollView.contentView.bounds.origin.y + scrollView.bounds.height - scrollView.contentInsets.bottom
+            if rect.maxY > bottomLimit {
+                programmatic {
+                    scrollView.contentView.scroll(to: NSPoint(x: 0, y: min(maxOffset, rect.maxY - (scrollView.bounds.height - scrollView.contentInsets.bottom))))
+                    scrollView.reflectScrolledClipView(scrollView.contentView)
+                }
+            }
+        }
+        view.layoutSubtreeIfNeeded()
         let width = transcriptWidth
-        var views: [(NSView, CGFloat)] = []
-        for (index, row) in threadRows.enumerated() {
-            switch row {
+        var placed: [(NSView, CGRect)] = []
+        var pinnedTop = view.safeAreaInsets.top + 8
+        for index in indexes {
+            let rowRect = tableView.rect(ofRow: index)
+            var frame = focus.convert(rowRect, from: tableView)
+            let height: CGFloat
+            let rowView: NSView
+            switch rows[index] {
             case let .timestamp(_, date):
                 let view = MacTimestampRowView()
                 view.configure(date: date)
-                views.append((view, MacTimestampRowView.height))
+                height = MacTimestampRowView.height
+                rowView = view
             case let .message(model):
                 let container = MacMessageContainerView()
-                let spacing = index > 0 && threadRows[index - 1].isMessage
-                    ? (model.isFirstInRun ? MacConversationTheme.runSpacing : MacConversationTheme.groupedSpacing) : 4
-                container.topSpacing = spacing
+                container.topSpacing = topSpacing(at: index, model)
                 let layout = layoutCache.layout(model, width: width)
                 container.row.configure(model, layout: layout, text: layoutCache.text(model))
-                views.append((container, layout.height + spacing))
+                height = layout.height + container.topSpacing
+                rowView = container
             default:
-                break
+                continue
             }
+            frame.size = CGSize(width: width, height: height)
+            if frame.minY < pinnedTop {
+                frame.origin.y = pinnedTop
+            }
+            pinnedTop = frame.maxY
+            placed.append((rowView, frame))
         }
-        let trailing = threadRows.last.map { lastRowTrailingSpace(of: $0) } ?? 0
-        focus.show(views, width: width, top: view.safeAreaInsets.top, bottom: 50 - trailing, animated: animated)
+        focus.show(placed, animated: animated)
     }
 
     private func dismissReplyFocus(sent: Bool) {
@@ -1623,8 +1655,8 @@ final class MacThreadFocusView: NSView {
     var onDismiss: (() -> Void)?
     private let blur = NSVisualEffectView()
     private let dim = NSView()
-    private let scroll = NSScrollView()
-    private let stack = MacFlippedView()
+    private let content = MacFlippedView()
+    private var firstShow = true
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -1641,11 +1673,9 @@ final class MacThreadFocusView: NSView {
         dim.frame = bounds
         dim.autoresizingMask = [.width, .height]
         addSubview(dim)
-        scroll.drawsBackground = false
-        scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-        scroll.documentView = stack
-        addSubview(scroll)
+        content.frame = bounds
+        content.autoresizingMask = [.width, .height]
+        addSubview(content)
         setAccessibilityIdentifier("conversation.threadFocus")
     }
 
@@ -1655,25 +1685,18 @@ final class MacThreadFocusView: NSView {
     override var isFlipped: Bool { true }
 
     override func mouseDown(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        if !scroll.frame.contains(point) { onDismiss?() }
+        let point = content.convert(event.locationInWindow, from: nil)
+        if !content.subviews.contains(where: { $0.frame.contains(point) }) { onDismiss?() }
     }
 
-    func show(_ views: [(NSView, CGFloat)], width: CGFloat, top: CGFloat, bottom: CGFloat, animated: Bool) {
-        stack.subviews.forEach { $0.removeFromSuperview() }
-        var y: CGFloat = 0
-        for (view, height) in views {
-            view.frame = CGRect(x: 0, y: y, width: width, height: height)
-            stack.addSubview(view)
-            y += height
+    func show(_ placed: [(NSView, CGRect)], animated: Bool) {
+        content.subviews.forEach { $0.removeFromSuperview() }
+        for (view, frame) in placed {
+            view.frame = frame
+            content.addSubview(view)
         }
-        let available = max(0, bounds.height - top - bottom)
-        let visible = min(y, available)
-        scroll.frame = CGRect(x: 0, y: bounds.height - bottom - visible, width: bounds.width, height: visible)
-        stack.frame = CGRect(x: 0, y: 0, width: width, height: y)
-        scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, y - visible)))
-        scroll.reflectScrolledClipView(scroll.contentView)
-        guard animated else { return }
+        guard animated, firstShow else { return }
+        firstShow = false
         for view in [blur, dim] {
             view.alphaValue = 0
             NSAnimationContext.runAnimationGroup { context in
@@ -1681,19 +1704,6 @@ final class MacThreadFocusView: NSView {
                 view.animator().alphaValue = 1
             }
         }
-        scroll.wantsLayer = true
-        let rise = CASpringAnimation(keyPath: "transform.translation.y")
-        rise.fromValue = 18
-        rise.toValue = 0
-        rise.stiffness = 300
-        rise.damping = 30
-        rise.duration = rise.settlingDuration
-        scroll.layer?.add(rise, forKey: "rise")
-        let fade = CABasicAnimation(keyPath: "opacity")
-        fade.fromValue = 0
-        fade.toValue = 1
-        fade.duration = 0.18
-        scroll.layer?.add(fade, forKey: "fade")
     }
 
     func dismiss() {

@@ -670,6 +670,8 @@ final class MacConversationListRowView: NSTableRowView {
 
     private func selectionStyleChanged() {
         needsDisplay = true
+        // Early in a row's life there is no cell yet; asking throws.
+        guard numberOfColumns > 0 else { return }
         (view(atColumn: 0) as? MacConversationListRow)?.isEmphasized = isActiveSelection
     }
 
