@@ -15,6 +15,8 @@ Status: proposal 1, feed lead (lane 9), 2026-10-02. This file is the "spec propo
 | FD7 | No `cmux feed answer` CLI verb until the actor stamp lands. |
 | FD8 | Default views: list on Cmd-I, inbox as the wide mode, menu bar opt-in. |
 
+PARKED 2026-10-02 (Claude capacity): PR #16855 (branch feat-cmux-next-feed2, app mirror + Cmd-I panel + feed.request + Claude Code adapter; fixed ActionCatalogTests count, CI pending on the new head) and branch feat-cmux-next-feed-push 334eab950ca (APNs push sender, review fixes done, stacked on #16855). Next: merge #16855 when green on its exact head, push its COORDINATION line, open the push PR, verify one real staging push once the iOS client registers (PR 17049).
+
 ## 1. Summary for agents
 
 - The feed is one per-user list of **items**. An item is a **notice** (no answer) or a **request** (it needs an answer). Agents, harnesses, apps, servers, VMs, automations, integrations and cmux itself post items through one op family, `feed.*`.
