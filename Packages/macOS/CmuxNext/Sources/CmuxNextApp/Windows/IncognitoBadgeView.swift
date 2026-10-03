@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 
 /// The incognito window's mark in the sidebar's titlebar row: a glyph and
-/// "Incognito" in secondary text on a subtle gray capsule (no accent
+/// "Incognito" in secondary text on a subtle gray rounded rectangle (no accent
 /// color). In the top row a press on it never moves the window.
 final class IncognitoBadgeView: NSView, TitlebarPressDeciding {
     private let icon = NSImageView()
@@ -42,7 +42,7 @@ final class IncognitoBadgeView: NSView, TitlebarPressDeciding {
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = bounds.height / 2
+        layer?.cornerRadius = Metrics.chipCornerRadius(height: bounds.height)
     }
 
     override func viewDidChangeEffectiveAppearance() {

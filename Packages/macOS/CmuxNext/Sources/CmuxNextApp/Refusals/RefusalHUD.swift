@@ -77,7 +77,7 @@ final class RefusalHUDView: NSView {
         let height = size.height + Metrics.space4 * 2
         frame = CGRect(x: container.midX - width / 2, y: container.minY + Metrics.space6 * 2, width: width, height: height)
         surface.frame = bounds
-        surface.cornerRadius = height / 2
+        surface.cornerRadius = Metrics.chipCornerRadius(height: height)
         label.frame = bounds.insetBy(dx: inset, dy: Metrics.space4)
         isHidden = false
         isShowing = true
