@@ -23,7 +23,7 @@ import Testing
     @Test func defaultsAreHomeWorkspacesSettingsCustomizeAccount() {
         #expect(defaults.sections(in: .top, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.home), .builtIn(.appStore)])
         #expect(defaults.sections(in: .middle, room: nil).map(\.content) == [.workspaces])
-        #expect(defaults.sections(in: .bottom, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.customize), .builtIn(.account)])
+        #expect(defaults.sections(in: .bottom, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.account)])
         #expect(defaults.sections.filter { $0.region != .middle }.allSatisfy { $0.look == .builtIn && $0.title == nil })
         #expect(defaults.firstTopItem(room: nil)?.ref == .builtIn(.home))
     }
@@ -70,14 +70,14 @@ import Testing
 
     @Test func moveAcrossRegionsKeepsTheItem() throws {
         let doc = try reduce(defaults, .itemMove(home, section: SidebarLayoutDocument.bottomSectionID, index: 1))
-        #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.items.map(\.id) == [settings, home, LayoutItemID("itm_customize"), LayoutItemID("itm_account")])
+        #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.items.map(\.id) == [settings, home, LayoutItemID("itm_account")])
         #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == [LayoutItemID("itm_app_store")])
         #expect(Set(Self.itemIDs(doc)) == Set(Self.itemIDs(defaults)))
     }
 
     @Test func moveWithinASectionExcludesItself() throws {
         let doc = try reduce(defaults, .itemMove(settings, section: SidebarLayoutDocument.bottomSectionID, index: 1))
-        #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.items.map(\.id) == [LayoutItemID("itm_customize"), settings, LayoutItemID("itm_account")])
+        #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.items.map(\.id) == [LayoutItemID("itm_account"), settings])
     }
 
     @Test func moveOntoASectionHoldingTheSameRefIsRefused() throws {
