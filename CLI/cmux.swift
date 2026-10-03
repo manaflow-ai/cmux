@@ -5325,7 +5325,7 @@ struct CMUXCLI {
                 return
             }
         }
-        if command == "setup-hooks" || command == "uninstall-hooks" { try runSetupHooks(uninstall: command == "uninstall-hooks"); return } // Backwards compatibility for old hook setup docs/scripts.
+        if command == "setup-hooks" || command == "uninstall-hooks" { try runSetupHooks(uninstall: command == "uninstall-hooks", arguments: try Self.parseHooksSetupArguments(commandArgs)); return } // Backwards compatibility for old hook setup docs/scripts.
         if (command == "codex-hook" || command == "feed-hook"), processEnv["CMUX_SURFACE_ID"]?.isEmpty != false, processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
            !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) { print("{}"); return } // Backwards compatibility for old installed hooks outside cmux terminals.
         if command == "hooks" {
@@ -42243,14 +42243,14 @@ export default {
         case "setup":
             try runSetupHooks(
                 uninstall: false,
-                positionalAgentFilter: try Self.hooksSetupPositionalAgentFilter(from: Array(commandArgs.dropFirst()))
+                arguments: try Self.parseHooksSetupArguments(Array(commandArgs.dropFirst()))
             )
             return true
 
         case "uninstall":
             try runSetupHooks(
                 uninstall: true,
-                positionalAgentFilter: try Self.hooksSetupPositionalAgentFilter(from: Array(commandArgs.dropFirst()))
+                arguments: try Self.parseHooksSetupArguments(Array(commandArgs.dropFirst()))
             )
             return true
 
@@ -42430,34 +42430,71 @@ export default {
         }
     }
 
-    private static func hooksSetupPositionalAgentFilter(from args: [String]) throws -> String? {
-        var skipNext = false
+    /// The target and mode `cmux hooks setup`/`uninstall` (and the legacy
+    /// `setup-hooks`/`uninstall-hooks`) were asked for.
+    private struct HooksSetupArguments {
+        var flagAgent: String?
         var positionalAgent: String?
-        for arg in args {
-            if skipNext {
-                skipNext = false
-                continue
+        var uninstall = false
+    }
+
+    /// Parses setup/uninstall arguments, rejecting anything it doesn't know
+    /// so a typo can't fall back to every agent.
+    private static func parseHooksSetupArguments(_ args: [String]) throws -> HooksSetupArguments {
+        var parsed = HooksSetupArguments()
+        func setFlagAgent(_ value: String) throws {
+            guard !value.isEmpty, !value.hasPrefix("-") else {
+                throw CLIError(message: String(
+                    localized: "cli.hooks.setup.error.agentRequiresValue",
+                    defaultValue: "--agent requires a value. Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+                ))
             }
+            if let existing = parsed.flagAgent, existing != value {
+                throw CLIError(message: String(
+                    localized: "cli.hooks.setup.error.conflictingAgent",
+                    defaultValue: "--agent was given more than once with different values. Specify one agent."
+                ))
+            }
+            parsed.flagAgent = value
+        }
+        var index = 0
+        while index < args.count {
+            let arg = args[index]
+            index += 1
             switch arg {
             case "--agent":
-                skipNext = true
-            case "--yes", "-y", "--uninstall":
+                try setFlagAgent(index < args.count ? args[index] : "")
+                index += 1
+            case "--yes", "-y":
                 continue
+            case "--uninstall":
+                parsed.uninstall = true
             default:
-                if !arg.hasPrefix("-") {
-                    if positionalAgent != nil {
+                if arg.hasPrefix("--agent=") {
+                    try setFlagAgent(String(arg.dropFirst("--agent=".count)))
+                } else if arg.hasPrefix("-") {
+                    let name = arg.split(separator: "=", maxSplits: 1).first.map(String.init) ?? arg
+                    throw CLIError(message: String.localizedStringWithFormat(
+                        String(
+                            localized: "cli.hooks.setup.error.unknownOption",
+                            defaultValue: "Unknown option %@. Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+                        ),
+                        name
+                    ))
+                } else {
+                    if parsed.positionalAgent != nil {
                         throw CLIError(message: "Too many hooks targets: specify at most one positional agent")
                     }
-                    positionalAgent = arg
+                    parsed.positionalAgent = arg
                 }
             }
         }
-        return positionalAgent
+        return parsed
     }
 
-    private func runSetupHooks(uninstall: Bool = false, positionalAgentFilter: String? = nil) throws {
-        let args = ProcessInfo.processInfo.arguments
-        let flagAgentFilter = optionValue(args, name: "--agent")
+    private func runSetupHooks(uninstall: Bool = false, arguments: HooksSetupArguments) throws {
+        let flagAgentFilter = arguments.flagAgent
+        let positionalAgentFilter = arguments.positionalAgent
         if let flagAgentFilter, let positionalAgentFilter {
             guard let flagDef = Self.agentDef(named: flagAgentFilter) else {
                 throw CLIError(message: "Unknown hooks target: \(flagAgentFilter)")
@@ -42479,7 +42516,7 @@ export default {
         } else {
             agentFilterDef = nil
         }
-        let isUninstall = uninstall || args.contains("--uninstall")
+        let isUninstall = uninstall || arguments.uninstall
         let fm = FileManager.default
         let verb = isUninstall ? "uninstalling" : "installing"
         print("cmux hooks \(isUninstall ? "uninstall" : "setup"): \(verb) agent hooks")
