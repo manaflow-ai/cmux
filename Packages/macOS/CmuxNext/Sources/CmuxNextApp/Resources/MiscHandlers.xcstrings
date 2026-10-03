@@ -5240,6 +5240,137 @@
           }
         }
       }
+    },
+    "handlers.misc.failed.gitWriteNeedsFocus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commit and push from the agent pane require focus. Use cmux git commit or cmux git push to run them headless."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントペインからのコミットとプッシュにはフォーカスが必要です。ヘッドレスで実行するには cmux git commit または cmux git push を使用してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب الإيداع والدفع من جزء الوكيل التركيز. استخدم cmux git commit أو cmux git push لتشغيلهما دون واجهة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commit i push iz okna agenta zahtijevaju fokus. Koristite cmux git commit ili cmux git push da ih pokrenete bez sučelja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commit og push fra agentpanelet kræver fokus. Brug cmux git commit eller cmux git push for at køre dem uden brugerflade."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commit und Push aus dem Agentenbereich erfordern den Fokus. Verwenden Sie cmux git commit oder cmux git push, um sie ohne Oberfläche auszuführen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirmar y enviar desde el panel del agente requiere el foco. Usa cmux git commit o cmux git push para ejecutarlos sin interfaz."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La validation et l’envoi depuis le panneau de l’agent nécessitent le focus. Utilisez cmux git commit ou cmux git push pour les exécuter sans interface."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commit e push dal riquadro dell’agente richiedono il focus. Usa cmux git commit o cmux git push per eseguirli senza interfaccia."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commit និង push ពីផ្ទាំងភ្នាក់ងារ ត្រូវការការផ្ដោត។ ប្រើ cmux git commit ឬ cmux git push ដើម្បីដំណើរការដោយគ្មានចំណុចប្រទាក់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 패널에서 커밋과 푸시를 하려면 포커스가 필요합니다. 인터페이스 없이 실행하려면 cmux git commit 또는 cmux git push를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commit og push fra agentpanelet krever fokus. Bruk cmux git commit eller cmux git push for å kjøre dem uten grensesnitt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatwierdzanie i wypychanie z panelu agenta wymaga fokusu. Użyj cmux git commit lub cmux git push, aby uruchomić je bez interfejsu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commit e push pelo painel do agente exigem foco. Use cmux git commit ou cmux git push para executá-los sem interface."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для коммита и push из панели агента нужен фокус. Используйте cmux git commit или cmux git push, чтобы выполнить их без интерфейса."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การคอมมิตและพุชจากแผงเอเจนต์ต้องมีโฟกัส ใช้ cmux git commit หรือ cmux git push เพื่อเรียกใช้โดยไม่มีอินเทอร์เฟซ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan bölmesinden commit ve push için odak gerekir. Arayüz olmadan çalıştırmak için cmux git commit veya cmux git push kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для коміту та push з панелі агента потрібен фокус. Використовуйте cmux git commit або cmux git push, щоб виконати їх без інтерфейсу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commit và push từ khung tác tử cần tiêu điểm. Dùng cmux git commit hoặc cmux git push để chạy không cần giao diện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从代理面板提交和推送需要焦点。使用 cmux git commit 或 cmux git push 以无界面方式运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從代理面板提交和推送需要焦點。使用 cmux git commit 或 cmux git push 以無介面方式執行。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -1120,7 +1120,8 @@ describe("acpmux host handshake", () => {
         await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
       for (let tries = 0; tries < 10; tries += 1) await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
       expect(await host.cmuxAcpmuxActions!["git.diff"]!({ scope: "staged" })).toEqual({ scope: "staged", files: [] });
-      await host.cmuxAcpmuxActions!["git.status"]!({});
+      // A status read names the session it was read for; Commit and Push send it back.
+      expect(await host.cmuxAcpmuxActions!["git.status"]!({})).toMatchObject({ session_id: "s" });
       // The checkpoint control also asks for `git.capabilities`; this test is about the reads.
       expect(asked.filter((entry) => entry.method === "git.diff" || entry.method === "git.status")).toEqual([
         { method: "git.diff", params: { cwd: "/work/app", scope: "staged", include_patch: true } },
@@ -1960,7 +1961,7 @@ describe("acpmux turn diff", () => {
       expect(items()).toEqual([]);
       expect(document.activeElement).toBe(pill);
       expect(pill.querySelector("strong")?.textContent).toBe("Uncommitted");
-      const failure = panel.querySelector('[role="alert"]');
+      const failure = panel.querySelector('.acpmux-changes-state[role="alert"]');
       expect(failure?.querySelector("strong")?.textContent).toBe("Couldn't load changes");
       expect(paths()).toEqual([]);
       // With no files the pill names the scope only.
@@ -1977,7 +1978,7 @@ describe("acpmux turn diff", () => {
       ]);
       // Retry leaves as the load starts; focus moves to the scope pill, not the page.
       expect(document.activeElement).toBe(pill);
-      expect(panel.querySelector('[role="alert"]')).toBeNull();
+      expect(panel.querySelector('.acpmux-changes-state[role="alert"]')).toBeNull();
       expect(paths()).toEqual(["/repo/src/main.ts"]);
       expect(panel.querySelector(".acpmux-diff-file .acpmux-fh-name")?.textContent).toBe("src/main.ts");
       // The same file in another scope is other contents: open and not viewed.
@@ -1992,7 +1993,7 @@ describe("acpmux turn diff", () => {
       await click(items()[1]!);
       expect(asked.length).toBe(3);
       expect(paths()).toEqual([]);
-      expect(panel.querySelector("output")?.textContent).toBe("Loading changes…");
+      expect(panel.querySelector("output.acpmux-changes-state")?.textContent).toBe("Loading changes…");
       // A scope with nothing in it says so. An arrow key opens the menu from the pill too.
       await key(pill, "ArrowDown");
       expect(document.activeElement?.textContent).toBe("Uncommitted");
@@ -2273,7 +2274,9 @@ describe("acpmux turn diff", () => {
         );
       };
       // Last turn comes from the transcript: no skipped files and no branch.
-      expect([banner(), branch(), statuses]).toEqual([null, null, 0]);
+      // The one status read is Commit and Push's, for the HEAD and the ahead count, when the
+      // view opens.
+      expect([banner(), branch(), statuses]).toEqual([null, null, 1]);
       await pick("Uncommitted");
       // Only the message is announced, not the buttons beside it.
       expect(banner()?.getAttribute("role")).toBeNull();
@@ -2282,7 +2285,7 @@ describe("acpmux turn diff", () => {
       expect(banner()?.querySelector(".acpmux-changes-banner-body")?.textContent).toBe(
         "The Changes tab skipped 1,234 untracked files to stay responsive. If these files are generated, clean them up and refresh",
       );
-      expect([branch(), statuses]).toEqual([null, 0]);
+      expect([branch(), statuses]).toEqual([null, 1]);
       const action = (label: string) =>
         [...banner()!.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === label)!;
       // The cleanup command is a dry run that lists the untracked files the scope left out.
@@ -2302,13 +2305,13 @@ describe("acpmux turn diff", () => {
       expect(branch()?.querySelector(".acpmux-branch-from")?.textContent).toBe("feat-retry");
       expect(branch()?.querySelector(".acpmux-branch-to")?.textContent).toBe("origin/main");
       expect(branch()?.textContent).toBe("feat-retry compared with origin/main");
-      expect(statuses).toBe(1);
+      expect(statuses).toBe(2);
       // A refresh asks for the branch again too.
       await click(panel.querySelector<HTMLElement>('[data-tool="options"]')!);
       await click(
         [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === "Refresh")!,
       );
-      expect([diffs.length, statuses]).toEqual([4, 2]);
+      expect([diffs.length, statuses]).toEqual([4, 3]);
       // A status asked before a refresh never names the branch after it.
       const pending: ((branch: string) => void)[] = [];
       host.cmuxAcpmuxActions["git.status"] = () =>

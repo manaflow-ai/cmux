@@ -91,3 +91,42 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 .acpmux-diff-keys{flex:none;display:flex;align-items:center;gap:6px;padding:4px 12px 6px;border-top:1px solid var(--agent-border);color:var(--agent-muted);font-size:11px;line-height:16px;white-space:nowrap;overflow:hidden}
 .acpmux-diff-key{display:inline-flex;align-items:center;gap:2px}
 .acpmux-diff-key .acpmux-keycap:last-of-type{margin-right:3px}
+/* Commit and Push: text buttons in the toolbar pill, the commit form and the latest write's status line under the header. */
+.acpmux-git-tool{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 10px;border:0;border-radius:14px;background:none;color:var(--agent-muted);font:inherit;font-size:12px;cursor:pointer;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease),color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+.acpmux-git-tool:hover:not(:disabled){background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));color:var(--agent-text)}
+.acpmux-git-tool:active:not(:disabled){background:var(--acpmux-step-pressed);color:var(--agent-text)}
+.acpmux-git-tool[aria-expanded=true]{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
+.acpmux-git-tool:disabled{opacity:.5;cursor:default}
+.acpmux-git-tool:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
+.acpmux-git-ahead{font-variant-numeric:tabular-nums;color:var(--agent-text)}
+.acpmux-git-form{flex:none;display:flex;flex-direction:column;gap:8px;padding:8px 12px;border-bottom:1px solid var(--agent-border);background:var(--agent-surface-elevated)}
+.acpmux-git-message{min-height:44px;max-height:160px;resize:vertical;padding:7px 10px;border:1px solid var(--agent-border);border-radius:10px;background:var(--agent-input-bg);color:var(--agent-text);font:inherit;font-size:13px}
+.acpmux-git-message:focus-visible{outline:none;border-color:color-mix(in srgb,var(--agent-text) 35%,transparent)}
+.acpmux-git-form-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.acpmux-git-scope{display:inline-flex;gap:2px;padding:2px;border-radius:14px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)))}
+.acpmux-git-scope-option{display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:12px;color:var(--agent-muted);font-size:12px;cursor:pointer}
+.acpmux-git-scope-option input{position:absolute;opacity:0;pointer-events:none}
+.acpmux-git-scope-option[data-checked=true]{background:var(--agent-page-bg);color:var(--agent-text)}
+.acpmux-git-scope-option:has(input:focus-visible){outline:1.5px solid var(--agent-muted);outline-offset:1px}
+.acpmux-git-scope-hint{flex:1;min-width:120px;color:var(--agent-muted);font-size:12px}
+.acpmux-git-primary,.acpmux-git-secondary{height:28px;padding:0 12px;border:0;border-radius:14px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;font-size:12px;cursor:default;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+.acpmux-git-primary{background:color-mix(in srgb,var(--agent-text) 85%,var(--agent-page-bg));color:var(--agent-page-bg)}
+.acpmux-git-secondary:hover:not(:disabled){background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
+.acpmux-git-primary:hover:not(:disabled){background:var(--agent-text)}
+.acpmux-git-primary:disabled,.acpmux-git-secondary:disabled{opacity:.5}
+.acpmux-git-primary:focus-visible,.acpmux-git-secondary:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
+.acpmux-git-status{flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:6px 12px;border-bottom:1px solid var(--agent-border);color:var(--agent-text);font-size:12px}
+.acpmux-git-status[data-phase=busy],.acpmux-git-status[data-phase=done]{background:color-mix(in srgb,var(--agent-text) 4%,transparent)}
+.acpmux-git-status[data-phase=failed]{background:color-mix(in srgb,var(--agent-danger) 14%,transparent)}
+.acpmux-git-status-text{flex:1;min-width:0}
+.acpmux-git-status .acpmux-git-secondary{height:24px;padding:0 10px}
+.acpmux-git-output{flex-basis:100%}
+.acpmux-git-output summary{color:var(--agent-muted);cursor:default}
+.acpmux-git-output pre{max-height:200px;overflow:auto;margin:6px 0 0;padding:8px;border-radius:8px;background:var(--agent-input-bg);font:11px ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap}
+@media (prefers-reduced-motion: reduce){.acpmux-git-tool,.acpmux-git-primary,.acpmux-git-secondary{transition:none}}
+.acpmux-git-status[data-phase=idle]{padding:0;border-bottom:0}
+.acpmux-git-status-text:empty{display:none}
+.acpmux-git-include-new{display:inline-flex;align-items:center;gap:6px;color:var(--agent-text);font-size:12px}
+.acpmux-git-form-note{color:var(--agent-muted);font-size:12px}
+.acpmux-git-new-files{display:flex;flex-direction:column;gap:4px}
+.acpmux-git-new-files ul{max-height:120px;overflow:auto;margin:0;padding:0 0 0 16px;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--agent-text)}

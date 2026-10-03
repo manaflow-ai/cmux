@@ -14,7 +14,7 @@ import {
   WORKED_SESSION,
   type SeedStep,
 } from "./mockFixture";
-import { mockGitDiff, mockGitStatus } from "./mockGit";
+import { mockGitCommit, mockGitDiff, mockGitPush, mockGitStatus } from "./mockGit";
 import { mockFileSearch } from "./mockFiles";
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -412,6 +412,10 @@ export class MockAcpmuxSocket {
         return mockGitDiff(target, params.scope, params.include_patch === true);
       case "git.status":
         return mockGitStatus(target);
+      case "git.commit":
+        return mockGitCommit(target, params);
+      case "git.push":
+        return mockGitPush(target, params);
       default:
         return {};
     }

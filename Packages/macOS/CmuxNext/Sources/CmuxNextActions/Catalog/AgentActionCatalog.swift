@@ -54,6 +54,32 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
             ActionDescriptor(
+                id: "agentPane.git.commit",
+                title: String(localized: "action.agentPane.git.commit", defaultValue: "Commit changes…", bundle: .module),
+                keywords: ["agent", "git", "commit", "changes", "stage", "message"],
+                category: .agents, symbol: "checkmark.circle", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane],
+                // The session host owns `cmux git commit` (git.commit); this
+                // action opens the changes view's commit form for that op.
+                // Palette only, as the other agentPane actions: no default
+                // shortcut (no free chord that means commit in a terminal-
+                // first app), and no menu-bar or right-click item, because
+                // it acts on the focused chat's changes view, which has no
+                // menu of its own. The toolbar button is its other entrypoint.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.ownerVerb), contextMenuExemption: .noTargetSurface)
+            ),
+            ActionDescriptor(
+                id: "agentPane.git.push",
+                title: String(localized: "action.agentPane.git.push", defaultValue: "Push branch", bundle: .module),
+                keywords: ["agent", "git", "push", "upload", "remote", "branch", "upstream"],
+                category: .agents, symbol: "arrow.up.circle", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane],
+                // The session host owns `cmux git push` (git.push); this runs
+                // the changes view's Push button, which never forces. Palette
+                // only, for the reasons given for agentPane.git.commit.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.ownerVerb), contextMenuExemption: .noTargetSurface)
+            ),
+            ActionDescriptor(
                 id: "agentPane.searchChats",
                 title: String(localized: "action.agentPane.searchChats", defaultValue: "Search Agent Chats", bundle: .module),
                 keywords: ["agent", "chat", "search", "find", "sessions", "acpmux"],

@@ -663,6 +663,17 @@ export class AcpmuxDirectClient {
     return this.git("git.status", {});
   }
 
+  /// Commits in the selected session's repository (`git.commit`; changes/gitWrite.ts builds
+  /// the params and the idempotency key).
+  gitCommit(params: Record<string, unknown>): Promise<unknown> {
+    return this.git("git.commit", params);
+  }
+
+  /// Pushes the selected session's branch (`git.push`); never forced.
+  gitPush(params: Record<string, unknown>): Promise<unknown> {
+    return this.git("git.push", params);
+  }
+
   /// acpmux serves no git methods: the native host runs them on the session host in the selected
   /// session's folder, and mock mode's in-page daemon answers them by session.
   /// One turn's repository changes: checkpoint `from` against checkpoint `to`.
@@ -671,7 +682,7 @@ export class AcpmuxDirectClient {
   }
 
   private git(
-    method: "git.diff" | "git.status" | "git.checkpoint.diff",
+    method: "git.diff" | "git.status" | "git.checkpoint.diff" | "git.commit" | "git.push",
     params: Record<string, unknown>,
   ): Promise<unknown> {
     const sessionId = this.selectedSessionId;
@@ -682,9 +693,17 @@ export class AcpmuxDirectClient {
     // The native host reads folders on this Mac; a cloud session's folder is on its machine.
     if (hostKind(summary?.hostKind) === "cloud" || entry?.hostKind === "cloud")
       return Promise.reject(new Error("This chat runs on another machine, so its changes can't be read here yet"));
-    return this.gitRoute === "daemon"
-      ? this.request(method, { sessionId, cwd, ...params })
-      : postNative(method, { cwd, ...params });
+    const asked =
+      this.gitRoute === "daemon"
+        ? this.request(method, { sessionId, cwd, ...params })
+        : postNative(method, { cwd, ...params });
+    // A status read names the session it read, so a commit or push built on it says which
+    // session's repository the reader saw; the host refuses one for another session.
+    return method === "git.status"
+      ? asked.then((value) =>
+          value && typeof value === "object" ? { ...(value as object), session_id: sessionId } : value,
+        )
+      : asked;
   }
 
   private request(method: string, params: Record<string, unknown>, deadline?: number): Promise<any> {

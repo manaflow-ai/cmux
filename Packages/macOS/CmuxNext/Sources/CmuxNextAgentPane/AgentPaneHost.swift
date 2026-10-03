@@ -11,6 +11,9 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// The handshake for a page that lost its daemon. Never starts one, so a
     /// daemon the user stopped stays stopped.
     func reconnectHandshake(sessionId: String?) async throws -> AgentPaneHandshake
+    /// The folder of the daemon's session `sessionId`, nil when it has none.
+    /// Never starts a daemon.
+    func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder?
 }
 
 extension AgentPaneHostProviding {
@@ -20,6 +23,9 @@ extension AgentPaneHostProviding {
     }
 
     public func prewarm() async throws {}
+
+    /// Hosts without a daemon know no session folders.
+    public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? { nil }
 }
 
 /// Why the live host could not produce a handshake.
@@ -68,6 +74,12 @@ public actor AcpmuxHost: AgentPaneHostProviding {
 
     public func prewarm() async throws {
         _ = try await endpoint(startsDaemon: true)
+    }
+
+    public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? {
+        if environment == nil { environment = resolveEnvironment() }
+        guard let environment else { throw AgentPaneHostError.acpmuxNotFound }
+        return try await AcpmuxStatusClient.sessionFolder(socketPath: environment.socketPath, sessionId: sessionId)
     }
 
     private func endpoint(startsDaemon: Bool) async throws -> AcpmuxWebEndpoint {

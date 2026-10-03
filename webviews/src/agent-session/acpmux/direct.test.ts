@@ -1430,7 +1430,8 @@ describe("direct client git reads", () => {
     const client = await connect();
     await settle();
     expect(await client.gitDiff("staged")).toEqual({ method: "git.diff" });
-    expect(await client.gitStatus()).toEqual({ method: "git.status" });
+    // The status names the session it was read for, so a write built on it names it too.
+    expect(await client.gitStatus()).toEqual({ method: "git.status", session_id: "a" });
     await client.select("b");
     await settle();
     await client.gitDiff("branch");

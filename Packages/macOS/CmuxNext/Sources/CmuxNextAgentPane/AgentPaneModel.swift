@@ -63,6 +63,10 @@ public final class AgentPaneModel {
     /// Throws an ``AgentPaneGitFailure`` saying who failed; any other error
     /// reaches the page as `native.failed`.
     @ObservationIgnored public var onGit: (@MainActor (AgentPaneGitRequest) async throws -> Data)?
+    /// Runs a commit or push on the session host in the given folder (the
+    /// pane's session's, from the host) and returns its `MutationResult` as
+    /// JSON; throws like ``onGit``.
+    @ObservationIgnored public var onGitWrite: (@MainActor (AgentPaneGitWrite, String) async throws -> Data)?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
     /// What a new chat inherits from the tab it was opened from.
@@ -183,17 +187,28 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .git(let git):
             guard let onGit else { return Self.gitFailure(.notConnected) }
-            do {
-                let data = try await onGit(git)
-                guard let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
-                    return Self.gitFailure(.failed)
-                }
-                return AgentPaneReply.success(value)
-            } catch {
-                return Self.gitFailure(error as? AgentPaneGitFailure ?? .failed)
+            return await Self.gitReply(message: Self.gitFailedMessage) { try await onGit(git) }
+        case .gitWrite(let write):
+            guard let onGitWrite else { return Self.gitFailure(.notConnected, message: Self.gitWriteFailedMessage) }
+            // The pane's own session, never a folder the page names.
+            guard let sessionId else { return Self.gitFailure(.noSessionFolder, message: Self.gitWriteFailedMessage) }
+            // The page read the repository for another session than the pane's.
+            guard write.sessionId == sessionId else {
+                return Self.gitFailure(.sessionChanged, message: Self.gitWriteFailedMessage)
             }
-        case .invalidGit:
-            return Self.gitFailure(.invalidRequest)
+            let folder: AgentPaneSessionFolder?
+            do {
+                folder = try await host.sessionFolder(sessionId: sessionId)
+            } catch {
+                return Self.gitFailure(.notConnected, message: Self.gitWriteFailedMessage)
+            }
+            guard let folder, folder.isLocal, folder.cwd.hasPrefix("/") else {
+                return Self.gitFailure(.noSessionFolder, message: Self.gitWriteFailedMessage)
+            }
+            return await Self.gitReply(message: Self.gitWriteFailedMessage) { try await onGitWrite(write, folder.cwd) }
+        case .invalidGit(let method):
+            let message = method == "git.commit" || method == "git.push" ? Self.gitWriteFailedMessage : Self.gitFailedMessage
+            return Self.gitFailure(.invalidRequest, message: message)
         case .unsupported(let method):
             return Self.unsupported(method)
         }
@@ -213,10 +228,24 @@ public final class AgentPaneModel {
 extension AgentPaneModel {
     /// The page's reply for a failed git read: the failure's code, origin,
     /// details and retryable under the localized text.
-    static func gitFailure(_ failure: AgentPaneGitFailure) -> [String: Any] {
+    static func gitFailure(_ failure: AgentPaneGitFailure, message: String = gitFailedMessage) -> [String: Any] {
         let details = failure.details.flatMap { try? JSONSerialization.jsonObject(with: $0, options: [.fragmentsAllowed]) }
         return AgentPaneReply.failure(
-            code: failure.code, message: gitFailedMessage, details: details,
+            code: failure.code, message: message, details: details,
             retryable: failure.retryable, origin: failure.origin.rawValue)
+    }
+
+    /// The page's reply for a git read or write: its JSON result, else the
+    /// failure under `message`. A result that is not JSON is `native.failed`.
+    static func gitReply(message: String, _ run: () async throws -> Data) async -> [String: Any] {
+        do {
+            let data = try await run()
+            guard let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
+                return gitFailure(.failed, message: message)
+            }
+            return AgentPaneReply.success(value)
+        } catch {
+            return gitFailure(error as? AgentPaneGitFailure ?? .failed, message: message)
+        }
     }
 }

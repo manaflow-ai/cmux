@@ -25,6 +25,11 @@ extension AgentPaneModel {
     static var gitFailedMessage: String {
         String(localized: "agentPane.error.git", defaultValue: "The changes could not be read.", bundle: .module)
     }
+
+    /// A commit or push of the changes view failed or has no session host.
+    static var gitWriteFailedMessage: String {
+        String(localized: "agentPane.error.gitWrite", defaultValue: "The git command could not be completed.", bundle: .module)
+    }
 }
 
 extension AgentPaneView {

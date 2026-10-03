@@ -490,6 +490,29 @@ describe("mock daemon", () => {
     }
   });
 
+  test("Commit and Push change the mock branch once per key, and refuse a stale HEAD", async () => {
+    const { call, sent } = open();
+    const sessionId = "mock-release-notes";
+    const failure = (request: number) => sent.find((message) => message.id === request)?.error?.data;
+    const before = await call("git.status", { sessionId });
+    const commit = { sessionId, message: "Release notes", expected_head: before.head, idempotency_key: "k1" };
+    const made = await call("git.commit", commit);
+    expect(made.value).toMatchObject({ parent: before.head, summary: "Release notes" });
+    expect(made.replayed).toBe(false);
+    // The same key replays the first result instead of committing again.
+    expect(await call("git.commit", commit)).toEqual({ ...made, replayed: true });
+    const after = await call("git.status", { sessionId });
+    expect([after.head, after.ahead]).toEqual([made.value.commit, before.ahead + 1]);
+    // A view that read the old HEAD is refused.
+    expect(await call("git.commit", { ...commit, idempotency_key: "k2" })).toBeUndefined();
+    expect(failure(sent.at(-1)!.id)).toMatchObject({ code: "operation.failed", details: { reason: "head_moved" } });
+    expect(await call("git.commit", { ...commit, message: "fail:hook_failed", idempotency_key: "k3" })).toBeUndefined();
+    expect(failure(sent.at(-1)!.id)).toMatchObject({ details: { reason: "hook_failed" } });
+    const pushed = await call("git.push", { sessionId, expected_head: after.head, idempotency_key: "p1" });
+    expect(pushed.value).toMatchObject({ upstream: "origin/main", pushed_commit: after.head, up_to_date: false });
+    expect((await call("git.status", { sessionId })).ahead).toBe(0);
+  });
+
   test("the worked session's git scopes hold the turn's edits, half staged, over one commit", async () => {
     const { call, sent } = open();
     const paths = async (scope: string, sessionId = "mock-session") =>
@@ -527,6 +550,7 @@ describe("mock daemon", () => {
       root: "~/code/cmux",
       detached: false,
       branch: "feat-upload-retry",
+      head: "4be1c2e9a0f1b2c3d4e5f60718293a4b5c6d7e8f",
       upstream: "origin/main",
       base: "origin/main",
       ahead: 1,

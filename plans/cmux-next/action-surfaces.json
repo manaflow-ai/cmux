@@ -12873,6 +12873,52 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "ownerVerb",
+      "cli_name" : "action agent-pane-git-commit",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentPane.git.commit",
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Commit changes…",
+      "title_key" : "action.agentPane.git.commit",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "ownerVerb",
+      "cli_name" : "action agent-pane-git-push",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentPane.git.push",
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Push branch",
+      "title_key" : "action.agentPane.git.push",
+      "title_table" : "Localizable"
+    },
+    {
       "cli" : "liveInput",
       "cli_name" : "action agent-pane-search-chats",
       "context_menu" : "noTargetSurface",
