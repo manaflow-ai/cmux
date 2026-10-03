@@ -17,12 +17,15 @@ extension Workspace {
     /// Whether a persisted panel was hosting a local agent session that died
     /// with the previous app process. Remote terminals are excluded: their agent
     /// can outlive the local app and keep owning its notifications.
-    static func restoredPanelHostedLocalAgent(_ panelSnapshot: SessionPanelSnapshot) -> Bool {
+    nonisolated static func restoredPanelHostedLocalAgent(_ panelSnapshot: SessionPanelSnapshot) -> Bool {
         guard let terminal = panelSnapshot.terminal else { return false }
         guard terminal.isRemoteTerminal != true, terminal.remotePTYSessionID == nil else { return false }
         return terminal.resumeBinding != nil || terminal.agent != nil
     }
 
+    /// Records, per restored panel, the persisted notifications of panes that
+    /// were hosting a local agent, keyed by the panel's new id. Replaces any
+    /// tracking left from an earlier restore of this workspace.
     func trackRestoredAgentNotifications(
         from snapshot: SessionWorkspaceSnapshot,
         oldToNewPanelIds: [UUID: UUID]
@@ -44,12 +47,18 @@ extension Workspace {
 
     /// Removes read restored agent notifications on panes the agent never
     /// returned to. A pane that registered a new agent PID is handed back to the
-    /// agent hooks, which own its notifications from then on.
+    /// agent hooks, which own its notifications from then on. A pane whose
+    /// restored resume is still in flight is left for a later sweep: the agent
+    /// may not have reported its PID yet.
+    ///
+    /// Tracked notifications are looked up by id, so a sweep that removes
+    /// nothing does not scan the store; each removal happens once.
     @discardableResult
     func pruneOrphanedRestoredAgentNotifications(store: TerminalNotificationStore) -> Bool {
         guard !restoredAgentNotificationIdsByPanelId.isEmpty else { return false }
         var didRemove = false
         for (panelId, trackedIds) in restoredAgentNotificationIdsByPanelId {
+            if restoredAgentLifecycle.ownsInFlightRestoredCommand(panelId: panelId) { continue }
             let hasLiveAgent = !(agentPIDKeysByPanelId[panelId] ?? []).isEmpty
 #if DEBUG
             cmuxDebugLog(
@@ -60,8 +69,8 @@ extension Workspace {
                 restoredAgentNotificationIdsByPanelId.removeValue(forKey: panelId)
                 continue
             }
-            let remaining = store.notifications(forTabId: id, surfaceId: panelId)
-                .filter { trackedIds.contains($0.id) }
+            let remaining = trackedIds.compactMap { store.notification(id: $0) }
+                .filter { $0.matches(tabId: id, surfaceId: panelId) }
             var stillTracked = Set<UUID>()
             for notification in remaining {
                 if notification.isRead {
