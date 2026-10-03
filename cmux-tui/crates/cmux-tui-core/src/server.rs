@@ -5765,7 +5765,7 @@ impl ClientRegistry {
             .clients
             .get(&requesting_client)
             .ok_or_else(|| anyhow::anyhow!("unknown client {requesting_client}"))?;
-        if !matches!(requester.transport, ClientTransport::Unix) {
+        if !matches!(requester.transport, ClientTransport::Unix) || requester.remote_bridge {
             anyhow::bail!("daemon shutdown requires a trusted local connection");
         }
         if !force
@@ -7460,12 +7460,15 @@ fn trusted_local_resource_client(
     client: u64,
     operation: ResourceOperation,
 ) -> Result<(), ResourceError> {
-    // A remote bridge peer never decides who else may pair.
-    let pairing = matches!(
+    // A remote bridge peer never decides who else may pair, and never
+    // starts a daemon handoff (which would open the old-sidecar window).
+    let local_principal_only = matches!(
         operation,
-        ResourceOperation::PairingRequestList | ResourceOperation::PairingRequestResolve
+        ResourceOperation::PairingRequestList
+            | ResourceOperation::PairingRequestResolve
+            | ResourceOperation::SessionShutdown
     );
-    if (!pairing && mux.control_clients.is_unix(client))
+    if (!local_principal_only && mux.control_clients.is_unix(client))
         || mux.control_clients.is_local_principal(client)
     {
         Ok(())
@@ -10630,11 +10633,14 @@ fn handle_connection_message(
     // `shutdown-daemon` reply along with its connection, so a message that
     // arrives meanwhile (a subscriber's snapshot refresh) is refused
     // without being executed and the connection stays open.
-    if mux.daemon_handoff_in_progress() {
-        return reject_message_during_pending_handoff(message, writer);
-    }
+    // The bridge mark only removes rights, so it is recorded even while a
+    // handoff is pending: refusing it there would read as a pre-mark daemon
+    // and leave a peer's connection unmarked.
     if connection_origin::is_remote_bridge_mark(message) {
         return connection_origin::accept_remote_bridge_mark(&mux.control_clients, client, writer);
+    }
+    if mux.daemon_handoff_in_progress() {
+        return reject_message_during_pending_handoff(message, writer);
     }
     if crate::resource_router::is_resource_protocol_message(message) {
         return handle_resource_connection_message(mux, client, message, writer);

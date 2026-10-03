@@ -126,8 +126,11 @@ mod tests {
                 .await;
         assert!(connected.is_ok(), "a daemon from before the mark still serves the peer");
 
-        let (connected, _) =
-            run(b"{\"id\":0,\"ok\":false,\"error\":\"daemon shutdown is in progress\"}\n").await;
+        // Any other reply (a new session always accepts the mark, even while
+        // a handoff is pending) closes the peer's connection.
+        let (connected, _) = run(b"{\"id\":0,\"ok\":false,\"error\":\"refused\"}\n").await;
         assert!(connected.is_err(), "a refused mark closes the peer's connection");
+        let (connected, _) = run(b"not json\n").await;
+        assert!(connected.is_err());
     }
 }

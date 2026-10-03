@@ -98,8 +98,15 @@ Rules:
   clears it (slice 3b-1, server/connection_origin.rs, cmux-remote
   bridge_mark.rs). A marked connection cannot present a launch credential,
   never becomes the frontend, and cannot list, resolve or answer pairing
-  requests (it does not get pending pairings in a subscription). Other
-  `is_unix` gates keep their meaning.
+  requests (it does not get pending pairings in a subscription), and cannot
+  start a daemon handoff. The session records the mark even while a handoff
+  is pending. Other `is_unix` gates keep their meaning for now.
+- The mark is defense in depth for the bridged stream ONLY, not a boundary
+  against a paired peer: a paired peer can start processes as the user
+  (process streams, workspace RPC) and type into terminals, and such a
+  process connects to the session socket unmarked. So the frontend actor and
+  `secret.release` (3b-2) must require the install-key proof, never "local
+  principal" alone.
 - Residual window (coordinator decision 2026-10-03, option (a) of three): the
   mark is claimed by the bridge, not set by the listener. An OLD sidecar
   binary sends no mark. It cannot outlive the daemon that accepted it: a

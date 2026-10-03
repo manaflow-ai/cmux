@@ -162,3 +162,37 @@ fn a_bridged_connection_cannot_see_or_decide_pairing_requests() {
     disconnect_client(&mux, local, false);
     mux.shutdown();
 }
+
+/// A pending handoff must not make the session answer the mark like a
+/// daemon from before the mark (the bridge would then go on unmarked), and a
+/// bridged connection must not start a handoff at all.
+#[test]
+fn the_mark_holds_during_a_pending_handoff_and_a_bridge_cannot_start_one() {
+    let mux = Mux::new_for_test("connection-origin-handoff", crate::SurfaceOptions::default());
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let bridged = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let mark = String::from_utf8(remote_bridge_mark_line()).unwrap();
+    let _ = line(&mux, bridged, &writer, &outbound, &mark);
+    assert!(mux.begin_daemon_handoff(bridged, DaemonHandoffRequest::unfenced(false)).is_err());
+
+    // A bridge connection registered just before a local requester starts a
+    // handoff sends its mark while the handoff is pending: still marked.
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let late = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let requester = mux.control_clients.register(ClientTransport::Unix, test_writer_for_origin());
+    mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(false)).unwrap();
+    assert!(mux.daemon_handoff_in_progress());
+    let reply = line(&mux, late, &writer, &outbound, &mark);
+    assert_eq!(remote_bridge_mark_reply(&reply.to_string()), RemoteBridgeMarkReply::Accepted);
+    assert!(!mux.control_clients.is_local_principal(late));
+    // Cancelling the handoff does not clear the mark.
+    mux.cancel_daemon_handoff(requester);
+    assert!(!mux.control_clients.is_local_principal(late));
+    mux.shutdown();
+}
+
+fn test_writer_for_origin() -> MessageWriter {
+    MessageWriter::new(QueuedSink { outbound: Arc::new(BoundedOutbound::default()), control: None })
+}
