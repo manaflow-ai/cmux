@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a16b47a7c9727a3a99bf179c57b23df1914985b16f536890eb562c4b1b3cfe7d. */
+/* cmux-tui mux protocol 12, IR 84a8bdedab4401d4d1a43451141a2dfe7029536563f6701d04ae2d02374fc8c2. */
 
 
 import type * as T from "./types.js";
@@ -1088,6 +1088,7 @@ export interface NewRowRequest extends CmuxRequestBase {
   "rows"?: (number) | null;
   "shell_args"?: (Array<string>) | null;
   "terminal_id"?: (string) | null;
+  "transaction"?: (string) | null;
 }
 
 /** Protocol v5; authority: control. */

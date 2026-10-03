@@ -66,3 +66,25 @@ pub(super) fn send_response_with_reason(
     }
     writer.send_control(&value).is_ok()
 }
+
+/// The stable `error_code` of a rejected command, when its error has one.
+pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
+    error
+        .downcast_ref::<crate::LayoutUndoError>()
+        .map(|error| error.code().to_string())
+        .or_else(|| {
+            error.downcast_ref::<crate::LayoutRatioError>().map(|error| error.code().to_string())
+        })
+        .or_else(|| {
+            error.downcast_ref::<crate::ViewportWidthError>().map(|error| error.code().to_string())
+        })
+        .or_else(|| {
+            error
+                .downcast_ref::<crate::ColumnStickyError>()
+                .and_then(|error| error.code().map(str::to_string))
+        })
+        .or_else(|| super::rows::error_code(error))
+        .or_else(|| super::bookmarks::error_code(error))
+        .or_else(|| super::conversations::error_code(error))
+        .or_else(|| crate::state::home_error_code(error))
+}

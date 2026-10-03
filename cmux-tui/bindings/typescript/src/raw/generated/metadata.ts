@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a16b47a7c9727a3a99bf179c57b23df1914985b16f536890eb562c4b1b3cfe7d. */
+/* cmux-tui mux protocol 12, IR 84a8bdedab4401d4d1a43451141a2dfe7029536563f6701d04ae2d02374fc8c2. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "a16b47a7c9727a3a99bf179c57b23df1914985b16f536890eb562c4b1b3cfe7d" as const;
+export const SDK_IR_SHA256 = "84a8bdedab4401d4d1a43451141a2dfe7029536563f6701d04ae2d02374fc8c2" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1396,6 +1396,7 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Opens a new row of height_permille below the row of pane in that pane's column, holding one new pane with one new terminal. On a split screen the screen's tree first becomes the only row of one column.",
+      "transaction (1-128 printable ASCII) is echoed in the result and in the screen-changed delta of the commit.",
       "See spec/commands.md for the result object and error codes."
     ]
   },
@@ -2039,6 +2040,7 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "heights names every row of column exactly once; a stale row set, a height outside 100..1000, or fit with a sum other than 1000 is refused and changes nothing.",
+      "transaction is echoed in the result and, as a decimal string, in the screen-changed delta.",
       "See spec/commands.md for the result object and error codes."
     ]
   },
@@ -5408,6 +5410,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "terminal_incarnation": {
         "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "transaction": {
+        "nullable": false,
         "presence": "optional",
         "type": {
           "kind": "scalar",
@@ -14663,6 +14673,15 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$"
             }
           ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "transaction": {
           "default": null,
           "nullable": true,
           "presence": "optional",

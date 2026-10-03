@@ -16,6 +16,9 @@ use cmux_layout_reducer::{LayoutOp, LayoutOpKind, Reject};
 /// `set-row-heights`.
 const ROW_HEIGHTS_OPERATION: &str = "column.row_heights.set";
 
+/// `reason_code` of a layout document applied to a screen with rows.
+pub(crate) const ROWS_LAYOUT_REPLACE_UNSUPPORTED: &str = "rows-layout-replace-unsupported";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RowsError {
     /// A row height outside 100..=1000 permille.
@@ -103,6 +106,21 @@ pub(super) fn row_height_field(fields: &Map<String, Value>) -> anyhow::Result<Op
 
 /// Validates `row_height` on a `pane.split` intent: a downward split only,
 /// never combined with a ratio or a viewport width.
+/// `workspace.layout.apply` replaces a screen's layout from a document that
+/// has no rows yet, so a screen with rows refuses it and changes nothing
+/// (plans/cmux-next/rows.md, decision 5).
+pub(super) fn refuse_layout_replace(screen: &Screen) -> anyhow::Result<()> {
+    if screen.layout_columns.iter().all(|column| column.rows.is_empty()) {
+        return Ok(());
+    }
+    Err(ResourceError::operation_failed(
+        "workspace.layout.apply",
+        format!("{ROWS_LAYOUT_REPLACE_UNSUPPORTED}: layout documents do not carry rows yet"),
+        serde_json::json!({"reason_code": ROWS_LAYOUT_REPLACE_UNSUPPORTED}),
+    )
+    .into())
+}
+
 pub(super) fn validate_row_height_field(
     fields: &Map<String, Value>,
     direction: &str,
@@ -131,13 +149,15 @@ fn column_location(state: &State, column: SplitId) -> Option<(usize, usize, usiz
 impl Mux {
     /// `new-row`: one new terminal in a new pane, in a new row of `height`
     /// permille below the row of `target`. On a split screen the tree becomes
-    /// the first row of one column.
+    /// the first row of one column. The screen's `screen-changed` delta after
+    /// the commit echoes `transaction` (mutation-echo).
     pub fn new_row_with_options(
         self: &Arc<Self>,
         target: PaneId,
         height: u64,
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
+        transaction: Option<String>,
     ) -> anyhow::Result<Arc<Surface>> {
         let height = checked_height(height)?;
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
@@ -156,7 +176,15 @@ impl Mux {
             fields,
         )?;
         self.emit_resource_topology_legacy_events(ResourceOperation::PaneSplit, &commit);
-        self.ordinary_created_surface(&commit)
+        let surface = self.ordinary_created_surface(&commit)?;
+        let screen = self.with_state(|state| {
+            let (workspace, screen) = state.screen_of(state.pane_of(surface.id)?)?;
+            Some(state.workspaces[workspace].screens[screen].id)
+        });
+        if let Some(screen) = screen {
+            self.emit_screen_changed_for_transaction(&[screen], transaction.map(Arc::from));
+        }
+        Ok(surface)
     }
 
     /// `set-row-heights`: every row height of one column at once. The row
