@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'afe299d1209c108b0f99f5cdc8be4b34b7cd17992d4b64b2615cc1a8df3dca17'
+IR_SHA256 = 'a16b47a7c9727a3a99bf179c57b23df1914985b16f536890eb562c4b1b3cfe7d'
 
 
 @dataclass(frozen=True)
@@ -1553,6 +1553,25 @@ COMMANDS = {
             'width': CommandFieldMetadata(None, None),
         },
     ),
+    'new-row': CommandMetadata(
+        'new-row',
+        'control',
+        12,
+        'rows-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'cols': CommandFieldMetadata(None, None),
+            'cwd': CommandFieldMetadata(None, None),
+            'env': CommandFieldMetadata(None, None),
+            'height_permille': CommandFieldMetadata(None, None),
+            'keep': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'rows': CommandFieldMetadata(None, None),
+            'shell_args': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
+        },
+    ),
     'new-screen': CommandMetadata(
         'new-screen',
         'control',
@@ -2279,6 +2298,20 @@ COMMANDS = {
             'dir': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
             'ratio': CommandFieldMetadata(None, None),
+        },
+    ),
+    'set-row-heights': CommandMetadata(
+        'set-row-heights',
+        'control',
+        12,
+        'rows-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'column': CommandFieldMetadata(None, None),
+            'fit': CommandFieldMetadata(None, None),
+            'heights': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
         },
     ),
     'set-screen-metadata': CommandMetadata(

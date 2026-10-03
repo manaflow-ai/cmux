@@ -31,6 +31,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "crate::model::ColumnSticky": "ColumnPin",
     "SnapshotHave": "SnapshotRequestHave",
     "RowMarkerPoint": "RowMarkerPoint",
+    "RowHeight": "RowHeight",
 }
 
 sys.path.insert(0, str(BINDINGS))

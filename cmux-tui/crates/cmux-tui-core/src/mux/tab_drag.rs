@@ -611,13 +611,7 @@ pub(crate) fn apply_tab_drag(
                     screen.insert_layout_column_after(
                         anchor,
                         ids.base_column,
-                        LayoutColumn {
-                            id: ids.split,
-                            width,
-                            root: Node::Leaf(ids.pane),
-                            zellij_auto_layout: Some(vec![ids.pane]),
-                            sticky: None,
-                        },
+                        LayoutColumn::single(ids.split, width, ids.pane),
                     ),
                     "column anchor disappeared from its layout"
                 );

@@ -123,6 +123,7 @@ public final class Commands {
     public static final CommandMetadata NEW_FRONTEND_BROWSER_TAB = new CommandMetadata("new-frontend-browser-tab", Authority.CONTROL, 12, "frontend-browser-tabs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NEW_PANE = new CommandMetadata("new-pane", Authority.CONTROL, 9, null, StreamKind.NONE, Map.ofEntries(Map.entry("cwd", 12L), Map.entry("env", 12L), Map.entry("keep", 12L), Map.entry("shell_args", 12L), Map.entry("terminal_id", 12L)), Map.ofEntries(Map.entry("cwd", "terminal-placement-env-v1"), Map.entry("env", "terminal-placement-env-v1"), Map.entry("keep", "terminal-reap-v1"), Map.entry("shell_args", "terminal-shell-args-v1"), Map.entry("terminal_id", "terminal-placement-env-v1")));
     public static final CommandMetadata NEW_PANE_RIGHT = new CommandMetadata("new-pane-right", Authority.CONTROL, 9, "viewport-splits-v1", StreamKind.NONE, Map.ofEntries(Map.entry("cwd", 12L), Map.entry("env", 12L), Map.entry("keep", 12L), Map.entry("shell_args", 12L), Map.entry("terminal_id", 12L)), Map.ofEntries(Map.entry("cwd", "terminal-placement-env-v1"), Map.entry("env", "terminal-placement-env-v1"), Map.entry("keep", "terminal-reap-v1"), Map.entry("shell_args", "terminal-shell-args-v1"), Map.entry("terminal_id", "terminal-placement-env-v1")));
+    public static final CommandMetadata NEW_ROW = new CommandMetadata("new-row", Authority.CONTROL, 12, "rows-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NEW_SCREEN = new CommandMetadata("new-screen", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NEW_TAB = new CommandMetadata("new-tab", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("env", 12L), Map.entry("keep", 12L), Map.entry("shell_args", 12L), Map.entry("terminal_id", 12L)), Map.ofEntries(Map.entry("env", "terminal-env-v1"), Map.entry("keep", "terminal-reap-v1"), Map.entry("shell_args", "terminal-shell-args-v1"), Map.entry("terminal_id", "terminal-placement-env-v1")));
     public static final CommandMetadata NEW_WORKSPACE = new CommandMetadata("new-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
@@ -177,6 +178,7 @@ public final class Commands {
     public static final CommandMetadata SET_PERSONAL_WORKSPACE = new CommandMetadata("set-personal-workspace", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_PROFILE_FOLLOWS = new CommandMetadata("set-profile-follows", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_RATIO = new CommandMetadata("set-ratio", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata SET_ROW_HEIGHTS = new CommandMetadata("set-row-heights", Authority.CONTROL, 12, "rows-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_SCREEN_METADATA = new CommandMetadata("set-screen-metadata", Authority.CONTROL, 12, "screen-metadata-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_SCREEN_PINNED = new CommandMetadata("set-screen-pinned", Authority.CONTROL, 12, "screen-metadata-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_SIZE_COUNTS = new CommandMetadata("set-size-counts", Authority.CONTROL, 12, "shared-sizing-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -338,6 +340,7 @@ public final class Commands {
         values.put("new-frontend-browser-tab", NEW_FRONTEND_BROWSER_TAB);
         values.put("new-pane", NEW_PANE);
         values.put("new-pane-right", NEW_PANE_RIGHT);
+        values.put("new-row", NEW_ROW);
         values.put("new-screen", NEW_SCREEN);
         values.put("new-tab", NEW_TAB);
         values.put("new-workspace", NEW_WORKSPACE);
@@ -392,6 +395,7 @@ public final class Commands {
         values.put("set-personal-workspace", SET_PERSONAL_WORKSPACE);
         values.put("set-profile-follows", SET_PROFILE_FOLLOWS);
         values.put("set-ratio", SET_RATIO);
+        values.put("set-row-heights", SET_ROW_HEIGHTS);
         values.put("set-screen-metadata", SET_SCREEN_METADATA);
         values.put("set-screen-pinned", SET_SCREEN_PINNED);
         values.put("set-size-counts", SET_SIZE_COUNTS);

@@ -351,6 +351,9 @@ class GeneratedClientMixin:
     def new_pane_right(self, pane: Id, *, terminal_id: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, shell_args: Union[List[str], None, MissingType] = MISSING, width: Union[float, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('new-pane-right', NewPaneRightRequest(pane=pane, terminal_id=terminal_id, cols=cols, cwd=cwd, env=env, keep=keep, rows=rows, shell_args=shell_args, width=width))
 
+    def new_row(self, pane: Id, height_permille: int, *, terminal_id: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, shell_args: Union[List[str], None, MissingType] = MISSING) -> NewRowResult:
+        return self._invoke_command('new-row', NewRowRequest(pane=pane, height_permille=height_permille, terminal_id=terminal_id, cols=cols, cwd=cwd, env=env, keep=keep, rows=rows, shell_args=shell_args))
+
     def new_screen(self, workspace: Union[Id, None, MissingType] = MISSING, *, color: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, group: Union[str, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING, pinned: Union[bool, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, screen_name: Union[str, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('new-screen', NewScreenRequest(workspace=workspace, color=color, cols=cols, cwd=cwd, group=group, icon=icon, index=index, pinned=pinned, rows=rows, screen_name=screen_name))
 
@@ -512,6 +515,9 @@ class GeneratedClientMixin:
 
     def set_ratio(self, pane: Id, dir: SplitDirection, ratio: float) -> EmptyResult:
         return self._invoke_command('set-ratio', SetRatioRequest(pane=pane, dir=dir, ratio=ratio))
+
+    def set_row_heights(self, column: Id, heights: List[RowHeight], *, fit: Union[bool, MissingType] = MISSING, transaction: Union[int, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('set-row-heights', SetRowHeightsRequest(column=column, heights=heights, fit=fit, transaction=transaction))
 
     def set_screen_metadata(self, screen: Id, *, color: Union[str, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('set-screen-metadata', SetScreenMetadataRequest(screen=screen, color=color, icon=icon))
@@ -759,6 +765,7 @@ GeneratedClientMixin.new_conversation_tab.__cmux_command__ = COMMANDS['new-conve
 GeneratedClientMixin.new_frontend_browser_tab.__cmux_command__ = COMMANDS['new-frontend-browser-tab']
 GeneratedClientMixin.new_pane.__cmux_command__ = COMMANDS['new-pane']
 GeneratedClientMixin.new_pane_right.__cmux_command__ = COMMANDS['new-pane-right']
+GeneratedClientMixin.new_row.__cmux_command__ = COMMANDS['new-row']
 GeneratedClientMixin.new_screen.__cmux_command__ = COMMANDS['new-screen']
 GeneratedClientMixin.new_tab.__cmux_command__ = COMMANDS['new-tab']
 GeneratedClientMixin.new_workspace.__cmux_command__ = COMMANDS['new-workspace']
@@ -813,6 +820,7 @@ GeneratedClientMixin.set_personal_terminal.__cmux_command__ = COMMANDS['set-pers
 GeneratedClientMixin.set_personal_workspace.__cmux_command__ = COMMANDS['set-personal-workspace']
 GeneratedClientMixin.set_profile_follows.__cmux_command__ = COMMANDS['set-profile-follows']
 GeneratedClientMixin.set_ratio.__cmux_command__ = COMMANDS['set-ratio']
+GeneratedClientMixin.set_row_heights.__cmux_command__ = COMMANDS['set-row-heights']
 GeneratedClientMixin.set_screen_metadata.__cmux_command__ = COMMANDS['set-screen-metadata']
 GeneratedClientMixin.set_screen_pinned.__cmux_command__ = COMMANDS['set-screen-pinned']
 GeneratedClientMixin.set_size_counts.__cmux_command__ = COMMANDS['set-size-counts']

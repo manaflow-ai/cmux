@@ -1,5 +1,6 @@
-//! A screen's row in `resource_screens`, and its top and bottom docks
-//! (`edge-docks-v1`, plans/cmux-next/layout-model.md).
+//! A screen's row in `resource_screens`, its top and bottom docks
+//! (`edge-docks-v1`, plans/cmux-next/layout-model.md), and its column rows
+//! (`rows-v1`, plans/cmux-next/rows.md).
 //!
 //! Top and bottom docks are not written into `viewport_json`: the stored
 //! viewport column denies unknown fields and its edge is a closed enum, so
@@ -8,6 +9,15 @@
 //! EXISTS` that older builds ignore (they read such a column as an ordinary
 //! one). It is written in the same transaction as the screen row and
 //! overlaid on the viewport at load. Closing a screen deletes its rows.
+//!
+//! Column rows follow the same rule in `resource_screen_rows`: one record per
+//! row of a column with two or more rows. `viewport_json` keeps its shape and
+//! each column's `layout` there is the compat chain. A lone column with rows
+//! is written as no viewport at all ([`RegistryViewport::durable`]), so a
+//! build without `rows-v1` loads its panes as vertical splits. Load keeps a
+//! column's rows only while the stored chain still matches them (a build
+//! without `rows-v1` may have rewritten the screen); otherwise they are
+//! dropped and the column loads as one row.
 
 use super::*;
 use crate::model::{ColumnSticky, StickyEdge, StickyMode};
@@ -20,6 +30,14 @@ pub(super) fn create_column_dock_schema(transaction: &Transaction<'_>) -> anyhow
            edge TEXT NOT NULL,
            mode TEXT NOT NULL,
            PRIMARY KEY (screen_id, column_id)
+         );
+         CREATE TABLE IF NOT EXISTS resource_screen_rows (
+           screen_id TEXT NOT NULL,
+           column_id TEXT NOT NULL,
+           position INTEGER NOT NULL,
+           row_id TEXT NOT NULL,
+           height_permille INTEGER NOT NULL,
+           PRIMARY KEY (screen_id, column_id, position)
          );",
     )?;
     Ok(())
@@ -49,14 +67,164 @@ fn write_column_docks(
     Ok(())
 }
 
-/// Deletes a closed screen's docks, in the transaction that closes it.
-pub(super) fn delete_column_docks(
+/// Deletes a closed screen's docks and rows, in the transaction that
+/// closes it.
+pub(super) fn delete_side_tables(
     transaction: &Transaction<'_>,
     screen_id: &str,
 ) -> anyhow::Result<()> {
     transaction
         .execute("DELETE FROM resource_column_docks WHERE screen_id = ?1", params![screen_id])?;
+    transaction
+        .execute("DELETE FROM resource_screen_rows WHERE screen_id = ?1", params![screen_id])?;
     Ok(())
+}
+
+fn write_screen_rows(transaction: &Transaction<'_>, screen: &RegistryScreen) -> anyhow::Result<()> {
+    transaction.execute(
+        "DELETE FROM resource_screen_rows WHERE screen_id = ?1",
+        params![screen.public_id.as_str()],
+    )?;
+    for (column, position, row) in desired_rows(screen) {
+        transaction.execute(
+            "INSERT INTO resource_screen_rows(
+               screen_id, column_id, position, row_id, height_permille
+             ) VALUES(?1, ?2, ?3, ?4, ?5)",
+            params![screen.public_id.as_str(), column, position, row.0, row.1],
+        )?;
+    }
+    Ok(())
+}
+
+/// `(column id, position, (row id, height))` of every row record, in
+/// column then position order.
+fn desired_rows(screen: &RegistryScreen) -> Vec<(String, i64, (String, i64))> {
+    let mut rows = Vec::new();
+    for column in screen.viewport.columns.iter().filter(|column| column.rows.len() >= 2) {
+        for (position, row) in column.rows.iter().enumerate() {
+            let record = (row.id.to_string(), i64::from(row.height));
+            rows.push((column.id.to_string(), position as i64, record));
+        }
+    }
+    rows.sort();
+    rows
+}
+
+/// Whether both side tables already hold exactly the screen's docks and
+/// rows (a dock-only or row-only change leaves `viewport_json` unchanged).
+pub(super) fn side_tables_match(
+    transaction: &Transaction<'_>,
+    screen: &RegistryScreen,
+) -> anyhow::Result<bool> {
+    let mut statement = transaction.prepare(
+        "SELECT column_id, position, row_id, height_permille FROM resource_screen_rows
+         WHERE screen_id = ?1 ORDER BY column_id, position",
+    )?;
+    let stored = statement
+        .query_map(params![screen.public_id.as_str()], |row| {
+            let record = (row.get::<_, String>(2)?, row.get::<_, i64>(3)?);
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, record))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(stored == desired_rows(screen) && column_docks_match(transaction, screen)?)
+}
+
+/// `screens` with docks ([`with_column_docks`]) and rows overlaid.
+pub(super) fn with_side_tables(
+    connection: &Connection,
+    screens: Vec<RegistryScreen>,
+) -> anyhow::Result<Vec<RegistryScreen>> {
+    let mut screens = with_column_docks(connection, screens)?;
+    let mut statement = connection.prepare(
+        "SELECT screen_id, column_id, row_id, height_permille FROM resource_screen_rows
+         ORDER BY screen_id, column_id, position",
+    )?;
+    let records = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut columns: Vec<((String, String), Vec<(String, i64)>)> = Vec::new();
+    for (screen, column, row, height) in records {
+        match columns.last_mut() {
+            Some((key, rows)) if key.0 == screen && key.1 == column => rows.push((row, height)),
+            _ => columns.push(((screen, column), vec![(row, height)])),
+        }
+    }
+    for ((screen_id, column_id), rows) in columns {
+        let Some(screen) = screens.iter_mut().find(|screen| screen.public_id.as_str() == screen_id)
+        else {
+            continue;
+        };
+        overlay_column_rows(screen, &column_id, &rows);
+    }
+    Ok(screens)
+}
+
+/// Attaches stored rows to their column when they are valid and the stored
+/// chain still matches them; anything else is dropped (the column then loads
+/// as one row, and its records go on the screen's next write).
+fn overlay_column_rows(screen: &mut RegistryScreen, column_id: &str, rows: &[(String, i64)]) {
+    let Some(rows) = rows
+        .iter()
+        .map(|(id, height)| {
+            let height = u16::try_from(*height)
+                .ok()
+                .filter(|height| crate::model::ROW_HEIGHT_PERMILLE.contains(height))?;
+            Some(RegistryRow { id: SplitPublicId::parse(id.clone()).ok()?, height })
+        })
+        .collect::<Option<Vec<_>>>()
+    else {
+        return;
+    };
+    if rows.len() < 2 {
+        return;
+    }
+    let lone = screen.viewport.columns.is_empty();
+    let layout = match screen.viewport.columns.iter().find(|column| column.id.as_str() == column_id)
+    {
+        Some(column) => &column.layout,
+        // A lone column with rows is stored as the screen layout itself.
+        None if lone && screen.auto_layout.is_none() => &screen.layout,
+        None => return,
+    };
+    if !chain_matches(layout, &rows) {
+        return;
+    }
+    if lone {
+        let Ok(id) = SplitPublicId::parse(column_id.to_string()) else { return };
+        let column = RegistryViewportColumn::new(id, 1.0, screen.layout.clone(), None, None);
+        screen.viewport = RegistryViewport { base_width: Some(1.0), columns: vec![column] };
+    }
+    let column = screen
+        .viewport
+        .columns
+        .iter_mut()
+        .find(|column| column.id.as_str() == column_id)
+        .expect("the column was found or created above");
+    column.rows = rows;
+}
+
+/// Whether `layout` is the compat chain of `rows`: from the outside in, one
+/// `down` split per row n..2 carrying that row's id. Ratios are not compared;
+/// load rewrites them from the heights.
+fn chain_matches(layout: &RegistryLayoutNode, rows: &[RegistryRow]) -> bool {
+    let mut node = layout;
+    for row in rows[1..].iter().rev() {
+        let RegistryLayoutNode::Split { split, direction, first, .. } = node else {
+            return false;
+        };
+        if split != &row.id || direction != "down" {
+            return false;
+        }
+        node = &**first;
+    }
+    rows.iter().enumerate().all(|(index, row)| rows[..index].iter().all(|seen| seen.id != row.id))
 }
 
 /// The screen's top and bottom docks as `(column id, edge, mode)`, sorted.
@@ -101,7 +269,7 @@ pub(super) fn column_docks_match(
 /// other columns meanwhile. A dock is restored only while its edge is free
 /// and another column still scrolls; otherwise the dock is dropped (and its
 /// row on the screen's next write), never a side pin the older build set.
-pub(super) fn with_column_docks(
+fn with_column_docks(
     connection: &Connection,
     mut screens: Vec<RegistryScreen>,
 ) -> anyhow::Result<Vec<RegistryScreen>> {
@@ -166,8 +334,9 @@ pub(super) fn upsert_resource_screen(
         .transpose()?
         .unwrap_or_default();
     upsert_resource_identity(transaction, screen.public_id.as_str(), "screen", revision)?;
+    let durable_viewport = screen.viewport.durable();
     let mut desired_splits = Vec::new();
-    collect_screen_split_public_ids(&screen.layout, &screen.viewport, &mut desired_splits);
+    collect_screen_split_public_ids(&screen.layout, &durable_viewport, &mut desired_splits);
     for split in &desired_splits {
         upsert_resource_identity(transaction, split, "split", revision)?;
     }
@@ -183,7 +352,7 @@ pub(super) fn upsert_resource_screen(
         .as_ref()
         .map(|value| canonical_json(&serde_json::to_value(value)?))
         .transpose()?;
-    let viewport = canonical_json(&serde_json::to_value(&screen.viewport)?)?;
+    let viewport = canonical_json(&serde_json::to_value(&durable_viewport)?)?;
     transaction.execute(
         "INSERT INTO resource_screens(
            public_id, workspace_id, position, name, layout_json, active_pane_id,
@@ -213,5 +382,6 @@ pub(super) fn upsert_resource_screen(
             revision,
         ],
     )?;
-    write_column_docks(transaction, screen)
+    write_column_docks(transaction, screen)?;
+    write_screen_rows(transaction, screen)
 }

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR afe299d1209c108b0f99f5cdc8be4b34b7cd17992d4b64b2615cc1a8df3dca17.
+// cmux-tui mux protocol 12, IR a16b47a7c9727a3a99bf179c57b23df1914985b16f536890eb562c4b1b3cfe7d.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1557,6 +1557,27 @@ pub struct NewPaneRightRequest {
 pub type NewPaneRightResult = T::SurfaceResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewRowRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cols: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cwd: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub env: Optional<BTreeMap<String, String>>,
+    pub height_permille: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub keep: Option<bool>,
+    pub pane: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub shell_args: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct NewScreenRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2245,6 +2266,20 @@ pub struct SetRatioRequest {
 
 #[rustfmt::skip]
 pub type SetRatioResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetRowHeightsRequest {
+    pub column: T::Id,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub fit: Option<bool>,
+    pub heights: Vec<T::RowHeight>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<u64>,
+}
+
+#[rustfmt::skip]
+pub type SetRowHeightsResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3430,6 +3465,10 @@ impl CmuxClient {
         self.execute(&NEW_PANE_RIGHT_METADATA, &request)
     }
 
+    pub fn new_row(&mut self, request: NewRowRequest) -> Result<T::NewRowResult> {
+        self.execute(&NEW_ROW_METADATA, &request)
+    }
+
     pub fn new_screen(&mut self, request: NewScreenRequest) -> Result<NewScreenResult> {
         self.execute(&NEW_SCREEN_METADATA, &request)
     }
@@ -3739,6 +3778,10 @@ impl CmuxClient {
 
     pub fn set_ratio(&mut self, request: SetRatioRequest) -> Result<SetRatioResult> {
         self.execute(&SET_RATIO_METADATA, &request)
+    }
+
+    pub fn set_row_heights(&mut self, request: SetRowHeightsRequest) -> Result<SetRowHeightsResult> {
+        self.execute(&SET_ROW_HEIGHTS_METADATA, &request)
     }
 
     pub fn set_screen_metadata(&mut self, request: SetScreenMetadataRequest) -> Result<SetScreenMetadataResult> {

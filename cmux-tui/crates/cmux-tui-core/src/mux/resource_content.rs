@@ -1158,7 +1158,7 @@ fn ensure_split_public_ids(state: &mut State) -> anyhow::Result<()> {
         for screen in &workspace.screens {
             collect_node_split_ids(&screen.root, &mut splits);
             for column in &screen.layout_columns {
-                splits.insert(column.id);
+                splits.extend(std::iter::once(column.id).chain(column.row_ids()));
                 collect_node_split_ids(&column.root, &mut splits);
             }
         }
