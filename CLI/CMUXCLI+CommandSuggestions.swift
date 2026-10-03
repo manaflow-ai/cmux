@@ -185,6 +185,7 @@ extension CMUXCLI {
         "restore",
         "right-sidebar",
         "rpc",
+        "schedule",
         "screenshot",
         "select-workspace",
         "send",
