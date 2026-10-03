@@ -27,11 +27,10 @@ export interface Clock {
   clearTimeout(handle: unknown): void;
 }
 
+/** Real timers. They keep the process alive (the reconnect backoff is one of them; the host is a daemon). */
 const realClock: Clock = {
   setTimeout(fn, ms) {
-    const timer = setTimeout(fn, ms);
-    timer.unref?.();
-    return timer;
+    return setTimeout(fn, ms);
   },
   clearTimeout(handle) {
     clearTimeout(handle as ReturnType<typeof setTimeout>);
@@ -150,9 +149,10 @@ export class MuxHost {
     const { initialMs, maxMs } = this.options.backoff ?? { initialMs: 500, maxMs: 30_000 };
     let delay = initialMs;
     while (!this.stopped) {
-      const startedAt = Date.now();
       try {
         await run();
+        // run() returns only after its connection came up and then closed: start the backoff over.
+        delay = initialMs;
         this.log(`${name} connection closed`);
       } catch (error) {
         if (error instanceof MissingCapabilityError) {
@@ -164,9 +164,10 @@ export class MuxHost {
         this.log(`${name}: ${String(error)}`);
       }
       if (this.stopped) return;
-      // A connection that lived a while resets the backoff.
-      if (Date.now() - startedAt > maxMs) delay = initialMs;
-      await Promise.race([new Promise((resolve) => setTimeout(resolve, delay)), this.stoppedSignal]);
+      // The wait runs on the injected clock; stop() ends it at once.
+      let timer: unknown;
+      await Promise.race([new Promise((resolve) => (timer = this.clock.setTimeout(() => resolve(undefined), delay))), this.stoppedSignal]);
+      this.clock.clearTimeout(timer);
       delay = Math.min(delay * 2, maxMs);
     }
   }

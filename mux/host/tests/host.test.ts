@@ -350,7 +350,9 @@ describe("request timeouts", () => {
     w.daemon.hold.delete("conversation-typing");
     // The reply waits behind the stuck typing request in the serial effect queue.
     expect(muxReplies(w.daemon.messages(conv)).length).toBe(0);
-    clock.advance(1_000);
+    clock.advance(1_000); // the request deadline
+    await Bun.sleep(5);
+    clock.advance(1_000); // the reconnect backoff runs on the injected clock
     await w.daemon.until(() => muxReplies(w.daemon.messages(conv)).length === 1);
     expect(w.daemon.requests.filter((r) => r.cmd === "identify").length).toBe(2);
   }, 5000);
@@ -365,7 +367,9 @@ describe("connect-phase timeouts", () => {
     host.start();
     await w.daemon.until(() => w.daemon.requests.some((r) => r.cmd === "conversation-create"));
     w.daemon.hold.delete("conversation-create");
-    clock.advance(1_000);
+    clock.advance(1_000); // the request deadline
+    await Bun.sleep(5);
+    clock.advance(1_000); // the reconnect backoff runs on the injected clock
     await host.ready;
     expect(w.daemon.requests.filter((r) => r.cmd === "identify").length).toBe(2);
   }, 5000);
@@ -378,7 +382,9 @@ describe("connect-phase timeouts", () => {
     host.start();
     await w.acpmux.until(() => w.acpmux.calls.some((c) => c.method === "_acpmux/watch"));
     w.acpmux.hold.delete("_acpmux/watch");
-    clock.advance(1_000);
+    clock.advance(1_000); // the request deadline
+    await Bun.sleep(5);
+    clock.advance(1_000); // the reconnect backoff runs on the injected clock
     await host.ready;
     expect(w.acpmux.calls.filter((c) => c.method === "_acpmux/watch").length).toBe(2);
   }, 5000);
