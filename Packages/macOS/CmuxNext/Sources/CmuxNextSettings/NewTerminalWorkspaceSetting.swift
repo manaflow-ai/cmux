@@ -3,6 +3,9 @@
 /// the focused workspace. Option-clicking a New Terminal control supplies a
 /// one-shot override in either direction.
 public nonisolated enum NewTerminalWorkspaceSetting {
+}
+
+nonisolated extension NewTerminalWorkspaceSetting {
     public static let configPath = ["newTerminal", "opensWorkspace"]
     public static let fallback = false
 
