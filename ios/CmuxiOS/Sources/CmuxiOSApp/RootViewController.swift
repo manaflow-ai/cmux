@@ -82,6 +82,10 @@ final class RootViewController: UIViewController {
         if let kind = ProcessInfo.processInfo.environment["CMUX_IOS_OPEN_CONVERSATION"] {
             home.debugOpenFirstConversation(kind: kind)
         }
+        if let query = ProcessInfo.processInfo.environment["CMUX_IOS_OPEN_SEARCH"] {
+            let index = ProcessInfo.processInfo.environment["CMUX_IOS_OPEN_SEARCH_HIT"].flatMap { Int($0) } ?? 0
+            home.debugOpenSearchHit(query: query, index: index)
+        }
         if ProcessInfo.processInfo.environment["CMUX_IOS_TERMINAL_PREVIEW"] == "1" {
             let terminal = DevTerminal.make()
             navigation.pushViewController(terminal, animated: false)

@@ -116,8 +116,8 @@ public final class HomeViewController: UIViewController {
         searchController.obscuresBackgroundDuringPresentation = false
         searchController.searchBar.placeholder = HomeText.searchPlaceholder
         searchController.searchBar.tintColor = HomePalette.accent
-        searchResults.onOpen = { [weak self] conversation, key in
-            self?.openConversation(conversation, focus: key)
+        searchResults.onOpen = { [weak self] conversation, focus in
+            self?.openConversation(conversation, focus: focus)
         }
         navigationItem.searchController = searchController
         // Pull down to reveal; the list owns the screen until then.
@@ -127,8 +127,9 @@ public final class HomeViewController: UIViewController {
 
     // MARK: Navigation
 
-    /// Pushes a conversation. `focus` scrolls to that message when it is loaded.
-    func openConversation(_ id: ConversationID, focus: IdempotencyKey?) {
+    /// Pushes a conversation. `focus` opens it scrolled to that message
+    /// (older pages load until it is there).
+    func openConversation(_ id: ConversationID, focus: HomeTranscriptFocus?) {
         guard let navigationController else { return }
         if searchController.isActive { searchController.isActive = false }
         let screen = ConversationViewController(store: store, conversation: id, focus: focus)
@@ -147,6 +148,18 @@ public final class HomeViewController: UIViewController {
             await HomeGallery.waitUntil(store) { store in store.rows.contains { "\($0.kind)" == kind } }
             guard let id = store.rows.first(where: { "\($0.kind)" == kind })?.id else { return }
             self?.openConversation(id, focus: nil)
+        }
+    }
+
+    /// DEBUG ONLY (simulator screenshots): searches Home for `query` and
+    /// opens hit number `index` (newest first) the way tapping it in the
+    /// search results does.
+    public func debugOpenSearchHit(query: String, index: Int) {
+        let store = self.store
+        Task { @MainActor [weak self] in
+            await HomeGallery.waitUntil(store) { $0.isOnline && !$0.rows.isEmpty }
+            guard let hits = try? await store.search(query), hits.indices.contains(index) else { return }
+            self?.openConversation(hits[index].conversation, focus: HomeTranscriptFocus(hits[index]))
         }
     }
     #endif
