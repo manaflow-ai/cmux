@@ -104,7 +104,7 @@ impl WgNet {
 
     /// Datagrams dropped so far, by reason.
     pub fn datagram_drops(&self) -> DatagramDrops {
-        let load = |counter: &std::sync::atomic::AtomicU64| counter.load(Ordering::Relaxed);
+        let load = |counter: &AtomicU64| counter.load(Ordering::Relaxed);
         DatagramDrops {
             media_stale: load(&self.drops.media_stale),
             media_full: load(&self.drops.media_full),

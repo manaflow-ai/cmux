@@ -66,17 +66,20 @@ async fn control_socket_serves_datagram_ports_and_path_events() {
     let peer = WgNet::start(server, server_socket).await.unwrap();
     // The hub's shape: one probed path (the config names the peer's address).
     let path = SocketPath::new(client_socket, Some(server_addr));
-    let (net, paths) =
-        WgNet::start_on_one_path(client, PathKind::ViaCloudRegion, Some(ProbeConfig::default()), path)
-            .unwrap();
+    let (net, paths) = WgNet::start_on_one_path(
+        client,
+        PathKind::ViaCloudRegion,
+        Some(ProbeConfig::default()),
+        path,
+    )
+    .unwrap();
     let net = Arc::new(net);
     net.wait_for_handshake(TIMEOUT).await.unwrap();
 
     let dir = tempdir().unwrap();
     let control_path = dir.path().join("hub").join("control.sock");
-    let control = serve_hub_control(Arc::clone(&net), Some(paths), control_path.clone())
-        .await
-        .unwrap();
+    let control =
+        serve_hub_control(Arc::clone(&net), Some(paths), control_path.clone()).await.unwrap();
     assert_eq!(mode(&control_path), 0o600);
     let mut session = Control::open(&control_path).await;
 

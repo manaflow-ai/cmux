@@ -34,9 +34,7 @@ use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use cmux_wg::{
-    MultipathControl, PathEvent, PathKind, Priority, WgDatagramSocket, WgError, WgNet,
-};
+use cmux_wg::{MultipathControl, PathEvent, PathKind, Priority, WgDatagramSocket, WgError, WgNet};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -279,7 +277,9 @@ impl Hub {
                 Ok(_) => {}
             }
             if line.len() > MAX_REQUEST_BYTES || line.last() != Some(&b'\n') {
-                let _ = lines_tx.send(error_line(&Value::Null, "too_large", "request line too long")).await;
+                let _ = lines_tx
+                    .send(error_line(&Value::Null, "too_large", "request line too long"))
+                    .await;
                 break;
             }
             let request = match serde_json::from_slice::<Request>(&line) {
@@ -304,9 +304,7 @@ impl Hub {
                     }
                     path_json(&event)
                 }),
-                "datagram.bind" => {
-                    self.bind(request.params, &mut bindings, &mut bound_ports).await
-                }
+                "datagram.bind" => self.bind(request.params, &mut bindings, &mut bound_ports).await,
                 "datagram.stats" => Ok(self.stats()),
                 other => Err(Failure("unknown_method", format!("unknown method {other}"))),
             };
@@ -458,7 +456,8 @@ pub fn decode_header(datagram: &[u8]) -> Option<(SocketAddr, &[u8])> {
     }
     let (address, rest): (IpAddr, &[u8]) = match prefix[3] {
         ADDRESS_IPV4 => {
-            let octets: [u8; 4] = datagram.get(HEADER_PREFIX..HEADER_PREFIX + 4)?.try_into().ok()?;
+            let octets: [u8; 4] =
+                datagram.get(HEADER_PREFIX..HEADER_PREFIX + 4)?.try_into().ok()?;
             (Ipv4Addr::from(octets).into(), &datagram[HEADER_PREFIX + 4..])
         }
         ADDRESS_IPV6 => {

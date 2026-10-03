@@ -18,9 +18,8 @@ pub(crate) async fn new_socket_path(config: &WgConfig) -> Result<UdpUnderlay, Wg
         .ok_or_else(|| WgError::EndpointUnresolved("<none configured>".into()))?;
     let candidates =
         endpoint.resolve().await.map_err(|_| WgError::EndpointUnresolved(endpoint.host.clone()))?;
-    let peer = *candidates
-        .first()
-        .ok_or_else(|| WgError::EndpointUnresolved(endpoint.host.clone()))?;
+    let peer =
+        *candidates.first().ok_or_else(|| WgError::EndpointUnresolved(endpoint.host.clone()))?;
     let bind = if peer.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" };
     let socket = UdpSocket::bind(bind).await?;
     Ok(SocketPath::new(socket, Some(peer)))

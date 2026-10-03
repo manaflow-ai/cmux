@@ -24,7 +24,11 @@ fn addr(text: &str) -> SocketAddr {
 #[tokio::test(start_paused = true)]
 async fn one_probed_path_reports_its_kind_and_round_trip() {
     let sim = SimNet::new();
-    sim.set_link(addr(CLIENT), addr(SERVER), LinkProfile { latency: ONE_WAY, ..Default::default() });
+    sim.set_link(
+        addr(CLIENT),
+        addr(SERVER),
+        LinkProfile { latency: ONE_WAY, ..Default::default() },
+    );
     let configs = config_pair(addr(SERVER));
     let socket = sim.bind(addr(CLIENT)).unwrap();
     let path = SocketPath::new(socket, Some(addr(SERVER)));

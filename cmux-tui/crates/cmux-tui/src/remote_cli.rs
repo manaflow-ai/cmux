@@ -1968,8 +1968,9 @@ fn read_wireguard_config(path: &Path) -> anyhow::Result<cmux_wg::WgConfig> {
                 .wireguard_config_unreadable(&path.display().to_string(), &error.to_string())
         )
     })?;
-    cmux_wg::WgConfig::parse_wg_quick(&text)
-        .map_err(|error| anyhow!(catalog().remote_client.wireguard_config_invalid(&error.to_string())))
+    cmux_wg::WgConfig::parse_wg_quick(&text).map_err(|error| {
+        anyhow!(catalog().remote_client.wireguard_config_invalid(&error.to_string()))
+    })
 }
 
 /// Starts the hub's tunnel with a deadline around endpoint resolution and UDP
