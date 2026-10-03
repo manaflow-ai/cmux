@@ -14,6 +14,11 @@
     "dev": "wrangler dev",
     "deploy:staging": "wrangler deploy --env staging"
   },
+  "dependencies": {
+    "@earendil-works/pi-ai": "1.0.0",
+    "@earendil-works/pi-durable": "1.0.0",
+    "agents": "0.26.0"
+  },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260925.1",
     "@types/node": "26.6.2",

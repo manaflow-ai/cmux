@@ -6,18 +6,46 @@
   "name": "cmux-chief-optmem-local",
   "main": "src/worker/index.ts",
   "compatibility_date": "2026-08-20",
+  "ai": { "binding": "AI", "remote": true },
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
-  "vars": { "ENVIRONMENT": "local" },
-  "durable_objects": { "bindings": [{ "name": "MEMORY_DO", "class_name": "MemoryDO" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MemoryDO"] }],
+  "vars": {
+    "ENVIRONMENT": "local",
+    "CHIEF_MODEL": "@cf/moonshotai/kimi-k2.7-code",
+    "WORKER_MODEL": "@cf/moonshotai/kimi-k2.7-code",
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "MEMORY_DO", "class_name": "MemoryDO" },
+      { "name": "CHIEF_DO", "class_name": "ChiefDO" },
+      { "name": "WORKER_DO", "class_name": "WorkerDO" },
+    ],
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["MemoryDO"] },
+    { "tag": "v2", "new_sqlite_classes": ["ChiefDO", "WorkerDO"] },
+  ],
   "env": {
     "staging": {
       "name": "cmux-chief-optmem-staging",
       "workers_dev": true,
-      "vars": { "ENVIRONMENT": "staging" },
-      "durable_objects": { "bindings": [{ "name": "MEMORY_DO", "class_name": "MemoryDO" }] },
-      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MemoryDO"] }],
+      "vars": {
+        "ENVIRONMENT": "staging",
+        "CHIEF_MODEL": "@cf/moonshotai/kimi-k2.7-code",
+        "WORKER_MODEL": "@cf/moonshotai/kimi-k2.7-code",
+      },
+      "ai": { "binding": "AI" },
+      "durable_objects": {
+        "bindings": [
+          { "name": "MEMORY_DO", "class_name": "MemoryDO" },
+          { "name": "CHIEF_DO", "class_name": "ChiefDO" },
+          { "name": "WORKER_DO", "class_name": "WorkerDO" },
+        ],
+      },
+      "migrations": [
+        { "tag": "v1", "new_sqlite_classes": ["MemoryDO"] },
+        { "tag": "v2", "new_sqlite_classes": ["ChiefDO", "WorkerDO"] },
+      ],
     },
   },
 }
