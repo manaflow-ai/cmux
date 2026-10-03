@@ -3,7 +3,8 @@ import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { idFactory, MemoryRows, type Principal, type ReduceContext } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
-import { schedulerDomain, type SchedulerState } from "../src/domains/scheduler.ts"
+import { schedulerDomain, TERMINAL, type SchedulerState } from "../src/domains/scheduler.ts"
+import { afterCreate } from "../src/domains/scheduler-policy.ts"
 
 /**
  * agents.allowedClasses `run` (enterprise P17-4): runs start inside SchedulerDO, so TeamDO pushes
@@ -197,6 +198,14 @@ describe("run class of agents.allowedClasses (workerd)", { timeout: 60_000 }, ()
       expect(await s.reportRun(team, { run, state: "running", step: -1 })).toMatchObject({ ok: true, stopped: true })
       expect(s.boundEngine.currentState.runs[run].state).toBe("cancelled")
     })
+  })
+
+  it("terminate-after-create: a run that became terminal while its Workflow was created is terminated (pure)", () => {
+    const run = (state: string) => ({ runs: { run_x: { state } } }) as unknown as Pick<SchedulerState, "runs">
+    expect(afterCreate(run("queued"), "run_x")).toBe("dispatched")
+    expect(afterCreate(run("running"), "run_x")).toBe("dispatched")
+    for (const s of TERMINAL) expect(afterCreate(run(s), "run_x")).toBe("terminate")
+    expect(afterCreate({ runs: {} }, "run_x")).toBe("terminate")
   })
 
   it("a cron fire while runs are not allowed advances the schedule and starts no run", async () => {

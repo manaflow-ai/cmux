@@ -60,3 +60,15 @@ export const reduceRunPolicy = (state: SchedulerState, value: RunPolicy, cancelQ
   }
   return { ok: true as const, state: { ...state, run_policy: next, runs }, value: next, outbox }
 }
+
+/**
+ * After AUTOMATION_RUN.create resolved (the create awaited, so other ops ran meanwhile): a run
+ * that is terminal now (cancelled by a deny, disable or delete), or gone, must have its new
+ * Workflow instance terminated instead of being marked dispatched.
+ */
+export const afterCreate = (state: Pick<SchedulerState, "runs">, run: string): "terminate" | "dispatched" => {
+  const r = state.runs[run]
+  return !r || TERMINAL_STATES.has(r.state) ? "terminate" : "dispatched"
+}
+
+const TERMINAL_STATES: ReadonlySet<string> = new Set(["succeeded", "failed", "cancelled", "skipped", "dead"])
