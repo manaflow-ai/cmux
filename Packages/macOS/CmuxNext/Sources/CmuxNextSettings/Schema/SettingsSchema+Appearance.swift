@@ -2,7 +2,7 @@ public import CmuxNextActions
 public import CmuxNextDesign
 public import CoreGraphics
 
-private nonisolated enum AppearanceSettingsSchema {
+nonisolated enum AppearanceSettingsSchema {
     static var descriptors: [SettingDescriptor] {
         let look = SettingsText.keyed("settings.group.densityMotion", "Density and Motion")
         let panes = SettingsText.keyed("settings.group.panes", "Panes")
