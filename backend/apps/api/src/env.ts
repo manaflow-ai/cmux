@@ -104,4 +104,6 @@ export interface Env {
   readonly APNS_TEAM_ID?: string
   /** PlanetScale `cmux-next` through Hyperdrive (projection writes only). */
   readonly HYPERDRIVE?: Hyperdrive
+  /** Read-only role (search-ro, pg_read_all_data) for home.search; never used for writes. */
+  readonly HYPERDRIVE_RO?: Hyperdrive
 }

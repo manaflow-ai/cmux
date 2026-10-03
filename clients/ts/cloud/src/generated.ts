@@ -1472,6 +1472,7 @@ export interface CloudOps {
     readonly result: {
       readonly hits: ReadonlyArray<{
         readonly conversation: ConversationId
+        readonly title: string | null
         readonly seq: number
         readonly message_id: string
         readonly author: ParticipantId

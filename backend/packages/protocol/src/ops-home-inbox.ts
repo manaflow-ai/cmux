@@ -208,12 +208,13 @@ export const HomeSearch = def({
     kind: Schema.optionalKey(ConversationKind),
     before: Schema.optionalKey(Timestamp),
     cursor: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(512))),
-    limit: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(50)))
+    limit: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(100)))
   }),
   result: Schema.Struct({
     hits: Schema.Array(
       Schema.Struct({
         conversation: ConversationId,
+        title: Schema.NullOr(Schema.String),
         seq: Seq,
         message_id: Schema.String,
         author: ParticipantId,

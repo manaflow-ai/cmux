@@ -31,6 +31,7 @@ import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
 import { pairApprove, pairPreview } from "./pair-routes.ts"
 import { conversationMutate, conversationRead } from "./home-routes.ts"
+import { homeSearch, type SearchParams } from "./home-search.ts"
 
 /** DO RPC stubs erase union result types; the DO methods define them. */
 const rpc = <T>(p: unknown) => p as Promise<T>
@@ -280,6 +281,12 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           return { op: payload.op, value: r.value, stream: "pairing", revision: "0" }
         }
         const reader = yield* principalFor(def.owner, principal)
+        // Home search reads the PlanetScale projection through the read-only Hyperdrive (home-search.ts).
+        if (payload.op === "home.search") {
+          const r = yield* Effect.tryPromise({ try: () => homeSearch(env, reader, (payload.params ?? {}) as SearchParams), catch: unreachable })
+          if (!r.ok) return yield* r.code === "auth.forbidden" ? new Forbidden({ code: "auth.forbidden", message: r.message }) : new BadRequest({ code: "validation.invalid", message: r.message })
+          return { op: payload.op, value: r.value, stream: `search:${reader.user}`, revision: "0" }
+        }
         if (providerReadOpNames.has(payload.op) || googleReadOpNames.has(payload.op)) {
           const stub = env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(reader.team!))
           const pr = yield* Effect.tryPromise({

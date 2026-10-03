@@ -22695,6 +22695,16 @@
                       "name": "ConversationId"
                     }
                   },
+                  "title": {
+                    "required": true,
+                    "type": {
+                      "kind": "nullable",
+                      "inner": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    }
+                  },
                   "seq": {
                     "required": true,
                     "type": {
@@ -22825,7 +22835,7 @@
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 50
+            "maximum": 100
           }
         },
         "required": [
@@ -22868,6 +22878,16 @@
                 "conversation": {
                   "$ref": "#/$defs/ConversationId"
                 },
+                "title": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "seq": {
                   "type": "integer",
                   "minimum": 0
@@ -22908,6 +22928,7 @@
               },
               "required": [
                 "conversation",
+                "title",
                 "seq",
                 "message_id",
                 "author",
