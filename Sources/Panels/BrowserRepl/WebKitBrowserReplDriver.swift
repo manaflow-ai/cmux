@@ -1934,17 +1934,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         webView: WKWebView,
         _ capture: () async throws -> T
     ) async throws -> T {
-        guard !masks.isEmpty else { return try await capture() }
-        let frames = await BrowserReplFrameTree.frames(of: webView)
-        await BrowserReplSecretGuard.setMasks(masks, on: true, webView: webView, frames: frames)
-        do {
-            let value = try await capture()
-            await BrowserReplSecretGuard.setMasks(masks, on: false, webView: webView, frames: frames)
-            return value
-        } catch {
-            await BrowserReplSecretGuard.setMasks(masks, on: false, webView: webView, frames: frames)
-            throw error
-        }
+        try await BrowserReplCaptureMask(secretMasks: masks).run(
+            in: webView,
+            frames: { await BrowserReplFrameTree.frames(of: webView).map(\.info) },
+            capture
+        )
     }
 
     @MainActor

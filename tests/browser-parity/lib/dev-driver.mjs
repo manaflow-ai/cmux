@@ -840,29 +840,42 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
     },
   };
 
-  // Captures hide secrets as the app's driver does: in frames whose origin
-  // is on a secret's domains (the only frames it can be typed into), fields
-  // and text holding its value render as password dots for the length of the
-  // capture. Other frames never receive a value. Concurrent captures share a
-  // per-element count, so one capture ending does not unmask another's.
+  // Captures hide secrets as the app's driver does (BrowserReplCaptureMask):
+  // in frames whose origin is on a secret's domains (the only frames it can
+  // be typed into), fields and text holding its value render as password
+  // dots for the length of the capture. Other frames never receive a value.
+  // Each capture restores only the elements it masked, so one capture ending
+  // does not unmask another's. It fails closed: the capture is refused
+  // (`invalid`) when the mask step fails in one of those frames, or when a
+  // scan after the capture finds a value rendered unmasked. Playwright
+  // evaluates in the page's world, so closed shadow roots, which the app's
+  // mask world sees, are not reached here.
   async function withSecretMasks(page, masks, capture) {
+    if (!masks || !masks.length) return capture();
     const T = loadRuntime().agentTools;
-    const frames = page.frames();
-    const plan = frames.map((f) => {
-      let origin = "";
-      try {
-        origin = new URL(f.url()).origin;
-      } catch {}
-      return { f, values: (masks || []).filter((m) => m.domains.some((d) => T.urlMatches(origin + "/", d, true))).map((m) => m.value) };
-    });
-    const MASK = ([values, on]) => {
+    const token = crypto.randomUUID();
+    const targets = () =>
+      page
+        .frames()
+        .map((f) => {
+          let origin = "";
+          try {
+            origin = new URL(f.url()).origin;
+          } catch {}
+          return { f, origin, values: masks.filter((m) => m.domains.some((d) => T.urlMatches(origin + "/", d, true))).map((m) => m.value) };
+        })
+        .filter((t) => t.values.length);
+    const MASK = ([values, mode, token]) => {
       const key = Symbol.for("cmux.dev.secretMask");
-      const counts = (globalThis[key] ||= new Map());
+      const state = (globalThis[key] ||= { counts: new Map(), captures: new Map() });
       const prop = "-webkit-text-security";
-      if (!on) {
-        for (const [el, entry] of [...counts]) {
-          if (--entry.count > 0) continue;
-          counts.delete(el);
+      if (mode === "off") {
+        const masked = state.captures.get(token) || [];
+        state.captures.delete(token);
+        for (const el of masked) {
+          const entry = state.counts.get(el);
+          if (!entry || --entry.count > 0) continue;
+          state.counts.delete(el);
           if (entry.value) el.style.setProperty(prop, entry.value, entry.priority);
           else el.style.removeProperty(prop);
         }
@@ -884,22 +897,52 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         }
       };
       visit(document.documentElement || document);
-      for (const el of hits) {
-        const entry = counts.get(el);
-        if (entry) entry.count++;
-        else {
-          counts.set(el, { count: 1, value: el.style.getPropertyValue(prop), priority: el.style.getPropertyPriority(prop) });
-          el.style.setProperty(prop, "disc", "important");
+      if (mode === "on") {
+        const styled = (el) => {
+          for (let n = el; n; n = n.parentElement || (n.parentNode && n.parentNode.host) || null) {
+            if (n.style instanceof CSSStyleDeclaration) return n;
+          }
+          return null;
+        };
+        const masked = state.captures.get(token) || new Set();
+        state.captures.set(token, masked);
+        for (const hit of hits) {
+          const el = styled(hit);
+          if (!el || masked.has(el)) continue;
+          masked.add(el);
+          const entry = state.counts.get(el);
+          if (entry) entry.count++;
+          else {
+            state.counts.set(el, { count: 1, value: el.style.getPropertyValue(prop), priority: el.style.getPropertyPriority(prop) });
+            el.style.setProperty(prop, "disc", "important");
+          }
         }
       }
-      return hits.size;
+      let unmasked = 0;
+      for (const el of hits) if (getComputedStyle(el).getPropertyValue(prop) === "none") unmasked++;
+      return unmasked;
     };
-    const masked = plan.filter((p) => p.values.length);
-    for (const { f, values } of masked) await f.evaluate(MASK, [values, true]).catch(() => {});
+    const refused = (message) => new DriverError("invalid", `the capture was refused: ${message}; try again`);
+    const step = async ({ f, origin, values }, mode) => {
+      let unmasked;
+      try {
+        unmasked = await f.evaluate(MASK, [values, mode, token]);
+      } catch (e) {
+        throw refused(`secrets could not be masked in ${origin} (${e.message})`);
+      }
+      if (unmasked !== 0) throw refused(mode === "verify" ? `the page in ${origin} showed a secret unmasked while it was taken` : `a secret in ${origin} could not be masked`);
+    };
+    const masked = [];
     try {
-      return await capture();
+      for (const t of targets()) {
+        masked.push(t);
+        await step(t, "on");
+      }
+      const value = await capture();
+      for (const t of targets()) await step(t, "verify");
+      return value;
     } finally {
-      for (const { f, values } of masked) await f.evaluate(MASK, [values, false]).catch(() => {});
+      for (const { f } of masked) await f.evaluate(MASK, [[], "off", token]).catch(() => {});
     }
   }
 

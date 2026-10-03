@@ -164,9 +164,13 @@ native (`BrowserReplBoundary` in the session, and the driver):
   between the check's last reply and the insert reaching that process:
   WebKit has no insert bound to an element or frame, so that cross-process
   window remains. Captures get `secretMasks
-  [{ value, domains }]`; the driver masks only in frames on those domains.
-  Results, events, fetch responses, output, errors and written text are
-  redacted by the session.
+  [{ value, domains }]` (plain values, and the codes of a TOTP secret a
+  server still accepts: the current window and one on each side); the
+  driver masks only in frames on those domains, and refuses the capture
+  (`invalid`) when masking fails in one of them or a scan after the
+  capture finds a value rendered unmasked.
+  Results, events, fetch responses, output, errors, written files and
+  files read back are redacted by the session.
 - Domain policy: the session refuses `tab.navigate`/`tabs.open` to a blocked
   URL (`blocked`) and `session.configure` content rules, and calls the
   driver's `setDomainPolicy(policy)` (Swift only). The driver applies the
@@ -247,7 +251,7 @@ structured values cross the boundary as JSON strings.
 | `print(level, text)` | append one output line; `level` is `log`, `info`, `warn`, `error` or `debug`; `text` is already formatted |
 | `setTimer(id, delayMs, repeat)` / `clearTimer(id)` | on fire the app calls `globalThis.__cmuxHostOnTimer(id)`; repeating timers keep firing until cleared |
 | `driverCall(callId, method, paramsJSON)` | the app later calls `globalThis.__cmuxHostOnResult(callId, errorJSON, resultJSON)`; exactly one of the two is `null`; `errorJSON` is `{ code, message }` |
-| `fetch(callId, requestJSON)` | request `{ url, method, headers: [[k, v]], bodyBase64?, targetId?, credentials?, origin? }`; result via `__cmuxHostOnResult`: `{ url, status, statusText, headers: [[k, v]], bodyBase64, redirected }`. Cookies come from, and `Set-Cookie` goes back to, the attached tab's cookie store, for `credentials` `include` (default) always, `same-origin` only for URLs on `origin`, `omit` never. The domain policy is checked on the URL and every redirect hop (`blocked`); a body over 64 MiB fails; the session redacts the URL, headers and a text body |
+| `fetch(callId, requestJSON)` | request `{ url, method, headers: [[k, v]], bodyBase64?, targetId?, credentials?, origin? }`; result via `__cmuxHostOnResult`: `{ url, status, statusText, headers: [[k, v]], bodyBase64, redirected }`. Cookies come from, and `Set-Cookie` goes back to, the attached tab's cookie store, for `credentials` `include` (default) always, `same-origin` only for URLs on `origin`, `omit` never. The domain policy is checked on the URL and every redirect hop (`blocked`); a body over 64 MiB fails; the session redacts the URL, headers and the body (UTF-8 text as text; other bytes by each value's UTF-8 and escaped bytes, and its percent-encoded and Base64 forms) |
 | `secrets(op, argsJSON)` | synchronous, `{"ok": value}` or `{"error": {code, message}}`: `set { name, value, domains, totp }`, `load { path }` (read natively) or `load { object }`, `list`, `has { name }`, `delete { name }`, `clear`. No result holds a value |
 | `policy(op, argsJSON)` | synchronous, as `secrets`: `get` → `{ allowed, prohibited, blockIPs, locked }`, `check { url }` → reason or `null`, `site { host }` → the host's site (registrable domain by the Public Suffix List, or the host itself when it has none), the same site `cookies.clear` scopes to, `set { allowed?, prohibited?, blockIPs?, lock?, title }` (a locked policy refuses) |
 | `fs(op, argsJSON)` | synchronous; returns `{"ok": value}` or `{"error": {"code": "ENOENT"\|"EACCES"\|"EEXIST"\|"ENOTDIR"\|"EISDIR"\|"ENOTEMPTY"\|"EINVAL", "message"}}` |
@@ -256,7 +260,7 @@ structured values cross the boundary as JSON strings.
 
 `fs` ops, paths relative to `cwd` (absolute paths must stay inside `cwd` or
 the user's temporary directory, except files the driver reported through
-`download.finished`, which are readable): `readFile {path}` → base64, `writeFile {path, base64, append?}`,
+`download.finished`, which are readable): `readFile {path}` → base64 (secrets redacted, text or bytes), `writeFile {path, base64, append?}`,
 `mkdir {path, recursive?}`, `readdir {path}` → `[{ name, type }]`,
 `stat {path}` → `{ size, type: "file"|"directory"|"symlink"|"other", mtimeMs, birthtimeMs }`,
 `lstat {path}` (as `stat`, for the link itself), `rm {path, recursive?, force?}`,

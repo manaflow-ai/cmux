@@ -193,8 +193,9 @@ final class BrowserReplBoundary: @unchecked Sendable {
         return BrowserReplDriverError(code: error.code, message: secrets.redact(error.message), errorName: error.errorName)
     }
 
-    /// A fetch result as JavaScript may see it: the URL and headers are
-    /// redacted, and so is a text body; a binary body is passed unchanged.
+    /// A fetch result as JavaScript may see it: the URL, the headers and the
+    /// body, text or binary (its bytes go through the secret store's byte redaction),
+    /// are redacted.
     func redactFetch(_ result: Result<String, BrowserReplDriverError>) -> Result<String, BrowserReplDriverError> {
         guard !secrets.isEmpty else { return result }
         guard case .success(let json) = result else { return redact(method: "fetch", result) }
@@ -202,24 +203,20 @@ final class BrowserReplBoundary: @unchecked Sendable {
         let body = response.removeValue(forKey: "bodyBase64") as? String
         var redacted = secrets.redactValue(response) as? [String: Any] ?? [:]
         if let body {
-            let contentType = ((response["headers"] as? [[String]]) ?? [])
-                .first { $0.first?.lowercased() == "content-type" }?.last?.lowercased() ?? ""
-            let textual = contentType.isEmpty || contentType.hasPrefix("text/")
-                || ["json", "xml", "javascript", "x-www-form-urlencoded", "csv", "yaml", "graphql"].contains { contentType.contains($0) }
-            if textual, let data = Data(base64Encoded: body), let text = String(data: data, encoding: .utf8) {
-                redacted["bodyBase64"] = Data(secrets.redact(text).utf8).base64EncodedString()
-            } else {
-                redacted["bodyBase64"] = body
+            guard let data = Data(base64Encoded: body) else {
+                return .failure(BrowserReplDriverError(code: "invalid", message: "fetch: the response body could not be checked for secrets"))
             }
+            let masked = secrets.redact(data)
+            redacted["bodyBase64"] = masked == data ? body : masked.base64EncodedString()
         }
         return .success(JSONSerialization.browserReplString(redacted) ?? "null")
     }
 
-    /// File contents the session writes for JavaScript: UTF-8 text is redacted.
+    /// File contents the session writes for JavaScript, or reads back for it
+    /// (`fs.readFile`), with secrets redacted, text or binary.
     func redactFileContents(_ base64: String) -> String {
-        guard !secrets.isEmpty, let data = Data(base64Encoded: base64),
-              let text = String(data: data, encoding: .utf8) else { return base64 }
-        let redacted = secrets.redact(text)
-        return redacted == text ? base64 : Data(redacted.utf8).base64EncodedString()
+        guard !secrets.isEmpty, let data = Data(base64Encoded: base64) else { return base64 }
+        let redacted = secrets.redact(data)
+        return redacted == data ? base64 : redacted.base64EncodedString()
     }
 }

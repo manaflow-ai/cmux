@@ -9,7 +9,10 @@
 const PREPARED = ["input.insertText", "tab.navigate", "tabs.open", "session.configure", "tab.screenshot", "tab.pdf"];
 const BINARY = new Set(["tab.screenshot", "tab.pdf"]);
 const RESERVED = ["secretName", "secretDomains", "secretMasks"];
-const TEXTUAL = ["json", "xml", "javascript", "x-www-form-urlencoded", "csv", "yaml", "graphql"];
+// Windows on each side of the current one whose TOTP codes a server still
+// accepts (BrowserReplSecretStore.totpSkewWindows).
+const TOTP_SKEW = 1;
+const TOTP_PERIOD_MS = 30_000;
 
 export class BoundaryError extends Error {
   constructor(code, message) {
@@ -31,6 +34,7 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
   let matchers = [];
 
   function rebuild() {
+    codeCache = null;
     matchers = [...store.entries()]
       .sort((a, b) => b[1].value.length - a[1].value.length)
       .map(([name, s]) => {
@@ -49,6 +53,21 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
       });
   }
 
+  // The codes of every TOTP secret a server can still accept now, once per window.
+  let codeCache = null;
+  function validCodes() {
+    const window = Math.floor(now() / TOTP_PERIOD_MS);
+    if (codeCache && codeCache.window === window) return codeCache.codes;
+    const codes = [...store.entries()]
+      .filter(([, s]) => s.totp)
+      .map(([name, s]) => {
+        const list = [...new Set(Array.from({ length: 2 * TOTP_SKEW + 1 }, (_, i) => T.totp(s.value, (window + i - TOTP_SKEW) * TOTP_PERIOD_MS)))].sort();
+        return { mask: `<secret:${name}>`, codes: list, domains: s.domains, pattern: new RegExp(`(?<![0-9])(?:${list.join("|")})(?![0-9])`, "g") };
+      });
+    codeCache = { window, codes };
+    return codes;
+  }
+
   function redact(text) {
     if (!matchers.length || typeof text !== "string" || !text) return text;
     let out = text.replace(/[A-Za-z0-9+/_-]{8,}={0,2}/g, (token) => {
@@ -61,11 +80,61 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
       for (const lit of m.literals) if (out.includes(lit)) out = out.split(lit).join(m.mask);
       if (/[%+]/.test(out)) out = out.replace(m.encoded, m.mask);
     }
+    if (/[0-9]/.test(out)) for (const c of validCodes()) out = out.replace(c.pattern, c.mask);
     return out;
   }
+  // As BrowserReplSecretStore.redact(Data): UTF-8 is redacted as text; other
+  // bytes get each value's UTF-8 and escaped forms replaced, then the ASCII
+  // forms matched over a Latin-1 view (one character per byte).
+  const utf8 = new TextDecoder("utf-8", { fatal: true });
+  function redactBytes(buf) {
+    if (!matchers.length || !buf.length) return buf;
+    let text = null;
+    try {
+      text = utf8.decode(buf);
+    } catch {}
+    if (text !== null) {
+      const out = redact(text);
+      return out === text ? buf : Buffer.from(out, "utf8");
+    }
+    let out = buf;
+    for (const m of matchers) {
+      const mask = Buffer.from(m.mask, "utf8");
+      for (const lit of m.literals) {
+        const needle = Buffer.from(lit, "utf8");
+        if (!out.includes(needle)) continue;
+        const parts = [];
+        let start = 0;
+        for (let at = out.indexOf(needle); at !== -1; at = out.indexOf(needle, start)) {
+          parts.push(out.subarray(start, at), mask);
+          start = at + needle.length;
+        }
+        parts.push(out.subarray(start));
+        out = Buffer.concat(parts);
+      }
+    }
+    const latin = out.toString("latin1");
+    const redacted = redact(latin);
+    return redacted === latin ? out : Buffer.from(redacted, "latin1");
+  }
+  const redactBase64 = (b64) => {
+    const buf = Buffer.from(b64 || "", "base64");
+    const out = redactBytes(buf);
+    return out === buf ? b64 : out.toString("base64");
+  };
   function redactValue(value, depth = 0) {
     if (!matchers.length) return value;
     if (typeof value === "string") return redact(value);
+    if (typeof value === "number" && Number.isFinite(value)) {
+      // A page can read a code as a number, which drops a leading zero.
+      const forms = [String(value)];
+      if (Number.isInteger(value) && value >= 0 && value < 1e6) forms.push(String(value).padStart(6, "0"));
+      for (const form of forms) {
+        const masked = redact(form);
+        if (masked !== form) return masked;
+      }
+      return value;
+    }
     if (!value || typeof value !== "object" || depth > 64 || Buffer.isBuffer(value)) return value;
     if (Array.isArray(value)) return value.map((v) => redactValue(v, depth + 1));
     const proto = Object.getPrototypeOf(value);
@@ -268,6 +337,7 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
       throw new BoundaryError("invalid", "session.configure: content rules come from the domain policy (session.allowedDomains, session.prohibitedDomains, session.blockIPAddresses)");
     } else if ((method === "tab.screenshot" || method === "tab.pdf") && store.size) {
       const masks = [...store.values()].filter((s) => !s.totp).map((s) => ({ value: s.value, domains: s.domains }));
+      for (const c of validCodes()) for (const value of c.codes) masks.push({ value, domains: c.domains });
       if (masks.length) p.secretMasks = masks;
     }
     return p;
@@ -301,8 +371,8 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
     };
   }
 
-  // Wraps a dev host: output, written text files and fetch go through the
-  // guards; secrets and policy calls reach this boundary.
+  // Wraps a dev host: output, written and read files and fetch go through
+  // the guards; secrets and policy calls reach this boundary.
   function wrapHost(host) {
     const fsOp = host.fsOp;
     const wrapped = Object.create(host);
@@ -311,10 +381,10 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
       console: { error: (text) => host.print("error", redact(String(text))) },
       fsOp(op, args) {
         if (op === "writeFile" && matchers.length && args && typeof args.base64 === "string") {
-          const text = Buffer.from(args.base64, "base64").toString("utf8");
-          if (Buffer.from(text, "utf8").toString("base64") === args.base64) args = { ...args, base64: Buffer.from(redact(text), "utf8").toString("base64") };
+          args = { ...args, base64: redactBase64(args.base64) };
         }
-        return fsOp(op, args);
+        const result = fsOp(op, args);
+        return op === "readFile" && typeof result === "string" ? redactBase64(result) : result;
       },
       secrets: (op, args) => secretsOp(op, args, { readFile: (p) => Buffer.from(fsOp("readFile", { path: p }), "base64").toString("utf8") }),
       policy: (op, args) => policyOp(op, args),
@@ -326,10 +396,8 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
         if (reason) throw new BoundaryError("blocked", `fetch: ${url} is blocked: ${reason}`);
         const r = await fetch(url, { ...init, blockReason });
         if (!matchers.length) return r;
-        const contentType = String((r.headers && (r.headers["content-type"] || r.headers["Content-Type"])) || "").toLowerCase();
-        const textual = !contentType || contentType.startsWith("text/") || TEXTUAL.some((t) => contentType.includes(t));
         const out = redactValue({ ...r, base64: undefined });
-        out.base64 = textual ? Buffer.from(redact(Buffer.from(r.base64 || "", "base64").toString("utf8")), "utf8").toString("base64") : r.base64;
+        out.base64 = redactBase64(r.base64);
         return out;
       };
     }
