@@ -145,6 +145,7 @@ final class CloudWorkspaceProjectionCoordinator {
 
     private func reconcile(state: CloudVMState, catalog: SurfaceCatalog) async {
         let machine = state.machine
+        let completeness = CloudVMGraphCompleteness(state: state, resources: catalog.snapshot.resources(on: machine))
         for (workspaceID, binding) in environment.bindings() where binding.vmID == machine.rawValue {
             guard let remoteID = binding.remoteWorkspaceID else { continue }
             if catalog.cloudWorkspaceCreationCoordinator.isPending(localWorkspaceID: workspaceID) { continue }
@@ -157,6 +158,12 @@ final class CloudWorkspaceProjectionCoordinator {
             guard isCurrent(state, catalog: catalog) else {
                 if !Task.isCancelled { requested.insert(machine) }
                 return
+            }
+            // A move is a cross-workspace mutation. Do not let a complete source
+            // workspace retire the projection while the destination inventory is
+            // still incomplete and cannot reconcile the same tab yet.
+            guard completeness.isComplete() else {
+                continue
             }
             let group = try? catalog.remoteWorkspaceGroup(machine: machine, workspaceID: remoteID)
             let desired = (group?.placements ?? []).filter {
@@ -188,9 +195,11 @@ final class CloudWorkspaceProjectionCoordinator {
                     environment.close(projection)
                     catalog.endProjections(panelID: projection.panelID, reason: .replaced)
                 }
-                if let layout = catalog.cloudWorkspaceLayout(machine: machine, workspaceID: remoteID), !desired.isEmpty {
+                let daemonDesired = desired.filter { $0.remoteTabID != nil }
+                if let layout = catalog.cloudWorkspaceLayout(machine: machine, workspaceID: remoteID), !daemonDesired.isEmpty,
+                   Set(daemonDesired).isSubset(of: Set(layout.placements)) {
                     let live = catalog.projections.filter { $0.workspaceID == workspaceID && $0.resource.machine == machine }
-                    environment.applyLayout(workspaceID, layout.includingMissingPlacements(desired), Array(live))
+                    environment.applyLayout(workspaceID, layout, Array(live))
                 }
                 failures[workspaceID] = nil
             } catch is CancellationError {

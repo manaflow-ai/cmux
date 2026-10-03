@@ -162,22 +162,26 @@ function resolveBillingContext(
 
 /**
  * Machine sizes a person can pick, as memory in MB. The supported ladder is
- * 4/16, 8/32, 16/64, 24/96, 32/128, and 64/128 (memory/disk in GB). vCPUs
- * follow memory (vcpusForMemoryMb). The server owns this list so clients show
+ * 4/16, 8/32, 16/64, 24/96, and 32/128 (memory/disk in GB). vCPUs follow
+ * the image ladder, one per 2 GB. The server owns this list so clients show
  * valid sizes. BusyBox's 128 MiB image is a bootstrap image, not a coding VM.
  * Every selected size belongs to one machine, independently of other VMs.
  */
-export const VM_MEMORY_OPTIONS_MB: readonly number[] = [4096, 8192, 16384, 24576, 32768, 65536];
+export const VM_MEMORY_OPTIONS_MB: readonly number[] = [4096, 8192, 16384, 24576, 32768];
 
 /**
- * The largest machine Free, Pro, Team, and Founder's Edition may start. The
- * 32 GB and 64 GB rows above it are what Max sells; the plan that unlocks
- * them is MEMORY_UPGRADE_PLAN_ID so every surface names the same upgrade.
+ * The largest machine Free, Pro, Team, and Founder's Edition may start
+ * (4 vCPU / 8 GB). The 16, 24, and 32 GB rows above it are what Max sells;
+ * the plan that unlocks them is MEMORY_UPGRADE_PLAN_ID so every surface names
+ * the same upgrade.
  */
-export const PLAN_MAX_MEMORY_MB = 24576;
+export const PLAN_MAX_MEMORY_MB = 8192;
 export const GO_PLAN_MAX_MEMORY_MB = 4096;
 export const GO_PLAN_DEFAULT_MEMORY_MB = 4096;
+/** Max machines stop at 16 vCPU / 32 GB. */
 export const MAX_PLAN_MAX_MEMORY_MB = Math.max(...VM_MEMORY_OPTIONS_MB);
+/** The image ladder pairs one vCPU with every 2 GB of memory. */
+export const VM_PLAN_MEMORY_MB_PER_VCPU = 2048;
 export const MEMORY_UPGRADE_PLAN_ID = MAX_PLAN_ID;
 export const GO_MEMORY_UPGRADE_PLAN_ID = PRO_PLAN_ID;
 
@@ -205,9 +209,9 @@ export function maxMemoryMbForPlan(
   if (normalized === MAX_PLAN_ID) return MAX_PLAN_MAX_MEMORY_MB;
   if (normalized === GO_PLAN_ID) return GO_PLAN_MAX_MEMORY_MB;
   if (normalized === "free") {
-    // The free machine is the product demo: the same computer Pro gets, not a
-    // cut-down teaser. The paywall is the 7-day access window and the machine
-    // count, never the machine's usefulness.
+    // Free accounts get no machine in production (isVmFreeProvisioningAllowed).
+    // Where an operator opens free provisioning for a demo or dev stack, the
+    // machine is the same size Pro gets.
     return Math.min(ceiling, positiveInteger(
       env.CMUX_VM_FREE_MAX_MEMORY_MB ?? String(PLAN_MAX_MEMORY_MB),
       "CMUX_VM_FREE_MAX_MEMORY_MB",
@@ -233,12 +237,12 @@ export function maxDiskMbForPlan(
     : fallback;
 }
 
-/** vCPU ceiling is derived from the plan's memory tier. */
+/** vCPU ceiling follows the image ladder row at the plan's memory tier. */
 export function maxVcpusForPlan(
   planId: string | null | undefined,
   env: Record<string, string | undefined> = process.env,
 ): number {
-  return Math.max(1, Math.floor(maxMemoryMbForPlan(planId, env) / 4096));
+  return Math.max(1, Math.floor(maxMemoryMbForPlan(planId, env) / VM_PLAN_MEMORY_MB_PER_VCPU));
 }
 
 /**
@@ -305,7 +309,7 @@ export function defaultMemoryMbForPlan(
  * Active-machine ceiling for a plan, or null when there is none. Paid plans
  * get the allowance sold on /pricing (PAID_MAX_ACTIVE_VMS_DEFAULT), counted
  * per billing team; a Team subscription multiplies it by its paid seats
- * (`cmuxSeats`), so "50 per user" holds for the whole team. Free plans stay
+ * (`cmuxSeats`), so "5 per user" holds for the whole team. Free plans stay
  * capped (zero unless free provisioning is allowed).
  */
 export function maxActiveVmsForPlan(
@@ -390,6 +394,10 @@ export function isVmProGateEnforced(
 export function isVmFreeProvisioningAllowed(
   env: Record<string, string | undefined> = process.env,
 ): boolean {
+  // Free accounts get no Cloud machine in production, trial or otherwise.
+  // The escape hatch exists for local, preview, and dev-backend stacks only,
+  // so no production env value can reopen it.
+  if (env.VERCEL_ENV === "production") return false;
   // The new name is authoritative when present. A value must be explicitly
   // truthy; typos and explicit false values fail closed.
   if (env.CMUX_VM_ALLOW_FREE_PROVISIONING !== undefined) {

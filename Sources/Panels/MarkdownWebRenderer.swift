@@ -195,6 +195,13 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
         }
         private var imageLoads: [ObjectIdentifier: ImageLoad] = [:]
+        /// Remote images the reader approved in the current shell document.
+        /// The scheme handler fetches only these exact URLs.
+        private var remoteImageApprovals = MarkdownRemoteImageApprovals()
+        /// Base URL of the shell document being loaded, consumed by the first
+        /// main-frame navigation decision after `loadShell`.
+        private var pendingShellBaseURL: URL?
+        private let navigationPolicy = MarkdownViewerNavigationPolicy()
 
 #if DEBUG
         var isShellLoadingForTesting: Bool {
@@ -289,6 +296,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             shellWasHealthyWhenDetached = false
             cancelImageLoads()
             requestedLibs.removeAll()
+            remoteImageApprovals.revokeAll()
+            pendingShellBaseURL = nil
         }
 
         func loadShell(theme: MarkdownWebTheme, initialMarkdown: String) {
@@ -298,8 +307,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             requestedLibs.removeAll()
             isLoaded = false
             isShellLoading = true
+            remoteImageApprovals.revokeAll()
             let html = MarkdownViewerAssets.shared.shellHTML(isDark: theme.isDark)
             let baseURL = URL(fileURLWithPath: filePath)
+            pendingShellBaseURL = baseURL
 #if DEBUG
             NSLog("MarkdownPanel.loadShell filePath=\(filePath) baseURL=\(baseURL.absoluteString) htmlBytes=\(html.utf8.count)")
 #endif
@@ -491,6 +502,13 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                     if let resolved = resolvedMarkdownFilePath(rawPath) {
                         openMarkdownFile(resolved)
                     }
+                case "approveRemoteImage":
+                    guard let rawURL = body["url"] as? String else { return }
+                    approveRemoteImage(rawURL)
+                case "openRemoteImage":
+                    guard let rawURL = body["url"] as? String,
+                          let url = MarkdownRemoteImageApprovals.openableRemoteImageURL(rawURL) else { return }
+                    handleExternalLink(url)
                 default:
                     break
                 }
@@ -498,6 +516,20 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         }
 
         private var requestedLibs: Set<String> = []
+
+        /// Records the reader's "Load this image" choice for exactly `rawURL`
+        /// and tells the shell whether it may now request that image.
+        private func approveRemoteImage(_ rawURL: String) {
+            let approved = remoteImageApprovals.approve(rawURL) != nil
+            guard let webView,
+                  let data = try? JSONSerialization.data(withJSONObject: [rawURL]),
+                  let literal = String(data: data, encoding: .utf8) else { return }
+            let callback = approved ? "__cmuxRemoteImageApproved" : "__cmuxRemoteImageRejected"
+            webView.evaluateJavaScript(
+                "window.\(callback) && window.\(callback)(\(literal)[0]);",
+                completionHandler: nil
+            )
+        }
 
         // MARK: WKURLSchemeHandler
 
@@ -570,7 +602,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
 
             if scheme == MarkdownWebRenderer.remoteImageURLScheme {
-                let remoteURL = MarkdownRemoteImageSecurity().remoteImageURL(from: requestURL)
+                let remoteURL = remoteImageApprovals.approvedRemoteImageURL(for: requestURL)
                 return Task.detached(priority: .userInitiated) {
                     guard let remoteURL,
                           let fetched = await MarkdownRemoteImageFetcher().fetch(remoteURL) else {
@@ -834,25 +866,38 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 label: "MarkdownWebRenderer.Coordinator.navigationAction"
             ).closure
 
-            // The first load (loadHTMLString) has navigationType = .other —
-            // allow it. Anything the user clicks (links, anchors, ...) we
-            // route through the cmux tab/browser machinery.
-            if navigationAction.navigationType == .linkActivated,
-               let url = navigationAction.request.url {
-#if DEBUG
-                NSLog("MarkdownPanel.nav linkActivated url=\(url.absoluteString)")
-#endif
-                if isInPageFragment(url) {
-                    // Same-document fragment navigation (heading anchors)
-                    // scrolls the panel — keep it native.
-                    decisionHandler(.allow)
-                    return
-                }
-                handleExternalLink(url)
-                decisionHandler(.cancel)
-                return
+            // The shell load (loadHTMLString) is the only navigation allowed
+            // without user activation. Activated links route through the cmux
+            // tab/browser machinery; everything else rendered content might
+            // trigger (script navigation, forms, refresh) is cancelled.
+            let url = navigationAction.request.url
+            let isMainFrame = navigationAction.targetFrame?.isMainFrame ?? true
+            var isShellDocumentLoad = false
+            if isMainFrame, let shellBaseURL = pendingShellBaseURL {
+                pendingShellBaseURL = nil
+                isShellDocumentLoad = url.map {
+                    navigationPolicy.isShellDocumentURL($0, shellBaseURL: shellBaseURL)
+                } ?? false
             }
-            decisionHandler(.allow)
+            let decision = navigationPolicy.decide(
+                url: url,
+                isUserLinkActivation: navigationAction.navigationType == .linkActivated,
+                isMainFrame: isMainFrame,
+                isInPageFragment: url.map(isInPageFragment) ?? false,
+                isShellDocumentLoad: isShellDocumentLoad
+            )
+#if DEBUG
+            NSLog("MarkdownPanel.nav type=\(navigationAction.navigationType.rawValue) url=\(url?.absoluteString ?? "nil") decision=\(decision)")
+#endif
+            switch decision {
+            case .allow:
+                decisionHandler(.allow)
+            case .openExternally(let externalURL):
+                handleExternalLink(externalURL)
+                decisionHandler(.cancel)
+            case .cancel:
+                decisionHandler(.cancel)
+            }
         }
 
         func webView(
@@ -861,8 +906,15 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             for navigationAction: WKNavigationAction,
             windowFeatures: WKWindowFeatures
         ) -> WKWebView? {
-            // target=_blank / window.open from inside the rendered markdown.
-            if let url = navigationAction.request.url {
+            // target=_blank links from inside the rendered markdown. Script
+            // `window.open` calls are not user link activations and are dropped.
+            if case .openExternally(let url) = navigationPolicy.decide(
+                url: navigationAction.request.url,
+                isUserLinkActivation: navigationAction.navigationType == .linkActivated,
+                isMainFrame: true,
+                isInPageFragment: false,
+                isShellDocumentLoad: false
+            ) {
                 handleExternalLink(url)
             }
             return nil

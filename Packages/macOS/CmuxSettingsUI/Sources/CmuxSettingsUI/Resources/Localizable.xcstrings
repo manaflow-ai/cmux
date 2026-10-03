@@ -13574,6 +13574,360 @@
           }
         }
       }
+    },
+    "settings.automation.agentMessages": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Messages"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رسائل الوكلاء"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Nachrichten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mensajes de agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Messages d'agents"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントメッセージ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 메시지"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理訊息"
+          }
+        }
+      }
+    },
+    "settings.automation.agentMessages.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turning this off also fails messages that are waiting to be delivered. To turn messages off for one agent, run cmux agent messages off in its terminal."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يؤدي إيقاف هذا الخيار أيضًا إلى إفشال الرسائل التي تنتظر التسليم. لإيقاف الرسائل لوكيل واحد، شغّل cmux agent messages off في طرفيته."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Ausschalten schlagen auch Nachrichten fehl, die noch auf Zustellung warten. Um Nachrichten nur für einen Agenten auszuschalten, führe cmux agent messages off in seinem Terminal aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al desactivarlo también fallan los mensajes que esperan entrega. Para desactivar los mensajes de un solo agente, ejecuta cmux agent messages off en su terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La désactivation fait aussi échouer les messages en attente de remise. Pour désactiver les messages d'un seul agent, exécutez cmux agent messages off dans son terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフにすると、配信待ちのメッセージも失敗になります。1 つのエージェントだけメッセージをオフにするには、そのターミナルで cmux agent messages off を実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끄면 전달을 기다리는 메시지도 실패 처리됩니다. 에이전트 하나만 메시지를 끄려면 해당 터미널에서 cmux agent messages off를 실행하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭后，等待投递的消息也会标记为失败。若只想关闭某个代理的消息，请在它的终端中运行 cmux agent messages off。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉後，等待遞送的訊息也會標為失敗。若只要關閉某個代理的訊息，請在它的終端機中執行 cmux agent messages off。"
+          }
+        }
+      }
+    },
+    "settings.automation.agentMessages.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent messages are off. Sends fail and nothing is delivered."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رسائل الوكلاء متوقفة. يفشل الإرسال ولا يُسلَّم شيء."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Nachrichten sind aus. Senden schlägt fehl und nichts wird zugestellt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los mensajes de agentes están desactivados. Los envíos fallan y no se entrega nada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les messages d'agents sont désactivés. Les envois échouent et rien n'est remis."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントメッセージはオフです。送信は失敗し、何も配信されません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 메시지가 꺼져 있습니다. 전송이 실패하고 아무것도 전달되지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理消息已关闭。发送会失败，也不会投递任何消息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理訊息已關閉。傳送會失敗，也不會遞送任何訊息。"
+          }
+        }
+      }
+    },
+    "settings.automation.agentMessages.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents can message each other with cmux agent message."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن للوكلاء مراسلة بعضهم باستخدام cmux agent message."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten können sich mit cmux agent message gegenseitig Nachrichten senden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los agentes pueden enviarse mensajes con cmux agent message."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les agents peuvent s’envoyer des messages avec cmux agent message."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント同士が cmux agent message でメッセージを送り合えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트끼리 cmux agent message로 메시지를 보낼 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理可以使用 cmux agent message 互相发送消息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理可以使用 cmux agent message 互相傳送訊息。"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.middleClickPaste": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Middle-Click Paste"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اللصق بالنقر الأوسط"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einfügen per Mittelklick"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pegar con clic central"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coller avec le clic du milieu"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中クリックで貼り付け"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가운데 클릭으로 붙여넣기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中键点按粘贴"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中鍵點按貼上"
+          }
+        }
+      }
+    },
+    "settings.terminal.ghostty.middleClickPaste.mouseApps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apps that use the mouse still get middle clicks."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تظل التطبيقات التي تستخدم الماوس تتلقى النقرات الوسطى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apps, die die Maus verwenden, erhalten weiterhin Mittelklicks."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las apps que usan el ratón siguen recibiendo los clics centrales."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les apps qui utilisent la souris reçoivent toujours les clics du milieu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マウスを使うアプリには引き続き中クリックが送られます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마우스를 사용하는 앱은 계속 가운데 클릭을 받습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用鼠标的 App 仍会收到中键点按。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用滑鼠的 App 仍會收到中鍵點按。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

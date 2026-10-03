@@ -5,8 +5,11 @@ import CmuxFoundation
 
 extension CmuxTuiSurfaceProvider {
     var supportsDisplayCreation: Bool {
-        isAwake && info.hasDesktop && summary.resolvedKind.hasDesktop
-            && isRegisteredInCatalog()
+        // The stored machine kind predates the desktop capability contract and
+        // is stale on some VMs that already have the validated runtime. The
+        // display coordinator's live guest probe is the authority; retain the
+        // local checks that prevent requests while asleep or detached.
+        isAwake && info.hasDesktop && isRegisteredInCatalog()
     }
 
     var displayResources: [SurfaceResource] {
