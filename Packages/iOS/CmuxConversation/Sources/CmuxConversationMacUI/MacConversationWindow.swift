@@ -520,6 +520,7 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         view.identifier = .init("r")
         view.configure(store: visible[row].store)
         view.isUnread = isUnread(visible[row])
+        view.isEmphasized = (tableView.rowView(atRow: row, makeIfNecessary: false) as? MacConversationListRowView)?.isActiveSelection ?? false
         view.hidesSeparator = tableView.selectedRow == row || tableView.selectedRow == row + 1 || row == visible.count - 1
         return view
     }
@@ -545,6 +546,14 @@ final class MacConversationListRow: MacFlippedView {
     private let clusterDisc = MacFlippedView()
     private let unreadDot = MacFlippedView()
     var isUnread = false { didSet { unreadDot.isHidden = !isUnread } }
+    /// White text on the accent-filled selection.
+    var isEmphasized = false {
+        didSet {
+            title.textColor = isEmphasized ? .white : .labelColor
+            preview.textColor = isEmphasized ? NSColor.white.withAlphaComponent(0.85) : .secondaryLabelColor
+            time.textColor = isEmphasized ? NSColor.white.withAlphaComponent(0.85) : .secondaryLabelColor
+        }
+    }
     var hidesSeparator = false { didSet { separator.isHidden = hidesSeparator } }
 
     override init(frame: NSRect) {
@@ -635,8 +644,38 @@ final class MacConversationListRow: MacFlippedView {
 
 /// Messages' selection: a lighter rounded fill instead of the accent color.
 final class MacConversationListRowView: NSTableRowView {
+    private var observers: [any NSObjectProtocol] = []
+
+    /// Messages fills the selected conversation with the accent color while
+    /// the window is active, and a neutral gray when it is not.
+    var isActiveSelection: Bool { isSelected && window?.isKeyWindow == true }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        observers.forEach(NotificationCenter.default.removeObserver)
+        observers = []
+        guard let window else { return }
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.selectionStyleChanged() }
+            })
+        }
+    }
+
+    override var isSelected: Bool { didSet { selectionStyleChanged() } }
+
+    private func selectionStyleChanged() {
+        needsDisplay = true
+        (view(atColumn: 0) as? MacConversationListRow)?.isEmphasized = isActiveSelection
+    }
+
     override func drawSelection(in dirtyRect: NSRect) {
         let dark = effectiveAppearance.isDarkMac
+        if isActiveSelection {
+            NSColor.controlAccentColor.setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 10, dy: 0), xRadius: 10, yRadius: 10).fill()
+            return
+        }
         (dark ? NSColor(white: 1, alpha: 0.08) : NSColor(white: 0, alpha: 0.06)).setFill()
         // Measured: the fill is inset 10 pt from the sidebar panel's edges.
         NSBezierPath(roundedRect: bounds.insetBy(dx: 10, dy: 0), xRadius: 10, yRadius: 10).fill()
