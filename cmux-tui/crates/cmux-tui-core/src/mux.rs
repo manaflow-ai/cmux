@@ -4,6 +4,8 @@
 mod agent_hook_errors;
 mod conversations;
 mod host_close;
+#[cfg(all(test, unix))]
+mod host_death_tests;
 mod idle_close;
 pub(crate) mod layout_invariants;
 mod personal;
@@ -101,7 +103,9 @@ use crate::sizing_policy::{
     TerminalSizingPolicy, TerminalSizingReason, TerminalSizingState,
 };
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
+use crate::terminal_end::TerminalEnd;
 use crate::terminal_host::TerminalId;
+#[cfg(test)]
 use crate::terminal_host_protocol::TerminalExit;
 use crate::terminal_host_runtime::TerminalHostIdentity;
 #[cfg(unix)]
@@ -2706,6 +2710,9 @@ pub struct Mux {
     template_completion_failures: AtomicU64,
     server_lifecycle_ready: AtomicBool,
     shutting_down: AtomicBool,
+    /// When this owner's session (and the previous owner's) was shutting
+    /// down: signal exits then are host losses (`session-shutdown`).
+    session_shutdown: crate::session_shutdown::SessionShutdownClock,
     /// Called after `request_daemon_shutdown`, so the owner loop that waits
     /// for it blocks instead of polling the flag.
     daemon_shutdown_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
@@ -2964,6 +2971,12 @@ impl Mux {
     ) -> anyhow::Result<Arc<Self>> {
         let snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
+        let session_shutdown = crate::session_shutdown::SessionShutdownClock::open(
+            registry
+                .session_journal_database_path()
+                .map(|database| crate::session_shutdown::owner_shutdown_marker_path(&database)),
+            crate::session_shutdown::unix_now_ms(),
+        );
         let RestoredResourceState { mut state, next_id, contents } =
             restore_resource_state(snapshot, topology)?;
         let RestoredPublicProjections {
@@ -3140,6 +3153,7 @@ impl Mux {
             ),
             server_lifecycle_ready: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
+            session_shutdown,
             daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
@@ -3524,10 +3538,11 @@ impl Mux {
                 // never be allowed to terminate a replacement process.
                 continue;
             }
+            // The host's durable sidecar records the child's end.
             self.persist_terminal_exit(
                 &record.terminal_id,
                 Some(&record.incarnation),
-                &record.exit,
+                &TerminalEnd::ProcessEnded(record.exit.clone()),
             )?;
             self.detach_exited_terminal_topology(&record.terminal_id)?;
             let _ = crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(
@@ -3604,7 +3619,7 @@ impl Mux {
                 continue;
             }
             if terminal.incarnation.as_deref().is_some_and(|value| value != record.incarnation) {
-                self.mark_terminal_exited_and_detach(
+                self.mark_terminal_ended(
                     &terminal_id,
                     "terminal-incarnation-mismatch",
                     "host-incarnation-mismatch",
@@ -3650,7 +3665,7 @@ impl Mux {
                 // record is the only proof that this host ever existed, so a
                 // failed commit must leave the next startup able to retry
                 // instead of facing a lifecycle row with no evidence.
-                self.mark_terminal_exited_and_detach(
+                self.mark_terminal_ended(
                     &terminal_id,
                     "terminal-host-proven-dead",
                     "host-process-ended-before-adoption",
@@ -3677,7 +3692,7 @@ impl Mux {
                     if terminal_host_record_liveness(&record_path, &record)
                         == TerminalHostLiveness::Dead
                     {
-                        self.mark_terminal_exited_and_detach(
+                        self.mark_terminal_ended(
                             &terminal_id,
                             "terminal-host-proven-dead",
                             "host-process-ended-before-adoption",
@@ -3708,7 +3723,7 @@ impl Mux {
                 surface.disconnect_for_daemon_shutdown();
                 handled_terminals.insert(terminal_id.clone());
                 if host_is_dead {
-                    self.mark_terminal_exited_and_detach(
+                    self.mark_terminal_ended(
                         &terminal_id,
                         "terminal-adoption-failed",
                         "host-exited-during-adoption",
@@ -3742,7 +3757,7 @@ impl Mux {
                 self.detach_exited_terminal_topology(&terminal.terminal_id)?;
                 continue;
             }
-            self.mark_terminal_exited_and_detach(
+            self.mark_terminal_ended(
                 &terminal.terminal_id,
                 "terminal-record-missing",
                 "missing-host-record",
@@ -3901,8 +3916,12 @@ impl Mux {
         Ok(())
     }
 
+    /// Startup and adoption-loop reconciliation of a host that is gone or no
+    /// longer matches its row. Commits the exit receipt (the host's sidecar
+    /// when it left one) and detaches the terminal's tabs only when that
+    /// receipt proves a process end; a host loss leaves them dead.
     #[cfg(unix)]
-    fn mark_terminal_exited_and_detach(
+    fn mark_terminal_ended(
         self: &Arc<Self>,
         terminal_id: &str,
         _operation: &str,
@@ -3931,10 +3950,13 @@ impl Mux {
                         .is_none_or(|incarnation| incarnation == record.incarnation)
             });
         if terminal.lifecycle != TerminalLifecycle::Exited {
+            // A sidecar is the host's record of the child's end. Without one
+            // the host died with an unknown outcome: the terminal is exited
+            // but its tabs stay, dead (invariant 3).
             let observed = sidecar
                 .as_ref()
-                .map(|(_, record)| record.exit.clone())
-                .unwrap_or_else(|| TerminalExit::unknown(reason));
+                .map(|(_, record)| TerminalEnd::ProcessEnded(record.exit.clone()))
+                .unwrap_or_else(|| TerminalEnd::host_lost(reason));
             let incarnation = sidecar
                 .as_ref()
                 .map(|(_, record)| record.incarnation.as_str())
@@ -3959,11 +3981,10 @@ impl Mux {
     ) -> anyhow::Result<()> {
         let _pending_host_release = PendingTerminalHostRelease(surface.clone());
         if surface.is_dead() {
-            self.persist_terminal_exit(
-                terminal_id,
-                Some(incarnation),
-                &TerminalExit::unknown("host-exited-during-adoption"),
-            )?;
+            let end = surface
+                .terminal_end()
+                .unwrap_or_else(|| TerminalEnd::host_lost("host-exited-during-adoption"));
+            self.persist_terminal_exit(terminal_id, Some(incarnation), &end)?;
             anyhow::bail!("terminal host exited during adoption");
         }
         let mut registry = self.workspace_registry.lock().unwrap();
@@ -4173,7 +4194,7 @@ impl Mux {
                         .as_deref()
                         .is_some_and(|incarnation| incarnation != record.incarnation)
                     {
-                        if let Err(error) = mux.mark_terminal_exited_and_detach(
+                        if let Err(error) = mux.mark_terminal_ended(
                             &terminal_id,
                             "terminal-incarnation-mismatch",
                             "host-incarnation-mismatch",
@@ -4217,7 +4238,7 @@ impl Mux {
                     if terminal_host_record_liveness(&record_path, &record)
                         == TerminalHostLiveness::Dead
                     {
-                        if let Err(error) = mux.mark_terminal_exited_and_detach(
+                        if let Err(error) = mux.mark_terminal_ended(
                             &terminal_id,
                             "terminal-host-proven-dead",
                             "host-process-ended-before-adoption",
@@ -4267,7 +4288,7 @@ impl Mux {
                                 == TerminalHostLiveness::Dead;
                         surface.disconnect_for_daemon_shutdown();
                         if host_is_dead {
-                            if let Err(error) = mux.mark_terminal_exited_and_detach(
+                            if let Err(error) = mux.mark_terminal_ended(
                                 &terminal_id,
                                 "terminal-adoption-failed",
                                 "host-exited-during-adoption",
@@ -4292,7 +4313,7 @@ impl Mux {
                     if terminal_host_record_liveness(&record_path, &record)
                         == TerminalHostLiveness::Dead
                     {
-                        if let Err(error) = mux.mark_terminal_exited_and_detach(
+                        if let Err(error) = mux.mark_terminal_ended(
                             &terminal_id,
                             "terminal-host-proven-dead",
                             "host-process-ended-before-adoption",
@@ -6022,7 +6043,11 @@ impl Mux {
                 registry.terminal_record(&host_id)?.and_then(|terminal| terminal.incarnation);
             (host_id, incarnation)
         };
-        self.persist_terminal_exit(&host_id, incarnation.as_deref(), exit)
+        self.persist_terminal_exit(
+            &host_id,
+            incarnation.as_deref(),
+            &TerminalEnd::ProcessEnded(exit.clone()),
+        )
     }
 
     fn publish_resource_event(&self) {
@@ -8075,7 +8100,7 @@ impl Mux {
         self.persist_terminal_exit(
             terminal_id,
             incarnation,
-            &TerminalExit::unknown("cell-pixel-reconcile-failed"),
+            &TerminalEnd::launch_failed("cell-pixel-reconcile-failed"),
         )
         .context("could not persist terminal exit after cell-pixel reconciliation failed")?;
         Ok(())
@@ -8188,7 +8213,7 @@ impl Mux {
                     let _ = self.persist_terminal_exit(
                         &terminal_hex,
                         None,
-                        &TerminalExit::unknown(format!("launch-failed: {error}")),
+                        &TerminalEnd::launch_failed(format!("launch-failed: {error}")),
                     );
                     return Err(error);
                 }
@@ -8201,7 +8226,7 @@ impl Mux {
                 let _ = self.persist_terminal_exit(
                     &terminal_hex,
                     None,
-                    &TerminalExit::unknown("host-identity-mismatch"),
+                    &TerminalEnd::launch_failed("host-identity-mismatch"),
                 );
                 surface.kill();
                 anyhow::bail!("terminal host changed registry-reserved identity");
@@ -8247,7 +8272,7 @@ impl Mux {
                 let _ = self.persist_terminal_exit(
                     &terminal_hex,
                     Some(&identity.incarnation),
-                    &TerminalExit::unknown("surface-insert-failed"),
+                    &TerminalEnd::launch_failed("surface-insert-failed"),
                 );
                 surface.kill();
                 return Err(error);
@@ -8309,7 +8334,7 @@ impl Mux {
                     let _ = self.persist_terminal_exit(
                         &terminal_hex,
                         None,
-                        &TerminalExit::unknown(format!("launch-failed: {error}")),
+                        &TerminalEnd::launch_failed(format!("launch-failed: {error}")),
                     );
                     return Err(error);
                 }
@@ -8365,7 +8390,7 @@ impl Mux {
                 let _ = self.persist_terminal_exit(
                     &terminal_hex,
                     Some(&incarnation),
-                    &TerminalExit::unknown("surface-insert-failed"),
+                    &TerminalEnd::launch_failed("surface-insert-failed"),
                 );
                 surface.kill();
                 return Err(error);
@@ -10762,7 +10787,7 @@ impl Mux {
         self.persist_terminal_exit(
             &identity.terminal_id,
             Some(&identity.incarnation),
-            &TerminalExit::unknown(reason),
+            &TerminalEnd::launch_failed(reason),
         )?;
         let removed = {
             let mut state = self.state.lock().unwrap();
@@ -12081,6 +12106,9 @@ impl Mux {
             .into_iter()
             .filter_map(|(terminal_id, entry)| {
                 let terminal_id = TerminalPublicId::parse(terminal_id).ok()?;
+                // A terminal without a runtime runs no agent: its tabs are
+                // dead (a host loss keeps them, invariant 3) or kept.
+                state_snapshot.terminal_catalog.get(&terminal_id)?;
                 let representative = state_snapshot
                     .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
                     .first()
@@ -12113,6 +12141,7 @@ impl Mux {
 
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
+        self.begin_session_shutdown();
         // Hosts of closed terminals were already asked to exit; give them
         // their close deadline so this owner acknowledges their exits.
         if !self.wait_for_terminal_host_closes(Instant::now() + TERMINAL_HOST_CLOSE_WAIT) {
@@ -12250,11 +12279,20 @@ impl Mux {
     /// and remain available for the replacement daemon to adopt.
     pub fn request_daemon_shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
+        self.begin_session_shutdown();
         // The journal hook dispatcher waits on the shared journal.
         self.journal_kernel.wake_waiters();
         if let Some(waker) = self.daemon_shutdown_waker.lock().unwrap().as_ref() {
             waker();
         }
+    }
+
+    /// Record, once and durably, when this owner's session began shutting
+    /// down, so the next owner classifies signal exits from then on as host
+    /// losses (`session-shutdown`). The owner's loop calls it as soon as a
+    /// termination signal wakes it, before any teardown.
+    pub fn begin_session_shutdown(&self) {
+        self.session_shutdown.begin(crate::session_shutdown::unix_now_ms());
     }
 
     /// Install the callback that `request_daemon_shutdown` runs after it
@@ -16706,8 +16744,8 @@ impl Mux {
         // one terminal transition that fences it, preserving byte order and
         // full topology subjects before the atomic detach transaction.
         self.flush_terminal_journal()?;
-        let exit = surface.terminal_exit().unwrap_or_else(|| TerminalExit::unknown(reason));
-        self.persist_terminal_exit(&identity.terminal_id, Some(&identity.incarnation), &exit)?;
+        let end = surface.terminal_end().unwrap_or_else(|| TerminalEnd::host_lost(reason));
+        self.persist_terminal_exit(&identity.terminal_id, Some(&identity.incarnation), &end)?;
         self.detach_exited_terminal_topology(&identity.terminal_id)?;
         #[cfg(unix)]
         if let Some((path, expected)) = surface.terminal_host_exit_sidecar() {
@@ -16724,8 +16762,11 @@ impl Mux {
         &self,
         terminal_id: &str,
         incarnation: Option<&str>,
-        exit: &TerminalExit,
+        end: &TerminalEnd,
     ) -> anyhow::Result<bool> {
+        // A signal exit during a session shutdown is a host loss.
+        let end = &self.session_shutdown.classify(end.clone());
+        let exit = end.exit();
         // Best-effort exit snapshot: capture the terminal's final state as
         // one bounded, compressed vt-replay blob while the runtime VT is
         // still alive, so terminal.output_read stays answerable after its
@@ -16788,21 +16829,27 @@ impl Mux {
                 && public_terminal_id
                     .as_ref()
                     .is_some_and(|public_id| state.terminal_catalog.contains_key(public_id)));
-        let detach_projection = if matches!(
-            terminal.lifecycle,
-            TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
-        ) || keep_live_views
-        {
-            None
-        } else if let Some(public_terminal_id) = public_terminal_id.as_ref() {
-            self.terminal_exit_detach_projection_locked(
-                &registry,
-                &state,
-                terminal_id,
-                public_terminal_id,
-            )?
-        } else {
-            None
+        // Invariant 3: only a process end detaches views. A host loss or a
+        // failed launch commits the same exit latch and leaves every tab in
+        // place, dead (no respawn policy exists in the owner).
+        let detach_proof = end.detach_proof();
+        let detach_projection = match (detach_proof, public_terminal_id.as_ref()) {
+            _ if matches!(
+                terminal.lifecycle,
+                TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
+            ) || keep_live_views =>
+            {
+                None
+            }
+            (Some(proof), Some(public_terminal_id)) => self
+                .terminal_exit_detach_projection_locked(
+                    proof,
+                    &registry,
+                    &state,
+                    terminal_id,
+                    public_terminal_id,
+                )?,
+            _ => None,
         };
         let mut terminal_snapshot = terminal_snapshot;
         if detach_projection.is_some() {
@@ -16862,6 +16909,9 @@ impl Mux {
             self.publish_resource_event();
             if let Some(effects) = detach_effects {
                 self.finish_terminal_exit_detach(effects);
+            } else if detach_proof.is_none() {
+                // The tabs stay and now show the terminal dead.
+                self.emit(MuxEvent::TreeChanged);
             }
         }
         Ok(!replayed)
@@ -24987,6 +25037,9 @@ mod tests {
         let before_revision = mux.workspace_registry.lock().unwrap().resource_revision().unwrap();
         let events = mux.subscribe();
 
+        source.record_process_end_for_test(TerminalExit::now(
+            crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
+        ));
         mux.surface_exited(source.id);
 
         mux.with_state(|state| {
@@ -25156,6 +25209,9 @@ mod tests {
             mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
         mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
 
+        mux.surface(surface).unwrap().record_process_end_for_test(TerminalExit::now(
+            crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
+        ));
         mux.surface_exited(surface);
 
         mux.with_state(|state| {
@@ -32877,7 +32933,7 @@ mod tests {
             .unwrap();
             commit_terminal_workspace(&mut registry, TERMINAL, &second.key).unwrap();
         }
-        mux.persist_terminal_exit(TERMINAL, Some(INCARNATION), &TerminalExit::unknown("test"))
+        mux.persist_terminal_exit(TERMINAL, Some(INCARNATION), &TerminalEnd::host_lost("test"))
             .unwrap();
         let terminal = mux.resolve_terminal(TERMINAL).unwrap().unwrap().terminal;
         assert_eq!(terminal.workspace_key, second.key);

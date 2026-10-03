@@ -12,6 +12,7 @@ use crate::resource::{
 };
 use crate::resource_mutation::ResourceMutationPlan;
 use crate::server::MAX_CREATION_SELECTOR_FALLBACKS;
+use crate::terminal_end::DetachProof;
 use crate::workspace_registry::{
     RegistryPane, RegistryScreen, RegistryTab, RegistryViewportColumn, ResourceCreationPreparation,
     ResourceCreationRecovery, ResourcePatchCommit, ResourceWorkspaceClose, ResourceWorkspaceLedger,
@@ -2927,8 +2928,10 @@ impl Mux {
             return Err(terminal_close_state_error("terminal resource changed hosts"));
         }
         let content_id = ContentPublicId::Terminal(public_id.clone());
-        let (target, mut plan) =
-            if let Some(runtime) = state.terminal_catalog.get(&public_id).cloned() {
+        let runtime = state.terminal_catalog.get(&public_id).cloned();
+        let has_views = !state.placements_of_content(&content_id).is_empty();
+        let (target, mut plan) = if runtime.is_some() || has_views {
+            if let Some(runtime) = runtime {
                 let host = self.resource_terminal_host_identity(&runtime).ok_or_else(|| {
                     terminal_close_state_error("terminal runtime omitted its durable host identity")
                 })?;
@@ -2938,42 +2941,56 @@ impl Mux {
                 if let Some(expected) = expected_incarnation {
                     anyhow::ensure!(host.incarnation == expected, "terminal_incarnation_mismatch");
                 }
-                let target = state.placements_of_content(&content_id).first().copied();
-                let plan = self.resource_close_plan_locked(
-                    ResourceOperation::TerminalClose,
-                    EffectSlots {
-                        workspace: None,
-                        screen: None,
-                        pane: None,
-                        tab: None,
-                        terminal: Some(public_id.clone()),
-                    },
-                    &registry,
-                    &state,
-                    &notifications,
-                )?;
-                (target, plan)
             } else {
-                if !state.placements_of_content(&content_id).is_empty() {
+                // An exited terminal keeps dead views after its runtime is
+                // gone (a host loss, invariant 3, or a keep-layout tab);
+                // explicit close retires them with the receipt.
+                let record = registry.terminal_record(terminal_id)?.ok_or_else(|| {
+                    terminal_close_state_error(format!("terminal close omitted host {terminal_id}"))
+                })?;
+                if record.lifecycle != TerminalLifecycle::Exited {
                     return Err(terminal_close_state_error(format!(
                         "live terminal resource {public_id} has views but no runtime owner"
                     )));
                 }
-                (
-                    None,
-                    ResourceClosePlan {
-                        state: state.clone(),
-                        removed: Vec::new(),
-                        terminal_runtime: None,
-                        closed_terminal_public_id: Some(public_id.clone()),
-                        terminal_batch: Vec::new(),
-                        workspace_close: None,
-                        delta: None,
-                        changed_screens: Vec::new(),
-                        selection_resync: false,
-                    },
-                )
-            };
+                if let Some(expected) = expected_incarnation {
+                    anyhow::ensure!(
+                        record.incarnation.as_deref() == Some(expected),
+                        "terminal_incarnation_mismatch"
+                    );
+                }
+            }
+            let target = state.placements_of_content(&content_id).first().copied();
+            let plan = self.resource_close_plan_locked(
+                ResourceOperation::TerminalClose,
+                EffectSlots {
+                    workspace: None,
+                    screen: None,
+                    pane: None,
+                    tab: None,
+                    terminal: Some(public_id.clone()),
+                },
+                &registry,
+                &state,
+                &notifications,
+            )?;
+            (target, plan)
+        } else {
+            (
+                None,
+                ResourceClosePlan {
+                    state: state.clone(),
+                    removed: Vec::new(),
+                    terminal_runtime: None,
+                    closed_terminal_public_id: Some(public_id.clone()),
+                    terminal_batch: Vec::new(),
+                    workspace_close: None,
+                    delta: None,
+                    changed_screens: Vec::new(),
+                    selection_resync: false,
+                },
+            )
+        };
         let mut projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
         if !projection.patch.changes.iter().any(|change| {
@@ -3078,8 +3095,11 @@ impl Mux {
         }))
     }
 
+    /// Views of an exited terminal to remove in the exit's commit. Requires
+    /// a [`DetachProof`]: only a process end may detach (invariant 3).
     pub(super) fn terminal_exit_detach_projection_locked(
         &self,
+        _proof: DetachProof,
         registry: &WorkspaceRegistry,
         state: &State,
         terminal_id: &str,
@@ -3230,6 +3250,13 @@ impl Mux {
             terminal.lifecycle == TerminalLifecycle::Exited,
             "terminal {terminal_id} is not exited"
         );
+        // Invariant 3: a receipt of a host loss (outcome unknown) keeps the
+        // tabs, dead; only a recorded exit status or signal detaches them,
+        // and a signal during a session shutdown counts as a host loss.
+        let end = self.session_shutdown.classify(TerminalEnd::from_receipt(terminal.exit.as_ref()));
+        let Some(proof) = end.detach_proof() else {
+            return Ok(false);
+        };
         let Some(terminal_public_id) = registry.terminal_resource_id(terminal_id)? else {
             return Ok(false);
         };
@@ -3249,6 +3276,7 @@ impl Mux {
             return Ok(false);
         }
         let Some(projection) = self.terminal_exit_detach_projection_locked(
+            proof,
             &registry,
             &state,
             terminal_id,
@@ -3509,9 +3537,11 @@ impl Mux {
                 let placements = state
                     .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
                     .to_vec();
+                // An exited terminal may keep dead views without a runtime
+                // (a host loss, or a keep-layout tab); a live one may not.
                 if runtime.is_none() {
                     anyhow::ensure!(
-                        placements.is_empty(),
+                        placements.is_empty() || terminal.lifecycle == TerminalLifecycle::Exited,
                         "live terminal resource {public_id} has views but no runtime owner"
                     );
                 }

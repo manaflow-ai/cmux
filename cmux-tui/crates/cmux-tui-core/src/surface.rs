@@ -35,6 +35,7 @@ use ghostty_vt::{
 use crate::mux::ResourceWaitWake;
 use crate::platform;
 use crate::resource::{ContentPublicId, TabResourceIdentity, TerminalPublicId};
+use crate::terminal_end::TerminalEnd;
 use crate::terminal_host_protocol::{TerminalExit, wait_for_native_child_status_with_reap_result};
 use crate::{Mux, MuxEvent, SurfaceId};
 
@@ -1719,7 +1720,9 @@ pub struct PtyTerminalRuntime {
     pid: Option<u32>,
     command: Vec<String>,
     cwd: Option<String>,
-    exit: Mutex<Option<TerminalExit>>,
+    /// How this incarnation ended, with its provenance (process end versus
+    /// host loss); see [`TerminalEnd`].
+    exit: Mutex<Option<TerminalEnd>>,
     local_pty_drained: AtomicBool,
     exit_notified: AtomicBool,
     dead: AtomicBool,
@@ -3011,7 +3014,7 @@ impl Surface {
                 let _reaper_completion = ReaderCompletionGuard(reaper_completion);
                 let exit = child.wait_for_exit();
                 if let Some(pty) = reaper_surface.as_pty() {
-                    *pty.exit.lock().unwrap() = Some(exit);
+                    *pty.exit.lock().unwrap() = Some(TerminalEnd::ProcessEnded(exit));
                 }
                 close_local_terminal_master_after_exit(&reaper_surface);
                 publish_local_exit_if_ready(&reaper_surface);
@@ -3799,7 +3802,9 @@ impl Surface {
                     }
                     let Some(identity) = pty.host_identity.clone() else { return };
                     if let Some(exit) = received_exit {
-                        *pty.exit.lock().unwrap() = Some(exit);
+                        // The host's Exit frame is its report that the child
+                        // ended, even when an older host omits the status.
+                        *pty.exit.lock().unwrap() = Some(TerminalEnd::ProcessEnded(exit));
                         mark_hosted_runtime_exited(pty, &identity);
                         pty.host_connection_state
                             .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
@@ -3863,6 +3868,9 @@ impl Surface {
                             &record,
                         ) {
                             Ok(crate::terminal_host_runtime::TerminalHostLiveness::Dead) => {
+                                // A durable sidecar is the host's record of the
+                                // child's end; without one the host died with an
+                                // unknown outcome (invariant 3: its tabs stay).
                                 let exit = crate::terminal_host_runtime::terminal_host_exit_record(
                                     &record_path,
                                 )
@@ -3872,9 +3880,9 @@ impl Surface {
                                     exit.terminal_id == identity.terminal_id
                                         && exit.incarnation == identity.incarnation
                                 })
-                                .map(|(_, exit)| exit.exit)
+                                .map(|(_, exit)| TerminalEnd::ProcessEnded(exit.exit))
                                 .unwrap_or_else(|| {
-                                    TerminalExit::unknown(
+                                    TerminalEnd::host_lost(
                                         "terminal host ended without a durable exit sidecar",
                                     )
                                 });
@@ -6081,7 +6089,20 @@ impl Surface {
     }
 
     pub fn terminal_exit(&self) -> Option<TerminalExit> {
+        self.terminal_end().map(|end| end.exit().clone())
+    }
+
+    /// How this incarnation ended, with its provenance.
+    pub(crate) fn terminal_end(&self) -> Option<TerminalEnd> {
         self.as_pty().and_then(|pty| pty.exit.lock().unwrap().clone())
+    }
+
+    /// Record a process end on a test runtime, as a host's Exit frame does.
+    #[cfg(test)]
+    pub(crate) fn record_process_end_for_test(&self, exit: TerminalExit) {
+        if let Some(pty) = self.as_pty() {
+            *pty.exit.lock().unwrap() = Some(TerminalEnd::ProcessEnded(exit));
+        }
     }
 
     /// Whether [`Self::begin_host_termination`] would signal a terminal host
@@ -6136,10 +6157,13 @@ impl Surface {
             .ok_or_else(|| anyhow::anyhow!("terminal host termination lost its PTY runtime"))?;
         let HostTermination { identity, path, mut observed, already_exited } = termination;
         loop {
-            if let Some(exit) = pty.exit.lock().unwrap().clone() {
+            if let Some(end) = pty.exit.lock().unwrap().clone() {
                 return Ok((
                     path,
-                    crate::terminal_host_runtime::TerminalHostExitRecord::new(&identity, exit),
+                    crate::terminal_host_runtime::TerminalHostExitRecord::new(
+                        &identity,
+                        end.exit().clone(),
+                    ),
                 ));
             }
             anyhow::ensure!(
@@ -6160,7 +6184,7 @@ impl Surface {
         let pty = self.as_pty()?;
         let path = pty.host_exit_record_path.clone()?;
         let identity = pty.host_identity.as_ref()?;
-        let exit = pty.exit.lock().unwrap().clone()?;
+        let exit = pty.exit.lock().unwrap().as_ref()?.exit().clone();
         Some((path, crate::terminal_host_runtime::TerminalHostExitRecord::new(identity, exit)))
     }
 
