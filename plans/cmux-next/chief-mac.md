@@ -15,7 +15,9 @@ harness. The "brain" that P1 ports is the deterministic host around it (today `m
 1. Inbox: it reads the conversation owner's `conversation-changed` events, applies the wake rule
    (home.md section 5), and prompts the session (`promptId` = message id).
 2. Replies: it folds the session's acpmux events into turns and posts each turn's text as
-   `message.send` by `agent_mux` (key `turn:<session>:<turn seq>`); it sets typing during a turn.
+   `message.send` by `agent_mux` (key `turn:<session>:<turn seq>`, or `turn:<session>:<epoch>:<turn
+   seq>` after the acpmux log was reset; the epoch comes from the log itself, so a lost host.json or a
+   repeated import never reuses a key); it sets typing during a turn.
 3. Supervisor: it tracks child sessions tagged `mux.parent=mux`, posts and edits their `work`
    cards, and sends `[mux-event]` prompts when a child ends a turn or asks for a permission.
 4. Outbox: durable, ordered conversation ops; one retry after `agent_rate`; drop on any other
@@ -23,7 +25,7 @@ harness. The "brain" that P1 ports is the deterministic host around it (today `m
 5. Memory: the OptMem-style log (`LOG.txt`, `TREE/`), the Claude Code hooks that write it, and
    compaction through a summarizer session.
 6. Session setup: the session directory (CLAUDE.md, `.claude/settings.json`, hooks), the tool
-   servers, the pid lock, and catch-up after a reconnect.
+   servers, the host lock, and catch-up after a reconnect.
 
 ## 2. Process placement
 
@@ -42,8 +44,15 @@ Placement: the Chief is an actor in the session daemon process (the conversation
   hub in-process. The core does not change.
 - Lifecycle: the daemon starts the actor when the session has a `kind: home` workspace
   (`workspace.ensure_home`) and stops it with the session. One actor per `$MUX_HOME`: the actor takes
-  the same pid lock as the TypeScript host (`$MUX_HOME/state/host.lock`), so the two hosts never run
-  together. The daemon advertises capability `chief-v1`.
+  the same kernel lock as the TypeScript host, so the two hosts never run together. Lock protocol:
+  open `$MUX_HOME/state/host.lock` and take an exclusive non-blocking flock(2) (TypeScript: bun:ffi
+  `flock(LOCK_EX|LOCK_NB)`; Rust: `std::fs::File::try_lock`, which is flock on Unix), keep the
+  descriptor open for the host's life, never remove the file; the text `<pid>\n<start ms>\n` is
+  diagnostics only, with a `flock` mark line (branch feat-cmux-next-mux-lock). Upgrade check, REMOVE
+  AFTER ONE RELEASE: a lock text without the mark that names a live process whose OS start is no
+  later than the recorded start (or the file mtime) plus 1 s is an older host that holds the lock by
+  text only; the new host logs its pid and does not start. The daemon advertises capability
+  `chief-v1`.
 - Why not the acpmux process: the conversation owner is the single writer of conversations and its
   owner-stamped actor is the security boundary (home.md section 2). An in-process client of the
   owner removes the token handoff (the 0600 file and the "any same-uid process is user_local" gap
@@ -90,7 +99,7 @@ Conditions (Home lead, 2026-10-03, binding for P1):
 1. The TypeScript step core is the single behavior source. The corpus is generated from it; the
    Rust core follows it, never the other way.
 2. `mux/host` keeps working until `cmux-chief` passes the corpus; then the Rust Chief replaces it in
-   one switch. The Mac never has two live brains (the shared pid lock also enforces this).
+   one switch. The Mac never has two live brains (the shared kernel lock also enforces this).
 3. The Rust Chief acts as `agent_mux` with the agent principal, never `user_local` or the install
    principal. In-process (section 2) the owner stamps the agent principal directly; any socket
    client path binds with the minted agent token.
