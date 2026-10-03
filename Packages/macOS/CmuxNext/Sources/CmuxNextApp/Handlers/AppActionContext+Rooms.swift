@@ -37,7 +37,7 @@ extension AppActionContext {
         if let room = roomStore.profiles.first(where: {
             $0.name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) == folded
         }) { return room }
-        throw ActionFailure.invalidTarget(RoomStrings.noRoom(text))
+        throw ActionFailure.notFound(RoomStrings.noRoom(text))
     }
 }
 

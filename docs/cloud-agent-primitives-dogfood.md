@@ -1,5 +1,12 @@
 # Cloud agent primitives — nightly dogfood checklist
 
+> **Retired (2026-09-30):** the Rust CLI cutover removed the Mac's `cmux vm`, `cmux vpn`,
+> `cmux surface` and `cmux auth` verbs, so this checklist cannot run against cmux-next
+> builds. It stays as the record of what the stack covered. Rows run inside a machine
+> through its guest `cmux` still apply: 2.8, 3.1 to 3.8, 4.7, the local form of 5.8
+> and 9.3. Machine lifecycle from the Mac is now the app's `cmux cloud <verb>` actions
+> (`skills/cmux-cloud-vm/SKILL.md`).
+
 Run this against a nightly (or tagged) build that carries the `freestyle-vm-primitives` +
 `freestyle-vm-agent-primitives` stack. Each step names the command, what a pass looks like,
 and where to look when it does not. Work top to bottom: later steps assume earlier ones.

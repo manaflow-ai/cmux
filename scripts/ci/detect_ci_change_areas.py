@@ -20,7 +20,6 @@ class ChangeAreas:
     macos: bool
     web: bool
     agent_session_web: bool
-    cli: bool
     swift_packages: bool
     release_build: bool
 
@@ -30,7 +29,6 @@ class ChangeAreas:
             macos=True,
             web=True,
             agent_session_web=True,
-            cli=True,
             swift_packages=True,
             release_build=True,
         )
@@ -40,7 +38,6 @@ class ChangeAreas:
             macos=self.macos or other.macos,
             web=self.web or other.web,
             agent_session_web=self.agent_session_web or other.agent_session_web,
-            cli=self.cli or other.cli,
             swift_packages=self.swift_packages or other.swift_packages,
             release_build=self.release_build or other.release_build,
         )
@@ -50,7 +47,6 @@ class ChangeAreas:
             f"macos={bool_output(self.macos)}",
             f"web={bool_output(self.web)}",
             f"agent_session_web={bool_output(self.agent_session_web)}",
-            f"cli={bool_output(self.cli)}",
             f"swift_packages={bool_output(self.swift_packages)}",
             f"release_build={bool_output(self.release_build)}",
         ]
@@ -73,8 +69,6 @@ WEB_WORKFLOW_PATH = ".github/workflows/ci-web.yml"
 MACOS_WORKFLOW_PATH = ".github/workflows/ci-macos.yml"
 MACOS_XCODE_PROJECT_PATH = "cmux.xcodeproj/project.pbxproj"
 MACOS_PRODUCT_TARGET = "cmux-next"
-CLI_PRODUCT_TARGET = "cmux-cli"
-XCODE_SHARED_SCHEMES_PREFIX = "cmux.xcodeproj/xcshareddata/xcschemes/"
 
 _LOCAL_PATH_DEPENDENCY_RE = re.compile(
     r'\.package\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"'
@@ -301,21 +295,19 @@ def _changed_workflow_jobs(
 
 
 NO_AREAS = ChangeAreas(
-    macos=False, web=False, agent_session_web=False, cli=False,
+    macos=False, web=False, agent_session_web=False,
     swift_packages=False, release_build=False,
 )
 
 # What a ci.yml job that calls one of these reusable workflows selects. Its
 # `with:` inputs, `if:` and `needs:` all sit in the calling job's own block.
-# The job that calls ci-macos.yml also passes the `cli` route that runs the
-# CLI lane there (compile admission's CLI smoke checks, cli-product-tests).
 _CALLED_WORKFLOW_AREAS = {
     MACOS_WORKFLOW_PATH: ChangeAreas(
-        macos=True, web=False, agent_session_web=False, cli=True,
+        macos=True, web=False, agent_session_web=False,
         swift_packages=False, release_build=True,
     ),
     WEB_WORKFLOW_PATH: ChangeAreas(
-        macos=False, web=True, agent_session_web=True, cli=False,
+        macos=False, web=True, agent_session_web=True,
         swift_packages=False, release_build=False,
     ),
 }
@@ -384,11 +376,6 @@ def _release_jobs(jobs: dict[str, str]) -> frozenset[str]:
         if not feeders:
             return frozenset(named | consumers)
         consumers |= feeders
-
-
-# The ci-macos.yml jobs the CLI product lane runs through: its own job, and
-# the admission job that builds and publishes the product it restores.
-MACOS_CLI_LANE_JOBS = frozenset({"cli-product-tests", "macos-compile-admission"})
 
 
 _FULL_LINE_COMMENT_RE = re.compile(r"(?m)^[ \t]*#(?![!{]).*\n?")
@@ -474,9 +461,7 @@ def macos_workflow_change_areas(base: str, head: str) -> Optional[ChangeAreas]:
     Every job the workflow owns runs behind the macOS area. Only a job that
     mentions `release_build` (the Release jobs, the steps that produce their
     helper, the status gate that reports them), or whose outputs such a job
-    reads, needs the Release build as well. The CLI lane runs only when
-    cli-product-tests or the admission job that builds its product changed.
-    A changed workflow_call input reaches the jobs that read it; the rest of
+    reads, needs the Release build as well. A changed workflow_call input reaches the jobs that read it; the rest of
     the preamble reaches every job.
     """
     diff = _macos_workflow_changed_jobs(base, head)
@@ -486,12 +471,11 @@ def macos_workflow_change_areas(base: str, head: str) -> Optional[ChangeAreas]:
     release = _release_jobs(base_jobs) | _release_jobs(head_jobs)
     return ChangeAreas(
         macos=True, web=False, agent_session_web=False,
-        cli=bool(changed & MACOS_CLI_LANE_JOBS),
         swift_packages=False, release_build=bool(changed & release),
     )
 
 
-_AREA_NAMES = ("macos", "web", "agent_session_web", "cli", "swift_packages", "release_build")
+_AREA_NAMES = ("macos", "web", "agent_session_web", "swift_packages", "release_build")
 _AREA_OUTPUT_RE = re.compile(r"needs\.changes\.outputs\.([A-Za-z0-9_]+)")
 # `changes` outputs the areas do not decide: the Linux guards route by path.
 _SELF_ROUTED_OUTPUTS = frozenset({
@@ -568,8 +552,8 @@ def _routed_job_areas(workflow: str, text: str, token: str) -> Optional[ChangeAr
     """The areas that decide whether the routed jobs naming `token` run, or None
     for every area.
 
-    A ci-macos.yml job runs behind the macOS area, with Release and the CLI lane
-    only for their own jobs, as macos_workflow_change_areas() reads an edit. A
+    A ci-macos.yml job runs behind the macOS area, with Release only for its
+    own jobs, as macos_workflow_change_areas() reads an edit. A
     ci-web.yml job runs behind web. Any other plainly Linux job runs behind the
     areas its `if:` reads, which may be none: the static stage and the guards
     route themselves. The routing and status jobs, other Mac jobs, and a name
@@ -590,8 +574,7 @@ def _routed_job_areas(workflow: str, text: str, token: str) -> Optional[ChangeAr
             # That lane is chosen by package path, which a helper is not.
             return None
         return ChangeAreas(
-            macos=True, web=False, agent_session_web=False,
-            cli=bool(naming & MACOS_CLI_LANE_JOBS), swift_packages=False,
+            macos=True, web=False, agent_session_web=False, swift_packages=False,
             release_build=bool(naming & _release_jobs(jobs)),
         )
     if workflow == WEB_WORKFLOW_PATH:
@@ -820,75 +803,6 @@ SHARED_WEB_WORKFLOW_PREFIXES = (
 )
 
 
-# Everything the CLI lane (compile admission's CLI product and its early CLI
-# smoke checks, then cli-product-tests) runs besides the cmux-cli target's own
-# compile inputs, which cli_target_inputs() reads from the Xcode project.
-CLI_LANE_EXACT_INPUTS = frozenset({
-    # The checked-out ghostty submodule supplies the GhosttyKit.xcframework
-    # binary target that CmuxTerminalCore (in the cmux-cli closure) re-vends.
-    "ghostty",
-    "scripts/download-prebuilt-ghosttykit.sh",
-    "scripts/ghosttykit-checksums.txt",
-    "scripts/validate-xcframework-archive.py",
-    "scripts/select-ci-xcode.sh",
-    # select-ci-xcode.sh reads the pool pins and the .xcode-version floor.
-    "scripts/ci/xcode-pins.txt",
-    ".xcode-version",
-    "scripts/install-rust-ci.sh",
-    # install-rust-ci.sh installs the toolchain this file names.
-    "Native/DiffSidecar/rust-toolchain.toml",
-    # .github/actions/cache-restore runs these two.
-    "scripts/ci/r2-cache.sh",
-    "scripts/ci/cache_restore_receipt.py",
-    "scripts/ci/sanitize-xcode-source-packages-cache.py",
-    # The regression scripts admission's CLI smoke step runs, and what they
-    # import or read.
-    "tests/test_cli_broken_pipe_writes.py",
-    "tests/test_cli_socket_operation_deadline.py",
-    "tests/test_cli_config_doctor.py",
-    "tests/test_cli_glaeda_execution.py",
-    "tests/fixtures/glaeda-external-request.json",
-    "tests/fixtures/glaeda-external-result.json",
-    "scripts/generate-cmux-config-schema.py",
-    "web/data/cmux.schema.json",
-    "skills/cmux-settings/scripts/cmux-settings",
-    # ci-macos.yml's cli-product-tests restores the compiled product and runs
-    # the host-free bundle through these. Without them here, a change to one
-    # would compile admission without ever running the lane that reads it.
-    "scripts/ci/node_product_cache.py",
-    "scripts/ci/peer_product_source.py",
-    "scripts/ci/restore-r2-artifact.py",
-    "scripts/ci/parallel_artifact_download.py",
-    "scripts/ci/restore-app-host-test-product.sh",
-    "scripts/ci/run-and-capture.sh",
-    "scripts/ci/require_selected_test_execution.sh",
-    # The Python product lane consumes these alongside the host-free bundle.
-    "scripts/ci/run_python_test_lane.py",
-    "scripts/ci/test_execution_registry.py",
-    "tests/test_claude_hook_spool.py",
-    "tests/claude_teams_test_utils.py",
-    # What restore-app-host-test-product.sh itself runs.
-    "scripts/ci/app_host_test_products.py",
-    "scripts/ci/canonical-build-root.sh",
-    # What canonical-build-root.sh clones the tree with.
-    "scripts/ci/apfs_clone.py",
-    "scripts/ci/relocate_package_framework_rpaths.py",
-    # Seeds the checkout of compile admission and cli-product-tests.
-    "scripts/ci/git-seed.sh",
-})
-
-CLI_LANE_INPUT_PREFIXES = (
-    "CLI/",
-    "cmuxCLITests/",
-    "cmuxCLITestSupport/",
-    # The lane builds the cmux-cli target of this project and keys its package
-    # cache on the project's Package.resolved.
-    "cmux.xcodeproj/",
-    ".github/actions/cache-restore/",
-    # cli-product-tests' canonical fallback download of the compiled product.
-    ".github/actions/download-test-product/",
-)
-
 # ---------------------------------------------------------------------------
 # swift-package-tests lane
 #
@@ -988,62 +902,6 @@ def swift_package_test_selection(paths: Iterable[str]) -> tuple[str, ...]:
     except (Exception, SystemExit) as error:
         print(f"Could not select package tests: {error}", file=sys.stderr)
         return ()
-
-
-# The lane runs `python3 scripts/ci/<helper>.py`, which puts scripts/ci first
-# on sys.path. A new scripts/ci module named like a stdlib module would shadow
-# that import in the lane's helpers.
-_STDLIB_MODULE_NAMES: Optional[frozenset[str]] = (
-    frozenset(sys.stdlib_module_names) if hasattr(sys, "stdlib_module_names") else None
-)
-
-
-def shadows_cli_lane_import(path: str) -> bool:
-    if not path.startswith("scripts/ci/"):
-        return False
-    name = path[len("scripts/ci/") :].split("/", 1)[0]
-    if "/" not in path[len("scripts/ci/") :]:
-        if not name.endswith(".py"):
-            return False
-        name = name[: -len(".py")]
-    if _STDLIB_MODULE_NAMES is None:
-        return True
-    return name in _STDLIB_MODULE_NAMES
-
-
-@dataclass(frozen=True)
-class CliTargetInputs:
-    """Compile inputs of the cmux-cli Xcode target outside CLI/."""
-
-    package_directories: frozenset[str]
-    source_file_names: frozenset[str]
-
-
-def is_cli_change(
-    path: str,
-    cli_inputs: Optional[CliTargetInputs] = None,
-    macos_ios_packages: Optional[frozenset[str]] = None,
-) -> bool:
-    if path.startswith(XCODE_SHARED_SCHEMES_PREFIX):
-        # The lane builds one scheme; the app and test schemes are not inputs.
-        return path.rsplit("/", 1)[-1].startswith(CLI_PRODUCT_TARGET)
-    if path in CLI_LANE_EXACT_INPUTS or path.startswith(CLI_LANE_INPUT_PREFIXES):
-        return True
-    if shadows_cli_lane_import(path):
-        return True
-    if cli_inputs is None:
-        # The target graph could not be read: anything that could reach an
-        # Xcode build keeps the lane, except CI implementation files the lane
-        # never runs.
-        if path.startswith("scripts/ci/") or is_other_workflow_config(path):
-            return False
-        return is_macos_change(path, macos_ios_packages)
-    for directory in cli_inputs.package_directories:
-        if path == directory or path.startswith(f"{directory}/"):
-            # A package's test sources never reach the cmux-cli binary; the
-            # swift-package-tests lane runs them (swift_package_test_selection).
-            return not path.startswith(f"{directory}/Tests/")
-    return path.rsplit("/", 1)[-1] in cli_inputs.source_file_names
 
 
 def is_web_change(path: str) -> bool:
@@ -1383,246 +1241,6 @@ def local_package_closure(root: Path, target_name: str) -> frozenset[str]:
     return frozenset(visited)
 
 
-_PBX_FLAT_OBJECT_RE = re.compile(
-    # An Xcode object identifier: at least eight characters and, unlike the
-    # lowerCamelCase field names of a nested dictionary, never lowercase first.
-    r"(?<![A-Za-z0-9])([A-Z0-9][A-Za-z0-9]{7,})(?:\s+/\*[^*]*\*/)?\s*=\s*\{([^{}]*)\};"
-)
-
-
-def _pbx_flat_objects(project: str) -> dict[str, str]:
-    """Index every brace-free pbx object by identifier.
-
-    Build phases, build files and file references hold no nested dictionary, so
-    one pass indexes them all. The Sources build phase section has no End
-    marker in this project and some lines hold two build files, so this does
-    not go through _pbx_section. A repeated identifier is unreadable input.
-    """
-    objects: dict[str, str] = {}
-    for identifier, body in _PBX_FLAT_OBJECT_RE.findall(project):
-        if identifier in objects:
-            raise ValueError(f"duplicate pbx object {identifier}")
-        objects[identifier] = body
-    if not objects:
-        raise ValueError("project file contained no readable objects")
-    return objects
-
-
-def _flat_object(objects: dict[str, str], identifier: str) -> str:
-    body = objects.get(identifier)
-    if body is None:
-        raise ValueError(f"missing pbx object {identifier}")
-    return body
-
-
-def cli_target_inputs(root: Path) -> CliTargetInputs:
-    """Read the cmux-cli target's compiled file names and package closure.
-
-    Files outside CLI/ that the target compiles are matched by file name; Swift requires those to be unique within the module.
-    """
-    project = (root / MACOS_XCODE_PROJECT_PATH).read_text(encoding="utf-8")
-    native_targets, target = _native_target(project, CLI_PRODUCT_TARGET)
-    if _pbx_list_ids(native_targets[target], "dependencies"):
-        raise ValueError(f"{CLI_PRODUCT_TARGET} gained target dependencies")
-    objects = _pbx_flat_objects(project)
-    names: set[str] = set()
-    for phase_id in _pbx_list_ids(native_targets[target], "buildPhases", required=True):
-        phase = _flat_object(objects, phase_id)
-        kind = _pbx_field(phase, "isa")
-        if kind == "PBXFrameworksBuildPhase":
-            # Frameworks come from packageProductDependencies, read below.
-            continue
-        if kind != "PBXSourcesBuildPhase":
-            raise ValueError(f"{CLI_PRODUCT_TARGET} has an unrouted {kind}")
-        for build_file in _pbx_list_ids(phase, "files"):
-            reference = _pbx_reference_id(
-                _pbx_field(_flat_object(objects, build_file), "fileRef")
-            )
-            file_path = _pbx_field(_flat_object(objects, reference), "path")
-            names.add(file_path.rsplit("/", 1)[-1])
-    if not names:
-        raise ValueError(f"{CLI_PRODUCT_TARGET} compiles no sources")
-    return CliTargetInputs(
-        package_directories=local_package_closure(root, CLI_PRODUCT_TARGET),
-        source_file_names=frozenset(names),
-    )
-
-
-# Native targets that nothing the CLI route runs builds. Every other target,
-# including one added later, counts as a CLI input, so an unknown target keeps
-# the lane rather than skipping it.
-CLI_ROUTE_UNBUILT_TARGETS = frozenset({
-    MACOS_PRODUCT_TARGET,
-})
-_PBX_TARGET_ISAS = frozenset({"PBXNativeTarget", "PBXAggregateTarget", "PBXLegacyTarget"})
-_PBX_TOKEN_RE = re.compile(
-    r'\s+|//[^\n]*|/\*.*?\*/|"(?:[^"\\]|\\.)*"|[{}();=,]|[^\s{}();=,"]+', re.S
-)
-
-
-def _parse_pbx(text: str) -> dict:
-    """Parse an old-style (OpenStep) property list, as project.pbxproj is.
-
-    Strings keep their quotes; this only has to compare two revisions.
-    """
-    tokens = [
-        token
-        for token in _PBX_TOKEN_RE.findall(text)
-        if token.strip() and not token.startswith(("//", "/*"))
-    ]
-    position = 0
-
-    def take() -> str:
-        nonlocal position
-        if position >= len(tokens):
-            raise ValueError("truncated project file")
-        position += 1
-        return tokens[position - 1]
-
-    def value() -> object:
-        token = take()
-        if token == "{":
-            result: dict[str, object] = {}
-            while tokens[position:position + 1] != ["}"]:
-                key = take()
-                if take() != "=":
-                    raise ValueError(f"expected '=' after {key}")
-                result[key] = value()
-                if take() != ";":
-                    raise ValueError(f"expected ';' after {key}")
-            take()
-            return result
-        if token == "(":
-            items: list[object] = []
-            while tokens[position:position + 1] != [")"]:
-                items.append(value())
-                if tokens[position:position + 1] == [","]:
-                    take()
-            take()
-            return tuple(items)
-        if token in "{}();=,":
-            raise ValueError(f"unexpected {token!r}")
-        return token
-
-    root = value()
-    if position != len(tokens) or not isinstance(root, dict):
-        raise ValueError("trailing content after the project dictionary")
-    return root
-
-
-def cli_xcode_project_view(text: str) -> dict[str, object]:
-    """Every project object the CLI route's targets build from.
-
-    That is the project object itself (its build settings and package
-    references) and everything reachable from each target the route may build,
-    plus the groups that locate their files. Group member lists are dropped,
-    since adding an app or test file edits them; each object records its
-    parent groups instead, so moving a CLI file still counts.
-    """
-    root = _parse_pbx(text)
-    objects = root.get("objects")
-    project_id = root.get("rootObject")
-    if not isinstance(objects, dict) or project_id not in objects:
-        raise ValueError("project file has no root object")
-    targets = {
-        identifier: body.get("name", "").strip('"')
-        for identifier, body in objects.items()
-        if isinstance(body, dict) and body.get("isa") in _PBX_TARGET_ISAS
-    }
-    if list(targets.values()).count(CLI_PRODUCT_TARGET) != 1:
-        raise ValueError(f"expected one {CLI_PRODUCT_TARGET} target")
-    seeds = [
-        identifier
-        for identifier, name in targets.items()
-        if name not in CLI_ROUTE_UNBUILT_TARGETS
-    ]
-
-    project = dict(objects[project_id])
-    # The target list and the whole group tree hang off the project object.
-    project.pop("targets", None)
-    project.pop("mainGroup", None)
-    attributes = project.get("attributes")
-    if isinstance(attributes, dict) and isinstance(attributes.get("TargetAttributes"), dict):
-        project["attributes"] = {
-            **attributes,
-            "TargetAttributes": {
-                key: value
-                for key, value in attributes["TargetAttributes"].items()
-                if key in seeds
-            },
-        }
-
-    parents: dict[str, list[str]] = {}
-    for identifier, body in objects.items():
-        if isinstance(body, dict) and body.get("isa") == "PBXGroup":
-            for child in body.get("children", ()):
-                parents.setdefault(child, []).append(identifier)
-
-    def references(value: object) -> Iterable[str]:
-        if isinstance(value, dict):
-            for item in value.values():
-                yield from references(item)
-        elif isinstance(value, tuple):
-            for item in value:
-                yield from references(item)
-        elif isinstance(value, str) and value in objects:
-            yield value
-
-    view: dict[str, object] = {}
-    pending = [project_id, *seeds]
-    while pending:
-        identifier = pending.pop()
-        if identifier in view:
-            continue
-        body = project if identifier == project_id else objects[identifier]
-        if not isinstance(body, dict):
-            raise ValueError(f"unreadable project object {identifier}")
-        if body.get("isa") == "PBXGroup":
-            body = {key: value for key, value in body.items() if key != "children"}
-        owners = sorted(parents.get(identifier, ()))
-        view[identifier] = (body, tuple(owners))
-        pending.extend(references(body))
-        pending.extend(owners)
-    return view
-
-
-def cli_xcode_project_change_is_neutral(base: str, head: str) -> bool:
-    """True when a project.pbxproj edit cannot change what the CLI route builds."""
-    try:
-        return cli_xcode_project_view(base) == cli_xcode_project_view(head)
-    except (ValueError, IndexError, KeyError, TypeError, AttributeError):
-        return False
-
-
-def cli_xcode_project_unchanged(base_path: Optional[Path]) -> bool:
-    if base_path is None:
-        return False
-    root = Path(os.environ.get("CMUX_CI_HEAD_TEST_REFERENCE_ROOT") or Path.cwd())
-    try:
-        neutral = cli_xcode_project_change_is_neutral(
-            base_path.read_text(encoding="utf-8"),
-            (root / MACOS_XCODE_PROJECT_PATH).read_text(encoding="utf-8"),
-        )
-    except OSError:
-        return False
-    print(f"{MACOS_XCODE_PROJECT_PATH} changed; the CLI route's targets are unchanged: {bool_output(neutral)}")
-    return neutral
-
-
-@lru_cache(maxsize=1)
-def load_cli_target_inputs() -> Optional[CliTargetInputs]:
-    root = Path(__file__).resolve().parents[2]
-    try:
-        return cli_target_inputs(root)
-    except Exception as error:
-        print(
-            "Could not derive the cmux-cli target inputs; routing every "
-            f"macOS-relevant change to the CLI lane: {error}",
-            file=sys.stderr,
-        )
-        return None
-
-
 @lru_cache(maxsize=1)
 def load_macos_ios_package_closure() -> Optional[frozenset[str]]:
     root = Path(__file__).resolve().parents[2]
@@ -1642,7 +1260,6 @@ def load_macos_ios_package_closure() -> Optional[frozenset[str]]:
 # this an exact list: test_linux_guard_only_scripts_reach_no_other_runner
 # fails if anything else starts naming one.
 LINUX_GUARD_ONLY_SCRIPTS = frozenset({
-    "scripts/check-cli-contract-verbs.py",
     "scripts/check-package-resolved-policy.py",
     "scripts/lint-stored-dispatch-work-items.py",
 })
@@ -1669,10 +1286,6 @@ def is_macos_neutral(
         ".vercelignore",
         "vercel.json",
     }:
-        return True
-    # CLI/ is a standalone Xcode tool target with a dedicated required lane.
-    # App/shared source remains routed through app-host macOS CI.
-    if path.startswith("CLI/"):
         return True
     # Package tests run in the dedicated Swift-package lane and are never
     # inputs to the macOS app target. Keep them macOS-neutral even when the
@@ -1741,8 +1354,6 @@ def is_macos_change(
 ) -> bool:
     if path.startswith("webviews/src/agent-session/"):
         return True
-    if path == "docs/cli-contract.md":
-        return True
     if path in {"package.json", "bun.lock", "biome.json"}:
         return True
     return not is_macos_neutral(path, macos_ios_packages)
@@ -1754,7 +1365,7 @@ _PACKAGE_TESTS_RE = re.compile(r"Packages/[^/]+/[^/]+/Tests/")
 def is_test_only_source(path: str) -> bool:
     # The Release app builds only the cmux-next target, so test sources cannot
     # reach it. A new test file also edits project.pbxproj, which is not matched here.
-    return path.startswith(("cmuxCLITests/", "cmuxCLITestSupport/")) or bool(_PACKAGE_TESTS_RE.match(path))
+    return bool(_PACKAGE_TESTS_RE.match(path))
 
 
 RELEASE_BUILD_NEUTRAL_INPUTS = frozenset({
@@ -1763,19 +1374,9 @@ RELEASE_BUILD_NEUTRAL_INPUTS = frozenset({
     # compiled binaries' slices. Their focused regression suites and app-host
     # tests are the useful signal, so avoid paying for a universal app build.
     # Text scripts only: test_resources_bin_release_neutral_inputs_are_text_scripts
-    # fails if one of these becomes a binary. cmux-claude-wrapper is absent
-    # because its own standalone lane already owns it.
-    "Resources/bin/cmux-amp-wrapper",
-    "Resources/bin/cmux-codex-wrapper",
-    "Resources/bin/cmux-hermes-agent-wrapper",
-    "Resources/bin/cmux-hermes-python-wrapper",
-    "Resources/bin/cmux-hermes-sitecustomize.py",
-    "Resources/bin/cmux-sudo",
-    "Resources/bin/grok",
-    "Resources/bin/open",
+    # fails if one of these becomes a binary.
     "Resources/bin/start-cmux-profiling",
     "Resources/bin/submit-cmux-profile",
-    "tests/test_open_wrapper.py",
 })
 
 
@@ -1831,12 +1432,10 @@ def test_registry_linux_only(base_path: Optional[Path]) -> bool:
 def classify_files(paths: Iterable[str], *,
                    ci_workflow_areas: Optional[ChangeAreas] = None,
                    macos_workflow_areas: Optional[ChangeAreas] = None,
-                   test_registry_linux_only: bool = False,
-                   cli_xcode_project_neutral: bool = False) -> ChangeAreas:
+                   test_registry_linux_only: bool = False) -> ChangeAreas:
     macos = False
     web = False
     agent_session_web = False
-    cli = False
     release_build = False
     # Collected across the diff: the lane is selected from the whole change,
     # not path by path, because the selector resolves package dependencies.
@@ -1846,15 +1445,10 @@ def classify_files(paths: Iterable[str], *,
     # tree to search for referrers is the pull request's, read as data.
     helper_root = Path(os.environ.get(HEAD_TEST_REFERENCE_ROOT_ENV) or ".")
     macos_ios_packages = load_macos_ios_package_closure()
-    cli_inputs = load_cli_target_inputs()
 
     for raw_path in paths:
         path = normalize_path(raw_path)
         if not path:
-            continue
-        if path in {"Resources/bin/cmux-claude-wrapper", "tests/test_claude_wrapper_hooks.py"}:
-            # The independent macos-claude-wrapper lane executes the wrapper
-            # with fake clients and a Unix socket; it does not need app bytes.
             continue
         if path == "tests/test-execution.toml":
             # The guard workflow references this registry too, but native
@@ -1864,18 +1458,11 @@ def classify_files(paths: Iterable[str], *,
                 macos = True
                 release_build = True
             continue
-        # A project edit compared against its base as wiring only other
-        # targets cannot change what the CLI route builds.
-        if is_cli_change(path, cli_inputs, macos_ios_packages) and not (
-            path == MACOS_XCODE_PROJECT_PATH and cli_xcode_project_neutral
-        ):
-            cli = True
         if path == CI_WORKFLOW_PATH and ci_workflow_areas is not None:
             # Compared job by job against the base; None runs every area.
             macos = macos or ci_workflow_areas.macos
             web = web or ci_workflow_areas.web
             agent_session_web = agent_session_web or ci_workflow_areas.agent_session_web
-            cli = cli or ci_workflow_areas.cli
             release_build = release_build or ci_workflow_areas.release_build
             continue
         # Before every `continue` below: a package source or test selects the
@@ -1894,7 +1481,6 @@ def classify_files(paths: Iterable[str], *,
                 macos = macos or helper_areas.macos
                 web = web or helper_areas.web
                 agent_session_web = agent_session_web or helper_areas.agent_session_web
-                cli = cli or helper_areas.cli
                 release_build = release_build or helper_areas.release_build
                 continue
         if forces_all_areas(path):
@@ -1902,11 +1488,6 @@ def classify_files(paths: Iterable[str], *,
             web = True
             agent_session_web = True
             release_build = True
-            # ci.yml calls the CLI lane. An unowned scripts/ci helper cannot
-            # reach it: is_cli_change() above already routed the helpers the
-            # lane runs and any module that could shadow their imports.
-            if path == CI_WORKFLOW_PATH:
-                cli = True
             continue
         if path in CI_MACOS_ADMISSION_CONTROL_INPUTS:
             # These helpers decide whether compile admission is required.
@@ -1928,8 +1509,6 @@ def classify_files(paths: Iterable[str], *,
             macos = True
             if macos_workflow_areas is None or macos_workflow_areas.release_build:
                 release_build = True
-            if macos_workflow_areas is None or macos_workflow_areas.cli:
-                cli = True
             continue
         if path == WEB_WORKFLOW_PATH:
             # A reusable web workflow edit must exercise every job body it owns.
@@ -1953,7 +1532,6 @@ def classify_files(paths: Iterable[str], *,
         macos=macos,
         web=web,
         agent_session_web=agent_session_web,
-        cli=cli,
         swift_packages=bool(swift_package_test_selection(swift_package_candidates)),
         release_build=release_build,
     )
@@ -2033,11 +1611,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Base test registry; Linux-only entry changes do not select native CI.",
     )
     parser.add_argument(
-        "--xcode-project-base",
-        type=Path,
-        help="Base project.pbxproj; edits outside the CLI route's targets do not select it.",
-    )
-    parser.add_argument(
         "--files-from",
         type=Path,
         help="Read changed files from this newline-delimited file instead of git.",
@@ -2069,7 +1642,6 @@ def main(argv: list[str]) -> int:
                 ci_workflow_areas=load_ci_workflow_areas(args.ci_workflow_base),
                 macos_workflow_areas=load_macos_workflow_areas(args.macos_workflow_base),
                 test_registry_linux_only=test_registry_linux_only(args.test_registry_base),
-                cli_xcode_project_neutral=cli_xcode_project_unchanged(args.xcode_project_base),
             )
         else:
             areas = ChangeAreas.all()

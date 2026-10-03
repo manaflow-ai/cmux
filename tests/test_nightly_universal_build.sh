@@ -243,22 +243,15 @@ if ! awk '
   in_verify && /Contents\/MacOS\/cmux"/ { saw_app=1 }
   in_verify && /Contents\/Resources\/bin\/cmux"/ { saw_cli=1 }
   in_verify && /Contents\/Resources\/bin\/ghostty"/ { saw_helper=1 }
-  in_verify && /Contents\/Resources\/bin\/cmux-tui"/ { saw_tui=1 }
+  # bin/cmux-tui and bin/acpmux are symlinks to bin/cmux, checked with readlink.
+  in_verify && /for alias in cmux-tui acpmux; do/ { saw_aliases=1 }
+  in_verify && /readlink "\$APP\/Contents\/Resources\/bin\/\$alias"\)" = cmux/ { saw_tui=saw_aliases }
   in_verify && /\[\[ "\$archs" == \*arm64\* && "\$archs" == \*x86_64\* \]\]/ { saw_universal_assert=1 }
   in_verify && /\[ "\$archs" = "\$NIGHTLY_VARIANT" \]/ { saw_thin_assert=1 }
   in_verify && /Mach-O universal/ { saw_fat_scan=1 }
   END { exit !(saw_matrix && saw_variant_env && saw_thin_gate && saw_thin && saw_app && saw_cli && saw_helper && saw_tui && saw_universal_assert && saw_thin_assert && saw_fat_scan) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly workflow must thin each variant from the universal build and verify every bundled binary matches the variant architecture"
-  exit 1
-fi
-
-if ! awk '
-  /^      - name: Run CLI version memory guard regression/ { guard_line=NR }
-  /^      - name: Thin bundle to the variant architecture/ { thin_line=NR }
-  END { exit !(guard_line && thin_line && guard_line < thin_line) }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: the CLI memory guard must run on the universal bundle before thinning, so x86_64 variants never need Rosetta on the runner"
   exit 1
 fi
 

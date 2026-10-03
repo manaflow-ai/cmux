@@ -342,6 +342,17 @@ pub struct SplitRatioOptions {
     pub ratio: f64,
 }
 
+/// `column.update`: set `sticky`, `width`, or both. `edge` ("left" or
+/// "right") and `mode` ("docked" or "overlay") apply only when `sticky` is
+/// `Some(true)`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ColumnUpdateOptions {
+    pub sticky: Option<bool>,
+    pub edge: Option<String>,
+    pub mode: Option<String>,
+    pub width: Option<f64>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ViewportWidthOptions {
     pub columns: u16,

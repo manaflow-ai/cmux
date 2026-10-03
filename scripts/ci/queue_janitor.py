@@ -140,9 +140,10 @@ COMPILE_ADMISSION_JOB = re.compile(r"(^|/ )macOS compile admission$")
 CATEGORY_ORDER = ("experiment", "stale-pr", "label-dropped", "doomed")
 
 # The jobs whose failure decides ci-status. The reusable-call prefix makes the
-# API name "macos / CLI product tests", so match on the substring. A failed
-# compile admission fails the same `macos` call before cli-product-tests starts.
-DOOMED_JOB_NAME = "CLI product tests"
+# API name "macos / Shell regressions" (ci-macos.yml cli-product-tests), so
+# match on the substring. A failed compile admission fails the same `macos`
+# call before cli-product-tests starts.
+DOOMED_JOB_NAME = "Shell regressions"
 
 
 def decides_ci_status(name: str) -> bool:

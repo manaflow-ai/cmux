@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Xcode "Bundle cmux-tui" phase of the cmux-next target: copies a cmux-tui
-# binary to <app>/Contents/Resources/bin/cmux-tui, where CmuxNextDaemon's
-# DaemonLauncher runs `cmux-tui --session <S> --json server ensure`, and
-# records where it came from in Contents/Resources/bin/cmux-tui.version
-# (`mode=`, `key=`, `commit=`, `source=`, `sha256=`, `run=`, `url=`, `version=`).
+# binary to <app>/Contents/Resources/bin/cmux, the cmux CLI
+# (plans/cmux-next/cli.md), with `cmux-tui` and `acpmux` as relative
+# symlinks to it: one Mach-O, one version. CmuxNextDaemon's DaemonLauncher
+# runs `bin/cmux-tui --session <S> --json server ensure`; the binary picks
+# its program from argv[0]. Records where it came from in
+# Contents/Resources/bin/cmux-tui.version (`mode=`, `key=`, `commit=`,
+# `source=`, `sha256=`, `run=`, `url=`, `version=`).
 #
 # This phase never downloads anything. Mode: CMUX_NEXT_TUI_MODE (tree or
 # pin), else pin for the Release configuration and tree for every other one.
@@ -27,7 +30,20 @@
 set -euo pipefail
 
 dest_dir="${TARGET_BUILD_DIR:?}/${UNLOCALIZED_RESOURCES_FOLDER_PATH:?}/bin"
-dest="$dest_dir/cmux-tui"
+dest="$dest_dir/cmux"
+aliases=(cmux-tui acpmux)
+
+# Names other than the real file point at it, relative so the bundle stays
+# relocatable and codesign treats them as links, not second copies.
+link_aliases() {
+  local name
+  for name in "${aliases[@]}"; do
+    if [[ "$(readlink "$dest_dir/$name" 2>/dev/null || true)" != cmux ]]; then
+      rm -rf "${dest_dir:?}/$name"
+      ln -s cmux "$dest_dir/$name"
+    fi
+  done
+}
 
 arch="${NATIVE_ARCH_ACTUAL:-$(uname -m)}"
 [[ "$arch" == arm64 ]] && arch=aarch64
@@ -112,8 +128,9 @@ else
     echo "warning: bundling release cmux-tui $src, which lacks the cmux-next daemon capabilities"
   fi
   if [[ -z "$src" ]]; then
-    if [[ -x "$dest" ]]; then
+    if [[ -x "$dest" && ! -L "$dest" ]]; then
       echo "note: no cmux-tui source configured; keeping bundled $dest"
+      link_aliases
       exit 0
     fi
     echo "warning: no cmux-tui binary to bundle. Run scripts/cmux-next/pin-cmux-tui.sh fetch --pin, or set CMUX_NEXT_TUI_BIN."
@@ -148,18 +165,19 @@ version=$version_line
 "
 
 mkdir -p "$dest_dir"
-if ! { [[ -x "$dest" ]] && cmp -s "$src" "$dest"; }; then
+if ! { [[ -x "$dest" && ! -L "$dest" ]] && cmp -s "$src" "$dest"; }; then
   # Remove first: overwriting a Mach-O in place invalidates its signature and
   # the kernel SIGKILLs the next launch.
   rm -f "$dest"
   cp "$src" "$dest"
   chmod 755 "$dest"
-  echo "bundled cmux-tui ${commit:-unknown} ($source_kind${key:+, tree $key}) from $src"
+  echo "bundled cmux-tui ${commit:-unknown} ($source_kind${key:+, tree $key}) as bin/cmux from $src"
 fi
+link_aliases
 if [[ ! -f "$version_file" ]] || [[ "$(cat "$version_file")" != "${version_text%$'\n'}" ]]; then
   printf '%s' "$version_text" > "$version_file"
 fi
 
 if [[ "${CONFIGURATION:-Debug}" != Release ]]; then
-  "$repo_root/scripts/cmux-next/check-daemon-capabilities.sh" --binary "$dest"
+  "$repo_root/scripts/cmux-next/check-daemon-capabilities.sh" --binary "$dest_dir/cmux-tui"
 fi

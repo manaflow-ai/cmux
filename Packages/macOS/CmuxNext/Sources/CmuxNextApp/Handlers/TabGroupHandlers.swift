@@ -109,8 +109,7 @@ enum TabGroupHandlers {
                     let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd, workspace: workspace))
                     _ = try await connection.addTabs([created.surface], toGroup: group)
                     if let controller {
-                        controller.pendingSelectSurface = created.surface
-                        controller.apply(controller.snapshot())
+                        controller.selectWhenReported(surface: created.surface)
                         controller.workspace?.expectFocus(on: created.surface)
                     }
                 } catch {

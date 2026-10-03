@@ -166,30 +166,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerInputMethods(services)
                 control.registerSettingsDebugMethods(services)
                 if let router = control.service?.router {
-                    installCompat(on: router)
+                    BrowserPageService(engine: AppBrowserPageEngine(services: services)).install(on: router)
                     services.apps.attach(router: router)
                 }
                 logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")
             } catch {
                 logger.error("control socket failed: \(String(describing: error), privacy: .public)")
             }
-        }
-    }
-
-    /// The old `cmux` CLI's v2/v1 verbs (plans/cmux-next/cli-compat.md).
-    private func installCompat(on router: ControlRouter) {
-        let frontend = services.compat!
-        frontend.afterIntent = { [control] in control.publishSnapshotNow() }
-        let compat = CompatService(frontend: frontend, terminalEnvironment: environment.terminalEnvironmentProvider(),
-                                   sessionConnection: { frontend.connection(session: $0) }) {
-            frontend.currentConnection()
-        }
-        compat.install(on: router)
-        // Hook statuses (`set_status`, `set_progress`) show in sidebar rows.
-        let board = services.statusBoard
-        compat.observeSidebarStatus { [weak compat] uuid in
-            let line = compat?.sidebarStatusLine(workspace: uuid)
-            Task { @MainActor in board.set(line, workspace: uuid) }
         }
     }
 

@@ -47,10 +47,19 @@ public struct DaemonCapabilities: Sendable {
     /// The manual workspace unread mark: `marked_unread` on
     /// `set-workspace-metadata` and workspaces.
     public let notificationMarkUnread = "notification-mark-unread-v1"
-    /// Screen color, icon, pin, and order (`set-screen-metadata`, `set-screen-pinned`, `move-screen`).
+    /// Screen color, icon, pin, and order (`set-screen-metadata`,
+    /// `set-screen-pinned`, `move-screen`; `screen.update` and `screen.move`
+    /// with `stateResources`, over the same storage).
     public let screenMetadata = "screen-metadata-v1"
-    /// Screen groups and saved screen groups.
+    /// Screen groups and saved screen groups (`screen_group.*` with
+    /// `stateResources`).
     public let screenGroups = "screen-groups-v1"
+    /// The state resources over `cmux.protocol/2` (state-ownership.md steps
+    /// A and B): closed history, ephemeral workspaces, workspace status,
+    /// screen metadata and groups, tab records, terminal progress, and the
+    /// v2 state mutations, mirrored through `session.events`. The daemon
+    /// advertises it in `identify` (`DaemonStore.servesStateResources`).
+    public let stateResources = "state-resources-v1"
     /// Per-terminal `env` on `new-tab`, `split`, `create-terminal`; `cwd` on `split`.
     public let terminalEnv = "terminal-env-v1"
     /// Caller-chosen `terminal_id` on `new-tab`, `split`, `new-pane`, and
@@ -120,10 +129,6 @@ public struct DaemonCapabilities: Sendable {
     /// Finished shell commands (OSC 133) journaled as `shell.command.finished`
     /// once `set-terminal-command-history` turns it on (plans/cmux-next/history.md 6).
     public let terminalCommandJournal = "terminal-command-journal-v1"
-    /// Protocol-v2 state operations on the workspace store (`screen.update`,
-    /// `screen.move`, `screen_group.*`, ...) with idempotency keys, one commit
-    /// path shared with the raw commands (PR #16174, cmux-tui 52103e740).
-    public let stateResources = "state-resources-v1"
     /// `sidebar_layout.get|update` (plans/cmux-next/sidebar-sections.md 5;
     /// cmux-tui PR #16842).
     public let sidebarLayout = "sidebar-layout-v1"

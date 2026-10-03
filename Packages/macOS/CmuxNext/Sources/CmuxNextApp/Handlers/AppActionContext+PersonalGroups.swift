@@ -15,7 +15,7 @@ extension AppActionContext {
         let explicit = [invocation.target, invocation["group"]?.targetValue].compactMap { $0 }.first { $0.kind == .workspaceGroup }
         if let explicit {
             guard let group = personal.group(WorkspaceGroupID(rawValue: explicit.id)) else {
-                throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceGroup(explicit.id))
+                throw ActionFailure.notFound(RefusalStrings.noWorkspaceGroup(explicit.id))
             }
             return group
         }
@@ -39,9 +39,10 @@ extension AppActionContext {
     /// Takes a workspace out of its personal group.
     func ungroupPersonal(_ workspace: WorkspaceModel) {
         guard let qualified = WindowProfiles.qualified(workspace.id, machines: services.machines) else { return }
-        services.machines.local.send("set-personal-workspace") {
-            try await $0.setPersonalWorkspace(SetPersonalWorkspaceRequest(
-                sessionID: qualified.session, workspaceKey: WorkspaceKey(rawValue: qualified.key), group: .clear))
+        let home = services.machines.local, key = WorkspaceKey(rawValue: qualified.key)
+        let resource = home.store.personalStateID(session: qualified.session, key: key)
+        home.send("set-personal-workspace") {
+            try await $0.state.placePersonalWorkspace(session: qualified.session, key: key, resource: resource, group: .clear)
         }
     }
 

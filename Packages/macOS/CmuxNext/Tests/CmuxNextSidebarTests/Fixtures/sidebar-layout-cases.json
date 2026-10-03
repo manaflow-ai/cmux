@@ -23,6 +23,10 @@
     {"name": "show the account label", "op": {"kind": "item.update", "id": "itm_account", "shows_label": true}, "expect": "accept", "revision": 1},
     {"name": "second workspaces section", "op": {"kind": "section.add", "section": {"id": "sec_w2", "region": "top", "look": "list", "content": "workspaces"}, "index": 0}, "expect": "reject", "reason": "workspaces_required"},
     {"name": "add a section at the end of its region", "op": {"kind": "section.add", "section": {"id": "sec_p", "title": "Project", "region": "top", "look": "list", "content": "items"}, "index": 5}, "expect": "accept", "revision": 1},
+    {"name": "add an app section", "op": {"kind": "section.add", "section": {"id": "sec_app", "region": "top", "look": "list", "content": "app", "contribution": "manaflow-ai/github-prs#prs"}, "index": 9}, "expect": "accept", "revision": 1, "section": "sec_app", "items": []},
+    {"name": "an app section needs a contribution", "op": {"kind": "section.add", "section": {"id": "sec_app", "region": "top", "look": "list", "content": "app"}, "index": 0}, "expect": "reject", "reason": "invalid_contribution"},
+    {"name": "an app section's contribution names its app", "op": {"kind": "section.add", "section": {"id": "sec_app", "region": "top", "look": "list", "content": "app", "contribution": "#prs"}, "index": 0}, "expect": "reject", "reason": "invalid_contribution"},
+    {"name": "an items section has no contribution", "op": {"kind": "section.add", "section": {"id": "sec_x", "region": "top", "look": "list", "content": "items", "contribution": "a#b"}, "index": 0}, "expect": "reject", "reason": "invalid_contribution"},
     {"name": "reset the defaults is a no-op", "op": {"kind": "layout.reset"}, "expect": "accept", "revision": 0}
   ]
 }

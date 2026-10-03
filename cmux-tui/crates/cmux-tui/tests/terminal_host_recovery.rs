@@ -4297,60 +4297,7 @@ fn ctrl_d_exits_shell_and_detaches_terminal_topology() {
 }
 
 #[test]
-fn running_host_sigkill_detaches_exited_terminal_topology() {
-    let harness = RecoveryHarness::start("running-host-sigkill");
-    let created = request(
-        &harness.socket,
-        serde_json::json!({
-            "id":1,"cmd":"run","argv":["/bin/cat"],"new_workspace":true,
-            "cols":80,"rows":24,
-        }),
-    );
-    let surface = created["surface"].as_u64().unwrap();
-    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
-    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
-    // SAFETY: the record PID is the dedicated host process owned by this
-    // harness; killing it is the failure under test.
-    assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
-
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        let resolved = request(
-            &harness.socket,
-            serde_json::json!({"id":2,"cmd":"resolve-terminal","terminal_id":terminal_id}),
-        );
-        if resolved["lifecycle"] == "exited" {
-            assert_eq!(resolved["surface"], serde_json::Value::Null);
-            break;
-        }
-        assert!(Instant::now() < deadline, "running host never transitioned to Exited");
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    let write = request_response(
-        &harness.socket,
-        serde_json::json!({
-            "id":3,"cmd":"send","surface":surface,"text":"must-not-write\\n",
-        }),
-    );
-    assert_eq!(write["ok"], false);
-    assert!(write["error"].as_str().unwrap().contains("unknown surface"));
-    assert_eq!(
-        terminal_host_record_liveness(&record_path, &record).unwrap(),
-        TerminalHostLiveness::Dead
-    );
-    assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
-
-    request(
-        &harness.socket,
-        serde_json::json!({
-            "id":4,"cmd":"close-terminal","terminal_id":terminal_id,
-            "terminal_incarnation":record.incarnation,
-        }),
-    );
-}
-
-#[test]
-fn daemon_restart_safe_prunes_dead_host_without_rematerializing_exited_terminal() {
+fn daemon_restart_safe_prunes_dead_host_and_keeps_its_tab_dead() {
     let mut harness = RecoveryHarness::start("dead-host-restart");
     let created = request(
         &harness.socket,
@@ -4359,7 +4306,6 @@ fn daemon_restart_safe_prunes_dead_host_without_rematerializing_exited_terminal(
             "cols":80,"rows":24,
         }),
     );
-    let surface = created["surface"].as_u64().unwrap();
     let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
     let incarnation = created["terminal_incarnation"].as_str().unwrap().to_string();
     let workspace_id = created["workspace"].as_u64().unwrap();
@@ -4406,16 +4352,18 @@ fn daemon_restart_safe_prunes_dead_host_without_rematerializing_exited_terminal(
         .iter()
         .find(|workspace| workspace["key"].as_str() == Some(&workspace_key))
         .expect("original workspace was not recovered");
-    assert!(first_tab(workspace).is_none(), "Exited terminal was rematerialized after restart");
-
+    // Invariant 3: the host's death keeps its tab, dead, and nothing respawns
+    // a shell into it.
+    let tab = first_tab(workspace).expect("the tab of a dead host was removed after restart");
+    assert_eq!(tab["dead"], true, "a dead host's terminal was respawned: {tab}");
+    let dead_surface = tab["surface"].as_u64().unwrap();
     let write = request_response(
         &harness.socket,
         serde_json::json!({
-            "id":5,"cmd":"send","surface":surface,"text":"must-not-respawn\\n",
+            "id":5,"cmd":"send","surface":dead_surface,"text":"must-not-respawn\\n",
         }),
     );
-    assert_eq!(write["ok"], false);
-    assert!(write["error"].as_str().unwrap().contains("unknown surface"));
+    assert_eq!(write["ok"], false, "{write}");
     request(
         &harness.socket,
         serde_json::json!({
@@ -4426,7 +4374,7 @@ fn daemon_restart_safe_prunes_dead_host_without_rematerializing_exited_terminal(
 }
 
 #[test]
-fn daemon_restart_prunes_every_dead_host_behind_one_pane() {
+fn daemon_restart_prunes_every_dead_host_behind_one_pane_and_keeps_its_tabs() {
     let mut harness = RecoveryHarness::start("dead-hosts-restart");
     let first = request(
         &harness.socket,
@@ -4496,7 +4444,291 @@ fn daemon_restart_prunes_every_dead_host_behind_one_pane() {
         .iter()
         .find(|workspace| workspace["key"].as_str() == Some(&workspace_key))
         .expect("original workspace was not recovered");
-    assert!(first_tab(workspace).is_none(), "Exited terminals were rematerialized after restart");
+    // Invariant 3: both tabs stay in their pane, dead.
+    let tabs = workspace["screens"][0]["panes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|pane| pane["tabs"].as_array().unwrap().clone())
+        .collect::<Vec<_>>();
+    assert_eq!(tabs.len(), 2, "dead hosts lost their tabs: {workspace}");
+    assert!(tabs.iter().all(|tab| tab["dead"] == true), "{workspace}");
+}
+
+/// Invariant 3 of plans/cmux-next/OWNERSHIP-PRINCIPLES.md: a terminal host's
+/// death never closes a workspace or removes a tab. Hosts that die while no
+/// daemon owns them leave no exit status (no sidecar), so the next daemon
+/// must keep every workspace, screen, pane and tab and show the tabs dead.
+#[test]
+fn host_death_keeps_tabs_across_daemon_restart() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start("dead-hosts-keep-tabs");
+    let names = ["one", "two", "three"];
+    let terminals = names
+        .iter()
+        .enumerate()
+        .map(|(index, name)| run_cat_workspace(&harness.socket, index + 1, name).0)
+        .collect::<Vec<_>>();
+    let records = wait_for_host_records(&harness.host_root(), names.len());
+    let before = request(&harness.socket, serde_json::json!({"id":10,"cmd":"list-workspaces"}));
+
+    // Stop the mux first so it observes no Exit, then kill every host: no
+    // host lives to write an exit sidecar, which is a host death with an
+    // unknown outcome, not a process end.
+    harness.signal_daemon(libc::SIGSTOP);
+    for (_, record) in &records {
+        // SAFETY: the record PIDs are the harness-owned terminal hosts.
+        assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
+    }
+    harness.sigkill();
+    harness.restart();
+
+    for terminal_id in &terminals {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            let resolved = request(
+                &harness.socket,
+                serde_json::json!({"id":11,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+            );
+            if resolved["lifecycle"] == "exited" {
+                break;
+            }
+            assert!(Instant::now() < deadline, "dead host {terminal_id} was not marked exited");
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+    wait_for_no_host_records(&harness.host_root());
+    let after = request(&harness.socket, serde_json::json!({"id":12,"cmd":"list-workspaces"}));
+    for name in names {
+        let find = |tree: &serde_json::Value| {
+            tree["workspaces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|workspace| workspace["name"] == name)
+                .cloned()
+                .unwrap_or_else(|| panic!("workspace {name} is missing: {tree}"))
+        };
+        let (old, new) = (find(&before), find(&after));
+        assert_eq!(new["resource_id"], old["resource_id"]);
+        let screens = new["screens"].as_array().unwrap();
+        assert_eq!(screens.len(), 1, "workspace {name} lost its screen: {new}");
+        assert_eq!(screens[0]["resource_id"], old["screens"][0]["resource_id"]);
+        let panes = screens[0]["panes"].as_array().unwrap();
+        assert_eq!(panes.len(), 1, "workspace {name} lost its pane: {new}");
+        let tabs = panes[0]["tabs"].as_array().unwrap();
+        assert_eq!(tabs.len(), 1, "workspace {name} lost its tab: {new}");
+        assert_eq!(
+            tabs[0]["tab_resource_id"],
+            old["screens"][0]["panes"][0]["tabs"][0]["tab_resource_id"]
+        );
+        assert_eq!(tabs[0]["dead"], true, "a tab of a dead host came back live: {new}");
+    }
+}
+
+/// Logout or reboot: the daemon and every terminal host stop together, with
+/// no exit sidecar. Whichever the daemon observes first (a lost host or no
+/// daemon at all), the next start keeps every workspace's screen, pane and
+/// tab, dead.
+#[test]
+fn host_death_keeps_layout_when_daemon_and_hosts_stop_together() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start("logout-keeps-layout");
+    let names = ["left", "right"];
+    for (index, name) in names.iter().enumerate() {
+        run_cat_workspace(&harness.socket, index + 1, name);
+    }
+    let records = wait_for_host_records(&harness.host_root(), names.len());
+    let daemon = harness.child.as_ref().unwrap().id() as libc::pid_t;
+    // SAFETY: the daemon and the record PIDs are harness-owned processes.
+    assert_eq!(unsafe { libc::kill(daemon, libc::SIGKILL) }, 0);
+    for (_, record) in &records {
+        // SAFETY: as above.
+        assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
+    }
+    harness.sigkill();
+    harness.restart();
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let tree = loop {
+        let tree = request(&harness.socket, serde_json::json!({"id":10,"cmd":"list-workspaces"}));
+        let tabs = names
+            .iter()
+            .filter_map(|name| {
+                tree["workspaces"].as_array().unwrap().iter().find(|w| w["name"] == *name)
+            })
+            .filter_map(first_tab)
+            .filter(|tab| tab["dead"] == true)
+            .count();
+        if tabs == names.len() {
+            break tree;
+        }
+        assert!(Instant::now() < deadline, "dead hosts lost their tabs: {tree}");
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    for name in names {
+        let workspace = tree["workspaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|workspace| workspace["name"] == name)
+            .unwrap();
+        assert_eq!(workspace["screens"].as_array().unwrap().len(), 1, "{workspace}");
+    }
+}
+
+/// Logout or reboot with graceful signals: the daemon gets SIGTERM, then
+/// every shell dies of SIGHUP while its host still runs, so each host
+/// leaves an exit sidecar with a signal. The session ended around those
+/// shells (`session-shutdown`): the next start keeps every tab, dead. A
+/// shell killed by a signal while the daemon runs normally is a real end
+/// and its tab goes.
+#[test]
+fn session_shutdown_signal_exits_keep_tabs_dead() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start("session-shutdown-keeps-tabs");
+    let run_recorded_shell = |harness: &RecoveryHarness, id: usize, name: &str| {
+        let pid_file = harness.dir.join(format!("{name}.pid"));
+        let created = request(
+            &harness.socket,
+            serde_json::json!({
+                "id": id,
+                "cmd": "run",
+                "argv": ["/bin/sh", "-c", format!("echo $$ > '{}'; exec cat", pid_file.display())],
+                "new_workspace": true,
+                "name": name,
+            }),
+        );
+        let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+        let pid = loop {
+            if let Some(pid) = fs::read_to_string(&pid_file)
+                .ok()
+                .and_then(|text| text.trim().parse::<libc::pid_t>().ok())
+            {
+                break pid;
+            }
+            assert!(Instant::now() < deadline, "shell {name} never recorded its pid");
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        (created["terminal_id"].as_str().unwrap().to_string(), pid)
+    };
+    let workspace_named = |tree: &serde_json::Value, name: &str| {
+        tree["workspaces"].as_array().unwrap().iter().find(|w| w["name"] == name).cloned()
+    };
+
+    // While the daemon runs normally, a shell killed by a signal is a real
+    // end: its tab goes.
+    let (killed, killed_pid) = run_recorded_shell(&harness, 1, "killed");
+    // SAFETY: the pid is the harness-owned shell recorded above.
+    assert_eq!(unsafe { libc::kill(killed_pid, libc::SIGHUP) }, 0);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"id":2,"cmd":"resolve-terminal","terminal_id":killed}),
+        );
+        if resolved["lifecycle"] == "exited" {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the killed shell never exited");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let tree = request(&harness.socket, serde_json::json!({"id":3,"cmd":"list-workspaces"}));
+    let workspace = workspace_named(&tree, "killed").expect("the workspace was closed");
+    assert!(first_tab(&workspace).is_none(), "a real end kept its tab: {workspace}");
+
+    let names = ["first", "second"];
+    let shells = names
+        .iter()
+        .enumerate()
+        .map(|(index, name)| run_recorded_shell(&harness, index + 10, name))
+        .collect::<Vec<_>>();
+    wait_for_host_records(&harness.host_root(), names.len());
+
+    harness.signal_daemon(libc::SIGTERM);
+    let mut daemon = harness.child.take().unwrap();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while daemon.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline, "daemon did not exit after SIGTERM");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let _ = fs::remove_file(&harness.socket);
+    for (_, pid) in &shells {
+        // SAFETY: the pids are the harness-owned shells recorded above.
+        assert_eq!(unsafe { libc::kill(*pid, libc::SIGHUP) }, 0);
+    }
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while load_terminal_host_exit_records(&harness.host_root()).unwrap().len() < names.len() {
+        assert!(Instant::now() < deadline, "hosts did not record their shells' exits");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    harness.restart();
+    for (terminal_id, _) in &shells {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            let resolved = request(
+                &harness.socket,
+                serde_json::json!({"id":20,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+            );
+            if resolved["lifecycle"] == "exited" {
+                break;
+            }
+            assert!(Instant::now() < deadline, "{terminal_id} was not marked exited");
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+    let tree = request(&harness.socket, serde_json::json!({"id":21,"cmd":"list-workspaces"}));
+    for name in names {
+        let workspace = workspace_named(&tree, name)
+            .unwrap_or_else(|| panic!("workspace {name} was closed: {tree}"));
+        assert_eq!(workspace["screens"].as_array().unwrap().len(), 1, "{workspace}");
+        let tab = first_tab(&workspace)
+            .unwrap_or_else(|| panic!("a session shutdown removed a tab: {workspace}"));
+        assert_eq!(tab["dead"], true, "{tab}");
+    }
+}
+
+/// Invariant 3 at runtime: a host killed under a running daemon (no exit
+/// status reaches the daemon) leaves its tab in place, dead.
+#[test]
+fn host_death_keeps_tab_under_running_daemon() {
+    let _exclusive = exclusive_process_test();
+    let harness = RecoveryHarness::start("running-host-sigkill-keeps-tab");
+    let (terminal_id, _) = run_cat_workspace(&harness.socket, 1, "killed");
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    // SAFETY: the record PID is the dedicated host process owned by this
+    // harness; killing it is the failure under test.
+    assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"id":2,"cmd":"resolve-terminal","terminal_id":terminal_id}),
+        );
+        if resolved["lifecycle"] == "exited" {
+            break;
+        }
+        assert!(Instant::now() < deadline, "running host never transitioned to Exited");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let tree = request(&harness.socket, serde_json::json!({"id":3,"cmd":"list-workspaces"}));
+    let workspace = tree["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|workspace| workspace["name"] == "killed")
+        .cloned()
+        .unwrap_or_else(|| panic!("the workspace of a dead host was closed: {tree}"));
+    let tab = first_tab(&workspace)
+        .unwrap_or_else(|| panic!("the tab of a dead host was removed: {workspace}"));
+    assert_eq!(tab["dead"], true, "{tab}");
+    assert_eq!(
+        terminal_host_record_liveness(&record_path, &record).unwrap(),
+        TerminalHostLiveness::Dead
+    );
+    let _ = remove_stale_terminal_host_record(&record_path, &record);
 }
 
 fn request(path: &Path, value: serde_json::Value) -> serde_json::Value {
@@ -5621,6 +5853,17 @@ fn receipted_input_is_acknowledged_behind_an_output_backlog() {
     let elapsed = started.elapsed();
     assert_eq!(write["ok"], true, "receipted write behind an output backlog failed: {write}");
     assert!(elapsed < Duration::from_secs(2), "write waited {elapsed:?} for its receipt");
+}
+
+/// Serializes the timed hundred-terminal close tests (`close_path`) with the
+/// tests that SIGKILL daemons and terminal hosts. Full mode runs this binary
+/// with two test threads; a kill-and-restart test next to a timed close made
+/// the close miss its bound on loaded macOS runners. Other tests stay parallel.
+static EXCLUSIVE_PROCESS_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn exclusive_process_test() -> std::sync::MutexGuard<'static, ()> {
+    // A failed test poisons the lock; the next test still runs alone.
+    EXCLUSIVE_PROCESS_TESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 #[path = "terminal_host_recovery/close_path.rs"]
