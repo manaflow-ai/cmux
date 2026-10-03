@@ -31,6 +31,14 @@ pub(super) fn validate_terminal_exit_receipt(value: &Value) -> anyhow::Result<()
     Ok(())
 }
 
+/// The outcome and exit time of a durable receipt, if it is well formed.
+fn stored_terminal_exit(receipt: Option<&Value>) -> Option<TerminalExit> {
+    let receipt = receipt?;
+    let outcome = serde_json::from_value(receipt.get("outcome")?.clone()).ok()?;
+    let exited_at_ms = receipt.get("exited_at")?.as_str()?.parse().ok()?;
+    Some(TerminalExit { outcome, exited_at_ms })
+}
+
 fn legacy_terminal_exit_reason(value: &Value) -> anyhow::Result<String> {
     let present =
         |key: &str| value.get(key).and_then(Value::as_str).filter(|value| !value.trim().is_empty());
@@ -101,8 +109,50 @@ impl WorkspaceRegistry {
         terminal_id: &str,
         incarnation: Option<&str>,
         observed: &TerminalExit,
+        terminal_snapshot: Value,
+        topology: Option<(&ResourcePatch, &Value)>,
+    ) -> anyhow::Result<(RegistryTerminal, u64, u64, bool)> {
+        self.commit_terminal_exit_receipt(
+            terminal_id,
+            incarnation,
+            observed,
+            terminal_snapshot,
+            topology,
+            None,
+        )
+    }
+
+    /// Replace an exited terminal's receipt that still records `recorded`
+    /// (a process end by signal) with `settled`, the host loss it settled to
+    /// (`session-shutdown`), as one journaled exit commit: later owners then
+    /// read the host loss from the receipt itself, whatever shutdown window
+    /// they know. The receipt keeps the shape older daemons read. Replays
+    /// (returns `true` last) when the stored receipt is not `recorded`.
+    pub(crate) fn settle_terminal_exit(
+        &mut self,
+        terminal_id: &str,
+        recorded: &TerminalExit,
+        settled: &TerminalExit,
+        terminal_snapshot: Value,
+    ) -> anyhow::Result<(RegistryTerminal, u64, u64, bool)> {
+        self.commit_terminal_exit_receipt(
+            terminal_id,
+            None,
+            settled,
+            terminal_snapshot,
+            None,
+            Some(recorded),
+        )
+    }
+
+    fn commit_terminal_exit_receipt(
+        &mut self,
+        terminal_id: &str,
+        incarnation: Option<&str>,
+        observed: &TerminalExit,
         mut terminal_snapshot: Value,
         topology: Option<(&ResourcePatch, &Value)>,
+        replaces: Option<&TerminalExit>,
     ) -> anyhow::Result<(RegistryTerminal, u64, u64, bool)> {
         anyhow::ensure!(observed.is_valid(), "terminal exit outcome is invalid");
         if let Some((patch, changes)) = topology {
@@ -129,7 +179,15 @@ impl WorkspaceRegistry {
         {
             anyhow::bail!("terminal_incarnation_mismatch");
         }
-        if terminal.lifecycle == TerminalLifecycle::Exited {
+        let replaces_stored = replaces.is_some_and(|recorded| {
+            terminal.lifecycle == TerminalLifecycle::Exited
+                && stored_terminal_exit(terminal.exit.as_ref()).as_ref() == Some(recorded)
+        });
+        if replaces.is_some() && !replaces_stored {
+            tx.commit()?;
+            return Ok((terminal, terminal_revision, resource_revision, true));
+        }
+        if terminal.lifecycle == TerminalLifecycle::Exited && !replaces_stored {
             let exit_revision = terminal
                 .exit
                 .as_ref()
