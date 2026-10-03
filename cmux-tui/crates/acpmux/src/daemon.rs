@@ -154,7 +154,13 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         "listen": bound,
         "webUrl": hub.config.read().await.web_listener().map(crate::hub::web_url),
     });
-    tracing::info!("acpmux ready {ready}");
+    // The web URL carries the token; the log (often a 0644 file) never does.
+    tracing::info!(
+        "acpmux ready pid={} socket={} listen={}",
+        std::process::id(),
+        socket_path().display(),
+        bound.as_deref().unwrap_or("none")
+    );
     if let Some(fd) = opts.ready_fd {
         write_ready(fd, &ready);
     }
