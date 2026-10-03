@@ -16,6 +16,7 @@ export default defineConfig({
       "src/diff/generated/**",
       "**/*.css",
       "src/agent-session/acpmux/handoff/schema/acpmux-schema.json",
+      "src/agent-session/acpmux/icons/cmuxIcons.json",
     ],
   }),
   define: {

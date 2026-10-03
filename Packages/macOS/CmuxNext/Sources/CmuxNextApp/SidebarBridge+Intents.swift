@@ -60,42 +60,15 @@ extension SidebarBridge {
             model.apply(intent)
             for (daemon, key) in keys(ids) {
                 let update: FieldUpdate<String> = color.map { .set($0.rawValue) } ?? .clear
-                command("set-workspace-metadata", on: daemon) { c in _ = try await c.setWorkspaceMetadata(key, color: update) }
+                let resource = daemon.store.stateResourceID(workspace: key)
+                command("set-workspace-metadata", on: daemon) { c in try await c.state.setWorkspaceIdentity(key, resource: resource, color: update) }
             }
-        case .toggleCollapse(let target):
-            model.apply(intent)
-            if case .group(let group) = target, let current = model.group(group), let daemon = daemon(ofGroup: group) {
-                let id = WorkspaceGroupID(rawValue: group.rawValue), collapsed = current.isCollapsed
-                command("update-workspace-group", on: daemon, intent: .setWorkspaceGroupCollapsed(id, collapsed: collapsed)) { c in
-                    _ = try await c.updateGroup(id, collapsed: collapsed)
-                }
-            }
-        case .createGroup(let group, let name, let color, let ids):
-            model.apply(intent)
-            let id = WorkspaceGroupID(rawValue: group.rawValue)
-            guard let (daemon, members) = sameMachine(ids) else { return resync() }
-            command("create-workspace-group", on: daemon) { c in
-                _ = try await c.createGroup(name: name, id: id, color: color.rawValue)
-                for key in members { _ = try await c.moveWorkspace(key, toGroup: id) }
-            }
-        case .move(let ids, let group):
-            model.apply(intent)
-            guard let target = daemon(ofGroup: group), let (daemon, _) = sameMachine(ids), daemon === target else { return resync() }
-            // Appended in order, like the sidebar: each lands after the group's last member.
-            let end = daemon.store.workspaces.count { $0.group?.rawValue == group.rawValue && !ids.contains(SidebarWorkspaceID($0.id)) }
-            run(ids.enumerated().map { .place(id: $1.rawValue, group: group.rawValue, index: end + $0) }, on: daemon)
-        case .renameGroup(let group, let name):
-            model.apply(intent)
-            groupCommand("update-workspace-group", group) { c, id in _ = try await c.updateGroup(id, name: name) }
-        case .setGroupColor(let group, let color):
-            model.apply(intent)
-            groupCommand("update-workspace-group", group) { c, id in _ = try await c.updateGroup(id, color: .set(color.rawValue)) }
-        case .ungroup(let group):
-            model.apply(intent)
-            groupCommand("delete-workspace-group", group) { c, id in try await c.deleteGroup(id) }
-        case .reorderGroup(let group, let index):
-            model.apply(intent)
-            groupCommand("move-workspace-group", group) { c, id in try await c.moveGroup(id, to: index) }
+        case .toggleCollapse, .createGroup, .move, .renameGroup, .setGroupColor, .ungroup, .reorderGroup:
+            // Workspace groups are personal (the home session's
+            // `workspace_group.*`, `handlePersonal`); the shared group
+            // commands are not used, so the daemon can drop them.
+            services.registry.refuse(daemon(ofGroupless: intent))
+            resync()
         case .closeGroup(let group):
             let members = (model.group(group)?.workspaces.map(\.id) ?? []).compactMap { id in
                 services.machines.workspace(id: id.rawValue).flatMap { workspace, daemon in
@@ -157,26 +130,18 @@ extension SidebarBridge {
         return (daemon, pairs.map(\.1))
     }
 
-    private func daemon(ofGroup group: GroupID) -> DaemonService? {
-        let id = WorkspaceGroupID(rawValue: group.rawValue)
-        return services.machines.daemons.first { $0.store.group(id) != nil }
-    }
-
-    private func groupCommand(_ label: String, _ group: GroupID,
-                              _ body: @escaping @Sendable (DaemonConnection, WorkspaceGroupID) async throws -> Void) {
-        guard let daemon = daemon(ofGroup: group) else { return }
-        let id = WorkspaceGroupID(rawValue: group.rawValue)
-        command(label, on: daemon) { c in try await body(c, id) }
+    /// Why a group intent is refused without personal state.
+    private func daemon(ofGroupless intent: SidebarIntent) -> String {
+        services.machines.local.missingCapabilityMessage(DaemonCapabilities.shared.profiles)
     }
 
     func reorder(_ ids: [SidebarWorkspaceID], to position: DropPosition, in sections: [SidebarRowSection]) {
         guard case .machine(let machine) = position.section, let target = services.machines.daemon(machine: machine.rawValue),
               let (daemon, _) = sameMachine(ids), daemon === target
         else { return resync() }
-        let store = daemon.store
-        let entries = store.workspaces.map { WorkspaceMovePlan.Entry(id: $0.id, group: $0.group?.rawValue) }
-        let groups = daemon.supports(DaemonCapabilities.shared.workspaceGroups)
-        guard let commands = WorkspaceMovePlan.commands(for: position, moving: ids, window: sections, daemon: entries, groups: groups)
+        // Groups are personal: the machine's own order is one flat list.
+        let entries = daemon.store.workspaces.map { WorkspaceMovePlan.Entry(id: $0.id, group: nil) }
+        guard let commands = WorkspaceMovePlan.commands(for: position, moving: ids, window: sections, daemon: entries, groups: false)
         else { return resync() }
         run(commands, on: daemon)
     }
@@ -195,12 +160,9 @@ extension SidebarBridge {
                     ok = await daemon.intend("move-workspace", .moveWorkspace(key: key, index: index)) { c in
                         _ = try await c.moveWorkspace(key, to: index)
                     }
-                case .place(let id, let group, let index):
-                    guard let key = keys[id] else { continue }
-                    let groupID = group.map(WorkspaceGroupID.init(rawValue:))
-                    ok = await daemon.intend("move-workspace-to-group", .placeWorkspace(key: key, group: groupID, index: index)) { c in
-                        _ = try await c.moveWorkspace(key, toGroup: groupID, index: index)
-                    }
+                case .place:
+                    // Never planned without groups (`groups: false`).
+                    ok = false
                 }
                 if !ok {
                     resync()
@@ -213,7 +175,7 @@ extension SidebarBridge {
     /// Puts daemon truth back after a refused or rejected intent.
     func resync() {
         guard let state else { return }
-        model.sections = Self.sections(services.machines, statuses: services.statusBoard,
+        model.sections = Self.sections(services.machines,
                                        members: services.windows.registry.members(of: state.id), profile: state.profileID)
         model.profiles = Self.profiles(services.machines.local.store)
     }

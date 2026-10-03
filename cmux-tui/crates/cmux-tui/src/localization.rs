@@ -1119,6 +1119,10 @@ pub(crate) struct LocalServerMessages {
     pub root_remote_usage: &'static str,
     pub root_server_usage: &'static str,
     pub root_server_scope: &'static str,
+    pub root_acp_scope: &'static str,
+    pub cmux_root_help: &'static str,
+    pub scope_not_in_cmux: &'static str,
+    pub mutation_key_note: &'static str,
     pub session_stop_help: &'static str,
     pub help: &'static str,
     pub start_help: &'static str,
@@ -1209,6 +1213,54 @@ pub(crate) struct AgentWrapperMessages {
     pub agent_start_failed: &'static str,
 }
 
+/// `cmux app|action|settings|window|events` and action verbs: the scopes the
+/// cmux app owns (cli/app.rs).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct AppControlMessages {
+    pub action_describe_usage: &'static str,
+    pub action_run_usage: &'static str,
+    pub settings_usage: &'static str,
+    pub events_after_invalid: &'static str,
+    pub scope_usage: &'static str,
+    pub unexpected_argument: &'static str,
+    pub missing_value: &'static str,
+    pub arg_shape: &'static str,
+    pub no_app: &'static str,
+    pub unreachable: &'static str,
+    pub timeout: &'static str,
+    pub closed: &'static str,
+    pub invalid_response: &'static str,
+    pub root_scopes: &'static str,
+    pub acp_open_usage: &'static str,
+    pub browser_page_usage: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct CodeRouterMessages {
+    pub usage: &'static str,
+    pub unknown_claude_verb: &'static str,
+    pub add_kind_required: &'static str,
+    pub add_kind_unsupported: &'static str,
+    pub secret_in_argv: &'static str,
+    pub bedrock_model: &'static str,
+    pub bedrock_only: &'static str,
+    pub bedrock_region: &'static str,
+    pub bedrock_keys: &'static str,
+    pub no_secret: &'static str,
+    pub hidden_prompt: &'static str,
+    pub oauth_label: &'static str,
+    pub api_key_label: &'static str,
+    pub not_oauth_token: &'static str,
+    pub not_api_key: &'static str,
+    pub account_required: &'static str,
+    pub account_not_found: &'static str,
+    pub account_ambiguous: &'static str,
+    pub unexpected_argument: &'static str,
+    pub no_bundle: &'static str,
+    pub missing_binary: &'static str,
+    pub exec_failed: &'static str,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Catalog {
     japanese: bool,
@@ -1233,6 +1285,8 @@ pub(crate) struct Catalog {
     pub attach: AttachMessages,
     pub sidebar: SidebarMessages,
     pub agent_wrapper: AgentWrapperMessages,
+    pub app_control: AppControlMessages,
+    pub coderouter: CodeRouterMessages,
 }
 
 impl Catalog {
@@ -1244,6 +1298,48 @@ impl Catalog {
 
 static ENGLISH: Catalog = Catalog {
     japanese: false,
+    coderouter: CodeRouterMessages {
+        usage: "usage: cmux coderouter <status|machines|claude> [--team ID] [--json]\n\nThe cmux app manages the team's CodeRouter model plane. Any other verb, and\nevery `cmux cr ...`, runs the CodeRouter CLI bundled in the app unchanged.\n\n  cmux coderouter status [--team ID]\n      Sign-in state, team, and the team's Claude upstream accounts.\n  cmux coderouter machines [--team ID]\n      30-day CodeRouter usage per Cloud machine.\n  cmux coderouter claude list [--team ID]\n      The team's Claude upstream accounts; secrets are never printed.\n  cmux coderouter claude add oauth-token|api-key [--label L] [--stdin] [--team ID]\n      Add a Claude Code OAuth token (CLAUDE_CODE_OAUTH_TOKEN) or an Anthropic\n      API key (ANTHROPIC_API_KEY), from that variable, --stdin, or a hidden\n      prompt. Never pass a secret as an argument.\n  cmux coderouter claude add bedrock [--label L] [--region R] [--model CLAUDE=BEDROCK]...\n      Add Amazon Bedrock credentials from AWS_ACCESS_KEY_ID,\n      AWS_SECRET_ACCESS_KEY and AWS_SESSION_TOKEN.\n  cmux coderouter claude remove|disable|enable ACCOUNT [--team ID]\n      ACCOUNT is the id, label, or masked identifier.\n  cmux coderouter claude clear [--team ID]\n      Remove every Claude upstream account of the team.\n",
+        unknown_claude_verb: "unknown coderouter claude verb \"{verb}\"; use list, add, remove, disable, enable, or clear",
+        add_kind_required: "coderouter claude add needs a credential kind: oauth-token, api-key, or bedrock",
+        add_kind_unsupported: "coderouter claude add: unsupported credential kind \"{kind}\"; use oauth-token, api-key, or bedrock",
+        secret_in_argv: "never pass a secret as an argument: set its environment variable, pipe it with --stdin, or type it at the hidden prompt",
+        bedrock_model: "--model needs CLAUDE_MODEL=BEDROCK_MODEL, not \"{value}\"",
+        bedrock_only: "--region and --model apply only to bedrock",
+        bedrock_region: "coderouter claude add bedrock needs --region or AWS_REGION / AWS_DEFAULT_REGION",
+        bedrock_keys: "coderouter claude add bedrock reads AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY from the environment; export both, then retry",
+        no_secret: "no {label}: set {env}, pipe it with --stdin, or type it at the prompt",
+        hidden_prompt: "{label} (input hidden): ",
+        oauth_label: "Claude Code OAuth token",
+        api_key_label: "Anthropic API key",
+        not_oauth_token: "that is not a Claude Code OAuth token (expected sk-ant-oat01-...); for an Anthropic API key use `cmux coderouter claude add api-key`",
+        not_api_key: "that is not an Anthropic API key (expected sk-ant-...); for a Claude Code OAuth token use `cmux coderouter claude add oauth-token`",
+        account_required: "{command} needs an account id, label, or identifier; run `cmux coderouter claude list`",
+        account_not_found: "no Claude upstream account matches \"{account}\"; run `cmux coderouter claude list` and use its id",
+        account_ambiguous: "\"{account}\" matches {count} Claude upstream accounts; use the id from `cmux coderouter claude list`",
+        unexpected_argument: "{command}: unexpected argument \"{value}\"",
+        no_bundle: "this cmux is not inside a cmux app, so it has no bundled CodeRouter CLI; use the cmux in the app (Contents/Resources/bin/cmux)",
+        missing_binary: "the bundled CodeRouter CLI is missing at {path}",
+        exec_failed: "cannot run {path}: {error}",
+    },
+    app_control: AppControlMessages {
+        action_describe_usage: "usage: cmux action describe <action id or CLI name>",
+        action_run_usage: "usage: cmux action run <action id or CLI name> [--target ID] [--<argument> VALUE]... [--wait]",
+        settings_usage: "usage: cmux settings get [PATH] | set PATH VALUE | unset PATH",
+        events_after_invalid: "--after needs an event sequence number, not \"{value}\"",
+        scope_usage: "usage: cmux {scope} <action>; `cmux action list --noun {scope}` lists the actions",
+        unexpected_argument: "unexpected argument \"{value}\"",
+        missing_value: "{flag} needs a value",
+        arg_shape: "--arg needs NAME=VALUE, not \"{value}\"",
+        no_app: "no cmux app found: run this inside a cmux terminal, use the cmux bundled in the app, or pass --app-socket PATH",
+        unreachable: "the cmux app is not running at {path} ({error})",
+        timeout: "the cmux app did not answer within {seconds} s",
+        closed: "the cmux app closed the connection without an answer",
+        invalid_response: "the cmux app sent an answer this cmux cannot read",
+        acp_open_usage: "usage: cmux acp open SESSION [--pane PANE]",
+        browser_page_usage: "usage: cmux browser <tab_…|page> navigate URL | back | forward | reload | state | eval SCRIPT | snapshot [--selector S] [--max-depth N] [--interactive] | click|focus|text|value SELECTOR | fill|type SELECTOR TEXT",
+        root_scopes: "APP SCOPES (the cmux app)\n  app           ping, identify, capabilities, and app actions (`cmux app new-window`)\n  window        List the app's windows\n  action        List, describe, and run registered actions\n  settings      Read and change cmux.json settings\n  events        Stream app events as JSON lines\n  history       List and search the app's history (list, search <text>)\n  bookmark      List and search browser bookmarks (list, search <text>)\n  <noun> <verb> Any action by its CLI name (`cmux action list`)\n  --app-socket <path>  Connect to an exact app control socket\n",
+    },
     agent_wrapper: AgentWrapperMessages {
         hooks_unavailable: "cmux: starting the agent without cmux status updates",
         agent_not_found: "cmux: the agent executable was not found",
@@ -1277,6 +1373,10 @@ static ENGLISH: Catalog = Catalog {
         root_remote_usage: "  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [OPTIONS]",
         root_server_usage: "  cmux server <start|ensure|status|stats|stop|reload-config> [OPTIONS]",
         root_server_scope: "  server        Manage one named local durable session owner",
+        root_acp_scope: "  acp           Agent sessions (acpmux); `cmux acp --help`",
+        cmux_root_help: "cmux - terminal multiplexer and cmux app control\n\nUSAGE\n  cmux                          Open the TUI (attach to or start the session)\n  cmux attach [START OPTIONS]\n  cmux [GLOBAL OPTIONS] <scope> <action>\n\nGLOBAL OPTIONS\n  --socket <path>           Connect to an exact local session socket\n  --session <name>          Route through a named local session\n  --all-sessions            Run a list on every local session (records gain `session`)\n  <session>:<id>            An id on another local session (`build:ws_…`) routes there\n  --app-socket <path>       Connect to an exact app control socket\n  --idempotency-key <key>   Retry a failed change with the key it printed\n  --json                    Print one JSON result\n  --jsonl                   Print one JSON value per result or event\n  --quiet                   Suppress successful output\n  -h, --help                Show command help\n\nSCOPES\n  workspace     Create and organize workspaces\n  screen        Create and organize screens\n  pane          Split, focus, and organize panes\n  tab           Create and organize terminal or browser tabs\n  terminal      Read, write, and attach to terminals\n  browser       Navigate browsers and drive app browser pages\n  notification  List and create notifications\n  agent         List and report agent state; install agent hooks\n  room          Organize workspaces into rooms\n  closed        List and reopen closed tabs, screens, workspaces\n  git           Read a repository's status and changes; capture checkpoints\n  acp           Agent sessions (acpmux); `cmux acp --help`\n  mcp           Serve cmux tools to MCP clients (off by default); `cmux mcp --help`\n  coderouter    CodeRouter team accounts; `cr` and other verbs run the bundled CodeRouter CLI\n  window        List the app's windows\n  settings      Read and change cmux.json settings\n  events        Stream app events as JSON lines\n  history       List and search the app's history\n  bookmark      List and search browser bookmarks\n  app           ping, identify, capabilities, and app actions\n  action        List, describe, and run app actions\n  server        Start, inspect, and stop the local session owner\n\nApp actions marked for the CLI also run by their CLI name (`cmux action list`\nshows them). An action waits until its work is done; --no-wait returns when\nthe app accepts it.\n\nRun `cmux <scope> --help` for scope-specific paths, `cmux help start` for\nstart options and `cmux help shorthands` for tmux-style shorthands.\n",
+        scope_not_in_cmux: "\"{scope}\" is not part of cmux; run `cmux --help` for its scopes",
+        mutation_key_note: "idempotency key: {key}\nThe change may still apply. To retry it safely, run the same command with --idempotency-key {key}.",
         session_stop_help: "  cmux session <name>|current stop",
         help: "USAGE\n  cmux server start [START OPTIONS]\n  cmux server ensure [--session <name>] [--socket <path>] [--terminal-reap-grace-seconds <n>]\n  cmux server status [--session <name>] [--socket <path>]\n  cmux server stats [--session <name>] [--socket <path>]\n  cmux server stop [--session <name>] [--socket <path>] [--force] [--end-terminals]\n  cmux server reload-config [--session <name>] [--socket <path>]\n\n`server` always targets the local durable mux owner for one named session.\nUse `cmux remote --help` for authenticated remote-daemon lifecycle.\n",
         start_help: "USAGE\n  cmux server start [START OPTIONS]\n\nStart the local durable mux owner for one named session in the foreground.\n",
@@ -1972,6 +2072,48 @@ socket.
 
 static JAPANESE: Catalog = Catalog {
     japanese: true,
+    coderouter: CodeRouterMessages {
+        usage: "使い方: cmux coderouter <status|machines|claude> [--team ID] [--json]\n\ncmux アプリがチームの CodeRouter モデルプレーンを管理します。その他の動詞と\n`cmux cr ...` はすべて、アプリ同梱の CodeRouter CLI をそのまま実行します。\n\n  cmux coderouter status [--team ID]\n      サインイン状態、チーム、チームの Claude アップストリームアカウント。\n  cmux coderouter machines [--team ID]\n      Cloud マシンごとの 30 日間の CodeRouter 使用量。\n  cmux coderouter claude list [--team ID]\n      チームの Claude アップストリームアカウント。シークレットは表示しません。\n  cmux coderouter claude add oauth-token|api-key [--label L] [--stdin] [--team ID]\n      Claude Code OAuth トークン (CLAUDE_CODE_OAUTH_TOKEN) または Anthropic API\n      キー (ANTHROPIC_API_KEY) を、その変数、--stdin、または非表示の入力から追加。\n      シークレットを引数で渡さないでください。\n  cmux coderouter claude add bedrock [--label L] [--region R] [--model CLAUDE=BEDROCK]...\n      AWS_ACCESS_KEY_ID、AWS_SECRET_ACCESS_KEY、AWS_SESSION_TOKEN から\n      Amazon Bedrock の認証情報を追加。\n  cmux coderouter claude remove|disable|enable アカウント [--team ID]\n      アカウントは ID、ラベル、またはマスクされた識別子。\n  cmux coderouter claude clear [--team ID]\n      チームの Claude アップストリームアカウントをすべて削除。\n",
+        unknown_claude_verb: "coderouter claude の動詞「{verb}」は不明です。list、add、remove、disable、enable、clear のいずれかを使ってください",
+        add_kind_required: "coderouter claude add には認証情報の種類 (oauth-token、api-key、bedrock) が必要です",
+        add_kind_unsupported: "coderouter claude add: 認証情報の種類「{kind}」には対応していません。oauth-token、api-key、bedrock のいずれかを使ってください",
+        secret_in_argv: "シークレットを引数で渡さないでください。環境変数に設定するか、--stdin で渡すか、非表示の入力で入力してください",
+        bedrock_model: "--model には CLAUDE モデル=BEDROCK モデル が必要です (「{value}」は不正)",
+        bedrock_only: "--region と --model は bedrock でのみ使えます",
+        bedrock_region: "coderouter claude add bedrock には --region または AWS_REGION / AWS_DEFAULT_REGION が必要です",
+        bedrock_keys: "coderouter claude add bedrock は環境変数 AWS_ACCESS_KEY_ID と AWS_SECRET_ACCESS_KEY を読み取ります。両方を設定してから再試行してください",
+        no_secret: "{label}がありません: {env} を設定するか、--stdin で渡すか、入力欄で入力してください",
+        hidden_prompt: "{label} (入力は表示されません): ",
+        oauth_label: "Claude Code OAuth トークン",
+        api_key_label: "Anthropic API キー",
+        not_oauth_token: "Claude Code OAuth トークンではありません (sk-ant-oat01-... が必要)。Anthropic API キーには `cmux coderouter claude add api-key` を使ってください",
+        not_api_key: "Anthropic API キーではありません (sk-ant-... が必要)。Claude Code OAuth トークンには `cmux coderouter claude add oauth-token` を使ってください",
+        account_required: "{command} にはアカウントの ID、ラベル、または識別子が必要です。`cmux coderouter claude list` で確認してください",
+        account_not_found: "「{account}」に一致する Claude アップストリームアカウントはありません。`cmux coderouter claude list` で ID を確認してください",
+        account_ambiguous: "「{account}」は {count} 個の Claude アップストリームアカウントに一致します。`cmux coderouter claude list` の ID を使ってください",
+        unexpected_argument: "{command}: 予期しない引数「{value}」",
+        no_bundle: "この cmux は cmux アプリ内にないため、同梱の CodeRouter CLI がありません。アプリ内の cmux (Contents/Resources/bin/cmux) を使ってください",
+        missing_binary: "同梱の CodeRouter CLI が {path} にありません",
+        exec_failed: "{path} を実行できません: {error}",
+    },
+    app_control: AppControlMessages {
+        action_describe_usage: "使い方: cmux action describe <アクション ID または CLI 名>",
+        action_run_usage: "使い方: cmux action run <アクション ID または CLI 名> [--target ID] [--<引数> 値]... [--wait]",
+        settings_usage: "使い方: cmux settings get [パス] | set パス 値 | unset パス",
+        events_after_invalid: "--after にはイベント番号が必要です (「{value}」は不正)",
+        scope_usage: "使い方: cmux {scope} <アクション>。`cmux action list --noun {scope}` で一覧を表示",
+        unexpected_argument: "予期しない引数「{value}」",
+        missing_value: "{flag} には値が必要です",
+        arg_shape: "--arg には 名前=値 が必要です (「{value}」は不正)",
+        no_app: "cmux アプリが見つかりません: cmux のターミナル内で実行するか、アプリ同梱の cmux を使うか、--app-socket パス を指定してください",
+        unreachable: "cmux アプリが {path} で動作していません ({error})",
+        timeout: "cmux アプリが {seconds} 秒以内に応答しませんでした",
+        closed: "cmux アプリが応答せずに接続を閉じました",
+        invalid_response: "cmux アプリの応答を読み取れません",
+        acp_open_usage: "使い方: cmux acp open セッション [--pane ペイン]",
+        browser_page_usage: "使い方: cmux browser <tab_…|page> navigate URL | back | forward | reload | state | eval スクリプト | snapshot [--selector S] [--max-depth N] [--interactive] | click|focus|text|value セレクタ | fill|type セレクタ テキスト",
+        root_scopes: "アプリのスコープ (cmux アプリ)\n  app           ping、identify、capabilities とアプリのアクション (`cmux app new-window`)\n  window        アプリのウィンドウ一覧\n  action        登録済みアクションの一覧、説明、実行\n  settings      cmux.json の設定の読み取りと変更\n  events        アプリのイベントを JSON 行で表示\n  history       アプリの履歴の一覧と検索 (list、search <テキスト>)\n  bookmark      ブラウザのブックマークの一覧と検索 (list、search <テキスト>)\n  <名詞> <動詞> CLI 名で任意のアクションを実行 (`cmux action list`)\n  --app-socket <パス>  指定したアプリ制御ソケットに接続\n",
+    },
     agent_wrapper: AgentWrapperMessages {
         hooks_unavailable: "cmux: cmux のステータス更新なしでエージェントを起動します",
         agent_not_found: "cmux: エージェントの実行ファイルが見つかりません",
@@ -2005,6 +2147,10 @@ static JAPANESE: Catalog = Catalog {
         root_remote_usage: "  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [オプション]",
         root_server_usage: "  cmux server <start|ensure|status|stats|stop|reload-config> [オプション]",
         root_server_scope: "  server        一つの名前付きローカル永続セッション所有者を管理",
+        root_acp_scope: "  acp           エージェントセッション (acpmux)。`cmux acp --help`",
+        cmux_root_help: "cmux - ターミナルマルチプレクサと cmux アプリの操作\n\n使い方\n  cmux                          TUI を開く (セッションに接続、なければ開始)\n  cmux attach [開始オプション]\n  cmux [グローバルオプション] <スコープ> <アクション>\n\nグローバルオプション\n  --socket <パス>           指定したローカルセッションソケットに接続\n  --session <名前>          名前付きローカルセッションを経由\n  --all-sessions            一覧をすべてのローカルセッションで実行 (各レコードに `session` を追加)\n  <セッション>:<ID>         別のローカルセッションの ID (`build:ws_…`) はそのセッションへ送る\n  --app-socket <パス>       指定したアプリ制御ソケットに接続\n  --idempotency-key <キー>  失敗した変更を、表示されたキーで再試行\n  --json                    JSON の結果を一つ出力\n  --jsonl                   結果またはイベントごとに JSON 値を一つ出力\n  --quiet                   成功時の出力を省略\n  -h, --help                コマンドのヘルプを表示\n\nスコープ\n  workspace     ワークスペースの作成と整理\n  screen        スクリーンの作成と整理\n  pane          ペインの分割、フォーカス、整理\n  tab           ターミナルタブやブラウザタブの作成と整理\n  terminal      ターミナルの読み取り、書き込み、接続\n  browser       ブラウザの移動とアプリのブラウザページの操作\n  notification  通知の一覧と作成\n  agent         エージェント状態の一覧と報告、エージェントフックの導入\n  room          ワークスペースをルームに整理\n  closed        閉じたタブ、スクリーン、ワークスペースの一覧と再オープン\n  git           リポジトリの状態と変更を読み、チェックポイントを保存\n  acp           エージェントセッション (acpmux)。`cmux acp --help`\n  mcp           MCP クライアントに cmux のツールを提供 (既定でオフ)。`cmux mcp --help`\n  coderouter    CodeRouter のチームアカウント。`cr` とその他の動詞は同梱の CodeRouter CLI を実行\n  window        アプリのウィンドウ一覧\n  settings      cmux.json の設定の読み取りと変更\n  events        アプリのイベントを JSON 行で表示\n  history       アプリの履歴の一覧と検索\n  bookmark      ブラウザのブックマークの一覧と検索\n  app           ping、identify、capabilities とアプリのアクション\n  action        アプリのアクションの一覧、説明、実行\n  server        ローカルセッション所有者の開始、確認、停止\n\nCLI 向けのアプリのアクションは CLI 名でも実行できます (`cmux action list` で表示)。\nアクションは処理の完了を待ちます。--no-wait を付けると、アプリが受け付けた時点で戻ります。\n\nスコープごとの使い方は `cmux <スコープ> --help`、開始オプションは `cmux help start`、\ntmux 風の短縮形は `cmux help shorthands` で表示します。\n",
+        scope_not_in_cmux: "\"{scope}\" は cmux のスコープではありません。`cmux --help` でスコープを確認してください",
+        mutation_key_note: "冪等キー: {key}\n変更はまだ適用される可能性があります。安全に再試行するには、同じコマンドに --idempotency-key {key} を付けて実行してください。",
         session_stop_help: "  cmux session <名前>|current stop",
         help: "使用方法\n  cmux server start [起動オプション]\n  cmux server ensure [--session <名前>] [--socket <パス>] [--terminal-reap-grace-seconds <秒>]\n  cmux server status [--session <名前>] [--socket <パス>]\n  cmux server stats [--session <名前>] [--socket <パス>]\n  cmux server stop [--session <名前>] [--socket <パス>] [--force] [--end-terminals]\n  cmux server reload-config [--session <名前>] [--socket <パス>]\n\n`server` は常に一つの名前付きセッションのローカル永続 mux 所有者を対象にします。\n認証済みリモートデーモンの操作は `cmux remote --help` を参照してください。\n",
         start_help: "使用方法\n  cmux server start [起動オプション]\n\n一つの名前付きセッションのローカル永続 mux 所有者をフォアグラウンドで起動します。\n",
@@ -2711,526 +2857,4 @@ fn system_locale() -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn locale_tags_select_complete_catalogs() {
-        assert_eq!(catalog_for_locale("en_US.UTF-8"), &ENGLISH);
-        assert_eq!(catalog_for_locale("ja_JP.UTF-8"), &JAPANESE);
-        assert_eq!(catalog_for_locale("C"), &ENGLISH);
-        assert_eq!(ENGLISH.menu.maximize_pane, "Maximize pane");
-        assert_eq!(JAPANESE.menu.maximize_pane, "ペインを最大化");
-        assert_eq!(ENGLISH.action_label(Action::NewPaneSmart), "New pane");
-        assert_eq!(JAPANESE.action_label(Action::NewPaneSmart), "新しいペイン");
-        assert_eq!(ENGLISH.shortcuts.title, "Keyboard shortcuts");
-        assert_eq!(JAPANESE.shortcuts.title, "キーボードショートカット");
-        assert_eq!(ENGLISH.shortcuts.close_button, "Esc close");
-        assert_eq!(JAPANESE.shortcuts.close_button, "Esc 閉じる");
-        assert_eq!(ENGLISH.remote_client.known_daemons_empty, "No known daemons.");
-        assert_eq!(JAPANESE.remote_client.known_daemons_empty, "登録済みのデーモンはありません。");
-        assert_eq!(ENGLISH.remote_client.known_daemon_auth_enrolled, "enrolled");
-        assert_eq!(JAPANESE.remote_client.known_daemon_auth_enrolled, "登録済み");
-        assert_eq!(ENGLISH.remote_client.known_daemon_auth_carrier, "carrier");
-        assert_eq!(JAPANESE.remote_client.known_daemon_auth_carrier, "信頼済み搬送路");
-        assert_eq!(
-            ENGLISH.remote_client.relay_credentials_require_explicit_route,
-            "relay credentials without --relay-route require one explicit relay connection route"
-        );
-        assert_eq!(
-            JAPANESE.remote_client.relay_credentials_require_explicit_route,
-            "--relay-route を指定しないリレー認証情報には、明示的なリレー接続ルートを 1 つ指定してください"
-        );
-        assert_eq!(
-            JAPANESE.remote_client.relay_shorthand_requires_relay_route("wss://example.test/"),
-            "リレー認証情報の短縮形式には明示的なリレールートが必要です。指定されたルート: wss://example.test/"
-        );
-        assert_eq!(
-            JAPANESE.remote_client.known_daemon_forgotten("fingerprint"),
-            "デーモン fingerprint を削除しました。"
-        );
-        assert_eq!(
-            JAPANESE.remote_client.known_daemon_not_known("fingerprint"),
-            "デーモン \"fingerprint\" は登録されていません"
-        );
-        assert_eq!(
-            ENGLISH.terminal.deferred_input_destination_changed,
-            "Deferred input was discarded because its destination changed"
-        );
-        assert_eq!(
-            JAPANESE.terminal.deferred_input_destination_changed,
-            "遅延入力は送信先が変更されたため破棄されました"
-        );
-        assert_eq!(
-            ENGLISH.terminal.deferred_input_queue_full,
-            "Input queue byte limit reached while a session change is pending"
-        );
-        assert_eq!(
-            JAPANESE.terminal.deferred_input_queue_full,
-            "セッション変更の保留中に入力キューのバイト上限に達しました"
-        );
-        assert_eq!(ENGLISH.terminal.pty_input_exited, "Terminal exited; input was not sent");
-        assert_eq!(
-            JAPANESE.terminal.pty_input_exited,
-            "ターミナルが終了したため、入力は送信されませんでした"
-        );
-        assert_eq!(ENGLISH.session.operation_failed, "Session operation failed");
-        assert_eq!(
-            JAPANESE.session.mux_subscription_recovered,
-            "Mux イベントの滞留が上限を超えました。購読を復旧しました"
-        );
-        assert_eq!(
-            JAPANESE.session.mux_subscription_recovery_failed("更新失敗"),
-            "Mux イベントの滞留から復旧できませんでした。再試行中のキュー入力を破棄しました: 更新失敗"
-        );
-        assert_eq!(JAPANESE.session.operation_failed, "セッション操作に失敗しました");
-        assert_eq!(
-            JAPANESE.attach.filtered_subscription_unavailable,
-            "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください"
-        );
-        assert_eq!(ENGLISH.attach.remote_attach_queue_full, "remote surface attach queue is full");
-        assert_eq!(
-            JAPANESE.attach.remote_attach_queue_full,
-            "リモートサーフェス接続キューがいっぱいです"
-        );
-        assert_eq!(
-            ENGLISH.attach.remote_attach_workers_failed("os detail"),
-            "could not start surface attach workers: os detail"
-        );
-        assert_eq!(
-            JAPANESE.attach.remote_attach_workers_failed("os detail"),
-            "リモートサーフェス接続ワーカーを開始できませんでした: os detail"
-        );
-        assert_eq!(
-            ENGLISH.attach.unknown_terminal("missing"),
-            "unknown terminal \"missing\"; use `cmux terminal list` to list terminal IDs"
-        );
-        assert_eq!(
-            JAPANESE.attach.ambiguous_terminal("000010"),
-            "ターミナル参照 \"000010\" は曖昧です。`cmux terminal list` に表示される一意の ID を使用してください"
-        );
-        assert_eq!(
-            JAPANESE.attach.browser_not_terminal("browser"),
-            "サーフェス \"browser\" はブラウザであり、ターミナルではありません"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").terminal.keyboard_text_too_large,
-            "キーボード入力が 4 MiB の PTY バッファ上限を超えています"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").terminal.clear_history_help,
-            "アクティブなプロンプトを保持したまま PTY 履歴を消去します。"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").terminal.clear_history_unsupported,
-            "このサーバーでは clear-history を使用できません。cmux-tui サーバーを再起動してください"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_provider_disconnected,
-            "マシンプロバイダーから切断されました。再接続しています"
-        );
-        assert_eq!(catalog_for_locale("en_US.UTF-8").machine_agent.pairing_code, "Pairing code");
-        assert_eq!(
-            catalog_for_locale("en_US.UTF-8").machine_agent.retrying_message(250),
-            "Cloud connection lost; retrying in 250 ms"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").machine_agent.pairing_code,
-            "ペアリングコード"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").machine_agent.retrying_message(250),
-            "クラウド接続が切断されました。250 ミリ秒後に再接続します"
-        );
-        assert_eq!(
-            catalog_for_locale("en_US.UTF-8").machine_agent.migration_failed,
-            "Could not reconnect the machine; please try again"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").machine_agent.migration_failed,
-            "マシンを再接続できませんでした。もう一度お試しください"
-        );
-        assert!(
-            catalog_for_locale("en_US.UTF-8")
-                .machine_agent
-                .help
-                .contains("share one local cmux session through a remote service")
-        );
-        assert!(
-            catalog_for_locale("ja_JP.UTF-8")
-                .machine_agent
-                .help
-                .contains("ローカルの cmux セッションをリモートサービス経由で共有")
-        );
-        assert!(!catalog_for_locale("en_US.UTF-8").machine_agent.help.contains("BatchMode"));
-        assert!(!catalog_for_locale("ja_JP.UTF-8").machine_agent.help.contains("BatchMode"));
-        assert!(
-            catalog_for_locale("en_US.UTF-8")
-                .machine_agent
-                .pairing_code_unavailable
-                .contains("interactive terminal")
-        );
-        assert!(
-            catalog_for_locale("ja_JP.UTF-8")
-                .machine_agent
-                .pairing_code_unavailable
-                .contains("対話型端末")
-        );
-        assert_eq!(
-            catalog_for_locale("en_US.UTF-8").machine_agent.invalid_cloud_port_message("invalid"),
-            "Invalid --cloud-port value: invalid"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").machine_agent.invalid_cloud_port_message("invalid"),
-            "--cloud-port の値が無効です: invalid"
-        );
-        assert_eq!(
-            catalog_for_locale("en_US.UTF-8").sidebar.machine_action_failed,
-            "Machine action failed"
-        );
-        assert_eq!(
-            catalog_for_locale("en_US.UTF-8").sidebar.provider_notice_identity_unavailable,
-            "Could not prepare the connection. Try again; if the problem persists, restart cmux."
-        );
-        assert_eq!(
-            catalog_for_locale("en_US.UTF-8").sidebar.provider_connection_already_running,
-            "Another connection is already running. Close it and try again."
-        );
-        assert_eq!(
-            catalog_for_locale("en_US.UTF-8").sidebar.connect_prompt,
-            "Host address or pairing code"
-        );
-        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.new_machine, "new vm");
-        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.new_machine, "新規VM");
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").sidebar.connect_prompt,
-            "ホストアドレスまたはペアリングコード"
-        );
-        assert_eq!(
-            catalog_for_locale("en_US.UTF-8").sidebar.connect_host_prompt,
-            "SSH host or user@host"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").sidebar.connect_host_prompt,
-            "SSH ホストまたは user@host"
-        );
-        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.ssh_hosts, "SSH hosts");
-        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.ssh_hosts, "SSH ホスト");
-        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.type_to_filter, "type to filter");
-        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.type_to_filter, "入力して絞り込み");
-        assert_eq!(catalog_for_locale("en_US.UTF-8").sidebar.other_host, "Add SSH host…");
-        assert_eq!(catalog_for_locale("ja_JP.UTF-8").sidebar.other_host, "SSH ホストを追加…");
-        assert_eq!(
-            catalog_for_locale("en_US.UTF-8").sidebar.machine_name_required,
-            "Enter a machine name"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_name_required,
-            "マシン名を入力してください"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_action_failed,
-            "マシン操作に失敗しました"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").sidebar.provider_notice_identity_unavailable,
-            "接続を準備できませんでした。もう一度お試しください。問題が解決しない場合は、cmux を再起動してください。"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").sidebar.provider_connection_already_running,
-            "別の接続がすでに実行中です。終了してから、もう一度お試しください。"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_provider_external_connect_ambiguous,
-            "前回の接続処理が完了している可能性があります。プロバイダーを再接続し、同じペアリングコードで再試行してください"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_replacement_stale,
-            "マシン切り替えの状態が古くなっています"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_catalog_updates_failed,
-            "マシンカタログの更新を開始できませんでした"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_replacement_worker_stopped,
-            "確定前にマシン切り替え処理が停止しました"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_not_ready_to_connect,
-            "選択したマシンは接続準備ができていません"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_managed_authority_unsupported,
-            "このプロバイダーは管理ワークスペースのミラーを認可できません。マシンプロバイダーをアップグレードしてください"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_managed_authority_invalid,
-            "マシンプロバイダーから無効な管理ワークスペース権限バインディングが返されました"
-        );
-        assert_eq!(
-            catalog_for_locale("en_US.UTF-8").sidebar.confirm_layout_undo,
-            "Type CONFIRM to close pane(s) {items}"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").sidebar.confirm_layout_undo,
-            "ペイン {items} を閉じるには CONFIRM と入力"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").sidebar.layout_nothing_to_undo,
-            "元に戻せるレイアウト操作はありません"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").sidebar.layout_undo_stale,
-            "レイアウトが変更されたため、元に戻す操作は適用されませんでした"
-        );
-        let japanese_layout = &catalog_for_locale("ja_JP.UTF-8").layout;
-        assert_eq!(
-            catalog_for_locale("en_US.UTF-8").layout.surface_size_release_failed(7, "disconnected"),
-            "surface 7 size release failed; retrying on the next layout: disconnected"
-        );
-        assert_eq!(
-            japanese_layout.surface_size_release_failed(7, "切断"),
-            "サーフェス 7 のサイズ設定の解放に失敗しました。次回のレイアウト更新時に再試行します: 切断"
-        );
-        assert_eq!(
-            japanese_layout.viewport_width_out_of_range,
-            "ビューポートペインの幅は 0.1 から 1.0 の範囲で指定してください"
-        );
-        assert_eq!(
-            japanese_layout.viewport_width_must_be_finite,
-            "--width には有限の数値を指定してください"
-        );
-        assert_eq!(
-            japanese_layout.viewport_width_must_be_number,
-            "--width には数値を指定してください"
-        );
-        assert_eq!(japanese_layout.ratio_must_be_number, "--ratio には数値を指定してください");
-        assert_eq!(
-            japanese_layout.ratio_must_be_finite,
-            "--ratio には有限の数値を指定してください"
-        );
-        assert_eq!(
-            japanese_layout.pane_without_resizable_column(42),
-            "ペイン 42 にはサイズ変更可能なビューポート列がありません"
-        );
-        assert_eq!(
-            japanese_layout.unsupported_server_command("undo-layout"),
-            "undo-layout はこのサーバーではサポートされていません"
-        );
-        assert_eq!(japanese_layout.layout_undo_applied(3, 9), "元に戻しました screen=3 revision=9");
-        assert_eq!(
-            japanese_layout.layout_undo_confirmation_required(8, "15,16"),
-            "確認が必要です: --revision 8 --confirm-close を付けて再実行してください（閉じるペイン: 15,16）"
-        );
-        assert_eq!(
-            japanese_layout.layout_undo_confirmation_flags_together,
-            "--revision と --confirm-close は同時に指定してください"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").runtime.renderer_panicked("描画セルが無効"),
-            "ターミナル描画処理でパニックが発生しました: 描画セルが無効"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").runtime.host_input_failed("切断"),
-            "ホストターミナルの入力に失敗しました: 切断"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").runtime.signal_handlers_failed("権限がありません"),
-            "シグナルハンドラーの設定に失敗しました: 権限がありません"
-        );
-        assert_eq!(
-            catalog_for_locale("en_US.UTF-8")
-                .runtime
-                .terminal_restore_also_failed("event loop failed", "restore failed"),
-            "event loop failed; host terminal restoration also failed: restore failed"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8")
-                .runtime
-                .terminal_restore_also_failed("イベントループ失敗", "復元失敗"),
-            "イベントループ失敗; ホストターミナルの復元にも失敗しました: 復元失敗"
-        );
-    }
-
-    #[test]
-    fn remote_recovery_messages_are_localized() {
-        let english = &catalog_for_locale("en_US.UTF-8").remote;
-        let japanese = &catalog_for_locale("ja_JP.UTF-8").remote;
-
-        assert!(english.remote_stop_help.contains("USAGE"));
-        assert!(japanese.remote_stop_help.contains("使用方法"));
-        assert!(english.remote_stop_help.contains("cmux server stop"));
-        assert!(japanese.remote_stop_help.contains("cmux server stop"));
-        assert!(english.embedded_daemon_stop_refused.contains("SSH"));
-        assert!(japanese.embedded_daemon_stop_refused.contains("SSH"));
-        assert_eq!(
-            english.remote_stop_unknown_option("--unknown"),
-            "unknown option \"--unknown\" for cmux remote stop"
-        );
-        assert_eq!(
-            japanese.remote_stop_unknown_option("--unknown"),
-            "cmux remote stop の不明なオプションです: \"--unknown\""
-        );
-        assert_eq!(
-            english.invalid_runtime_metadata("/tmp/runtime.json"),
-            "remote daemon runtime metadata is invalid; verify that no cmux-tui process remains, then rerun cmux remote stop with --acknowledge-legacy-finalization (/tmp/runtime.json)"
-        );
-        assert_eq!(
-            japanese.invalid_runtime_metadata("/tmp/runtime.json"),
-            "リモートデーモンのランタイムメタデータが無効です。cmux-tui プロセスが残っていないことを確認してから、cmux remote stop を --acknowledge-legacy-finalization 付きで再実行してください（/tmp/runtime.json）"
-        );
-        assert_eq!(
-            english.lifecycle_fence_version_unsupported(7),
-            "remote daemon lifecycle fence version 7 is unsupported"
-        );
-        assert_eq!(
-            japanese.lifecycle_fence_version_unsupported(7),
-            "リモートデーモンのライフサイクルフェンスバージョン 7 はサポートされていません"
-        );
-        assert_eq!(
-            english.refuse_active_socket("failed finalization", "/tmp/admin.sock"),
-            "refusing to acknowledge failed finalization while daemon socket /tmp/admin.sock is active"
-        );
-        assert_eq!(
-            japanese.refuse_active_socket("失敗した終了処理", "/tmp/admin.sock"),
-            "デーモンソケット /tmp/admin.sock が有効なため、失敗した終了処理を確認済みとして扱えません"
-        );
-    }
-
-    #[test]
-    fn deferred_input_discard_status_is_catalog_backed() {
-        assert_eq!(
-            catalog_for_locale("en_US.UTF-8").terminal.deferred_input_destination_changed,
-            "Deferred input was discarded because its destination changed"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").terminal.deferred_input_destination_changed,
-            "遅延入力は送信先が変更されたため破棄されました"
-        );
-    }
-
-    #[test]
-    fn option_mode_config_warning_is_localized() {
-        assert_eq!(
-            catalog_for_locale("en_US.UTF-8").config.invalid_macos_option_as_alt("\"guess\""),
-            "cmux-tui: ignoring non-boolean keys.macos_option_as_alt = \"guess\""
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").config.invalid_macos_option_as_alt("\"guess\""),
-            "cmux-tui: 真偽値ではない keys.macos_option_as_alt = \"guess\" を無視します"
-        );
-    }
-
-    #[test]
-    fn deferred_input_overflow_status_is_catalog_backed() {
-        assert_eq!(
-            catalog_for_locale("en_US.UTF-8").terminal.deferred_input_queue_full,
-            "Input queue byte limit reached while a session change is pending"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").terminal.deferred_input_queue_full,
-            "セッション変更の保留中に入力キューのバイト上限に達しました"
-        );
-    }
-
-    #[test]
-    fn browser_recovery_failures_are_localized_at_the_ui_boundary() {
-        let cases = [
-            (
-                "browser resize recovery failed; reload to retry",
-                "browser failed: browser resize recovery failed; reload to retry",
-                "ブラウザのサイズ変更を復旧できませんでした。再読み込みして再試行してください",
-            ),
-            (
-                "could not verify new page pixels: capture timed out; reload to retry",
-                "browser failed: could not verify new page pixels: capture timed out; reload to retry",
-                "新しいページの表示を確認できませんでした: capture timed out。再読み込みして再試行してください",
-            ),
-            (
-                "could not verify updated page pixels: capture timed out; reload to retry",
-                "browser failed: could not verify updated page pixels: capture timed out; reload to retry",
-                "更新後のページ表示を確認できませんでした: capture timed out。再読み込みして再試行してください",
-            ),
-        ];
-
-        for (error, english, japanese) in cases {
-            let status = cmux_tui_core::BrowserStatus::Failed(error.to_string());
-            let failure = status.failure().expect("failed status");
-            assert_eq!(catalog_for_locale("en_US.UTF-8").browser.failure_message(failure), english);
-            assert_eq!(
-                catalog_for_locale("ja_JP.UTF-8").browser.failure_message(failure),
-                japanese
-            );
-        }
-    }
-
-    #[test]
-    fn browser_control_failures_are_localized_at_the_ui_boundary() {
-        assert_eq!(
-            catalog_for_locale("en_US.UTF-8")
-                .browser
-                .control_failed("browser panes are not supported over attach yet"),
-            "browser command failed: browser panes are not supported over attach yet"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8")
-                .browser
-                .control_failed("browser panes are not supported over attach yet"),
-            "ブラウザ操作に失敗しました: browser panes are not supported over attach yet"
-        );
-    }
-
-    #[test]
-    fn workspace_port_provider_actions_use_localized_labels() {
-        assert_eq!(
-            catalog().sidebar.provider_action_label(provider_action_id::LIST_WORKSPACE_PORTS),
-            Some(catalog().sidebar.action_list_workspace_ports)
-        );
-        assert_eq!(
-            catalog().sidebar.provider_action_field_label(
-                provider_action_id::MAKE_WORKSPACE_PORT_PUBLIC,
-                "port"
-            ),
-            Some(catalog().sidebar.action_workspace_port)
-        );
-        assert_eq!(catalog().sidebar.provider_action_label("external.action"), None);
-    }
-
-    #[test]
-    fn foreign_viewport_hints_are_neutral_and_stack_backed() {
-        let english = ENGLISH.foreign_viewport.hint(12, 5).expect("English hint fits inline");
-        assert_eq!(english.as_str(), "terminal grid (12x5)");
-        assert_eq!(english.bytes.len(), 64);
-        assert_eq!(ENGLISH.foreign_viewport.hint_width(12, 5), 20);
-
-        let japanese = JAPANESE.foreign_viewport.hint(12, 5).expect("Japanese hint fits inline");
-        assert_eq!(japanese.as_str(), "端末グリッド (12x5)");
-        assert_eq!(japanese.bytes.len(), 64);
-        assert_eq!(JAPANESE.foreign_viewport.hint_width(12, 5), 19);
-    }
-
-    #[test]
-    fn usd_formatting_is_two_decimal_and_grouped() {
-        assert_eq!(format_usd(0.0), "$0.00");
-        assert_eq!(format_usd(1.234), "$1.23");
-        assert_eq!(format_usd(1.235), "$1.24");
-        assert_eq!(format_usd(999.999), "$1,000.00");
-        assert_eq!(format_usd(1234567.5), "$1,234,567.50");
-        assert_eq!(format_usd(-3.0), "$0.00");
-        assert_eq!(format_usd(f64::NAN), "$0.00");
-        assert_eq!(format_usd(f64::INFINITY), "$0.00");
-    }
-
-    #[test]
-    fn machine_usage_readout_is_localized() {
-        assert_eq!(
-            catalog_for_locale("en_US.UTF-8").sidebar.machine_usage_readout(1.23, 30),
-            "$1.23 / 30d"
-        );
-        assert_eq!(
-            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_usage_readout(1.23, 30),
-            "$1.23 / 30日"
-        );
-    }
-}
+mod tests;

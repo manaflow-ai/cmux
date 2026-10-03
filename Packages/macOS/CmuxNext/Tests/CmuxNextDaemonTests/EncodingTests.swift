@@ -243,19 +243,6 @@ import Testing
         #expect(metadata.keys.contains("title") == false)
         #expect(metadata["mutation_id"] == .string("m"))
 
-        let ungroup = try object(MoveWorkspaceToGroupRequest(workspace: .key("k1"), group: nil, mutation: nil))
-        #expect(ungroup["group"] == .null)
-        #expect(ungroup["index"] == nil)
-        let group = try object(MoveWorkspaceToGroupRequest(workspace: .key("k1"), group: "agents", index: 0, mutation: nil))
-        #expect(group["group"] == .string("agents"))
-
-        let update = try object(UpdateWorkspaceGroupRequest(group: "agents", color: .clear, collapsed: true))
-        #expect(update["color"] == .null)
-        #expect(update["collapsed"] == .bool(true))
-        #expect(update["name"] == nil)
-        let create = try object(CreateWorkspaceGroupRequest(name: "Agents", group: "agents"))
-        #expect(create["group"] == .string("agents"))
-
         let browser = try object(NewFrontendBrowserTabRequest(url: "https://x", engine: .webkit, pane: 3, profileID: "p1"))
         #expect(browser["cmd"] == .string("new-frontend-browser-tab"))
         #expect(browser["engine"] == .string("webkit"))

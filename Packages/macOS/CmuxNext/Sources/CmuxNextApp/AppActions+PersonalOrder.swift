@@ -17,9 +17,10 @@ extension AppActions {
         let order = PersonalSidebar.globalOrder(machines.local.store.personal).filter { $0 != "\(moved.session)/\(moved.key)" }
         guard let anchorIndex = order.firstIndex(of: "\(anchor.session)/\(anchor.key)") else { return }
         let index = offset > 0 ? anchorIndex + 1 : anchorIndex
+        let key = WorkspaceKey(rawValue: moved.key)
+        let resource = machines.local.store.personalStateID(session: moved.session, key: key)
         machines.local.send("set-personal-workspace") {
-            try await $0.setPersonalWorkspace(SetPersonalWorkspaceRequest(sessionID: moved.session, workspaceKey: WorkspaceKey(rawValue: moved.key),
-                                                                          index: index))
+            try await $0.state.placePersonalWorkspace(session: moved.session, key: key, resource: resource, index: index)
         }
     }
 }

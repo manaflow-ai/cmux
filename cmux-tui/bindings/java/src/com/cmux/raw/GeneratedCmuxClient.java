@@ -558,6 +558,11 @@ public abstract class GeneratedCmuxClient {
         return SurfaceResult.fromWire(result);
     }
 
+    public final Object newConversationTab(NewConversationTabRequest request) throws CmuxException {
+        Object result = execute(Commands.NEW_CONVERSATION_TAB, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final Object newFrontendBrowserTab(NewFrontendBrowserTabRequest request) throws CmuxException {
         Object result = execute(Commands.NEW_FRONTEND_BROWSER_TAB, request.toWire());
         return Wire.immutableJson(result);

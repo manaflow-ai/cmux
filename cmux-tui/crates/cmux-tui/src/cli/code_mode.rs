@@ -101,7 +101,7 @@ mod tests {
     fn docs_help_routes_before_code_mode_commands() {
         let args = ["help".to_owned(), "docs".to_owned()];
         assert!(matches!(
-            crate::cli::parse(&args),
+            crate::cli::parse(&args, crate::cli::Surface::Cmux),
             Ok(crate::cli::ParsedCommand::Help(Some(scope))) if scope == "docs"
         ));
     }

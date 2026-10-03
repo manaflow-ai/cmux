@@ -91,6 +91,13 @@ unset CMUX_TAB_ID
 unset CMUX_PANEL_ID
 unset CMUXD_UNIX_PATH
 unset CMUX_DEBUG_LOG
+# The CLI is the cmux-tui binary: a mux socket or terminal id inherited from
+# the terminal this runs in would point it at that session, not the tag's
+# (it derives cmux-app-<tag> from CMUX_TAG).
+unset CMUX_MUX_SOCKET
+for name in $(compgen -e); do
+  [[ "$name" == CMUX_TUI_* ]] && unset "$name"
+done
 export CMUX_SOCKET_PATH="$socket_path"
 export CMUX_TAG="$tag_slug"
 export CMUX_BUNDLE_ID="com.cmuxterm.app.debug.${tag_bundle_id}"

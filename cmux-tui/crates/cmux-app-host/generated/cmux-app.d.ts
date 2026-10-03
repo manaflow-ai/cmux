@@ -59,10 +59,11 @@ declare namespace Cmux {
   type FrontendProjectionSnapshot = { id: string /* frontend_projection_… */; session_id: string /* session_… */; projection: Cmux.JsonValue; frontend_id: string; window_id: string; generation: string; projection_revision: string; extra?: Record<string, Cmux.JsonValue> }
   type Grant = { id: Cmux.GrantId; grantee: string; op_classes: Array<Cmux.OpClass>; approval: "none" | "per_call" | "per_session"; expires_at: number | null; revoked_at: number | null; created_from: "install" | "ui" | "automation" | "standing_rule" }
   type GrantId = string
-  type Host = { id: Cmux.HostId; name: string; platform: Cmux.Platform; owner_user: Cmux.UserId; enrolled_by: Cmux.InstallId; enrolled_at: number }
+  type Host = { id: Cmux.HostId; name: string; platform: Cmux.Platform; owner_user: Cmux.UserId; enrolled_by: Cmux.InstallId; enrolled_at: number; kind?: Cmux.HostKind; wg_public_key?: Cmux.WgPublicKey; tags?: Array<string> }
   type HostId = string
+  type HostKind = "device" | "server"
   type InputModifier = "shift" | "control" | "alt" | "meta"
-  type Install = { id: Cmux.InstallId; device: Cmux.DeviceId; kind: Cmux.InstallKind; name: string; device_name: string; platform: Cmux.Platform; public_jwk: Cmux.PublicJwk; thumbprint: string; grant: Cmux.GrantId; created_at: number; revoked_at: number | null }
+  type Install = { id: Cmux.InstallId; device: Cmux.DeviceId; kind: Cmux.InstallKind; name: string; device_name: string; platform: Cmux.Platform; public_jwk: Cmux.PublicJwk; thumbprint: string; grant: Cmux.GrantId; created_at: number; revoked_at: number | null; bound_team?: Cmux.TeamId }
   type InstallId = string
   type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm"
   type IntegrationProvider = "github" | "linear" | "slack"
@@ -114,6 +115,9 @@ declare namespace Cmux {
   type NotificationLevel = "info" | "warning" | "error"
   type NotificationSnapshot = { id: string /* notification_… */; session_id: string /* session_… */; title: string; subtitle?: string; body: string; level: Cmux.NotificationLevel; terminal_id?: string /* terminal_… */; created_at_ms: string; unread: boolean; read_by: Array<string>; extra?: Record<string, Cmux.JsonValue> }
   type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive"
+  type PairingCode = string
+  type PairingInfo = { name: string; platform: Cmux.Platform; os_version: string; arch: "x86_64" | "aarch64"; cmux_version: string }
+  type PairingPreview = { code: Cmux.PairingCode; info: Cmux.PairingInfo; public_jwk: Cmux.PublicJwk; thumbprint: string; country: string | null; expires_at: number }
   type PairingRequestSnapshot = { id: string /* pairing_request_… */; session_id: string /* session_… */; peer: string; code: string; expires_in_seconds: string; status: "pending" | "accepted" | "rejected"; extra?: Record<string, Cmux.JsonValue> }
   type PairingResolutionResult = { pairing_request: Cmux.PairingRequestSnapshot }
   type PaneNeighborResult = { pane?: Cmux.PaneSnapshot | null }
@@ -209,6 +213,7 @@ declare namespace Cmux {
   type ViewAttachmentStreamOpened = { stream_id: string /* stream_… */; attachment_lease: string }
   type ViewerReleaseResult = { outcome: Cmux.ViewAttachmentOutcome }
   type ViewerResizeResult = { accepted: boolean; size: Cmux.Size; outcome: Cmux.ViewAttachmentOutcome }
+  type WgPublicKey = string
   type WorkspaceSnapshot = { id: string /* workspace_… */; session_id: string /* session_… */; name: string; index: number; focused: boolean; extra?: Record<string, Cmux.JsonValue> }
   type MutationResult<T> = { value: T; generation: string; revision: string; replayed: boolean }
 }
@@ -431,6 +436,14 @@ interface CmuxGlobal {
     list: CmuxOp<{ machine?: string; session?: string; workspace?: string }, Array<Cmux.ScreenSnapshot>>
     /** `screen.rename` (mutation, scope `workspace:write`) */
     rename: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen: string; name: string | null; expected_revision?: string }, Cmux.MutationResult<Cmux.ScreenSnapshot>>
+  }
+  server: {
+    pair: {
+      /** `server.pair.approve` (mutation, scope `server:write`): Approve a pairing code: register the server's install key under you and add the server to the team directory. */
+      approve: CmuxOp<{ code: Cmux.PairingCode; team: Cmux.TeamId; name: string; expected_revision?: string }, Cmux.MutationResult<{ host: Cmux.HostId; team: Cmux.TeamId; user: Cmux.UserId; install: Cmux.InstallId }>>
+      /** `server.pair.preview` (read, scope `server:read`): Show what a pending pairing code would add: the server's name, platform, key thumbprint and location. */
+      preview: CmuxOp<{ code: Cmux.PairingCode }, Cmux.PairingPreview>
+    }
   }
   session: {
     /** `session.get` (read, scope `session:read`) */

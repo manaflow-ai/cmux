@@ -135,7 +135,6 @@ it does not assert that the entire CI checkout equals the PR head.
 | `localization` | macOS localization parity |
 | `project-tests` | Five project normalizer unit tests at the demonstrated revision; counts are read from each execution |
 | `project` | Xcode project version pin and normalization |
-| `config-schema` | Embedded cmux.json schema matches its source |
 | `test-wiring-sync` | Test-wiring synchronization tool regression suite |
 | `launch-policy` | Generated Claude launch policy is current |
 | `test-wiring` | Every Swift test file belongs to the Xcode test target |

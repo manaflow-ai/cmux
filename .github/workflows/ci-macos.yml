@@ -6,10 +6,6 @@ on:
       macos:
         required: true
         type: string
-      cli:
-        required: false
-        default: "false"
-        type: string
       full_suite:
         required: true
         type: string
@@ -58,7 +54,8 @@ on:
         type: string
       # Set only when pr_runner is persistent and has a root count: the root
       # label (glaeda-root-<class>-xcode-<version>). glaeda runs a
-      # canonical-root job (admission, cli-product-tests) only on a mini
+      # canonical-root job (admission, cli-product-tests: the shell
+      # regressions) only on a mini
       # whose root is free, so each of them
       # in pr_owned_jobs takes this label, on attempt 1 and after a refusal,
       # and waits for a free root instead of being refused.
@@ -148,18 +145,6 @@ permissions:
 # R2 cache URL must be declared here or every R2 restore reports a miss.
 env:
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
-  # Which schemes the producer builds, and the profile the product's identity
-  # records. A purely CLI-routed change only feeds cli-product-tests, which
-  # needs the cmux-cli product and its test bundle -- not the app, and not the
-  # app-host or numeric-locale bundles.
-  #
-  # macOS routing keeps the full product: admission is the check that proves
-  # the app itself still compiles. Once an earlier run has admitted these
-  # inputs, a CLI route only needs the cli product.
-  # Producer and consumer must agree here, so it is declared once for every job
-  # -- a consumer recomputing a different profile's identity simply declines
-  # the artifact, which would silently cost a compile instead of reusing one.
-  CMUX_PRODUCT_PROFILE: ${{ inputs.macos == 'true' && (inputs.full_suite == 'true' || inputs.compile_admitted != 'true') && 'app-host' || 'cli' }}
 
 jobs:
   admission-placement:
@@ -175,7 +160,7 @@ jobs:
     # Picking here rather than in `changes` leaves other runs' late-placement
     # no gap to take the pinned runner first. Any failure outputs "" and
     # admission keeps pr_admission_runner on attempt 1, its label after.
-    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch') && vars.CI_OWNED_SPREAD == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && startsWith(inputs.pr_root_runner, 'glaeda-root-') && contains(inputs.pr_owned_jobs, ' admission ') && (inputs.macos == 'true' || inputs.cli == 'true') && (inputs.compile_admitted != 'true' || inputs.full_suite == 'true' || inputs.cli == 'true') }}
+    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch') && vars.CI_OWNED_SPREAD == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && startsWith(inputs.pr_root_runner, 'glaeda-root-') && contains(inputs.pr_owned_jobs, ' admission ') && inputs.macos == 'true' && (inputs.compile_admitted != 'true' || inputs.full_suite == 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 3
     permissions:
@@ -232,16 +217,13 @@ jobs:
   macos-compile-admission:
     name: macOS compile admission
     # Spend one macOS slot proving that the product compiles before
-    # cli-product-tests starts. That job downloads this run's build products
-    # and runs test-without-building, so a successful build is not repeated.
+    # cli-product-tests (the shell regressions) starts. That job downloads
+    # this run's build products, so a successful build is not repeated.
     # admission-placement may pin this attempt to one root runner; a skipped or
     # failed placement never holds admission back (!cancelled()).
     needs:
       - admission-placement
-    if: ${{ !cancelled() && (inputs.macos == 'true' || inputs.cli == 'true') && (inputs.compile_admitted != 'true' || inputs.full_suite == 'true' || inputs.cli == 'true') }}
-    # The cli clause above still compiles when an earlier run already admitted
-    # these inputs. CMUX_PRODUCT_PROFILE then selects the cli product, one
-    # scheme, so it no longer buys a full app build.
+    if: ${{ !cancelled() && inputs.macos == 'true' && (inputs.compile_admitted != 'true' || inputs.full_suite == 'true') }}
     # Pull requests and main's full-suite workflow_dispatch of ci.yml
     # compile on the pool and Xcode seed-derived-data.yml builds with, so both
     # can adopt its DerivedData seed below. Merge groups and dispatches on
@@ -833,7 +815,7 @@ jobs:
         id: hosted-compile
         if: steps.reuse-products.outputs.hit != 'true'
         # A glaeda Mac compiles an incremental change in 1 to 8 minutes, but a
-        # package or CLI/cmux.swift change rebuilds the whole app even from warm
+        # package change rebuilds the whole app even from warm
         # DerivedData (kept_rebuilds_app): 11 minutes on cmux14, 19 to 21 on the
         # slower minis (jobs 108035990055 passed at 19.1, 108035869414 and
         # 108055858553 timed out at 20). One sat 63 minutes in this step until
@@ -926,8 +908,7 @@ jobs:
           set -euo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"
           # The build writes one log per scheme, and the profile's first scheme
-          # is the one whose warnings the budget covers (cmux for app-host,
-          # cmux-cli-tests for a CLI-only product).
+          # (cmux) is the one whose warnings the budget covers.
           first_scheme="$(python3 scripts/ci/product_input_identity.py schemes | awk '{print $1}')"
           log="$CMUX_COMPILE_ADMISSION_DERIVED_DATA/$first_scheme-build.log"
           test -s "$log" || { echo "::error::missing Swift warning log $log" >&2; exit 1; }
@@ -936,48 +917,7 @@ jobs:
           seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
           echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
 
-      - name: Stage compiled package frameworks
-        run: |
-          set -euo pipefail
-          products="$CMUX_COMPILE_ADMISSION_DERIVED_DATA/Build/Products/Debug"
-          stable="/private/tmp/cmux-app-host-package-frameworks"
-          mkdir -p "$stable"
-          framework_source="$(find "$products" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit 2>/dev/null || true)"
-          test -n "$framework_source"
-          framework_root="$(dirname "$framework_source")"
-          rsync -aL "$framework_root/" "$stable/"
-          if [ -L "$products/PackageFrameworks" ]; then
-            rm "$products/PackageFrameworks"
-          fi
-          mkdir -p "$products/PackageFrameworks"
-          rsync -aL "$framework_root/" "$products/PackageFrameworks/"
-          test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
-
-      # These no-socket probes take seconds and need only the compiled CLI.
-      # Fail admission before allocating cli-product-tests.
-      # They run after a compile and after a product reuse alike: both leave
-      # the Debug CLI at the same path, and both product profiles build it.
-      # This is the CLI lane's only Debug CLI build; the closed-consumer,
-      # config and Glaeda contract tests used to build it again on their own
-      # Mac (cli-pipe-regressions.yml).
-      - name: Run early CLI binary smoke checks
-        run: |
-          set -euo pipefail
-          CLI_BIN="$CMUX_COMPILE_ADMISSION_DERIVED_DATA/Build/Products/Debug/cmux"
-          if [ ! -x "$CLI_BIN" ]; then
-            echo "cmux CLI binary missing from this admission build" >&2
-            exit 1
-          fi
-          # The first launch of a new executable pays a one-time system check on
-          # the owned Macs; take it here, before the tests' short timeouts.
-          "$CLI_BIN" --help >/dev/null 2>&1 || true
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_config_doctor.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_broken_pipe_writes.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_glaeda_execution.py
-
-      # Compile-only forks without targeted CLI tests have no artifact consumers and cannot seed reuse:
+      # Compile-only forks have no artifact consumers and cannot seed reuse:
       # both the reuse selector and broker require an in-repository producer.
       # Keep unknown metadata, every full suite, and in-org reuse producers.
       - name: Start product publication timer
@@ -987,7 +927,6 @@ jobs:
         id: publish-products
         env:
           PRODUCT_FULL_SUITE: ${{ inputs.full_suite }}
-          PRODUCT_CLI: ${{ inputs.cli }}
           PRODUCT_EVENT: ${{ github.event_name }}
           PRODUCT_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           PRODUCT_REPOSITORY: ${{ github.repository }}
@@ -998,7 +937,6 @@ jobs:
           repository = os.environ.get("PRODUCT_REPOSITORY", "").strip()
           unused_fork_product = (
               os.environ.get("PRODUCT_FULL_SUITE") == "false"
-              and os.environ.get("PRODUCT_CLI") == "false"
               and os.environ.get("PRODUCT_EVENT") == "pull_request"
               and bool(head) and bool(repository)
               and head.casefold() != repository.casefold()
@@ -1391,7 +1329,6 @@ jobs:
         env:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           MACOS: ${{ inputs.macos }}
-          CLI: ${{ inputs.cli }}
           FULL_SUITE: ${{ inputs.full_suite }}
           OWNED_JOBS: ${{ inputs.pr_owned_jobs }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
@@ -1442,18 +1379,17 @@ jobs:
     needs:
       - macos-compile-admission
       - late-placement
-    # Targeted CLI routing consumes the shared compiled product even when prior
-    # compile admission exists; it does not enable the app-host/full-suite lanes.
     # !cancelled(): the implicit success()
     # gate would count a legitimately skipped linux job in the transitive needs
     # chain as a reason to skip every macOS job.
-    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && (inputs.cli == 'true' || (inputs.macos == 'true' && inputs.full_suite == 'true')) }}
-    name: CLI product tests
-    # cmuxCLITests has no app host, so it needs no GUI console session. It
-    # still needs the compiled product, so it reuses macos-compile-admission's artifact,
-    # on the pool and Xcode that built it: the test bundle only loads under
-    # the Xcode that linked it. On an owned-pool run it may take
-    # pr_retry_runner instead. glaeda runs its XCTest under the mini's one gui
+    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && inputs.full_suite == 'true' }}
+    # The job keeps its cli-product-tests id and cli-product placement key
+    # (pr_runner_pool.py, late_placement.py); the Swift CLI and its XCTest
+    # bundle are gone, so it now runs the shell regressions only.
+    name: Shell regressions
+    # It needs no GUI console session. It restores macos-compile-admission's
+    # artifact on the pool and Xcode that built it. On an owned-pool run it
+    # may take pr_retry_runner instead. glaeda runs its XCTest under the mini's one gui
     # token (one testmanagerd), so it takes pr_gui_runner where there is one:
     # on the root label it waited 240 s behind another job's token and was
     # refused.
@@ -1511,7 +1447,7 @@ jobs:
           fi
 
       # No submodules: this lane never compiles Ghostty or the app, it only
-      # loads an already-built bundle and spawns the already-built CLI.
+      # restores an already-built product and runs shell regressions.
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1634,73 +1570,10 @@ jobs:
           CMUX_PRODUCT_RESTORE_SUCCEEDED: ${{ steps.restore-products.outcome == 'success' }}
         run: python3 scripts/ci/node_product_cache.py finalize "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
 
-      - name: Resolve the CLI under test
-        run: |
-          set -euo pipefail
-          products="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug"
-          cli="$products/cmux"
-          if [ ! -x "$cli" ]; then
-            cli="$(find "$products" -path "*.app/Contents/Resources/bin/cmux" -perm -111 -print -quit)"
-          fi
-          if [ -z "${cli:-}" ] || [ ! -x "$cli" ]; then
-            echo "::error::no cmux CLI in the restored product" >&2
-            exit 1
-          fi
-          echo "CMUX_CLI_PATH=$cli" >> "$GITHUB_ENV"
-          echo "Testing $cli"
-
-      - name: Isolate HOME
-        run: |
-          set -euo pipefail
-          cli_home="$RUNNER_TEMP/cmux-cli-tests-home"
-          rm -rf "$cli_home"
-          mkdir -p "$cli_home/.config"
-          echo "CMUX_CLI_TESTS_HOME=$cli_home" >> "$GITHUB_ENV"
-
-      - name: Run CLI product tests
-        run: |
-          set -euo pipefail
-          test_log="$RUNNER_TEMP/cmux-cli-product-tests.log"
-          # xcodebuild forwards only TEST_RUNNER_-prefixed variables into the
-          # test process, so a bare HOME in the job environment reaches
-          # xcodebuild and stops there. CFFIXED_USER_HOME has to travel with
-          # it: Foundation resolves NSHomeDirectory() through getpwuid unless
-          # that is set, so HOME alone still leaves every fixture reading the
-          # runner's real home between reused self-hosted runs. CMUX_CLI_PATH
-          # needs the prefix too, or the tests fall back to searching the
-          # products directory and may run a different binary than the one
-          # resolved above.
-          env \
-            "TEST_RUNNER_HOME=$CMUX_CLI_TESTS_HOME" \
-            "TEST_RUNNER_CFFIXED_USER_HOME=$CMUX_CLI_TESTS_HOME" \
-            "TEST_RUNNER_XDG_CONFIG_HOME=$CMUX_CLI_TESTS_HOME/.config" \
-            "TEST_RUNNER_SSH_AUTH_SOCK=" \
-            "TEST_RUNNER_CMUX_CLI_PATH=$CMUX_CLI_PATH" \
-            bash scripts/ci/run-and-capture.sh "$test_log" \
-            xcodebuild test-without-building \
-            -xctestrun "$CMUX_CLI_TESTS_XCTESTRUN" \
-            -destination "platform=macOS" \
-            -test-timeouts-enabled YES \
-            -default-test-execution-time-allowance 180 \
-            -maximum-test-execution-time-allowance 300 \
-            -only-testing:cmuxCLITests
-          scripts/ci/require_selected_test_execution.sh "$test_log" "cmuxCLITests"
-
-      - name: Run CLI product Python regressions
-        run: |
-          env \
-            "HOME=$CMUX_CLI_TESTS_HOME" \
-            "CFFIXED_USER_HOME=$CMUX_CLI_TESTS_HOME" \
-            "XDG_CONFIG_HOME=$CMUX_CLI_TESTS_HOME/.config" \
-            "SSH_AUTH_SOCK=" \
-            "CMUX_CLI_BIN=$CMUX_CLI_PATH" \
-            python3 scripts/ci/run_python_test_lane.py --lane macos-cli-product
-
-      # The shell and CLI no-socket lanes run wrapper regressions through
-      # `node` and the Pi extension regressions through `bun`. They need the
-      # CLI product and no app host. Each runs after an earlier failure, so
+      # The shell and no-socket lanes run some regressions through `node` and
+      # `bun`. They need no app host. Each runs after an earlier failure, so
       # one failing lane does not hide the others.
-      - name: Ensure node for the CLI no-socket regressions
+      - name: Ensure node for the no-socket regressions
         id: detect-node
         if: ${{ !cancelled() }}
         run: |
@@ -1763,7 +1636,7 @@ jobs:
           "$NU_DIR/nu" --version
           echo "$NU_DIR" >> "$GITHUB_PATH"
 
-      # This job's checkout skips submodules. The bash prompt and CLI
+      # This job's checkout skips submodules. The bash prompt and
       # no-socket regressions read Ghostty's shell integration from
       # ghostty/src, so fetch only that submodule.
       - name: Check out the ghostty submodule for shell regressions
@@ -1786,7 +1659,7 @@ jobs:
             CMUX_BASH_NEW_BIN="$BASH_NEW_BIN" \
             python3 tests/test_issue_11257_prompt_command_export.py
 
-      - name: Run shell and CLI no-socket regressions
+      - name: Run shell and no-socket regressions
         if: ${{ !cancelled() }}
         env:
           # Owned Macs share their host with other runner slots. These tests
@@ -1794,7 +1667,7 @@ jobs:
           # socket, Node, and Bun processes, so eight-way fanout turns host
           # contention into unrelated fixture failures. Keep the fast fanout
           # on isolated hosted runners and serialize it on the shared fleet.
-          CMUX_CLI_REGRESSION_JOBS: ${{ runner.environment == 'github-hosted' && '8' || '1' }}
+          CMUX_SHELL_REGRESSION_JOBS: ${{ runner.environment == 'github-hosted' && '8' || '1' }}
         run: |
           set -euo pipefail
 
@@ -1807,20 +1680,8 @@ jobs:
           }
 
           # Run one after another, these ~70 files took about seven minutes.
-          CMUX_CLI_BIN="$CMUX_CLI_PATH" python3 scripts/ci/run_python_test_lane.py --jobs "$CMUX_CLI_REGRESSION_JOBS" --lane macos-shell --lane macos-cli-no-socket --lane macos-shell-fish --lane macos-cli-no-socket-post-fish
+          python3 scripts/ci/run_python_test_lane.py --jobs "$CMUX_SHELL_REGRESSION_JOBS" --lane macos-shell --lane macos-cli-no-socket --lane macos-shell-fish --lane macos-cli-no-socket-post-fish
 
-      - name: Run terminal creation interactive-shell CLI regression
-        if: ${{ !cancelled() }}
-        run: CMUX_CLI_BIN="$CMUX_CLI_PATH" python3 tests/test_cli_creation_initial_command.py
-
-      - name: Upload CLI product test log
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cli-product-tests-log-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/cmux-cli-product-tests.log
-          if-no-files-found: ignore
-          retention-days: 7
 
   swift-package-tests:
     # Defaults to the macos-15 pool on every event, including pull requests. The
@@ -2525,14 +2386,18 @@ jobs:
           DIFF_SIDECAR="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-diff-sidecar"
           test -x "$APP_BINARY"
           test -x "$CLI_BINARY"
-          TUI_CLIENT="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-tui"
-          test -x "$TUI_CLIENT"
+          # bin/cmux is the cmux-tui binary; bin/cmux-tui and bin/acpmux are
+          # relative symlinks to it (scripts/cmux-next/bundle-cmux-tui.sh).
+          test ! -L "$CLI_BINARY"
+          for link in cmux-tui acpmux; do
+            test "$(readlink "build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/$link")" = cmux
+          done
           test -x "$HELPER_BINARY"
           test -x "$DIFF_SIDECAR"
           file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY" "$DIFF_SIDECAR"
           SDK_VERSION="$(otool -l "$APP_BINARY" | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }')"
           echo "App SDK version: $SDK_VERSION"
-          ./scripts/ci/verify-binary-archs.sh "$RELEASE_ARCHS" "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY" "$TUI_CLIENT"
+          ./scripts/ci/verify-binary-archs.sh "$RELEASE_ARCHS" "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY"
           test "$(shasum -a 256 "$HELPER_BINARY" | awk '{print $1}')" = "$EXPECTED_GHOSTTY_SHA256"
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR" --archs "$RELEASE_ARCHS"
           [[ "$SDK_VERSION" == 26.* ]]
@@ -2758,25 +2623,23 @@ jobs:
           # same reading the macos-compile-admission job condition uses.
           if inputs.get("compile_admitted") == "":
               inputs["compile_admitted"] = "false"
-          inputs.setdefault("cli", "false")
           # A caller that predates the swift_packages input leaves it unset or
           # empty, which reads as "the package lane was not separately routed".
           if inputs.get("swift_packages", "") == "":
               inputs["swift_packages"] = "false"
-          for route in ("macos", "cli", "full_suite", "compile_admitted", "release_build", "swift_packages"):
+          for route in ("macos", "full_suite", "compile_admitted", "release_build", "swift_packages"):
               if inputs.get(route) not in {"true", "false"}:
                   print(f"invalid route {route}={inputs.get(route)!r}", file=sys.stderr)
                   sys.exit(1)
 
           macos = inputs["macos"] == "true"
           full_suite = inputs["full_suite"] == "true"
-          cli = inputs["cli"] == "true"
           # The package lane is routed from changed paths, so it is required
           # whenever the router selected it even under the compile-only suite.
           swift_packages = inputs["swift_packages"] == "true"
           required = {
-              "macos-compile-admission": (macos or cli) and (inputs["compile_admitted"] != "true" or full_suite or cli),
-              "cli-product-tests": cli or (macos and full_suite),
+              "macos-compile-admission": macos and (inputs["compile_admitted"] != "true" or full_suite),
+              "cli-product-tests": macos and full_suite,
               "swift-package-tests": (macos and full_suite) or swift_packages,
               "release-admission": macos and full_suite and inputs["release_build"] == "true",
               "release-build": macos and full_suite and inputs["release_build"] == "true",

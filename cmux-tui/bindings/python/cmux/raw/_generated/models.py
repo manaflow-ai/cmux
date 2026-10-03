@@ -1212,7 +1212,7 @@ class Tab:
     surface: Id
     browser_source: Union[Literal['external', 'launched'], None]
     dead: bool
-    kind: Literal['pty', 'browser']
+    kind: Literal['pty', 'browser', 'conversation']
     name: Union[str, None]
     size: Union[Size, None]
     title: str
@@ -2378,6 +2378,19 @@ class NewBrowserTabRequest:
 
 
 @dataclass(frozen=True)
+class NewConversationTabRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/new-conversation-tab/request'
+    conversation: str
+    owner: str
+    pane: Union[Id, None, MissingType] = field(default=MISSING)
+    workspace: Union[Id, None, MissingType] = field(default=MISSING)
+    cols: Union[int, None, MissingType] = field(default=MISSING)
+    mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    origin: Union[str, None, MissingType] = field(default=MISSING)
+    rows: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class NewFrontendBrowserTabRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/new-frontend-browser-tab/request'
     engine: str
@@ -2385,6 +2398,7 @@ class NewFrontendBrowserTabRequest:
     pane: Union[Id, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     favicon_url: Union[str, None, MissingType] = field(default=MISSING)
+    owner: Union[str, None, MissingType] = field(default=MISSING)
     profile_id: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     title: Union[str, None, MissingType] = field(default=MISSING)
@@ -3122,6 +3136,7 @@ class UpdateFrontendBrowserTabRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/update-frontend-browser-tab/request'
     surface: Id
     favicon_url: Union[str, None, MissingType] = field(default=MISSING)
+    owner: Union[str, None, MissingType] = field(default=MISSING)
     title: Union[str, None, MissingType] = field(default=MISSING)
     url: Union[str, None, MissingType] = field(default=MISSING)
 
@@ -4150,6 +4165,7 @@ __all__ = [
     'MoveWorkspaceGroupRequest',
     'MoveWorkspaceToGroupRequest',
     'NewBrowserTabRequest',
+    'NewConversationTabRequest',
     'NewFrontendBrowserTabRequest',
     'NewPaneRequest',
     'NewPaneRightRequest',

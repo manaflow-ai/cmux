@@ -243,14 +243,14 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "workspace new",
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarBackground"
       ],
       "id" : "newTab",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
@@ -529,14 +529,14 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "workspace close",
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
       ],
       "id" : "closeWorkspace",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
@@ -1411,7 +1411,7 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "space create",
       "context_menu" : "offered",
       "context_menus" : [
@@ -1419,7 +1419,7 @@
         "profile"
       ],
       "id" : "space.new",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
@@ -2307,6 +2307,17 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "file open",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "id" : "file.open",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "tab new",
       "context_menu" : "offered",
       "context_menus" : [
@@ -2325,6 +2336,17 @@
       ],
       "id" : "newTab.page",
       "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "focusMove",
+      "cli_name" : "tab focus-location",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "id" : "focusLocation",
+      "mcp" : "focusMove",
       "palette" : "offered"
     },
     {
@@ -2374,14 +2396,14 @@
       "palette" : "duplicateOfDefault"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "tab close",
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
       ],
       "id" : "closeTab",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
@@ -2425,6 +2447,17 @@
         "tab"
       ],
       "id" : "renameTab",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "app show-tab",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "id" : "tab.focus",
       "mcp" : "offered",
       "palette" : "offered"
     },
@@ -3069,7 +3102,7 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "screen new",
       "context_menu" : "offered",
       "context_menus" : [
@@ -3077,7 +3110,7 @@
         "screenBar"
       ],
       "id" : "screen.new",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
@@ -3104,14 +3137,14 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "screen close",
       "context_menu" : "offered",
       "context_menus" : [
         "screen"
       ],
       "id" : "screen.close",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
@@ -4006,25 +4039,25 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "browser back",
       "context_menu" : "offered",
       "context_menus" : [
         "browserPage"
       ],
       "id" : "browserBack",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "browser forward",
       "context_menu" : "offered",
       "context_menus" : [
         "browserPage"
       ],
       "id" : "browserForward",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
@@ -5613,6 +5646,17 @@
       "palette" : "offered"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "agent quick",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "palette.quickAgentChat",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
       "cli" : "liveInput",
       "cli_name" : "agent toggle-dictation",
       "context_menu" : "liveInput",
@@ -5654,6 +5698,83 @@
       ],
       "id" : "agentPane.searchChats",
       "mcp" : "liveInput",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-permission-allow-once",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "id" : "agentPane.permission.allowOnce",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-permission-allow-chat",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "id" : "agentPane.permission.allowChat",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-permission-deny",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "id" : "agentPane.permission.deny",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-permission-expand",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "id" : "agentPane.permission.expand",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-permission-retry",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "id" : "agentPane.permission.retry",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-permission-revoke",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "id" : "agentPane.permission.revoke",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-permission-refresh",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "id" : "agentPane.permission.refresh",
+      "mcp" : "guiOnly",
       "palette" : "offered"
     },
     {
@@ -7144,14 +7265,14 @@
       "palette" : "offered"
     },
     {
-      "cli" : "offered",
+      "cli" : "ownerVerb",
       "cli_name" : "pane close",
       "context_menu" : "offered",
       "context_menus" : [
         "pane"
       ],
       "id" : "closePane",
-      "mcp" : "offered",
+      "mcp" : "ownerVerb",
       "palette" : "offered"
     },
     {
@@ -8106,6 +8227,17 @@
 
       ],
       "id" : "app.unhide",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "link open",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "link.open",
       "mcp" : "offered",
       "palette" : "offered"
     }

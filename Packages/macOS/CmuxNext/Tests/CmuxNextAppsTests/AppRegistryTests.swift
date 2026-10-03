@@ -21,7 +21,7 @@ struct AppRegistryTests {
         let root = try scratch()
         try writeLocal(root, name: "mine", id: "local/mine")
         try writeLocal(root, name: "impostor", id: "cmux/impostor")
-        let registry = AppRegistry(directory: root)
+        let registry = AppRegistry(directory: root, firstPartyRoot: root.appending(path: "no-first-party"))
         await registry.load()
         #expect(registry.apps.map(\.id) == ["cmux/agent-status", "cmux/github-prs", "cmux/running-agents", "local/mine"])
         #expect(registry.active.map(\.id) == ["local/mine"])
@@ -33,7 +33,7 @@ struct AppRegistryTests {
 
     @Test func installRemoveEnableAndHideArePersistedPerTagDirectory() async throws {
         let root = try scratch()
-        let registry = AppRegistry(directory: root)
+        let registry = AppRegistry(directory: root, firstPartyRoot: root.appending(path: "no-first-party"))
         await registry.load()
         for id in ["cmux/agent-status", "cmux/github-prs", "cmux/running-agents"] { try await registry.install(id) }
         try await registry.remove("cmux/github-prs")
@@ -45,7 +45,7 @@ struct AppRegistryTests {
         #expect(registry.app("cmux/agent-status")?.isActive == true)
         #expect(registry.app("cmux/agent-status")?.isVisible == false)
 
-        let reloaded = AppRegistry(directory: root)
+        let reloaded = AppRegistry(directory: root, firstPartyRoot: root.appending(path: "no-first-party"))
         await reloaded.load()
         #expect(reloaded.app("cmux/github-prs")?.isInstalled == false)
         #expect(reloaded.app("cmux/running-agents")?.isEnabled == false)
@@ -68,7 +68,7 @@ struct AppRegistryTests {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let manifest = #"{"manifestVersion":1,"id":"local/x","name":"X","version":"0.1.0","description":"d","engines":{"cmux":"^1.0"},"scopes":{"agent:read":"a","workspace:write":"w","net:example.com":"n"},"optionalScopes":{"notification:post":"p"}}"#
         try Data(manifest.utf8).write(to: dir.appending(path: "cmux-app.json"))
-        let registry = AppRegistry(directory: root)
+        let registry = AppRegistry(directory: root, firstPartyRoot: root.appending(path: "no-first-party"))
         await registry.load()
         let app = try #require(registry.app("local/x"))
         #expect(app.tier == .unverified)
@@ -78,14 +78,14 @@ struct AppRegistryTests {
         try await registry.setGranted("local/x", scope: "notification:post", true)
         try await registry.setGranted("local/x", scope: "agent:read", false)
         try await registry.setSandboxed("local/x", false)
-        let reloaded = AppRegistry(directory: root)
+        let reloaded = AppRegistry(directory: root, firstPartyRoot: root.appending(path: "no-first-party"))
         await reloaded.load()
         #expect(reloaded.app("local/x")?.grants == AppGrants.Snapshot(scopes: ["workspace:write", "notification:post"], sandboxed: false))
     }
 
     @Test func firstPartyAppsRunWithTheirRequestedScopesUntilRevoked() async throws {
         let root = try scratch()
-        let registry = AppRegistry(directory: root)
+        let registry = AppRegistry(directory: root, firstPartyRoot: root.appending(path: "no-first-party"))
         var changed: [String] = []
         await registry.load()
         try await registry.install("cmux/github-prs") // samples are opt-in
@@ -98,5 +98,24 @@ struct AppRegistryTests {
         try await registry.remove("cmux/github-prs")
         #expect(registry.app("cmux/github-prs")?.grants == AppGrants.Snapshot(scopes: [], sandboxed: true))
         #expect(changed == ["cmux/github-prs", "cmux/github-prs"])
+    }
+
+    /// First-party apps shipped in the app are installed by default and can be hidden; samples stay opt-in.
+    @Test func firstPartyAppsAreInstalledByDefaultAndHideable() async throws {
+        let root = try scratch()
+        let firstParty = root.appending(path: "first-party/demo")
+        try FileManager.default.createDirectory(at: firstParty, withIntermediateDirectories: true)
+        let manifest = #"{"manifestVersion":1,"id":"cmux/demo","name":"Demo","version":"0.1.0","description":"d","engines":{"cmux":"^1.0"},"publisher":{"name":"cmux"},"repository":"https://github.com/manaflow-ai/cmux"}"#
+        try Data(manifest.utf8).write(to: firstParty.appending(path: "cmux-app.json"))
+        let registry = AppRegistry(directory: root, firstPartyRoot: root.appending(path: "first-party"))
+        await registry.load()
+        #expect(registry.isLoaded)
+        let demo = try #require(registry.app("cmux/demo"))
+        #expect(demo.bundle.source == .firstParty)
+        #expect(demo.isVisible)
+        #expect(registry.app("cmux/github-prs")?.isInstalled == false)
+        try await registry.setHidden("cmux/demo", true)
+        #expect(registry.app("cmux/demo")?.isActive == true)
+        #expect(registry.app("cmux/demo")?.isVisible == false)
     }
 }

@@ -24,10 +24,9 @@ final class AppServices {
     /// The machine of the action being run, while its handler runs
     /// (`ActionRouting`); `activeDaemon` prefers it.
     var routedDaemon: DaemonService?
-    /// Whether the action running now may change this client's focus,
-    /// selection, shown workspace or key window (true outside action runs:
-    /// direct UI gestures are the user's). Set by `ActionRouting`.
-    var viewChangeAllowed = true
+    /// Brings a window forward for a jump (`revealTab`, a `cmux://` link).
+    /// Tests replace it to record the intent without ordering windows in.
+    var showJumpWindow: @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
     private(set) var cloud: CloudService!
     /// SSH machines (Connect to Machine…).
     private(set) var ssh: SSHService!
@@ -48,8 +47,6 @@ final class AppServices {
     private(set) var previews: TabPreviewSource!
     /// CPU and memory for the hover cards and `resources` (sampled on demand).
     private(set) var resources: AppResourceSource!
-    /// App side of the cmux CLI compat layer (window/focus state, intents).
-    private(set) var compat: AppCompatFrontend!
     let presentation = ContentPresentationScheduler()
     /// Blank-pane invariant, checked after each presentation settle.
     let surfaceInvariant = SurfaceInvariantMonitor()
@@ -59,8 +56,6 @@ final class AppServices {
     /// No-activate mode only: gives back a keyboard the user did not give.
     var keyboardGuard: NoActivateKeyboardGuard?
     var keyboardGuardObservers: [any NSObjectProtocol] = []
-    /// Hook statuses shown in sidebar rows (`set_status`).
-    let statusBoard = WorkspaceStatusBoard()
     private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
     /// Reopen Closed Tab history; set when the tab handlers bind.
     var closedTabs: ClosedTabTracker?
@@ -91,6 +86,8 @@ final class AppServices {
     }()
     /// Recently closed screens (Reopen Closed Screen).
     let closedScreens = ClosedScreenHistory()
+    /// The kinds of tabs opened on purpose, by folder, for `tabs.newTabKind: auto`.
+    var newTabKinds = NewTabKindMemory()
     /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
     private(set) var tabBarButtons: TabBarButtonsController!
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
@@ -130,7 +127,9 @@ final class AppServices {
     /// Browser profiles: records, the new-tab cascade, each tab's store.
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
-    private(set) lazy var agentTabs = AgentTabStore(tag: environment.tag, registry: registry)
+    private(set) lazy var agentTabs = AgentTabStore(tag: environment.tag, registry: registry, linkScheme: linkScheme)
+    /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
+    private(set) lazy var quickComposer = makeQuickComposer()
     /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps
     /// them in the import store only.
     var importedBookmarkSink: (any ImportedBookmarkSink)?
@@ -235,7 +234,6 @@ final class AppServices {
         }
         dragSession = TabDragSession(services: self)
         previews = TabPreviewSource(cache: cache)
-        compat = AppCompatFrontend(services: self)
         remoteTerminals = RemoteTerminalService(services: self)
         remoteTerminals.start()
         WorkspaceClose.willClose = { [weak self] workspace in self?.remoteTerminals.workspaceClosing(workspace) }
@@ -273,7 +271,11 @@ final class AppServices {
         for (workspace, _) in machines.allWorkspaces {
             for screen in workspace.screens {
                 for pane in screen.panes {
-                    if let tab = pane.tabs.first(where: { $0.id == id }) { return (tab, pane) }
+                    // A tab first seen without a `tab_` resource id keeps
+                    // its first id; links name it by the resource id.
+                    if let tab = pane.tabs.first(where: { $0.id == id || $0.snapshot.tabResourceID?.rawValue == id }) {
+                        return (tab, pane)
+                    }
                 }
             }
         }

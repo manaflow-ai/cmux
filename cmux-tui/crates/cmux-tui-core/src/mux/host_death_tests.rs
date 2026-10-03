@@ -338,11 +338,7 @@ fn kept_tab_survives_a_real_exit_and_a_restart() {
         .unwrap();
     let before = topology(&mux);
     let tabs = tabs_of(&before).into_iter().map(|tab| (tab, None)).collect::<Vec<_>>();
-    {
-        let mut registry = mux.workspace_registry.lock().unwrap();
-        registry.put_kept_tabs(&tabs).unwrap();
-        mux.reload_presentation(&registry).unwrap();
-    }
+    mux.commit_kept_tabs(&tabs).unwrap();
     mux.surface(surface).unwrap().record_process_end_for_test(TerminalExit::now(
         TerminalExitOutcome::Signal { signal: libc::SIGTERM, core_dumped: false },
     ));
@@ -355,6 +351,97 @@ fn kept_tab_survives_a_real_exit_and_a_restart() {
 
     let reopened = Mux::open_persistent(session, options, &root).unwrap();
     assert_eq!(topology(&reopened), before, "a restart removed a kept tab");
+    reopened.shutdown();
+    drop(reopened);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Logout race (`session-shutdown`, ownership.md section 3.2): logout
+/// signals every process of the session at once, so a shell's signal exit
+/// can reach the owner before the owner records its own shutdown start. A
+/// live signal exit therefore commits its receipt without detaching; the
+/// detach waits until the shutdown lead has passed and re-classifies the
+/// receipt then. A shutdown that started meanwhile makes it a host loss.
+#[cfg(unix)]
+#[test]
+fn session_shutdown_settles_a_live_signal_exit_after_the_lead() {
+    use crate::session_shutdown::SESSION_SHUTDOWN_LEAD_MS as LEAD;
+
+    let root = std::env::temp_dir()
+        .join(format!("cmux-settle-signal-exit-{}", crate::workspace_registry::new_uuid_v4()));
+    let session = "settle-signal-exit";
+    let options = SurfaceOptions {
+        terminal_host_root: Some(crate::terminal_host_runtime::terminal_host_root(&root, session)),
+        ..SurfaceOptions::default()
+    };
+    let mux = Mux::open_persistent(session, options.clone(), &root).unwrap();
+    let base = crate::session_shutdown::unix_now_ms() - 60_000;
+    mux.set_session_clock_now_for_test(base);
+    let seed = |index: usize| {
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let before = tabs_of(&topology(&mux));
+        let surface = mux
+            .seed_running_terminal_with_on_exit_for_test(
+                &terminal_hex("00", index),
+                &terminal_hex("10", index),
+                &workspace.key,
+                TerminalOnExit::Close,
+            )
+            .unwrap();
+        let tabs = tabs_of(&topology(&mux)).difference(&before).cloned().collect::<BTreeSet<_>>();
+        (surface, tabs)
+    };
+    let (normal, normal_tabs) = seed(1);
+    let (logout, _) = seed(2);
+    let signal = |exited_at_ms| TerminalExit {
+        outcome: TerminalExitOutcome::Signal { signal: libc::SIGHUP, core_dumped: false },
+        exited_at_ms,
+    };
+    let full = topology(&mux);
+
+    // A signal ends a shell while the owner runs normally: the receipt
+    // commits and the tab stays, dead, until the lead has passed.
+    mux.surface(normal).unwrap().record_process_end_for_test(signal(base));
+    mux.surface_exited(normal);
+    let resolved = mux.resolve_terminal(&terminal_hex("00", 1)).unwrap().unwrap();
+    assert_eq!(resolved.terminal.lifecycle, TerminalLifecycle::Exited);
+    assert_eq!(topology(&mux), full, "a live signal exit detached within the shutdown lead");
+    mux.set_session_clock_now_for_test(base + LEAD);
+    mux.run_due_exit_settles_for_test();
+    assert_eq!(topology(&mux), full, "the detach ran before the lead had passed");
+    // No shutdown started within the lead: a real end, the tab goes.
+    mux.set_session_clock_now_for_test(base + LEAD + 1);
+    mux.run_due_exit_settles_for_test();
+    let after_normal = topology(&mux);
+    assert_eq!(
+        tabs_of(&after_normal),
+        tabs_of(&full).difference(&normal_tabs).cloned().collect::<BTreeSet<_>>(),
+        "a real signal end kept its tab"
+    );
+
+    // The logout signal ends a shell just before the owner records its
+    // shutdown start: a host loss, the tab stays dead.
+    let at = base + 10_000;
+    mux.set_session_clock_now_for_test(at);
+    mux.surface(logout).unwrap().record_process_end_for_test(signal(at));
+    mux.surface_exited(logout);
+    mux.set_session_clock_now_for_test(at + 500);
+    mux.begin_session_shutdown();
+    mux.set_session_clock_now_for_test(at + LEAD + 1);
+    mux.run_due_exit_settles_for_test();
+    assert_eq!(topology(&mux), after_normal, "a logout signal exit removed its tab");
+    mux.shutdown();
+    drop(mux);
+
+    // The next owner re-classifies the receipt against the recorded window.
+    let reopened = Mux::open_persistent(session, options.clone(), &root).unwrap();
+    assert_eq!(topology(&reopened), after_normal, "a restart removed a logout tab");
+    // That owner's own shutdown replaces the recorded window; the host loss
+    // must not depend on it.
+    reopened.shutdown();
+    drop(reopened);
+    let reopened = Mux::open_persistent(session, options, &root).unwrap();
+    assert_eq!(topology(&reopened), after_normal, "a second restart removed a logout tab");
     reopened.shutdown();
     drop(reopened);
     let _ = std::fs::remove_dir_all(root);

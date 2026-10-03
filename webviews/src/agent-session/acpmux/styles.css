@@ -92,31 +92,38 @@
 .acpmux-newtab-context{flex:1;min-width:0;display:flex;align-items:center;gap:4px;overflow:hidden}
 .acpmux-newtab-context .acpmux-chips{flex:none}
 .acpmux-newtab-chip{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:14px;color:var(--acpmux-composer-dim);white-space:nowrap}
-.acpmux-newtab-hint{flex:none;display:flex;align-items:center;gap:6px;color:var(--acpmux-composer-dim);font-size:12px}
-.acpmux-newtab-hint kbd{padding:3px 6px;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft)}
-.acpmux-newtab-recent{margin-top:44px}
-.acpmux-newtab-recent>header{display:flex;align-items:center;justify-content:space-between;height:28px;margin-bottom:8px;padding:0 4px;color:var(--acpmux-composer-dim);font-size:13px}
+.acpmux-newtab-default{flex:none;height:24px;padding:0 8px;border:0;border-radius:12px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:12px;white-space:nowrap;cursor:pointer}
+.acpmux-newtab-default:hover{color:var(--agent-text);background:color-mix(in srgb,var(--agent-text) 7%,transparent)}
 .acpmux-newtab-all{display:flex;align-items:center;gap:2px;border:0;padding:0;background:none;color:inherit;font:inherit;cursor:pointer}
 .acpmux-newtab-all:hover{color:var(--agent-text)}
-.acpmux-newtab-recent ul{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0;padding:0;list-style:none}
-.acpmux-newtab-card{display:flex;flex-direction:column;gap:6px;width:100%;height:100%;min-height:128px;box-sizing:border-box;padding:12px 14px;border:0;border-radius:14px;background:color-mix(in srgb,var(--agent-text) 4.5%,var(--acpmux-base));box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--agent-text) 9%,transparent);color:var(--agent-text);font:inherit;text-align:left;cursor:pointer}
-.acpmux-newtab-card:hover{background:color-mix(in srgb,var(--agent-text) 8%,var(--acpmux-base))}
-.acpmux-newtab-card:focus-visible,.acpmux-newtab-kind:focus-visible,.acpmux-newtab-all:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
-.acpmux-newtab-card-top{display:flex;align-items:center;gap:7px;color:var(--acpmux-composer-dim);font-size:12px}
-.acpmux-newtab-card-meta{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-newtab-dot{flex:none;width:7px;height:7px;border-radius:50%;background:color-mix(in srgb,var(--agent-text) 25%,transparent)}
-.acpmux-newtab-dot.is-running{background:none;box-shadow:inset 0 0 0 1.25px var(--acpmux-composer-dim)}
-.acpmux-newtab-dot.is-input{background:var(--agent-accent)}
-.acpmux-newtab-dot.is-error{background:var(--agent-danger)}
-.acpmux-newtab-dot.is-unread{background:var(--agent-text)}
-.acpmux-newtab-card-title{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:14px;line-height:19px}
-.acpmux-newtab-card-preview{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--acpmux-composer-dim);font-size:12.5px;line-height:17px}
-.acpmux-newtab-card-foot{display:flex;align-items:center;gap:10px;margin-top:auto;padding-top:4px;color:var(--acpmux-composer-dim);font-size:12px;white-space:nowrap;overflow:hidden;-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 14px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 14px),transparent)}
-.acpmux-newtab-card-tag{flex:none;display:flex;align-items:center;gap:4px}
-.acpmux-newtab-card-tag .acpmux-icon{width:13px;height:13px}
-.acpmux-newtab-empty{margin:0;padding:18px 4px;color:var(--acpmux-composer-dim)}
-@container (max-width:640px){.acpmux-newtab-hint{display:none}.acpmux-newtab-recent ul{grid-template-columns:repeat(2,minmax(0,1fr))}}@container (max-width:540px){.acpmux-newtab-kind kbd{display:none}}
-@container (max-width:460px){.acpmux-newtab-kind>span{display:none}.acpmux-newtab-recent ul{grid-template-columns:minmax(0,1fr)}}
+.acpmux-newtab-kind:focus-visible,.acpmux-newtab-all:focus-visible,.acpmux-newtab-default:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
+.acpmux-omni{margin-top:10px;padding:6px;border-radius:16px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge);max-height:min(60vh,420px);overflow:auto}
+.acpmux-omni-row{display:flex;align-items:center;gap:11px;height:40px;padding:0 10px 0 12px;border-radius:10px;color:var(--agent-soft);cursor:default;font-size:13.5px}
+.acpmux-omni-row>.acpmux-icon{flex:none;color:var(--acpmux-composer-dim)}
+.acpmux-omni-row.is-selected{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
+.acpmux-omni-row.is-selected>.acpmux-icon{color:var(--agent-text)}
+.acpmux-omni-text{flex:1;min-width:0;display:flex;align-items:baseline;gap:10px;overflow:hidden;white-space:nowrap}
+.acpmux-omni-title{flex:none;max-width:70%;overflow:hidden;text-overflow:ellipsis}
+.acpmux-omni-title b{font-weight:500;color:var(--agent-text)}
+.acpmux-omni-detail{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim);font-size:12px}
+.acpmux-omni-action{flex:none;display:flex;align-items:center;gap:6px;color:var(--acpmux-composer-dim);font-size:12px;opacity:0}
+.acpmux-omni-row.is-selected .acpmux-omni-action,.acpmux-omni-row:hover .acpmux-omni-action{opacity:1}
+.acpmux-omni-action kbd{padding:2px 6px;border-radius:5px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft)}
+.acpmux-newtab>.acpmux-newtab-all{align-self:flex-end;width:auto;margin-top:10px;font-size:12.5px;color:var(--acpmux-composer-dim)}
+/* Hover, press and focus: a tonal step from the theme, on the Motion `hover` fade (0.08 s, plans/cmux-next/motion.md). The host does not pass ui.animationSpeed to the page yet, so this is the fast default. Under Reduce Motion the fills change at once. Fills only, never size, so nothing shifts. */
+.acpmux-newtab{--acpmux-motion-hover:80ms}
+@media (prefers-reduced-motion:no-preference){.acpmux-newtab-kind,.acpmux-newtab-default,.acpmux-newtab-all,.acpmux-omni-row,.acpmux-newtab .acpmux-send{transition:background-color var(--acpmux-motion-hover) ease-out,color var(--acpmux-motion-hover) ease-out,box-shadow var(--acpmux-motion-hover) ease-out}.acpmux-omni-action{transition:opacity var(--acpmux-motion-hover) ease-out}}
+.acpmux-newtab-kind:not(.is-selected):hover{background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
+.acpmux-newtab-kind:not(.is-selected):active{background:color-mix(in srgb,var(--agent-text) 10%,transparent);color:var(--agent-text)}
+.acpmux-newtab-kind.is-selected:active{background:color-mix(in srgb,var(--agent-text) 4%,var(--acpmux-composer-bg))}
+.acpmux-newtab-default:active{background:color-mix(in srgb,var(--agent-text) 11%,transparent);color:var(--agent-text)}
+.acpmux-newtab-all:active{color:var(--agent-soft)}
+.acpmux-omni-row:active{background:color-mix(in srgb,var(--agent-text) 12%,transparent)}
+.acpmux-newtab .acpmux-send:hover{background:color-mix(in srgb,var(--acpmux-composer-dim) 75%,var(--agent-text))}
+.acpmux-newtab .acpmux-send-ready:hover{background:color-mix(in srgb,var(--agent-text) 88%,var(--acpmux-base))}
+.acpmux-newtab .acpmux-send:active{background:color-mix(in srgb,var(--agent-text) 76%,var(--acpmux-base))}
+@container (max-width:540px){.acpmux-newtab-kind kbd{display:none}}
+@container (max-width:460px){.acpmux-newtab-kind>span{display:none}}
 /* Queue (Composer.tsx, named apart from the old strip's .acpmux-queue): prompts waiting for the running turn, as quiet rows tucked above the bar. */
 .acpmux-composer-queue{display:flex;flex-direction:column;gap:1px;max-height:96px;overflow:auto;margin:0 14px;padding:4px 0 10px;border-radius:12px 12px 0 0;background:var(--acpmux-menu-bg);box-shadow:inset 0 .5px 0 var(--acpmux-composer-edge);margin-bottom:-6px;font-size:12px;line-height:18px}
 .acpmux-queued{display:flex;align-items:center;gap:8px;min-width:0;padding:2px 12px;color:var(--agent-text)}
@@ -138,7 +145,7 @@
 .acpmux-context-chip .acpmux-icon{color:var(--agent-muted)}
 /* The folder trust ask (TrustAsk.tsx): one quiet line among the chat's permission asks, its actions text buttons that step on hover and press. */
 .acpmux-trust-ask{display:flex;align-items:center;gap:4px;min-height:34px;margin-bottom:8px;padding:4px 4px 4px 12px;box-sizing:border-box;border-radius:12px;background:var(--acpmux-composer-tray);color:var(--acpmux-composer-dim);font-size:13px}.acpmux-trust-ask-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.acpmux-trust-ask-action{flex:none;height:26px;padding:0 10px;border:0;border-radius:13px;background:none;color:var(--agent-text);font:inherit;cursor:pointer}.acpmux-trust-ask-action:hover{background:var(--acpmux-composer-hover)}.acpmux-trust-ask-action:active{background:color-mix(in srgb,var(--agent-text) 20%,var(--agent-page-bg,var(--acpmux-base)))}.acpmux-trust-ask-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-trust-ask-action{transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}}
-/* Search files: Codex's quick-open palette, centered over the transcript's upper part (main column). */
+/* Search files: a quick-open palette, centered over the transcript's upper part (main column). */
 .acpmux-file-search{position:absolute;z-index:20;top:max(48px,18%);left:50%;right:auto;margin:0;border:0;width:min(600px,calc(100vw - 32px));transform:translateX(-50%);padding:6px;box-sizing:border-box;border-radius:14px;background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 16px 40px var(--agent-shadow,rgb(0 0 0/.35));color:var(--agent-text);font-size:14px}
 .acpmux-file-search input{display:block;width:100%;height:34px;padding:0 10px;box-sizing:border-box;border:0;background:none;color:var(--agent-text);font:inherit;outline:none}
 .acpmux-file-search input::placeholder{color:var(--acpmux-composer-dim)}
@@ -175,7 +182,7 @@
 /* A new chat: the composer docks at the bottom and the hero centers in the space above it. */
 .acpmux-main[data-new-chat]>.acpmux-stage{flex:1 1 0;min-height:0}
 .acpmux-main[data-new-chat] .acpmux-empty{justify-content:center;padding-bottom:6%}
-/* Home lists (HomeLists.tsx): Claude's welcome lists between the hero and the docked composer, in its column; they scroll when tall. */
+/* Home lists (HomeLists.tsx): the welcome lists between the hero and the docked composer, in its column; they scroll when tall. */
 .acpmux-main[data-new-chat]>.acpmux-home-area{flex:0 1 auto;min-height:0;max-height:50%}
 /* The hero (header, glyph and title) keeps its room on a short pane; the lists, which scroll, give way first. */
 .acpmux-main[data-new-chat]:has(>.acpmux-home-area:not(:empty))>.acpmux-stage{min-height:128px}
@@ -253,6 +260,25 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-edited-base{flex:none}
 .acpmux-edited-more{display:flex;align-items:center;gap:8px;width:100%;height:34px;box-sizing:border-box;padding:0 12px;border:0;background:color-mix(in srgb,var(--agent-text) 5%,var(--agent-page-bg));color:var(--agent-muted);font:inherit;cursor:pointer}
 .acpmux-edited-more:hover{color:var(--agent-text)}
+
+.acpmux-permission-panel{display:flex;flex-direction:column;gap:var(--acp-row-gap,8px);flex-shrink:0;max-height:45%;overflow:auto;padding-bottom:10px;font-size:var(--acp-font-size,13px);line-height:var(--acp-line-height,1.5)}
+.acpmux-permission-panel .acpmux-permission-card{padding:var(--acp-row-pad-y,11px);border-radius:6px}
+.acpmux-permission-panel .acpmux-permission-buttons{gap:var(--acp-row-gap,7px)}
+.acpmux-permission-panel .acpmux-permission-buttons button{border-radius:6px;padding:var(--acp-row-pad-y,7px) 10px;font:inherit}
+.acpmux-permission-panel .acpmux-permission-coverage,.acpmux-permission-panel .acpmux-permission-scope,.acpmux-permission-panel .acpmux-permission-item-kind,.acpmux-permission-panel .acpmux-permission-allowance,.acpmux-permission-panel .acpmux-permission-error,.acpmux-permission-panel .acpmux-permission-receipt{font-size:var(--acp-font-size-small,11px)}
+.acpmux-permission-panel .acpmux-permission-items details{padding:var(--acp-row-pad-y,5px) 0}
+.acpmux-permission-panel .acpmux-permission-items pre{font-size:var(--acp-font-size-small,11px);line-height:var(--acp-line-height,1.5)}.acpmux-permission-coverage{color:var(--agent-muted);font-size:10px}.acpmux-permission-scope{font-size:11px;color:var(--agent-muted);line-height:1.5;margin:6px 0}.acpmux-permission-items{margin-top:8px}.acpmux-permission-items details{padding:5px 0;border-top:1px solid var(--agent-border)}.acpmux-permission-items summary{cursor:pointer;overflow-wrap:anywhere}.acpmux-permission-items summary span{margin-right:8px}.acpmux-permission-item-kind{font-size:11px;color:var(--agent-muted)}.acpmux-permission-items pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto;background:var(--agent-input-bg);padding:8px;border-radius:6px;font:11px var(--font-mono)}.acpmux-permission-buttons{flex-wrap:wrap}.acpmux-permission-buttons button:disabled{opacity:.5;cursor:default}.acpmux-permission-buttons .acpmux-permission-deny{background:var(--agent-input-bg);color:var(--agent-text);border:1px solid var(--agent-border)}.acpmux-permission-allowance,.acpmux-permission-error{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:11px;line-height:1.5}.acpmux-permission-allowance button,.acpmux-permission-error button{flex-shrink:0;border:1px solid var(--agent-border);border-radius:6px;background:var(--agent-input-bg);color:var(--agent-text);padding:4px 8px}.acpmux-permission-receipt{font-size:11px;color:var(--agent-muted)}.acpmux-permission-receipt>summary{cursor:pointer}.acpmux-permission-error{color:var(--agent-text)}
+/* Quick Composer (QuickSurface.tsx): the composer fills the panel, its transcript scrolls above once there is one, and the key hints sit under it. Compact: the panel is small. */
+.acpmux-quick{position:relative;flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;justify-content:flex-end}
+.acpmux-quick-thread{flex:1 1 0;min-height:0;display:flex;flex-direction:column;border-bottom:0.5px solid var(--agent-border)}
+.acpmux-quick .acpmux-permission{padding:6px 8px 0}
+.acpmux-quick .acpmux-composer{padding:6px 8px 0}
+.acpmux-quick-keys{flex:none;display:flex;align-items:center;gap:6px;padding:4px 10px 6px;color:var(--agent-muted);font-size:11px;line-height:16px;white-space:nowrap;overflow:hidden}
+.acpmux-quick-key{display:inline-flex;align-items:center}
+.acpmux-quick-key .acpmux-keycap{margin-right:4px}
+.acpmux-copy-link{flex:none;display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:6px;background:none;color:inherit;cursor:pointer}.acpmux-copy-link:hover{background:color-mix(in srgb,currentColor 8%,transparent)}.acpmux-copy-link:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}.acpmux-copy-link:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-copy-link{transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}}
+.acpmux-link-missing{margin:8px 24px;color:var(--agent-text);font-size:12px}
+.acpmux-turn-revealed{background:color-mix(in srgb,var(--agent-highlight,var(--agent-text)) 10%,transparent)}@media (prefers-reduced-motion:no-preference){.acpmux-turn-revealed{transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}}
 /* The host's error while it cannot hand the pane acpmux (HostError.tsx), laid out like the permission card. */
 .acpmux-host-error{padding:0 max(18px,calc((100% - 760px)/2)) 8px}.acpmux-host-error-card{padding:11px 12px;border:1px solid color-mix(in srgb,var(--agent-danger) 46%,transparent);border-radius:12px;background:color-mix(in srgb,var(--agent-danger) 8%,var(--agent-page-bg))}.acpmux-host-error-card p{margin:0;line-height:18px;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}.acpmux-host-error-message{color:var(--agent-text)}.acpmux-host-error-hint{margin-top:4px!important;color:var(--agent-muted);font-size:12px}.acpmux-host-error-card button{margin-top:9px;border:0;border-radius:999px;padding:6px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit;cursor:default}.acpmux-host-error-card button:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:2px}
 .acpmux-host-error-card button:disabled{opacity:.6}

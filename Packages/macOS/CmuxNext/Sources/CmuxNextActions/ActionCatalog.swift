@@ -96,11 +96,13 @@ public nonisolated enum ActionCatalog {
         BookmarkActionCatalog.self,
         SidebarSectionActionCatalog.self,
         AppStoreActionCatalog.self,
+        LinkActionCatalog.self,
     ]
 
     private static func makeAll() -> [ActionDescriptor] {
         var all: [ActionDescriptor] = []
         for group in groups { all += group.descriptors() }
+        for index in all.indices where focusActionIDs.contains(all[index].id) { all[index].focuses = true }
         return LeaderLayer.apply(to: ActionSurfaceCatalog.apply(to: all))
     }
 }

@@ -38,6 +38,7 @@ public import AppKit
         writeState(ShortcutRecorderState(
             actionID: descriptor.id, actionTitle: descriptor.title, currentKeycaps: registry.shortcutKeycaps(for: descriptor.id),
             message: ShortcutRecorderStrings.recorderPrompt, hasDefault: descriptor.defaultShortcut != nil || descriptor.defaultChord != nil))
+        setOpen(true)
         return true
     }
 
@@ -151,7 +152,27 @@ public import AppKit
     private func finish(notice: String?) {
         guard let state = readState() else { return }
         writeState(nil)
+        setOpen(false)
         didFinish(state.actionID, notice)
+    }
+
+    /// The owner dropped the recorder's state itself (the palette hid or
+    /// changed page): stop counting it as open, without a notice.
+    public func abandon() { setOpen(false) }
+
+    /// Counts this recorder among the open ones; `.recordingShortcut` holds
+    /// while any is open, so the Settings and palette recorders can overlap.
+    private func setOpen(_ open: Bool) {
+        if open {
+            registry.openShortcutRecorders.insert(ObjectIdentifier(self))
+        } else {
+            registry.openShortcutRecorders.remove(ObjectIdentifier(self))
+        }
+        if registry.openShortcutRecorders.isEmpty {
+            registry.context.remove(.recordingShortcut)
+        } else {
+            registry.context.insert(.recordingShortcut)
+        }
     }
 
     // MARK: Text

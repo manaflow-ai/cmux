@@ -69,6 +69,9 @@ extension DaemonEvent {
                 return .client(name: name, payload: payload())
             case "overflow": return .overflow(try d(EventPayload.OverflowEvent.self).error ?? "overflow")
             case "daemon-shutdown": return .daemonShutdown
+            case LineTransport.streamEvent:
+                guard let item = SessionStreamItem.decode(line) else { return .unknown(name: name, payload: .null) }
+                return .sessionState(item)
             default: return .unknown(name: name, payload: payload())
             }
         } catch {

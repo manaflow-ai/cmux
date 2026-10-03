@@ -53,6 +53,10 @@ uuid.workspace = true
 wait-timeout.workspace = true
 
 [target.'cfg(unix)'.dependencies]
+# `cmux acp` and the `acpmux` multicall name (plans/cmux-next/cli.md).
+acpmux = { path = "../acpmux" }
+# Reads the enclosing app bundle's Info.plist (app_identity.rs).
+plist = "1.10"
 cmux-remote.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-wg.workspace = true
