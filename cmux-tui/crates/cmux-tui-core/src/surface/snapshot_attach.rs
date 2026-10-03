@@ -15,9 +15,10 @@ use sha2::{Digest, Sha256};
 use super::attach_tap::SnapshotRequestHandle;
 use super::*;
 
-/// Default `terminal.viewerBacklogBytes`: unacknowledged output kept for one
+/// Default `viewer_backlog_bytes` (spec/terminal-frames.md: 8 MiB, set per
+/// attach by the viewer, no daemon setting): unacknowledged output kept for one
 /// snapshot viewer before its backlog is replaced by a snapshot.
-pub(crate) const DEFAULT_VIEWER_BACKLOG_BYTES: usize = 262_144;
+pub(crate) const DEFAULT_VIEWER_BACKLOG_BYTES: usize = 8_388_608;
 /// Output idle time before a snapshot viewer gets a digest of the screen.
 pub(crate) const SNAPSHOT_DIGEST_IDLE: Duration = Duration::from_secs(2);
 /// At most one requested snapshot per viewer in this interval.
