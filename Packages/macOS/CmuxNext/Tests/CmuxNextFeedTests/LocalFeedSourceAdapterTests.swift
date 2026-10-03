@@ -40,7 +40,8 @@ struct LocalFeedSourceAdapterTests {
     }
 
     private func item(_ id: String, home: FeedHome) -> FeedItem {
-        FeedItem(id: id, home: home, title: id, prompt: .notice, createdAt: now)
+        FeedItem(id: id, home: home, title: id, prompt: .notice,
+                 poster: FeedPoster(kind: .system, label: "Test"), createdAt: now)
     }
 }
 
