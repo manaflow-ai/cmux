@@ -1,0 +1,225 @@
+//! End to end on Linux: the real `cmux-host run` under a temporary root,
+//! a fake metadata service (a local HTTP listener) and a fake session host
+//! script. Asserts the bind order from the action log, a second clone, a
+//! park, adoption after an agent restart, and a crash restart.
+#![cfg(target_os = "linux")]
+
+use std::fs;
+use std::io::{Read, Write};
+use std::net::TcpListener;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use cmux_host::status::Status;
+
+/// Serves the token and instance-id endpoints with the current id.
+fn metadata_server(id: Arc<Mutex<String>>) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut buf = [0u8; 2048];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            let request = String::from_utf8_lossy(&buf[..n]).into_owned();
+            let body = if request.starts_with("PUT /latest/api/token ") {
+                "test-token".to_owned()
+            } else if request.starts_with("GET /latest/meta-data/instance-id ")
+                && request.contains("X-aws-ec2-metadata-token: test-token")
+            {
+                id.lock().unwrap().clone()
+            } else {
+                let _ = stream.write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n");
+                continue;
+            };
+            let response = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}", body.len());
+            let _ = stream.write_all(response.as_bytes());
+        }
+    });
+    addr
+}
+
+struct Harness {
+    _dir: tempfile::TempDir,
+    root: PathBuf,
+    home: PathBuf,
+    bin: PathBuf,
+    daemon_log: PathBuf,
+    metadata: String,
+    id: Arc<Mutex<String>>,
+}
+
+impl Harness {
+    fn new() -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        let home = dir.path().join("home");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(home.join(".local/state/cmux/remote/sessions/cloud/auth")).unwrap();
+        fs::write(home.join(".local/state/cmux/remote/sessions/cloud/auth/identity.json"), "{}").unwrap();
+        let bin = dir.path().join("bin/cmux-tui");
+        fs::create_dir_all(bin.parent().unwrap()).unwrap();
+        let daemon_log = dir.path().join("daemon.log");
+        fs::write(
+            &bin,
+            "#!/bin/sh\necho \"$$ $*\" >> \"$FAKE_DAEMON_LOG\"\ntrap 'kill $! 2>/dev/null; exit 0' TERM\nsleep 600 &\nwait\n",
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        let id = Arc::new(Mutex::new("vm-a".to_owned()));
+        let metadata = metadata_server(id.clone());
+        Self { root, home, bin, daemon_log, metadata, id, _dir: dir }
+    }
+
+    fn start(&self, log: &Path) -> Child {
+        let me = String::from_utf8(Command::new("id").arg("-un").output().unwrap().stdout).unwrap();
+        Command::new(env!("CARGO_BIN_EXE_cmux-host"))
+            .arg("run")
+            .arg("--root")
+            .arg(&self.root)
+            .args(["--metadata", &self.metadata, "--metadata-attempts", "2", "--daemon-user", me.trim()])
+            .arg("--daemon-home")
+            .arg(&self.home)
+            .arg("--daemon-bin")
+            .arg(&self.bin)
+            .arg("--no-announce")
+            .arg("--action-log")
+            .arg(log)
+            .env("FAKE_DAEMON_LOG", &self.daemon_log)
+            .env_remove("CMUX_TUI_REMOTE_WS_BIND")
+            .env_remove("NOTIFY_SOCKET")
+            .spawn()
+            .unwrap()
+    }
+
+    fn at(&self, abs: &str) -> PathBuf {
+        self.root.join(abs.trim_start_matches('/'))
+    }
+
+    fn status(&self) -> Option<Status> {
+        Status::from_json(&fs::read_to_string(self.at("/run/cmux-host/status.json")).ok()?)
+    }
+
+    /// The driver's write after create: wakes the agent through inotify.
+    fn clone_to(&self, id: &str) {
+        *self.id.lock().unwrap() = id.to_owned();
+        fs::write(self.at("/run/cmux/instance-id"), id).unwrap();
+    }
+}
+
+fn lines(log: &Path) -> Vec<String> {
+    fs::read_to_string(log)
+        .unwrap_or_default()
+        .lines()
+        .map(|l| l.split_once(' ').map_or(l, |(_, rest)| rest).to_owned())
+        .collect()
+}
+
+/// Test-side wait: re-checks the condition until a deadline.
+fn wait_until(what: &str, mut ok: impl FnMut() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while !ok() {
+        assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn index(lines: &[String], from: usize, line: &str) -> usize {
+    lines[from..]
+        .iter()
+        .position(|l| l == line)
+        .map(|i| i + from)
+        .unwrap_or_else(|| panic!("missing {line:?} after {from} in {lines:#?}"))
+}
+
+fn alive(pid: u32) -> bool {
+    Path::new(&format!("/proc/{pid}")).exists()
+        && !fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default().contains(") Z ")
+}
+
+fn terminate(child: &mut Child) {
+    // SAFETY: plain kill of our own child.
+    unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
+    let status = child.wait().unwrap();
+    assert!(status.success(), "agent exit {status}");
+}
+
+#[test]
+fn agent_binds_parks_adopts_and_restarts() {
+    let h = Harness::new();
+    let log = h.root.parent().unwrap().join("actions.log");
+    let mut agent = h.start(&log);
+
+    // First bind, in the contract order.
+    wait_until("first spawn", || lines(&log).iter().any(|l| l == "spawn-daemon"));
+    let l = lines(&log);
+    let reseed = index(&l, 0, "reseed id=vm-a");
+    let mark = index(&l, reseed, "mark-clone-started");
+    let drop = index(&l, mark, "drop-remote-identity");
+    let write = index(&l, drop, "write-bound id=vm-a");
+    let spawn = index(&l, write, "spawn-daemon");
+    index(&l, spawn, "rekey id=vm-a");
+    assert_eq!(fs::read_to_string(h.at("/etc/cmux/daemon-instance-id")).unwrap(), "vm-a\n");
+    assert!(!h.home.join(".local/state/cmux/remote/sessions/cloud/auth").exists());
+    wait_until("rekey job", || h.at("/etc/machine-id").is_file());
+    wait_until("daemon argv", || fs::read_to_string(&h.daemon_log).unwrap_or_default().contains("server start"));
+    let argv = fs::read_to_string(&h.daemon_log).unwrap();
+    assert!(
+        argv.contains(
+            "server start --session cloud --remote-ws 0.0.0.0:1337 --remote-ws-insecure-bind --remote-ws-trusted-carrier"
+        ),
+        "{argv}"
+    );
+    wait_until("status", || h.status().is_some_and(|s| s.daemon_pid.is_some()));
+    let first_pid = h.status().unwrap().daemon_pid.unwrap();
+
+    // A clone: new id via the driver file. The old host is stopped first.
+    h.clone_to("vm-b");
+    wait_until("second bind", || lines(&log).iter().any(|l| l == "write-bound id=vm-b"));
+    let l = lines(&log);
+    let reseed_b = index(&l, 0, "reseed id=vm-b");
+    let term = index(&l, reseed_b, "terminate-daemon");
+    let drop_b = index(&l, term, "drop-remote-identity");
+    index(&l, drop_b, "spawn-daemon");
+    assert_eq!(l.iter().filter(|x| x.starts_with("reseed ")).count(), 2, "{l:#?}");
+    wait_until("old host gone", || !alive(first_pid));
+
+    // Park: the bake writes its id; host stopped, no spawn after.
+    fs::write(h.at("/etc/cmux/bake-instance-id"), "vm-b\n").unwrap();
+    wait_until("parked", || h.status().is_some_and(|s| s.parked && s.daemon == "down"));
+    let l = lines(&log);
+    let park = index(&l, 0, "park-housekeeping");
+    index(&l, park, "stop-terminal-hosts");
+    let wakes = h.status().unwrap().wakes;
+    h.clone_to("vm-b"); // another wake while parked: still no spawn
+    wait_until("parked wake", || h.status().is_some_and(|s| s.wakes > wakes));
+    assert!(!lines(&log)[park..].iter().any(|x| x == "spawn-daemon"));
+    assert!(h.status().unwrap().parked);
+
+    // A clone of the parked snapshot binds again.
+    h.clone_to("vm-c");
+    wait_until("third bind", || h.status().is_some_and(|s| !s.parked && s.daemon_pid.is_some()));
+    let pid = h.status().unwrap().daemon_pid.unwrap();
+    terminate(&mut agent);
+    assert!(alive(pid), "the session host survives an agent restart");
+
+    // Restart: adopt, do not spawn a second host.
+    let log2 = h.root.parent().unwrap().join("actions2.log");
+    let mut agent = h.start(&log2);
+    wait_until("adopt", || lines(&log2).iter().any(|l| l == &format!("adopt-daemon pid={pid}")));
+    wait_until("status after adopt", || h.status().is_some_and(|s| s.daemon_pid == Some(pid)));
+    assert!(!lines(&log2).iter().any(|l| l == "spawn-daemon" || l.starts_with("reseed")), "{:#?}", lines(&log2));
+
+    // Crash: the adopted host dies; the agent restarts it.
+    // SAFETY: kill of the fake session host this test started.
+    unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
+    wait_until("restart", || h.status().is_some_and(|s| s.daemon_pid.is_some_and(|p| p != pid)));
+    let new_pid = h.status().unwrap().daemon_pid.unwrap();
+    terminate(&mut agent);
+    // SAFETY: cleanup of the fake session host.
+    unsafe { libc::kill(new_pid as libc::pid_t, libc::SIGTERM) };
+}
