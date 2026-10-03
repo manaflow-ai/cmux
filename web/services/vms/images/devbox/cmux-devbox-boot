@@ -112,6 +112,8 @@ DESKTOP_RUNTIME_DIR=/run/cmux-desktop
 DESKTOP_DISPLAY=:1
 BOUND_INSTANCE_FILE=/etc/cmux/daemon-instance-id
 BAKE_INSTANCE_FILE=/etc/cmux/bake-instance-id
+BOOT_ID_FILE=/etc/cmux/daemon-boot-id
+BOOT_ID_SOURCE=/proc/sys/kernel/random/boot_id
 METADATA=http://169.254.169.254
 PARKED_TICK=0.05
 TEMPLATE_RUN_DIR=/run/cmux
@@ -146,6 +148,29 @@ instance_id() {
 }
 
 cmux_tui_layout
+boot_id_recovered=""
+
+# A hard power-off can leave the previous daemon's lifecycle marker without a
+# shutdown outcome. The daemon correctly refuses to trust that marker, but on
+# a reboot there cannot be a live predecessor holding the old lifecycle. Clear
+# only those two transient files when the kernel boot id changes; authorization
+# and workspace state remain intact. This also repairs machines made from an
+# image with a stale finalization marker without requiring manual acknowledgement.
+recover_rebooted_daemon_state() {
+  current_boot_id=$(cat "$BOOT_ID_SOURCE" 2>/dev/null) || return 0
+  case "$current_boot_id" in
+    ""|*[!A-Za-z0-9-]*) return 0 ;;
+  esac
+  [ "$boot_id_recovered" = "$current_boot_id" ] && return 0
+  previous_boot_id=$(cat "$BOOT_ID_FILE" 2>/dev/null || true)
+  if [ -n "$previous_boot_id" ] && [ "$previous_boot_id" != "$current_boot_id" ]; then
+    rm -f "$REMOTE_STATE_DIR/sessions/cloud/runtime.json" \
+      "$REMOTE_STATE_DIR/sessions/cloud/shutdown.json"
+  fi
+  mkdir -p "$(dirname "$BOOT_ID_FILE")" 2>/dev/null \
+    && printf '%s\n' "$current_boot_id" > "$BOOT_ID_FILE" 2>/dev/null || true
+  boot_id_recovered=$current_boot_id
+}
 
 daemon_pid=""
 desktop_pid=""
@@ -252,6 +277,7 @@ while true; do
   # this same selection names, so re-read the layout until one appears.
   [ -x "$BIN" ] || cmux_tui_layout
   if [ -x "$BIN" ]; then
+    recover_rebooted_daemon_state
     id=$(instance_id 2>/dev/null) || id=""
     if [ -n "$id" ] && [ -f "$BAKE_INSTANCE_FILE" ] && [ "$id" = "$(cat "$BAKE_INSTANCE_FILE")" ]; then
       stop_daemon # the machine being snapshotted: parked until the snapshot is taken
