@@ -375,8 +375,9 @@ export class Core {
     const from = Math.max(this.handled.get(summary.id) ?? 0, summary.read_cursors[AGENT_MUX] ?? 0);
     this.handled.set(summary.id, from);
     for (const message of messages) this.authors.set(message.id, message.author);
+    // The paging task keeps its own copy: later summary events change only the cache.
     this.page(
-      summary,
+      plain(summary),
       from,
       messages.filter((m) => m.seq > from),
     );
