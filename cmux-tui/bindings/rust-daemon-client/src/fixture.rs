@@ -47,6 +47,13 @@ pub fn event(line: &str) -> SessionEvent {
 }
 
 fn change(value: &Value) -> ResourceChange {
+    // The SDK keeps state changes (and any other kind it does not know) as
+    // `Unknown` with the whole raw object.
+    let kind = value["kind"].as_str().expect("kind");
+    if kind != "upsert" && kind != "delete" {
+        let raw = cmux::Document::from_serializable(value).expect("raw change");
+        return ResourceChange::Unknown { kind: kind.to_string(), raw };
+    }
     let sequence = value["sequence"].as_u64().expect("sequence") as u32;
     let raw_id = value["id"].as_str().expect("id");
     let (resource, reference) = match value["resource"].as_str().expect("resource") {
@@ -104,5 +111,23 @@ pub fn patch_detached_terminal(value: &Value) -> Value {
 pub const SESSION_EVENTS: &str = include_str!("../tests/fixtures/session-events.jsonl");
 
 pub fn recorded() -> Vec<SessionEvent> {
-    SESSION_EVENTS.lines().filter(|l| !l.trim().is_empty()).map(event).collect()
+    events(SESSION_EVENTS)
+}
+
+/// Recorded from the daemon of feat-cmux-next 3a09ca7 (tree artifact
+/// 570d7727, `--headless`, `cmux --jsonl session current events`): initial
+/// snapshot, empty workspaces "alpha" (rev 1) and "beta" (2), group "Work"
+/// #225588 created (3), beta put into it first (4, both placements restated),
+/// renamed "Deep work" with the color cleared (5), collapsed (6), group
+/// "Play" created first (7, both groups restated), beta ungrouped (8), alpha
+/// put into "Deep work" (9), "Deep work" deleted (10: state_delete, Play and
+/// both placements restated), room "Side" created (11: two room upserts).
+pub const GROUP_EVENTS: &str = include_str!("../tests/fixtures/workspace-groups-events.jsonl");
+
+/// A later snapshot of the same daemon: group "Play" with beta in it first,
+/// alpha ungrouped second.
+pub const GROUP_SNAPSHOT: &str = include_str!("../tests/fixtures/workspace-groups-snapshot.jsonl");
+
+pub fn events(text: &str) -> Vec<SessionEvent> {
+    text.lines().filter(|l| !l.trim().is_empty()).map(event).collect()
 }
