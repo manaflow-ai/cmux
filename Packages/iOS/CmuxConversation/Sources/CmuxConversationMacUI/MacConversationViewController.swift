@@ -1535,7 +1535,9 @@ final class MacFlightOverlayView: NSView {
             animation.toValue = to
             animation.mass = 1
             animation.stiffness = 240
-            animation.damping = 26
+            // Near-critical: lands without the 7 pt overshoot an underdamped
+            // spring gave the wide-to-narrow width change.
+            animation.damping = 30
             animation.duration = animation.settlingDuration
             return animation
         }
