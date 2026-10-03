@@ -16,6 +16,8 @@ pub enum Refusal {
     Managed { key: String, source: ManagedSource },
     /// The schema refuses the value.
     InvalidValue { key: String, kind: &'static str, accepted: Accepted, value: Value },
+    /// The key was retired (Swift `SettingRetired`, code `removed`).
+    Removed { key: String, reason: String },
     /// The request itself is malformed (an empty path, ...).
     InvalidParams { message: String },
     /// Origin `mcp` may not change this key (or any non-schema path).
@@ -37,6 +39,7 @@ impl Refusal {
         match self {
             Refusal::Managed { .. } => "managed",
             Refusal::InvalidValue { .. } | Refusal::InvalidParams { .. } => "invalid_params",
+            Refusal::Removed { .. } => "removed",
             Refusal::AgentRefused { .. } => "agent_refused",
             Refusal::IdempotencyConflict { .. } => "idempotency_conflict",
             Refusal::RevisionConflict { .. } => "revision_conflict",
@@ -54,6 +57,7 @@ impl Refusal {
             Refusal::InvalidValue { key, kind, accepted, value } => {
                 json!({"key": key, "kind": kind, "accepted": accepted.to_json(), "value": value})
             }
+            Refusal::Removed { key, reason } => json!({"key": key, "reason": reason}),
             Refusal::InvalidParams { .. } => Value::Null,
             Refusal::AgentRefused { key, reason } => json!({"key": key, "reason": reason}),
             Refusal::IdempotencyConflict { idempotency_key } => {
@@ -79,6 +83,7 @@ impl fmt::Display for Refusal {
             Refusal::InvalidValue { key, value, .. } => {
                 write!(f, "{key} does not accept {}", compact(value))
             }
+            Refusal::Removed { key, reason } => write!(f, "{key} was removed: {reason}"),
             Refusal::InvalidParams { message } => f.write_str(message),
             Refusal::AgentRefused { key, reason } => match reason {
                 Some(reason) => write!(f, "agents may not change {key} ({reason})"),

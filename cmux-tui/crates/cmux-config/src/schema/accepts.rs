@@ -127,16 +127,11 @@ fn font_ok(text: &str, domain: Option<&BTreeSet<String>>) -> bool {
     is_valid_font_family(text) && domain.is_none_or(|names| names.contains(trim_whitespaces(text)))
 }
 
-/// `default` and `none` are always sounds; anything else must be a
-/// published sound name, or any non-empty name while none is published.
+/// `default` and `none` are always sounds; with a published domain anything
+/// else must be in it. With none published any string is a sound (Swift
+/// `SettingDescriptor.accepts` checks only the type).
 fn sound_ok(text: &str, domain: Option<&BTreeSet<String>>) -> bool {
-    if text == "default" || text == "none" {
-        return true;
-    }
-    match domain {
-        Some(names) => names.contains(text),
-        None => !text.is_empty(),
-    }
+    text == "default" || text == "none" || domain.is_none_or(|names| names.contains(text))
 }
 
 fn accepted(kind: &Kind, domains: &Domains) -> Accepted {
