@@ -187,7 +187,8 @@ fn signature_display_in_the_user_config_never_reaches_a_parse() {
     assert_eq!(retry["value"]["commit"], made.as_str());
     assert_eq!(retry["value"]["summary"], "Signed view");
     assert_eq!(git(&repository, &["rev-parse", "HEAD^"]), base);
-    let amend = ok(&commit(&mux, &repository, json!({"message": "Again", "amend": true}), "k-sig-amend"));
+    let amend =
+        ok(&commit(&mux, &repository, json!({"message": "Again", "amend": true}), "k-sig-amend"));
     assert_eq!(amend["value"]["parent"], base.as_str());
 }
 
@@ -210,6 +211,9 @@ fn a_retry_after_head_moved_on_never_commits_twice() {
     write(&repository, "a.txt", "a4\n");
     git(&repository, &["add", "a.txt"]);
     let (reason, extra) = refused(&commit(&mux, &repository, fields, "k-on"));
-    assert_eq!((reason.as_str(), extra["attempt_commit"].as_str()), ("head_moved", Some(made.as_str())));
+    assert_eq!(
+        (reason.as_str(), extra["attempt_commit"].as_str()),
+        ("head_moved", Some(made.as_str()))
+    );
     assert_eq!(git(&repository, &["rev-parse", "HEAD"]), terminal);
 }

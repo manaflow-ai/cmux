@@ -67,7 +67,8 @@ impl Attempt {
         if Some(head) == self.head.as_deref() {
             return None;
         }
-        let reflog = ["log", "-g", "-1", "--no-show-signature", "--format=%H%n%gs%n%P", "HEAD", "--"];
+        let reflog =
+            ["log", "-g", "-1", "--no-show-signature", "--format=%H%n%gs%n%P", "HEAD", "--"];
         let output = repository.run(&reflog, MAX_SMALL_OUTPUT_BYTES).ok()?;
         let text = String::from_utf8_lossy(&output.stdout).into_owned();
         let mut lines = text.lines();

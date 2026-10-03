@@ -33,7 +33,8 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         eprintln!("cmux: {error}");
         return 2;
     }
-    if let Err(error) = super::command::git::localize_commit_paths(&plan.operation, &mut plan.params)
+    if let Err(error) =
+        super::command::git::localize_commit_paths(&plan.operation, &mut plan.params)
     {
         eprintln!("cmux: {error}");
         return 2;
