@@ -7,11 +7,14 @@ import { reduceActivated, reduceConnectionCreate, reduceConnectionDisable, reduc
 import { reduceDeviceEnroll, reduceDeviceRelease, reduceReportStatus, reduceTokenCreate, reduceTokenRevoke, type EnrollmentState } from "./team-enrollment.ts"
 import { reduceIntegrationLock, reduceIntegrationSeed, reduceIntegrationSynced, reduceReleaseDone, reduceReleaseLock, type IntegrationSyncState } from "./team-integration-sync.ts"
 import { reducePolicyRollback, reducePolicyUpdate } from "./team-policy.ts"
+import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerRevoke, type ServerRevocation } from "./team-servers.ts"
 
 export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncState, DomainState, SsoState {
   readonly team: { readonly id: string; readonly kind: "personal" | "stack"; readonly display_name: string } | null
   readonly members: Readonly<Record<string, typeof TeamMember.Type>>
   readonly hosts: Readonly<Record<string, typeof Host.Type>>
+  /** Installs of removed servers whose UserDO revocation is not confirmed yet (TeamDO retries; server.md 6.5). */
+  readonly server_revocations?: Readonly<Record<string, ServerRevocation>>
 }
 
 /**
@@ -90,6 +93,18 @@ export const teamDomain: Domain<TeamState> = {
           value: { host: host.id },
           outbox: [{ kind: "host.delete", entity: host.id, payload: { id: host.id, team: state.team?.id } }]
         }
+      }
+      case "server.enrolled": {
+        if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
+        return reduceServerEnrolled(state, params, ctx)
+      }
+      case "server.install_revoked": {
+        if (p.kind !== "system") return reject("auth.forbidden", "internal op")
+        return reduceServerInstallRevoked(state, params)
+      }
+      case "server.revoke": {
+        if (!state.team) return reject("validation.invalid", "team not initialized")
+        return reduceServerRevoke(state, params, ctx)
       }
       case "team.policy.integration_seed": {
         if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
