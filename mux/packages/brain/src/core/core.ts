@@ -806,8 +806,12 @@ export class Core {
     request: Record<string, unknown>,
   ): void {
     if (!session || !this.isChild(session)) return;
-    this.child(session);
-    this.editWork(sessionId, session.name, "waiting", session.preview);
+    const known = Object.hasOwn(this.state.children, sessionId);
+    // A child first seen waiting already got a waiting card: no second, identical edit.
+    if (known || this.child(session).status !== "waiting") {
+      this.child(session);
+      this.editWork(sessionId, session.name, "waiting", session.preview);
+    }
     const promptId = `perm:${sessionId}:${permissionId}`;
     this.state.prompts[promptId] = {
       conversation: this.childConversation(sessionId),
