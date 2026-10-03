@@ -4630,6 +4630,20 @@ struct CMUXCLI {
         return normalized
     }
     private static func isFlagToken(_ value: String) -> Bool { value.hasPrefix("-") && value != "-" }
+
+    /// Require the one machine identifier accepted by Cloud inspection/open
+    /// commands after their documented options have been removed. Selecting
+    /// `first` here is dangerous: a typo or an extra token would otherwise be
+    /// silently ignored while the command still opens or queries a VM.
+    static func requireSingleCloudVMID(_ args: [String], usage: String) throws -> String {
+        guard args.count == 1,
+              let vmID = args.first,
+              !vmID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !isFlagToken(vmID) else {
+            throw CLIError(message: usage)
+        }
+        return vmID
+    }
     private static func isUnknownFlagToken(_ value: String, allowedShortFlags: Set<String> = []) -> Bool { isFlagToken(value) && !allowedShortFlags.contains(value) }
     private static func validatedVMSessionIdentifier(_ value: String?, flag: String) throws -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -5904,14 +5918,19 @@ struct CMUXCLI {
                     break
                 }
                 if let openIndex = rest.firstIndex(of: "--open") {
-                    guard rest.indices.contains(openIndex + 1) else { throw CLIError(message: promptUsage) }
-                    let agent = rest[openIndex + 1]
+                    guard openIndex == rest.startIndex,
+                          rest.count == 2,
+                          let agent = rest.last,
+                          !agent.hasPrefix("-") else {
+                        throw CLIError(message: promptUsage)
+                    }
                     let response = try client.sendV2(method: "vm.cloud_agent_open", params: ["agent": agent], responseTimeout: 60)
                     if jsonOutput { print(jsonString(response)); break }
                     let terminal = (response["surface_id"] as? String) ?? (response["terminal_id"] as? String) ?? "?"
                     print("OK opened \(agent) with the cmux-cloud prompt (terminal=\(terminal))")
                     break
                 }
+                guard rest.isEmpty else { throw CLIError(message: promptUsage) }
                 let response = try client.sendV2(method: "vm.cloud_prompt", params: [:], responseTimeout: 60)
                 if jsonOutput { print(jsonString(response)); break }
                 if let prompt = response["prompt"] as? String {
@@ -5922,14 +5941,12 @@ struct CMUXCLI {
                 }
 
             case "stats", "top":
-                guard let vmId = rest.first else {
-                    throw CLIError(message: """
+                let vmId = try Self.requireSingleCloudVMID(rest, usage: """
                         Usage: cmux vm stats <id>
 
                         Find an id:
                           cmux vm ls
                         """)
-                }
                 let response = try client.sendV2(method: "vm.stats", params: ["id": vmId], responseTimeout: 60)
                 if jsonOutput {
                     print(jsonString(response))
@@ -6203,14 +6220,12 @@ struct CMUXCLI {
                 // shell), in the workspace named by --workspace, or where you are when
                 // the machine has no open workspace.
                 let (workspaceOpt, vmArgs) = parseOption(rest, name: "--workspace")
-                guard let vmId = vmArgs.first else {
-                    throw CLIError(message: """
+                let vmId = try Self.requireSingleCloudVMID(vmArgs, usage: """
                         Usage: cmux vm desktop <id> [--workspace <id|ref|index>]
 
                         Find an id:
                           cmux vm ls
                         """)
-                }
                 let desktopWorkspace = workspaceOpt ?? vmAttachedWorkspaceId(vmId: vmId, client: client)
                 // One desktop path for `vm desktop`, `vm open <m>:desktop`,
                 // and the sidebar tree: vm.desktop_open in the app.
@@ -6351,8 +6366,7 @@ struct CMUXCLI {
             case "shell", "attach":
                 let (explicitFocus, focusRest) = try parseOpenFocusFlags(rest, command: "vm shell")
                 let (windowOpt, vmArgs) = parseOption(focusRest, name: "--window")
-                guard let vmId = vmArgs.first else {
-                    throw CLIError(message: """
+                let vmId = try Self.requireSingleCloudVMID(vmArgs, usage: """
                         Usage: cmux \(command) shell <id> [--window <id|ref|index>] [--focus|--no-focus]
 
                         \(Self.openFocusDefaultHelp)
@@ -6360,7 +6374,6 @@ struct CMUXCLI {
                         Find an id:
                           cmux vm ls
                         """)
-                }
                 try openVMWorkspaceShell(
                     vmId: vmId,
                     windowRaw: windowOpt ?? windowId,
@@ -6423,8 +6436,7 @@ struct CMUXCLI {
             case "ssh":
                 let (explicitFocus, focusRest) = try parseOpenFocusFlags(rest, command: "vm ssh")
                 let (windowOpt, vmArgs) = parseOption(focusRest, name: "--window")
-                guard let vmId = vmArgs.first else {
-                    throw CLIError(message: """
+                let vmId = try Self.requireSingleCloudVMID(vmArgs, usage: """
                         Usage: cmux \(command) ssh <id> [--window <id|ref|index>] [--focus|--no-focus]
 
                         \(Self.openFocusDefaultHelp)
@@ -6432,7 +6444,6 @@ struct CMUXCLI {
                         Find an id:
                           cmux vm ls
                         """)
-                }
                 try vmOpenShell(
                     id: vmId,
                     workspaceName: nil,
@@ -6446,14 +6457,12 @@ struct CMUXCLI {
                 )
 
             case "ssh-info":
-                guard let vmId = rest.first else {
-                    throw CLIError(message: """
+                let vmId = try Self.requireSingleCloudVMID(rest, usage: """
                         Usage: cmux \(command) ssh-info <id>
 
                         Find an id:
                           cmux vm ls
                         """)
-                }
                 try printVMSSHInfo(id: vmId, command: command, client: client, jsonOutput: jsonOutput)
 
             case "ssh-attach":
@@ -6554,9 +6563,7 @@ struct CMUXCLI {
                 try runVMWaitCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
             case "tools", "tool-inspector":
-                guard let vmId = rest.first else {
-                    throw CLIError(message: "Usage: cmux vm tools <id>")
-                }
+                let vmId = try Self.requireSingleCloudVMID(rest, usage: "Usage: cmux vm tools <id>")
                 let command = [
                     "printf 'shell: '; printf '%s\\n' \"$SHELL\"",
                     "for tool in zsh git gh htop btop node bun python3; do if command -v \"$tool\" >/dev/null 2>&1; then printf '%-8s %s\\n' \"$tool\" \"$(command -v \"$tool\")\"; else printf '%-8s missing\\n' \"$tool\"; fi; done",
@@ -6571,9 +6578,7 @@ struct CMUXCLI {
                 print((response["stdout"] as? String) ?? "")
 
             case "ports":
-                guard let vmId = rest.first else {
-                    throw CLIError(message: "Usage: cmux vm ports <id>")
-                }
+                let vmId = try Self.requireSingleCloudVMID(rest, usage: "Usage: cmux vm ports <id>")
                 let command = "if command -v ss >/dev/null 2>&1; then ss -ltnp; elif command -v netstat >/dev/null 2>&1; then netstat -ltnp; else echo 'No port inspector found'; fi"
                 let response = try client.sendV2(method: "vm.exec", params: ["id": vmId, "command": command, "timeout_ms": 30_000], responseTimeout: 35)
                 if jsonOutput {
@@ -6583,9 +6588,7 @@ struct CMUXCLI {
                 print((response["stdout"] as? String) ?? "")
 
             case "handoff":
-                guard let vmId = rest.first else {
-                    throw CLIError(message: "Usage: cmux vm handoff <id>")
-                }
+                let vmId = try Self.requireSingleCloudVMID(rest, usage: "Usage: cmux vm handoff <id>")
                 let response = try client.sendV2(method: "vm.status", params: ["id": vmId], responseTimeout: 60)
                 if jsonOutput {
                     print(jsonString(response))

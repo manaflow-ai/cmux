@@ -276,9 +276,7 @@ extension CMUXCLI {
             return
         }
         let (focus, tuiArgs) = try parseOpenFocusFlags(rest, command: "vm tui")
-        guard let vmId = tuiArgs.first(where: { !$0.hasPrefix("-") }), !vmId.isEmpty else {
-            throw CLIError(message: Self.vmTuiUsage)
-        }
+        let vmId = try Self.requireSingleCloudVMID(tuiArgs, usage: Self.vmTuiUsage)
         let opened = try openVMTuiWorkspace(
             vmId: vmId,
             windowRaw: windowRaw,
