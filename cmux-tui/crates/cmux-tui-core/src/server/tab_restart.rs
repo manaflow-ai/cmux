@@ -54,7 +54,8 @@ pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
     error.downcast_ref::<TabRestartError>().map(|error| error.code().to_string())
 }
 
-#[cfg(test)]
+// The test seeds a terminal with a Unix-only fixture.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use crate::workspace_registry::TerminalOnExit;

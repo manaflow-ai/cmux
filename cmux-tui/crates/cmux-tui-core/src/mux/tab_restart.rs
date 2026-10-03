@@ -146,7 +146,10 @@ impl Mux {
                 return Err(TabRestartError::NotLost(surface).into());
             }
         }
-        let cwd = target.cwd.clone().or(request.cwd);
+        // Only a directory that exists on this host: a shell's raw report
+        // can be a URL, and a directory can be gone; a bad cwd fails the spawn.
+        let cwd =
+            target.cwd.clone().or(request.cwd).filter(|cwd| std::path::Path::new(cwd).is_dir());
         let terminal_id = TerminalId::random()?;
         let reservation = TerminalReservationRequest {
             fingerprint: terminal_create_fingerprint(
@@ -338,9 +341,12 @@ fn restart_target_locked(
         return Err(TabRestartError::NotDead(surface).into());
     }
     let runtime = state.terminal_catalog.get(dead).or(view);
+    let usable = |cwd: &String| std::path::Path::new(cwd).is_dir();
     let cwd = runtime
-        .and_then(|runtime| runtime.pwd().or_else(|| runtime.presented_directory()))
-        .or_else(|| kept_tabs.get(tab.as_str()).and_then(|kept| kept.cwd.clone()));
+        .and_then(|runtime| {
+            runtime.presented_directory().filter(usable).or_else(|| runtime.pwd().filter(usable))
+        })
+        .or_else(|| kept_tabs.get(tab.as_str()).and_then(|kept| kept.cwd.clone()).filter(usable));
     Ok(RestartTarget {
         tab,
         dead: dead.clone(),
@@ -352,6 +358,7 @@ fn restart_target_locked(
     })
 }
 
-#[cfg(test)]
+// The tests seed terminals with a Unix-only fixture.
+#[cfg(all(test, unix))]
 #[path = "tab_restart_tests.rs"]
 mod tests;
