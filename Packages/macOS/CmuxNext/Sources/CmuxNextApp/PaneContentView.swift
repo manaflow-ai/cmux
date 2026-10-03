@@ -58,9 +58,14 @@ final class PaneContentView: NSView, PaneContentChrome {
         stripView.frame = NSRect(x: 0, y: 0, width: bounds.width, height: stripHeight)
         let hostFrame = NSRect(x: 0, y: stripHeight, width: bounds.width, height: max(0, bounds.height - stripHeight))
         reportHeaderIfChanged()
-        guard contentHost.frame != hostFrame else { return }
-        contentHost.frame = hostFrame
-        onResize?()
+        let hostChanged = contentHost.frame != hostFrame
+        if hostChanged { contentHost.frame = hostFrame }
+        // Restored terminal views are attached while the pane is still at
+        // zero size. Reapply their frame after the host receives its launch
+        // bounds so Ghostty and its find/glass overlays get a real first
+        // layout pass instead of staying at width zero.
+        if let content, content.frame != contentHost.bounds { content.frame = contentHost.bounds }
+        if hostChanged { onResize?() }
     }
 
     // MARK: PaneContentChrome
