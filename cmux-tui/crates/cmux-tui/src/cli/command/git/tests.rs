@@ -198,3 +198,18 @@ fn git_checkpoint_reads_and_pins_name_one_checkpoint() {
     );
     assert!(rejects(&["git", "checkpoint", "rewind", id]).contains("git checkpoint action"));
 }
+
+#[test]
+fn git_files_joins_the_query_and_takes_a_limit() {
+    let here = std::env::current_dir().unwrap().to_string_lossy().into_owned();
+    assert_eq!(
+        sent(&["git", "files", "app", "tsx"]),
+        ("git.files.search".into(), json!({"path": here, "query": "app tsx"}))
+    );
+    assert_eq!(
+        sent(&["git", "files", "--terminal", TERM, "--limit", "200", "main"]),
+        ("git.files.search".into(), json!({"terminal": TERM, "query": "main", "limit": 200}))
+    );
+    assert!(rejects(&["git", "files"]).contains("git action"), "a query is required");
+    assert!(rejects(&["git", "files", "--limit", "201", "x"]).contains("--limit"));
+}

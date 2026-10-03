@@ -15,6 +15,7 @@ USAGE
   cmux git status [TARGET]
   cmux git diff [TARGET] [--scope <scope>] [--patch] [--max-patch-bytes <n>]
     [--max-files <n>] [<path>...]
+  cmux git files [TARGET] [--limit <n>] <query>...
   cmux git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...]
     [--exclude <path,...>] [--reason manual|handoff] [--max-bytes <n>]
     [--max-files <n>] [--expected-repository <id>] [--expected-worktree <id>]
@@ -45,6 +46,11 @@ base branch. diff prints each changed file's status and line counts; --patch
 adds each file's patch from its first @@ line, cut at --max-patch-bytes
 (262144 by default). At most --max-files files (500) are listed; the rest are
 counted. Paths are relative to the repository root and taken literally.
+
+files lists the files under the target folder whose path contains the query's
+characters in order (case-insensitive, spaces ignored), best first: tracked
+files and untracked files that are not ignored. At most --limit (50, up to
+200) are printed, relative to the folder searched.
 
 checkpoint create stores the index, the tracked worktree files and the named
 untracked files (or every eligible one) under refs/cmux/checkpoints/ without

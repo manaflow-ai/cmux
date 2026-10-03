@@ -983,6 +983,7 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::GitCheckpointPin
         | ResourceOperation::GitCheckpointUnpin
         | ResourceOperation::GitDiff
+        | ResourceOperation::GitFilesSearch
         | ResourceOperation::GitStatus => OperationOwner::Git,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::TabPin
