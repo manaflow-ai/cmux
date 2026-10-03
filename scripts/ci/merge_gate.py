@@ -122,11 +122,13 @@ def _author_can_override(comment: Mapping[str, Any], trusted: set[str]) -> bool:
     if isinstance(login, str) and login.endswith("[bot]"):
         return False
     permission = comment.get("author_permission") or comment.get("permission")
-    if isinstance(permission, str) and permission.lower() in _WRITE_PERMISSIONS:
-        return True
+    if isinstance(permission, str):
+        # The collaborator permission endpoint is authoritative. Do not fall
+        # back to author_association when it explicitly says read/none.
+        return permission.lower() in _WRITE_PERMISSIONS
     permissions = user.get("permissions") if isinstance(user, Mapping) else None
-    if isinstance(permissions, Mapping) and permissions.get("push") is True:
-        return True
+    if isinstance(permissions, Mapping) and "push" in permissions:
+        return permissions.get("push") is True
     association = comment.get("author_association")
     return isinstance(association, str) and association.upper() in {"OWNER", "MEMBER", "COLLABORATOR"}
 
