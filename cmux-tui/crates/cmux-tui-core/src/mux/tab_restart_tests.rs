@@ -200,7 +200,8 @@ fn cmux_next_tab_restart_conserves_tabs_over_random_losses_and_restarts() {
         seed ^= seed << 17;
         let surface = tabs[(seed % tabs.len() as u64) as usize];
         let dead = lost.contains(&surface) && !live_again.contains(&surface);
-        if seed % 2 == 0 {
+        // A bit the tab pick (the low bits) does not use.
+        if (seed >> 32).is_multiple_of(2) {
             if !lost.contains(&surface) {
                 mux.surface_exited(surface);
                 lost.insert(surface);
