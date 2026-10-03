@@ -6,7 +6,7 @@ import { AGENT_MUX, type Message, messageText, USER_LOCAL } from "../src/convers
 import { DaemonClient, DaemonError, MissingCapabilityError } from "../src/daemon-client.ts";
 import { HostAlreadyRunningError } from "../src/host.ts";
 import { takeLock } from "../src/lock.ts";
-import { advanceUntil, deferred, fakeClock, world } from "./helpers.ts";
+import { advanceUntil, deferred, fakeClock, MAX_BACKOFF_MS, world } from "./helpers.ts";
 
 let cleanup: (() => Promise<void>) | undefined;
 afterEach(async () => {
@@ -350,7 +350,8 @@ describe("request timeouts", () => {
     // The reply waits behind the stuck typing request in the serial effect queue.
     expect(muxReplies(w.daemon.messages(conv)).length).toBe(0);
     clock.advance(1_000); // the request deadline
-    await advanceUntil(clock, () => w.daemon.requests.filter((r) => r.cmd === "identify").length >= 2); // the reconnect backoff runs on the injected clock
+    const used1 = await advanceUntil(clock, () => w.daemon.requests.filter((r) => r.cmd === "identify").length >= 2);
+    expect(used1).toBeLessThanOrEqual(MAX_BACKOFF_MS); // at most one backoff
     await w.daemon.until(() => muxReplies(w.daemon.messages(conv)).length === 1);
     expect(w.daemon.requests.filter((r) => r.cmd === "identify").length).toBe(2);
   }, 5000);
@@ -366,7 +367,8 @@ describe("connect-phase timeouts", () => {
     await w.daemon.until(() => w.daemon.requests.some((r) => r.cmd === "conversation-create"));
     w.daemon.hold.delete("conversation-create");
     clock.advance(1_000); // the request deadline
-    await advanceUntil(clock, () => w.daemon.requests.filter((r) => r.cmd === "identify").length >= 2); // the reconnect backoff runs on the injected clock
+    const used2 = await advanceUntil(clock, () => w.daemon.requests.filter((r) => r.cmd === "identify").length >= 2);
+    expect(used2).toBeLessThanOrEqual(MAX_BACKOFF_MS); // at most one backoff
     await host.ready;
     expect(w.daemon.requests.filter((r) => r.cmd === "identify").length).toBe(2);
   }, 5000);
@@ -380,7 +382,8 @@ describe("connect-phase timeouts", () => {
     await w.acpmux.until(() => w.acpmux.calls.some((c) => c.method === "_acpmux/watch"));
     w.acpmux.hold.delete("_acpmux/watch");
     clock.advance(1_000); // the request deadline
-    await advanceUntil(clock, () => w.acpmux.calls.filter((c) => c.method === "_acpmux/watch").length >= 2); // the reconnect backoff runs on the injected clock
+    const used3 = await advanceUntil(clock, () => w.acpmux.calls.filter((c) => c.method === "_acpmux/watch").length >= 2);
+    expect(used3).toBeLessThanOrEqual(MAX_BACKOFF_MS); // at most one backoff
     await host.ready;
     expect(w.acpmux.calls.filter((c) => c.method === "_acpmux/watch").length).toBe(2);
   }, 5000);
@@ -414,7 +417,8 @@ describe("connect handshake deadlines", () => {
     for (let attempt = 1; attempt <= 3; attempt++) {
       await w.daemon.until(() => w.daemon.requests.filter((r) => r.cmd === "identify").length >= attempt);
       clock.advance(1_000); // the connect deadline
-      await advanceUntil(clock, () => w.daemon.requests.filter((r) => r.cmd === "identify").length > attempt);
+      const used4 = await advanceUntil(clock, () => w.daemon.requests.filter((r) => r.cmd === "identify").length > attempt);
+      expect(used4).toBeLessThanOrEqual(MAX_BACKOFF_MS); // at most one backoff
     }
     await w.daemon.until(() => w.daemon.requests.filter((r) => r.cmd === "identify").length >= 4);
     expect(await settle(() => w.daemon.clientCount, 1)).toBe(1);
@@ -429,7 +433,8 @@ describe("connect handshake deadlines", () => {
     for (let attempt = 1; attempt <= 3; attempt++) {
       await w.acpmux.until(() => initializes() >= attempt);
       clock.advance(1_000);
-      await advanceUntil(clock, () => initializes() > attempt);
+      const used5 = await advanceUntil(clock, () => initializes() > attempt);
+      expect(used5).toBeLessThanOrEqual(MAX_BACKOFF_MS); // at most one backoff
     }
     await w.acpmux.until(() => initializes() >= 4);
     expect(await settle(() => w.acpmux.clientCount, 1)).toBe(1);

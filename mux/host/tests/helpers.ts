@@ -49,17 +49,33 @@ export function deferred<T>() {
   return { promise, resolve };
 }
 
-/** A clock for request timeouts that only moves when the test advances it. */
+/** The world's reconnect backoff (initialMs 20, maxMs 200): the longest wait advanceUntil may skip. */
+export const MAX_BACKOFF_MS = 200;
+
+/** A clock for request timeouts and backoff that only moves when the test advances it. */
 export interface FakeClock {
   setTimeout(fn: () => void, ms: number): number;
   clearTimeout(handle: unknown): void;
+  now(): number;
   advance(ms: number): void;
+  /**
+   * Advances to the earliest armed timer and fires it (and any due with it),
+   * when it is at most `limitMs` away; returns whether it moved.
+   */
+  advanceToNext(limitMs: number): boolean;
 }
 
 export function fakeClock(): FakeClock {
   let now = 0;
   let next = 1;
   const timers = new Map<number, { at: number; fn: () => void }>();
+  const fireDue = () => {
+    for (const [handle, timer] of [...timers].sort((a, b) => a[1].at - b[1].at)) {
+      if (timer.at > now) continue;
+      timers.delete(handle);
+      timer.fn();
+    }
+  };
   return {
     setTimeout(fn, ms) {
       const handle = next++;
@@ -69,23 +85,35 @@ export function fakeClock(): FakeClock {
     clearTimeout(handle) {
       timers.delete(handle as number);
     },
+    now: () => now,
     advance(ms) {
       now += ms;
-      for (const [handle, timer] of [...timers].sort((a, b) => a[1].at - b[1].at)) {
-        if (timer.at > now) continue;
-        timers.delete(handle);
-        timer.fn();
-      }
+      fireDue();
+    },
+    advanceToNext(limitMs) {
+      const earliest = Math.min(...[...timers.values()].map((t) => t.at));
+      if (!Number.isFinite(earliest) || earliest - now > limitMs) return false;
+      now = Math.max(now, earliest);
+      fireDue();
+      return true;
     },
   };
 }
 
-/** Advances the fake clock in steps (real time between them) until `done` holds: a reconnect backoff is armed only after the old connection's close event. */
-export async function advanceUntil(clock: FakeClock, done: () => boolean, stepMs = 1_000): Promise<void> {
-  for (let i = 0; i < 200 && !done(); i++) {
+/**
+ * Moves the fake clock to the next armed timer within one backoff (never a
+ * request deadline, which is longer), with short real waits between moves,
+ * until `done` holds: a reconnect backoff is armed only after the old
+ * connection's close event. Returns the fake time used; throws when `done`
+ * never holds.
+ */
+export async function advanceUntil(clock: FakeClock, done: () => boolean, limitMs = MAX_BACKOFF_MS): Promise<number> {
+  const start = clock.now();
+  for (let i = 0; i < 300; i++) {
+    if (done()) return clock.now() - start;
     await Bun.sleep(10);
-    // Check again after the wait: one step too many would fire the new connection's own deadline.
-    if (done()) return;
-    clock.advance(stepMs);
+    if (done()) return clock.now() - start;
+    clock.advanceToNext(limitMs);
   }
+  throw new Error(`advanceUntil: not done after ${clock.now() - start} fake ms`);
 }
