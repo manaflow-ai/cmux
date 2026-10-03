@@ -19,6 +19,9 @@ import { closeSync, fstatSync, ftruncateSync, openSync, readFileSync, writeSync 
  */
 export function takeLock(path: string): (() => void) | undefined {
   const fd = openSync(path, "a+", 0o644);
+  // The descriptor must not leak into children (the acpmux daemon outlives the
+  // host): a child holding it would keep the flock after this host ends.
+  setCloseOnExec(fd);
   if (flock(fd, LOCK_EX | LOCK_NB) !== 0) {
     closeSync(fd);
     return undefined;
@@ -108,7 +111,27 @@ const LOCK_NB = 4;
 
 const libc = dlopen(process.platform === "darwin" ? "/usr/lib/libSystem.B.dylib" : "libc.so.6", {
   flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 },
+  // Both are variadic in C. Each call here passes only the fixed arguments
+  // (FIOCLEX and F_GETFD take no third one), so no variadic value is passed
+  // through FFI (Apple arm64 passes variadic values on the stack).
+  ioctl: { args: [FFIType.i32, FFIType.u64], returns: FFIType.i32 },
+  fcntl: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 },
 });
+
+/** ioctl(FIOCLEX): set close-on-exec (_IO('f', 1) on macOS, 0x5451 on Linux). */
+const FIOCLEX = process.platform === "darwin" ? 0x20006601n : 0x5451n;
+const F_GETFD = 1;
+const FD_CLOEXEC = 1;
+
+/** Sets close-on-exec on `fd`; throws when it does not stick. */
+function setCloseOnExec(fd: number): void {
+  libc.symbols.ioctl(fd, FIOCLEX);
+  const flags = libc.symbols.fcntl(fd, F_GETFD);
+  if (flags < 0 || (flags & FD_CLOEXEC) === 0) {
+    closeSync(fd);
+    throw new Error(`mux lock: cannot set close-on-exec on ${fd}`);
+  }
+}
 
 function flock(fd: number, operation: number): number {
   return libc.symbols.flock(fd, operation);
