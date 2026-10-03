@@ -90,6 +90,14 @@ describe("automation run trees (pure)", () => {
     const deep: any = { runs: { run_c: run("run_c", "auto_a", { type: "automation", parent_run: "run_root", root_run: "run_root", depth: 3 }) }, automation_trees: {} }
     expect(automationTrigger(deep, { ...p, run: "run_c" }, target)).toMatchObject({ ok: false, code: "automation.depth" })
     expect(automationTrigger(state, { ...p, agent: "auto_b" }, target)).toMatchObject({ ok: false, code: "auth.forbidden" })
+    // A pruned root keeps its counter while a child of its tree is still in state.
+    const child = run("run_c", "auto_a", { type: "automation", parent_run: "run_root", root_run: "run_root", depth: 1 })
+    const kept = automationTrigger({ runs: { run_c: child }, automation_trees: { run_root: MAX_TREE_RUNS } } as any, { ...p, run: "run_c" }, target)
+    expect(kept).toMatchObject({ ok: false, code: "automation.fanout" })
+    // An old chained record without root_run, and a finished caller, are refused.
+    const old = run("run_o", "auto_a", { type: "automation", parent_run: "run_x", depth: 1 })
+    expect(automationTrigger({ runs: { run_o: old } } as any, { ...p, run: "run_o" }, target)).toMatchObject({ ok: false, code: "automation.fanout" })
+    expect(automationTrigger({ runs: { run_root: { ...state.runs.run_root, state: "succeeded" } } } as any, p, target)).toMatchObject({ ok: false, code: "auth.forbidden" })
   })
 })
 
