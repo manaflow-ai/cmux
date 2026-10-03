@@ -11,6 +11,9 @@ enum TasksHandlers {
         registry.bind("tasks.show", run: { invocation in
             try services.tasks.show(scope: .all, focus: invocation.allowsViewChange)
         })
+        registry.bind("tasks.new", run: { invocation in
+            try services.tasks.show(scope: nil, newTask: true, focus: invocation.allowsViewChange)
+        })
         registry.bind("tasks.showMine", run: { invocation in
             try services.tasks.show(scope: .mine, focus: invocation.allowsViewChange)
         })

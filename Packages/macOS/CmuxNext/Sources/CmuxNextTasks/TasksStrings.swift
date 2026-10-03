@@ -27,6 +27,7 @@ nonisolated enum TasksStrings {
     static var people: String { t("assignee.people", "People") }
     static var agents: String { t("assignee.agents", "Agents") }
     static var me: String { t("assignee.me", "Me") }
+    static var newTaskPlaceholder: String { t("create.placeholder", "New task") }
     static var showAll: String { t("scope.showAll", "Show All") }
 
     static func session(_ status: TaskSessionStatus) -> String {
