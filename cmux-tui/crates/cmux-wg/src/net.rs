@@ -648,7 +648,11 @@ impl Driver {
             {
                 self.underlay.send(encrypted);
             }
-            self.watchdog.on_data_sent(now, &packet);
+            // Datagrams are unreliable: the watchdog neither waits on them
+            // nor replays them.
+            if crate::udp::parse(&packet).is_none() {
+                self.watchdog.on_data_sent(now, &packet);
+            }
         }
         if fresh {
             self.schedule.on_activity(now);

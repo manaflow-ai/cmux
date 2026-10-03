@@ -102,7 +102,6 @@ impl Shared {
         self.slots.iter_mut().find(|slot| slot.id == id)
     }
 
-    /// Publish the current path after anything that may have moved it.
     /// Publish the current path; a switch also sends a path event.
     fn publish(&mut self) {
         let current = self.selector.current();

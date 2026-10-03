@@ -122,6 +122,10 @@ impl Driver {
         payload: &[u8],
         priority: Priority,
     ) {
+        // Only overlay addresses reachable through this tunnel.
+        if !self.config.routes_contain(to.ip()) {
+            return;
+        }
         let Some(local) = self.config.local_address_for(to.ip()) else { return };
         let packet = udp::packet(SocketAddr::new(local, from_port), to, payload);
         let now = Instant::now();
@@ -133,7 +137,8 @@ impl Driver {
     /// socket bound to its destination port; a datagram to a port nobody
     /// bound is dropped.
     pub(super) fn deliver_datagram(&mut self, (source, destination, payload): UdpDatagram) {
-        if let Some(sender) = self.datagram_ports.get(&destination.port()) {
+        let for_us = self.config.addresses.iter().any(|entry| entry.address == destination.ip());
+        if let Some(sender) = self.datagram_ports.get(&destination.port()).filter(|_| for_us) {
             // A full inbox drops the datagram: unreliable by design.
             let _ = sender.try_send((payload, source));
             self.schedule.on_activity(Instant::now());

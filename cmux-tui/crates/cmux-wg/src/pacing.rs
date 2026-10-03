@@ -51,6 +51,11 @@ const MAX_CREDIT: Duration = Duration::from_millis(2);
 const INTERACTIVE_QUEUE: usize = 4;
 /// Media datagrams older than this in the queue are dropped.
 pub(crate) const MEDIA_MAX_AGE: Duration = Duration::from_millis(50);
+/// Datagrams one class holds; past it media drops its oldest and the other
+/// classes refuse the newest (datagrams are unreliable). Datagrams never
+/// count toward [`MAX_QUEUED`], so a datagram flood cannot block the TCP
+/// stack's output.
+const MAX_DATAGRAMS: usize = 512;
 /// Packets the pacer holds in all before smoltcp is blocked instead.
 const MAX_QUEUED: usize = 4096;
 /// A connection with nothing queued and no packet for this long is
@@ -228,11 +233,16 @@ pub enum Priority {
 #[derive(Debug, Default)]
 pub(crate) struct Pacer {
     connections: HashMap<Flow, Connection>,
-    /// Interactive datagrams and other packets that are not TCP: first,
-    /// unpaced.
+    /// Packets from the TCP stack that are not TCP (rare): first, unpaced.
     other: VecDeque<Vec<u8>>,
+    /// Interactive datagrams: right after `other`, unpaced.
+    interactive: VecDeque<Vec<u8>>,
     media: VecDeque<(Instant, Vec<u8>)>,
     bulk: VecDeque<Vec<u8>>,
+    /// Earliest departure of the next bulk datagram: bulk datagrams are
+    /// paced at the floor rate of a connection with the largest smoothed RTT.
+    bulk_next_free: Option<Instant>,
+    /// Packets from the TCP stack (connection queues and `other`).
     queued: usize,
 }
 
@@ -248,12 +258,16 @@ impl Pacer {
 
     pub(crate) fn has_queued(&self) -> bool {
         self.queued > 0
+            || !self.interactive.is_empty()
+            || !self.media.is_empty()
+            || !self.bulk.is_empty()
     }
 
     /// Everything queued, unpaced and in order per connection (shutdown).
     pub(crate) fn drain(&mut self) -> Vec<Vec<u8>> {
         self.queued = 0;
         let mut packets: Vec<Vec<u8>> = self.other.drain(..).collect();
+        packets.extend(self.interactive.drain(..));
         packets.extend(self.media.drain(..).map(|(_, packet)| packet));
         packets.extend(self.bulk.drain(..));
         for connection in self.connections.values_mut() {
@@ -262,13 +276,33 @@ impl Pacer {
         packets
     }
 
-    /// Queue one datagram of the datagram service in its class.
+    /// Queue one datagram of the datagram service in its class, within the
+    /// class bound (see [`MAX_DATAGRAMS`]).
     pub(crate) fn push_datagram(&mut self, packet: Vec<u8>, priority: Priority, now: Instant) {
-        self.queued += 1;
         match priority {
-            Priority::Interactive => self.other.push_back(packet),
-            Priority::Media => self.media.push_back((now, packet)),
-            Priority::Bulk => self.bulk.push_back(packet),
+            Priority::Interactive if self.interactive.len() < MAX_DATAGRAMS => {
+                self.interactive.push_back(packet);
+            }
+            Priority::Bulk if self.bulk.len() < MAX_DATAGRAMS => self.bulk.push_back(packet),
+            Priority::Interactive | Priority::Bulk => {}
+            Priority::Media => {
+                self.expire_media(now);
+                if self.media.len() >= MAX_DATAGRAMS {
+                    self.media.pop_front();
+                }
+                self.media.push_back((now, packet));
+            }
+        }
+    }
+
+    /// Drop media datagrams older than [`MEDIA_MAX_AGE`], oldest first.
+    fn expire_media(&mut self, now: Instant) {
+        while self
+            .media
+            .front()
+            .is_some_and(|(queued_at, _)| now.saturating_duration_since(*queued_at) > MEDIA_MAX_AGE)
+        {
+            self.media.pop_front();
         }
     }
 
@@ -323,25 +357,27 @@ impl Pacer {
             self.queued -= 1;
             return Ok(Some(packet));
         }
+        if let Some(packet) = self.interactive.pop_front() {
+            return Ok(Some(packet));
+        }
         if let Some(packet) = self.pop_connection(now, true) {
             return Ok(Some(packet));
         }
-        while let Some((queued_at, _)) = self.media.front() {
-            if now.saturating_duration_since(*queued_at) <= MEDIA_MAX_AGE {
-                break;
-            }
-            self.media.pop_front();
-            self.queued -= 1;
-        }
+        self.expire_media(now);
         if let Some((_, packet)) = self.media.pop_front() {
-            self.queued -= 1;
             return Ok(Some(packet));
         }
         if let Some(packet) = self.pop_connection(now, false) {
             return Ok(Some(packet));
         }
-        if let Some(packet) = self.bulk.pop_front() {
-            self.queued -= 1;
+        let bulk_free = self.bulk_next_free.filter(|_| !self.bulk.is_empty());
+        if !self.bulk.is_empty() && bulk_free.is_none_or(|free| free <= now) {
+            let packet = self.bulk.pop_front().expect("non-empty");
+            if let Some(srtt) = self.srtt() {
+                let rate = GAIN * f64::from(MIN_FLIGHT) / srtt.as_secs_f64().max(1e-6);
+                let start = bulk_free.map_or(now, |free| free.max(now.checked_sub(MAX_CREDIT).unwrap_or(now)));
+                self.bulk_next_free = Some(start + Duration::from_secs_f64(packet.len() as f64 / rate));
+            }
             return Ok(Some(packet));
         }
         let earliest = self
@@ -349,6 +385,7 @@ impl Pacer {
             .values()
             .filter(|connection| !connection.queue.is_empty())
             .map(|connection| connection.next_free)
+            .chain(bulk_free)
             .min();
         earliest.map_or(Ok(None), Err)
     }

@@ -200,3 +200,43 @@ async fn a_path_switch_sends_a_path_event() {
     assert_eq!(event.path, Some(relay), "the event follows the fallback");
     client.shutdown().await;
 }
+
+/// Path events go out every 5 s while the session carries traffic, and stop
+/// when it idles.
+#[tokio::test(start_paused = true)]
+async fn path_events_tick_every_five_seconds_only_while_active() {
+    let sim = SimNet::new();
+    plain_link(&sim);
+    let configs = config_pair(addr(SERVER));
+    let (underlay, control) = Multipath::new(SelectorConfig::default());
+    let socket = sim.bind(addr(CLIENT)).unwrap();
+    let path = control.add_path(PathKind::DirectLan, SocketPath::new(socket, Some(addr(SERVER))));
+    control.on_probe(path, ProbeOutcome::Answered { rtt_us: 20_000 }).unwrap();
+    let mut events = control.path_events();
+    let client = WgNet::start_with_underlay(configs.client.clone(), underlay).unwrap();
+    let server_path = SocketPath::new(sim.bind(addr(SERVER)).unwrap(), None);
+    let server = WgNet::start_with_underlay(configs.server.clone(), server_path).unwrap();
+    let ours = client.bind_datagram(MEDIA_PORT).await.unwrap();
+    let _theirs = server.bind_datagram(MEDIA_PORT).await.unwrap();
+    let peer = SocketAddr::new(configs.server_v6, MEDIA_PORT);
+
+    // Twelve seconds of traffic: an event at the start and every 5 s.
+    for _ in 0..12 {
+        ours.send_to(b"frame", peer, Priority::Media).await.unwrap();
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    let mut active = 0;
+    while let Ok(event) = events.try_recv() {
+        assert_eq!(event.path, Some(path));
+        active += 1;
+    }
+    assert!((2..=4).contains(&active), "{active} events in 12 s of traffic");
+
+    // Idle: after the active window (20 s) no more events.
+    tokio::time::sleep(Duration::from_secs(30)).await;
+    while events.try_recv().is_ok() {}
+    tokio::time::sleep(Duration::from_secs(60)).await;
+    assert!(events.try_recv().is_err(), "no path events while idle");
+    client.shutdown().await;
+    server.shutdown().await;
+}
