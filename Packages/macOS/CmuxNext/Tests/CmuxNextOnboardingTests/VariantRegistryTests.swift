@@ -65,11 +65,18 @@ import Testing
         defer { try? FileManager.default.removeItem(at: url) }
         let store = GalleryReviewStore(url: url)
         let gallery = OnboardingGalleryController(store: store, makeServices: { _ in self.sample() }, previewAppearance: { _ in })
-        // Select the steps explicitly so adding a flow step does not change the
-        // persistence coverage below.
-        gallery.go(step: .defaultBrowser, index: 2)
+        // The gallery opens on Role; the current flow reaches Default Browser
+        // after First Task, Projects, Classic Sessions and Chats.
+        gallery.handle(.nextScreen)
+        gallery.handle(.nextScreen)
+        gallery.handle(.nextScreen)
+        gallery.handle(.nextScreen)
+        gallery.handle(.nextScreen)
+        gallery.handle(.nextVariant)
+        gallery.handle(.nextVariant)
         gallery.handle(.pick)
-        gallery.go(step: .importData, index: 0)
+        gallery.handle(.nextScreen)
+        gallery.handle(.jump(0))
         gallery.handle(.pick)
         gallery.handle(.compare)
         gallery.handle(.compare)
