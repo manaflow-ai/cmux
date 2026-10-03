@@ -2,11 +2,11 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextSettings
 
-/// `debug.window_snapshot`: one of this app's own windows rendered through
-/// AppKit (`NSWindow.renderSnapshot`), so agents get screenshots on hosts
-/// without Screen Recording permission. Metal content (terminals,
-/// Chromium) and Liquid Glass blur differ from the screen
-/// (plans/cmux-next/windows.md).
+/// `debug.window_snapshot`: one of this app's own windows as the window
+/// server composited it (vibrancy, glass and Metal as on screen; an app may
+/// read its own windows without Screen Recording permission), else drawn
+/// by AppKit (`NSWindow.renderSnapshot`, where Metal content and blur
+/// differ from the screen). `method` says which (plans/cmux-next/windows.md).
 ///
 /// Params: `window` (a main window id, or any window's number from
 /// `debug.window_list`: popovers, panels and sheets too), or `kind`
@@ -14,7 +14,8 @@ import CmuxNextSettings
 /// `appStore`, `onboarding`, ...);
 /// default the key window, else the active main window. `path` is the PNG
 /// to write (default a file in the temporary directory). Returns `path`,
-/// `width`, `height` (pixels), `kind` and `window_number`.
+/// `width`, `height` (pixels), `kind`, `window_number` and `method`
+/// (`composited` or `appkit`).
 enum DebugWindowSnapshot {
     static func capture(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         guard let window = window(params, services: services) else { return .object(["error": .string("no such window")]) }
@@ -22,10 +23,10 @@ enum DebugWindowSnapshot {
         let path = params["path"]?.stringValue.map { ($0 as NSString).expandingTildeInPath }
             ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-window-\(kind)-\(window.windowNumber).png")
         do {
-            let size = try window.writeSnapshot(to: URL(fileURLWithPath: path))
+            let (size, method) = try window.writeSnapshot(to: URL(fileURLWithPath: path))
             return .object([
                 "path": .string(path), "width": JSONValue(Int(size.width)), "height": JSONValue(Int(size.height)),
-                "kind": .string(kind), "window_number": JSONValue(window.windowNumber),
+                "kind": .string(kind), "window_number": JSONValue(window.windowNumber), "method": .string(method.rawValue),
             ])
         } catch {
             return .object(["error": .string("snapshot failed: \(error.localizedDescription)")])
