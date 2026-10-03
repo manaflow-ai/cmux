@@ -113,8 +113,8 @@ export class UserDO extends OwnerDO<UserState> {
   /**
    * POST /v1/presence-key (home-messaging.md section 21): an owner device registers the
    * Secure Enclave key that later signs level lowering. The caller is the install itself.
-   * macOS: the install key signs `cmux-presence-key-v1\n<user>\n<install>\n<thumbprint>`.
-   * iOS: an App Attest attestation whose client data is the presence key's thumbprint,
+   * Both platforms: the install key signs `cmux-presence-key-v1\n<environment>\n<user>\n<install>\n<thumbprint>`.
+   * iOS also sends an App Attest attestation whose client data is the presence key's thumbprint,
    * verified against Apple's root for this deployment's IOS_APP_ID. Then the system op
    * `user.presence_key.register` commits (usable after 24 h; every device and the email are told).
    */
@@ -129,10 +129,10 @@ export class UserDO extends OwnerDO<UserState> {
     if (!jwk || jwk.kty !== "EC" || jwk.crv !== "P-256" || typeof jwk.x !== "string" || typeof jwk.y !== "string") return refuse("validation.invalid", "jwk must be a P-256 public key")
     const thumbprint = jwkThumbprint({ kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y })
     let appAttest: AttestedKey | undefined
-    if (body.platform === "mac") {
-      const message = `cmux-presence-key-v1\n${entity}\n${inst.id}\n${thumbprint}`
-      if (typeof body.signature !== "string" || !(await verifyInstallSignature(inst.public_jwk, message, body.signature))) return refuse("auth.forbidden", "the install key did not sign this registration")
-    } else {
+    // Both platforms: the install key signs the registration, so a stolen bearer token alone cannot replace the key.
+    const message = `cmux-presence-key-v1\n${this.env.ENVIRONMENT}\n${entity}\n${inst.id}\n${thumbprint}`
+    if (typeof body.signature !== "string" || !(await verifyInstallSignature(inst.public_jwk, message, body.signature))) return refuse("auth.forbidden", "the install key did not sign this registration")
+    if (body.platform === "ios") {
       if (!this.env.IOS_APP_ID) return refuse("presence_key.not_configured", "App Attest is not configured on this deployment")
       if (typeof body.attestation !== "string" || typeof body.key_id !== "string") return refuse("validation.invalid", "attestation and key_id are required on iOS")
       const r = verifyAttestation({
@@ -165,7 +165,10 @@ export class UserDO extends OwnerDO<UserState> {
     if (state.user && principal.user !== state.user.id) return { ok: false, code: "auth.forbidden", message: "not this user" }
     // A revoked install's still-valid token reads nothing (it would otherwise read until the token expires).
     if (!installActive(state, principal)) return { ok: false, code: "auth.forbidden", message: "install revoked or unknown" }
-    if (op === "user.text_confirm.get") return { ok: true, value: confirmView(state), revision: "" }
+    if (op === "user.text_confirm.get") {
+      const refused = admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now())
+      return refused ? { ok: false, ...refused } : { ok: true, value: confirmView(state), revision: "" }
+    }
     if (op !== "install.list") return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
     return { ok: true, value: { user: state.user, installs: Object.values(state.installs), grants: Object.values(state.grants) }, revision: "" }
   }

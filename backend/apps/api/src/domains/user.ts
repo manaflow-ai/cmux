@@ -61,6 +61,16 @@ const revokeInstall = (state: UserState, cur: typeof Install.Type, now: number):
   }
 }
 
+/**
+ * home-core's caller rules read `install_kind` (owner device = mac or ios install). UserDO owns
+ * the installs, so it stamps the kind from its own record, never from the token.
+ */
+const withInstallKind = (state: UserState, p: Principal): Principal => {
+  if (p.kind !== "install" || !p.install) return p
+  const kind = state.installs[p.install]?.kind
+  return kind ? { ...p, install_kind: kind } : p
+}
+
 /** Default grant per install kind: the iPhone app gets read and mutate-own (L14-1); execute and riskier classes need their own grant. */
 const defaultClasses = (kind: string): ReadonlyArray<(typeof INSTALL_CLASSES)[number]> => (kind === "ios" ? ["read", "mutate-own"] : INSTALL_CLASSES)
 
@@ -71,7 +81,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
     // A system principal exists only inside a DO (TeamDO's revoke of a bound install); internal ops only. Also push.target.drop.
     const confirm = USER_CONFIRM_OPS.has(op)
     const confirmRefused = () =>
-      confirm && !homeUser.authorizeUserConfirm(op, principal, confirmEnv(state, appIdHash)) ? { code: "auth.forbidden", message: `${op} is not allowed for this caller` } : undefined
+      confirm && !homeUser.authorizeUserConfirm(op, withInstallKind(state, principal), confirmEnv(state, appIdHash)) ? { code: "auth.forbidden", message: `${op} is not allowed for this caller` } : undefined
     if (principal.kind === "system") return admit("cloud:UserDO", op, principal, () => undefined, Date.now()) ?? confirmRefused()
     if (state.user && principal.user !== state.user.id) return { code: "auth.forbidden", message: "not this user" }
     if (!installActive(state, principal)) return { code: "auth.forbidden", message: "install revoked or unknown" }
@@ -80,7 +90,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
 
   reduce: (state, op, params, ctx) => {
     const p = ctx.principal
-    if (USER_CONFIRM_OPS.has(op)) return reduceConfirm(state, op, params, ctx, appIdHash)
+    if (USER_CONFIRM_OPS.has(op)) return reduceConfirm(state, op, params, { ...ctx, principal: withInstallKind(state, p) }, appIdHash)
     switch (op) {
       case "user.ensure": {
         if (!p.user || !p.stack_user_id || !p.team) return reject("auth.forbidden", "user.ensure needs a Stack session")
