@@ -269,7 +269,7 @@ final class AppServices {
         tabBarButtons = TabBarButtonsController(context: AppActionContext(services: self))
         let updateSheet = UpdateSheetController(source: UpdateSheetModel(service: updater))
         self.updateSheet = updateSheet
-        updater.presentUpdateUI = { [weak self] in updateSheet.present(in: self?.windows.active?.window) }
+        updater.attach(sheet: updateSheet, services: self)
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {
                 for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }

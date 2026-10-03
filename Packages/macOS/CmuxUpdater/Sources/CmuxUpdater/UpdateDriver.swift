@@ -34,6 +34,13 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private var pendingCheckTransitionState: UpdateState?
     private var checkTimeoutTask: Task<Void, Never>?
     private(set) var lastFeedURLString: String?
+    /// Opt-in background installs (see `UpdateDriver+BackgroundInstall.swift`); off keeps the
+    /// prompt-driven flow unchanged.
+    var installsInBackground = false
+    /// The update a background check accepted, and its held install once it is ready.
+    var backgroundItem: SUAppcastItem?
+    var stagedInstall: (() -> Void)?
+    var installsWhenStaged = false
     /// Holds a ready update's relaunch while agents are mid-turn or commands are running.
     let relaunchGate: UpdateRelaunchGate
 
@@ -89,6 +96,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         available.reply.onConsumed = { [weak self] reply, choice, source in
             self?.handlePromptReply(reply, choice: choice, source: source)
         }
+        if installsInBackground { return acceptInBackground(available) }
         setStateAfterMinimumCheckDelay(.updateAvailable(available))
     }
 
@@ -173,6 +181,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func showReady(toInstallAndRelaunch reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         log.append("show ready to install")
+        if installsInBackground { return stageInBackground(reply) }
         reply(.install)
     }
 
@@ -344,7 +353,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         }
     }
 
-    private func setState(_ newState: UpdateState) {
+    func setState(_ newState: UpdateState) {
         cancelPendingCheckTransition()
         checkTimeoutTask?.cancel()
         checkTimeoutTask = nil
@@ -376,6 +385,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     }
 
     private func applyState(_ newState: UpdateState) {
+        if Self.endsInstallRequest(newState) { installsWhenStaged = false }
         model.applyDriverState(newState)
         log.append("state -> \(describe(newState))")
     }

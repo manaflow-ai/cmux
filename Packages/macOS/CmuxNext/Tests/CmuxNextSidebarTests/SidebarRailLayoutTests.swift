@@ -179,4 +179,23 @@ import Testing
         #expect(rail.button(at: CGPoint(x: 24, y: 57))?.item.rawValue == "itm_home")
         #expect(rail.button(at: CGPoint(x: 24, y: 300)) == nil)
     }
+
+    /// The update circle takes one slot right above the bottom band, and the
+    /// top band makes room for it.
+    @Test func theAccessorySitsRightAboveTheBottomBand() {
+        let rail = SidebarRailLayout.make(document: .defaults, room: nil, height: 600, metrics: m, accessory: true)
+        let account = rail.buttons.first { $0.item.rawValue == "itm_account" }!.frame
+        #expect(rail.accessory == CGRect(x: 7, y: account.minY - 4 - 34, width: 34, height: 34))
+        #expect(SidebarRailLayout.make(document: .defaults, room: nil, height: 600, metrics: m).accessory == nil)
+    }
+
+    @Test func aShortRailMovesTopButtonsUnderMoreToKeepTheAccessory() {
+        let plain = SidebarRailLayout.make(document: .defaults, room: nil, height: 260, metrics: m)
+        let withAccessory = SidebarRailLayout.make(document: .defaults, room: nil, height: 260, metrics: m, accessory: true)
+        let slot = withAccessory.accessory!
+        for button in withAccessory.buttons where button.item.rawValue != "itm_account" {
+            #expect(button.frame.maxY <= slot.minY - m.sectionGap)
+        }
+        #expect(withAccessory.overflow.count > plain.overflow.count)
+    }
 }
