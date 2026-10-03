@@ -116,9 +116,13 @@ impl SessionShutdownClock {
         Self::with_previous(previous, None)
     }
 
-    /// Read (and close) the previous owner's window from `marker`. A missing
-    /// or unreadable marker means no window; failures are logged.
+    /// Read (and close) the previous owner's window from `marker`, after
+    /// removing temporary files a crashed rewrite left behind. A missing or
+    /// unreadable marker means no window; failures are logged.
     pub(crate) fn open(marker: Option<PathBuf>, started_at_ms: u64) -> Self {
+        if let Some(path) = marker.as_deref() {
+            remove_stale_marker_temporaries(path);
+        }
         let previous = marker.as_deref().and_then(|path| {
             previous_window(path, started_at_ms).unwrap_or_else(|error| {
                 eprintln!("cmux-tui: could not read the previous session shutdown: {error:#}");
@@ -268,6 +272,48 @@ fn previous_window(path: &Path, started_at_ms: u64) -> anyhow::Result<Option<(u6
         eprintln!("cmux-tui: could not close the previous session shutdown window: {error:#}");
     }
     Ok(Some((start, end)))
+}
+
+/// The temporary file name prefix and suffix `write_marker` uses for
+/// `path`: `<marker file name>.<pid>.tmp`.
+fn marker_temporary_affixes(path: &Path) -> Option<(String, &'static str)> {
+    let name = path.file_name()?.to_str()?;
+    Some((format!("{name}."), ".tmp"))
+}
+
+/// Remove the temporary files of marker rewrites that never reached their
+/// rename (a crash in between). Only the registry's owner opens the marker,
+/// so no other writer is mid-rewrite. Failures are logged.
+fn remove_stale_marker_temporaries(path: &Path) {
+    let (Some(directory), Some((prefix, suffix))) = (path.parent(), marker_temporary_affixes(path))
+    else {
+        return;
+    };
+    let entries = match std::fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+        Err(error) => {
+            eprintln!("cmux-tui: could not list session shutdown marker files: {error:#}");
+            return;
+        }
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let Some(pid) = name.strip_prefix(&prefix).and_then(|rest| rest.strip_suffix(suffix))
+        else {
+            continue;
+        };
+        if pid.is_empty() || !pid.bytes().all(|byte| byte.is_ascii_digit()) {
+            continue;
+        }
+        if !entry.file_type().is_ok_and(|kind| kind.is_file()) {
+            continue;
+        }
+        if let Err(error) = std::fs::remove_file(entry.path()) {
+            eprintln!("cmux-tui: could not remove a stale session shutdown marker file: {error:#}");
+        }
+    }
 }
 
 /// Replace the marker atomically (a private temporary file, then rename).
