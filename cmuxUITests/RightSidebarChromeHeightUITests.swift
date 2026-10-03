@@ -4,6 +4,63 @@ import CoreGraphics
 import ImageIO
 
 final class RightSidebarChromeHeightUITests: XCTestCase {
+    func testFilesDirectoryNavigationBar() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-files-navigation-\(UUID().uuidString)", isDirectory: true)
+        let child = root.appendingPathComponent("Nested Folder", isDirectory: true)
+        try FileManager.default.createDirectory(at: child, withIntermediateDirectories: true)
+        try "navigation proof".write(to: child.appendingPathComponent("navigation-proof.txt"), atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
+        app.launchArguments += ["-rightSidebar.mode", "files", "-fileExplorer.width", "360",
+            "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+        defer { app.terminate() }
+        app.activate()
+        let files = app.buttons["RightSidebarModeButton.files"]
+        XCTAssertTrue(files.waitForExistence(timeout: 20))
+        files.click()
+        let directory = app.textFields["FileExplorerDirectoryField"]
+        XCTAssertTrue(directory.waitForExistence(timeout: 5), "Files must expose an editable directory bar")
+        guard directory.exists else { return }
+
+        func enter(_ path: String) {
+            directory.click()
+            app.typeKey("a", modifierFlags: [.command])
+            app.typeText(path)
+            app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+        }
+        func expectPath(_ path: String) {
+            let predicate = NSPredicate(format: "value == %@", path)
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: directory)], timeout: 5), .completed)
+        }
+        enter(root.path)
+        expectPath(root.path)
+        XCTAssertTrue(app.staticTexts["Nested Folder"].waitForExistence(timeout: 5))
+        enter("Nested Folder")
+        expectPath(child.path)
+        XCTAssertTrue(app.staticTexts["navigation-proof.txt"].waitForExistence(timeout: 5))
+        app.buttons["FileExplorerBackButton"].click()
+        expectPath(root.path)
+        app.buttons["FileExplorerForwardButton"].click()
+        expectPath(child.path)
+        app.buttons["FileExplorerParentButton"].click()
+        expectPath(root.path)
+        directory.click()
+        app.typeKey("a", modifierFlags: [.command])
+        app.typeText("discard-this-draft")
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        expectPath(root.path)
+        enter("/")
+        expectPath("/")
+        XCTAssertFalse(app.buttons["FileExplorerParentButton"].isEnabled)
+        addKeptScreenshot(app.windows.firstMatch.screenshot(), name: "file-directory-navigation")
+    }
+
     func testSecondaryBarMatchesModeBarAndPaneTabs() {
         let app = XCUIApplication.cmuxTestApplication()
         let dataPath = "/tmp/cmux-ui-test-right-sidebar-chrome-\(UUID().uuidString).json"
