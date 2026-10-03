@@ -27,7 +27,7 @@ describe("chief records", { timeout: 60_000 }, () => {
     const user = (await op(t, "user.ensure", {})).json.value.id as string
     const first = (await op(t, "chief.create", {}, "chief-default")).json
     expect(first.ok).toBe(true)
-    expect(first.value).toMatchObject({ display_name: "Chief", is_default: true, brain: "cloud", rev: 1, owner_user: user, archived_at: null, main_conversation: null })
+    expect(first.value).toMatchObject({ display_name: "Chief", is_default: true, brain: "cloud", rev: 1, owner_user: user, archived_at: null })
     expect(first.value.id).toMatch(/^agent_[0-9A-HJKMNP-TV-Z]{26}$/)
     // The fixed key replays the same default chief.
     expect((await op(t, "chief.create", {}, "chief-default")).json).toMatchObject({ replayed: true, value: { id: first.value.id } })
@@ -61,6 +61,18 @@ describe("chief records", { timeout: 60_000 }, () => {
       read = await mux.readOp(chief.id, { identity: `session:${user}`, kind: "session", user }, "mux.queue", {})
     }
     expect(read.ok).toBe(true)
+    // The chief's main conversation exists (system-created) and a DM with the chief opens it.
+    expect(chief.main_conversation).toMatch(/^conv_[0-9A-HJKMNP-TV-Z]{26}$/)
+    const dm = await op(t, "dm.open", { peer: chief.id })
+    expect(dm.json.value).toMatchObject({ conversation: { id: chief.main_conversation, kind: "chief" }, redirected: "chief_main" })
+    const hist = await call("/v1/read", t, { op: "conversation.history", params: { conversation: chief.main_conversation, limit: 5 } })
+    expect(hist.status).toBe(200)
+    const sent = await op(t, "message.send", { conversation: chief.main_conversation, client_msg_id: "hello-chief", parts: [{ type: "text", text: "hello" }] }, "hello-chief")
+    expect(sent.json.ok).toBe(true)
+    // Another user's DM with this chief is not redirected (and the default policy refuses it).
+    const other = await sessionToken("chief-mux-other")
+    await op(other, "user.ensure", {})
+    expect((await op(other, "dm.open", { peer: chief.id })).json.ok).toBe(false)
     const head = read.value
     expect(head).toMatchObject({ agent: chief.id, owner_user: user, brain: "cloud" })
     // A safer level set by the user reaches the chief (sync on change only; strict is already in effect, so no new rev).

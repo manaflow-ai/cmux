@@ -9,7 +9,8 @@ import type { UserState } from "./user.ts"
  * chief is the default. A new chief's MuxDO is bound (mux.bind) and receives the user's text
  * confirmation level (mux.text_confirm.level.sync) through the outbox. Archived chiefs stay
  * restorable for 30 days; after that only a tombstone {id, owner_user, archived_at} is kept,
- * so an id is never reused.
+ * so an id is never reused. Each chief gets one main conversation (kind chief, created by the
+ * system through the outbox, id derived from the chief id); a DM with your own chief opens it.
  */
 export interface ChiefRecord {
   readonly id: string
@@ -100,7 +101,7 @@ export const reduceChief = (stateIn: UserState, op: string, params: Params, ctx:
         display_name: typeof params.display_name === "string" ? params.display_name.trim() : "Chief",
         is_default: isDefault,
         brain: "cloud",
-        main_conversation: null,
+        main_conversation: `conv_${invites.crockford(createHash("sha256").update(`chief-main\u0000${id}`).digest(), 26)}`,
         harness: null,
         rev: 1,
         created_at: now,
@@ -109,7 +110,24 @@ export const reduceChief = (stateIn: UserState, op: string, params: Params, ctx:
       }
       const next = { ...(isDefault ? clearDefault({ ...chiefs }, id) : chiefs), [id]: record }
       const bind: OutboxItem = { kind: "mux.bind", entity: `bind:${id}`, payload: { agent: id, owner_user: owner, brain: "cloud" }, target: { class: "MuxDO", name: id } }
-      return commit(next, record, [bind, ...levelSync(state, id)])
+      // The chief's main conversation (one place per chief): created by the system, the owner and the chief only.
+      const main = record.main_conversation!
+      const thread: OutboxItem = {
+        kind: "conversation.create",
+        entity: `chief-main:${id}`,
+        payload: {
+          id: main,
+          kind: "chief",
+          owner,
+          title: record.display_name,
+          participants: [
+            { id: owner, kind: "human", display_name: stateIn.user?.display_name ?? "Me" },
+            { id, kind: "agent", agent_class: "mux", owner_user: owner, display_name: record.display_name }
+          ]
+        },
+        target: { class: "ConversationDO", name: main }
+      }
+      return commit(next, record, [bind, thread, ...levelSync(state, id)])
     }
     case "chief.update": {
       const cur = typeof params.chief === "string" ? chiefs[params.chief] : undefined

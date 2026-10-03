@@ -98,6 +98,14 @@ const withOwnedAgents = async (env: Env, principal: Principal): Promise<Principa
   return { ...principal, owned_agents: chiefs.map((c) => ({ id: c.id, display_name: c.display_name })) }
 }
 
+/** The main conversation of one of the caller's chiefs, or null. */
+const ownChiefMain = async (env: Env, principal: Principal, agent: string): Promise<string | null> => {
+  if (!principal.user || principal.agent) return null
+  const stub = env.USER_DO.get(env.USER_DO.idFromName(principal.user)) as unknown as { readOp(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean; value?: { chiefs?: Array<{ id: string; main_conversation: string | null }> } }> }
+  const r = await stub.readOp(principal.user, principal, "chief.list", {})
+  return (r.ok ? r.value?.chiefs ?? [] : []).find((c) => c.id === agent)?.main_conversation ?? null
+}
+
 /** A Home ConversationDO mutation from the public API; the principal is already resolved (grant classes). */
 export const conversationMutate = async (env: Env, principal: Principal, frame: OpFrame): Promise<SubmitResult> => {
   const params = (frame.params ?? {}) as Record<string, unknown>
@@ -111,6 +119,11 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
       const me = actorOf(principal)
       const self = { id: me, kind: principal.agent ? "agent" : "human", display_name: principal.display_name ?? "Someone" }
       const peer = params.peer
+      // A DM with your own chief is that chief's main conversation (one place per chief).
+      if (typeof peer === "string" && peer.startsWith("agent_")) {
+        const main = await ownChiefMain(env, principal, peer)
+        if (main) return { frames: [{ t: "result", tx: "", idempotency_key: key, value: { conversation: { id: main, kind: "chief" }, redirected: "chief_main" }, revision: "0", replayed: false } as OwnerFrame] }
+      }
       if (typeof peer === "string") {
         const id = homeConversation.dmConversationId(me, peer)
         const participants = [self, { id: peer, kind: peer.startsWith("agent_") ? "agent" : "human", display_name: peer }]
