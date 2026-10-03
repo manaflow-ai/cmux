@@ -21,6 +21,8 @@ interface Session {
 
 export class FakeAcpmux {
   readonly calls: { method: string; params: Record<string, unknown> }[] = [];
+  /** Methods whose replies are withheld (a stuck request). */
+  readonly hold = new Set<string>();
   respond: Respond = (_s, text) => `echo: ${text}`;
   private server!: Server;
   private readonly clients = new Set<Socket>();
@@ -94,7 +96,7 @@ export class FakeAcpmux {
         const params = message.params ?? {};
         this.calls.push({ method: message.method, params });
         const reply = (result: unknown) => {
-          if (message.id !== undefined && !socket.destroyed)
+          if (message.id !== undefined && !socket.destroyed && !this.hold.has(message.method))
             socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: message.id, result })}\n`);
           this.notify();
         };

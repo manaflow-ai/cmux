@@ -353,3 +353,31 @@ describe("request timeouts", () => {
     expect(w.daemon.requests.filter((r) => r.cmd === "identify").length).toBe(2);
   }, 5000);
 });
+
+describe("connect-phase timeouts", () => {
+  test("a stuck conversation-create times out on the injected clock and the daemon connect is retried", async () => {
+    const w = await setup();
+    const clock = fakeClock();
+    w.daemon.hold.add("conversation-create");
+    const host = w.host({ clock, requestTimeoutMs: 1_000 });
+    host.start();
+    await w.daemon.until(() => w.daemon.requests.some((r) => r.cmd === "conversation-create"));
+    w.daemon.hold.delete("conversation-create");
+    clock.advance(1_000);
+    await host.ready;
+    expect(w.daemon.requests.filter((r) => r.cmd === "identify").length).toBe(2);
+  }, 5000);
+
+  test("a stuck acpmux connect step hits its deadline on the injected clock and acpmux is reconnected", async () => {
+    const w = await setup();
+    const clock = fakeClock();
+    w.acpmux.hold.add("_acpmux/watch");
+    const host = w.host({ clock, requestTimeoutMs: 1_000 });
+    host.start();
+    await w.acpmux.until(() => w.acpmux.calls.some((c) => c.method === "_acpmux/watch"));
+    w.acpmux.hold.delete("_acpmux/watch");
+    clock.advance(1_000);
+    await host.ready;
+    expect(w.acpmux.calls.filter((c) => c.method === "_acpmux/watch").length).toBe(2);
+  }, 5000);
+});
