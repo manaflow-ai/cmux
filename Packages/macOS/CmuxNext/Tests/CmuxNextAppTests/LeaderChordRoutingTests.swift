@@ -90,10 +90,13 @@ struct LeaderChordRoutingTests {
         var chords = ChordTracker()
         let terminal = KeyInterceptionTests.terminal.resolved, page = KeyInterceptionTests.page.resolved
         #expect(Self.step(&chords, Self.cmdJ, registry, window: window, focus: terminal) == .armed)
-        #expect(!chords.focusDidChange(to: terminal, in: ObjectIdentifier(window)))
-        #expect(!chords.focusDidChange(to: page, in: ObjectIdentifier(NSObject())), "another window's focus")
+        let sameFocus = chords.focusDidChange(to: terminal, in: ObjectIdentifier(window))
+        #expect(!sameFocus)
+        let otherWindow = chords.focusDidChange(to: page, in: ObjectIdentifier(NSObject()))
+        #expect(!otherWindow, "another window's focus")
         #expect(chords.isPending)
-        #expect(chords.focusDidChange(to: page, in: ObjectIdentifier(window)))
+        let moved = chords.focusDidChange(to: page, in: ObjectIdentifier(window))
+        #expect(moved)
         #expect(!chords.isPending)
         #expect(Self.step(&chords, Self.j, registry, window: window, focus: page) == .pass, "J types in the page")
     }
