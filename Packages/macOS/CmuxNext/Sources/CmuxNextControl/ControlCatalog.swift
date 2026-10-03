@@ -240,7 +240,6 @@ public struct ControlCatalog: Sendable {
     static func renamedCLIName(_ name: String) -> String {
         name.replacingOccurrences(of: "room", with: "space")
     }
-
     func isAvailable(_ action: ControlActionInfo) -> Bool {
         action.isAvailable(contextMask: contextMask, debugActionsAvailable: debugActionsAvailable)
     }
