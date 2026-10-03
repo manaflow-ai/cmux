@@ -41,6 +41,7 @@ final class AppControl {
         let probe = frameProbe
         service.router.register(HistoryControl.methods(services: services))
         service.router.register(TabSearchControl.methods())
+        service.router.register(PaletteScopeControl.methods(services: services))
         service.router.register(BookmarkControl.methods(services: services))
         service.router.register(FeedControl.methods(services: services))
         service.router.register([
@@ -162,6 +163,10 @@ final class AppControl {
             .mainActor("debug.key") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.send(call.params, services: services))
+            },
+            .mainActor("debug.palette.capture") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugPaletteCapture.capture(call.params, services: services))
             },
             .mainActor("debug.mouse") { [weak services] call in
                 guard let services else { return .value(.null) }
