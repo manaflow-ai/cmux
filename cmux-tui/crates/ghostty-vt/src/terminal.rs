@@ -1858,7 +1858,7 @@ impl PaletteCommand {
                 let key = &token[..separator];
                 let value = token.get(separator + 1..).unwrap_or_default();
                 let key = std::str::from_utf8(key).unwrap_or_default();
-                let index = parse_zig_decimal(key.as_bytes(), u8::MAX.into(), false)
+                let index = parse_protocol_decimal(key.as_bytes(), u8::MAX.into())
                     .map(|value| value as u8);
                 let recognized = index.is_some()
                     || matches!(
@@ -1899,9 +1899,8 @@ impl PaletteCommand {
     }
 
     fn parse_target(token: &[u8]) -> PaletteTarget {
-        // Ghostty parses OSC 4/104 indices with Zig's `parseInt(u9, ..., 10)`,
-        // including its sign and underscore grammar.
-        let Some(value) = parse_zig_decimal(token, 0x1ff, true) else {
+        // Ghostty parses OSC 4/104 indices as a protocol `u9`: plain decimal.
+        let Some(value) = parse_protocol_decimal(token, 0x1ff) else {
             return PaletteTarget::Invalid;
         };
         match value {
@@ -1934,35 +1933,22 @@ impl PaletteCommand {
     }
 }
 
-/// Match Zig's decimal `parseInt`/`parseUnsigned` grammar used by Ghostty's
-/// OSC color parsers without allocating a normalized copy of the token.
-fn parse_zig_decimal(bytes: &[u8], max: u16, allow_sign: bool) -> Option<u16> {
-    let (negative, digits) = match bytes.first().copied() {
-        Some(b'+') if allow_sign => (false, &bytes[1..]),
-        Some(b'-') if allow_sign => (true, &bytes[1..]),
-        Some(_) => (false, bytes),
-        None => return None,
-    };
-    if digits.is_empty() || digits.first() == Some(&b'_') || digits.last() == Some(&b'_') {
+/// Ghostty's protocol integer grammar for OSC color indices (ghostty-next
+/// `lib/parse_int.zig`): ASCII decimal digits only, no sign, no digit
+/// separators, at most `max`.
+fn parse_protocol_decimal(bytes: &[u8], max: u16) -> Option<u16> {
+    if bytes.is_empty() {
         return None;
     }
-
     let mut value = 0_u16;
-    for byte in digits {
-        if *byte == b'_' {
-            continue;
-        }
-        let digit = u16::from(byte.checked_sub(b'0')?);
-        if digit > 9 {
+    for byte in bytes {
+        if !byte.is_ascii_digit() {
             return None;
         }
-        value = value.checked_mul(10)?.checked_add(digit)?;
+        value = value.checked_mul(10)?.checked_add(u16::from(byte - b'0'))?;
         if value > max {
             return None;
         }
-    }
-    if negative && value != 0 {
-        return None;
     }
     Some(value)
 }
@@ -3987,16 +3973,82 @@ impl Terminal {
 
     fn cursor_position_escape(&mut self) -> Result<Option<Vec<u8>>> {
         let Some((x, y)) = self.cursor_position() else { return Ok(None) };
-        // The formatter already emits the cursor, including a pending wrap
-        // (also under DECOM). An appended CUP would clear the pending wrap
-        // and, with DECOM on, reinterpret active-area coordinates relative to
-        // the scrolling region.
-        if self.mode(6, false)
-            || self.get::<bool>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_PENDING_WRAP).unwrap_or(false)
-        {
+        // With DECOM on, the ghostty-next formatter already emits the cursor,
+        // including a pending wrap. An appended CUP would reinterpret
+        // active-area coordinates relative to the scrolling region, and a
+        // reprint of the cursor cell would land before the cursor moved.
+        if self.mode(6, false) {
             return Ok(None);
         }
-        Ok(Some(format!("\x1b[{};{}H", u32::from(y) + 1, u32::from(x) + 1).into_bytes()))
+        if !self.get::<bool>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_PENDING_WRAP).unwrap_or(false) {
+            return Ok(Some(
+                format!("\x1b[{};{}H", u32::from(y) + 1, u32::from(x) + 1).into_bytes(),
+            ));
+        }
+
+        // No standard cursor-positioning sequence can restore pending wrap:
+        // CUP clears it. Reprint the authoritative cursor cell last instead.
+        // The one-cell formatter includes a wide cell's lead grapheme, then
+        // restores active cursor state without moving the cursor again.
+        let cursor_ref = self
+            .grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, x, u64::from(y))
+            .ok_or(Error::InvalidValue)?;
+        let palette = terminal_palette(self.raw, sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)?;
+        let mut grapheme = Vec::new();
+        let cursor_cell = read_grid_ref_cell(&cursor_ref, &palette, &mut grapheme)?;
+        let start_x = if cursor_cell.width == CellWidth::SpacerTail {
+            x.checked_sub(1).ok_or(Error::InvalidValue)?
+        } else {
+            x
+        };
+        let selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            start: self
+                .grid_ref(sys::GHOSTTY_POINT_TAG_ACTIVE, start_x, u64::from(y))
+                .ok_or(Error::InvalidValue)?,
+            end: cursor_ref,
+            rectangle: false,
+        };
+        let opts = sys::GhosttyFormatterTerminalOptions {
+            size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
+            emit: sys::GHOSTTY_FORMATTER_FORMAT_VT,
+            unwrap: false,
+            trim: false,
+            extra: sys::GhosttyFormatterTerminalExtra {
+                size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
+                palette: false,
+                modes: false,
+                scrolling_region: false,
+                tabstops: false,
+                pwd: false,
+                keyboard: false,
+                screen: sys::GhosttyFormatterScreenExtra {
+                    size: size_of::<sys::GhosttyFormatterScreenExtra>(),
+                    cursor: false,
+                    style: true,
+                    hyperlink: true,
+                    protection: true,
+                    kitty_keyboard: true,
+                    charsets: true,
+                },
+            },
+            selection: &selection,
+        };
+        let mut suffix = if origin_mode {
+            // The main formatter leaves the cursor at the authoritative cell.
+            // Move only to a wide glyph's lead cell, using a relative motion
+            // whose meaning is independent of the scrolling-region origin.
+            let columns_left = x.saturating_sub(start_x);
+            if columns_left == 0 {
+                Vec::new()
+            } else {
+                format!("\x1b[{}D", u32::from(columns_left)).into_bytes()
+            }
+        } else {
+            format!("\x1b[{};{}H", u32::from(y) + 1, u32::from(start_x) + 1).into_bytes()
+        };
+        suffix.extend_from_slice(&self.format(opts)?);
+        Ok(Some(suffix))
     }
 
     fn vt_replay_segment_options(
