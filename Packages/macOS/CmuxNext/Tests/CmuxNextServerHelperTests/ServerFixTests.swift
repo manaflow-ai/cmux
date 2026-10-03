@@ -28,12 +28,24 @@ struct ServerFixTests {
         #expect(runner.recorded.last?.1 == ["-a", "womp", "0"])
     }
 
-    @Test func clientRequirementNeedsATeamAndRefusesOddTeamStrings() {
-        #expect(ServerHelperListener.clientRequirement(teamID: nil) == nil)
-        #expect(ServerHelperListener.clientRequirement(teamID: "") == nil)
-        #expect(ServerHelperListener.clientRequirement(teamID: "AB\" or true") == nil)
-        let req = ServerHelperListener.clientRequirement(teamID: "ABCDE12345")
-        #expect(req?.contains("certificate leaf[subject.OU] = \"ABCDE12345\"") == true)
-        #expect(req?.hasPrefix("anchor apple generic") == true)
+    @Test func clientRequirementNamesTheTeamAndTheExactApp() {
+        #expect(ServerHelperConstants.clientRequirement(teamID: nil, appBundleID: "com.cmuxterm.app") == nil)
+        #expect(ServerHelperConstants.clientRequirement(teamID: "", appBundleID: "com.cmuxterm.app") == nil)
+        #expect(ServerHelperConstants.clientRequirement(teamID: "AB\" or true", appBundleID: "com.cmuxterm.app") == nil)
+        #expect(ServerHelperConstants.clientRequirement(teamID: "ABCDE12345", appBundleID: "com.cmuxterm.app\" or true") == nil)
+        #expect(ServerHelperConstants.clientRequirement(teamID: "ABCDE12345", appBundleID: "") == nil)
+        let req = ServerHelperConstants.clientRequirement(teamID: "ABCDE12345", appBundleID: "com.cmuxterm.app.debug.srv-1")
+        #expect(req == "anchor apple generic and certificate leaf[subject.OU] = \"ABCDE12345\" and identifier \"com.cmuxterm.app.debug.srv-1\"")
+    }
+
+    @Test func eachBuildHasItsOwnHelperLabel() {
+        #expect(ServerHelperConstants.machServiceName(appBundleID: "com.cmuxterm.app.nightly") == "com.cmuxterm.app.nightly.server-helper")
+        #expect(ServerHelperConstants.machServiceName(appBundleID: "com.cmuxterm.app.debug.a") != ServerHelperConstants.machServiceName(appBundleID: "com.cmuxterm.app.debug.b"))
+        #expect(ServerHelperConstants.machServiceName(appBundleID: "a b") == nil)
+        #expect(ServerHelperConstants.machServiceName(appBundleID: ".com.x") == nil)
+        let helper = ServerHelperConstants.helperRequirement(teamID: "ABCDE12345")
+        #expect(helper == "anchor apple generic and certificate leaf[subject.OU] = \"ABCDE12345\" and identifier \"cmux-server-helper\"")
+        #expect(ServerHelperConstants.helperRequirement(teamID: nil) == nil)
+        #expect(ServerHelperConstants.helperRequirement(teamID: "AB CD") == nil)
     }
 }

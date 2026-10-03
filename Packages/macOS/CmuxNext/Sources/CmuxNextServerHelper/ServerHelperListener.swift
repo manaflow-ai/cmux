@@ -1,22 +1,25 @@
 public import Foundation
 import Security
 
-/// The helper's listener: accepts a connection only from a process signed by
-/// the helper's own team, with a cmux bundle identifier. The requirement comes
-/// from the helper's own signature, so no team id is hard-coded and an
-/// unsigned or ad hoc helper accepts nobody.
+/// The helper's listener: accepts a connection only from the app bundle that
+/// carries the helper, signed by the helper's own team. The team comes from
+/// the helper's own signature, so no team id is hard-coded and an unsigned or
+/// ad hoc helper accepts nobody.
 public final nonisolated class ServerHelperListener: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     private let listener: NSXPCListener
     private let service: ServerHelperService
     private let requirement: String?
 
-    public init(service: ServerHelperService = ServerHelperService()) {
-        listener = NSXPCListener(machServiceName: ServerHelperConstants.machServiceName)
+    public init(machServiceName: String, appBundleID: String, service: ServerHelperService = ServerHelperService()) {
+        listener = NSXPCListener(machServiceName: machServiceName)
         self.service = service
-        requirement = ServerHelperListener.clientRequirement(teamID: ServerHelperListener.ownTeamIdentifier())
+        requirement = ServerHelperConstants.clientRequirement(teamID: ServerHelperListener.ownTeamIdentifier(), appBundleID: appBundleID)
         super.init()
         listener.delegate = self
     }
+
+    /// False when the helper cannot serve anyone (no team in its signature).
+    public var acceptsClients: Bool { requirement != nil }
 
     public func resume() { listener.resume() }
 
@@ -29,14 +32,8 @@ public final nonisolated class ServerHelperListener: NSObject, NSXPCListenerDele
         return true
     }
 
-    /// The code-signing requirement a client must meet, or nil without a team.
-    public static func clientRequirement(teamID: String?) -> String? {
-        guard let teamID, !teamID.isEmpty, teamID.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) else { return nil }
-        return "anchor apple generic and certificate leaf[subject.OU] = \"\(teamID)\" and (identifier \"com.cmuxterm.app\" or identifier \"com.cmuxterm.app.debug\" or identifier \"com.cmuxterm.app.nightly\")"
-    }
-
-    /// The team identifier of the running helper, or nil when it is unsigned or ad hoc.
-    static func ownTeamIdentifier() -> String? {
+    /// The team identifier of the running process, or nil when it is unsigned or ad hoc.
+    public static func ownTeamIdentifier() -> String? {
         var code: SecCode?
         guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
         var staticCode: SecStaticCode?
