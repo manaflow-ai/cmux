@@ -161,6 +161,53 @@ describe("KMS fallback is counted, marked and re-sealed", () => {
     })
   })
 
+  it("a re-seal during an outage neither re-seals under the KEK nor alerts again", async () => {
+    const { storeCredential, resealFallbacks } = await import("../src/integrations/credentials.ts")
+    const stub = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName("team_fallback_down"))
+    const cd = { ...c, owner: "team_fallback_down" }
+    await inDO(stub, async (_i, s) => {
+      const sql = s.storage.sql
+      const down: Http = async () => new Response("", { status: 503 })
+      await storeCredential(sql, kmsEnv as any, down, cd, credential)
+      const later = Date.now() + 16 * 60_000
+      await resealFallbacks(sql, kmsEnv as any, down, { [cd.id]: cd }, later)
+      expect(sql.exec("SELECT generation FROM credentials WHERE connection = ?", cd.id).one()).toEqual({ generation: 1 })
+      const f = sql.exec("SELECT count, next_at FROM kms_fallbacks WHERE connection = ?", cd.id).one() as { count: number; next_at: number }
+      expect(f.count).toBe(1)
+      expect(f.next_at).toBeGreaterThan(later)
+    })
+  })
+
+  it("a refresh whose row a disconnect deleted during the KMS call is not written back", async () => {
+    const { storeCredential } = await import("../src/integrations/credentials.ts")
+    const stub = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName("team_fallback_gone"))
+    const cg = { ...c, owner: "team_fallback_gone" }
+    await inDO(stub, async (_i, s) => {
+      const sql = s.storage.sql
+      const kms = fakeKms()
+      await storeCredential(sql, kmsEnv as any, kms.http, cg, credential)
+      const disconnecting: Http = async (req) => {
+        sql.exec("DELETE FROM credentials WHERE connection = ?", cg.id)
+        return kms.http(req)
+      }
+      expect(await storeCredential(sql, kmsEnv as any, disconnecting, cg, { ...credential, access_token: "ya29.late" })).toBe(false)
+      expect(sql.exec("SELECT * FROM credentials WHERE connection = ?", cg.id).toArray()).toHaveLength(0)
+    })
+  })
+
+  it("opens a previous key's rows in that key's region, and refuses an alias ARN as the key", async () => {
+    const { sealCredential, openCredential, kmsConfig } = await import("../src/integrations/credentials.ts")
+    const kms = fakeKms()
+    const hosts: string[] = []
+    const http: Http = async (req) => (hosts.push(new URL(req.url).host), kms.http(req))
+    const address = { connection: c.id, owner: c.owner, provider: c.provider, generation: 1 }
+    const oldArn = "arn:aws:kms:eu-west-1:111122223333:key/old"
+    const sealed = JSON.stringify(await sealCredential({ ...kmsEnv, INTEGRATIONS_KMS_KEY_ARN: oldArn, INTEGRATIONS_KMS_REGION: "eu-west-1" } as any, http, address, credential))
+    expect(await openCredential({ ...kmsEnv, INTEGRATIONS_KMS_PREVIOUS_KEY_ARNS: oldArn } as any, http, address, sealed)).toEqual(credential)
+    expect(hosts.at(-1)).toBe("kms.eu-west-1.amazonaws.com")
+    expect(kmsConfig({ ...kmsEnv, INTEGRATIONS_KMS_KEY_ARN: "arn:aws:kms:us-east-1:111122223333:alias/cmux" } as any)).toBeUndefined()
+  })
+
   it("opens rows wrapped by a previous KMS key listed in INTEGRATIONS_KMS_PREVIOUS_KEY_ARNS", async () => {
     const { sealCredential, openCredential } = await import("../src/integrations/credentials.ts")
     const kms = fakeKms()

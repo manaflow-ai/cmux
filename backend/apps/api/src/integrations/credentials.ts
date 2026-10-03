@@ -39,10 +39,11 @@ const enc = new TextEncoder()
 let partialLogged = false
 export const kmsConfig = (env: Env): KmsConfig | undefined => {
   const parts = [env.INTEGRATIONS_KMS_KEY_ARN, env.INTEGRATIONS_KMS_REGION, env.INTEGRATIONS_KMS_ACCESS_KEY_ID, env.INTEGRATIONS_KMS_SECRET_ACCESS_KEY]
-  if (parts.every(Boolean)) return { keyArn: env.INTEGRATIONS_KMS_KEY_ARN!, region: env.INTEGRATIONS_KMS_REGION!, accessKeyId: env.INTEGRATIONS_KMS_ACCESS_KEY_ID!, secretAccessKey: env.INTEGRATIONS_KMS_SECRET_ACCESS_KEY! }
+  // A key ARN, never an alias: Decrypt names the stored key, so blobs of an alias's earlier key would fail.
+  if (parts.every(Boolean) && !env.INTEGRATIONS_KMS_KEY_ARN!.includes(":alias/")) return { keyArn: env.INTEGRATIONS_KMS_KEY_ARN!, region: env.INTEGRATIONS_KMS_REGION!, accessKeyId: env.INTEGRATIONS_KMS_ACCESS_KEY_ID!, secretAccessKey: env.INTEGRATIONS_KMS_SECRET_ACCESS_KEY! }
   if (parts.some(Boolean) && !partialLogged) {
     partialLogged = true
-    console.error(JSON.stringify({ msg: "INTEGRATIONS_KMS_* is only partly set; credentials are sealed with INTEGRATIONS_KEK" }))
+    console.error(JSON.stringify({ msg: "INTEGRATIONS_KMS_* is only partly set or names an alias; credentials are sealed with INTEGRATIONS_KEK" }))
   }
   return undefined
 }
@@ -58,15 +59,15 @@ const kmsFailure = (e: unknown, what: string) =>
   e instanceof KmsError ? new ProviderError("integration.unavailable", `credential ${what}: ${e.message}`, e.retryable) : new ProviderError("integration.unavailable", `credential ${what} failed`)
 
 /** Like sealCredential, and says whether KMS failed and the KEK sealed it instead. */
-export const sealCredentialWithInfo = async (env: Env, http: Http, a: CredentialAddress, credential: Credential): Promise<{ sealed: Sealed; fallback: boolean }> => {
+export const sealCredentialWithInfo = async (env: Env, http: Http, a: CredentialAddress, credential: Credential, allowFallback = true): Promise<{ sealed: Sealed; fallback: boolean }> => {
   let fallback = false
-  const sealed = await sealInner(env, http, a, credential, () => (fallback = true))
+  const sealed = await sealInner(env, http, a, credential, () => (fallback = true), allowFallback)
   return { sealed, fallback }
 }
 
 export const sealCredential = (env: Env, http: Http, a: CredentialAddress, credential: Credential): Promise<Sealed> => sealInner(env, http, a, credential, () => undefined)
 
-const sealInner = async (env: Env, http: Http, a: CredentialAddress, credential: Credential, onFallback: () => void): Promise<Sealed> => {
+const sealInner = async (env: Env, http: Http, a: CredentialAddress, credential: Credential, onFallback: () => void, allowFallback = true): Promise<Sealed> => {
   const kms = kmsConfig(env)
   const plaintext = JSON.stringify(credential)
   if (!kms) {
@@ -84,7 +85,7 @@ const sealInner = async (env: Env, http: Http, a: CredentialAddress, credential:
     } catch (e) {
       // A KMS outage must not lose a fresh credential (a rotated refresh token is single use): seal it
       // under the KEK now; it moves to KMS on its next seal.
-      if (!env.INTEGRATIONS_KEK) throw kmsFailure(e, "seal")
+      if (!env.INTEGRATIONS_KEK || !allowFallback) throw kmsFailure(e, "seal")
       onFallback()
       // `fb` marks the row; storeCredential counts it and the re-seal job moves it to KMS later.
       return { ...(await seal(env.INTEGRATIONS_KEK, plaintext, aadOf(a))), fb: 1 } as SealedSecret
@@ -101,10 +102,13 @@ export const openCredential = async (env: Env, http: Http, a: CredentialAddress,
     if (!env.INTEGRATIONS_KEK) throw new ProviderError("integration.unavailable", "integrations are not configured (no INTEGRATIONS_KEK)")
     return JSON.parse(await open(env.INTEGRATIONS_KEK, sealed, aadOf(a))) as Credential
   }
+  if (sealed.v !== 2) throw new ProviderError("integration.unavailable", "unknown stored credential shape")
   const kms = kmsConfig(env)
   const arn = sealed.kid.startsWith("kms:") ? sealed.kid.slice(4) : ""
   if (!kms || !openableArns(env, kms).includes(arn)) throw new ProviderError("integration.unavailable", "the credential's KMS key is not configured on this deployment")
-  const dekRaw = await kmsDecrypt({ ...kms, keyArn: arn }, http, sealed.wdek, contextOf(a)).catch((e) => {
+  // A previous key may live in another region: send Decrypt to the region in its ARN.
+  const region = arn.split(":")[3] || kms.region
+  const dekRaw = await kmsDecrypt({ ...kms, keyArn: arn, region }, http, sealed.wdek, contextOf(a)).catch((e) => {
     throw kmsFailure(e, "open")
   })
   try {
@@ -140,9 +144,14 @@ const generationOf = (sql: SqlStorage, connection: string): number | undefined =
 export const storeCredential = async (sql: SqlStorage, env: Env, http: Http, c: Owned, credential: Credential, ifGeneration?: number): Promise<boolean> => {
   const before = ifGeneration ?? generationOf(sql, c.id) ?? 0
   const generation = before + 1
-  const { sealed, fallback } = await sealCredentialWithInfo(env, http, addressOf(c, generation), credential)
-  // No await between this check and the writes below, so nothing can interleave in the object.
-  if (ifGeneration !== undefined && generationOf(sql, c.id) !== ifGeneration) return false
+  // The re-seal job (ifGeneration set) never falls back: on a KMS failure it throws and retries later,
+  // so only a new credential raises the kms_fallback alert.
+  const { sealed, fallback } = await sealCredentialWithInfo(env, http, addressOf(c, generation), credential, ifGeneration === undefined)
+  // No await between these checks and the writes below, so nothing can interleave in the object.
+  const current = generationOf(sql, c.id)
+  if (ifGeneration !== undefined && current !== ifGeneration) return false
+  // A refresh whose row a disconnect deleted while KMS answered must not bring the credential back.
+  if (before > 0 && current === undefined) return false
   sql.exec(
     `INSERT INTO credentials (connection, generation, sealed, updated_at) VALUES (?, ?, ?, ?)
      ON CONFLICT (connection) DO UPDATE SET generation = excluded.generation, sealed = excluded.sealed, updated_at = excluded.updated_at`,
