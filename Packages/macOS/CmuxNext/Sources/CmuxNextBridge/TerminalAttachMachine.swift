@@ -91,6 +91,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         case .ended(let link, let reason): ended(link, reason: reason)
         case .reconnect: reconnect()
         case .processExited: processExited()
+        case .processRevived: []
         case .close: close()
         }
     }
