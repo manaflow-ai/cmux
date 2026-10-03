@@ -97,6 +97,10 @@ pub enum Input {
         /// empty log).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         log_id: Option<u64>,
+        /// The shell created the session on this connect: its log is new,
+        /// nothing can reuse its keys.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        created: bool,
     },
     AcpmuxEvent {
         event: AcpmuxEvent,
@@ -232,6 +236,14 @@ enum Task {
     Handling(Box<Handling>),
 }
 
+/// How the acpmux port came up (`Input::AcpmuxConnected` flags).
+#[derive(Debug, Clone, Copy)]
+struct Connect {
+    cursor_reset: bool,
+    log_id: Option<u64>,
+    created: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct PendingPermission {
     session_id: String,
@@ -297,8 +309,16 @@ impl Core {
             Input::OpResult { idempotency_key, reason, change } => {
                 self.op_result(&idempotency_key, reason.as_deref(), change);
             }
-            Input::AcpmuxConnected { session_id, sessions, events, cursor_reset, log_id } => {
-                self.acpmux_connected(session_id, sessions, &events, cursor_reset, log_id);
+            Input::AcpmuxConnected {
+                session_id,
+                sessions,
+                events,
+                cursor_reset,
+                log_id,
+                created,
+            } => {
+                let connect = Connect { cursor_reset, log_id, created };
+                self.acpmux_connected(session_id, sessions, &events, connect);
             }
             Input::AcpmuxEvent { event } => {
                 if event.session_id.is_some() && event.session_id == self.mux_session {
@@ -709,7 +729,9 @@ impl Core {
     ///   becomes max(identity, else now; previous epoch + 1), so a repeated
     ///   import of the same bundle still gets a new epoch;
     /// - a session host.json does not know (a lost or replaced host.json)
-    ///   with a non-empty log: earlier epochs are unknown, so the epoch is now.
+    ///   with a non-empty log, unless the shell created it on this connect
+    ///   (`created`: a new log, whose only event is acpmux's created event):
+    ///   earlier epochs are unknown, so the epoch is now.
     ///
     /// Keys are `turn:<session>:<seq>` while no reset happened (the identity
     /// equals host.json's), else `turn:<session>:<epoch>:<seq>`. The replay
@@ -720,9 +742,9 @@ impl Core {
         session_id: String,
         sessions: Vec<SessionSummary>,
         events: &[AcpmuxEvent],
-        cursor_reset: bool,
-        log_id: Option<u64>,
+        connect: Connect,
     ) {
+        let Connect { cursor_reset, log_id, created } = connect;
         if self.acpmux_up {
             self.disconnected(Port::Acpmux);
         }
@@ -735,7 +757,7 @@ impl Core {
             self.state.acpmux_seq = 0;
             self.state.acpmux_epoch = None;
             self.state.acpmux_log = None;
-            if identity.is_some() {
+            if identity.is_some() && !created {
                 reset = true;
                 self.state.acpmux_epoch = Some(self.now);
             }
