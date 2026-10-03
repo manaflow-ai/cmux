@@ -226,11 +226,63 @@ fn concurrent_apply_is_refused_while_the_lock_is_held() {
     assert_eq!(err.kind, ExitKind::Unreachable, "{err}");
 }
 
-fn try_unpack(tar: &[u8]) -> cmux_server::Result<tempfile::TempDir> {
+/// Unpacks `bytes` as they are (no gzip added).
+fn try_unpack_raw(bytes: &[u8]) -> cmux_server::Result<tempfile::TempDir> {
     let tmp = tempfile::tempdir().unwrap();
-    let archive = tmp.path().join("a.tar");
-    fs::write(&archive, tar).unwrap();
-    unpack(&archive, &tmp.path().join("out"), Limits::for_archive(tar.len() as u64)).map(|()| tmp)
+    let archive = tmp.path().join("a.tar.gz");
+    fs::write(&archive, bytes).unwrap();
+    unpack(&archive, &tmp.path().join("out"), Limits::for_archive(bytes.len() as u64)).map(|()| tmp)
+}
+
+fn try_unpack(tar: &[u8]) -> cmux_server::Result<tempfile::TempDir> {
+    try_unpack_raw(&gzip(tar))
+}
+
+#[test]
+fn unpack_accepts_only_tar_gz() {
+    // Decision SV-R3: tar.gz only; CI wraps single binaries.
+    let tar = raw_tar(&[raw_entry(b"bin/cmux", tar::EntryType::Regular, b"", b"hi")]);
+    let mut zip = b"PK\x03\x04".to_vec();
+    zip.extend_from_slice(&[0; 64]);
+    let cases: Vec<(&str, Vec<u8>, &str)> = vec![
+        ("plain tar", tar.clone(), "uncompressed tar"),
+        ("bare ELF binary", b"\x7fELF\x02\x01\x01rest".to_vec(), "ELF"),
+        ("bare Mach-O binary", vec![0xcf, 0xfa, 0xed, 0xfe, 7, 0, 0, 1], "Mach-O"),
+        ("zip", zip, "zip"),
+        ("xz", vec![0xfd, b'7', b'z', b'X', b'Z', 0, 0, 4], "xz"),
+        ("shell script", b"#!/bin/sh\necho hi\n".to_vec(), "unknown"),
+        ("gzip of a bare binary", gzip(&[0x7f; 2000]), "gzip but not tar"),
+        ("empty gzip", gzip(b""), "no tar entries"),
+    ];
+    for (name, bytes, says) in cases {
+        let tmp = tempfile::tempdir().unwrap();
+        let archive = tmp.path().join("pkg");
+        fs::write(&archive, &bytes).unwrap();
+        let out = tmp.path().join("out");
+        let err = unpack(&archive, &out, Limits::for_archive(bytes.len() as u64))
+            .err()
+            .unwrap_or_else(|| panic!("{name} was accepted"));
+        assert_eq!(err.kind, ExitKind::Rejected, "{name}: {err}");
+        assert!(err.message.contains(says) && err.message.contains("tar.gz"), "{name}: {err}");
+        if !name.contains("gzip") {
+            assert!(!out.exists(), "{name}: nothing is written for a refused format");
+        }
+    }
+    let tmp = try_unpack(&tar).unwrap();
+    assert_eq!(fs::read_to_string(tmp.path().join("out/bin/cmux")).unwrap(), "hi");
+}
+
+#[test]
+fn a_package_that_is_not_tar_gz_is_refused_and_current_does_not_move() {
+    let f = fixture();
+    f.apply(&f.release(1, "v1")).unwrap();
+    let bare = Pkg { name: "cmux", version: "2.0.0", archive: b"\x7fELF\x02\x01bare".to_vec() };
+    f.fetcher.serve(&bare);
+    let err = f.apply(&manifest(2, FAR, "1.0.0", &[&bare])).unwrap_err();
+    assert_eq!(err.kind, ExitKind::Rejected, "{err}");
+    assert!(err.message.contains("tar.gz only"), "{err}");
+    assert_eq!(f.store.current_generation(), Some(1));
+    assert!(!f.store.store.join(sha_hex(&bare.archive)).exists());
 }
 
 #[test]
@@ -293,8 +345,8 @@ fn unpack_refuses_traversal_absolute_and_escaping_links() {
 fn unpack_enforces_the_size_limit() {
     let tar = raw_tar(&[raw_entry(b"big", tar::EntryType::Regular, b"", &vec![0u8; 4096])]);
     let tmp = tempfile::tempdir().unwrap();
-    let archive = tmp.path().join("a.tar");
-    fs::write(&archive, &tar).unwrap();
+    let archive = tmp.path().join("a.tar.gz");
+    fs::write(&archive, gzip(&tar)).unwrap();
     let limits = Limits { max_bytes: 1024, max_entries: 10 };
     let err = unpack(&archive, &tmp.path().join("out"), limits).unwrap_err();
     assert_eq!(err.kind, ExitKind::Verification);

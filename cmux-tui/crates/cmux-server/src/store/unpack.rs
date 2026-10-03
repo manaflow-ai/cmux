@@ -1,5 +1,7 @@
-//! Safe unpacking of a package archive (tar, optionally gzip) into a new
-//! directory.
+//! Safe unpacking of a package archive into a new directory. Packages are
+//! tar.gz only (decision SV-R3); another format is refused (exit 4) before
+//! anything is written, and a gzip stream that holds no tar entries is
+//! refused too.
 //!
 //! Refused: absolute paths, `..`, hard links, devices, FIFOs, a symlink
 //! whose target leaves the package root, writing through any symlink
@@ -14,6 +16,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, BufReader, Read};
 use std::path::{Component, Path, PathBuf};
 
+use cmux_server_core::manifest::{FORMAT_SNIFF_LEN, PackageFormat};
 use tar::EntryType;
 
 use crate::error::{Error, IoContext, Result};
@@ -120,28 +123,36 @@ fn ensure_parents(root: &Path, rel: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Opens a gzip-compressed tar (decision SV-R3: the only package format).
+/// Any other format is refused by name before anything is unpacked.
 fn open_reader(archive: &Path) -> Result<Box<dyn Read>> {
     let mut file = BufReader::new(fs::File::open(archive).ctx(archive.display())?);
-    let mut magic = [0u8; 2];
-    let n = file.read(&mut magic).ctx(archive.display())?;
-    let head = io::Cursor::new(magic[..n].to_vec());
-    let reader = head.chain(file);
-    if n == 2 && magic == [0x1f, 0x8b] {
-        Ok(Box::new(flate2::read::GzDecoder::new(reader)))
-    } else {
-        Ok(Box::new(reader))
-    }
+    let mut head = Vec::with_capacity(FORMAT_SNIFF_LEN);
+    (&mut file).take(FORMAT_SNIFF_LEN as u64).read_to_end(&mut head).ctx(archive.display())?;
+    PackageFormat::sniff(&head).require_tar_gz().map_err(Error::rejected)?;
+    let reader = io::Cursor::new(head).chain(file);
+    Ok(Box::new(flate2::read::GzDecoder::new(reader)))
 }
 
 /// Unpacks `archive` into `dest`, which must not exist yet.
 pub fn unpack(archive: &Path, dest: &Path, limits: Limits) -> Result<()> {
-    fs::create_dir(dest).ctx(dest.display())?;
     let mut tar = tar::Archive::new(open_reader(archive)?);
+    fs::create_dir(dest).ctx(dest.display())?;
     let mut entries_seen = 0u64;
     let mut bytes = 0u64;
     let corrupt = |e: io::Error| Error::verification(format!("corrupt package archive: {e}"));
     for entry in tar.entries().map_err(corrupt)? {
-        let mut entry = entry.map_err(corrupt)?;
+        let mut entry = match entry {
+            Ok(entry) => entry,
+            // A gzip stream whose first block is not a tar header: a
+            // compressed bare binary, not a package.
+            Err(e) if entries_seen == 0 => {
+                return Err(Error::rejected(format!(
+                    "package is gzip but not tar ({e}); store packages are tar.gz only"
+                )));
+            }
+            Err(e) => return Err(corrupt(e)),
+        };
         entries_seen += 1;
         if entries_seen > limits.max_entries {
             return Err(unsafe_entry(format!("more than {} entries", limits.max_entries)));
@@ -184,6 +195,11 @@ pub fn unpack(archive: &Path, dest: &Path, limits: Limits) -> Result<()> {
                 return Err(unsafe_entry(format!("{} has entry type {other:?}", rel.display())));
             }
         }
+    }
+    if entries_seen == 0 {
+        return Err(Error::rejected(
+            "package archive holds no tar entries; store packages are tar.gz only",
+        ));
     }
     let root = fs::canonicalize(dest).ctx(dest.display())?;
     check_tree(&root, dest)
