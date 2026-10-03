@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "a16b47a7c9727a3a99bf179c57b23df1914985b16f536890eb562c4b1b3cfe7d";
+inline constexpr std::string_view kProtocolIrSha256 = "84a8bdedab4401d4d1a43451141a2dfe7029536563f6701d04ae2d02374fc8c2";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -2450,6 +2450,7 @@ struct NewRowRequest {
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
     Field<std::string> terminal_id{};
+    Field<std::string> transaction{};
     friend bool operator==(const NewRowRequest&, const NewRowRequest&) = default;
 };
 
@@ -2458,6 +2459,7 @@ struct NewRowResult {
     Id surface{};
     Field<std::string> terminal_id{};
     Field<std::string> terminal_incarnation{};
+    std::optional<std::string> transaction{};
     friend bool operator==(const NewRowResult&, const NewRowResult&) = default;
 };
 

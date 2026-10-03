@@ -114,7 +114,7 @@ Servers advertising `sticky-columns-v1` add `sticky` to a column pinned with `se
 
 Servers advertising `edge-docks-v1` also pin columns to the `top` or `bottom` edge: a screen-wide band the frontend draws above or below the scrolling columns. Such a column carries `dock` (same shape as `sticky`) instead of `sticky`, so a client without the capability renders it as an ordinary column. The per-edge, at-least-one-scrolling and normalization rules cover all four edges. A top or bottom pin persists outside the screen's stored viewport record, so a daemon without the capability reads the column as an ordinary one.
 
-Servers advertising `rows-v1` add `rows` to a column with two or more rows and omit it for a column with one row. Each column is a vertical strip of rows, top to bottom: `id` is the row's stable id, `height` its height in permille of the column's viewport height (100 to 1000; the sum is not fixed, at most 1000 fills the column and more scrolls it), and `layout` the split tree inside the row. The column's `layout` stays the compatibility chain: the rows folded into `down` splits whose `split` ids are the ids of rows 2..n and whose ratios follow the heights, so a client without the capability still sees every pane. `set-split-ratio` and `set-ratio` refuse such a synthetic split with `row-split-compat-readonly`; resize rows with `set-row-heights`. One column with two or more rows keeps `columns`; a removal that leaves one column with one row collapses the screen to its split tree. An emptied row is removed in the same commit. Rows persist across daemon restarts outside the screen's stored viewport record and are restored by `undo-layout`. A column of rows that gains a second column gets a new `id`.
+Servers advertising `rows-v1` add `rows` to a column with two or more rows and omit it for a column with one row. Each column is a vertical strip of rows, top to bottom: `id` is the row's stable id, `height` its height in permille of the column's viewport height (100 to 1000; the sum is not fixed, at most 1000 fills the column and more scrolls it), and `layout` the split tree inside the row. The column's `layout` stays the compatibility chain: the rows folded into `down` splits whose `split` ids are the ids of rows 2..n and whose ratios follow the heights, so a client without the capability still sees every pane. `set-split-ratio` and `set-ratio` refuse such a synthetic split with `row-split-compat-readonly`; resize rows with `set-row-heights`. One column with two or more rows keeps `columns`; a removal that leaves one column with one row collapses the screen to its split tree. An emptied row is removed in the same commit. Rows persist across daemon restarts outside the screen's stored viewport record and are restored by `undo-layout`. `workspace.layout.apply` on a screen with rows is refused (`operation.failed`, `reason_code: "rows-layout-replace-unsupported"`) and changes nothing, because layout documents do not carry rows yet. A column of rows that gains a second column gets a new `id`.
 
 `Layout`:
 
@@ -2109,11 +2109,12 @@ Params:
 | `keep` | boolean | default false | Mark the new terminal `keep` |
 | `terminal_id` | string | default null | Caller-chosen terminal host id, as on `new-pane-right` |
 | `shell_args` | array<string> | default null | Arguments for the terminal's shell, as on `new-pane-right` |
+| `transaction` | string | default null | 1-128 printable ASCII characters; echoed in the result and in the commit's `screen-changed` delta |
 
 Result:
 
 ```text
-object{surface:Id,pane:Id,terminal_id?:string|null,terminal_incarnation?:string|null}
+object{surface:Id,pane:Id,terminal_id?:string|null,terminal_incarnation?:string|null,transaction?:string}
 ```
 
 Errors:
@@ -2155,8 +2156,10 @@ Params:
 Result:
 
 ```text
-object{screen:Id,column:Id,changed:boolean}
+object{screen:Id,column:Id,changed:boolean,transaction?:uint64}
 ```
+
+`transaction` echoes the request's value and is omitted when the request had none. The `screen-changed` delta of a change carries it as a decimal string.
 
 Errors:
 

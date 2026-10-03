@@ -171,3 +171,85 @@ fn undo_layout_restores_the_rows() {
     assert_eq!(wire.rows(0)[0]["height"], 1000, "undo restores the heights");
     let _ = first;
 }
+
+/// The `screen-changed` deltas in `events`, with their transactions.
+fn screen_changed_transactions(events: &crate::MuxEventReceiver) -> Vec<Option<String>> {
+    events
+        .try_iter()
+        .filter_map(|event| match event {
+            MuxEvent::TreeDelta(delta) if delta.kind == TreeDeltaKind::ScreenChanged => {
+                Some(delta.transaction.map(|transaction| transaction.to_string()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// mutation-echo: `new-row` echoes its transaction in the result and in the
+/// screen's `screen-changed` delta, so a client can settle its intent.
+#[test]
+fn new_row_echoes_its_transaction() {
+    let (mut wire, pane) = Wire::lone();
+    let events = wire.mux.subscribe();
+    let created = wire.ok(json!({
+        "cmd": "new-row", "pane": pane, "height_permille": 500, "transaction": "tx-row",
+    }));
+    assert_eq!(created["transaction"], "tx-row");
+    let echoed = screen_changed_transactions(&events);
+    assert!(echoed.contains(&Some("tx-row".to_string())), "{echoed:?}");
+    let refused = wire.send(json!({
+        "cmd": "new-row", "pane": pane, "height_permille": 500, "transaction": "",
+    }));
+    assert_eq!(refused["ok"], false, "an empty transaction is refused: {refused}");
+}
+
+#[test]
+fn set_row_heights_echoes_its_transaction() {
+    let (mut wire, pane) = Wire::lone();
+    wire.ok(json!({"cmd": "new-row", "pane": pane, "height_permille": 500}));
+    let column = wire.columns()[0]["id"].clone();
+    let ids: Vec<Value> = wire.rows(0).iter().map(|row| row["id"].clone()).collect();
+    let events = wire.mux.subscribe();
+    let data = wire.ok(json!({
+        "cmd": "set-row-heights", "column": column, "transaction": 12,
+        "heights": [{"row": ids[0], "height": 700}, {"row": ids[1], "height": 300}],
+    }));
+    assert_eq!(data["transaction"], 12);
+    let echoed = screen_changed_transactions(&events);
+    assert!(echoed.contains(&Some("12".to_string())), "{echoed:?}");
+}
+
+/// Layout documents carry no rows yet: `workspace.layout.apply` on a screen
+/// with rows is refused and changes nothing (rows.md decision 5).
+#[test]
+fn layout_apply_on_a_screen_with_rows_is_refused() {
+    let (mut wire, pane) = Wire::lone();
+    wire.ok(json!({"cmd": "new-row", "pane": pane, "height_permille": 500}));
+    let before = wire.screen();
+    let (workspace, screen) = wire.mux.with_state(|state| {
+        let workspace = &state.workspaces[0];
+        (workspace.public_id.to_string(), workspace.screens[0].public_id.to_string())
+    });
+    let resource = |operation: &str, params: Value, key: Option<&str>| {
+        let mut request = json!({
+            "protocol": "cmux.protocol/2", "type": "request", "id": operation,
+            "operation": operation, "params": params,
+        });
+        if let Some(key) = key {
+            request["idempotency_key"] = json!(key);
+        }
+        crate::resource_router::handle_resource_message(&wire.mux, &request.to_string()).unwrap()
+    };
+    let scope = json!({"machine": "current", "session": "current", "screen": screen});
+    let layout = resource("screen.layout.export", scope, None)["result"].clone();
+    assert!(layout.is_object(), "{layout}");
+    let params = json!({
+        "machine": "current", "session": "current", "workspace": workspace, "layout": layout,
+    });
+    let applied = resource("workspace.layout.apply", params, Some("rows-apply"));
+    assert_eq!(
+        applied["error"]["details"]["extra"]["reason_code"], "rows-layout-replace-unsupported",
+        "{applied}"
+    );
+    assert_eq!(wire.screen(), before, "a refused apply changes nothing");
+}

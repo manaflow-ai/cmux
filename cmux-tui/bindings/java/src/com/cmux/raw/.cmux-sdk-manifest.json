@@ -1102,13 +1102,13 @@
     },
     {
       "path": "NewRowRequest.java",
-      "sha256": "2c9d7f4f89eeb0f5b88258a3f0af573867c046a491aaddc35357ac1c97c46789",
-      "size": 7323
+      "sha256": "f414c43595164f5920d039df016fa56dc82f90d4cde297243617bd0994cb9694",
+      "size": 8048
     },
     {
       "path": "NewRowResult.java",
-      "sha256": "1c95d7a8414f17eb4486f93c53df9d7b1be265717e7e25cc6d1aee097256a8c5",
-      "size": 4126
+      "sha256": "5dc3bb6b7d1235649fd9c6e96c9fdba46623151fc61009e294a02c5414ea8f10",
+      "size": 4810
     },
     {
       "path": "NewScreenRequest.java",
@@ -1262,7 +1262,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "5bebe845d108994c6140e81a18a5625976894e8a0d323b686e87d6d959d197c4",
+      "sha256": "e2c49a137f5233fbbac95d93e09e357c875f087a1bca6394efc1272a8d7146b1",
       "size": 4943
     },
     {
@@ -2337,7 +2337,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "a16b47a7c9727a3a99bf179c57b23df1914985b16f536890eb562c4b1b3cfe7d",
+  "ir_sha256": "84a8bdedab4401d4d1a43451141a2dfe7029536563f6701d04ae2d02374fc8c2",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

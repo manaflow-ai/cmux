@@ -6478,6 +6478,14 @@
      },
      "presence": "optional",
      "nullable": true
+    },
+    "transaction": {
+     "nullable": false,
+     "presence": "optional",
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     }
     }
    },
    "kind": "object"
@@ -17445,6 +17453,7 @@
    "capability": "rows-v1",
    "constraints": [
     "Opens a new row of height_permille below the row of pane in that pane's column, holding one new pane with one new terminal. On a split screen the screen's tree first becomes the only row of one column.",
+    "transaction (1-128 printable ASCII) is echoed in the result and in the screen-changed delta of the commit.",
     "See spec/commands.md for the result object and error codes."
    ],
    "request": {
@@ -17546,6 +17555,15 @@
         "format": "terminal host id (UUIDv4 hex without dashes)"
        }
       ]
+     },
+     "transaction": {
+      "default": null,
+      "nullable": true,
+      "presence": "optional",
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      }
      }
     },
     "kind": "object"
@@ -17562,6 +17580,7 @@
    "capability": "rows-v1",
    "constraints": [
     "heights names every row of column exactly once; a stale row set, a height outside 100..1000, or fit with a sum other than 1000 is refused and changes nothing.",
+    "transaction is echoed in the result and, as a decimal string, in the screen-changed delta.",
     "See spec/commands.md for the result object and error codes."
    ],
    "request": {

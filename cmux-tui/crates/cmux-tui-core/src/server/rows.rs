@@ -24,16 +24,34 @@ pub(super) struct NewRowParams {
     terminal_id: Option<String>,
     #[serde(default)]
     shell_args: Option<Vec<String>>,
+    /// Echoed in the result and in the `screen-changed` delta.
+    #[serde(default)]
+    transaction: Option<String>,
 }
 
 pub(super) fn new_row(mux: &Arc<Mux>, params: NewRowParams) -> anyhow::Result<Value> {
-    let NewRowParams { pane, height_permille, cols, rows, cwd, env, keep, terminal_id, shell_args } =
-        params;
+    let NewRowParams {
+        pane,
+        height_permille,
+        cols,
+        rows,
+        cwd,
+        env,
+        keep,
+        terminal_id,
+        shell_args,
+        transaction,
+    } = params;
+    validate_client_transaction(transaction.as_deref())?;
     let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args)?;
+    let size = optional_surface_size(cols, rows);
     let surface =
-        mux.new_row_with_options(pane, height_permille, spawn, optional_surface_size(cols, rows))?;
+        mux.new_row_with_options(pane, height_permille, spawn, size, transaction.clone())?;
     let mut result = placed_terminal_result(mux, &surface, keep)?;
     result["pane"] = json!(mux.with_state(|state| state.pane_of(surface.id)));
+    if let Some(transaction) = transaction {
+        result["transaction"] = json!(transaction);
+    }
     Ok(result)
 }
 
@@ -61,9 +79,14 @@ pub(super) fn set_row_heights(
 ) -> anyhow::Result<Value> {
     let SetRowHeightsParams { column, heights, fit, transaction } = params;
     let heights = heights.iter().map(|entry| (entry.row, entry.height)).collect::<Vec<_>>();
-    let transaction = transaction.map(|transaction| (client, transaction));
-    let outcome = mux.set_row_heights(column, &heights, fit, transaction)?;
-    Ok(json!({"screen": outcome.screen, "column": outcome.column, "changed": outcome.changed}))
+    let scoped = transaction.map(|transaction| (client, transaction));
+    let outcome = mux.set_row_heights(column, &heights, fit, scoped)?;
+    let mut data =
+        json!({"screen": outcome.screen, "column": outcome.column, "changed": outcome.changed});
+    if let Some(transaction) = transaction {
+        data["transaction"] = json!(transaction);
+    }
+    Ok(data)
 }
 
 /// `error_code` of a rejected row command.

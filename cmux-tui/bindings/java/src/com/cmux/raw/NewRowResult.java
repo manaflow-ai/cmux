@@ -15,6 +15,7 @@ public final class NewRowResult implements WireValue {
     private final UInt64 surface;
     private final Field<String> terminalId;
     private final Field<String> terminalIncarnation;
+    private final Field<String> transaction;
 
     private NewRowResult(Builder builder) {
         if (!builder.paneSet) throw new IllegalArgumentException("pane is required");
@@ -23,6 +24,7 @@ public final class NewRowResult implements WireValue {
         this.surface = Wire.nonNull(builder.surface, "surface");
         this.terminalId = builder.terminalId;
         this.terminalIncarnation = builder.terminalIncarnation;
+        this.transaction = builder.transaction;
     }
 
     public static Builder builder() { return new Builder(); }
@@ -31,6 +33,7 @@ public final class NewRowResult implements WireValue {
     public UInt64 surface() { return surface; }
     public Field<String> terminalId() { return terminalId; }
     public Field<String> terminalIncarnation() { return terminalIncarnation; }
+    public Field<String> transaction() { return transaction; }
 
     public static NewRowResult fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "NewRowResult");
@@ -47,6 +50,10 @@ public final class NewRowResult implements WireValue {
         if (!Wire.isMissing(rawTerminalIncarnation)) {
             builder.terminalIncarnation(rawTerminalIncarnation == null ? null : Wire.string(rawTerminalIncarnation, "NewRowResult.terminal_incarnation"));
         }
+        Object rawTransaction = Wire.optional(object, "transaction");
+        if (!Wire.isMissing(rawTransaction)) {
+            builder.transaction(Wire.string(rawTransaction, "NewRowResult.transaction"));
+        }
         return builder.build();
     }
 
@@ -57,17 +64,18 @@ public final class NewRowResult implements WireValue {
         Wire.put(object, "surface", surface);
         Wire.put(object, "terminal_id", terminalId);
         Wire.put(object, "terminal_incarnation", terminalIncarnation);
+        Wire.put(object, "transaction", transaction);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NewRowResult that)) return false;
-        return Objects.equals(pane, that.pane) && Objects.equals(surface, that.surface) && Objects.equals(terminalId, that.terminalId) && Objects.equals(terminalIncarnation, that.terminalIncarnation);
+        return Objects.equals(pane, that.pane) && Objects.equals(surface, that.surface) && Objects.equals(terminalId, that.terminalId) && Objects.equals(terminalIncarnation, that.terminalIncarnation) && Objects.equals(transaction, that.transaction);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(pane, surface, terminalId, terminalIncarnation); }
+    public int hashCode() { return Objects.hash(pane, surface, terminalId, terminalIncarnation, transaction); }
 
     @Override
     public String toString() { return "NewRowResult" + toWire(); }
@@ -79,6 +87,7 @@ public final class NewRowResult implements WireValue {
         private boolean surfaceSet;
         private Field<String> terminalId = Field.omitted();
         private Field<String> terminalIncarnation = Field.omitted();
+        private Field<String> transaction = Field.omitted();
 
         public Builder pane(UInt64 value) {
             this.pane = value;
@@ -96,6 +105,10 @@ public final class NewRowResult implements WireValue {
         }
         public Builder terminalIncarnation(String value) {
             this.terminalIncarnation = Field.ofNullable(value);
+            return this;
+        }
+        public Builder transaction(String value) {
+            this.transaction = Field.of(value);
             return this;
         }
         public NewRowResult build() { return new NewRowResult(this); }
