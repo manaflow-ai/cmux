@@ -31,7 +31,7 @@ use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt};
+use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -500,6 +500,11 @@ fn bind_datagram_socket(path: &Path) -> io::Result<(UnixDatagram, (u64, u64))> {
         Err(error) => return Err(error),
     }
     let socket = UnixDatagram::bind(path)?;
+    // The 0700 directory already keeps others out; 0600 says so on the file.
+    if let Err(error) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)) {
+        let _ = std::fs::remove_file(path);
+        return Err(error);
+    }
     for option in [libc::SO_RCVBUF, libc::SO_SNDBUF] {
         let size = DATAGRAM_SOCKET_BUFFER;
         // A smaller buffer than asked is fine; it only drops sooner.
