@@ -19,6 +19,26 @@ protocol MacComposerViewDelegate: AnyObject {
 
 /// Text view that sends on Return and inserts a newline on Shift/Option-Return.
 final class MacComposerTextView: NSTextView {
+    /// While set, the caret rect reported to the input system is this screen
+    /// rect; the character palette uses it to anchor, so the emoji picker
+    /// points at the emoji button, as in Messages.
+    var paletteAnchorScreenRect: NSRect?
+
+    override func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
+        paletteAnchorScreenRect ?? super.firstRect(forCharacterRange: range, actualRange: actualRange)
+    }
+
+    // Once anything is typed or picked, the input system follows the caret again.
+    override func didChangeText() {
+        paletteAnchorScreenRect = nil
+        super.didChangeText()
+    }
+
+    override func resignFirstResponder() -> Bool {
+        paletteAnchorScreenRect = nil
+        return super.resignFirstResponder()
+    }
+
     var onSubmit: (() -> Void)?
     var onPasteImages: (([NSImage]) -> Bool)?
 
@@ -401,6 +421,11 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
 
     @objc private func emojiTapped() {
         window?.makeFirstResponder(textView)
+        if let window {
+            // Anchor the palette's arrow at the emoji button's top center.
+            let rect = emojiButton.convert(emojiButton.bounds, to: nil)
+            textView.paletteAnchorScreenRect = window.convertToScreen(rect)
+        }
         NSApp.orderFrontCharacterPalette(nil)
     }
 
