@@ -10,12 +10,6 @@ use serde_json::Value;
 
 use super::mirror::{Facts, Source, Tier};
 
-/// Default first-party apps of this deployment: installed for everyone with
-/// their required scopes and no consent sheet (plan section 13). Empty until
-/// the first first-party app ships; `CMUX_APPS_DEFAULT` (comma separated)
-/// overrides it per deployment.
-pub const DEFAULT_APPS: &[&str] = &[];
-
 /// Publishers whose apps are first-party.
 const FIRST_PARTY: &[&str] = &["cmux", "manaflow-ai"];
 
@@ -58,12 +52,58 @@ impl Package {
             .map(str::to_string)
     }
 
-    /// The export behind a catalog op of the app (`catalog` file,
-    /// `operations.<op>.export`).
+    /// The app's catalog ops as `(name, entry)`. The catalog is a file
+    /// (`catalog: "catalog.json"`, the schema's form) or inline; operations
+    /// are a map keyed by name or a list of entries with `name` (both forms
+    /// exist while the first-party manifests converge on the schema).
+    pub fn catalog_ops(&self) -> Vec<(String, Value)> {
+        let catalog = match self.manifest.get("catalog") {
+            Some(Value::String(file)) => {
+                self.read(file).and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
+            }
+            Some(inline @ Value::Object(_)) => Some(inline.clone()),
+            _ => None,
+        };
+        match catalog.as_ref().and_then(|c| c.get("operations")) {
+            Some(Value::Object(map)) => {
+                map.iter().map(|(name, e)| (name.clone(), e.clone())).collect()
+            }
+            Some(Value::Array(list)) => list
+                .iter()
+                .filter_map(|e| Some((e.get("name")?.as_str()?.to_string(), e.clone())))
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The export behind a catalog op of the app.
     pub fn export_for_op(&self, op: &str) -> Option<String> {
-        let file = self.manifest.get("catalog")?.as_str()?;
-        let catalog: Value = serde_json::from_slice(&self.read(file)?).ok()?;
-        catalog.get("operations")?.get(op)?.get("export")?.as_str().map(str::to_string)
+        let (_, entry) = self.catalog_ops().into_iter().find(|(name, _)| name == op)?;
+        entry.get("export")?.as_str().map(str::to_string)
+    }
+
+    /// The app's palette commands for `apps-list`: catalog ops on the
+    /// palette surface (`surfaces.palette: true`, or a `palette` object).
+    pub fn palette_commands(&self) -> Vec<Value> {
+        self.catalog_ops()
+            .into_iter()
+            .filter_map(|(op, entry)| {
+                let palette = entry.get("palette");
+                let offered = entry.pointer("/surfaces/palette") == Some(&Value::Bool(true))
+                    || palette.is_some_and(Value::is_object);
+                if !offered {
+                    return None;
+                }
+                let field = |key: &str| palette.and_then(|p| p.get(key)).or_else(|| entry.get(key)).cloned();
+                let mut command = serde_json::json!({ "op": op, "title": field("title").unwrap_or_else(|| Value::String(op.clone())) });
+                for key in ["symbol", "keywords"] {
+                    if let Some(value) = field(key) {
+                        command[key] = value;
+                    }
+                }
+                Some(command)
+            })
+            .collect()
     }
 
     /// The app's main script, read when its host starts.
@@ -125,46 +165,59 @@ pub struct Catalog {
 /// Where packages come from.
 #[derive(Debug, Clone, Default)]
 pub struct Sources {
-    /// Directories of app package directories shipped with cmux.
+    /// The first-party bundles shipped with cmux: every valid package here is
+    /// a default app (installed for everyone with its required scopes,
+    /// hideable, removable with a tombstone). The Mac app passes
+    /// `Contents/Resources/apps/first-party` as `CMUX_APPS_FIRST_PARTY_DIR`;
+    /// elsewhere it is `apps/first-party` next to the daemon.
+    pub first_party: Option<PathBuf>,
+    /// Directories of other app packages shipped with cmux (samples).
     pub bundled: Vec<PathBuf>,
     /// The local development directory (`<state>/apps/local`).
     pub local: Option<PathBuf>,
-    pub defaults: Vec<String>,
+    /// `CMUX_APPS_DEFAULT` (comma separated): replaces the first-party
+    /// directory as the default set when present.
+    pub defaults: Option<Vec<String>>,
 }
 
 impl Sources {
-    /// Bundled dirs from `CMUX_APPS_DIRS` (path list) or `<exe dir>/apps`,
-    /// the local dir under the daemon state dir, defaults from
-    /// `CMUX_APPS_DEFAULT` or [`DEFAULT_APPS`].
     pub fn from_env(state_dir: Option<&Path>) -> Self {
+        let exe_dir =
+            std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf));
+        let first_party = std::env::var_os("CMUX_APPS_FIRST_PARTY_DIR")
+            .map(PathBuf::from)
+            .or_else(|| exe_dir.as_ref().map(|d| d.join("apps").join("first-party")));
         let bundled = match std::env::var_os("CMUX_APPS_DIRS") {
             Some(list) => std::env::split_paths(&list).collect(),
-            None => std::env::current_exe()
-                .ok()
-                .and_then(|exe| exe.parent().map(|d| vec![d.join("apps")]))
-                .unwrap_or_default(),
+            None => exe_dir.map(|d| vec![d.join("apps")]).unwrap_or_default(),
         };
-        let defaults = match std::env::var("CMUX_APPS_DEFAULT") {
-            Ok(list) => list
-                .split(',')
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string)
-                .collect(),
-            Err(_) => DEFAULT_APPS.iter().map(|s| s.to_string()).collect(),
-        };
-        Self { bundled, local: state_dir.map(|d| d.join("apps").join("local")), defaults }
+        let defaults = std::env::var("CMUX_APPS_DEFAULT").ok().map(|list| {
+            list.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect()
+        });
+        Self {
+            first_party,
+            bundled,
+            local: state_dir.map(|d| d.join("apps").join("local")),
+            defaults,
+        }
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DirKind {
+    FirstParty,
+    Bundled,
+    Local,
+}
+
 pub fn load(sources: &Sources) -> Catalog {
-    let mut catalog = Catalog { defaults: sources.defaults.clone(), ..Catalog::default() };
-    let mut dirs: Vec<(PathBuf, bool)> =
-        sources.bundled.iter().map(|d| (d.clone(), false)).collect();
-    if let Some(local) = &sources.local {
-        dirs.push((local.clone(), true));
-    }
-    for (root, local) in dirs {
+    let mut catalog = Catalog::default();
+    let mut dirs: Vec<(PathBuf, DirKind)> = Vec::new();
+    dirs.extend(sources.first_party.iter().map(|d| (d.clone(), DirKind::FirstParty)));
+    dirs.extend(sources.bundled.iter().map(|d| (d.clone(), DirKind::Bundled)));
+    dirs.extend(sources.local.iter().map(|d| (d.clone(), DirKind::Local)));
+    let mut shipped_first_party = Vec::new();
+    for (root, kind) in dirs {
         let Ok(entries) = std::fs::read_dir(&root) else { continue };
         let mut paths: Vec<PathBuf> = entries
             .filter_map(|e| e.ok().map(|e| e.path()))
@@ -172,19 +225,30 @@ pub fn load(sources: &Sources) -> Catalog {
             .collect();
         paths.sort();
         for dir in paths {
-            match package(&dir, local, &catalog.defaults) {
-                Ok(package) => {
-                    // First source wins; a local package never shadows a bundled id.
-                    catalog.packages.entry(package.id.clone()).or_insert(package);
+            match package(&dir, kind) {
+                // First source wins: the first-party directory, then bundled,
+                // then local (a local package never shadows a shipped id).
+                Ok(package) if !catalog.packages.contains_key(&package.id) => {
+                    if kind == DirKind::FirstParty {
+                        shipped_first_party.push(package.id.clone());
+                    }
+                    catalog.packages.insert(package.id.clone(), package);
                 }
+                Ok(_) => {}
                 Err(issue) => catalog.rejected.push((dir, issue)),
             }
+        }
+    }
+    catalog.defaults = sources.defaults.clone().unwrap_or(shipped_first_party);
+    for id in &catalog.defaults {
+        if let Some(package) = catalog.packages.get_mut(id) {
+            package.source = Source::Default;
         }
     }
     catalog
 }
 
-fn package(dir: &Path, local: bool, defaults: &[String]) -> Result<Package, String> {
+fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
     let report = cmux_app_manifest::validate_package(dir);
     if !report.is_valid() {
         let first = report.issues.iter().find(|i| i.severity == cmux_app_manifest::Severity::Error);
@@ -195,18 +259,20 @@ fn package(dir: &Path, local: bool, defaults: &[String]) -> Result<Package, Stri
     let manifest = report.manifest.ok_or("no manifest")?;
     let id = manifest["id"].as_str().unwrap_or_default().to_string();
     let publisher = id.split('/').next().unwrap_or_default();
-    if local && publisher != "local" {
-        return Err(format!("{id}: the local directory only holds local/ apps"));
+    let first_party = FIRST_PARTY.contains(&publisher);
+    match kind {
+        DirKind::Local if publisher != "local" => {
+            return Err(format!("{id}: the local directory only holds local/ apps"));
+        }
+        DirKind::FirstParty if !first_party => {
+            return Err(format!("{id}: the first-party directory only holds first-party apps"));
+        }
+        _ => {}
     }
-    let tier = if FIRST_PARTY.contains(&publisher) && !local {
-        Tier::FirstParty
-    } else {
-        Tier::Unverified
-    };
-    let source = if local || publisher == "local" {
+    let tier =
+        if first_party && kind != DirKind::Local { Tier::FirstParty } else { Tier::Unverified };
+    let source = if kind == DirKind::Local || publisher == "local" {
         Source::Local
-    } else if defaults.contains(&id) {
-        Source::Default
     } else {
         Source::Bundled
     };
@@ -218,4 +284,32 @@ fn package(dir: &Path, local: bool, defaults: &[String]) -> Result<Package, Stri
         dir: dir.to_path_buf(),
         manifest,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn inline_catalogs_with_operation_lists_give_exports_and_palette_commands() {
+        let package = Package {
+            id: "cmux/notes".into(),
+            version: "1.0.0".into(),
+            tier: Tier::FirstParty,
+            source: Source::Bundled,
+            dir: std::env::temp_dir(),
+            manifest: json!({ "catalog": { "operations": [
+                { "name": "notes.export", "export": "exportNotes", "palette": { "title": { "en": "Export" }, "symbol": "square.and.arrow.up" } },
+                { "name": "notes.open", "export": "open" }
+            ] } }),
+        };
+        assert_eq!(package.export_for_op("notes.open").as_deref(), Some("open"));
+        assert_eq!(
+            package.palette_commands(),
+            vec![
+                json!({ "op": "notes.export", "title": { "en": "Export" }, "symbol": "square.and.arrow.up" })
+            ]
+        );
+    }
 }

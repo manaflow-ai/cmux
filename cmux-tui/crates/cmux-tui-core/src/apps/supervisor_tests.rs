@@ -209,7 +209,7 @@ fn write_app(root: &Path, dir: &str, id: &str, scopes: Value) {
     let app = root.join(dir);
     std::fs::create_dir_all(app.join("dist")).unwrap();
     std::fs::write(app.join("dist/main.js"), "var __cmuxAppExports = {};").unwrap();
-    std::fs::write(app.join("catalog.json"), json!({ "operations": { "demo.go": { "export": "go" }, "demo.crash": { "export": "crash" }, "demo.focus": { "export": "focusTab" } } }).to_string()).unwrap();
+    std::fs::write(app.join("catalog.json"), json!({ "operations": { "demo.go": { "export": "go", "title": "Go", "surfaces": { "palette": true }, "keywords": ["run"] }, "demo.crash": { "export": "crash" }, "demo.focus": { "export": "focusTab" } } }).to_string()).unwrap();
     let mut manifest = json!({
         "manifestVersion": 2, "id": id, "name": "Demo", "version": "1.0.0", "description": "d",
         "engines": { "cmux": "^2.0" }, "runtime": { "main": "dist/main.js" }, "catalog": "catalog.json",
@@ -286,9 +286,10 @@ fn fixture_with(defaults: &[&str], idle: Duration, root: TempDir) -> Fixture {
             .map(String::from)
             .to_vec(),
             sources: Sources {
+                first_party: None,
                 bundled: vec![bundled],
                 local: Some(state.join("apps/local")),
-                defaults: defaults.iter().map(|s| s.to_string()).collect(),
+                defaults: Some(defaults.iter().map(|s| s.to_string()).collect()),
             },
             idle_stop: idle,
             provider_deadline: Duration::from_millis(400),
@@ -1111,4 +1112,113 @@ fn only_the_cmux_app_and_never_an_agent_may_provide() {
         f.call("m1", "action.run", json!({ "id": "newWindow" }), true)["body"]["code"],
         "provider.unavailable"
     );
+}
+
+#[test]
+fn apps_list_lists_palette_commands_and_apps_run_runs_them() {
+    let f = fixture();
+    f.install("cmux/demo");
+    let demo = app_entry(&f.supervisor.list(), "cmux/demo");
+    assert_eq!(demo["commands"], json!([{ "op": "demo.go", "title": "Go", "keywords": ["run"] }]));
+    let (tx, rx) = channel();
+    f.supervisor.run(
+        run_request("cmux/demo", "demo.go", None, Origin::User, None),
+        Box::new(move |r| tx.send(r).unwrap()),
+    );
+    assert_eq!(
+        rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap(),
+        json!({ "value": "go" })
+    );
+}
+
+#[test]
+fn the_shipped_first_party_directory_is_the_default_set() {
+    let root = temp_dir();
+    let first_party = root.0.join("first-party");
+    write_app(&first_party, "coderouter", "cmux/coderouter", json!({ "workspace:read": "r" }));
+    write_app(&first_party, "impostor", "octo/impostor", json!({}));
+    let catalog = super::catalog::load(&Sources {
+        first_party: Some(first_party),
+        bundled: vec![],
+        local: None,
+        defaults: None,
+    });
+    assert_eq!(catalog.defaults, vec!["cmux/coderouter".to_string()]);
+    assert_eq!(catalog.packages["cmux/coderouter"].source, super::mirror::Source::Default);
+    assert!(
+        !catalog.packages.contains_key("octo/impostor"),
+        "only first-party apps load from there"
+    );
+    // CMUX_APPS_DEFAULT replaces the shipped set.
+    let overridden = super::catalog::load(&Sources {
+        first_party: Some(root.0.join("first-party")),
+        bundled: vec![],
+        local: None,
+        defaults: Some(vec![]),
+    });
+    assert!(overridden.defaults.is_empty());
+    assert_eq!(overridden.packages["cmux/coderouter"].source, super::mirror::Source::Bundled);
+}
+
+#[test]
+fn a_fresh_daemon_with_the_bundle_path_lists_coderouter_installed_by_default() {
+    let root = temp_dir();
+    let first_party = root.0.join("first-party");
+    write_app(&first_party, "coderouter", "cmux/coderouter", json!({ "workspace:read": "r" }));
+    let supervisor = Supervisor::new(
+        Config {
+            state_dir: Some(root.0.join("state")),
+            host_binary: None,
+            host_args: Vec::new(),
+            sources: Sources {
+                first_party: Some(first_party),
+                bundled: vec![],
+                local: None,
+                defaults: None,
+            },
+            idle_stop: Duration::from_secs(60),
+            provider_deadline: Duration::from_secs(30),
+            provider_user_deadline: Duration::from_secs(600),
+        },
+        Box::new(Arc::new(FakeRouter::default())),
+        Box::new(Arc::new(FakeFetcher::default())),
+    );
+    let coderouter = app_entry(&supervisor.list(), "cmux/coderouter");
+    assert_eq!(
+        (
+            coderouter["installed"].clone(),
+            coderouter["source"].clone(),
+            coderouter["grants"].clone()
+        ),
+        (json!(true), json!("default"), json!(["workspace:read"]))
+    );
+    // Removing it leaves a tombstone: a restart does not install it again.
+    let mut op = SetOp {
+        key: "rm".into(),
+        app: "cmux/coderouter".into(),
+        origin: Origin::User,
+        ..SetOp::default()
+    };
+    op.installed = Some(false);
+    supervisor.set(CLIENT, op).unwrap();
+    drop(supervisor);
+    let again = Supervisor::new(
+        Config {
+            state_dir: Some(root.0.join("state")),
+            host_binary: None,
+            host_args: Vec::new(),
+            sources: Sources {
+                first_party: Some(root.0.join("first-party")),
+                bundled: vec![],
+                local: None,
+                defaults: None,
+            },
+            idle_stop: Duration::from_secs(60),
+            provider_deadline: Duration::from_secs(30),
+            provider_user_deadline: Duration::from_secs(600),
+        },
+        Box::new(Arc::new(FakeRouter::default())),
+        Box::new(Arc::new(FakeFetcher::default())),
+    );
+    assert_eq!(app_entry(&again.list(), "cmux/coderouter")["installed"], false);
 }
