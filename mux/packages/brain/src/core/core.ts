@@ -63,6 +63,8 @@ export type Input =
       sessions: SessionSummary[];
       events: AcpmuxEvent[];
       cursor_reset?: boolean;
+      /** The log's identity: the `at` of its seq 1 event (absent for an empty log). */
+      log_id?: number;
     }
   | { kind: "acpmux_event"; event: AcpmuxEvent }
   | { kind: "session_changed"; session: SessionSummary }
@@ -181,7 +183,7 @@ export class Core {
         this.opResult(input.idempotency_key, input.reason, input.change);
         break;
       case "acpmux_connected":
-        this.acpmuxConnected(input.session_id, input.sessions, input.events, input.cursor_reset === true);
+        this.acpmuxConnected(input.session_id, input.sessions, input.events, input.cursor_reset === true, input.log_id);
         break;
       case "acpmux_event":
         if (input.event.sessionId !== undefined && input.event.sessionId === this.muxSession)
@@ -469,20 +471,52 @@ export class Core {
 
   // MARK: acpmux
 
-  private acpmuxConnected(sessionId: string, sessions: SessionSummary[], events: AcpmuxEvent[], cursorReset: boolean): void {
+  /**
+   * Reply keys and the log identity. The log identity is the `at` of the log's
+   * seq 1 event (`log_id`, else a replayed seq 1 event). A reset is a log whose
+   * turn seqs may repeat keys already used:
+   * - same session: `cursor_reset` (acpmux refused the saved cursor) or a known
+   *   identity that differs from host.json's `acpmuxLog`; the epoch becomes
+   *   max(identity, else now; previous epoch + 1), so a repeated import of the
+   *   same bundle still gets a new epoch;
+   * - a session host.json does not know (a lost or replaced host.json) with a
+   *   non-empty log: earlier epochs are unknown, so the epoch is now.
+   * Keys are `turn:<session>:<seq>` while no reset happened (the identity
+   * equals host.json's), else `turn:<session>:<epoch>:<seq>`. The replay of a
+   * reset posts no promptless turn; turns of prompts the core no longer holds
+   * never post (turnConversation).
+   */
+  private acpmuxConnected(
+    sessionId: string,
+    sessions: SessionSummary[],
+    events: AcpmuxEvent[],
+    cursorReset: boolean,
+    logId: number | undefined,
+  ): void {
     if (this.acpmuxUp) this.disconnected("acpmux");
+    const first = events[0];
+    const identity = logId ?? (first?.seq === 1 && typeof first.at === "number" ? first.at : undefined);
+    let reset = false;
     if (this.state.muxSessionId !== sessionId) {
       this.state.muxSessionId = sessionId;
       this.state.acpmuxSeq = 0;
       delete this.state.acpmuxEpoch;
+      delete this.state.acpmuxLog;
+      if (identity !== undefined) {
+        reset = true;
+        this.state.acpmuxEpoch = this.now;
+      }
       this.dirty = true;
-    } else if (cursorReset) {
-      // The log is shorter than the saved cursor (a re-imported session): replay it all.
-      // Its turn seqs restart, so reply keys get an epoch from now on: the `at` of the
-      // first replayed event (else now). Turns of prompts the core no longer holds post
-      // nothing (applyMuxEvent).
+    } else if (cursorReset || (identity !== undefined && identity !== this.state.acpmuxLog)) {
+      reset = true;
       this.state.acpmuxSeq = 0;
-      this.state.acpmuxEpoch = events[0]?.at ?? this.now;
+      const candidate = identity ?? this.now;
+      const previous = this.state.acpmuxEpoch;
+      this.state.acpmuxEpoch = previous === undefined ? candidate : Math.max(candidate, previous + 1);
+      this.dirty = true;
+    }
+    if (identity !== undefined && identity !== this.state.acpmuxLog) {
+      this.state.acpmuxLog = identity;
       this.dirty = true;
     }
     this.muxSession = sessionId;
@@ -491,7 +525,7 @@ export class Core {
       this.sessionInfo.set(session.sessionId, session);
     }
     this.folder = new TurnFolder(this.state.acpmuxSeq);
-    this.resetReplay = cursorReset;
+    this.resetReplay = reset;
     for (const event of events) this.applyMuxEvent(event);
     this.resetReplay = false;
     this.acpmuxUp = true;
@@ -502,6 +536,11 @@ export class Core {
   }
 
   private applyMuxEvent(event: AcpmuxEvent): void {
+    // A new log's first event names it (acpmuxLog), so a later connect can compare.
+    if (event.seq === 1 && typeof event.at === "number" && this.state.acpmuxLog === undefined) {
+      this.state.acpmuxLog = event.at;
+      this.dirty = true;
+    }
     for (const output of this.folder.apply(event)) {
       if (output.type === "accepted") {
         this.accept(output.promptId);

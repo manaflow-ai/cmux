@@ -362,11 +362,24 @@ export class MuxHost {
       const watched = (await acpmux.watch(true)) as { sessions?: unknown } | undefined;
       const listed = watched?.sessions;
       const sessions = Array.isArray(listed) ? (listed as SessionSummary[]) : await acpmux.sessions();
-      const after = this.core.state.muxSessionId === sessionId ? this.core.state.acpmuxSeq : 0;
-      const { events, cursorReset } = await this.attach(acpmux, sessionId, after);
+      // The log's identity is the `at` of its seq 1 event. A log host.json does
+      // not know (another session, or another identity) replays from 0; the core
+      // decides the reset and the reply-key epoch (core.ts acpmuxConnected).
+      const [firstEvent] = await acpmux.events(sessionId, 0, 1).catch(() => [] as AcpmuxEvent[]);
+      const logId = typeof firstEvent?.at === "number" ? firstEvent.at : undefined;
+      const state = this.core.state;
+      const known = state.muxSessionId === sessionId && (logId === undefined || logId === state.acpmuxLog);
+      const { events, cursorReset } = await this.attach(acpmux, sessionId, known ? state.acpmuxSeq : 0);
       this.acpmux = acpmux;
       this.log(`acpmux connected; mux session ${sessionId} (${events.length} events replayed)`);
-      this.feed({ kind: "acpmux_connected", session_id: sessionId, sessions, events, ...(cursorReset ? { cursor_reset: true } : {}) });
+      this.feed({
+        kind: "acpmux_connected",
+        session_id: sessionId,
+        sessions,
+        events,
+        ...(cursorReset ? { cursor_reset: true } : {}),
+        ...(logId === undefined ? {} : { log_id: logId }),
+      });
       const queued = held;
       held = undefined;
       for (const n of queued) this.onAcpmuxNotification(n);
@@ -388,7 +401,8 @@ export class MuxHost {
     try {
       return { events: (await acpmux.attach(sessionId, after)).events, cursorReset: false };
     } catch (error) {
-      // The log is shorter than the saved cursor (a re-imported session): replay it all; the owner dedupes replies.
+      // The log is shorter than the saved cursor (a re-imported session): replay it all. The core
+      // treats this as a reset: the replay posts no promptless turn and reply keys get a new epoch.
       if (after === 0 || !String(error).includes("cursor_future")) throw error;
       return { events: (await acpmux.attach(sessionId, 0)).events, cursorReset: true };
     }
