@@ -206,7 +206,12 @@ impl Mux {
                     if sticky.is_some() {
                         return Err(ColumnStickyError::LastScrollingColumn);
                     }
-                    let outcome = ColumnStickyOutcome { screen: screen.id, column: 0, sticky, changed: false };
+                    let outcome = ColumnStickyOutcome {
+                        screen: screen.id,
+                        column: 0,
+                        sticky,
+                        changed: false,
+                    };
                     return Ok(Some(outcome));
                 }
             }
