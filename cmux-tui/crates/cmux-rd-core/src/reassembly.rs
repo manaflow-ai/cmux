@@ -90,12 +90,12 @@ impl Reassembler {
             count: header.count,
             shards: vec![None; total],
         });
-        if entry.shards.len() == total && entry.count == header.count {
-            if let Some(slot) = entry.shards.get_mut(usize::from(header.index)) {
-                if slot.is_none() {
-                    *slot = Some(payload.to_vec());
-                }
-            }
+        if entry.shards.len() == total
+            && entry.count == header.count
+            && let Some(slot) = entry.shards.get_mut(usize::from(header.index))
+            && slot.is_none()
+        {
+            *slot = Some(payload.to_vec());
         }
         self.expire(now_us);
         self.release_ready()

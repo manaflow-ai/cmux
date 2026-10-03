@@ -99,10 +99,10 @@ impl FrameGate {
         if self.in_flight() >= self.max_in_flight {
             return FlowAction::Wait;
         }
-        if let Some(last) = self.last_encode_us {
-            if now_us < last + self.min_interval_us {
-                return FlowAction::Wait;
-            }
+        if let Some(last) = self.last_encode_us
+            && now_us < last + self.min_interval_us
+        {
+            return FlowAction::Wait;
         }
         self.pending = None;
         self.last_sent += 1;

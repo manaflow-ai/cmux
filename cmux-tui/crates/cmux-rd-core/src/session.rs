@@ -104,10 +104,10 @@ impl SessionTable {
         now_ms: u64,
     ) -> Result<SessionId, Deny> {
         let ledger_key = principal.map(|p| (p.install.clone(), key.to_owned()));
-        if let Some(k) = &ledger_key {
-            if let Some(decided) = self.started.get(k) {
-                return *decided;
-            }
+        if let Some(k) = &ledger_key
+            && let Some(decided) = self.started.get(k)
+        {
+            return *decided;
         }
         let decision = match admit(&self.policy, principal, mode, console_user, now_ms) {
             Admission::Deny(reason) => {
@@ -276,11 +276,11 @@ impl SessionTable {
     }
 
     fn end(&mut self, id: SessionId, reason: EndReason) {
-        if let Some(s) = self.sessions.get_mut(&id) {
-            if !matches!(s.state, SessionState::Ended(_)) {
-                s.state = SessionState::Ended(reason);
-                self.audit.push(AuditEvent::Ended { session: id, reason });
-            }
+        if let Some(s) = self.sessions.get_mut(&id)
+            && !matches!(s.state, SessionState::Ended(_))
+        {
+            s.state = SessionState::Ended(reason);
+            self.audit.push(AuditEvent::Ended { session: id, reason });
         }
     }
 }
