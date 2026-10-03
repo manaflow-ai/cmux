@@ -43,6 +43,9 @@ final class AgentTabStore {
     /// What each new chat inherits from the tab it was opened from, until
     /// its view reads it.
     private var seeds: [String: AgentPaneSeedSource] = [:]
+    /// The tab resuming each outside chat (`harness:agentSessionId`), so
+    /// picking the same chat again shows that tab instead of a second one.
+    private var adoptions: [String: String] = [:]
     /// The daemon tree each pane with agent tabs belongs to. It is watched,
     /// so the tabs of a pane closed out of sight (its window showing another
     /// workspace, its daemon away) close once the live tree drops the pane.
@@ -130,6 +133,17 @@ final class AgentTabStore {
         return key
     }
 
+    /// A tab resuming the outside chat `adopt`: the one already resuming it
+    /// while it is open anywhere, else a new chat in `paneKey` that adopts it
+    /// on connect.
+    func resume(_ adopt: AgentPaneAdopt, in paneKey: String, of store: DaemonStore) -> String {
+        let id = "\(adopt.harness):\(adopt.agentSessionId)"
+        if let key = adoptions[id], tabsByPane.values.contains(where: { $0.contains(key) }) { return key }
+        let key = open(in: paneKey, of: store, seed: AgentPaneSeedSource(AgentPaneSeed(adopt: adopt)))
+        adoptions[id] = key
+        return key
+    }
+
     /// Duplicate Tab: a new tab in `paneKey` after `key`, showing its session.
     func duplicate(_ key: String, in paneKey: String, of store: DaemonStore) -> String {
         open(in: paneKey, of: store, after: key, session: sessions[key])
@@ -206,13 +220,16 @@ final class AgentTabStore {
         sessions[key] = nil
         newTabPages[key] = nil
         seeds[key] = nil
+        adoptions = adoptions.filter { $0.value != key }
         forgetUnusedStores()
         stopCustomizationWhenUnused()
     }
 
     /// The pane closed: stop every agent tab it listed.
     func closePane(_ paneKey: String) {
-        for key in tabsByPane.removeValue(forKey: paneKey) ?? [] {
+        let closed = tabsByPane.removeValue(forKey: paneKey) ?? []
+        adoptions = adoptions.filter { !closed.contains($0.value) }
+        for key in closed {
             views.removeValue(forKey: key)?.close()
             sessions[key] = nil
             newTabPages[key] = nil
