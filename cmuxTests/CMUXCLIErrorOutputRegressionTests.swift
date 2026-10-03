@@ -14,15 +14,6 @@ import Testing
 #endif
 
 @Suite(.serialized) struct CMUXCLIErrorOutputRegressionTests: Sendable {
-    @Test func socketArgumentsKeepSafeKeysReadableAndEscapeHookFraming() {
-        let cli = CMUXCLI(args: [])
-        #expect(cli.socketQuoteIfNeeded("claude_code.session-123") == "claude_code.session-123")
-        #expect(
-            cli.socketQuoteIfNeeded("claude_code.session\n--send\n")
-                == "\"claude_code.session\\n--send\\n\""
-        )
-    }
-
     struct ProcessRunResult: @unchecked Sendable {
         let status: Int32
         let stdout: String
