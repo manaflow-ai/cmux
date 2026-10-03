@@ -7,7 +7,7 @@ fn plan(args: &[&str]) -> RequestPlan {
     let args = args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
     match super::super::command::parse(&args, super::super::Surface::Cmux) {
         Ok(CommandPlan::Protocol(plan)) => *plan,
-        other => panic!("{args:?} did not parse to a request: {other:?}"),
+        _ => panic!("{args:?} did not parse to a request"),
     }
 }
 
