@@ -57,7 +57,7 @@ Palette 732, CLI verbs 432, right-click 422, MCP tools 378.
 - **screenBar**: screen.new screen.newWith screen.reopenClosed
 - **notification**: notificationOpen | notificationToggleRead | notificationCopy | notificationDismiss
 - **sidebarItem**: sidebar.item.toggleLabel | sidebar.item.removeEverywhere sidebar.item.remove sidebar.item.hideApp
-- **sidebarSection**: sidebar.section.add sidebar.item.add | sidebar.section.rename [appearance] > (sidebar.section.useBuiltInLook sidebar.section.useListLook sidebar.section.toggleTitle sidebar.section.layoutList sidebar.section.layoutInline sidebar.section.layoutGrid sidebar.section.setAlignment sidebar.section.setGap sidebar.section.setColumns) [options] > (sidebar.section.toggleSpaceScope sidebar.section.setMaxRows) | sidebar.section.toggleCollapsed | [move] > (sidebar.section.moveToTop sidebar.section.moveToScrolling sidebar.section.moveToBottom) | sidebar.section.remove
+- **sidebarSection**: sidebar.section.add sidebar.item.add | sidebar.section.rename [appearance] > (sidebar.section.useBuiltInLook sidebar.section.useListLook sidebar.section.toggleTitle sidebar.section.layoutList sidebar.section.layoutInline sidebar.section.layoutGrid sidebar.section.setAlignment sidebar.section.setGap sidebar.section.setColumns) [options] > (sidebar.section.toggleSpaceScope sidebar.section.setMaxRows) | sidebar.section.toggleCollapsed | [move] > (sidebar.section.moveToTop sidebar.section.moveToScrolling sidebar.section.moveToBottom) | sidebar.section.remove sidebar.item.hideApp
 
 ## Exemptions: palette
 

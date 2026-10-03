@@ -105,7 +105,7 @@ import Testing
         func ids(_ context: ActionMenuContext) -> [ActionID] { menus.referencedIDs(menus.entries(for: context)) }
         #expect(ids(.sidebarSection).contains("sidebar.section.rename") && ids(.sidebarSection).contains("sidebar.section.remove"))
         #expect(ids(.sidebarItem).contains("sidebar.item.remove") && ids(.sidebarItem).contains("sidebar.item.removeEverywhere"))
-        #expect(ids(.sidebarItem).contains("sidebar.item.hideApp"))
+        #expect(ids(.sidebarItem).contains("sidebar.item.hideApp") && ids(.sidebarSection).contains("sidebar.item.hideApp"))
         #expect(ids(.sidebarBackground).contains("sidebar.home.add"))
     }
 }
