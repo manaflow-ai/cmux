@@ -77,7 +77,7 @@ final class DebugSettingsService: InternalPageProvider {
 
     /// Opens (or brings back) the window. Throws when this build has no
     /// developer tools.
-    func show(query: String? = nil, selection: DebugSettingsSelection? = nil) throws {
+    func show(query: String? = nil, selection: DebugSettingsSelection? = nil, focus: Bool = true) throws {
         guard isAvailable else { throw ActionFailure(message: RefusalStrings.debugSettingsUnavailable) }
         let model = sharedModel ?? DebugSettingsModel(store: TunableStore.shared, descriptors: TunableCatalog.all)
         sharedModel = model
@@ -85,7 +85,7 @@ final class DebugSettingsService: InternalPageProvider {
             if let query { model.query = query }
             if let selection { model.selection = selection }
             SettingsWindowModel.followTheme(window.themeScope)
-            if services.pages.show(.debugSettings, in: window, focus: services.viewChangeAllowed) != nil { return }
+            if services.pages.show(.debugSettings, in: window, focus: focus) != nil { return }
         }
         if controller == nil {
             let controller = DebugSettingsWindowController(model: model)

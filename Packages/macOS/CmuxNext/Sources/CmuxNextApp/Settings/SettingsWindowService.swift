@@ -34,8 +34,9 @@ final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
 
     /// Shows Settings on `section`, or scrolled to `setting` (a cmux.json
     /// key path, card or button `SettingsAnchor(key:)` knows) with its
-    /// highlight. An unknown setting is refused and opens nothing.
-    func show(section: SettingsSection?, setting: String? = nil) throws {
+    /// highlight. An unknown setting is refused and opens nothing. `focus`
+    /// false (automation) opens the tab without selecting it.
+    func show(section: SettingsSection?, setting: String? = nil, focus: Bool = true) throws {
         guard let settings = services.settings else { throw ActionFailure(message: RefusalStrings.settingsNotLoaded) }
         var anchor: SettingsAnchor?
         if let setting {
@@ -54,7 +55,7 @@ final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
             }
             // Settings draws in the theme of the window that shows it.
             SettingsWindowModel.followTheme(window.themeScope)
-            if services.pages.show(.settings, in: window, focus: services.viewChangeAllowed) != nil { return }
+            if services.pages.show(.settings, in: window, focus: focus) != nil { return }
         }
         if controller == nil {
             let controller = SettingsWindowController(model: model)

@@ -5,7 +5,7 @@ extension InternalPageTabStore {
     /// The catalog show action of every page (`openSettings`,
     /// `openDebugSettings`, `appStore.show`): selects `page`'s tab in
     /// `window`, else opens one after the focused pane's selected tab.
-    /// A user run selects and focuses it; automation (`viewChangeAllowed`
+    /// A user run selects and focuses it; automation (`ActionInvocation.allowsViewChange`
     /// false) opens it without changing the selection or focus. Returns the
     /// tab's view, or nil when `window` has no pane to hold it.
     @discardableResult
