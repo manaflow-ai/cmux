@@ -72,7 +72,6 @@ fn domain_kinds_check_the_published_domain() {
     assert!(accepts(font, &json!("Menlo"), &none).is_ok());
     assert!(accepts(font, &json!("  "), &none).is_err());
     assert!(accepts(sound, &json!("Glass"), &none).is_ok());
-    assert!(accepts(sound, &json!(""), &none).is_err());
 
     let published = Domains::published(
         vec!["Nord".into(), "Rose Pine".into(), "Rose Pine Dawn".into()],
@@ -128,4 +127,14 @@ fn agent_policy_and_reset_flags_come_from_the_export() {
         .collect();
     assert!(kept.contains("appearance.theme"));
     assert!(kept.contains("terminal.fontFamily"));
+}
+
+#[test]
+fn sound_accepts_any_string_until_a_domain_is_published() {
+    let schema = Schema::embedded();
+    let sound = schema.rows.iter().find(|row| row.kind.name() == "sound").unwrap();
+    let none = Domains::default();
+    assert!(accepts(sound, &json!(""), &none).is_ok(), "Swift accepts any string");
+    assert!(accepts(sound, &json!("Glass"), &none).is_ok());
+    assert!(accepts(sound, &json!(1), &none).is_err());
 }
