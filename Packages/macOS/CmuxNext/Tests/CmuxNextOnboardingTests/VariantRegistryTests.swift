@@ -65,16 +65,11 @@ import Testing
         defer { try? FileManager.default.removeItem(at: url) }
         let store = GalleryReviewStore(url: url)
         let gallery = OnboardingGalleryController(store: store, makeServices: { _ in self.sample() }, previewAppearance: { _ in })
-        // The gallery opens on Role; review starts on Default Browser, after First Task, Projects and Chats.
-        gallery.handle(.nextScreen)
-        gallery.handle(.nextScreen)
-        gallery.handle(.nextScreen)
-        gallery.handle(.nextScreen)
-        gallery.handle(.nextVariant)
-        gallery.handle(.nextVariant)
+        // Select the steps explicitly so adding a flow step does not change the
+        // persistence coverage below.
+        gallery.go(step: .defaultBrowser, index: 2)
         gallery.handle(.pick)
-        gallery.handle(.nextScreen)
-        gallery.handle(.jump(0))
+        gallery.go(step: .importData, index: 0)
         gallery.handle(.pick)
         gallery.handle(.compare)
         gallery.handle(.compare)
@@ -83,7 +78,7 @@ import Testing
         #expect(store.pick(for: .defaultBrowser) == browser)
         #expect(store.pick(for: .importData) == OnboardingModel.Step.importData.variants[0].id)
         let summary = GalleryReviewStore.summary(store.review)
-        #expect(summary.hasPrefix("Role: — · First Task: — · Projects: — · Chats: — · Default Browser: C (note: too much copy) · Import: A · Theme: —"))
+        #expect(summary.hasPrefix("Role: — · First Task: — · Projects: — · Classic Sessions: — · Chats: — · Default Browser: C (note: too much copy) · Import: A · Theme: —"))
         // A relaunch finds position, picks and notes.
         let reloaded = GalleryReviewStore(url: url)
         #expect(reloaded.review == store.review)
