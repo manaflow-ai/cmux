@@ -14,6 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "compile-app-host-test-product.sh"
+ROOT_SCRIPT = ROOT / "scripts" / "ci" / "canonical-build-root.sh"
 
 # The two layouts observed in CI. One underscore is the whole difference, and
 # it was enough to give the nightly seed and pull-request admission different
@@ -113,6 +114,40 @@ class CanonicalFingerprintTests(unittest.TestCase):
         old = self._fp(f"{root}/src", f"{root}/derived-data-compile-admission", xcode="Xcode 26.3", root=root)
         new = self._fp(f"{root}/src", f"{root}/derived-data-compile-admission", xcode="Xcode 27.0", root=root)
         self.assertNotEqual(old, new)
+
+    def test_self_hosted_runners_get_distinct_roots(self):
+        roots = []
+        for name in ("aws-m4pro-9-glaeda", "aws-m4pro-9-glaeda-1"):
+            result = subprocess.run(
+                [str(ROOT_SCRIPT), "--print-root"],
+                env={"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "self-hosted", "RUNNER_NAME": name},
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            roots.append(result.stdout.strip())
+        self.assertEqual(roots, [
+            "/private/tmp/cmux-ci-aws-m4pro-9-glaeda",
+            "/private/tmp/cmux-ci-aws-m4pro-9-glaeda-1",
+        ])
+
+    def test_hosted_runner_keeps_the_shared_default_and_override_wins(self):
+        hosted = subprocess.run(
+            [str(ROOT_SCRIPT), "--print-root"],
+            env={"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "github", "RUNNER_NAME": "GitHub Actions 42"},
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        self.assertEqual(hosted.stdout.strip(), "/private/tmp/cmux-ci")
+        override = subprocess.run(
+            [str(ROOT_SCRIPT), "--print-root"],
+            env={"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "self-hosted", "RUNNER_NAME": "aws-m4pro-9-glaeda-1", "CMUX_CI_CANONICAL_ROOT": "/private/tmp/custom"},
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        self.assertEqual(override.stdout.strip(), "/private/tmp/custom")
 
 
 class CanonicalRootMaterializationTests(unittest.TestCase):

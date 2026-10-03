@@ -989,10 +989,10 @@ private final class TitlebarControlRightClickNSView: NSView {
 }
 
 private struct TitlebarNotificationBadge: View {
-    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let unreadModel: SidebarUnreadModel
     let config: TitlebarControlsStyleConfig
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
+    @Environment(\.cmuxAccentColor) private var badgeAccent
 
     var body: some View {
         let unreadCount = unreadModel.totalUnreadCount
@@ -1005,7 +1005,7 @@ private struct TitlebarNotificationBadge: View {
                 )
                 .foregroundColor(.white)
                 .frame(width: config.badgeSize, height: config.badgeSize)
-                .background(Circle().fill(cmuxAccent.color))
+                .background(Circle().fill(badgeAccent.color))
                 .offset(x: config.badgeOffset.width, y: config.badgeOffset.height)
         }
     }
@@ -1959,7 +1959,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private var cachedContentSize: NSSize?
     private var lastObservedViewSize: NSSize = .zero
     private var lastAppliedLayoutSnapshot: TitlebarControlsLayoutSnapshot?
-    private weak var observedWindow: NSWindow?
+    private var observedWindowIdentifier: ObjectIdentifier?
     private var windowGeometryObservers: [NSObjectProtocol] = []
     private let viewModel = TitlebarControlsViewModel()
     private var userDefaultsObserver: NSObjectProtocol?
@@ -2027,6 +2027,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         super.init(nibName: nil, bundle: nil)
 
         view = containerView
+        containerView.onWindowChange = { [weak self] window in
+            self?.setObservedWindow(window)
+        }
         containerView.translatesAutoresizingMaskIntoConstraints = true
         // The shortcut-hint pills (and button backgrounds) sit below the button
         // row and overflow the accessory's titlebar-height content frame on
@@ -2117,10 +2120,15 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
     @discardableResult
     private func updateObservedWindowIfNeeded() -> Bool {
-        let currentWindow = view.window
-        guard currentWindow !== observedWindow else { return false }
+        setObservedWindow(view.window)
+    }
+
+    @discardableResult
+    private func setObservedWindow(_ currentWindow: NSWindow?) -> Bool {
+        let currentWindowIdentifier = currentWindow.map(ObjectIdentifier.init)
+        guard currentWindowIdentifier != observedWindowIdentifier else { return false }
         removeWindowGeometryObservers()
-        observedWindow = currentWindow
+        observedWindowIdentifier = currentWindowIdentifier
         guard let currentWindow else { return true }
         let center = NotificationCenter.default
         windowGeometryObservers = TitlebarWindowGeometryNotifications.names.map { name in
@@ -2251,6 +2259,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
               let contentView = window.contentView else {
             return
         }
+        let windowIdentifier = ObjectIdentifier(window)
         // Recreate content view each time to avoid stale observers when popover is hidden
         let hostingController = NSHostingController(
             rootView: NotificationsPopoverView(
@@ -2258,9 +2267,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                 onDismiss: { [weak notificationsPopover] in
                     notificationsPopover?.performClose(nil)
                 },
-                onOpenPhoneForwarding: { [weak notificationsPopover, weak window] in
+                onOpenPhoneForwarding: { [weak notificationsPopover] in
                     notificationsPopover?.performClose(nil)
-                    openPhoneForwardingSettings(in: window)
+                    openPhoneForwardingSettings(in: NSApp.windows.first { ObjectIdentifier($0) == windowIdentifier })
                 }
             )
             .cmuxAccentColorEnvironment()
@@ -2846,9 +2855,10 @@ final class UpdateTitlebarAccessoryController {
             queue: .main
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
-            Task { @MainActor [weak self, weak window] in
-                guard let window else { return }
-                self?.attachIfNeeded(to: window)
+            let windowIdentifier = ObjectIdentifier(window)
+            Task { @MainActor [weak self] in
+                guard let self, let window = self.liveWindow(withIdentifier: windowIdentifier) else { return }
+                self.attachIfNeeded(to: window)
             }
         })
 
@@ -2858,9 +2868,10 @@ final class UpdateTitlebarAccessoryController {
             queue: .main
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
-            Task { @MainActor [weak self, weak window] in
-                guard let window else { return }
-                self?.attachIfNeeded(to: window)
+            let windowIdentifier = ObjectIdentifier(window)
+            Task { @MainActor [weak self] in
+                guard let self, let window = self.liveWindow(withIdentifier: windowIdentifier) else { return }
+                self.attachIfNeeded(to: window)
             }
         })
 
@@ -2877,7 +2888,6 @@ final class UpdateTitlebarAccessoryController {
     }
 
     private func reattachIfPresentationModeChanged() {
-
         let currentMode = WorkspacePresentationModeSettings.mode()
         guard currentMode != lastKnownPresentationMode else { return }
         lastKnownPresentationMode = currentMode
@@ -2894,6 +2904,10 @@ final class UpdateTitlebarAccessoryController {
         for window in NSApp.windows {
             attachIfNeeded(to: window)
         }
+    }
+
+    private func liveWindow(withIdentifier identifier: ObjectIdentifier) -> NSWindow? {
+        NSApp.windows.first { ObjectIdentifier($0) == identifier }
     }
 
     private func scheduleStartupWindowScans() {
@@ -2935,9 +2949,9 @@ final class UpdateTitlebarAccessoryController {
             let attempts = pendingAttachRetries[key, default: 0]
             if attempts < 40 {
                 pendingAttachRetries[key] = attempts + 1
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak window] in
-                    Task { @MainActor [weak self, weak window] in
-                        guard let self, let window else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                    Task { @MainActor [weak self] in
+                        guard let self, let window = self.liveWindow(withIdentifier: key) else { return }
                         self.attachIfNeeded(to: window)
                     }
                 }
@@ -3018,8 +3032,10 @@ final class UpdateTitlebarAccessoryController {
 
         attachedWindows.remove(window)
         pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
-        DispatchQueue.main.async { [weak window] in
-            guard let window else { return }
+        let windowIdentifier = ObjectIdentifier(window)
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  let window = self.liveWindow(withIdentifier: windowIdentifier) else { return }
             window.contentView?.needsLayout = true
             window.contentView?.superview?.needsLayout = true
             window.contentView?.layoutSubtreeIfNeeded()
@@ -3110,6 +3126,7 @@ final class UpdateTitlebarAccessoryController {
               let contentView = window.contentView else {
             return
         }
+        let windowIdentifier = ObjectIdentifier(window)
 
         let popover = NSPopover()
         let delegate = DetachedNotificationsPopoverDelegate { [weak self, weak popover] in
@@ -3132,9 +3149,9 @@ final class UpdateTitlebarAccessoryController {
                 onDismiss: { [weak popover] in
                     popover?.performClose(nil)
                 },
-                onOpenPhoneForwarding: { [weak popover, weak window] in
+                onOpenPhoneForwarding: { [weak popover] in
                     popover?.performClose(nil)
-                    openPhoneForwardingSettings(in: window)
+                    openPhoneForwardingSettings(in: NSApp.windows.first { ObjectIdentifier($0) == windowIdentifier })
                 }
             )
             .cmuxAccentColorEnvironment()

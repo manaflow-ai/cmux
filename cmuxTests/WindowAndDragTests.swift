@@ -154,6 +154,26 @@ final class WindowAccessorTests: XCTestCase {
         XCTAssertTrue(coordinator.shouldInvoke(window: window, dedupeByWindow: false, refreshID: "same"))
         XCTAssertTrue(coordinator.shouldInvoke(window: window, dedupeByWindow: false, refreshID: "same"))
     }
+
+}
+
+@MainActor
+@Suite("Window accessor")
+struct WindowAccessorSwiftTestingTests {
+    @Test func resetAllowsSameWindowAfterDetach() {
+        _ = NSApplication.shared
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let coordinator = WindowAccessor.Coordinator()
+
+        #expect(coordinator.shouldInvoke(window: window, dedupeByWindow: true, refreshID: "same"))
+        coordinator.reset()
+        #expect(coordinator.shouldInvoke(window: window, dedupeByWindow: true, refreshID: "same"))
+    }
 }
 
 @MainActor

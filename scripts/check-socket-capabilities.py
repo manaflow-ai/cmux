@@ -51,6 +51,7 @@ debug.panel_snapshot
 debug.panel_snapshot.reset
 debug.portal.stats
 debug.pro_welcome_checklist.show
+debug.native_pricing.show
 debug.right_sidebar.focus
 debug.session_snapshot_benchmark
 debug.session_snapshot_seed_scrollback

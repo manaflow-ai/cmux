@@ -106,6 +106,15 @@ final class CloudTuiManualMirrorSession {
     private var interruption: CloudTerminalAttachmentInterruption?
     var automaticReconnectSuppressed = false
     var allowsAutomaticReconnect: Bool { !automaticReconnectSuppressed }
+
+    /// SSH hosts can continue over the byte-oriented attach protocol when the
+    /// remote cmux-tui predates replay framing. Cloud machines remain strict,
+    /// because their managed transport cannot safely recover incomplete VT
+    /// sequences without the modern capability.
+    nonisolated static func shouldRejectStaleReplay(machineID: String, capabilities: [String]) -> Bool {
+        guard !machineID.hasPrefix("ssh:") else { return false }
+        return CloudTuiManualIOCommand().isStaleReplayDaemon(capabilities: capabilities)
+    }
     var attachmentCorrelationID: String { log.correlationID }
     /// Grace bounds for the connection card; tests inject short ones.
     let presentationPolicy: CloudTerminalConnectionPresentationPolicy
@@ -130,9 +139,12 @@ final class CloudTuiManualMirrorSession {
         case .none:
             return nil
         case .failure:
+            let detail = interruption == .staleDaemon
+                ? interruption?.localizedDescription
+                : diagnosticFailure?.label
             var presentation = CloudTerminalReconnectOverlayPolicy.presentation(
                 isManagedCloudWorkspace: true, isRemoteTerminalSurface: true,
-                connectionState: .error, detail: diagnosticFailure?.label
+                connectionState: .error, detail: detail
             )
             presentation?.diagnosticReference = diagnosticReference
             return presentation
@@ -745,6 +757,7 @@ final class CloudTuiManualMirrorSession {
         case .rejected: diagnosticError = .protocol
         case .unresolved: diagnosticError = .notFound
         case .transportClosed: diagnosticError = .network
+        case .staleDaemon: diagnosticError = .unsupported
         }
         finishDiagnostics(error: diagnosticError)
         transition(to: .disconnected, reason: reason)
@@ -843,6 +856,21 @@ final class CloudTuiManualMirrorSession {
                 return
             }
             serverCapabilities = Set(capabilities)
+            if Self.shouldRejectStaleReplay(machineID: machineID, capabilities: capabilities) {
+                // This daemon can attach, but it cannot preserve incomplete VT
+                // sequences across replay boundaries. Retrying the same VM
+                // forever only recreates the garbled pane, so leave the pane
+                // intact and wait for an explicit retry after an upgrade.
+                // Reset the connection-scoped relay state before publishing the
+                // failure so phones cannot observe the old host or geometry.
+                sizingRelay.connectionStarted(capabilities: serverCapabilities)
+                publishSharingSnapshot()
+                automaticReconnectSuppressed = true
+                fenceAttachment(error: CloudDiagnosticFailure.unsupported, reason: .staleDaemon)
+                startPresentationEpisode(elapsed: presentationPolicy.failureGrace)
+                synchronizePresentation()
+                return
+            }
             sizingRelay.connectionStarted(capabilities: serverCapabilities)
             // A new connection attaches a fresh view.
             sharingOwnViewDetached = false

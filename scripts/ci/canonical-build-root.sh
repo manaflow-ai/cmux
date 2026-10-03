@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # canonical-build-root.sh [workspace]
+# canonical-build-root.sh --print-root
 #
 # Put the build somewhere every macOS runner pool can name identically.
 #
@@ -12,8 +13,11 @@
 # instead of a wrong hit.
 #
 # This removes the disagreement at the source: the build runs from
-# $CMUX_CI_CANONICAL_ROOT/src, a constant, so the key can drop the paths and
-# one seed serves every pool.
+# $CMUX_CI_CANONICAL_ROOT/src, a stable path for the runner. Self-hosted
+# runners derive that root from RUNNER_NAME so concurrent runners on one Mac do
+# not delete each other's source tree, DerivedData, or compilation CAS. The
+# cache fingerprint includes a non-default root, so a seed from another
+# runner's absolute path is never adopted.
 #
 # A symlink will not do. The compiler records the path it actually opens, and
 # a link back into the workspace resolves to the pool-specific path again, so
@@ -23,7 +27,23 @@
 # compile measured at ~18 minutes.
 set -euo pipefail
 
-root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
+default_root=/private/tmp/cmux-ci
+if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] \
+  && [ -n "${RUNNER_NAME:-}" ] \
+  && [ "${CMUX_CI_CANONICAL_ROOT:-$default_root}" = "$default_root" ]; then
+  runner_key="$(printf '%s' "$RUNNER_NAME" | tr -c 'A-Za-z0-9_.-' '_')"
+  root="$default_root-$runner_key"
+elif [ -n "${CMUX_CI_CANONICAL_ROOT:-}" ]; then
+  root="$CMUX_CI_CANONICAL_ROOT"
+else
+  root="$default_root"
+fi
+
+if [ "${1:-}" = --print-root ]; then
+  printf '%s\n' "$root"
+  exit 0
+fi
+
 src="$root/src"
 runtime_source=false
 if [ "${1:-}" = --runtime-source ]; then

@@ -6,8 +6,7 @@ import SwiftUI
 /// panel shows from the moment the sheet's Create is pressed until the fleet
 /// list returns the real machine. Mirrors ``CloudTreeMachineRowContent``'s
 /// two layouts so the row sits in the same column grid as its neighbours;
-/// the leading slot carries a spinner while running and a warning once
-/// failed.
+/// a spinner while running, or a warning once failed, follows the name.
 struct CloudTreePendingMachineRowContent: View {
     let operation: MachineCreateOperation
     var style: CloudTreeStyle = CloudTreeStyleStore.current
@@ -17,25 +16,23 @@ struct CloudTreePendingMachineRowContent: View {
         switch style.machineRowLayout {
         case .singleLine:
             CloudTreeMachineBand(style: style) {
-                HStack(alignment: .center, spacing: scaled(style.iconGap)) {
-                    leadingGlyph
-                        .frame(width: scaled(max(style.iconSlot, style.iconSize)), alignment: .center)
-                    HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.dotGap) {
-                        name
-                        status
-                    }
+                HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.dotGap) {
+                    name
+                    statusGlyph
+                    status
                     Spacer(minLength: style.rowGrid.trailingGap)
                 }
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(operation.summaryLine)
         case .twoLine:
-            HStack(alignment: .top, spacing: scaled(style.iconGap)) {
-                leadingGlyph
-                    .frame(width: scaled(max(style.iconSlot, style.iconSize)), height: scaled(style.machineNameLineHeight), alignment: .center)
+            HStack(alignment: .top, spacing: 0) {
                 VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
-                    name
-                        .frame(height: scaled(style.machineNameLineHeight))
+                    HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.dotGap) {
+                        name
+                        statusGlyph
+                    }
+                    .frame(height: scaled(style.machineNameLineHeight))
                     status
                         .frame(height: scaled(style.machineSubtitleLineHeight))
                 }
@@ -48,8 +45,11 @@ struct CloudTreePendingMachineRowContent: View {
         }
     }
 
+    /// Progress or failure, drawn after the name rather than in a leading slot:
+    /// the name sits on the column the created machine's row will use, so it
+    /// does not jump when the fleet list returns the real machine.
     @ViewBuilder
-    private var leadingGlyph: some View {
+    private var statusGlyph: some View {
         if operation.isRunning || operation.isReconciling {
             ProgressView()
                 .controlSize(.mini)
