@@ -78,7 +78,7 @@ shortcuts for the agent to drive by hand.
 | Jira | guide | none | `sites.jira.issue` (description and comments as Markdown), `.search(jql, { site })`, `.me` |
 | Other site guides (Airtable, Amazon, Asana, ClickUp, Confluence, Discord, Google Forms, Trello, Notion UI) | guide | none | none: they are hints, not tools; `snapshot()` and Playwright drive these sites |
 | Page assets | none | `pageAssets.list()`, `.bundle({ inventoryId, kinds, assetIds })` | `sites.pageAssets.list(page?)`, `.bundle(inventory, { kinds, assetIds, dir })`; also writes inline SVGs and fetches through the session |
-| WebMCP | none | `webmcp.fetchTools()`, `tools.call()` (Chrome's `document.modelContext`) | `sites.webmcp.tools(page?)`, `.call(name, input)`; WebKit has no WebMCP, so only tools a page registers with its own implementation; non-read-only tools are drafts |
+| WebMCP | none | `webmcp.fetchTools()`, `tools.call()` (Chrome's `document.modelContext`) | `sites.webmcp.tools(page?)`, `.call(name, input, { trustReadOnlyHint })`; WebKit has no WebMCP, so only tools a page registers with its own implementation; every call is a draft (see "WebMCP calls") |
 | Secure sign-in | password managers fill by ref | `browserAuth.request({ origin, fields, options, submit })` | `sites.browserAuth.request(page?, { origin, fields, submit })`: a cmux sheet collects the values and the app fills them; sign-in method choice (`options`) and QR are not implemented |
 | Background content | none | `tabs.content({ urls })` | `tabs.content({ urls, format })` (not in `sites`) |
 | History | `chrome.history` | `browser.history()` | `tabs.history({ query, from, to, limit })` over cmux history |
@@ -133,7 +133,7 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `linear.query(text, variables, { operationName })` | the same; the document is first lexed and parsed as GraphQL (comments, commas, strings and block strings skipped). It is refused, with nothing sent, when it does not parse, holds a mutation or subscription anywhere, or holds several operations without an `operationName` naming one | read |
 | `jira.*` | `/rest/api/3/issue`, `/search/jql` (falls back to `/search`), `/myself`, same-origin, only on a site whose exact origin is in the signed-in account's `jira.sites()` list (read once per session, again when a site is missing); any other `*.atlassian.net` site fails as `invalid` before a request | read |
 | `pageAssets.list(page?)`, `.bundle(inv, { kinds, assetIds, dir })` | DOM, computed styles, `@font-face`, resource timing; downloads through the session's fetch, with cookies (`credentials: "same-origin"`) only for assets on the page's own origin while the current tab is on it, and none (`"omit"`) for every other asset, since the page chooses the URLs | read |
-| `webmcp.tools(page?)`, `.call(name, input)` | the page's `navigator.modelContext` implementation | read-only tools read; others write |
+| `webmcp.tools(page?)`, `.call(name, input, { trustReadOnlyHint })` | the page's `navigator.modelContext` implementation | write; a call with `trustReadOnlyHint: true` to a tool that declares `readOnlyHint` reads |
 | `browserAuth.request(page?, { origin, fields, submit })` | native sheet, `sites/auth-fill.js` run by the app | fills user-typed values |
 | `sites.list()`, `sites.help(name)`, `sites.drafts.list()/get(id)/discard(id)` | | |
 
@@ -190,6 +190,18 @@ as decisions below. `{ confirm: true }` is the agent's statement that the
 user approved this exact preview; the API cannot see the user, so it makes
 the preview and the second call unavoidable and makes approval impossible to
 skip by accident.
+
+### WebMCP calls
+
+A page writes its WebMCP tools' annotations, so `readOnlyHint` is advisory: a
+page can mark a tool that changes or sends data as read-only.
+`sites.webmcp.call(name, input)` therefore returns a draft for every tool,
+whatever it declares, and only `call(draftId, { confirm: true })` runs it.
+The agent can skip the draft for one call with
+`call(name, input, { trustReadOnlyHint: true })`, which runs the tool at once
+only when it declares `readOnlyHint`; any other tool still returns a draft.
+That option is the agent's statement that it accepts the page's claim for
+this call. A name the page does not list fails as `not_found` and is not run.
 
 ## Secure sign-in
 

@@ -48,11 +48,11 @@ test("pageAssets.bundle sends cookies only to the page's own origin; a cross-ori
   assert.ok(own.length && own.every((r) => r.cookie.includes("asset_session=asset-session-secret")), "the page's own asset kept the session cookie");
 });
 
-test("webmcp: lists a page's tools; read-only tools run, others need a confirmed draft", async () => {
+test("webmcp: lists a page's tools; a call needs a confirmed draft, a trusted read-only call runs", async () => {
   await s.run('await page.goto("https://tools.example/")');
   const t = await s.value("sites.webmcp.tools()");
   assert.deepEqual(t.tools.map((x) => [x.name, !!x.annotations.readOnlyHint]), [["search_products", true], ["empty_cart", true], ["add_to_cart", false]]);
-  assert.deepEqual(await s.value('sites.webmcp.call("search_products", { q: "tea" })'), { content: [{ type: "text", text: "2 results for tea" }] });
+  assert.deepEqual(await s.value('sites.webmcp.call("search_products", { q: "tea" }, { trustReadOnlyHint: true })'), { content: [{ type: "text", text: "2 results for tea" }] });
   const d = await s.value('sites.webmcp.call("add_to_cart", { sku: "T-1" })');
   assert.equal(d.status, "draft");
   assert.equal(env.state.cart, undefined);

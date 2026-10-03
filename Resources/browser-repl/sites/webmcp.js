@@ -2,8 +2,10 @@
 // (navigator.modelContext, webmachinelearning.github.io/webmcp). WebKit has
 // no native WebMCP yet, so this finds tools a page registers with a WebMCP
 // implementation it ships itself (such as the MCP-B polyfill), or its
-// document.modelContext. Tools that declare readOnlyHint run directly; any
-// other tool call is a confirmed draft, since it can change data or send it.
+// document.modelContext. The page writes its tools' annotations, so
+// readOnlyHint is advisory: every call is a confirmed draft, since it can
+// change data or send it, unless the agent passes { trustReadOnlyHint: true }
+// for that call to a tool that declares readOnlyHint.
 (function (root) {
   "use strict";
   const S = root.CmuxBrowserRepl && root.CmuxBrowserRepl.sites;
@@ -55,15 +57,17 @@
       return {
         // { supported, tools: [{ name, title, description, inputSchema, annotations }] } for the current tab or `page`.
         tools: (page) => list(page),
-        // Calls a tool. readOnlyHint tools run now; others return a draft that
-        // call(draftId, { confirm: true }) runs. Options: { page }.
+        // Calls a tool: returns a draft that call(draftId, { confirm: true })
+        // runs. Options: { page, trustReadOnlyHint }. With trustReadOnlyHint:
+        // true, a tool that declares readOnlyHint runs now; the agent takes
+        // the page's word for that one call.
         async call(name, input, options = {}) {
           if (typeof name === "string" && /^draft-\d+-[0-9a-f]+$/.test(name)) return t.write("webmcp", "call", name, input);
           const page = options.page || t.currentPage();
           const { tools } = await list(page);
           const tool = tools.find((x) => x.name === name);
-          if (!tool) return run(page, name, input);
-          if (tool.annotations && tool.annotations.readOnlyHint === true) return run(page, name, input);
+          if (!tool) throw new S.SiteError("not_found", `webmcp.call: the page has no tool ${JSON.stringify(name)}; tools: ${tools.map((x) => x.name).join(", ") || "none"}`);
+          if (options.trustReadOnlyHint === true && tool.annotations && tool.annotations.readOnlyHint === true) return run(page, name, input);
           const url = page.url();
           return t.write("webmcp", "call", { name, input }, undefined, () => ({
             category: "[9]/[14] a page tool that may change or send data",
@@ -78,6 +82,6 @@
         },
       };
     },
-    { summary: "List and call tools a page declares through WebMCP (non-read-only calls are confirmed drafts)" },
+    { summary: "List and call tools a page declares through WebMCP (calls are confirmed drafts)" },
   );
 })(typeof globalThis !== "undefined" ? globalThis : this);
