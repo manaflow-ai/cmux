@@ -71,7 +71,7 @@ final class ActionMenuTarget: NSObject, NSMenuItemValidation {
     /// the menu item afterwards. Clicks in an open menu are not gated.
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let registry, let payload = Self.payload(of: menuItem),
-              registry.canPerform(payload.id, invocation: ActionInvocation(target: payload.target)) else { return false }
+              ActionTargetReasons.canPerform(payload.id, invocation: ActionInvocation(target: payload.target), in: registry) else { return false }
         if let gate = registry.menuKeyEquivalentGate, !menuItem.keyEquivalent.isEmpty, registry.isDispatchingKeyDown() {
             return gate(payload.id)
         }

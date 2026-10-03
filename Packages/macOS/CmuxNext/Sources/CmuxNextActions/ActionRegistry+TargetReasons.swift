@@ -2,29 +2,31 @@
 // but not on one target (the screen's only column cannot be pinned) shows as
 // disabled with the reason in that target's context menu, instead of failing
 // after the click. `perform` refuses such an invocation with the reason, so
-// the palette, the CLI and MCP report it too.
-extension ActionRegistry {
+// the palette, the CLI and MCP report it too. A separate type keeps
+// ActionRegistry within its size budget.
+@MainActor
+public enum ActionTargetReasons {
     /// Sets the target-aware reason of a bound action.
-    public func setTargetUnavailableReason(_ id: ActionID, _ reason: @escaping @MainActor (ActionInvocation) -> String?) {
-        guard var action = action(for: id) else { return }
+    public static func set(_ id: ActionID, in registry: ActionRegistry, _ reason: @escaping @MainActor (ActionInvocation) -> String?) {
+        guard var action = registry.action(for: id) else { return }
         action.targetUnavailableReason = reason
-        register(action)
+        registry.register(action)
     }
 
     /// The general reason, else the reason for `invocation`'s target.
-    public func unavailableReason(for id: ActionID, invocation: ActionInvocation) -> String? {
-        unavailableReason(for: id) ?? action(for: id)?.targetUnavailableReason?(invocation)
-    }
-
-    /// Refuses `invocation` with the action's target reason, if it has one.
-    func refusesTarget(_ action: Action, _ invocation: ActionInvocation) -> Bool {
-        guard let reason = action.targetUnavailableReason?(invocation) else { return false }
-        refuse(reason)
-        return true
+    public static func reason(for id: ActionID, invocation: ActionInvocation, in registry: ActionRegistry) -> String? {
+        registry.unavailableReason(for: id) ?? registry.action(for: id)?.targetUnavailableReason?(invocation)
     }
 
     /// `canPerform(_:)` for one invocation's target.
-    public func canPerform(_ id: ActionID, invocation: ActionInvocation) -> Bool {
-        canPerform(id) && action(for: id)?.targetUnavailableReason?(invocation) == nil
+    public static func canPerform(_ id: ActionID, invocation: ActionInvocation, in registry: ActionRegistry) -> Bool {
+        registry.canPerform(id) && registry.action(for: id)?.targetUnavailableReason?(invocation) == nil
+    }
+
+    /// Refuses `invocation` with the action's target reason, if it has one.
+    static func refuses(_ action: Action, _ invocation: ActionInvocation, in registry: ActionRegistry) -> Bool {
+        guard let reason = action.targetUnavailableReason?(invocation) else { return false }
+        registry.refuse(reason)
+        return true
     }
 }

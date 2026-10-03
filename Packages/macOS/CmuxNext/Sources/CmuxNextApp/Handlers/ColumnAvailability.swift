@@ -16,9 +16,9 @@ enum ColumnAvailability {
 
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         for id in loneColumnDisabled {
-            registry.setTargetUnavailableReason(id) { invocation in loneColumnReason(invocation, ctx) }
+            ActionTargetReasons.set(id, in: registry) { invocation in loneColumnReason(invocation, ctx) }
         }
-        registry.setTargetUnavailableReason("column.unstick") { invocation in
+        ActionTargetReasons.set("column.unstick", in: registry) { invocation in
             guard let (_, column) = resolved(invocation, ctx), column.sticky == nil else { return nil }
             return RefusalStrings.columnNotSticky
         }

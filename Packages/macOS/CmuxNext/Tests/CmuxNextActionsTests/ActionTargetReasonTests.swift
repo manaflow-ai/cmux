@@ -9,25 +9,25 @@ import Testing
         let registry = ActionRegistry.standard()
         var ran = 0
         registry.bind("column.makeSticky", invoke: { _ in ran += 1 })
-        registry.setTargetUnavailableReason("column.makeSticky") { invocation in
+        ActionTargetReasons.set("column.makeSticky", in: registry) { invocation in
             invocation.target?.id == "lone" ? "Add a second column first" : nil
         }
         let lone = ActionInvocation(target: ActionTargetRef(kind: .column, id: "lone"))
         let other = ActionInvocation(target: ActionTargetRef(kind: .column, id: "c2"))
 
-        #expect(registry.unavailableReason(for: "column.makeSticky", invocation: lone) == "Add a second column first")
-        #expect(!registry.canPerform("column.makeSticky", invocation: lone))
+        #expect(ActionTargetReasons.reason(for: "column.makeSticky", invocation: lone, in: registry) == "Add a second column first")
+        #expect(!ActionTargetReasons.canPerform("column.makeSticky", invocation: lone, in: registry))
         #expect(registry.capturingRefusal { registry.perform("column.makeSticky", invocation: lone) } == "Add a second column first")
         #expect(ran == 0)
 
-        #expect(registry.unavailableReason(for: "column.makeSticky", invocation: other) == nil)
+        #expect(ActionTargetReasons.reason(for: "column.makeSticky", invocation: other, in: registry) == nil)
         #expect(registry.perform("column.makeSticky", invocation: other))
         #expect(ran == 1)
     }
 
     @Test func rebindingKeepsNoStaleReasonFromAnotherAction() {
         let registry = ActionRegistry.standard()
-        registry.setTargetUnavailableReason("column.unstick") { _ in "unbound" }
+        ActionTargetReasons.set("column.unstick", in: registry) { _ in "unbound" }
         #expect(!registry.isBound("column.unstick"))
     }
 }
