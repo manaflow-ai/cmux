@@ -60,6 +60,9 @@ extension TerminalController {
             let initialCommand = (params["initial_command"] as? String).map(connection.commandArguments)
             try await coordinator.open(workspace: workspace, configuration: configuration, initialCommand: initialCommand)
             if params["focus"] as? Bool != false, let panelID = workspace.focusedPanelId {
+                if let manager = AppDelegate.shared?.tabManagerFor(tabId: id) {
+                    manager.selectWorkspace(workspace)
+                }
                 SurfacePaneFactory.focus(panelID: panelID, in: id)
             }
             var result = payload

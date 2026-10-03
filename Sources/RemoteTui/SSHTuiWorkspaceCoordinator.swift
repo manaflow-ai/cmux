@@ -23,6 +23,10 @@ final class SSHTuiWorkspaceCoordinator {
         agentStatus = SSHTuiAgentStatusProjector(catalog: catalog)
     }
 
+    static func usesDurableCreationReceipt(machineID: String, restoring: Bool) -> Bool {
+        restoring && !machineID.hasPrefix("ssh:")
+    }
+
     static func configurationForAttach(_ input: WorkspaceRemoteConfiguration) -> WorkspaceRemoteConfiguration {
         var configuration = input
         if let saved = configuration.restoredSSHSession,
@@ -144,7 +148,11 @@ final class SSHTuiWorkspaceCoordinator {
             }
             let resource = try await provider.createTerminal(
                 command: initialCommand ?? connection.shellCommand, cwd: nil, name: nil, remoteWorkspaceID: remoteID,
-                request: CloudTerminalCreationRequest(id: workspace.stableId, remoteWorkspaceID: remoteID, restoring: restoring)
+                request: CloudTerminalCreationRequest(
+                    id: workspace.stableId,
+                    remoteWorkspaceID: remoteID,
+                    restoring: Self.usesDurableCreationReceipt(machineID: connection.id, restoring: restoring)
+                )
             )
             try requireCurrent(workspace: workspace, attemptID: attemptID)
             if let title = Self.remoteWorkspaceTitleToPublish(for: workspace) {
