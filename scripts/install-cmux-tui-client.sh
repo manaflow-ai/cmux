@@ -27,7 +27,8 @@
 # Env: CMUX_TUI_CLIENT_MANIFEST_URL overrides the manifest, CMUX_TUI_CLIENT_LOCAL points at
 # a prebuilt binary to install instead of downloading (offline/dev builds).
 # CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS (default 5) and CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS
-# (default 60, below 1 KiB/s) bound each download attempt.
+# (default 60, below 1 KiB/s) and CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS
+# (default 600) bound each download attempt and its total retry budget.
 # --arch selects downloaded slices only; the local override is copied unchanged
 # and still checked with remote-probe and any required capabilities.
 set -euo pipefail
@@ -136,34 +137,73 @@ fi
 
 # A dead HTTP/2 stream holds a transfer open until the server resets it, which
 # took twenty minutes per attempt on a Release job, and curl's own --retry
-# reuses that connection. Bound each attempt by progress, not total time, so a
-# slow but moving download of a 40 MB slice still finishes, and give each its
-# own curl process, so a retry opens a fresh connection.
+# reuses that connection. Bound each attempt by progress and the whole
+# download by a total budget. Each retry resumes a partial slice with a fresh
+# curl process, so a slow but moving download can finish without hanging the
+# release job forever.
 DOWNLOAD_ATTEMPTS="${CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS:-5}"
 DOWNLOAD_STALL_SECONDS="${CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS:-60}"
+DOWNLOAD_MAX_SECONDS="${CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS:-600}"
 for budget in CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS="$DOWNLOAD_ATTEMPTS" \
-  CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS="$DOWNLOAD_STALL_SECONDS"; do
+  CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS="$DOWNLOAD_STALL_SECONDS" \
+  CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS="$DOWNLOAD_MAX_SECONDS"; do
   [[ "${budget#*=}" =~ ^[1-9][0-9]*$ ]] \
     || { echo "error: ${budget%%=*} must be a positive integer, got '${budget#*=}'" >&2; exit 64; }
 done
-download() { # <url> <output>
+download() { # <url> <output> [resume]
+  local url="$1" output="$2" resume="${3:-1}"
   local attempt=1
-  until curl --proto '=https' --tlsv1.2 -fsSL \
-      --connect-timeout 30 \
-      --speed-limit 1024 --speed-time "$DOWNLOAD_STALL_SECONDS" \
-      "$1" -o "$2"; do
+  local deadline=$((SECONDS + DOWNLOAD_MAX_SECONDS))
+  while :; do
+    local remaining=$((deadline - SECONDS))
+    if (( remaining <= 0 )); then
+      echo "error: download budget exceeded for $url after $attempt attempts" >&2
+      (( resume )) || rm -f "$output"
+      return 1
+    fi
+    local -a curl_args=(
+      --proto '=https' --tlsv1.2 -fsSL
+      --connect-timeout 30
+      --max-time "$remaining"
+      --speed-limit 1024 --speed-time "$DOWNLOAD_STALL_SECONDS"
+    )
+    (( resume )) && curl_args+=(--continue-at -)
+    local status=0
+    local http_code_file="$output.http-code"
+    local http_code=""
+    rm -f "$http_code_file"
+    curl "${curl_args[@]}" --write-out '%{http_code}' "$url" -o "$output" >"$http_code_file" || status=$?
+    http_code="$(cat "$http_code_file" 2>/dev/null || true)"
+    rm -f "$http_code_file"
+    [[ "$http_code" =~ ^[0-9]{3}$ ]] || http_code=""
+    if (( status == 0 )); then
+      return 0
+    fi
+    # A rejected range leaves an invalid partial behind. curl reports both
+    # range errors as 33 and an HTTP 416 response as 22 with a write-out code.
+    # Preserve the partial for transient HTTP failures such as 503 so a later
+    # attempt can resume it within the remaining budget.
+    if (( resume )) && (( status == 33 || http_code == 416 )); then rm -f "$output"; fi
     if (( attempt >= DOWNLOAD_ATTEMPTS )); then
-      echo "error: could not download $1 after $attempt attempts" >&2
+      echo "error: could not download $url after $attempt attempts" >&2
+      (( resume )) || rm -f "$output"
       return 1
     fi
     attempt=$((attempt + 1))
-    sleep 3
+    local backoff=3
+    remaining=$((deadline - SECONDS))
+    (( backoff > remaining )) && backoff=$remaining
+    (( backoff > 0 )) && sleep "$backoff"
   done
 }
 
 mkdir -p "$CACHE_DIR"
 MANIFEST="$CACHE_DIR/manifest.$(printf '%s' "$MANIFEST_URL" | shasum -a 256 | cut -c1-12).json"
-download "$MANIFEST_URL" "$MANIFEST"
+MANIFEST_TMP="$(mktemp "$CACHE_DIR/manifest.XXXXXX")"
+trap 'rm -f "$MANIFEST_TMP"' EXIT
+download "$MANIFEST_URL" "$MANIFEST_TMP" 0
+mv -f "$MANIFEST_TMP" "$MANIFEST"
+trap - EXIT
 if (( ALLOW_UNATTESTED )); then
   echo "warning: installing an unattested cmux-tui manifest from $MANIFEST_URL (--allow-unattested)" >&2
 else
