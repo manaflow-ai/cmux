@@ -104,9 +104,13 @@ Rules:
 - The mark is defense in depth for the bridged stream ONLY, not a boundary
   against a paired peer: a paired peer can start processes as the user
   (process streams, workspace RPC) and type into terminals, and such a
-  process connects to the session socket unmarked. So the frontend actor and
-  `secret.release` (3b-2) must require the install-key proof, never "local
-  principal" alone.
+  process connects to the session socket unmarked. HARD RULE (coordinator
+  2026-10-03): the frontend actor and `secret.release` (3b-2) require the
+  install-key proof; "local principal" alone never grants either.
+- Also local-principal-only since 3b-1 (each its own red/green pair, the
+  coordinator may drop either at landing): the full-sensitivity session
+  journal (a bridged peer gets the metadata-only remote view) and the browser
+  provider register/get/unregister.
 - Residual window (coordinator decision 2026-10-03, option (a) of three): the
   mark is claimed by the bridge, not set by the listener. An OLD sidecar
   binary sends no mark. It cannot outlive the daemon that accepted it: a

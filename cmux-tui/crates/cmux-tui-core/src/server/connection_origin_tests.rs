@@ -176,6 +176,17 @@ fn the_mark_holds_during_a_pending_handoff_and_a_bridge_cannot_start_one() {
     let _ = line(&mux, bridged, &writer, &outbound, &mark);
     assert!(mux.begin_daemon_handoff(bridged, DaemonHandoffRequest::unfenced(false)).is_err());
 
+    // The same refusal on the wire: session.shutdown from the bridge.
+    let shutdown = json!({
+        "protocol":"cmux.protocol/2","type":"request","id":"shutdown-bridged",
+        "operation":"session.shutdown","params":{"machine":"current","session":"current"},
+        "idempotency_key":"shutdown-bridged",
+    })
+    .to_string();
+    let reply = line(&mux, bridged, &writer, &outbound, &shutdown);
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert!(!mux.daemon_handoff_in_progress());
+
     // A bridge connection registered just before a local requester starts a
     // handoff sends its mark while the handoff is pending: still marked.
     let outbound = Arc::new(BoundedOutbound::default());
