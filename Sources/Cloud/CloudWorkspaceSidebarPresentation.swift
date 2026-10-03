@@ -98,12 +98,21 @@ struct CloudWorkspaceSidebarPresentation {
             let projectedMachine = state.projectedResources[panelID]?.machine
             guard let machineID = projectedMachine.flatMap({ $0.isDevice ? $0.rawValue : $0.cloudMachineID })
                 ?? workspace.cloudVMID else { continue }
-            let resource = state.projectedResources[panelID]
-            guard resource?.kind == .terminal || workspace.terminalPanel(for: panelID) != nil else { continue }
-            sawTerminal = true
-            if let resource,
-               SurfaceCatalog.shared.resources[resource]?.lifecycle == .launching {
-                continue
+            let resourceID = state.projectedResources[panelID]
+            if let resourceID {
+                // A restored workspace can retain a panel projection after the
+                // provider has published a current graph without that resource.
+                // Do not turn that stale identity into a directory placeholder.
+                sawTerminal = true
+                guard let resource = SurfaceCatalog.shared.resources[resourceID], resource.kind == .terminal else {
+                    continue
+                }
+                if resource.lifecycle == .launching {
+                    continue
+                }
+            } else {
+                guard workspace.terminalPanel(for: panelID) != nil else { continue }
+                sawTerminal = true
             }
             let directory = workspace.reportedPanelDirectory(panelId: panelID)
             guard seen.insert(machineID + "\n" + (directory ?? "")).inserted else { continue }

@@ -202,7 +202,7 @@ struct CloudDirectoryLifecycleTests {
         #expect(fixture.catalog.snapshot.resources.contains { $0.id == fixture.resourceID(1) } == false)
         #expect(fixture.workspace.reportedPanelDirectory(panelId: fixture.panels[1]) == nil)
         let text = try fixture.sidebarText()
-        #expect(text.contains("Directory unavailable"))
+        #expect(!text.contains("Directory unavailable"))
         #expect(!text.contains("/home/cmux/second"))
     }
 
