@@ -31,7 +31,7 @@ import { ComposerPickers } from "./ComposerPickers";
 import { EmptyState, isNewChat, projectName } from "./EmptyState";
 import { HomeLists } from "./HomeLists";
 import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
-import { turnFiles, turnRows, type TurnFile } from "./diff";
+import { turnFiles, turnRows, undoPrompt, type TurnFile } from "./diff";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk } from "./TrustAsk";
 import { PermissionCard } from "./PermissionCard";
@@ -44,7 +44,13 @@ import { SummaryButton } from "./summary/SummaryButton";
 import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
-import { restoredDecisions, type HunkDecision, type HunkReview } from "./changes/hunkReview";
+import {
+  restoredDecisions,
+  turnHunkKeys,
+  undoableHunks,
+  type HunkDecision,
+  type HunkReview,
+} from "./changes/hunkReview";
 import { configureDictation, deliverDictation, useDictation } from "./dictation";
 import type { DictationUpdate } from "./dictationText";
 import { DictationButton } from "./DictationButton";
@@ -56,6 +62,7 @@ import { ChevronDown, DiffFile } from "./changeIcons";
 import { Markdown } from "./conversation/Markdown";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
+import { Undo } from "./conversation/icons";
 import { DATE, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { DateLine } from "./conversation/DateLine";
 import { SearchChats } from "./SearchChats";
@@ -299,6 +306,11 @@ const EditedFilesRow = memo(
     const shown = single ? [] : showAll ? entries : entries.slice(0, EDITED_FILES_SHOWN);
     const more = single ? 0 : total - shown.length;
     const reviewable = onOpenDiff && files.length > 0;
+    const { review } = useContext(TurnActionsContext);
+    const unasked =
+      review && row.ended && toolFiles.length > 0
+        ? turnHunkKeys(toolFiles).filter((key) => review.decisions.get(key) !== "requested").length
+        : undefined;
     return (
       <div className="acpmux-edited">
         <div className="acpmux-edited-head">
@@ -312,6 +324,24 @@ const EditedFilesRow = memo(
             {files.length > 0 && <Counts additions={additions} deletions={deletions} />}
             {counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>}
           </div>
+          {review && unasked !== undefined && (
+            <button
+              type="button"
+              className="acpmux-edited-undo"
+              disabled={unasked === 0}
+              title={unasked ? t("edited.undoLabel") : undefined}
+              onClick={() => {
+                const hunks = undoableHunks(toolFiles, review.decisions);
+                review.requestRevert(
+                  hunks.map((hunk) => hunk.key),
+                  undoPrompt(hunks.map((hunk) => hunk.patch)),
+                );
+              }}
+            >
+              {unasked ? t("edited.undo") : t("edited.undoRequested")}
+              {unasked > 0 && <Undo size={14} />}
+            </button>
+          )}
           {reviewable && (
             <button
               type="button"
