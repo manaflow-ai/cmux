@@ -20058,38 +20058,20 @@ struct CMUXCLI {
             return Self.moshTmuxCommandUsage
         case "ssh-tmux":
             let help = String(localized: "cli.help.ssh-tmux", defaultValue: """
-            Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>]
-                                 [--transport ssh|et] [--transport-port <n>] [--broker <name>] [--no-focus]
+            Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--transport ssh|et] [--transport-port <n>] [--broker <name>] [--no-focus]
 
-            Mirror a remote host's tmux sessions into the current window's sidebar over
-            SSH tmux control mode (tmux -CC). Each session becomes a workspace, each
-            window a tab, and each multi-pane window a native split. Requires the
-            "Remote tmux" beta setting.
+            Mirror a remote host's tmux sessions into the current cmux window over SSH tmux control mode. Each session becomes a workspace, each window a tab, and each multi-pane window a native split. Requires the "Remote tmux" beta setting.
 
-            If the host needs interactive authentication (password, host-key confirmation,
-            MFA, or a security-key touch), cmux runs ssh inline in this terminal so you can
-            authenticate, then mirrors the sessions over the shared SSH connection. Hosts
-            that authenticate non-interactively (ssh-agent / key in ~/.ssh/config) mirror
-            with no prompt. ~/.ssh/config aliases and their IdentityFile/ProxyJump/Port settings are honored.
+            If interactive authentication is needed, cmux runs ssh in this terminal and then retries over the shared connection. ~/.ssh/config aliases and settings are honored.
 
             Flags:
               --port <n>            SSH port
               --identity <path>     SSH identity file path
-              --name <title>        Set the mirrored workspace's local display title. This is
-                                    cosmetic only: it does not rename the remote tmux session.
-                                    Applies to the first newly-mirrored session when the host
-                                    has more than one.
-              --transport <name>    ssh (default) or et. et carries the control stream over
-                                    EternalTerminal, which reconnects on its own, so the
-                                    mirror survives a network change instead of respawning.
-              --transport-port <n>  Port the transport connects to: sshd's for ssh, etserver's
-                                    for et (default 22 for ssh, 2022 for et)
-              --broker <name>       Reach the host through a broker declared under
-                                    remoteTmux.brokers in cmux.json, instead of connecting
-                                    directly. Names an entry you have already written down;
-                                    it does not take a command. Use this where the host is
-                                    only reachable through a jump host, proxy or wrapper.
-              --no-focus            Do not select the mirror workspace or focus its window
+              --name <title>        Local display title for the first mirrored workspace (does not rename the remote tmux session)
+              --transport <name>    ssh (default) or et. et carries the control stream over EternalTerminal, which reconnects on its own after a network change
+              --transport-port <n>  Port the transport connects to: sshd's for ssh, etserver's for et (default 22 for ssh, 2022 for et)
+              --broker <name>       Reach the host through a broker declared under remoteTmux.brokers in cmux.json (a named entry, not a command)
+              --no-focus            Do not select the mirror workspace or activate its window
 
             Example:
               cmux ssh-tmux dev@my-host
