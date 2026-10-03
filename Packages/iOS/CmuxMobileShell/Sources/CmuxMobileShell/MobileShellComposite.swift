@@ -6150,6 +6150,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             authenticatedInstanceTag: macInstanceTagAuthority.normalize(
                 status.macInstanceTag
             ),
+            authenticatedMacAppVersion: status.macAppVersion,
             supportedHostCapabilities: capabilities,
             actionCapabilities: Self.workspaceActionCapabilities(
                 from: capabilities,
@@ -7420,6 +7421,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ticket: handle.ticket,
             storedInstanceTag: handle.storedInstanceTag,
             authenticatedInstanceTag: handle.authenticatedInstanceTag,
+            authenticatedMacAppVersion: handle.authenticatedMacAppVersion,
             supportedHostCapabilities: handle.supportedHostCapabilities,
             actionCapabilities: handle.actionCapabilities,
             displayName: mac.displayName
@@ -9070,6 +9072,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 authenticatedInstanceTag:
                     activeMacInstanceTag
                         ?? connection.authenticatedInstanceTag,
+                authenticatedMacAppVersion: authenticatedMacAppVersion,
                 supportedHostCapabilities: supportedHostCapabilities,
                 actionCapabilities: Self.workspaceActionCapabilities(
                     from: supportedHostCapabilities,
@@ -9099,6 +9102,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 generation: connectionGeneration,
                 displayName: connectedHostName,
                 instanceTag: activeMacInstanceTag,
+                authenticatedMacAppVersion: authenticatedMacAppVersion,
                 supportedHostCapabilities: supportedHostCapabilities,
                 actionCapabilities: Self.workspaceActionCapabilities(
                     from: supportedHostCapabilities,
@@ -11482,6 +11486,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             generation: liveConnectionGeneration,
                             displayName: connectedHostName,
                             instanceTag: activeMacInstanceTag,
+                            authenticatedMacAppVersion: status.macAppVersion,
                             supportedHostCapabilities: authenticatedCapabilities,
                             actionCapabilities: Self.workspaceActionCapabilities(
                                 from: authenticatedCapabilities,
@@ -12597,7 +12602,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Clear the error and its guidance together (never bare `connectionError
     /// = nil`) so guidance cannot linger under a cleared headline.
-    private func clearPairingError() {
+    func clearPairingError() {
         connectionError = nil
         connectionErrorGuidance = nil
         pendingMacVersionGateViolation = nil
@@ -12635,7 +12640,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macVersionUpdateRequiredPairingIDs.insert(pairingID)
     }
 
-    private func clearMacVersionUpdateRequired(for macDeviceID: String?, instanceTag: String?) {
+    func clearMacVersionUpdateRequired(for macDeviceID: String?, instanceTag: String?) {
         guard let macDeviceID else { return }
         let pairingID = MobilePairedMac.pairingID(macDeviceID: macDeviceID, instanceTag: instanceTag)
         guard !pairingID.isEmpty else { return }
