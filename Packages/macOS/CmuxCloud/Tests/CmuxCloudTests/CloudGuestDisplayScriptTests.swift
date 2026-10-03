@@ -10,6 +10,9 @@ struct CloudGuestDisplayScriptTests {
         #expect(command.contains("candidate=\"$(mktemp \"$HOME/.cmux/cmux-display.XXXXXX\")\""))
         #expect(command.contains("cmp -s \"$candidate\" \"$path\""))
         #expect(command.contains("pkill -TERM -u \"$(id -u)\" -f \"$path serve\""))
+        #expect(command.contains("service_ready=0"))
+        #expect(command.contains("for attempt in $(seq 1 100)"))
+        #expect(command.contains("[ \"$service_ready\" = 1 ] || exit 1"))
         #expect(command.contains("\"$path\" create"))
     }
 }
