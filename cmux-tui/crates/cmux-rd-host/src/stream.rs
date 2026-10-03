@@ -64,7 +64,7 @@ pub struct MediaSession {
     last_frame: u32,
     force_idr: bool,
     history: BTreeMap<u32, Vec<Vec<u8>>>,
-    sent_since_feedback: u32,
+    loss_meter: crate::loss::LossMeter,
     loss: f64,
     encode_ms: VecDeque<f64>,
     frames: u64,
@@ -153,7 +153,7 @@ impl MediaSession {
             last_frame: 0,
             force_idr: true,
             history: BTreeMap::new(),
-            sent_since_feedback: 0,
+            loss_meter: crate::loss::LossMeter::default(),
             loss: 0.0,
             encode_ms: VecDeque::new(),
             frames: 0,
@@ -351,9 +351,10 @@ impl MediaSession {
             .map_err(|e| format!("{e:?}"))?;
         for (i, datagram) in packets.datagrams.iter().enumerate() {
             self.out.send(stream, datagram)?;
-            self.cc.on_sent(packets.first_transport_seq.wrapping_add(i as u16), now_us());
+            let seq = packets.first_transport_seq.wrapping_add(i as u16);
+            self.cc.on_sent(seq, now_us());
+            self.loss_meter.on_sent(seq);
         }
-        self.sent_since_feedback += packets.datagrams.len() as u32;
         self.au = body.access_unit;
         self.history.insert(frame, packets.datagrams);
         while self.history.len() > 16 {
@@ -389,11 +390,11 @@ impl MediaSession {
             }
             DatagramKind::Feedback => {
                 let Ok(fb) = Feedback::decode(payload) else { return };
-                let sent = self.sent_since_feedback.max(1) as f64;
-                let lost = (sent - fb.arrivals.len() as f64).max(0.0) / sent;
-                self.loss = 0.8 * self.loss + 0.2 * lost;
-                self.sent_since_feedback = 0;
-                self.cc.on_feedback(&fb.arrivals, lost, now_us());
+                let settled = self.loss_meter.on_arrivals(fb.arrivals.iter().map(|a| a.transport_seq));
+                if let Some(lost) = settled {
+                    self.loss = 0.8 * self.loss + 0.2 * lost;
+                }
+                self.cc.on_feedback(&fb.arrivals, settled.unwrap_or(0.0), now_us());
                 self.last_feedback_ns = now_ns();
                 // Resends are bounded per feedback so a hostile feedback cannot amplify.
                 let mut budget = MAX_RESENDS_PER_FEEDBACK;
@@ -405,7 +406,6 @@ impl MediaSession {
                             }
                             if let Some(d) = datagrams.get(usize::from(i)) {
                                 let _ = self.out.send(stream, d);
-                                self.sent_since_feedback += 1;
                                 budget -= 1;
                             }
                         }
@@ -467,10 +467,9 @@ impl MediaSession {
         let mut d = Vec::with_capacity(HEADER_LEN + 4);
         header.encode_into(&mut d);
         d.extend_from_slice(&self.applier.applied().to_le_bytes());
-        if self.out.send(stream, &d).is_ok() {
-            self.sent_since_feedback += 1;
-        }
+        let _ = self.out.send(stream, &d);
         self.cc.on_sent(header.transport_seq, now_us());
+        self.loss_meter.on_sent(header.transport_seq);
     }
 
     /// Releases every key and button the viewer holds on the host and forgets held input

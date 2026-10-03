@@ -16,6 +16,7 @@ mod fdwait;
 mod host;
 mod inject;
 mod keymap;
+mod loss;
 mod marker;
 mod shm;
 mod stream;

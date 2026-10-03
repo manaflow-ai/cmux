@@ -72,12 +72,10 @@ impl Viewer {
         match h.kind {
             DatagramKind::Video | DatagramKind::Fec => {
                 self.bytes += d.len() as u64;
-                if self.arrivals.len() < MAX_ARRIVALS {
-                    self.arrivals.push(Arrival {
-                        transport_seq: h.transport_seq,
-                        arrival_us: (now / 1000) as u32,
-                    });
-                }
+                self.arrivals.push(Arrival {
+                    transport_seq: h.transport_seq,
+                    arrival_us: (now / 1000) as u32,
+                });
                 for frame in self.reassembler.push(&h, payload, now / 1000) {
                     self.released_since_feedback = true;
                     self.frames += 1;
@@ -193,6 +191,13 @@ impl Viewer {
             .collect();
         let mut sorted = self.decode_ms.iter().rev().take(30).copied().collect::<Vec<_>>();
         sorted.sort_by(f64::total_cmp);
+        // Arrivals beyond one message go in extra feedback messages first.
+        while self.arrivals.len() > MAX_ARRIVALS {
+            let rest = self.arrivals.split_off(MAX_ARRIVALS);
+            let head = std::mem::replace(&mut self.arrivals, rest);
+            let fb = Feedback { acked_frame: self.reassembler.last_released(), arrivals: head, ..Feedback::default() };
+            self.send_feedback(&fb)?;
+        }
         let fb = Feedback {
             acked_frame: self.reassembler.last_released(),
             decode_us: sorted.get(sorted.len() / 2).map_or(0, |m| (m * 1000.0) as u32),
@@ -200,6 +205,15 @@ impl Viewer {
             arrivals: std::mem::take(&mut self.arrivals),
             nacks,
         };
+        self.send_feedback(&fb)?;
+        self.last_feedback_ns = now;
+        self.released_since_feedback = false;
+        Ok(())
+    }
+}
+
+impl Viewer {
+    fn send_feedback(&mut self, fb: &Feedback) -> Res<()> {
         let mut d = Vec::with_capacity(HEADER_LEN + 64);
         DatagramHeader {
             flags: 0,
@@ -214,8 +228,6 @@ impl Viewer {
         .encode_into(&mut d);
         d.extend_from_slice(&fb.encode());
         self.send_datagram(&d)?;
-        self.last_feedback_ns = now;
-        self.released_since_feedback = false;
         Ok(())
     }
 }
