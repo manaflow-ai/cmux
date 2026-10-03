@@ -72,6 +72,8 @@ export interface SchedulerState {
   readonly deploys?: { readonly day: string; readonly count: number }
   /** Run-creation token bucket (abuse limit, scheduler-limits.ts). */
   readonly rate?: RunBucket
+  /** Runs started per automation-run tree (scheduler-chain.ts), keyed by root run. */
+  readonly automation_trees?: Readonly<Record<string, number>>
   /** TeamDO's push of the run class of agents.allowedClasses (scheduler-policy.ts); absent = not synced, no runs. */
   readonly run_policy?: RunPolicy
 }
@@ -387,7 +389,7 @@ export const schedulerDomain: Domain<SchedulerState> = {
         if (!a) return reject("selector.not_found", "automation not found")
         const chained = isAutomationPrincipal(p) ? automationTrigger(state, p, a) : undefined
         if (chained && "ok" in chained) return chained
-        const r = startRun(state, a, chained?.trigger ?? { id: a.triggers.find((t) => t.spec.type === "manual")?.id ?? null, type: "manual" }, ctx)
+        const r = startRun(chained ? { ...state, automation_trees: chained.trees } : state, a, chained?.trigger ?? { id: a.triggers.find((t) => t.spec.type === "manual")?.id ?? null, type: "manual" }, ctx)
         if ("rejected" in r) return r.rejected
         return { ok: true, state: r.state, value: publicRun(r.run), outbox: r.outbox }
       }

@@ -128,7 +128,7 @@ export class CmuxCaps extends RpcTarget {
       return r
     }
     // A mutation is its own durable step (WrappedStep journal); a read just runs.
-    const r = (custom ? await this.#journal(custom, call) : await call()) as CapabilityResult
+    const r = (custom && cloudOpByName.get(op)?.class === "mutation" ? await this.#journal(custom, call) : await call()) as CapabilityResult
     if (!r.ok) throw new CapabilityError(r.code, r.message)
     return r.value
   }

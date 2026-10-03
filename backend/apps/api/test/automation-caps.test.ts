@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest"
 import { egressTest, hostAllowed } from "../src/automation-egress.ts"
 import { testBundles } from "../src/code-run.ts"
 import { EGRESS_PER_MINUTE } from "../src/usage-meter-do.ts"
+import { automationTrigger, MAX_TREE_RUNS } from "../src/domains/scheduler-chain.ts"
 
 /** Slice 4 (plans/cmux-next/automations-plan.md): env.cmux, the egress gateway and the op step type. */
 
@@ -72,6 +73,23 @@ describe("egress allowlist (pure)", () => {
     expect(hostAllowed("example.com", ["*.example.com"])).toBe(false)
     expect(hostAllowed("badexample.com", ["*.example.com"])).toBe(false)
     expect(hostAllowed("api.example.com.", ["api.example.com"])).toBe(false)
+  })
+})
+
+describe("automation run trees (pure)", () => {
+  it("caps each tree, keeps depth, and drops counters of trees with no run left", () => {
+    const run = (id: string, automation: string, trigger: Record<string, unknown>) => ({ id, automation, state: "running", trigger: { id: null, ...trigger } })
+    const target = { body: { type: "steps" } } as any
+    const p = { kind: "agent", identity: "automation:auto_a", agent: "auto_a", run: "run_root", team: "t" } as any
+    const state: any = { runs: { run_root: run("run_root", "auto_a", { type: "manual" }) }, automation_trees: { run_root: MAX_TREE_RUNS - 1, run_gone: 3 } }
+    const ok = automationTrigger(state, p, target) as any
+    expect(ok.trigger).toMatchObject({ type: "automation", parent_run: "run_root", root_run: "run_root", depth: 1 })
+    expect(ok.trees).toEqual({ run_root: MAX_TREE_RUNS })
+    expect(automationTrigger({ ...state, automation_trees: ok.trees }, p, target)).toMatchObject({ ok: false, code: "automation.fanout" })
+    // A run reached through leaked capabilities still counts against its own tree.
+    const deep: any = { runs: { run_c: run("run_c", "auto_a", { type: "automation", parent_run: "run_root", root_run: "run_root", depth: 3 }) }, automation_trees: {} }
+    expect(automationTrigger(deep, { ...p, run: "run_c" }, target)).toMatchObject({ ok: false, code: "automation.depth" })
+    expect(automationTrigger(state, { ...p, agent: "auto_b" }, target)).toMatchObject({ ok: false, code: "auth.forbidden" })
   })
 })
 
@@ -163,6 +181,8 @@ describe("slice 4 capabilities (workerd)", { timeout: 60_000 }, () => {
       expect(run, JSON.stringify(run)).toMatchObject({ state: "succeeded" })
       expect(seen).toHaveLength(1)
       expect(seen[0]!.headers).toEqual(["x-ok"])
+      // The socket reached the gateway, which refused it.
+      expect(egressTest.connects).toBeGreaterThanOrEqual(1)
     } finally {
       egressTest.upstream = undefined
     }

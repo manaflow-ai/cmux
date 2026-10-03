@@ -3387,6 +3387,13 @@
                   "name": "RunId"
                 }
               },
+              "root_run": {
+                "required": false,
+                "type": {
+                  "kind": "ref",
+                  "name": "RunId"
+                }
+              },
               "depth": {
                 "required": false,
                 "type": {
@@ -9680,6 +9687,9 @@
                   "parent_run": {
                     "$ref": "#/$defs/RunId"
                   },
+                  "root_run": {
+                    "$ref": "#/$defs/RunId"
+                  },
                   "depth": {
                     "type": "integer"
                   }
@@ -9978,6 +9988,9 @@
                     "type": "string"
                   },
                   "parent_run": {
+                    "$ref": "#/$defs/RunId"
+                  },
+                  "root_run": {
                     "$ref": "#/$defs/RunId"
                   },
                   "depth": {
