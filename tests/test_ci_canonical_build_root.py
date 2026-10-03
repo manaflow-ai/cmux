@@ -131,6 +131,20 @@ class CanonicalFingerprintTests(unittest.TestCase):
             "/private/tmp/cmux-ci-aws-m4pro-9-glaeda-1",
         ])
 
+    def test_a_root_the_glaeda_hook_exported_wins(self):
+        # The hook holds root 1 (the default path) or root N for a compile job
+        # and exports it; deriving another root would leave the one glaeda holds.
+        for exported in ("/private/tmp/cmux-ci", "/private/tmp/cmux-ci-2"):
+            result = subprocess.run(
+                [str(ROOT_SCRIPT), "--print-root"],
+                env={"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": "self-hosted",
+                     "RUNNER_NAME": "cmux13s-mac-mini-glaeda", "CMUX_CI_CANONICAL_ROOT": exported},
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertEqual(result.stdout.strip(), exported)
+
     def test_hosted_runner_keeps_the_shared_default_and_override_wins(self):
         hosted = subprocess.run(
             [str(ROOT_SCRIPT), "--print-root"],
