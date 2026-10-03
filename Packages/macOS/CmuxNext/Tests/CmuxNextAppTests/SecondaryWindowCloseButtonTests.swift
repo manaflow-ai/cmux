@@ -15,7 +15,7 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct SecondaryWindowCloseButtonTests {
-    private func expectCloseButton(_ window: NSWindow?, _ label: String, sourceLocation: SourceLocation = #_sourceLocation) {
+    static func expectCloseButton(_ window: NSWindow?, _ label: String, sourceLocation: SourceLocation = #_sourceLocation) {
         guard let window, let content = window.contentView, let frameView = content.superview else {
             Issue.record("\(label): no window", sourceLocation: sourceLocation)
             return
@@ -48,9 +48,9 @@ struct SecondaryWindowCloseButtonTests {
                                           managedReader: FixedManagedPreferenceReader(.empty), managedWatchFiles: [])
         await settings.reload()
         let settingsWindow = SettingsWindowController(model: SettingsWindowModel(settings: settings, registry: registry, host: nil))
-        expectCloseButton(settingsWindow.window, "Settings")
+        Self.expectCloseButton(settingsWindow.window, "Settings")
         let debug = DebugSettingsWindowController(model: DebugSettingsModel(store: TunableStore(), descriptors: []))
-        expectCloseButton(debug.window, "Debug Settings")
+        Self.expectCloseButton(debug.window, "Debug Settings")
     }
 
     @Test func onboardingWindowHasACloseButton() {
@@ -58,7 +58,7 @@ struct SecondaryWindowCloseButtonTests {
         services.accountsView = NSView()
         services.firstTaskView = NSView()
         let controller = OnboardingWindowController(model: OnboardingModel(services: services, start: .role))
-        expectCloseButton(controller.window, "Onboarding")
+        Self.expectCloseButton(controller.window, "Onboarding")
     }
 
     /// The App Store window (fallback when no main window holds the tab).
@@ -68,6 +68,6 @@ struct SecondaryWindowCloseButtonTests {
         let model = AppStoreModel(catalog: RegistryAppStoreCatalog(registry: registry), registry: registry,
                                   host: AppHost(sink: AppPreviewSink()), previewHost: AppHost(sink: AppPreviewSink()))
         let controller = AppStoreWindowController(model: model)
-        expectCloseButton(controller.window, "App Store")
+        Self.expectCloseButton(controller.window, "App Store")
     }
 }
