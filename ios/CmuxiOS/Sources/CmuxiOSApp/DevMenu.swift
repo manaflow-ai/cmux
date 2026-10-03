@@ -25,6 +25,10 @@ enum DevMenu {
                 options.set(composeFlow: flow)
             })
         }
+        // DEBUG-only: the text confirmation settings against the mock owner.
+        sheet.addAction(UIAlertAction(title: "Text confirmation (mock owner)", style: .default) { [weak presenter] _ in
+            presenter?.present(DevTextConfirm.make(), animated: true)
+        })
         // DEBUG-only lab for the transport lane's Wi-Fi to cellular test (no user strings).
         sheet.addAction(UIAlertAction(title: "Network Lab", style: .default) { [weak presenter] _ in
             let lab = UINavigationController(rootViewController: UIHostingController(rootView: NetLabView()))

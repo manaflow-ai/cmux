@@ -29,6 +29,12 @@
          location = "group:CmuxGhosttyKit">
       </FileRef>
       <FileRef
+         location = "group:CmuxHomeCore">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxHomeRender">
+      </FileRef>
+      <FileRef
          location = "group:CmuxIrohTransport">
       </FileRef>
       <FileRef
@@ -48,6 +54,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxTerminalSizing">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTextConfirmCore">
       </FileRef>
       <FileRef
          location = "group:CmuxTheme">
