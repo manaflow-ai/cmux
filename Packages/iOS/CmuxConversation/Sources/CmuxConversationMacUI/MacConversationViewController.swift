@@ -782,19 +782,19 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
 
     private func reloadThread(animated: Bool) {
         guard let focus = threadFocus, let rootID = threadRootID else { return }
-        // The thread's rows stay crisp at their transcript positions while the
-        // rest blurs in place, as Messages does. Scroll so the newest thread
-        // row is visible first; a root scrolled off the top pins under the bar.
-        let threadIDs = Set(store.messages.filter { $0.id == rootID || $0.replyToID == rootID }.map(\.rowID))
-        var indexes: [Int] = []
+        // Messages blurs the transcript in place and re-renders the thread's
+        // rows crisp as plain thread rows (no quote pill, no reply-count link,
+        // names and tapbacks kept), each bubble keeping its on-screen position;
+        // a root scrolled off the top pins under the bar.
+        let width = transcriptWidth
+        let threadRows = MacConversationRowBuilder.threadRows(rootID: rootID, store: store)
+        var transcriptIndex: [String: Int] = [:]
         for (index, row) in rows.enumerated() {
-            if case let .message(model) = row, threadIDs.contains(model.rowID) {
-                if index > 0, case .timestamp = rows[index - 1] { indexes.append(index - 1) }
-                indexes.append(index)
-            }
+            if case let .message(model) = row { transcriptIndex[model.rowID] = index }
         }
-        guard !indexes.isEmpty else { return }
-        if let last = indexes.last {
+        if let lastID = threadRows.reversed().compactMap({ row -> String? in
+            if case let .message(model) = row { return model.rowID } else { return nil }
+        }).first, let last = transcriptIndex[lastID] {
             let rect = tableView.rect(ofRow: last)
             let bottomLimit = scrollView.contentView.bounds.origin.y + scrollView.bounds.height - scrollView.contentInsets.bottom
             if rect.maxY > bottomLimit {
@@ -805,36 +805,39 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             }
         }
         view.layoutSubtreeIfNeeded()
-        let width = transcriptWidth
         var placed: [(NSView, CGRect)] = []
         var pinnedTop = view.safeAreaInsets.top + 8
-        for index in indexes {
-            let rowRect = tableView.rect(ofRow: index)
-            var frame = focus.convert(rowRect, from: tableView)
-            let height: CGFloat
-            let rowView: NSView
-            switch rows[index] {
+        var pendingTimestamp: MacTimestampRowView?
+        for row in threadRows {
+            switch row {
             case let .timestamp(_, date):
                 let view = MacTimestampRowView()
                 view.configure(date: date)
-                height = MacTimestampRowView.height
-                rowView = view
+                pendingTimestamp = view
             case let .message(model):
+                guard let index = transcriptIndex[model.rowID], case let .message(transcriptModel) = rows[index] else { continue }
                 let container = MacMessageContainerView()
-                container.topSpacing = topSpacing(at: index, model)
                 let layout = layoutCache.layout(model, width: width)
                 container.row.configure(model, layout: layout, text: layoutCache.text(model))
-                height = layout.height + container.topSpacing
-                rowView = container
+                // Keep the bubble where the transcript draws it: offset by the
+                // difference between the transcript row's content position and
+                // the thread-mode layout's.
+                let transcriptLayout = layoutCache.layout(transcriptModel, width: width)
+                let rowRect = tableView.rect(ofRow: index)
+                let spacing = topSpacing(at: index, transcriptModel)
+                var y = focus.convert(rowRect, from: tableView).minY + spacing + transcriptLayout.contentFrame.minY - layout.contentFrame.minY
+                if let timestamp = pendingTimestamp {
+                    let tsFrame = CGRect(x: 0, y: max(pinnedTop, y - 10 - MacTimestampRowView.height), width: width, height: MacTimestampRowView.height)
+                    placed.append((timestamp, tsFrame))
+                    pinnedTop = tsFrame.maxY
+                    pendingTimestamp = nil
+                }
+                y = max(y, pinnedTop)
+                placed.append((container, CGRect(x: 0, y: y, width: width, height: layout.height)))
+                pinnedTop = y + layout.height
             default:
                 continue
             }
-            frame.size = CGSize(width: width, height: height)
-            if frame.minY < pinnedTop {
-                frame.origin.y = pinnedTop
-            }
-            pinnedTop = frame.maxY
-            placed.append((rowView, frame))
         }
         focus.show(placed, animated: animated)
     }
