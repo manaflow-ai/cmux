@@ -95,6 +95,9 @@ struct Shared {
     events: broadcast::Sender<PathEvent>,
     last_event: Option<Instant>,
     max_datagram: usize,
+    /// The last path that carried the session, described by events while
+    /// no path does.
+    last_path: Option<PathId>,
     /// No path will ever be added: once every path failed, the underlay
     /// reports the last failure and the session ends, as a plain socket's
     /// would. Otherwise the endpoint may still add a path.
@@ -109,6 +112,9 @@ impl Shared {
     /// Publish the current path; a switch also sends a path event.
     fn publish(&mut self) {
         let current = self.selector.current();
+        if current.is_some() {
+            self.last_path = current;
+        }
         let switched =
             self.current.send_if_modified(|seen| std::mem::replace(seen, current) != current);
         if switched {
@@ -117,10 +123,17 @@ impl Shared {
     }
 
     /// The current path and how it performs, as a path event carries it.
+    ///
+    /// With no current path (every path dead, or none answered yet), the
+    /// event names no path but still describes the last one that carried
+    /// the session, if it still exists: its kind, last RTT and loss. A dead
+    /// only path therefore reads as "cloud region, 60 % loss", not as a
+    /// blank with 0 % loss.
     fn event(&self) -> PathEvent {
         let path = self.selector.current();
-        let view = path.and_then(|id| self.selector.path(id));
-        let slot = path.and_then(|id| self.slots.iter().find(|slot| slot.id == id));
+        let described = path.or(self.last_path).filter(|id| self.slots.iter().any(|slot| slot.id == *id));
+        let view = described.and_then(|id| self.selector.path(id));
+        let slot = described.and_then(|id| self.slots.iter().find(|slot| slot.id == id));
         PathEvent {
             path,
             kind: view.map(|view| view.kind),
@@ -228,6 +241,7 @@ impl Multipath {
             events: broadcast::channel(EVENT_BACKLOG).0,
             last_event: None,
             max_datagram: 0,
+            last_path: None,
             fixed_paths: false,
         }));
         (Self { shared: Arc::clone(&shared) }, MultipathControl { shared })
