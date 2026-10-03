@@ -215,6 +215,10 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     var onDocumentContentChanged: (() -> Void)?
     /// Lays out the host that sizes the document to its rows.
     var layoutHost: (() -> Void)?
+    /// Lets the outline scroll this much further above and below its rows,
+    /// for a drag that keeps a row in place while rows around it close.
+    /// Zero for both gives the range back.
+    var lendScrollRange: ((_ above: CGFloat, _ below: CGFloat) -> Void)?
 
     /// Sizes the document to its rows and lays the rows out now rather than
     /// on the next pass, for a caller that measures or scrolls right after

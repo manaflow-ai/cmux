@@ -7,6 +7,7 @@ final class CloudTreeContainerView: NSView {
     private let outlineView = CloudTreeNSOutlineView()
     private let coordinator: CloudTreeOutlineView.Coordinator
     private let layoutMetrics = CloudTreeLayoutMetrics()
+    private static let insets = NSEdgeInsets(top: 6, left: 0, bottom: 6, right: 0)
     private var lastMeasuredDocumentWidth: CGFloat?
 
     init(coordinator: CloudTreeOutlineView.Coordinator) {
@@ -70,10 +71,15 @@ final class CloudTreeContainerView: NSView {
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
         scrollView.documentView = outlineView
-        scrollView.contentInsets = NSEdgeInsets(top: 6, left: 0, bottom: 6, right: 0)
+        scrollView.contentInsets = Self.insets
         addSubview(scrollView)
         outlineView.onDocumentContentChanged = { [weak self] in self?.needsLayout = true }
         outlineView.layoutHost = { [weak self] in self?.layoutSubtreeIfNeeded() }
+        outlineView.lendScrollRange = { [weak self] above, below in
+            self?.scrollView.contentInsets = NSEdgeInsets(
+                top: Self.insets.top + above, left: 0, bottom: Self.insets.bottom + below, right: 0
+            )
+        }
         outlineView.frame = scrollView.contentView.bounds
         outlineView.autoresizingMask = [.width]
         NSLayoutConstraint.activate([
@@ -94,7 +100,7 @@ final class CloudTreeContainerView: NSView {
         let viewportWidth = scrollView.contentView.bounds.width
         let documentWidth = layoutMetrics.documentWidth(viewportWidth: viewportWidth)
         let contentHeight = outlineView.numberOfRows > 0
-            ? outlineView.rect(ofRow: outlineView.numberOfRows - 1).maxY + scrollView.contentInsets.bottom
+            ? outlineView.rect(ofRow: outlineView.numberOfRows - 1).maxY + Self.insets.bottom
             : 0
         let documentHeight = layoutMetrics.documentHeight(
             viewportHeight: scrollView.contentView.bounds.height, contentHeight: contentHeight)
