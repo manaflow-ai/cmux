@@ -7,6 +7,7 @@ import { isHighlighted } from "../shikiLanguages";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS } from "../diffTheme";
 import { FileHeader, type FileActions, type FileView } from "./FileHeader";
 import { HunkActions } from "./HunkActions";
+import { intralineMode } from "./intraline";
 import { hunkAnchor, type FocusAfter, type HunkAnchor, type HunkReview } from "./hunkReview";
 
 export type DiffLayout = "unified" | "split";
@@ -49,6 +50,7 @@ export function EditBlock({
     return highlighted ? parsed : setLanguageOverride(parsed, "text");
   }, [patch, highlighted]);
   const afterRender = useStableCallback(onPainted);
+  const lineDiffType = useMemo(() => intralineMode(edit), [edit]);
   const reviewing = review !== undefined;
   const annotations = useMemo(
     () =>
@@ -66,7 +68,8 @@ export function EditBlock({
       diffStyle: layout,
       diffIndicators: "bars" as const,
       hunkSeparators: "line-info" as const,
-      lineDiffType: "none" as const,
+      // Word-level marks inside changed lines, unless the edit rewrote whole lines (intraline).
+      lineDiffType,
       overflow: wrap ? ("wrap" as const) : ("scroll" as const),
       // A fragment edit has no known place in its file, so its numbers would be made up.
       disableLineNumbers: !edit.numbered,
@@ -76,7 +79,7 @@ export function EditBlock({
       unsafeCSS: diffUnsafeCSS,
       onPostRender: afterRender,
     }),
-    [layout, wrap, edit.numbered, afterRender],
+    [layout, wrap, edit.numbered, afterRender, lineDiffType],
   );
   // The header sits outside Pierre's diff, so collapsing or marking a file keeps the same
   // header node and the button the reader pressed keeps focus.

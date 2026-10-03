@@ -14,6 +14,14 @@ The virtualized DOM cannot provide selection or find across rows that are unmoun
 
 ## Dev server
 
+For browser-only iteration against the in-page mock acpmux daemon, run:
+
+```sh
+cd webviews && bun run dev:agent-pane -- --open "/?mock"
+```
+
+Vite serves the real pane source at `http://127.0.0.1:4176/`, opens it with `?mock`, and hot-reloads TypeScript and CSS edits without an app build.
+
 To iterate on the real pane inside a running cmux-next with hot reload:
 
 1. `cd webviews && bun run dev:agent-pane` serves this directory with Vite at `http://127.0.0.1:4176/`.
