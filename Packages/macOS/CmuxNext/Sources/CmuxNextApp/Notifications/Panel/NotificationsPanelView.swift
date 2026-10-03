@@ -59,6 +59,7 @@ final class NotificationsPanelView: NSView {
     private let scroll = NSScrollView()
     private let list = NSStackView()
     private let empty = NSStackView()
+    private let emptyIcon = NSImageView()
     private var listHeight: NSLayoutConstraint?
     private var tinted: [(NSTextField, NotificationRowView.Tone)] = []
     private(set) var rowViews: [NotificationRowView] = []
@@ -121,7 +122,7 @@ final class NotificationsPanelView: NSView {
                                                name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
         document.translatesAutoresizingMaskIntoConstraints = false
 
-        let emptyIcon = NSImageView(image: NSImage(systemSymbolName: "bell", accessibilityDescription: NotificationsPanelStrings.title) ?? NSImage())
+        emptyIcon.image = NSImage(systemSymbolName: "bell", accessibilityDescription: NotificationsPanelStrings.title) ?? NSImage()
         emptyIcon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 22, weight: .regular)
         emptyIcon.imageScaling = .scaleProportionallyDown
         emptyIcon.translatesAutoresizingMaskIntoConstraints = false
