@@ -109,7 +109,7 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `googleSheets.info(url)`, `.read(url, { gid, sheet, range })`, `.readAll(url)`, `.export(url, { format, gid })` | `/htmlview` for sheet names, `/export?format=csv&gid=` | read |
 | `googleSlides.read(url)`, `.export(url, { format })` | `/export?format=` | read |
 | `googleDrive.download(url)`, `.export(url, { kind, format })` | drive.usercontent.google.com `/download`, Docs export | read |
-| `gmail.search(q, { limit, page, uid })`, `.inbox()`, `.thread(id, { format })`, `.attachment(id, name)` | Gmail web app in a background tab: thread rows (`tr.zA`), messages (`.adn`, expanded first), attachment links fetched with the session | read |
+| `gmail.search(q, { limit, page, uid })`, `.inbox()`, `.thread(id, { format })`, `.attachment(id, name)` | Gmail web app in a background tab: thread rows (`tr.zA`), messages (`.adn`, expanded first); attachments are Gmail's attachment chips (`.aQH`, `.aZo`, never a link in the message body) whose link is Gmail's own `https://mail.google.com/mail/...view=att` URL, fetched with the session | read |
 | `gmail.send({ to, cc, bcc, subject, body } \| { threadId, body, replyAll })` | draft; confirmed: Gmail compose (`?view=cm`) or the thread's Reply, body checked in the composer, Send, wait for "Message sent" and the undo window | write [9], [14] |
 | `googleCalendar.events({ date, view, query, limit })` | Calendar view or search in a background tab; each `[data-eventid]` and its screen-reader description | read |
 | `googleCalendar.create({ title, start, end, allDay, description, location, guests, timeZone, recurrence })` | draft; confirmed: `calendar/render?action=TEMPLATE`, Save, Send invitations only when the draft has guests | write [9], [14] |
