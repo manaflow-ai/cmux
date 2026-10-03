@@ -55,11 +55,16 @@ export type ChangesLoad =
 /// Where the view reads a scope from: the session host, or the mock daemon in mock mode.
 /// `status` names the branch the Branch scope compares with its base. `checkpointDiff`
 /// reads a turn between the checkpoint acpmux took before its prompt and the one it took
-/// when it ended (or the working tree while it runs).
+/// when it ended (or the working tree while it runs). `commit` and `push` change the
+/// repository; `status` then also gives their HEAD and ahead count.
 export type ChangesSource = {
   diff: (scope: ChangeScope) => Promise<unknown>;
   status?: () => Promise<unknown>;
   checkpointDiff?: (from: string, to?: string) => Promise<unknown>;
+  /// `git.commit` and `git.push` with the page's params and `idempotency_key`; each resolves to
+  /// the session host's MutationResult (changes/gitWrite.ts).
+  commit?: (params: Record<string, unknown>) => Promise<unknown>;
+  push?: (params: Record<string, unknown>) => Promise<unknown>;
 };
 
 /// A turn's checkpoints as acpmux records them on its turn summary: `from` taken before the

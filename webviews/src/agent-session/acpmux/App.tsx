@@ -47,6 +47,7 @@ import { DictationButton } from "./DictationButton";
 import { DictationNotice } from "./DictationNotice";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import type { ChangesSource } from "./changes/model";
+import type { GitWriteOp } from "./changes/gitWrite";
 import { Counts } from "./changes/Counts";
 import { ChevronDown, DiffFile } from "./changeIcons";
 import { Markdown } from "./conversation/Markdown";
@@ -180,6 +181,8 @@ const changesSource: ChangesSource = {
   diff: (scope) => callNative("git.diff", { scope, include_patch: true }),
   status: () => callNative("git.status", {}),
   checkpointDiff: (from, to) => callNative("git.checkpoint.diff", { from, ...(to ? { to } : {}), include_patch: true }),
+  commit: (params) => callNative("git.commit", params),
+  push: (params) => callNative("git.push", params),
 };
 /// The host opens a changed file in a tab beside the agent or in the editor (`file.open`).
 const openChangedFile = (path: string, where: "tab" | "editor") => callNative("file.open", { path, where });
@@ -804,6 +807,8 @@ function AcpmuxPane() {
     rowId: string;
     path?: string;
     opener?: HTMLElement;
+    /// The palette's Commit or Push for the open view (DiffPanel `gitIntent`).
+    gitIntent?: { op: GitWriteOp; nonce: number };
   }>();
   const sessionIdRef = useRef(snapshot.sessionId);
   sessionIdRef.current = snapshot.sessionId;
@@ -818,6 +823,19 @@ function AcpmuxPane() {
       }),
     [],
   );
+  // The palette's Commit and Push reach the open changes view, or open it on the newest turn of
+  // the selected chat. A chat with no turn yet has no changes view to open.
+  const gitIntents = useRef(0);
+  const runGitIntent = useRef<(op: GitWriteOp) => void>(() => undefined);
+  runGitIntent.current = (op) => {
+    const nonce = ++gitIntents.current;
+    const rowId = snapshotRef.current?.rows.at(-1)?.id;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    setDiffView((view) => {
+      if (view && view.sessionId === sessionIdRef.current) return { ...view, gitIntent: { op, nonce } };
+      return rowId ? { sessionId: sessionIdRef.current, rowId, opener, gitIntent: { op, nonce } } : view;
+    });
+  };
   const closedByUser = useRef(false);
   const closeDiff = useCallback(() => {
     closedByUser.current = true;
@@ -1034,6 +1052,7 @@ function AcpmuxPane() {
         // The Quick Composer has no chat list to search or switch to.
         if (name === "searchChats" && surfaceRef.current !== "quick") setSearching((open) => !open);
         if (name === "createCheckpoint") showCheckpoint.current();
+        if (name === "gitCommit" || name === "gitPush") runGitIntent.current(name === "gitCommit" ? "commit" : "push");
         if (
           [
             "permissionAllowOnce",
@@ -1281,6 +1300,8 @@ function AcpmuxPane() {
           "git.status": () => client.gitStatus(),
           "git.checkpoint.diff": ({ from, to }) =>
             client.gitCheckpointDiff(String(from), typeof to === "string" ? to : undefined),
+          "git.commit": (params) => client.gitCommit(params),
+          "git.push": (params) => client.gitPush(params),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
@@ -1607,6 +1628,7 @@ function AcpmuxPane() {
                     checkpointReview={checkpoints.review}
                     review={hunkReview}
                     turnCheckpoint={diffCheckpoint}
+                    gitIntent={diffView.gitIntent}
                   />
                 )}
               </div>

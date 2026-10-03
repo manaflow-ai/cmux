@@ -661,10 +661,21 @@ export class AcpmuxDirectClient {
     return this.git("git.checkpoint.diff", { from, ...(to ? { to } : {}), include_patch: true });
   }
 
+  /// Commits in the selected session's repository (`git.commit`; changes/gitWrite.ts builds
+  /// the params and the idempotency key).
+  gitCommit(params: Record<string, unknown>): Promise<unknown> {
+    return this.git("git.commit", params);
+  }
+
+  /// Pushes the selected session's branch (`git.push`); never forced.
+  gitPush(params: Record<string, unknown>): Promise<unknown> {
+    return this.git("git.push", params);
+  }
+
   /// acpmux serves no git methods: the native host runs them on the session host in the selected
   /// session's folder, and mock mode's in-page daemon answers them by session.
   private git(
-    method: "git.diff" | "git.status" | "git.checkpoint.diff",
+    method: "git.diff" | "git.status" | "git.checkpoint.diff" | "git.commit" | "git.push",
     params: Record<string, unknown>,
   ): Promise<unknown> {
     const sessionId = this.selectedSessionId;

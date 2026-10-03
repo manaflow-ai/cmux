@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// A change to the chat session's repository that the changes view asks
 /// for: `git.commit` with `{cwd, message, all?, include_untracked?,

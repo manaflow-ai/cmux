@@ -22,6 +22,9 @@ import { RevertBar } from "./changes/RevertBar";
 import { ScopeMenu } from "./changes/ScopeMenu";
 import { TrackedOnlyBanner } from "./changes/TrackedOnlyBanner";
 import { useScopeChanges } from "./changes/useScopeChanges";
+import { GitToolbarButtons, GitWriteBar } from "./changes/GitActions";
+import type { GitWriteOp } from "./changes/gitWrite";
+import { useGitWrite } from "./changes/useGitWrite";
 
 const LAYOUT_KEY = "cmux.acpmux.diffLayout";
 const WRAP_KEY = "cmux.acpmux.diffWrap";
@@ -58,6 +61,7 @@ export function DiffPanel({
   checkpointReview,
   review,
   turnCheckpoint,
+  gitIntent,
 }: {
   files: TurnFile[];
   initialPath?: string;
@@ -71,10 +75,36 @@ export function DiffPanel({
   /// The shown turn's checkpoints, when acpmux recorded them: Last turn then reads the
   /// repository between them, or says the turn's changes are unavailable.
   turnCheckpoint?: TurnCheckpoint;
+  /// The palette's Commit or Push (`agentPane.git.*`): each new nonce opens the commit form or
+  /// pushes, as the toolbar's buttons do.
+  gitIntent?: { op: GitWriteOp; nonce: number };
 }) {
   registerAgentDiffTheme();
   const [scope, setScope] = useState<ChangeScope>("lastTurn");
   const { load, retry, branch } = useScopeChanges(source, scope, turnCheckpoint);
+  // Commit and Push read the branch state again whenever the scope loads again.
+  const [commitOpen, setCommitOpen] = useState(false);
+  // A commit closes the form and reloads the scope; a push changes only the branch state.
+  const git = useGitWrite(
+    source,
+    (op) => {
+      if (op === "commit") setCommitOpen(false);
+      if (op !== "push") retry();
+    },
+    load.state === "loaded" ? load.changeSet : load.state,
+  );
+  const commitMessage = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (commitOpen) commitMessage.current?.focus();
+  }, [commitOpen]);
+  const handledIntent = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!gitIntent || handledIntent.current === gitIntent.nonce) return;
+    handledIntent.current = gitIntent.nonce;
+    if (gitIntent.op === "push") void git.push();
+    else if (commitOpen) commitMessage.current?.focus();
+    else setCommitOpen(true);
+  }, [gitIntent, git, commitOpen]);
   const scopeFiles = useMemo(() => (load.state === "loaded" ? changeSetFiles(load.changeSet) : []), [load]);
   /// Last turn reads the transcript's files unless acpmux recorded the turn's checkpoints.
   const fromTranscript = scope === "lastTurn" && !turnCheckpoint;
@@ -282,6 +312,7 @@ export function DiffPanel({
           {files.length > 0 && <Counts additions={totals.additions} deletions={totals.deletions} />}
         </ScopeMenu>
         <div className="acpmux-diff-tools" role="toolbar" aria-label="Changes view">
+          <GitToolbarButtons git={git} formOpen={commitOpen} onToggleForm={() => setCommitOpen((open) => !open)} />
           {checkpointAction}
           <OptionsMenu rows={options} />
           {tools.map((tool) => (
@@ -311,6 +342,12 @@ export function DiffPanel({
           {skipped > 0 && <TrackedOnlyBanner skipped={skipped} onRefresh={refresh} />}
         </div>
       )}
+      <GitWriteBar
+        git={git}
+        formOpen={commitOpen}
+        onCloseForm={() => setCommitOpen(false)}
+        messageRef={commitMessage}
+      />
       {checkpointReview}
       <div className="acpmux-diff-main">
         <div ref={body} className="acpmux-diff-body">
