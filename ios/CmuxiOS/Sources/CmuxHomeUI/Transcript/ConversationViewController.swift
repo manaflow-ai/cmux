@@ -107,6 +107,9 @@ final class ConversationViewController: UIViewController {
         self.view.addSubview(view)
         transcript = view
         view.scroll.rowHost.failureActions = { [weak self] key in self?.failureActions(for: key) ?? [] }
+        view.scroll.rowHost.tapbackTarget = { [weak self] hit in self?.tapbackTarget(item: hit.item, partIndex: hit.partIndex) }
+        view.scroll.rowHost.canReact = { [weak self] key in self?.canReact(key) ?? false }
+        view.tapbacks.onChoose = { [weak self] target, tapback in self?.react(target, tapback) }
         view.onRowsChange = { [weak self] in self?.revealFocus() }
         view.scroll.panGestureRecognizer.addTarget(self, action: #selector(userScrolled))
         // Sends, refusals (the draft comes back through `onRestoreDraft`),
@@ -163,6 +166,41 @@ final class ConversationViewController: UIViewController {
         ]
     }
 
+    // MARK: Tapbacks
+
+    private func tapbackTarget(item key: IdempotencyKey, partIndex: Int) -> HomeTapbackTarget? {
+        guard let me = store.me?.id,
+              let item = store.transcript(for: conversation).first(where: { $0.key == key }) else { return nil }
+        return HomeTapbackTarget(item: item, partIndex: partIndex, conversation: conversation, me: me, isOnline: store.isOnline)
+    }
+
+    private func canReact(_ key: IdempotencyKey) -> Bool {
+        guard store.isOnline, let item = store.transcript(for: conversation).first(where: { $0.key == key }) else { return false }
+        return HomeTapbackTarget.accepts(item)
+    }
+
+    /// Sends the reaction with a fresh idempotency key. The badge appears when
+    /// the owner's update reaches the transcript (store -> binding -> core).
+    /// A refusal shows an alert; an offline refusal is covered by the banner.
+    private func react(_ target: HomeTapbackTarget, _ tapback: Reaction.Tapback) {
+        guard let op = target.op(tapback) else { return }
+        let store = self.store
+        Task { [weak self] in
+            do {
+                try await store.perform(op)
+            } catch let rejection as HomeRejection {
+                if rejection != .ownerUnreachable { self?.showReactionFailure(rejection) }
+            } catch {}
+        }
+    }
+
+    private func showReactionFailure(_ rejection: HomeRejection) {
+        let alert = UIAlertController(title: HomeText.tapbackFailedTitle, message: HomeText.explanation(for: rejection),
+                                      preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: HomeText.ok, style: .default))
+        present(alert, animated: true)
+    }
+
     // MARK: Rendering
 
     /// Reads the title row, the connection and the transcript version, so a
@@ -172,7 +210,13 @@ final class ConversationViewController: UIViewController {
         _ = store.transcriptVersion[conversation]
         let row = store.rows.first { $0.id == conversation }
         title = row?.title ?? title
-        transcript?.disabledReason = store.isOnline ? nil : HomeText.composerOffline
+        let disabled = store.isOnline ? nil : HomeText.composerOffline
+        if transcript?.disabledReason != disabled {
+            // React comes and goes with the connection.
+            transcript?.scroll.rowHost.invalidateAccessibility()
+            if disabled != nil { transcript?.tapbacks.dismiss(animated: true) }
+        }
+        transcript?.disabledReason = disabled
         let items = store.transcript(for: conversation)
         if let me = store.me?.id { announceNewIncoming(previous: shown, current: items, me: me) }
         shown = items
@@ -194,6 +238,31 @@ final class ConversationViewController: UIViewController {
     func rendered() async {
         await openTask?.value
         await transcript?.rendered()
+    }
+
+    /// Opens the tapback picker on the newest visible incoming message that
+    /// can take one. With `choose`, first sends that tapback through the
+    /// real path and waits for the store's update, so the picker opens over
+    /// the drawn badge with the choice selected.
+    func debugTapback(choose: Reaction.Tapback?) async {
+        await rendered()
+        guard let transcript else { return }
+        let controller = transcript.controller
+        let hits = controller.hits(in: CGRect(origin: .zero, size: controller.size)).filter { !$0.isMine }
+        guard var target = hits.reversed().lazy.compactMap({ self.tapbackTarget(item: $0.item, partIndex: $0.partIndex) }).first
+        else { return }
+        if let choose {
+            react(target, choose)
+            let id = conversation
+            let key = target.item
+            await HomeGallery.waitUntil(store) { store in
+                _ = store.transcriptVersion[id]
+                return store.transcript(for: id).first { $0.key == key }?.reactions.contains { $0.kind == .tapback(choose) } ?? false
+            }
+            await rendered()
+            target = tapbackTarget(item: target.item, partIndex: target.partIndex) ?? target
+        }
+        transcript.tapbacks.show(target)
     }
     #endif
 }

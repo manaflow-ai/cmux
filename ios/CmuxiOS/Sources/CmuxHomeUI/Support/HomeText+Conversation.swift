@@ -13,6 +13,15 @@ extension HomeText {
     static var discard: String { String(localized: "home.message.discard", defaultValue: "Delete Message", bundle: .module) }
     static var transcriptA11y: String { String(localized: "home.transcript.a11y", defaultValue: "Messages", bundle: .module) }
     static var copy: String { String(localized: "home.message.copy", defaultValue: "Copy", bundle: .module) }
+    static var tapbackReact: String { String(localized: "home.tapback.react", defaultValue: "React", bundle: .module) }
+    static var tapbackPickerA11y: String { String(localized: "home.tapback.picker.a11y", defaultValue: "Reactions", bundle: .module) }
+    static var tapbackFailedTitle: String { String(localized: "home.tapback.failedTitle", defaultValue: "Couldn't Add the Reaction", bundle: .module) }
+    static var tapbackLove: String { String(localized: "home.tapback.love", defaultValue: "Heart", bundle: .module) }
+    static var tapbackLike: String { String(localized: "home.tapback.like", defaultValue: "Thumbs Up", bundle: .module) }
+    static var tapbackDislike: String { String(localized: "home.tapback.dislike", defaultValue: "Thumbs Down", bundle: .module) }
+    static var tapbackLaugh: String { String(localized: "home.tapback.laugh", defaultValue: "Ha Ha", bundle: .module) }
+    static var tapbackEmphasize: String { String(localized: "home.tapback.emphasize", defaultValue: "Exclamation Marks", bundle: .module) }
+    static var tapbackQuestion: String { String(localized: "home.tapback.question", defaultValue: "Question Mark", bundle: .module) }
 
     /// VoiceOver announcement for a new incoming message.
     static func announcement(author: String, text: String) -> String {

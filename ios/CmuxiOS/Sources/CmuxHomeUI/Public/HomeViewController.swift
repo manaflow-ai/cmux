@@ -129,25 +129,31 @@ public final class HomeViewController: UIViewController {
 
     /// Pushes a conversation. `focus` opens it scrolled to that message
     /// (older pages load until it is there).
-    func openConversation(_ id: ConversationID, focus: HomeTranscriptFocus?) {
-        guard let navigationController else { return }
+    @discardableResult
+    func openConversation(_ id: ConversationID, focus: HomeTranscriptFocus?) -> ConversationViewController? {
+        guard let navigationController else { return nil }
         if searchController.isActive { searchController.isActive = false }
         let screen = ConversationViewController(store: store, conversation: id, focus: focus)
         if navigationController.topViewController !== self {
             navigationController.popToViewController(self, animated: false)
         }
         navigationController.pushViewController(screen, animated: !HomeMotion.reduceMotion)
+        return screen
     }
 
     #if DEBUG
     /// DEBUG ONLY (simulator screenshots): opens the first conversation whose
     /// kind's name is `kind` (`chief`, `group`, `direct`) once the inbox has it.
-    public func debugOpenFirstConversation(kind: String) {
+    /// `tapback` `open` then opens the tapback picker on the newest incoming
+    /// message; a tapback name (`love`, `like`, ...) sends that reaction.
+    public func debugOpenFirstConversation(kind: String, tapback: String? = nil) {
         let store = self.store
         Task { @MainActor [weak self] in
             await HomeGallery.waitUntil(store) { store in store.rows.contains { "\($0.kind)" == kind } }
             guard let id = store.rows.first(where: { "\($0.kind)" == kind })?.id else { return }
-            self?.openConversation(id, focus: nil)
+            let screen = self?.openConversation(id, focus: nil)
+            guard let tapback, let screen else { return }
+            await screen.debugTapback(choose: Reaction.Tapback(rawValue: tapback))
         }
     }
 

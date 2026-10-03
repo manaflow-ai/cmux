@@ -55,6 +55,26 @@ if [[ "${SIM_GALLERY_ONLY:-}" == homehost ]]; then
   ls -1 "$out"; exit 0
 fi
 
+# SIM_GALLERY_ONLY=tapback: the tapback picker on the group conversation's
+# newest incoming message (light, dark), then after a Heart sent through the
+# store (the badge comes from the owner's update; Heart shows selected).
+if [[ "${SIM_GALLERY_ONLY:-}" == tapback ]]; then
+  for appearance in light dark; do
+    xcrun simctl ui "$udid" appearance "$appearance"
+    SIMCTL_CHILD_CMUX_IOS_HOME_PREVIEW=1 SIMCTL_CHILD_CMUX_IOS_OPEN_CONVERSATION=group \
+      SIMCTL_CHILD_CMUX_IOS_OPEN_TAPBACK=open \
+      xcrun simctl launch --terminate-running-process "$udid" "$bundle" >/dev/null
+    settle 7; shot "tapback-open-$appearance"
+  done
+  xcrun simctl ui "$udid" appearance light
+  SIMCTL_CHILD_CMUX_IOS_HOME_PREVIEW=1 SIMCTL_CHILD_CMUX_IOS_OPEN_CONVERSATION=group \
+    SIMCTL_CHILD_CMUX_IOS_OPEN_TAPBACK=love \
+    xcrun simctl launch --terminate-running-process "$udid" "$bundle" >/dev/null
+  settle 8; shot "tapback-sent-love-light"
+  xcrun simctl terminate "$udid" "$bundle" >/dev/null 2>&1 || true
+  ls -1 "$out"; exit 0
+fi
+
 if [[ "${SIM_GALLERY_ONLY:-}" != terminal ]]; then
 xcrun simctl ui "$udid" appearance light
 xcrun simctl launch --terminate-running-process "$udid" "$bundle" >/dev/null

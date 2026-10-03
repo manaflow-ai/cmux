@@ -5,8 +5,10 @@ import UIKit
 /// Hosts the render core's root layer and exposes its rows to VoiceOver:
 /// the rows are layers, so each visible message is a `UIAccessibilityElement`
 /// built from `HomeController.accessibilityItems()`. A long press on a bubble
-/// opens its menu (Copy, and Try Again / Delete for a message the owner
-/// refused), found with the core's hit test.
+/// opens its menu (React, Copy, and Try Again / Delete for a message the
+/// owner refused), found with the core's hit test. A double tap on a bubble
+/// is the shortcut to React (the tapback picker); VoiceOver gets React as a
+/// custom action.
 @MainActor
 final class HomeRowHostView: UIView, UIContextMenuInteractionDelegate {
     weak var controller: HomeController? {
@@ -14,12 +16,21 @@ final class HomeRowHostView: UIView, UIContextMenuInteractionDelegate {
     }
     /// Actions for a refused send (Try Again, Delete); empty when delivered.
     var failureActions: (IdempotencyKey) -> [HomeMessageAction] = { _ in [] }
+    /// The reaction target for a bubble; nil when the message cannot take one.
+    var tapbackTarget: (HomeHit) -> HomeTapbackTarget? = { _ in nil }
+    /// Whether a message can take a reaction (VoiceOver's React action).
+    var canReact: (IdempotencyKey) -> Bool = { _ in false }
+    /// Opens the tapback picker for a target.
+    var showTapbacks: (HomeTapbackTarget) -> Void = { _ in }
     private var elements: [UIAccessibilityElement]?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
         addInteraction(UIContextMenuInteraction(delegate: self))
+        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(doubleTapped))
+        doubleTap.numberOfTapsRequired = 2
+        addGestureRecognizer(doubleTap)
         accessibilityLabel = HomeText.transcriptA11y
         accessibilityContainerType = .list
     }
@@ -74,17 +85,25 @@ final class HomeRowHostView: UIView, UIContextMenuInteractionDelegate {
         e.accessibilityTraits = .staticText
         e.accessibilityFrameInContainerSpace = item.frame
         if let key = item.item {
-            e.accessibilityCustomActions = customActions(item: key, text: item.label)
+            e.accessibilityCustomActions = customActions(item: key, text: item.label, frame: item.frame)
         }
         return e
     }
 
-    /// Copy (the part's text, the element's label) and the refused-send actions.
-    private func customActions(item: IdempotencyKey, text: String) -> [UIAccessibilityCustomAction] {
-        var actions = [UIAccessibilityCustomAction(name: HomeText.copy, image: UIImage(systemName: "doc.on.doc")) { _ in
+    /// React (the part under the element's center), Copy (the part's text,
+    /// the element's label) and the refused-send actions.
+    private func customActions(item: IdempotencyKey, text: String, frame: CGRect) -> [UIAccessibilityCustomAction] {
+        var actions: [UIAccessibilityCustomAction] = []
+        if canReact(item) {
+            actions.append(UIAccessibilityCustomAction(name: HomeText.tapbackReact, image: UIImage(systemName: "face.smiling")) {
+                [weak self] _ in
+                MainActor.assumeIsolated { self?.openTapbacks(at: CGPoint(x: frame.midX, y: frame.midY)) ?? false }
+            })
+        }
+        actions.append(UIAccessibilityCustomAction(name: HomeText.copy, image: UIImage(systemName: "doc.on.doc")) { _ in
             MainActor.assumeIsolated { UIPasteboard.general.string = text }
             return true
-        }]
+        })
         for action in failureActions(item) {
             let run = action.run
             actions.append(UIAccessibilityCustomAction(name: action.title, image: action.image) { _ in
@@ -95,23 +114,43 @@ final class HomeRowHostView: UIView, UIContextMenuInteractionDelegate {
         return actions
     }
 
+    // MARK: Tapbacks
+
+    @objc private func doubleTapped(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended else { return }
+        openTapbacks(at: recognizer.location(in: self))
+    }
+
+    /// Opens the picker for the bubble at `point`; false when there is no
+    /// bubble or its message cannot take a reaction.
+    @discardableResult
+    private func openTapbacks(at point: CGPoint) -> Bool {
+        guard let hit = controller?.hit(at: point), let target = tapbackTarget(hit) else { return false }
+        showTapbacks(target)
+        return true
+    }
+
     // MARK: Context menu
 
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
                                 configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
         guard let hit = controller?.hit(at: location) else { return nil }
         let text = hit.text
+        let react = tapbackTarget(hit).map { target in
+            UIAction(title: HomeText.tapbackReact, image: UIImage(systemName: "face.smiling")) { [weak self] _ in
+                self?.showTapbacks(target)
+            }
+        }
         let failure = failureActions(hit.item).map { action in
             let run = action.run
             return UIAction(title: action.title, image: action.image,
                             attributes: action.isDestructive ? .destructive : []) { _ in run() }
         }
         return UIContextMenuConfiguration(identifier: NSCoder.string(for: hit.bubble) as NSString, previewProvider: nil) { _ in
-            var children: [UIMenuElement] = [
-                UIAction(title: HomeText.copy, image: UIImage(systemName: "doc.on.doc")) { _ in
-                    UIPasteboard.general.string = text
-                },
-            ]
+            var children: [UIMenuElement] = react.map { [$0] } ?? []
+            children.append(UIAction(title: HomeText.copy, image: UIImage(systemName: "doc.on.doc")) { _ in
+                UIPasteboard.general.string = text
+            })
             if !failure.isEmpty { children.append(UIMenu(options: .displayInline, children: failure)) }
             return UIMenu(children: children)
         }
