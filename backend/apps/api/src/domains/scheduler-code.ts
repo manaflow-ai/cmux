@@ -1,6 +1,7 @@
 import { canonicalJson, type OutboxItem, type ReduceContext, type ReduceResult, type Reject } from "@cmux/ownership"
 import { AutomationDeploy, cloudOpByName, type Automation, type Body } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
+import { deniedPattern } from "../egress-hosts.ts"
 import { decodeParams, reject } from "./common.ts"
 import type { SchedulerState } from "./scheduler.ts"
 
@@ -62,7 +63,11 @@ export const reduceDeploy = (state: SchedulerState, params: unknown, ctx: Reduce
  * `op` steps (automations plan slice 4, P13): the params must decode with the op's own
  * schema at create and update, so a broken step fails then, not at run time.
  */
-export const invalidOpStep = (body: Body): ({ ok: false } & Reject) | undefined => {
+export const invalidBody = (body: Body): ({ ok: false } & Reject) | undefined => {
+  if (body.type === "code") {
+    const bad = (body.egress ?? []).find(deniedPattern)
+    return bad ? reject("validation.invalid", `egress host ${bad} is not allowed (cmux's own domains)`) : undefined
+  }
   if (body.type !== "steps") return undefined
   for (const [i, s] of body.steps.entries()) {
     if (s.type !== "op") continue

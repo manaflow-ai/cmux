@@ -15,7 +15,7 @@ import {
 import { checkCron, nextFire } from "../cron.ts"
 import { admit, decodeParams, reject, requirePersonalTeamAdmin } from "./common.ts"
 import { automationTrigger, isAutomationPrincipal } from "./scheduler-chain.ts"
-import { automationOutbox, countDeploy, invalidOpStep, reduceDeploy } from "./scheduler-code.ts"
+import { automationOutbox, countDeploy, invalidBody, reduceDeploy } from "./scheduler-code.ts"
 import { MAX_ACTIVE_RUNS_PER_TEAM, MAX_OPEN_RUNS_PER_TEAM, queueFull, rateLimited, takeRunToken, type RunBucket } from "./scheduler-limits.ts"
 import { reduceRunPolicy, runPolicyRefusal, type RunPolicy } from "./scheduler-policy.ts"
 import { personalTeamIdFor } from "./user.ts"
@@ -286,7 +286,7 @@ export const schedulerDomain: Domain<SchedulerState> = {
         const owner = ownerOf(state, p)
         if (!owner || !p.user) return reject("auth.forbidden", "automation.create needs a user in a team")
         if (Object.keys(state.automations).length >= MAX_AUTOMATIONS) return reject("automation.limit", `at most ${MAX_AUTOMATIONS} automations per team`)
-        const bad = validateTriggers(d.value.triggers) ?? invalidOpStep(d.value.body)
+        const bad = validateTriggers(d.value.triggers) ?? invalidBody(d.value.body)
         if (bad) return bad
         const v = d.value
         const counted = countDeploy(state, undefined, v.body, ctx.now)
@@ -320,7 +320,7 @@ export const schedulerDomain: Domain<SchedulerState> = {
         if (v.expected_version !== undefined && v.expected_version !== a.version) {
           return reject("version.conflict", "expected_version does not match", { expected: v.expected_version, actual: a.version })
         }
-        const badBody = v.body ? invalidOpStep(v.body) : undefined
+        const badBody = v.body ? invalidBody(v.body) : undefined
         if (badBody) return badBody
         if (v.triggers) {
           const bad = validateTriggers(v.triggers)

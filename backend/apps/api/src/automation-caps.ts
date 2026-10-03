@@ -64,8 +64,16 @@ export const callCapability = async (env: Env, claims: CapabilityClaims, name: s
   return { ok: true, value: (reply as { value?: unknown }).value }
 }
 
+/** log and metric lines per invocation (review P3: unmetered work in the API Worker). */
+const MAX_LINES = 1_000
 const LEVELS: ReadonlySet<string> = new Set(["debug", "info", "warn", "error"])
-const text = (v: unknown, max: number) => (typeof v === "string" ? v : JSON.stringify(v) ?? "").slice(0, max)
+/** Bounded text: strings are sliced; objects are stringified only when small (shallow, 50 keys). */
+const text = (v: unknown, max: number): string => {
+  if (typeof v === "string") return v.slice(0, max)
+  if (v === null || typeof v !== "object") return String(v).slice(0, max)
+  const keys = Object.keys(v).slice(0, 50)
+  return JSON.stringify(Object.fromEntries(keys.map((k) => [k.slice(0, 100), typeof (v as Record<string, unknown>)[k] === "string" ? ((v as Record<string, string>)[k]!).slice(0, 500) : typeof (v as Record<string, unknown>)[k] === "number" || typeof (v as Record<string, unknown>)[k] === "boolean" ? (v as Record<string, unknown>)[k] : "[object]"]))).slice(0, max)
+}
 
 /** A refusal tenant code sees as a thrown error with a stable code. */
 export class CapabilityError extends Error {
@@ -85,12 +93,15 @@ export class CapabilityError extends Error {
 export class CmuxCaps extends RpcTarget {
   readonly #env: Env
   readonly #claims: CapabilityClaims
+  readonly #journal: (key: string, fn: () => Promise<unknown>) => Promise<unknown>
   #closed = false
+  #lines = 0
 
-  constructor(env: Env, claims: CapabilityClaims) {
+  constructor(env: Env, claims: CapabilityClaims, journal: (key: string, fn: () => Promise<unknown>) => Promise<unknown>) {
     super()
     this.#env = env
     this.#claims = claims
+    this.#journal = journal
   }
 
   close(): void {
@@ -110,19 +121,26 @@ export class CmuxCaps extends RpcTarget {
     if (cloudOpByName.get(op)?.class === "mutation" && !custom) {
       throw new CapabilityError("validation.invalid", `${op.slice(0, 80)} changes state: pass { idempotency_key } (1 to 100 of A-Z a-z 0-9 . _ : -, unique in the run)`)
     }
-    const r = await callCapability(this.#env, this.#claims, op, params, `cap:${this.#claims.run}:${custom ?? "read"}`)
+    const call = async () => {
+      const r = await callCapability(this.#env, this.#claims, op, params, `cap:${this.#claims.run}:${custom ?? "read"}`)
+      // Temporary refusals throw inside the journaled step, so the engine retries them.
+      if (!r.ok && (r.code === "owner.unreachable" || r.code === "rate.limited" || r.code === "policy.pending")) throw new Error(`${r.code}: ${r.message}`)
+      return r
+    }
+    // A mutation is its own durable step (WrappedStep journal); a read just runs.
+    const r = (custom ? await this.#journal(custom, call) : await call()) as CapabilityResult
     if (!r.ok) throw new CapabilityError(r.code, r.message)
     return r.value
   }
 
   async log(level: unknown, msg: unknown, attrs?: unknown): Promise<void> {
-    if (this.#closed) return
+    if (this.#closed || ++this.#lines > MAX_LINES) return
     const c = this.#claims
     console.log(JSON.stringify({ source: "automation", team: c.team, run: c.run, automation: c.automation, level: LEVELS.has(String(level)) ? String(level) : "info", msg: text(msg, 2_000), attrs: text(attrs ?? {}, 4_000) }))
   }
 
   async metric(name: unknown, value: unknown, attrs?: unknown): Promise<void> {
-    if (this.#closed || typeof value !== "number" || !Number.isFinite(value)) return
+    if (this.#closed || ++this.#lines > MAX_LINES || typeof value !== "number" || !Number.isFinite(value)) return
     const c = this.#claims
     console.log(JSON.stringify({ source: "automation.metric", team: c.team, run: c.run, automation: c.automation, name: text(name, 100), value, attrs: text(attrs ?? {}, 1_000) }))
   }
