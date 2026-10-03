@@ -526,15 +526,13 @@ jobs:
         id: build-slot
         run: |
           set -euo pipefail
-          # Glaeda normally exports the root for the slot it granted. Resolve
-          # a deterministic runner-name fallback before any fixed path is
-          # cleared when that export is missing, so two slots never share a
-          # source tree or DerivedData. The root is part of the product
-          # fingerprint and its receipt, while owned state is scoped below.
-          root="$(python3 scripts/ci/resolve-canonical-root.py)"
+          # Glaeda owns the root-to-token mapping. Hold the authoritative root
+          # before any fixed path is cleared; never infer ownership from the
+          # runner name when the controller export is missing.
+          root="$(scripts/ci/take-canonical-root.sh)"
           case "$root" in
             /private/tmp/cmux-ci) ;;
-            /private/tmp/cmux-ci-[0-9]|/private/tmp/cmux-ci-[0-9][0-9])
+            /private/tmp/cmux-ci-[2-9]|/private/tmp/cmux-ci-[1-9][0-9])
               case "$CMUX_PRODUCT_RUNNER" in
                 glaeda-*) ;;
                 *) echo "::error::$root is only for an owned Mac's second compile slot"; exit 1 ;;

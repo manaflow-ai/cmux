@@ -1133,9 +1133,9 @@ struct ContentView: View {
     private static let commandPaletteVisiblePreviewResultLimit = 48
     private static let commandPaletteVisiblePreviewCandidateLimit = 128
     private static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
-    private static let minimumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.minimumWidth)
-    private static let maximumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.builtInMaximumWidth)
-    private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
+    static let minimumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.minimumWidth)
+    static let maximumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.builtInMaximumWidth)
+    static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
 
     private var minimumSidebarWidth: CGFloat {
         CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting))
@@ -1225,30 +1225,6 @@ struct ContentView: View {
             )
         }
         return max(minimumWidth, min(sanitizedMaximumWidth, candidate))
-    }
-
-    /// `contentMinimumWidth`: what the content needs (the selected mode tab's name), never below the built-in minimum.
-    static func clampedRightSidebarWidth(
-        _ candidate: CGFloat,
-        availableWidth: CGFloat,
-        configuredMaximumWidth: CGFloat? = nil,
-        contentMinimumWidth: CGFloat = 0
-    ) -> CGFloat {
-        let minimumWidth = max(Self.minimumRightSidebarWidth, contentMinimumWidth)
-        let sanitizedCandidate = candidate.isFinite ? candidate : 220
-        let sanitizedAvailableWidth = availableWidth.isFinite && availableWidth > 0 ? availableWidth : 1920
-        let availableWidthCap = max(
-            minimumWidth,
-            sanitizedAvailableWidth - Self.minimumTerminalWidthWithRightSidebar
-        )
-        let configuredOrDefaultCap: CGFloat
-        if let configuredMaximumWidth, configuredMaximumWidth.isFinite {
-            configuredOrDefaultCap = max(minimumWidth, configuredMaximumWidth)
-        } else {
-            configuredOrDefaultCap = Self.maximumRightSidebarWidth
-        }
-        let maximumWidth = min(configuredOrDefaultCap, availableWidthCap)
-        return max(minimumWidth, min(maximumWidth, sanitizedCandidate))
     }
 
     private func clampSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {

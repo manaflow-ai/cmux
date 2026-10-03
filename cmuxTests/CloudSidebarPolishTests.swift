@@ -43,8 +43,17 @@ struct CloudSidebarPolishTests {
     func rightSidebarClampHonorsContentMinimum() {
         let builtIn = CGFloat(RightSidebarWidthSettings.minimumWidth)
         #expect(ContentView.clampedRightSidebarWidth(200, availableWidth: 1600, contentMinimumWidth: 381) == 381)
-        #expect(ContentView.clampedRightSidebarWidth(500, availableWidth: 1600, contentMinimumWidth: 381) == 500)
+        #expect(ContentView.clampedRightSidebarWidth(
+            500, availableWidth: 1600, configuredMaximumWidth: 500, contentMinimumWidth: 381
+        ) == 500)
         // A content minimum below the built-in one never lowers it.
         #expect(ContentView.clampedRightSidebarWidth(100, availableWidth: 1600, contentMinimumWidth: 120) == builtIn)
+    }
+
+    @Test("The right sidebar content minimum stays below its effective maximum")
+    func rightSidebarContentMinimumHonorsMaximum() {
+        #expect(ContentView.clampedRightSidebarWidth(
+            400, availableWidth: 800, configuredMaximumWidth: 420, contentMinimumWidth: 900
+        ) == 420)
     }
 }
