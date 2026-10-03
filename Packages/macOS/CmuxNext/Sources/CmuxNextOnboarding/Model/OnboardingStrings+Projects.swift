@@ -12,6 +12,7 @@ extension OnboardingStrings {
         String(localized: "onboarding.projects.empty", defaultValue: "No coding agent projects on this Mac yet.", bundle: .module)
     }
     static var projectsChoose: String { String(localized: "onboarding.projects.choose", defaultValue: "Choose a Folder…", bundle: .module) }
+    static var projectsFilter: String { String(localized: "onboarding.projects.filter", defaultValue: "Filter projects or enter a path", bundle: .module) }
     static var projectsDropHint: String { String(localized: "onboarding.projects.dropHint", defaultValue: "Or drop a folder here.", bundle: .module) }
     static func projectsSessions(_ count: Int) -> String {
         String(format: String(localized: "onboarding.projects.sessions", defaultValue: "Sessions: %lld", bundle: .module), count)

@@ -125,7 +125,8 @@
 .acpmux-omni-action{flex:none;display:flex;align-items:center;gap:6px;color:var(--acpmux-composer-dim);font-size:12px;opacity:0}
 .acpmux-omni-row.is-selected .acpmux-omni-action,.acpmux-omni-row:hover .acpmux-omni-action{opacity:1}
 .acpmux-omni-action kbd{padding:2px 6px;border-radius:5px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft)}
-.acpmux-newtab>.acpmux-newtab-all{align-self:flex-end;width:auto;margin-top:10px;font-size:12.5px;color:var(--acpmux-composer-dim)}
+.acpmux-newtab-actions{display:flex;align-self:flex-end;gap:14px;margin-top:10px}
+.acpmux-newtab-actions .acpmux-newtab-all{width:auto;font-size:12.5px;color:var(--acpmux-composer-dim)}
 /* Hover, press and focus: a tonal step from the theme, on the Motion `hover` fade (0.08 s, plans/cmux-next/motion.md). The host does not pass ui.animationSpeed to the page yet, so this is the fast default. Under Reduce Motion the fills change at once. Fills only, never size, so nothing shifts. */
 .acpmux-newtab{--acpmux-motion-hover:80ms}
 @media (prefers-reduced-motion:no-preference){.acpmux-newtab-kind,.acpmux-newtab-default,.acpmux-newtab-all,.acpmux-omni-row,.acpmux-newtab .acpmux-send{transition:background-color var(--acpmux-motion-hover) ease-out,color var(--acpmux-motion-hover) ease-out,box-shadow var(--acpmux-motion-hover) ease-out}.acpmux-omni-action{transition:opacity var(--acpmux-motion-hover) ease-out}}
@@ -183,6 +184,8 @@
 .acpmux-project-search input{flex:1;min-width:0;height:100%;padding:0;border:0;background:none;color:var(--agent-text);font:inherit;outline:none}
 .acpmux-project-search input::placeholder{color:var(--acpmux-composer-dim)}
 .acpmux-project-empty{padding:6px 8px;color:var(--acpmux-composer-dim)}
+.acpmux-project-browse{display:block;width:100%;margin-top:4px;padding:7px 8px;border:0;border-top:.5px solid var(--acpmux-composer-edge);background:none;color:var(--agent-text);font:inherit;text-align:left;cursor:pointer}
+.acpmux-project-browse:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent)}
 .acpmux-context-worktree{display:flex;align-items:center;gap:8px;margin-left:auto;padding-right:4px;color:var(--agent-muted);white-space:nowrap}
 .acpmux-switch{position:relative;width:26px;height:16px;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 18%,transparent)}
 .acpmux-switch::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--agent-text);opacity:.7}
