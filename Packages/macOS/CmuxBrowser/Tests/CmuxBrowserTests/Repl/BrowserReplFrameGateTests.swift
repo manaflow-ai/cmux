@@ -34,6 +34,109 @@ struct BrowserReplFrameGateTests {
         #expect(error?.code == "blocked", "a main frame on a blocked domain was authorized")
     }
 
+    // MARK: Reads, input and captures
+
+    /// `frame.evaluate` and every other script the driver runs for the
+    /// session in a frame: a frame that shows a blocked page is not read.
+    @Test func aFrameThatShowsABlockedPageIsNotEvaluated() async throws {
+        let page = try await FramePage.load()
+        let gate = Self.gate()
+        let blocked = try #require(page.frame(host: "blocked.test"))
+        let read = "return document.body.innerText"
+        let error = await Self.error {
+            try await gate.callAsyncJavaScript(read, arguments: [:], in: page.webView, frame: blocked, contentWorld: .page)
+        }
+        #expect(error?.code == "blocked", "a frame on a blocked domain was read: \(String(describing: error))")
+        let allowed = try #require(page.frame(path: "/child"))
+        let text = try await gate.callAsyncJavaScript(read, arguments: [:], in: page.webView, frame: allowed, contentWorld: .page)
+        #expect((text as? String)?.contains("allowed.test/child") == true)
+    }
+
+    /// A frame keeps its id when it navigates, and the driver looks frames up
+    /// by id from an earlier tree read: a frame that moved to a blocked page
+    /// since must not be read through the old record, and the script must
+    /// not run there at all.
+    @Test func aFrameThatNavigatedToABlockedPageIsNotEvaluatedThroughItsOldRecord() async throws {
+        let page = try await FramePage.load()
+        let gate = Self.gate()
+        let child = try #require(page.frame(path: "/child"))
+        _ = try await gate.callAsyncJavaScript("return 1", arguments: [:], in: page.webView, frame: child, contentWorld: .page)
+        _ = try await page.run("document.getElementById('a').src = 'cmux-test://blocked.test/moved'; return true", in: page.main)
+        _ = try await FramePage.settle(page.webView) { frames in
+            frames.contains { $0.url == "cmux-test://blocked.test/moved" }
+        }
+        let error = await Self.error {
+            try await gate.callAsyncJavaScript(
+                "window.__ranByGate = true; return document.body.innerText",
+                arguments: [:],
+                in: page.webView,
+                frame: child,
+                contentWorld: .page
+            )
+        }
+        #expect(error?.code == "blocked", "the moved frame was read: \(String(describing: error))")
+        let ran = try await page.run("return window.__ranByGate === true", in: child)
+        #expect(ran as? Bool == false, "the script ran in the blocked document")
+    }
+
+    /// Mouse input at a point over a blocked frame would reach it; points
+    /// elsewhere on the page are fine.
+    @Test func pointerInputOverAFrameThatShowsABlockedPageIsRefused() async throws {
+        let page = try await FramePage.load()
+        let gate = Self.gate()
+        let over = await Self.error { try await gate.checkPointer(at: [CGPoint(x: 250, y: 50)], in: page.webView, frames: page.frames) }
+        #expect(over?.code == "blocked", "a point over the blocked frame was allowed")
+        let path = await Self.error {
+            try await gate.checkPointer(at: [CGPoint(x: 50, y: 50), CGPoint(x: 240, y: 30)], in: page.webView, frames: page.frames)
+        }
+        #expect(path?.code == "blocked", "a drag ending over the blocked frame was allowed")
+        #expect(await Self.error { try await gate.checkPointer(at: [CGPoint(x: 50, y: 50)], in: page.webView, frames: page.frames) } == nil)
+        #expect(await Self.error { try await gate.checkPointer(at: [CGPoint(x: 350, y: 250)], in: page.webView, frames: page.frames) } == nil)
+    }
+
+    /// Keys and inserted text go to the focused frame.
+    @Test func keyboardInputWhileABlockedFrameHasTheFocusIsRefused() async throws {
+        let page = try await FramePage.load()
+        let gate = Self.gate()
+        let blocked = try #require(page.frame(host: "blocked.test"))
+        let allowed = try #require(page.frame(path: "/child"))
+        #expect(await Self.error { try await gate.checkFocus(in: page.webView, frames: page.frames) } == nil)
+        _ = try await page.run("document.getElementById('f').focus(); return document.activeElement.id", in: blocked)
+        let error = await Self.error { try await gate.checkFocus(in: page.webView, frames: page.frames) }
+        #expect(error?.code == "blocked", "typing into the blocked frame's field was allowed")
+        _ = try await page.run("document.getElementById('f').focus(); return document.activeElement.id", in: allowed)
+        #expect(await Self.error { try await gate.checkFocus(in: page.webView, frames: page.frames) } == nil,
+                "focus moved to the allowed frame, yet typing was refused")
+    }
+
+    /// A screenshot or PDF of the tab would show the blocked frame.
+    @Test func capturesOfATabThatShowsABlockedFrameAreRefused() async throws {
+        let page = try await FramePage.load()
+        let error = await Self.error { try Self.gate().checkCapture(in: page.webView, frames: page.frames) }
+        #expect(error?.code == "blocked", "a capture of the blocked frame was allowed")
+        let unrelated = Self.gate(prohibiting: "cmux-test://other.test")
+        #expect(await Self.error { try unrelated.checkCapture(in: page.webView, frames: page.frames) } == nil)
+    }
+
+    /// In a tab the session created the policy's content rules stop a
+    /// blocked frame from loading; the empty frame left behind is the
+    /// parent's and does not refuse the tab.
+    @Test func aFrameTheContentRulesKeptFromLoadingDoesNotRefuseTheTab() async throws {
+        let gate = Self.gate()
+        let rules = String(decoding: try JSONSerialization.data(withJSONObject: gate.policy.contentRules), as: UTF8.self)
+        let store = try #require(WKContentRuleListStore.default())
+        let identifier = "cmux-frame-gate-tests-\(UUID().uuidString)"
+        let list = try #require(try await store.compileContentRuleList(forIdentifier: identifier, encodedContentRuleList: rules))
+        defer { store.removeContentRuleList(forIdentifier: identifier) { _ in } }
+        // The blocked frame never gets a URL; the allowed one loads.
+        let page = try await FramePage.load(loaded: { frames in frames.contains { $0.url.hasSuffix("/child") } }) { configuration in
+            configuration.userContentController.add(list)
+        }
+        #expect(page.frame(host: "blocked.test") == nil, "the content rules let the blocked frame load")
+        #expect(await Self.error { try gate.checkCapture(in: page.webView, frames: page.frames) } == nil)
+        #expect(await Self.error { try await gate.checkPointer(at: [CGPoint(x: 250, y: 50)], in: page.webView, frames: page.frames) } == nil)
+    }
+
     // MARK: Support
 
     static let world = WKContentWorld.world(name: "cmux-frame-gate-tests")

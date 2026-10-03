@@ -119,6 +119,27 @@ public final class BrowserReplFrameGate {
         return document
     }
 
+    /// Runs `body` in `frame` only while the frame shows a document the
+    /// policy allows. Inert in this commit: runs it wherever the frame is.
+    public func callAsyncJavaScript(
+        _ body: String,
+        arguments: [String: Any],
+        in webView: WKWebView,
+        frame: BrowserReplFrame,
+        contentWorld: WKContentWorld
+    ) async throws -> Any? {
+        try await webView.callAsyncJavaScript(body, arguments: arguments, in: frame.info, contentWorld: contentWorld)
+    }
+
+    /// Pointer input that could reach a blocked frame. Inert in this commit.
+    public func checkPointer(at points: [CGPoint], in webView: WKWebView, frames: [BrowserReplFrame]) async throws {}
+
+    /// Keyboard input that would reach a blocked frame. Inert in this commit.
+    public func checkFocus(in webView: WKWebView, frames: [BrowserReplFrame]) async throws {}
+
+    /// Captures of a tab that shows a blocked frame. Inert in this commit.
+    public func checkCapture(in webView: WKWebView, frames: [BrowserReplFrame]) throws {}
+
     // MARK: - Private
 
     private static let readSource = """
