@@ -32,6 +32,7 @@ nonisolated enum AcpmuxDaemonLauncher {
         try FileManager.default.createDirectory(at: environment.home, withIntermediateDirectories: true)
         var variables = ProcessInfo.processInfo.environment.merging(environment.childEnvironment) { $1 }
         variables["ACPMUX_LAUNCH_LOG"] = environment.logPath
+        variables["ACPMUX_LOGIN_ENV"] = "1"
         logger.info("acpmux launch environment home=\(variables["ACPMUX_HOME", default: ""], privacy: .public) socket=\(variables["ACPMUX_SOCKET", default: ""], privacy: .public) pathPresent=\(variables["PATH"] != nil, privacy: .public)")
         var outputPipe: [Int32] = [-1, -1]
         guard Darwin.pipe(&outputPipe) == 0 else {

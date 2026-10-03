@@ -87,6 +87,7 @@ if [[ -x "$cache_bin" ]]; then
   if [[ -n "$output" && "$output" != "$cache_bin" ]]; then
     mkdir -p "$(dirname "$output")"
     cp -f "$cache_bin" "$output"
+    cp -f "$cache_bin.ref" "$output.ref"
     chmod 755 "$output"
   fi
   exit 0
@@ -141,6 +142,7 @@ printf '%s\n' "commit=$source_commit" "source=$source_mode" "archs=$archs" "sha2
 if [[ -n "$output" && "$output" != "$cache_bin" ]]; then
   mkdir -p "$(dirname "$output")"
   cp -f "$cache_bin" "$output"
+  cp -f "$cache_bin.ref" "$output.ref"
   chmod 755 "$output"
   [[ "$print_path" -eq 1 ]] && printf '%s\n' "$output"
   echo "built acpmux at $output"

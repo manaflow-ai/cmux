@@ -20,14 +20,14 @@ import Testing
     @Test func readsTheEndpointFromTheReadyLine() async throws {
         // Echoes its arguments to the log and reports ready on fd 3.
         let (environment, root) = try environment(script: #"""
-        echo "$@"
+        echo "login=$ACPMUX_LOGIN_ENV $@"
         printf '{"ready":true,"pid":%s,"webUrl":"http://127.0.0.1:5123/?token=tok"}\n' "$$" >&3
         """#)
         defer { try? FileManager.default.removeItem(at: root) }
         let endpoint = try await AcpmuxDaemonLauncher.launch(environment, deadline: .seconds(10))
         #expect(endpoint == AcpmuxWebEndpoint(url: URL(string: "ws://127.0.0.1:5123/")!, token: "tok"))
         let log = try String(contentsOfFile: environment.logPath, encoding: .utf8)
-        #expect(log.contains("daemon run --ready-fd 3 --listen 127.0.0.1:0"))
+        #expect(log.contains("login=1 daemon run --ready-fd 3 --listen 127.0.0.1:0"))
     }
 
     @Test func onlyTheReadyDescriptorReachesTheDaemon() async throws {
