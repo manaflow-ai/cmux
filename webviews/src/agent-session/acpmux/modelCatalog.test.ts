@@ -10,7 +10,9 @@ test("models acpmux probed (_acpmux/models) fill the harness list (_acpmux/harne
     ],
   };
   const catalog = mergeModelCatalog(names, probed);
-  expect(catalog.find((harness) => harness.id === "codex")?.models).toEqual([{ id: "gpt-6.1-sol", name: "GPT-6.1 Sol" }]);
+  expect(catalog.find((harness) => harness.id === "codex")?.models).toEqual([
+    { id: "gpt-6.1-sol", name: "GPT-6.1 Sol" },
+  ]);
   expect(catalog.find((harness) => harness.id === "claude")?.models).toEqual([]);
   expect(catalog.find((harness) => harness.id === "peer/claude")?.models).toEqual([{ id: "opus", name: undefined }]);
   // A list that already carries its models (the mock daemon) keeps them.
@@ -30,8 +32,8 @@ test("a session whose harness has no catalog yet lists the models its model opti
     { id: "a", name: "A" },
     { id: "b", name: "b" },
   ]);
-  expect(sessionModels([{ id: "codex", name: "Codex", models: [{ id: "x", name: "X" }] }], { harness: "codex" })).toEqual([
-    { id: "x", name: "X" },
-  ]);
+  expect(
+    sessionModels([{ id: "codex", name: "Codex", models: [{ id: "x", name: "X" }] }], { harness: "codex" }),
+  ).toEqual([{ id: "x", name: "X" }]);
   expect(sessionModels([], { harness: "codex" })).toEqual([]);
 });

@@ -187,7 +187,7 @@ describe("agent pane automation", () => {
       current: "sol",
       models: [
         { id: "sol", name: "Sol" },
-        { id: "luna", name: null },
+        { id: "luna", name: "luna" },
       ],
     });
   });

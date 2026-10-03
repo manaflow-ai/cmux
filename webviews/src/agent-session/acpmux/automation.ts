@@ -1,4 +1,5 @@
 import { focusedArea } from "./composerFocus";
+import { sessionModels } from "./modelCatalog";
 import { turnFiles } from "./diff";
 import type { AcpmuxSnapshot } from "./model";
 import type { PermissionDecision } from "./permissions/protocol";
@@ -125,7 +126,7 @@ export async function answerPermission(
 /// effort (chat.effort on the session's effort option) when `effort` is given.
 export async function setModel(host: AutomationHost, model: string, effort?: string) {
   const snapshot = host.snapshot();
-  const offered = snapshot.catalog.find((harness) => harness.id === snapshot.summary?.harness)?.models ?? [];
+  const offered = sessionModels(snapshot.catalog, snapshot.summary);
   if (!offered.some((entry) => entry.id === model)) {
     return { error: `model ${JSON.stringify(model)} is not offered`, models: offered.map((entry) => entry.id) };
   }
@@ -144,11 +145,11 @@ export async function setModel(host: AutomationHost, model: string, effort?: str
 /// The models the session's harness offers, with the current one.
 export function models(host: AutomationHost) {
   const snapshot = host.snapshot();
-  const offered = snapshot.catalog.find((harness) => harness.id === snapshot.summary?.harness)?.models ?? [];
+  const offered = sessionModels(snapshot.catalog, snapshot.summary);
   return {
     harness: snapshot.summary?.harness ?? null,
     current: snapshot.summary?.model ?? null,
-    models: offered.map((entry) => ({ id: entry.id, name: entry.name ?? null })),
+    models: offered.map((entry) => ({ id: entry.id, name: entry.name })),
   };
 }
 
