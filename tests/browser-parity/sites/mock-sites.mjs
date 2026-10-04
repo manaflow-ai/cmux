@@ -57,8 +57,10 @@ export function createState() {
   // signed-in member's public identifier; linkedinSwitchOnCompose: the
   // member another session signs in as when the share composer loads;
   // googleSwitchOnLoad: ListAccounts rows another session's sign-in makes
-  // current when a Gmail or Calendar page loads.
-  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, googleSwitchOnLoad: null };
+  // current when a Gmail or Calendar page loads; notionUser: the Notion user
+  // the session holds; notionSwitchOnSync: the user another session signs
+  // in as when Notion next answers syncRecordValues.
+  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -513,6 +515,8 @@ const notionBlocks = () => ({
   b5: { id: "b5", type: "code", properties: { title: [["npm test"]], language: [["Shell"]] }, alive: true },
   b6: { id: "b6", type: "page", properties: { title: [["Sub page"]] }, alive: true },
 });
+export const NOTION_ADA = { id: "user-ada", email: "ada@example.com", name: "Ada Lovelace" };
+export const NOTION_MALLORY = { id: "user-mallory", email: "mallory@example.com", name: "Mallory" };
 const wrap = (map) => Object.fromEntries(Object.entries(map).map(([k, v]) => [k, { value: { value: v, role: "editor" } }]));
 
 function notion(req, url, body, state) {
@@ -520,11 +524,16 @@ function notion(req, url, body, state) {
   const m = /^\/api\/v3\/(\w+)$/.exec(url.pathname);
   if (!m || req.method !== "POST") return { status: 404, text: "" };
   if (cookieOf(req, "token_v2") !== SECRETS.notionToken) return { status: 401, json: { name: "UnauthorizedError", message: "Token was invalid or missing." } };
+  // The user the session cookie holds (another session can sign in as
+  // someone else); a request that names another active user is refused.
+  const user = state.notionUser || NOTION_ADA;
+  const active = req.headers["x-notion-active-user-header"];
+  if (active && active !== user.id) return { status: 401, json: { name: "UnauthorizedError", message: "The active user is not signed in." } };
   const b = JSON.parse(body || "{}");
   const blocks = notionBlocks();
   switch (m[1]) {
     case "getSpaces":
-      return { json: { "user-ada": { notion_user: { "user-ada": { value: { value: { id: "user-ada", email: "ada@example.com", name: "Ada Lovelace" } } } }, space: { [NOTION_SPACE]: { value: { value: { id: NOTION_SPACE, name: "Acme Wiki" } } } } } } };
+      return { json: { [user.id]: { notion_user: { [user.id]: { value: { value: user } } }, space: { [NOTION_SPACE]: { value: { value: { id: NOTION_SPACE, name: "Acme Wiki" } } } } } } };
     case "search":
       if (b.spaceId !== NOTION_SPACE) return { status: 400, json: { message: "bad space" } };
       return { json: { results: [{ id: NOTION_PAGE, highlight: { text: `…<gzkNfoUU>${b.query}</gzkNfoUU>…` } }], total: 1, recordMap: { block: wrap({ [NOTION_PAGE]: blocks[NOTION_PAGE] }) } } };
@@ -536,6 +545,7 @@ function notion(req, url, body, state) {
       return { json: { recordMap: { block: wrap(Object.fromEntries(ids.map((i) => [i, blocks[i]]))) }, cursor: { stack: first ? [[{ table: "block", id: NOTION_PAGE, index: 3 }]] : [] } } };
     }
     case "syncRecordValues":
+      if (state.notionSwitchOnSync) (state.notionUser = state.notionSwitchOnSync), (state.notionSwitchOnSync = null);
       return { json: { recordMap: { block: wrap(Object.fromEntries(b.requests.map((r) => r.pointer.id).filter((i) => blocks[i]).map((i) => [i, blocks[i]]))) } } };
     case "saveTransactions":
       state.notionOps.push(...b.transactions.flatMap((t) => t.operations));

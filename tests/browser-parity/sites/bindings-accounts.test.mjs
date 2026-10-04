@@ -6,7 +6,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createSitesEnv } from "./harness.mjs";
-import { GOOGLE_ACCOUNT_ROWS } from "./mock-sites.mjs";
+import { GOOGLE_ACCOUNT_ROWS, NOTION_MALLORY } from "./mock-sites.mjs";
 
 const env = await createSitesEnv();
 test.after(() => env.close());
@@ -67,5 +67,33 @@ test("googleCalendar.create: the event editor's account is checked right before 
   } finally {
     env.state.googleAccounts = null;
     env.state.googleSwitchOnLoad = null;
+  }
+});
+
+const NOTION_PAGE_URL = "https://www.notion.so/acme/Team-Handbook-1a2b3c4d00004000800000000000abcd";
+
+test("notion.append: the draft names the Notion user; another user at confirmation appends nothing", async () => {
+  try {
+    await s.run(`var nD = await sites.notion.append(${JSON.stringify(NOTION_PAGE_URL)}, "Bound to Ada.")`);
+    env.state.notionUser = NOTION_MALLORY;
+    const ops = env.state.notionOps.length;
+    assert.match(await s.error("sites.notion.append(nD.id, { confirm: true })"), /account_changed|mallory/);
+    assert.equal(env.state.notionOps.length, ops, "nothing was appended as mallory");
+    assert.deepEqual((await s.value("nD.preview")).account, { userId: "user-ada", email: "ada@example.com" });
+  } finally {
+    env.state.notionUser = null;
+  }
+});
+
+test("notion.append: the write names the drafted user, so a switch after the confirmation's check appends nothing", async () => {
+  try {
+    await s.run(`var nD2 = await sites.notion.append(${JSON.stringify(NOTION_PAGE_URL)}, "Still bound to Ada.")`);
+    env.state.notionSwitchOnSync = NOTION_MALLORY;
+    const ops = env.state.notionOps.length;
+    assert.ok(await s.error("sites.notion.append(nD2.id, { confirm: true })"), "the confirmation failed");
+    assert.equal(env.state.notionOps.length, ops, "nothing was appended as mallory");
+  } finally {
+    env.state.notionUser = null;
+    env.state.notionSwitchOnSync = null;
   }
 });
