@@ -301,6 +301,13 @@ impl<C: ControlPlane> Server<C> {
         self.edge.file_jobs.set_wake(wake);
     }
 
+    /// `op.cancel` from the host: stops the running file job or the waiting
+    /// (parked) op of op line `id`. `true` when one was cancelled; the caller
+    /// then answers `id` once with `cmux.op.cancelled`.
+    pub fn cancel_op(&mut self, id: &Value) -> bool {
+        self.edge.file_jobs.cancel_op(id) || self.cancel_parked(id)
+    }
+
     /// Records the end of a file op that ran on a worker under `key`: a
     /// result is replayed for a same-key retry; refused arguments free the
     /// key; any other error leaves the attempt open (a retry runs again).

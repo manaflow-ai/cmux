@@ -75,6 +75,14 @@ impl<C: ControlPlane> Server<C> {
         }
     }
 
+    /// Drops the parked op of op line `id`; `false` when none waits.
+    pub(crate) fn cancel_parked(&mut self, id: &Value) -> bool {
+        let parked = &mut self.attach_mut().parked_ops;
+        let before = parked.len();
+        parked.retain(|op| &op.id != id);
+        parked.len() != before
+    }
+
     /// Answers of parked ops whose link is now up or ended, in the order
     /// they came. Applies the link process events first (the one drain).
     /// A link that was replaced by a newer connecting generation (a
