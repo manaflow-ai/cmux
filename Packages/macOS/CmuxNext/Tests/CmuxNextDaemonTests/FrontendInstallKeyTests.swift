@@ -105,17 +105,18 @@ import Testing
 
 /// Coordinator conditions for the DEV key file (2026-10-04).
 @Suite struct FrontendInstallKeyStoreChoiceTests {
-    /// A signed build (a Team ID) uses the Keychain, never the DEV file,
-    /// even when a key file sits in its state directory.
-    @Test func aSignedBuildNeverUsesTheDevFile() throws {
+    /// A signed build (a Team ID) has no install key at all: the daemon
+    /// accepts only the code signature there, so a key would grant nothing.
+    /// It never uses the DEV file and creates no Keychain item, even when a
+    /// key file sits in its state directory.
+    @Test func aSignedBuildHasNoInstallKeyStore() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("fik-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         _ = FileFrontendInstallKeyStore(file: dir.appendingPathComponent("frontend-install-key")).loadOrCreate()
         let signed = FrontendInstallKeyStores.forApp(session: "cmux-app-t", stateDirectory: dir,
                                                      bundleID: "com.cmuxterm.app.debug.t", team: "ABCDE12345")
-        #expect(signed is KeychainFrontendInstallKeyStore)
-        #expect((signed as? KeychainFrontendInstallKeyStore)?.account == "cmux-app-t")
+        #expect(signed == nil)
         let unsigned = FrontendInstallKeyStores.forApp(session: "cmux-app-t", stateDirectory: dir,
                                                        bundleID: nil, team: nil)
         #expect((unsigned as? FileFrontendInstallKeyStore)?.file == dir.appendingPathComponent("frontend-install-key"))
