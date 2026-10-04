@@ -5,7 +5,8 @@
 //! The private network and tunnel records stay with the main web owner in
 //! v1 (cloud-app.md DECISION 3). The tunnel of this install belongs to
 //! `cmux link` (lane 12): these ops take a device fingerprint and a public
-//! key only, never a private key.
+//! key only, never a private key. Attach and rotate_key give a device a path
+//! into the network, so only origin `user` runs them (ops/mod.rs).
 
 use super::network_args as check;
 use super::network_models::{NetworkList, TunnelChange, TunnelKey};
@@ -69,8 +70,11 @@ fn rotate_key<C: ControlPlane>(ctx: &mut Ctx<'_, C>, raw: &Value) -> Result<Valu
     }
     body.insert("clientPublicKey".into(), json!(key));
     let path = "/api/vm/tunnel/network/rotate-key";
-    let rotated: TunnelKey =
-        decode_answer(path, ctx.call("POST", path.into(), Some(Value::Object(body)))?)?;
+    let answer = ctx.call("POST", path.into(), Some(Value::Object(body)))?;
+    // Not decode_answer: its message quotes values, and this answer holds keys.
+    let rotated: TunnelKey = serde_json::from_value(answer).map_err(|_| {
+        CloudError::new(codes::BAD_RESPONSE, format!("{path}: the answer is not a tunnel key"))
+    })?;
     if rotated.client_config.as_deref().is_some_and(check::config_has_private_key) {
         return Err(CloudError::new(
             codes::BAD_RESPONSE,

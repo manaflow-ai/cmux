@@ -162,6 +162,9 @@ fn publication_update_delete_and_verify() {
         ("POST", format!("/api/vm/publications/{PUB_1}/verify"), Some(json!({})))
     );
     assert_eq!(verified["publication"]["state"], "active");
+    // A verify reads fresh state every time: no replay of the first answer.
+    s.handle(&verify).expect("verify again");
+    assert_eq!(s.control_plane().calls.len(), 2);
 }
 
 #[test]

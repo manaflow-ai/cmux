@@ -71,8 +71,12 @@ pub struct TunnelChange {
     pub tunnel_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network_id: Option<String>,
+    /// The tunnel's address on the network (attach only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub attached: Option<bool>,
+    pub address_v4: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address_v6: Option<String>,
+    /// `true` on a detach answer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detached: Option<bool>,
 }

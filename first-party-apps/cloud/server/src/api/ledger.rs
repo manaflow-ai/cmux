@@ -57,6 +57,12 @@ impl Ledger {
         Ok(entry.result.clone())
     }
 
+    /// True when the same op with the same args was attempted with `key`
+    /// and has no recorded result (it failed or its answer was lost).
+    pub(crate) fn unfinished(&self, key: &str, op: &str, args: &Value) -> bool {
+        self.entries.get(key).is_some_and(|e| e.op == op && e.args == *args && e.result.is_none())
+    }
+
     /// Records an attempt before the call.
     pub(crate) fn attempt(&mut self, key: &str, op: &str, args: &Value) {
         if self.entries.contains_key(key) {
