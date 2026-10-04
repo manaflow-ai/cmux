@@ -522,7 +522,7 @@ codex_option_consumes_value() {
     case "$1" in
         -c|--config|-m|--model|-p|--profile|-C|--cd|--remote|-a|--ask-for-approval|\
         -s|--sandbox|--output-last-message|--enable|--disable|--add-dir|-i|--image|\
-        --local-provider|--remote-auth-token-env)
+        --local-provider|--remote-auth-token-env|--output-schema|--color)
             return 0
             ;;
     esac
@@ -578,6 +578,89 @@ should_inject_codex_hooks() {
         esac
     done
 
+    return 0
+}
+
+# Codex declares -c/--config, --enable, and --disable as clap `global`
+# arguments. When a subcommand also receives one of them, Codex keeps only the
+# subcommand-level values: on codex-cli 0.159.3, `codex -c a=1 mcp -c b=2 list`
+# sees only b. The wrapper places its own overrides before the user's argv, so
+# `codex exec -c model=x` or `codex resume --last -c ...` silently dropped the
+# cmux-cua MCP server, the hook config, and `--disable computer_use`. A global
+# argument means the same thing at either position, so move the user's
+# subcommand-level occurrences, in order, in front of the subcommand. Codex then
+# sees one root-level list: wrapper values, user root values, user subcommand
+# values, with later values winning as before. Tokens after `--` are prompt
+# text and stay in place. Without a subcommand nothing moves.
+cmux_codex_session_args=()
+cmux_codex_hoist_session_global_args() {
+    local -a head=() hoisted=() tail=()
+    local arg
+    cmux_codex_session_args=()
+    while (( $# > 0 )); do
+        arg="$1"
+        case "$arg" in
+            --)
+                head+=("$@")
+                break
+                ;;
+            -*)
+                head+=("$arg")
+                shift
+                if [[ "$arg" != *=* ]] && codex_option_consumes_value "$arg" && (( $# > 0 )); then
+                    head+=("$1")
+                    shift
+                fi
+                continue
+                ;;
+        esac
+        if ! codex_known_subcommand "$arg"; then
+            # First bare token is a prompt: an interactive session has no
+            # subcommand scope, so every option is already root-level.
+            head+=("$@")
+            break
+        fi
+        tail+=("$arg")
+        shift
+        while (( $# > 0 )); do
+            arg="$1"
+            case "$arg" in
+                --)
+                    tail+=("$@")
+                    break
+                    ;;
+                -c|--config|--enable|--disable)
+                    if (( $# >= 2 )); then
+                        hoisted+=("$arg" "$2")
+                        shift 2
+                    else
+                        tail+=("$arg")
+                        shift
+                    fi
+                    ;;
+                -c=*|--config=*|--enable=*|--disable=*|-c?*)
+                    hoisted+=("$arg")
+                    shift
+                    ;;
+                -*)
+                    tail+=("$arg")
+                    shift
+                    if [[ "$arg" != *=* ]] && codex_option_consumes_value "$arg" && (( $# > 0 )); then
+                        tail+=("$1")
+                        shift
+                    fi
+                    ;;
+                *)
+                    tail+=("$arg")
+                    shift
+                    ;;
+            esac
+        done
+        break
+    done
+    (( ${#head[@]} > 0 )) && cmux_codex_session_args+=("${head[@]}")
+    (( ${#hoisted[@]} > 0 )) && cmux_codex_session_args+=("${hoisted[@]}")
+    (( ${#tail[@]} > 0 )) && cmux_codex_session_args+=("${tail[@]}")
     return 0
 }
 
@@ -868,11 +951,13 @@ if [[ "${CMUX_CUA_DIAGNOSTICS:-0}" == "1" ]]; then
     fi
 fi
 
+cmux_codex_hoist_session_global_args "$@"
+
 if cmux_codex_read_inject_args; then
     exec "$REAL_CODEX" \
         "${cmux_codex_native_computer_use_args[@]}" \
         "${cmux_codex_computer_use_args[@]}" \
-        "${cmux_codex_injected_args[@]}" "$@"
+        "${cmux_codex_injected_args[@]}" "${cmux_codex_session_args[@]}"
 fi
 
 # A reconciled persistent channel intentionally emits no overrides; an emitter
@@ -881,4 +966,4 @@ fi
 # bind this session.
 exec "$REAL_CODEX" \
     "${cmux_codex_native_computer_use_args[@]}" \
-    "${cmux_codex_computer_use_args[@]}" "$@"
+    "${cmux_codex_computer_use_args[@]}" "${cmux_codex_session_args[@]}"
