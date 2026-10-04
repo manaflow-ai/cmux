@@ -85,8 +85,8 @@ extension HomeNativeTranscriptView {
     private static func prepare(_ input: HomeDraftInput, with preparer: any HomeAttachmentPreparing) async throws
         -> LocalAttachment {
         switch input {
-        case .file(let url): try await preparer.prepareAttachment(fileURL: url)
-        case .data(let data, let type): try await preparer.prepareAttachment(data: data, typeIdentifier: type)
+        case .file(let url): try await preparer.prepareAttachment(fileURL: url, keepLocation: false)
+        case .data(let data, let type): try await preparer.prepareAttachment(data: data, typeIdentifier: type, keepLocation: false)
         }
     }
 

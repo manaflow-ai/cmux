@@ -173,14 +173,14 @@ import Testing
 final class RecordingPreparer: HomeAttachmentPreparing {
     private(set) var inputs: [HomeDraftInput] = []
 
-    func prepareAttachment(fileURL: URL) async throws -> LocalAttachment {
+    func prepareAttachment(fileURL: URL, keepLocation: Bool) async throws -> LocalAttachment {
         inputs.append(.file(fileURL))
         let name = String(fileURL.lastPathComponent.split(separator: "-").last ?? "")
         return LocalAttachment(ref: AttachmentRef(hash: "h-\(name)", name: name, mimeType: "application/octet-stream", byteCount: 1),
                                fileURL: fileURL)
     }
 
-    func prepareAttachment(data: Data, typeIdentifier: String) async throws -> LocalAttachment {
+    func prepareAttachment(data: Data, typeIdentifier: String, keepLocation: Bool) async throws -> LocalAttachment {
         inputs.append(.data(data, typeIdentifier: typeIdentifier))
         return LocalAttachment(ref: AttachmentRef(hash: "h-pasted", name: "pasted.png", mimeType: "image/png", byteCount: data.count,
                                                   width: 2, height: 2),

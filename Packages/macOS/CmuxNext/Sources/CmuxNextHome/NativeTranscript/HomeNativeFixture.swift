@@ -56,7 +56,7 @@ public final class HomeNativeFixture {
         binding?.onAttachmentRefusal = { [weak view] _, refusal in view?.showAttachmentRefusal(refusal) }
         guard let files = try? await HomeFixtureMedia.make(), !Task.isCancelled else { return }
         for file in files {
-            guard let prepared = try? await store.prepareAttachment(fileURL: file) else { continue }
+            guard let prepared = try? await store.prepareAttachment(fileURL: file, keepLocation: false) else { continue }
             try? await store.send(conversation: id, text: "", attachments: [prepared])
         }
     }

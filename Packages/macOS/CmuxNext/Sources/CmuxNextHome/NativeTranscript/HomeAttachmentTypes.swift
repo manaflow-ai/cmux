@@ -12,8 +12,10 @@ nonisolated public enum HomeDraftInput: Hashable, Sendable {
 /// display size, duration, poster). `HomeStore` is the implementation; the
 /// composer only gathers inputs, and tests pass a recorder.
 public protocol HomeAttachmentPreparing: AnyObject {
-    func prepareAttachment(fileURL: URL) async throws -> LocalAttachment
-    func prepareAttachment(data: Data, typeIdentifier: String) async throws -> LocalAttachment
+    /// `keepLocation` false strips GPS from photos (the default until the
+    /// per-user setting lands).
+    func prepareAttachment(fileURL: URL, keepLocation: Bool) async throws -> LocalAttachment
+    func prepareAttachment(data: Data, typeIdentifier: String, keepLocation: Bool) async throws -> LocalAttachment
 }
 
 extension HomeStore: HomeAttachmentPreparing {}

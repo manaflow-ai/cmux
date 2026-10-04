@@ -28,6 +28,10 @@ enum HomeStrings {
     static func attachEmpty(_ name: String) -> String {
         String(format: String(localized: "home.composer.attach.empty", defaultValue: "“%@” is empty.", bundle: .module), name)
     }
+    static func attachInvalidName(_ name: String) -> String {
+        String(format: String(localized: "home.composer.attach.invalidName", defaultValue: "“%@” is not a valid file name.",
+                              bundle: .module), name)
+    }
     static func attachTooMany(_ limit: Int) -> String {
         String(format: String(localized: "home.composer.attach.tooMany", defaultValue: "Too many attachments. Limit: %lld.",
                               bundle: .module), limit)
@@ -38,6 +42,7 @@ enum HomeStrings {
         case .typeRefused(_, let file): attachUnsupported(name ?? file)
         case .tooLarge: name.map(attachTooLarge) ?? attachTooLargeAny()
         case .empty(let file): attachEmpty(name ?? file)
+        case .invalidName(let file): attachInvalidName(name ?? file)
         case .tooManyParts(let limit): attachTooMany(limit - 1)
         }
     }
