@@ -22,6 +22,44 @@ struct SidebarWorkspaceSnapshotFactory {
     /// Remote host to name after the title because another workspace shares it (beta), else nil.
     /// Resolved by the caller over the whole workspace list, since it depends on the other titles.
     var hostTitleSuffix: String? = nil
+    let catalog: SurfaceCatalog
+
+    /// Builds snapshots from the app's shared surface catalog.
+    @MainActor
+    init(
+        workspace: Workspace,
+        settings: SidebarTabItemSettingsSnapshot,
+        showsAgentActivity: Bool,
+        originColorHex: String? = nil,
+        hostTitleSuffix: String? = nil
+    ) {
+        self.init(
+            workspace: workspace,
+            settings: settings,
+            showsAgentActivity: showsAgentActivity,
+            originColorHex: originColorHex,
+            hostTitleSuffix: hostTitleSuffix,
+            catalog: SurfaceCatalog.shared
+        )
+    }
+
+    /// Builds snapshots from an explicit catalog, including isolated test catalogs.
+    @MainActor
+    init(
+        workspace: Workspace,
+        settings: SidebarTabItemSettingsSnapshot,
+        showsAgentActivity: Bool,
+        originColorHex: String? = nil,
+        hostTitleSuffix: String? = nil,
+        catalog: SurfaceCatalog
+    ) {
+        self.workspace = workspace
+        self.settings = settings
+        self.showsAgentActivity = showsAgentActivity
+        self.originColorHex = originColorHex
+        self.hostTitleSuffix = hostTitleSuffix
+        self.catalog = catalog
+    }
 
     /// Creates the current immutable presentation snapshot for the workspace row.
     func makeSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {
@@ -33,7 +71,12 @@ struct SidebarWorkspaceSnapshotFactory {
         let showsBranchDirectoryRows = detailVisibility.showsBranchDirectory && !settings.compactsAgentStatus
         let showsPullRequestRows = detailVisibility.showsPullRequests && !settings.compactsAgentStatus
         let orderedPanelIds = workspace.sidebarOrderedPanelIds()
-        let cloud = CloudWorkspaceSidebarPresentation(workspace: workspace, orderedPanelIDs: orderedPanelIds, usesLastSegmentPath: settings.usesLastSegmentPath)
+        let cloud = CloudWorkspaceSidebarPresentation(
+            workspace: workspace,
+            orderedPanelIDs: orderedPanelIds,
+            usesLastSegmentPath: settings.usesLastSegmentPath,
+            catalog: catalog
+        )
         let hasCloudProjection = workspace.cloudVMID != nil
             || workspace.cloudBindingState.projectedResources.values.contains { $0.machine.cloudMachineID != nil }
         let taskStatusInput = SidebarWorkspaceTaskStatusSnapshot.capture(workspace: workspace, orderedPanelIds: orderedPanelIds)

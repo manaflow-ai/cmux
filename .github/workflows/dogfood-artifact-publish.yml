@@ -37,17 +37,20 @@ jobs:
             echo 'publish=false' >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          payload="$(gh api "repos/$GH_REPO/pulls/$pr")"
-          jobs="$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID/jobs?per_page=100")"
-          artifacts="$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID/artifacts?per_page=100")"
-          PR_JSON="$payload" JOBS_JSON="$jobs" ARTIFACTS_JSON="$artifacts" PR_NUMBER="$pr" HEAD_SHA="$HEAD_SHA" python3 - <<'PY'
+          json_dir="$(mktemp -d)"
+          trap 'rm -rf "$json_dir"' EXIT
+          gh api "repos/$GH_REPO/pulls/$pr" > "$json_dir/pr.json"
+          gh api "repos/$GH_REPO/actions/runs/$RUN_ID/jobs?per_page=100" > "$json_dir/jobs.json"
+          gh api "repos/$GH_REPO/actions/runs/$RUN_ID/artifacts?per_page=100" > "$json_dir/artifacts.json"
+          PR_JSON_PATH="$json_dir/pr.json" JOBS_JSON_PATH="$json_dir/jobs.json" ARTIFACTS_JSON_PATH="$json_dir/artifacts.json" PR_NUMBER="$pr" HEAD_SHA="$HEAD_SHA" python3 - <<'PY'
           import json
           import os
           import sys
+          from pathlib import Path
 
-          pr = json.loads(os.environ["PR_JSON"])
-          jobs = json.loads(os.environ["JOBS_JSON"]).get("jobs") or []
-          artifacts = json.loads(os.environ["ARTIFACTS_JSON"]).get("artifacts") or []
+          pr = json.loads(Path(os.environ["PR_JSON_PATH"]).read_text())
+          jobs = json.loads(Path(os.environ["JOBS_JSON_PATH"]).read_text()).get("jobs") or []
+          artifacts = json.loads(Path(os.environ["ARTIFACTS_JSON_PATH"]).read_text()).get("artifacts") or []
           expected_repo = os.environ["GH_REPO"]
           expected_artifact = f"dogfood-app-{os.environ['PR_NUMBER']}-{os.environ['HEAD_SHA']}"
           head = pr.get("head") or {}

@@ -88,6 +88,6 @@ Subscription group "cmux Plans" (localized name "cmux", en-US and ja) per app, a
 | `dev.cmux.app.beta.pro.monthly` | 6818447766 | 2 | 74.99 |
 | `dev.cmux.app.beta.go.monthly` | 6818447955 | 3 | 14.99 |
 
-Group IDs: `com.cmux.app` 22433557, `dev.cmux.app.beta` 22433386. Display names "cmux Max", "cmux Pro", "cmux Go" (en-US and ja). Descriptions, en-US / ja: Max "Up to 5 Cloud VMs, up to 16 vCPUs and 32 GB RAM per VM" / "クラウドVM最大5台、1台あたり最大16 vCPU・32 GB RAM"; Pro "Up to 5 Cloud VMs, up to 4 vCPUs and 8 GB RAM per VM" / "クラウドVM最大5台、1台あたり最大4 vCPU・8 GB RAM"; Go "1 Cloud VM with 40 VM-hours a month" / "クラウドVM 1台、月40 VM時間".
+Group IDs: `com.cmux.app` 22433557, `dev.cmux.app.beta` 22433386. Display names "cmux Max", "cmux Pro", "cmux Go" (en-US and ja). Descriptions, en-US / ja: Max "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM" / "クラウドVM最大5台で80 vCPU・160 GB RAMを共有"; Pro "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM" / "クラウドVM最大5台で20 vCPU・40 GB RAMを共有"; Go "1 Cloud VM with 40 VM-hours a month" / "クラウドVM 1台、月40 VM時間". The VM resources are one pool shared by the plan's VMs, not a per-VM allowance; App Store Connect descriptions must use this pooled wording.
 
 The products are in `MISSING_METADATA` until each gets an App Review screenshot of the paywall. The first subscriptions for an app must be submitted with an app version.

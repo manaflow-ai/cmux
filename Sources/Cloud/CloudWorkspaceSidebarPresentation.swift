@@ -34,8 +34,9 @@ struct CloudWorkspaceSidebarPresentation {
 
     /// Returns the current device-workspace label for callers without a full presentation.
     @MainActor
-    static func deviceLabel(workspace: Workspace, catalog: SurfaceCatalog = .shared) -> String? {
-        deviceLabel(workspace: workspace, machines: deviceMachines(for: workspace, catalog: catalog), catalog: catalog)
+    static func deviceLabel(workspace: Workspace, catalog: SurfaceCatalog? = nil) -> String? {
+        let catalog = catalog ?? SurfaceCatalog.shared
+        return deviceLabel(workspace: workspace, machines: deviceMachines(for: workspace, catalog: catalog), catalog: catalog)
     }
 
     static var unavailableDirectory: String {
@@ -44,7 +45,8 @@ struct CloudWorkspaceSidebarPresentation {
 
     @MainActor
     /// Builds the immutable remote sidebar identity and directory presentation.
-    init?(workspace: Workspace, orderedPanelIDs: [UUID], usesLastSegmentPath: Bool, catalog: SurfaceCatalog = .shared) {
+    init?(workspace: Workspace, orderedPanelIDs: [UUID], usesLastSegmentPath: Bool, catalog: SurfaceCatalog? = nil) {
+        let catalog = catalog ?? SurfaceCatalog.shared
         let state = workspace.cloudBindingState
 
         func machineMetadata(for id: String) -> String? {
@@ -117,11 +119,14 @@ struct CloudWorkspaceSidebarPresentation {
                 // A restored workspace can retain a panel projection after the
                 // provider has published a current graph without that resource.
                 // Do not turn that stale identity into a directory placeholder.
-                guard let resource = catalog.resources[resourceID], resource.kind == .terminal else {
-                    continue
-                }
-                if resource.lifecycle == .launching {
-                    continue
+                if let resource = catalog.resources[resourceID] {
+                    guard resource.kind == .terminal else { continue }
+                    if resource.lifecycle == .launching { continue }
+                } else {
+                    // Device metadata is restored before its catalog row; the
+                    // workspace's accepted device projection is authoritative
+                    // enough to render its reported directory in that window.
+                    guard resourceID.machine.isDevice, resourceID.kind == .terminal else { continue }
                 }
             } else {
                 guard workspace.terminalPanel(for: panelID) != nil else { continue }

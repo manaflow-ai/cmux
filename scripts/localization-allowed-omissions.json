@@ -4415,6 +4415,10 @@
       "de": "\"Desktop\" is the established German loanword, spelled identically."
     }
   },
+  "browser.repl.sessionTabTitle": {
+    "class": "format",
+    "source": "%1$@ · %2$@"
+  },
   "cli.help.agents.messages": {
     "source": "agent messages [on|off|status] [<target>] [--workspace]",
     "identityLocales": {
@@ -4450,6 +4454,297 @@
       "zh-Hans": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
       "ko": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
       "ja": "The concurrent machine count is a numeric plan limit and is invariant across locales."
+    }
+  },
+  "machines.new.plan.retry": {
+    "source": "Retry",
+    "identityLocales": {
+      "ar": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "bs": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "da": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "de": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "es": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "fr": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "it": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "ja": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "km": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "ko": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "nb": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "pl": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "ru": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "th": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "tr": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "uk": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Retry"
+        ]
+      }
+    }
+  },
+  "machines.new.plan.error": {
+    "source": "Cloud plan details are still loading. Retry in a moment.",
+    "identityLocales": {
+      "ar": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "bs": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "da": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "de": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "es": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "fr": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "it": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "ja": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "km": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "ko": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "nb": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "pl": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "pt-BR": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "ru": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "th": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "tr": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "uk": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Cloud plan details are still loading. Retry in a moment."
+        ]
+      }
+    }
+  },
+  "machines.new.plan.loading": {
+    "source": "Loading your Cloud machine plan…",
+    "identityLocales": {
+      "de": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Loading your Cloud machine plan…"
+        ]
+      },
+      "fr": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Loading your Cloud machine plan…"
+        ]
+      },
+      "ar": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Loading your Cloud machine plan…"
+        ]
+      },
+      "es": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Loading your Cloud machine plan…"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Loading your Cloud machine plan…"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Loading your Cloud machine plan…"
+        ]
+      },
+      "ko": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Loading your Cloud machine plan…"
+        ]
+      },
+      "ja": {
+        "reason": "Cloud machine provisioning status is intentionally English for this transient technical action; the localized catalog entry remains required.",
+        "values": [
+          "Loading your Cloud machine plan…"
+        ]
+      }
     }
   }
 }
