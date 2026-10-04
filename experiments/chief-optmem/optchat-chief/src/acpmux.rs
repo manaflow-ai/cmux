@@ -456,10 +456,7 @@ pub fn new_session(
     // Right after creation: an untagged Chief session would count as one of
     // the user's agents (quit counts, endAgents), so it does not stay.
     if !spec.tags.is_empty()
-        && let Err(e) = client.request(
-            "_acpmux/tag",
-            json!({"sessionId": id, "set": spec.tags}),
-        )
+        && let Err(e) = client.request("_acpmux/tag", json!({"sessionId": id, "set": spec.tags}))
     {
         let _ = client.request("_acpmux/kill", json!({"sessionId": id, "purge": true}));
         return Err(format!("tagging session {}: {e}", spec.name));

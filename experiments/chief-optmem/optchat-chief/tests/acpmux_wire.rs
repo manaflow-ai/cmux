@@ -471,7 +471,11 @@ fn session_tags_are_set_right_after_session_new() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("acpmux.sock");
     let requests = Arc::new(Mutex::new(Vec::new()));
-    serve(UnixListener::bind(&socket).unwrap(), requests.clone(), false);
+    serve(
+        UnixListener::bind(&socket).unwrap(),
+        requests.clone(),
+        false,
+    );
     let acpmux = Acpmux::new(socket, None, vec![compactor_preset()]);
     connect(&acpmux);
     let tags = optchat_chief::acpmux::chief_tags("1a2b3c4d", "compactor");
@@ -480,7 +484,10 @@ fn session_tags_are_set_right_after_session_new() {
         ..compactor_session(dir.path())
     };
     assert_eq!(acpmux.new_session(&spec), Ok("s-1".into()));
-    assert_eq!(acpmux.new_session(&compactor_session(dir.path())), Ok("s-1".into()));
+    assert_eq!(
+        acpmux.new_session(&compactor_session(dir.path())),
+        Ok("s-1".into())
+    );
     let requests = requests.lock().unwrap();
     let methods: Vec<&str> = requests
         .iter()
@@ -488,7 +495,10 @@ fn session_tags_are_set_right_after_session_new() {
         .filter(|m| *m == "session/new" || *m == "_acpmux/tag")
         .collect();
     assert_eq!(methods, vec!["session/new", "_acpmux/tag", "session/new"]);
-    let tag = requests.iter().find(|r| r["method"] == "_acpmux/tag").unwrap();
+    let tag = requests
+        .iter()
+        .find(|r| r["method"] == "_acpmux/tag")
+        .unwrap();
     assert_eq!(
         tag["params"],
         json!({"sessionId": "s-1", "set": {"cmux.chief": "1a2b3c4d", "cmux.chief.role": "compactor"}})

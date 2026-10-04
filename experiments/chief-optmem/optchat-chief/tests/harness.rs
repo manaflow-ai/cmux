@@ -422,7 +422,10 @@ fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not()
         )
     };
     let home_id = spec.chief.clone();
-    assert_eq!(home_id, optchat_chief::paths::home_id(&dir.path().join("mux")));
+    assert_eq!(
+        home_id,
+        optchat_chief::paths::home_id(&dir.path().join("mux"))
+    );
     let compactor = optchat_chief::compactor::AcpmuxCompactor::new(
         agents.clone(),
         spec,
@@ -438,7 +441,10 @@ fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not()
     optchat_host::run_node(&compactor, &request).unwrap();
     let tags = agents.inner.lock().unwrap().specs[0].tags.clone();
     assert_eq!(tags.get(CHIEF_TAG), Some(&home_id));
-    assert_eq!(tags.get(CHIEF_ROLE_TAG).map(String::as_str), Some("compactor"));
+    assert_eq!(
+        tags.get(CHIEF_ROLE_TAG).map(String::as_str),
+        Some("compactor")
+    );
     // A child: no tags at creation; `agents spawn` then sets mux.parent.
     let flags = optchat_chief::cli::Flags::default();
     let child = optchat_chief::agents::child_spec(&flags, "kid", "/tmp");
