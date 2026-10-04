@@ -81,6 +81,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             #if DEBUG
             if let services, services.environment.showcase { _ = DebugShowcase.seed(["focus": .bool(false)], services: services) }
             #endif
+            // Recovered unsaved changes from a quit, crash or power-off (R96 quit hook).
+            if let window = services?.windows.active?.window { Task { @MainActor in await RecoveryNotice.show(in: window) } }
             CATransaction.setCompletionBlock {
                 MainActor.assumeIsolated { DebugTimings.markLaunch("first_window_frame_committed") }
             }
