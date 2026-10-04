@@ -216,6 +216,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    hub.stop_idle_reaper();
     // New clients get "connection refused" instead of a dying daemon.
     let _ = std::fs::remove_file(socket_path());
     if let Some(t) = ws_task {

@@ -41,6 +41,12 @@ impl Hub {
             && session.spawn_lock.try_lock().is_ok()
     }
 
+    /// The daemon is stopping (`_acpmux/shutdown`, SIGTERM, then
+    /// `shutdown_all`): the idle reaper never stops a harness again.
+    pub fn stop_idle_reaper(&self) {
+        self.stopping.store(true, Ordering::SeqCst);
+    }
+
     /// A child was published: make sure the reaper runs and sees it.
     pub(super) fn wake_idle_reaper(self: &Arc<Self>) {
         if !self.idle_reaper.swap(true, Ordering::SeqCst) {

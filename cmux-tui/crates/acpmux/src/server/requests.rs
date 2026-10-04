@@ -914,6 +914,7 @@ pub(super) async fn handle_request(
             if end_agents {
                 hub.end_agents_at_shutdown(keep.clone());
             }
+            hub.stop_idle_reaper();
             hub.shutdown.notify_waiters();
             hub.shutdown.notify_one();
             let kept = if end_agents {
