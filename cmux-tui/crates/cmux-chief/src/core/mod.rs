@@ -311,6 +311,11 @@ pub struct Core {
     /// Rejections per outstanding prompt (the retry backoff), until acpmux
     /// accepts it. Memory only: a restart resets the budget.
     prompt_rejections: BTreeMap<String, u32>,
+    /// Prompts acpmux accepted on this acpmux connection (user_message or
+    /// queued): a refusal of one is a stale or duplicate answer. Cleared when
+    /// the connection drops (acpmux drops queued prompts with it; the connect
+    /// resends them).
+    accepted_prompts: std::collections::BTreeSet<String>,
     inbox: VecDeque<InboxItem>,
     task: Task,
     /// The outbox head's key while the owner has not answered it.
@@ -423,7 +428,11 @@ impl Core {
     fn prompt_settled(&mut self, prompt_id: &str, rejected: bool, error: Option<&str>) {
         self.accept(prompt_id);
         // A refusal of the prompt whose turn runs is stale (a duplicate's answer): ignored.
-        if !rejected || !self.state.prompts.contains_key(prompt_id) || self.is_running(prompt_id) {
+        if !rejected
+            || !self.state.prompts.contains_key(prompt_id)
+            || self.accepted_prompts.contains(prompt_id)
+            || self.is_running(prompt_id)
+        {
             return;
         }
         let rejections = self.prompt_rejections.get(prompt_id).copied().unwrap_or(0) + 1;
@@ -444,6 +453,7 @@ impl Core {
     fn stop_refused_prompt(&mut self, prompt_id: &str, error: &str) {
         let conversation = self.conversation_for(Some(prompt_id));
         self.prompt_rejections.remove(prompt_id);
+        self.accepted_prompts.remove(prompt_id);
         self.state.mark_answered(prompt_id);
         self.dirty = true;
         let tries = MAX_PROMPT_RETRIES + 1;
@@ -481,7 +491,10 @@ impl Core {
             // Only a prompt still refused: one acpmux accepted (its rejections
             // are cleared), whose turn runs, or that was answered or dropped
             // meanwhile sends nothing.
-            if self.prompt_rejections.contains_key(prompt_id) && !self.is_running(prompt_id) {
+            if self.prompt_rejections.contains_key(prompt_id)
+                && !self.accepted_prompts.contains(prompt_id)
+                && !self.is_running(prompt_id)
+            {
                 self.send_prompt(prompt_id);
             }
         } else if key == SESSIONS_TIMER && !self.pending_permissions.is_empty() && self.acpmux_up {

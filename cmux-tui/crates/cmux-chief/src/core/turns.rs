@@ -117,6 +117,7 @@ impl Core {
         for prompt_id in stale {
             self.state.prompts.remove(&prompt_id);
             self.prompt_rejections.remove(&prompt_id);
+            self.accepted_prompts.remove(&prompt_id);
             self.dirty = true;
             self.log(format!("dropping permission prompt {prompt_id}: its session is not waiting"));
         }
@@ -167,6 +168,7 @@ impl Core {
             match output {
                 TurnOutput::Accepted { prompt_id, .. } => {
                     self.prompt_rejections.remove(&prompt_id);
+                    self.accepted_prompts.insert(prompt_id.clone());
                     self.accept(&prompt_id);
                 }
                 TurnOutput::Started { turn, .. } => {
@@ -220,6 +222,7 @@ impl Core {
                     if let Some(prompt_id) = &turn.prompt_id {
                         self.state.mark_answered(prompt_id);
                         self.prompt_rejections.remove(prompt_id);
+                        self.accepted_prompts.remove(prompt_id);
                     }
                     self.state.acpmux_seq = self.state.acpmux_seq.max(seq);
                     self.dirty = true;
