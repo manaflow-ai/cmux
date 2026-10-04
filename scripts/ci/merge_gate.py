@@ -477,7 +477,10 @@ def _publish_diagnostic(
                 gh.request(f"/repos/{repo}/issues/comments/{duplicate['id']}", "DELETE")
         else:
             gh.request(f"/repos/{repo}/issues/{pr_number}/comments", "POST", {"body": body})
-    except RuntimeError as error:
+    except Exception as error:  # noqa: BLE001 - diagnostics must never fail the gate
+        # Comment publication is diagnostic only. The check result below is
+        # authoritative even when GitHub denies, times out, or returns an
+        # unexpected response while updating the comment.
         return f"diagnostic comment unavailable for PR #{pr_number}: {error}; {REPAIR_NOTE}"
     return None
 

@@ -119,6 +119,22 @@ class MergeGateDecisionTests(unittest.TestCase):
         self.assertIn("403", error or "")
         self.assertIn("REPAIR.md#merging", error or "")
 
+    def test_unexpected_comment_failure_is_reported_without_raising(self) -> None:
+        class BrokenGitHub:
+            def request(self, path, method="GET", body=None):
+                raise ValueError("malformed GitHub response")
+
+        error = merge_gate._publish_diagnostic(
+            BrokenGitHub(),
+            "manaflow-ai/cmux",
+            17250,
+            [],
+            "<!-- merge-gate -->\nci-status failed",
+        )
+        self.assertIn("PR #17250", error or "")
+        self.assertIn("malformed GitHub response", error or "")
+        self.assertIn("REPAIR.md#merging", error or "")
+
     def test_opened_event_seeds_freshness_for_current_head(self) -> None:
         event = {
             "action": "opened",
