@@ -19,6 +19,9 @@ struct ServerLaunchAgent {
         case notInBuild
         /// The opt-in switch is off: the server software is not ready yet.
         case notReady
+        /// The bundled CLI has no `cmux host run`: a registered agent would
+        /// exit and restart forever.
+        case hostRunUnsupported
         /// The user must allow the agent in System Settings > Login Items.
         case requiresApproval
         case failed(String)
@@ -33,6 +36,8 @@ struct ServerLaunchAgent {
 
     var isBundled: @MainActor () -> Bool
     var allowRegister: @MainActor () -> Bool
+    /// True when the bundled CLI serves `cmux host run`.
+    var hostRunSupported: @MainActor () -> Bool
     var service: Service
 
     static var isBundled: Bool {
@@ -43,6 +48,8 @@ struct ServerLaunchAgent {
         ServerLaunchAgent(
             isBundled: { Self.isBundled },
             allowRegister: { ServerTunables.agentAllowRegister.value },
+            // RED: no probe yet; the server stack's `host run` parser brings it.
+            hostRunSupported: { true },
             service: Service(status: { SMAppService.agent(plistName: plistName).status },
                              register: { try SMAppService.agent(plistName: plistName).register() },
                              openLoginItems: { SMAppService.openSystemSettingsLoginItems() }))

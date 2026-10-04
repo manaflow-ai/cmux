@@ -38,7 +38,9 @@ enum ServerHandlers {
         switch failure {
         case .notInBuild:
             ActionFailure(message: RefusalStrings.text("refusal.server.notInBuild", "This build does not include the server software yet."))
-        case .notReady:
+        // A CLI without `host run` is the same case for the user: the server
+        // software in this build is not ready.
+        case .notReady, .hostRunUnsupported:
             ActionFailure(message: RefusalStrings.text("refusal.server.notReady", "The server software is not ready in this build yet."))
         case .requiresApproval:
             ActionFailure(message: RefusalStrings.text("refusal.server.needsApproval", "Allow cmux in System Settings > Login Items, then try again."))

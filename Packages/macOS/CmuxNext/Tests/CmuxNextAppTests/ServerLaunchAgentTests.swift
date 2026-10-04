@@ -17,10 +17,11 @@ import Testing
         var statusAfterRegister: SMAppService.Status = .enabled
     }
 
-    private func agent(_ fake: Fake, bundled: Bool = true, allow: Bool) -> ServerLaunchAgent {
+    private func agent(_ fake: Fake, bundled: Bool = true, allow: Bool, hostRun: Bool = true) -> ServerLaunchAgent {
         ServerLaunchAgent(
             isBundled: { bundled },
             allowRegister: { allow },
+            hostRunSupported: { fake.calls.append("hostRunSupported"); return hostRun },
             service: .init(status: { fake.calls.append("status"); return fake.status },
                            register: { fake.calls.append("register"); fake.status = fake.statusAfterRegister },
                            openLoginItems: { fake.calls.append("openLoginItems") }))
@@ -41,21 +42,39 @@ import Testing
     @Test func switchOnRegisters() throws {
         let fake = Fake()
         try agent(fake, allow: true).register()
-        #expect(fake.calls == ["status", "register", "status"])
+        #expect(fake.calls == ["hostRunSupported", "status", "register", "status"])
     }
 
     @Test func switchOnKeepsAnEnabledAgent() throws {
         let fake = Fake()
         fake.status = .enabled
         try agent(fake, allow: true).register()
-        #expect(fake.calls == ["status"])
+        #expect(fake.calls == ["hostRunSupported", "status"])
     }
 
     @Test func switchOnAsksForApproval() {
         let fake = Fake()
         fake.statusAfterRegister = .requiresApproval
         #expect(throws: ServerLaunchAgent.Failure.requiresApproval) { try agent(fake, allow: true).register() }
-        #expect(fake.calls == ["status", "register", "status", "openLoginItems"])
+        #expect(fake.calls == ["hostRunSupported", "status", "register", "status", "openLoginItems"])
+    }
+
+    /// The switch on, but the bundled CLI has no `host` verb: the agent is
+    /// not registered, so launchd never starts a crash loop.
+    @Test func switchOnWithoutHostRunDoesNotRegister() {
+        let fake = Fake()
+        #expect(throws: ServerLaunchAgent.Failure.hostRunUnsupported) {
+            try agent(fake, allow: true, hostRun: false).register()
+        }
+        #expect(fake.calls == ["hostRunSupported"])
+    }
+
+    /// The support check runs only after the switch: with the switch off,
+    /// nothing is probed.
+    @Test func switchOffDoesNotProbeHostRun() {
+        let fake = Fake()
+        #expect(throws: ServerLaunchAgent.Failure.notReady) { try agent(fake, allow: false, hostRun: false).register() }
+        #expect(fake.calls.isEmpty)
     }
 
     @Test func noPlistMeansNotInBuild() {
