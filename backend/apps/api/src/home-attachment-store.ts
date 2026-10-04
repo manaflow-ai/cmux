@@ -313,6 +313,9 @@ export const sweepBatch = (sql: Sql, before: number): { records: Array<Record>; 
   return { records, done }
 }
 
+/** Every upload slot, without forgetting them (storage deletion refunds them first). */
+export const allSlots = (sql: Sql): Array<UploadSlot> => (has(sql, SLOTS) ? sql.exec<SlotRow>(`SELECT * FROM ${SLOTS}`).map(slotRow) : [])
+
 /** Forgets every record and slot (conversation storage deletion); answers both (the caller deletes the prefix and refunds). */
 export const forgetAll = (sql: Sql): { records: Array<Record>; slots: Array<UploadSlot> } => {
   if (!has(sql, OBJECTS)) return { records: [], slots: [] }

@@ -101,6 +101,8 @@ const drainDrops = async (deps: AttachmentGcDeps, now: number): Promise<void> =>
  */
 export const deleteAttachmentStorage = async (deps: AttachmentGcDeps, entity: string): Promise<number> => {
   if (!deps.env.HOME_ATTACHMENTS) return 0
+  // Refunds first (idempotent by slot id): a failure throws before anything is forgotten, so a retry refunds again.
+  for (const slot of store.allSlots(deps.sql)) if (slot.state !== "tombstone") await deps.users(slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)
   const { records, slots } = store.forgetAll(deps.sql)
   if (slots.length) {
     store.schedulePurge(deps.sql, Math.max(...slots.map((s) => s.expires_at)) + store.UPLOADING_GRACE_MS)
@@ -109,7 +111,6 @@ export const deleteAttachmentStorage = async (deps: AttachmentGcDeps, entity: st
   await drainDrops(deps, Date.now())
   // A drop that failed keeps the alarm at its next attempt.
   deps.scheduleAlarm()
-  for (const slot of slots) if (slot.state !== "tombstone") await deps.users(slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)
   const known = new Set(records.flatMap(store.recordKeys))
   return records.length + (await deletePrefix(deps.env, entity)).filter((k) => !known.has(k)).length
 }
