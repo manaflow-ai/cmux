@@ -2086,7 +2086,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             case .interfered:
                 throw Self.error(
                     "stale",
-                    "\(name) finished, but a copy in another web view reached the private pasteboard during it (WebKit's pasteboard requests do not say which web view they serve), so the tab's clipboard is unchanged\(isPaste ? " and the page may have pasted nothing" : ""). Try again"
+                    "\(name) finished, but another web view copied, pasted or read the clipboard during it (WebKit's pasteboard requests do not say which web view they serve), so the tab's clipboard is unchanged\(isPaste ? " and the page may have pasted nothing" : ""). Try again"
                 )
             case .unavailable:
                 try await performClipboardCommandWithoutWebKit(command, attachment: attachment, webView: webView)

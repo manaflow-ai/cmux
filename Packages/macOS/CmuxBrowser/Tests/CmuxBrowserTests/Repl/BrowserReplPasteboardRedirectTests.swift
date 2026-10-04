@@ -43,6 +43,68 @@ struct BrowserReplPasteboardRedirectTests {
             #expect(BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: false) == nil)
         }
 
+        /// WebKit handling a web content process's message runs on its own
+        /// run-loop turn; WebKit called from AppKit or cmux code is an
+        /// action in some web view. Image sequences as observed on macOS 26.
+        @Test func lookupsAreClassifiedByWhatCalledWebKit() {
+            typealias Origin = BrowserReplPasteboardRedirect.LookupOrigin
+            #expect(BrowserReplPasteboardRedirect.origin(ofCallerImages: ["WebCore", "WebKit", "JavaScriptCore", "CoreFoundation"]) == Origin.webKitOnItsOwnTurn)
+            #expect(BrowserReplPasteboardRedirect.origin(ofCallerImages: ["WebKit", "libdispatch.dylib"]) == Origin.webKitOnItsOwnTurn)
+            #expect(BrowserReplPasteboardRedirect.origin(ofCallerImages: ["WebCore", "WebKit", "AppKit"]) == Origin.webKitCalledByTheApp)
+            #expect(BrowserReplPasteboardRedirect.origin(ofCallerImages: ["WebCore", "WebKit", "cmux"]) == Origin.webKitCalledByTheApp)
+            #expect(BrowserReplPasteboardRedirect.origin(ofCallerImages: ["WebCore", "WebKit"]) == Origin.webKitCalledByTheApp)
+            #expect(BrowserReplPasteboardRedirect.origin(ofCallerImages: ["AppKit", "WebKit", "CoreFoundation"]) == Origin.notWebKit)
+            #expect(BrowserReplPasteboardRedirect.origin(ofCallerImages: []) == Origin.notWebKit)
+        }
+
+        /// A lookup by WebKit called by the app during a command (another
+        /// web view's paste grant) diverts the command: from then on every
+        /// lookup, WebKit's own turn included, gets an emptied private
+        /// pasteboard, never the tab's, and the command is `interfered`.
+        /// So does WebKit reading `+generalPasteboard` (its check before it
+        /// grants a page's clipboard read without asking).
+        @Test(arguments: [false, true])
+        func anotherWebViewsActionDivertsTheCommand(viaGeneralPasteboard: Bool) async throws {
+            #expect(BrowserReplPasteboardRedirect.shared.install())
+            let tab = NSPasteboard.withUniqueName()
+            defer { tab.releaseGlobally() }
+            tab.clearContents()
+            tab.setString("tab text", forType: .string)
+            let redirect = BrowserReplPasteboardRedirect.shared
+            var duringStart: NSPasteboard?
+            var finish: (@MainActor () -> Void)?
+            let command = Task { @MainActor in
+                await redirect.run(on: tab, timeout: .seconds(30), endWebContent: { true }) { done in
+                    // WebKit's own lookups while it starts the command.
+                    duringStart = redirect.redirectTarget(forLookupOf: general, origin: .webKitCalledByTheApp)
+                    finish = done
+                }
+            }
+            try await settle { finish != nil }
+            #expect(duringStart === tab)
+            #expect(redirect.redirectTarget(forLookupOf: general, origin: .webKitOnItsOwnTurn) === tab)
+
+            let diverted: NSPasteboard?
+            if viaGeneralPasteboard {
+                redirect.noteSystemPasteboardRead(origin: .webKitOnItsOwnTurn)
+                diverted = redirect.redirectTarget(forLookupOf: general, origin: .webKitOnItsOwnTurn)
+            } else {
+                diverted = redirect.redirectTarget(forLookupOf: general, origin: .webKitCalledByTheApp)
+            }
+            let sink = try #require(diverted)
+            #expect(sink !== tab)
+            #expect(sink !== NSPasteboard(name: .general))
+            sink.clearContents()
+            sink.setString("written to the sink", forType: .string)
+            let later = try #require(redirect.redirectTarget(forLookupOf: general, origin: .webKitOnItsOwnTurn))
+            #expect(later === sink)
+            #expect(later.types?.isEmpty ?? true, "what a diverted command's lookup wrote could be read back")
+            #expect(redirect.redirectTarget(forLookupOf: general, origin: .notWebKit) == nil)
+            finish?()
+            #expect(await command.value == .interfered)
+            #expect(redirect.redirectTarget(forLookupOf: general, origin: .webKitOnItsOwnTurn) == nil)
+        }
+
         /// At the timeout the command's web content is ended and the
         /// redirect ends in the same turn: a person pasting or copying in
         /// another browser pane afterwards reaches their own clipboard, and
