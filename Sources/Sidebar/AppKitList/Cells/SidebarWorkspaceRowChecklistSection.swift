@@ -518,12 +518,6 @@ final class SidebarRowChecklistSection: NSView {
         }
     }
 
-#if DEBUG
-    /// Whether the shown checklist popover animates its close, or nil when
-    /// no popover is presented.
-    var checklistPopoverAnimatesForTesting: Bool? { popoverPresenter.animatesForTesting }
-#endif
-
     private func checklistPopoverModel(_ model: SidebarWorkspaceRowModel) -> SidebarWorkspaceChecklistPopoverModel {
         let snapshot = model.snapshot
         return SidebarWorkspaceChecklistPopoverModel(

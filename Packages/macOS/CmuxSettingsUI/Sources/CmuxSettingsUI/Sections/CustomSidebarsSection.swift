@@ -354,9 +354,6 @@ private struct CustomSidebarTemplateGallery: View {
                             .resizable()
                             .scaledToFill()
                             .clipped()
-                    } else {
-                        Image(systemName: template.kind == .right ? "sidebar.right" : "sidebar.left")
-                            .font(.title2)
                     }
                 }
                 .frame(height: 105)

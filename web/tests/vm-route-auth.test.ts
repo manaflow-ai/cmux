@@ -74,6 +74,7 @@ const VM_ENV_KEYS = [
 const originalEnv = Object.fromEntries(
   VM_ENV_KEYS.map((key) => [key, process.env[key]]),
 ) as Record<(typeof VM_ENV_KEYS)[number], string | undefined>;
+const originalFetch = globalThis.fetch;
 
 // Capture the real implementations BY VALUE before mocking. bun's
 // mock.module can mutate an already-loaded module namespace in place, so a
@@ -247,11 +248,15 @@ const { VmPublicationProviderError } = await import(
 beforeAll(() => {
   useWorkflowStubs = true;
   useStubDb = true;
+  // POST /api/vm now awaits the provider connection probe. Keep this route
+  // suite deterministic and local while still exercising that await.
+  globalThis.fetch = (async () => new Response(null, { status: 204 })) as typeof globalThis.fetch;
 });
 
 afterAll(() => {
   useWorkflowStubs = false;
   useStubDb = false;
+  globalThis.fetch = originalFetch;
 });
 
 beforeEach(() => {
@@ -532,7 +537,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-1",
       billingPlanId: "pro",
-      maxActiveVms: 50,
+      maxActiveVms: 5,
       provider: "freestyle",
       image: "snapshot-test",
       imageVersion: null,
@@ -541,6 +546,129 @@ describe("VM REST auth", () => {
     }));
     expect(listTeams).not.toHaveBeenCalled();
     expect(runVmWorkflow).toHaveBeenCalled();
+  });
+
+  test.each(["cookie", "native"])("hydrates an ID-only selected team for paid VM list limits (%s)", async (auth) => {
+    const listTeams = mock(async () => [
+      { id: "team-other", clientReadOnlyMetadata: { cmuxVmPlan: "free" } },
+      { id: "team-1", displayName: "Paid team", clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 4 } },
+    ]);
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      clientReadOnlyMetadata: { cmuxPlan: "free" },
+      selectedTeam: { id: "team-1" },
+      listTeams,
+    });
+    runVmWorkflow.mockResolvedValue([{
+      providerVmId: "provider-vm-team-1", provider: "freestyle",
+      image: "snapshot-test", status: "running", createdAt: 1_777_000_000_000,
+    }]);
+
+    const response = await GET(new Request("https://cmux.test/api/vm", {
+      headers: auth === "native" ? {
+        authorization: "Bearer access-token", "x-stack-refresh-token": "refresh-token",
+      } : {},
+    }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      limits: { planId: "team", maxActiveVms: 20, activeVmCount: 1, freeAccessWindowDays: 0, freeAccessExpiresAt: null },
+      vms: [{ freeAccessExpiresAt: null }],
+    });
+    expect(listUserVms).toHaveBeenCalledWith("user-1", "team-1");
+    expect(listTeams).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([undefined, "team-1"])("hydrates an ID-only selected team with bounded auth (requested %s)", async (requestedTeamId) => {
+    const listTeams = mock(async () => [{
+      id: "team-1", displayName: "Paid team",
+      clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 4 },
+    }]);
+    getUser.mockResolvedValue({ ...authedStackUser(), selectedTeam: { id: "team-1" }, listTeams });
+
+    const user = await verifyRequest(new Request("https://cmux.test/api/vm"), {
+      requestedTeamId, subrouterAuthorizationSignal: new AbortController().signal,
+    });
+
+    expect(user).toMatchObject({
+      billingTeamId: "team-1", billingPlanId: "team", billingSeats: 4,
+      selectedTeamId: "team-1",
+      teams: [{ id: "team-1", displayName: "Paid team", billingPlanId: "team", billingSeats: 4 }],
+    });
+    expect(listTeams).toHaveBeenCalledWith({ query: "team-1", limit: 100 });
+    expect(listTeams).toHaveBeenCalledTimes(1);
+  });
+
+  test("hydrates the ID-only selected team even when bounded auth requests another team", async () => {
+    const listTeams = mock(async (options?: { query?: string }) => options?.query === "team-other"
+      ? [{ id: "team-other", clientReadOnlyMetadata: { cmuxVmPlan: "free" } }]
+      : [{ id: "team-1", displayName: "Paid team", clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 4 } }]);
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      clientReadOnlyMetadata: { cmuxPlan: "free" },
+      selectedTeam: { id: "team-1" },
+      listTeams,
+    });
+
+    const user = await verifyRequest(new Request("https://cmux.test/api/vm"), {
+      requestedTeamId: "team-other",
+      subrouterAuthorizationSignal: new AbortController().signal,
+    });
+
+    expect(user).toMatchObject({ billingTeamId: "team-1", billingPlanId: "team", billingSeats: 4 });
+    expect(listTeams).toHaveBeenNthCalledWith(1, { query: "team-other", limit: 100 });
+    expect(listTeams).toHaveBeenNthCalledWith(2, { query: "team-1", limit: 100 });
+  });
+
+  test("paginates complete membership when hydrating an ID-only selected team", async () => {
+    const listTeams = mock(async (options?: { cursor?: string }) => options?.cursor === "page-2"
+      ? [{ id: "team-second", clientReadOnlyMetadata: { cmuxVmPlan: "free" } }]
+      : Object.assign([{ id: "team-1", clientReadOnlyMetadata: { cmuxPlan: "team" } }], { nextCursor: "page-2" }));
+    getUser.mockResolvedValue({ ...authedStackUser(), selectedTeam: { id: "team-1" }, listTeams });
+
+    const user = await verifyRequest(new Request("https://cmux.test/api/vm"));
+
+    expect(user?.teamIds).toEqual(["team-1", "team-second"]);
+    expect(listTeams).toHaveBeenNthCalledWith(1, { cursor: undefined, limit: 100 });
+    expect(listTeams).toHaveBeenNthCalledWith(2, { cursor: "page-2", limit: 100 });
+  });
+
+  test("falls back to the user plan when complete team pagination is incomplete", async () => {
+    const listTeams = mock(async (options?: { cursor?: string }) => Object.assign([
+      {
+        id: options?.cursor ? "team-other" : "team-first",
+        clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 4 },
+      },
+    ], { nextCursor: "stuck" }));
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      clientReadOnlyMetadata: { cmuxPlan: "free" },
+      selectedTeam: { id: "team-1" },
+      listTeams,
+    });
+
+    const user = await verifyRequest(new Request("https://cmux.test/api/vm"));
+
+    expect(user).toMatchObject({
+      billingTeamId: "team-1",
+      billingPlanId: "free",
+      billingSeats: null,
+    });
+    expect(listTeams).toHaveBeenNthCalledWith(1, { cursor: undefined, limit: 100 });
+    expect(listTeams).toHaveBeenNthCalledWith(2, { cursor: "stuck", limit: 100 });
+  });
+
+  test("does not borrow another paid team's details when the selected team is absent from the lookup", async () => {
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      clientReadOnlyMetadata: { cmuxPlan: "free" },
+      selectedTeam: { id: "team-1" },
+      listTeams: async () => [{ id: "team-other", clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 4 } }],
+    });
+
+    const user = await verifyRequest(new Request("https://cmux.test/api/vm"));
+
+    expect(user).toMatchObject({ billingTeamId: "team-1", billingPlanId: "free", billingSeats: null });
   });
 
   test("tunnel POST and GET forward the complete fresh membership, not only the selected team", async () => {
@@ -825,7 +953,7 @@ describe("VM REST auth", () => {
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       billingTeamId: "team-1",
       billingPlanId: "pro",
-      maxActiveVms: 50,
+      maxActiveVms: 5,
     }));
   });
 
@@ -919,12 +1047,12 @@ describe("VM REST auth", () => {
       upgradePlanId: "max",
       upgradeUrl: "https://cmux.com/api/billing/checkout?plan=max&cmux_source=vm_memory_limit",
       memoryMb: 32768,
-      maxMemoryMb: 24576,
+      maxMemoryMb: 8192,
     });
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
-  test("starts a 64 GB machine on Max", async () => {
+  test("starts a 32 GB machine on Max", async () => {
     getUser.mockResolvedValue(stackUserForPlan("max"));
     runVmWorkflow.mockResolvedValue({
       providerVmId: "provider-vm-max",
@@ -938,12 +1066,12 @@ describe("VM REST auth", () => {
       new Request("https://cmux.test/api/vm", {
         method: "POST",
         headers: { origin: "https://cmux.test" },
-        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 65536 }),
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 32768 }),
       }),
     );
 
     expect(response.status).toBe(200);
-    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 65536 }));
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 32768 }));
   });
 
   test("rejects malformed memory sizes before billing or provider work", async () => {
@@ -1910,7 +2038,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-2",
       billingPlanId: "team",
-      maxActiveVms: 200,
+      maxActiveVms: 20,
     }));
     expect(runVmWorkflow).toHaveBeenCalled();
   });
@@ -2013,7 +2141,8 @@ describe("VM REST auth", () => {
       context,
     );
     expect(response.status).toBe(200);
-    expect(openVmCmuxRemote).toHaveBeenCalledWith({
+    const { deferAfterResponse, ...attachInput } = (openVmCmuxRemote.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    expect(attachInput).toEqual({
       userId: "user-1",
       billingTeamId: "team-1",
       teamIds: ["team-1"],
@@ -2021,9 +2150,11 @@ describe("VM REST auth", () => {
       deviceFingerprint: "fp-device-1",
       clientCapabilities: ["direct-ws-user-agent"],
       callerPlanId: "pro",
-      maxActiveVms: 50,
+      maxActiveVms: 5,
       modelPlane: expect.objectContaining({}),
     });
+    // An opted-in machine's agent-update exec runs after the response.
+    expect(typeof deferAfterResponse).toBe("function");
     expect(openAttachEndpoint).not.toHaveBeenCalled();
     const payload = await response.json();
     expect(payload.transport).toBe("cmux-remote");
@@ -2271,7 +2402,7 @@ describe("VM REST auth", () => {
       providerVmId: "provider-vm-team-1",
       callerPlanId: "pro",
       command: "true",
-      maxActiveVms: 50,
+      maxActiveVms: 5,
       timeoutMs: 30_000,
       modelPlane: expect.objectContaining({}),
     });

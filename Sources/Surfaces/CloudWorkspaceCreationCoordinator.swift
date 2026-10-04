@@ -170,7 +170,11 @@ final class CloudWorkspaceCreationCoordinator {
                 title: String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM"),
                 machine: operation.machine,
                 receipt: reservationReceipt,
-                focus: focus,
+                // Keep an existing workspace out of view until its remote
+                // graph is materialized. Input ownership is independent from
+                // visible selection and still starts optimistically.
+                focus: false,
+                startInput: focus,
                 remoteView: firstTerminal?.view
             )
             operation.reservation = reservation
@@ -239,12 +243,30 @@ final class CloudWorkspaceCreationCoordinator {
             guard !projections.isEmpty else { throw SurfaceCatalogError.destinationNotFound("empty group") }
             operation.openedProjections = projections
             try check(operation, catalog: catalog)
+            // The workspace was populated as one local admission. Apply the
+            // accepted remote geometry before completing the reservation, so a
+            // newly opened workspace never paints the temporary tab layout and
+            // then visibly moves its panes when reconciliation catches up.
+            if let layout = catalog.cloudWorkspaceLayout(machine: operation.machine, workspaceID: receipt.workspace.id),
+               let workspace = Workspace.liveWorkspace(id: reservation.workspaceID) {
+                workspace.applyCloudWorkspaceLayout(
+                    layout.includingMissingPlacements(group.placements),
+                    projections: projections
+                )
+            }
             // Commit the request before retiring its loading reservation. A
             // synchronous pane teardown must never cancel an accepted open.
             operation.isComplete = true
             operations[operation.id] = nil
             catalog.notifyChange()
             host.complete(reservation, projection: projections[0])
+            if focus, let manager = host.manager,
+               manager.selectedTabId == host.selectedWorkspaceID,
+               manager.window?.isKeyWindow != false,
+               let workspace = Workspace.liveWorkspace(id: reservation.workspaceID) {
+                manager.selectWorkspace(workspace)
+                SurfacePaneFactory.focus(panelID: projections[0].panelID, in: workspace.id)
+            }
             catalog.requestCloudWorkspaceProjection(reservation.workspaceID)
             await catalog.cloudWorkspaceProjectionCoordinator.waitForIdle()
             return (reservation.workspaceID, projections)

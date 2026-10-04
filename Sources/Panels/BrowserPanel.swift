@@ -2587,9 +2587,11 @@ final class BrowserPanel: Panel, ObservableObject {
         )
         return changed
     }
-    var pendingReactGrabReturnTargetPanelId: UUID?
-    var pendingReactGrabRoundTripToken: String?
-    let reactGrabBridgeSessionUpdaterName = "__cmuxReactGrabBridgeSync_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+    /// Arming state and round-trip token for React Grab terminal paste-back.
+    /// The token is handed only to the relay in the React Grab isolated
+    /// content world (`BrowserPanel.reactGrabContentWorld`), never to page
+    /// scripts.
+    var reactGrabPasteback = ReactGrabPastebackGate()
     var preferredDeveloperToolsPresentation: DeveloperToolsPresentation = .detached
     var forceDeveloperToolsRefreshOnNextAttach: Bool = false
     private let developerToolsRestoreRetryScheduler = MainActorDeferredActionScheduler()
@@ -5035,8 +5037,12 @@ final class BrowserPanel: Panel, ObservableObject {
         suppressOmnibarAutofocus(for: 1.5)
         noteWebViewFocused()
 
-        DispatchQueue.main.async { [weak self, weak window, weak webView] in
-            guard let self, let window, let webView else { return }
+        let windowIdentifier = ObjectIdentifier(window)
+        DispatchQueue.main.async { [weak self, weak webView] in
+            guard let self,
+                  let webView,
+                  let window = webView.window,
+                  ObjectIdentifier(window) == windowIdentifier else { return }
             guard self.webViewFocusRequestGeneration == requestGeneration else { return }
             guard webView.window === window else { return }
             let didBecomeFirstResponder: Bool

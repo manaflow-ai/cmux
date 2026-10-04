@@ -3654,6 +3654,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
         startAgentHookMockServerAccepting(context: context)
 
+        let oldPromptStart = context.state.commands.count
         let oldPrompt = runCodexHook(
             context: context,
             subcommand: "prompt-submit",
@@ -3674,15 +3675,28 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(currentStop.status, 0, currentStop.stderr)
         let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
 
-        let terminalObservations = currentStopCommands.compactMap { command -> [String: Any]? in
-            let prefix = "agent_journal_append "
-            guard command.hasPrefix(prefix),
-                  let event = self.jsonObject(String(command.dropFirst(prefix.count))),
-                  event["kind"] as? String == "agent.idle.observed" else { return nil }
-            return event
+        // turn_aborted is terminal for the prompt's transcript monitor (#15345),
+        // so the aborted turn may be retired by the monitor's Stop replay
+        // (agent.turn.completed) or by this Stop's transcript-terminal check
+        // (agent.idle.observed), whichever process gets there first.
+        func oldTurnRetirements() -> [AgentJournalAppendCapture] {
+            AgentJournalAppendCapture.captures(in: Array(context.state.snapshot().dropFirst(oldPromptStart))).filter {
+                ($0.kind == "agent.idle.observed" || $0.kind == "agent.turn.completed")
+                    && ($0.draft["attention"] as? [String: Any])?["turnIdentity"] as? String == "old-turn"
+            }
         }
-        XCTAssertEqual(terminalObservations.compactMap { ($0["attention"] as? [String: Any])?["turnIdentity"] as? String }, ["old-turn"])
-        XCTAssertTrue(terminalObservations.allSatisfy { ($0["attention"] as? [String: Any])?["notification"] == nil })
+        XCTAssertTrue(
+            waitForMockSocketCommand(in: context.state) { _ in !oldTurnRetirements().isEmpty },
+            "The aborted old turn must be retired, saw \(context.state.snapshot())"
+        )
+        // The transcript-terminal path retires silently. The monitor replay
+        // currently settles the aborted turn as a completed Stop, which does
+        // notify; that is #15345's behavior, not asserted here either way.
+        XCTAssertTrue(
+            oldTurnRetirements().filter { $0.kind == "agent.idle.observed" }
+                .allSatisfy { ($0.draft["attention"] as? [String: Any])?["notification"] == nil },
+            "The transcript-terminal retirement of an aborted stale turn must not notify"
+        )
 
         XCTAssertTrue(
             AgentJournalAppendCapture.captures(in: currentStopCommands).contains { capture in

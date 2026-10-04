@@ -417,6 +417,160 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
+    // Regression: Dvorak types "=" on the US RightBracket key (keyCode 30) and
+    // German QWERTZ types "+" there. The US-position fallback for "]" must not
+    // claim that key for Cmd-] shortcuts, which run before zoom in and used to
+    // swallow Cmd-= (browser forward, focus history forward).
+    func testZoomKeyOnUSRightBracketPositionDoesNotMatchBracketShortcuts() {
+        let bracketActions: [KeyboardShortcutSettings.Action] = [.browserForward, .focusHistoryForward]
+        for typed in ["=", "+"] {
+            for action in bracketActions {
+                XCTAssertFalse(
+                    action.defaultShortcut.matches(
+                        keyCode: 30,
+                        modifierFlags: [.command],
+                        eventCharacter: typed,
+                        layoutCharacterProvider: { _, _ in typed }
+                    ),
+                    "Cmd and a key typing \(typed) must not trigger \(action.rawValue)"
+                )
+            }
+            XCTAssertTrue(
+                KeyboardShortcutSettings.Action.browserZoomIn.defaultShortcut.matches(
+                    keyCode: 30,
+                    modifierFlags: [.command],
+                    eventCharacter: typed,
+                    layoutCharacterProvider: { _, _ in typed }
+                )
+            )
+        }
+    }
+
+    // Dvorak types "]" on the US Equal key (keyCode 24). That key must reach
+    // Cmd-] and must not fall back to the US-position Cmd-= zoom chord.
+    func testRightBracketOnUSEqualPositionDoesNotMatchZoomIn() {
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.browserZoomIn.defaultShortcut.matches(
+                keyCode: 24,
+                modifierFlags: [.command],
+                eventCharacter: "]",
+                layoutCharacterProvider: { _, _ in "]" }
+            )
+        )
+        XCTAssertTrue(
+            KeyboardShortcutSettings.Action.browserForward.defaultShortcut.matches(
+                keyCode: 24,
+                modifierFlags: [.command],
+                eventCharacter: "]",
+                layoutCharacterProvider: { _, _ in "]" }
+            )
+        )
+    }
+
+    // French AZERTY types "^" and "$" on the US bracket keys and has no
+    // unmodified "[" or "]". Those characters are not shortcut keys, so the
+    // US-position fallback must keep Cmd-[ and Cmd-] reachable there.
+    func testBracketShortcutsStayReachableOnAZERTYBracketPositions() {
+        XCTAssertTrue(
+            KeyboardShortcutSettings.Action.browserBack.defaultShortcut.matches(
+                keyCode: 33,
+                modifierFlags: [.command],
+                eventCharacter: "^",
+                layoutCharacterProvider: { _, _ in "^" }
+            )
+        )
+        XCTAssertTrue(
+            KeyboardShortcutSettings.Action.browserForward.defaultShortcut.matches(
+                keyCode: 30,
+                modifierFlags: [.command],
+                eventCharacter: "$",
+                layoutCharacterProvider: { _, _ in "$" }
+            )
+        )
+    }
+
+    // With Shift the key is judged by its unshifted character. German QWERTZ
+    // reports ";" for Shift and the "," key, which is still the Cmd-Shift-,
+    // key. Dvorak reports "+" for Shift and its "=" key at the US "]" position,
+    // which must not trigger Cmd-Shift-].
+    func testShiftedShortcutsUseUnshiftedLayoutCharacter() {
+        XCTAssertTrue(
+            KeyboardShortcutSettings.Action.reloadConfiguration.defaultShortcut.matches(
+                keyCode: 43,
+                modifierFlags: [.command, .shift],
+                eventCharacter: ";",
+                layoutCharacterProvider: { _, flags in flags.contains(.shift) ? ";" : "," }
+            )
+        )
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.nextSurface.defaultShortcut.matches(
+                keyCode: 30,
+                modifierFlags: [.command, .shift],
+                eventCharacter: "+",
+                layoutCharacterProvider: { _, flags in flags.contains(.shift) ? "+" : "=" }
+            )
+        )
+    }
+
+    // Spanish types a dead grave accent on the US "[" key and has no unmodified
+    // "[", so Cmd-[ must stay reachable there by position.
+    func testGraveDeadKeyKeepsBracketShortcutReachable() {
+        XCTAssertTrue(
+            KeyboardShortcutSettings.Action.browserBack.defaultShortcut.matches(
+                keyCode: 33,
+                modifierFlags: [.command],
+                eventCharacter: "`",
+                layoutCharacterProvider: { _, _ in "`" }
+            )
+        )
+    }
+
+    // AZERTY types "'" on the US 4 key. Number-row keys keep matching digit
+    // shortcuts by position.
+    func testNumberRowKeyKeepsMatchingDigitShortcutOnSymbolFirstLayout() {
+        let commandFour = StoredShortcut(key: "4", command: true, shift: false, option: false, control: false)
+        XCTAssertTrue(
+            commandFour.matches(
+                keyCode: 21,
+                modifierFlags: [.command],
+                eventCharacter: "'",
+                layoutCharacterProvider: { _, _ in "'" }
+            )
+        )
+    }
+
+    // Control chords report control characters, so matching leans on the layout
+    // character. On Dvorak the US D key (keyCode 2) types "e", so it must not
+    // satisfy a Ctrl-D shortcut through the US-position fallback.
+    func testControlChordUsesLayoutCharacterBeforeUSPositionFallback() {
+        let controlD = StoredShortcut(key: "d", command: false, shift: false, option: false, control: true)
+        XCTAssertFalse(
+            controlD.matches(
+                keyCode: 2,
+                modifierFlags: [.control],
+                eventCharacter: "\u{05}",
+                layoutCharacterProvider: { _, _ in "e" }
+            )
+        )
+        XCTAssertTrue(
+            controlD.matches(
+                keyCode: 14,
+                modifierFlags: [.control],
+                eventCharacter: "\u{04}",
+                layoutCharacterProvider: { _, _ in "d" }
+            )
+        )
+        // Without a usable layout character the US-position fallback still applies.
+        XCTAssertTrue(
+            controlD.matches(
+                keyCode: 2,
+                modifierFlags: [.control],
+                eventCharacter: "\u{04}",
+                layoutCharacterProvider: { _, _ in nil }
+            )
+        )
+    }
+
     func testZoomInDoesNotMatchUnrelatedKeyOnNonUSLayout() {
         // Guard: the layout-aware "+" handling must not make Cmd-= match keys that
         // legitimately produce other characters (e.g. a bare letter key).

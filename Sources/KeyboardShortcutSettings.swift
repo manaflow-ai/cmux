@@ -1697,6 +1697,11 @@ struct ShortcutStroke: Equatable, Hashable {
         )
     }
 
+    /// Whether a key press matches this stroke.
+    ///
+    /// Matches by recorded key code, then by character from the event or the
+    /// layout, and finally by the shortcut key's US ANSI position, unless the
+    /// pressed key types a different shortcut character.
     func matches(
         keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags,
@@ -1763,6 +1768,24 @@ struct ShortcutStroke: Equatable, Hashable {
             eventKeyCode: keyCode
         ) {
             return true
+        }
+
+        // The ANSI fallback assumes the pressed key sits where US keyboards put the
+        // shortcut key. When the key types a different shortcut character on the
+        // active layout, that character is what the user meant. Dvorak and German
+        // QWERTZ type "=" or "+" on the US "]" key, so Cmd-= must not match Cmd-].
+        // With Shift the key is judged by its unshifted character, since shifted
+        // symbols (German Shift-, types ";") say little about the key's identity.
+        // Number-row keys keep matching digit shortcuts by position, and non-Latin
+        // input keeps the fallback, as the rules above and below already allow.
+        if eventCharsAreASCII,
+           !(shortcutKeyIsDigit && Self.digitForNumberKeyCode(keyCode) != nil) {
+            let unshiftedCharacter = flags.contains(.shift)
+                ? layoutCharacterProvider(keyCode, modifierFlags.subtracting(.shift))
+                : Self.printableASCIICharacter(eventCharacter) ?? layoutCharacter
+            if let typedKey = Self.shortcutKey(typedAs: unshiftedCharacter), typedKey != shortcutKey {
+                return false
+            }
         }
 
         let allowANSIKeyCodeFallback = flags.contains(.control)
@@ -1937,6 +1960,34 @@ struct ShortcutStroke: Equatable, Hashable {
             applyShiftSymbolNormalization: applyShiftSymbolNormalization,
             eventKeyCode: eventKeyCode
         ) == shortcutKey
+    }
+
+    /// The character when it is a single printable ASCII character, else nil.
+    private static func printableASCIICharacter(_ character: String?) -> String? {
+        guard let character,
+              character.count == 1,
+              character.unicodeScalars.allSatisfy({ scalar in
+                  scalar.isASCII && !CharacterSet.controlCharacters.contains(scalar)
+              }) else {
+            return nil
+        }
+        return character
+    }
+
+    /// The shortcut key a pressed key stands for when it types `character`
+    /// without Shift, or nil when that character is not a shortcut key.
+    ///
+    /// The grave accent is excluded: Spanish and Italian type it as a dead key
+    /// on the US "[" key, which is not a deliberate choice of a Cmd-` shortcut.
+    static func shortcutKey(typedAs character: String?) -> String? {
+        guard let character = printableASCIICharacter(character) else { return nil }
+        let normalized = normalizedShortcutEventCharacter(
+            character,
+            applyShiftSymbolNormalization: false,
+            eventKeyCode: 0
+        )
+        guard normalized != "`", keyCodeForShortcutKey(normalized) != nil else { return nil }
+        return normalized
     }
 
     private static func keyCodeForShortcutKey(_ key: String) -> UInt16? {
