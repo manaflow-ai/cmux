@@ -104,24 +104,9 @@ final class HomeFieldView: UIView, UITextViewDelegate {
         return min(max(minimumHeight, ceil(fitting)), maxHeight)
     }
 
-    /// `maxLines` lines as the text view lays them out (its line fragments
-    /// are taller than `font.lineHeight`), measured once per font.
     private func maximumHeight(width: CGFloat) -> CGFloat {
-        let font = textView.font ?? .preferredFont(forTextStyle: .body)
-        if let cached = measuredMaximum, cached.font == font, cached.inset == textView.textContainerInset {
-            return cached.height
-        }
-        let probe = UITextView()
-        probe.font = font
-        probe.textContainerInset = textView.textContainerInset
-        probe.isScrollEnabled = false
-        probe.text = Array(repeating: "X", count: Self.maxLines).joined(separator: "\n")
-        let height = ceil(probe.sizeThatFits(CGSize(width: max(width, 40), height: .greatestFiniteMagnitude)).height)
-        measuredMaximum = (font, textView.textContainerInset, height)
-        return height
+        textView.height(ofLines: Self.maxLines, width: width)
     }
-
-    private var measuredMaximum: (font: UIFont, inset: UIEdgeInsets, height: CGFloat)?
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -186,6 +171,22 @@ final class HomeFieldView: UIView, UITextViewDelegate {
 @MainActor
 final class HomeFieldTextView: UITextView {
     var onReturn: () -> Void = {}
+    private var measuredLines: (lines: Int, font: UIFont, inset: UIEdgeInsets, height: CGFloat)?
+
+    /// The height of `lines` lines as a text view lays them out (its line
+    /// fragments are taller than `font.lineHeight`), measured once per font.
+    func height(ofLines lines: Int, width: CGFloat) -> CGFloat {
+        let font = font ?? .preferredFont(forTextStyle: .body)
+        if let m = measuredLines, m.lines == lines, m.font == font, m.inset == textContainerInset { return m.height }
+        let probe = UITextView()
+        probe.font = font
+        probe.textContainerInset = textContainerInset
+        probe.isScrollEnabled = false
+        probe.text = Array(repeating: "X", count: lines).joined(separator: "\n")
+        let height = ceil(probe.sizeThatFits(CGSize(width: max(width, 40), height: .greatestFiniteMagnitude)).height)
+        measuredLines = (lines, font, textContainerInset, height)
+        return height
+    }
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         guard markedTextRange == nil, let key = presses.first?.key, presses.count == 1,

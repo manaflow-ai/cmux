@@ -96,6 +96,21 @@ final class ConversationViewController: UIViewController {
         transcript?.controller.isVisibleToUser = visible
     }
 
+    // MARK: Hardware keyboard (plans/cmux-next/ios-keyboard.md K5)
+
+    /// Esc and Cmd-[ go back to Home, as the Back button. Esc yields to an
+    /// input method that is composing (system behavior first).
+    override var keyCommands: [UIKeyCommand]? {
+        // One overlay entry (Cmd-[); Esc is the same action without a second listing.
+        [UIKeyCommand(title: HomeText.backCommand, action: #selector(backCommand), input: "[", modifierFlags: .command),
+         UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(backCommand))]
+    }
+
+    @objc private func backCommand() {
+        guard navigationController?.topViewController === self else { return }
+        navigationController?.popViewController(animated: !CmuxiOSDesign.HomeMotion.reduceMotion)
+    }
+
     // MARK: Transcript
 
     /// Builds the transcript once the store has opened the conversation (`me` is known).
