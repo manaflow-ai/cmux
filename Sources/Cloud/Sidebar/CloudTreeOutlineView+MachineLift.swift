@@ -42,7 +42,7 @@ extension CloudTreeOutlineView.Coordinator {
         }
         let lifted = outline.machineLift.begin(
             sequence: session.draggingSequenceNumber, source: node, siblings: parent.children,
-            isPeer: isPeer, closes: isPeer,
+            isPeer: isPeer, closes: { machineLiftClosesOpenRows && isPeer($0) },
             onLeave: { [weak self, weak outline] in
                 guard let self, let outline else { return }
                 finishMachineLift()
@@ -61,9 +61,9 @@ extension CloudTreeOutlineView.Coordinator {
         installMachineLiftMouseUpMonitor(for: session, in: outline)
     }
 
-    /// Lifts a machine row for the drag that just began. Open machines close
-    /// for the drag without recording it, so the person's expansion is what
-    /// comes back afterwards.
+    /// Lifts a machine row for the drag that just began. Open machines move
+    /// with their rows unless `machineLiftClosesOpenRows`, and closing them is
+    /// never recorded, so the person's expansion is what comes back afterwards.
     func beginMachineLift(
         _ session: NSDraggingSession, node: CloudTreeNode, in outline: CloudTreeNSOutlineView, pressY: CGFloat? = nil
     ) {
@@ -72,7 +72,7 @@ extension CloudTreeOutlineView.Coordinator {
         outline.machineLift.begin(
             sequence: session.draggingSequenceNumber, source: node, siblings: scope.siblings, pressY: pressY,
             isPeer: { $0.canReorderMachine && $0.isPinned == node.isPinned },
-            closes: { if case .machine = $0.kind { return true }; return false }
+            closes: { if machineLiftClosesOpenRows, case .machine = $0.kind { return true }; return false }
         ) { machines in
             withProgrammaticUpdate {
                 for machine in machines { outline.collapseItem(machine) }
