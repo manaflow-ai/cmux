@@ -23,7 +23,7 @@ fn snapshot_list_and_create() {
                 "cloud.snapshot.create",
                 json!({ "machine": vm(1), "name": "checkpoint" }),
             )
-            .key("key-snap-1"),
+            .key("key-snap-1").origin(Origin::User),
         )
         .expect("create");
     assert_eq!(created["snapshot"]["status"], "creating");
