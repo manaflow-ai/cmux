@@ -74,7 +74,9 @@ pub(crate) fn list<C: ControlPlane>(
         server,
         machine,
         "fs.list",
-        json!({ "path": path.as_str(), "limit": MAX_LIST_ENTRIES }),
+        // The daemon hides dotfiles unless asked (decision D5c); the Cloud
+        // explorer shows them.
+        json!({ "path": path.as_str(), "limit": MAX_LIST_ENTRIES, "filter": { "hidden": true } }),
     )?;
     let entries = page["entries"].as_array().map(Vec::as_slice).unwrap_or_default();
     Ok(entries.iter().map(Entry::from_daemon).collect())

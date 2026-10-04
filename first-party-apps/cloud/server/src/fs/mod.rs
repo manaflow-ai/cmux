@@ -23,12 +23,14 @@ use crate::api::{CloudError, ControlPlane, Origin};
 use crate::ops::Server;
 use serde_json::Value;
 
-/// Largest file `cloud.fs.read` returns: the bytes cross the host relay as
-/// base64 in one JSON line.
+/// Largest file `cloud.fs.read` returns (read in 1 MiB daemon ranges, sent
+/// to the host as base64 in one JSON line).
 pub const MAX_READ_BYTES: usize = 16 * 1024 * 1024;
-/// Largest `cloud.fs.write`: the Cloud API's own limit (`MAX_WRITE_BYTES`
-/// in `web/app/api/vm/[id]/fs/[operation]/route.ts`).
-pub const MAX_WRITE_BYTES: usize = 16 * 1024 * 1024;
+/// Largest single daemon `fs.write` (decision D2: 12 MiB raw keeps its
+/// base64 line under the daemon's 16 MiB line limit). `cloud.fs.write` and
+/// a push answer `file_too_large` above it until the daemon has a write
+/// stream.
+pub const MAX_WRITE_BYTES: usize = 12 * 1024 * 1024;
 
 pub const FILE_TOO_LARGE: &str = "cmux.cloud.file_too_large";
 

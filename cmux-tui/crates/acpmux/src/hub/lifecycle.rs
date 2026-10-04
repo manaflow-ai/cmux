@@ -121,6 +121,9 @@ impl Hub {
             None => self.pool_claim(&meta, &profile, &defaults.env).await,
             Some(_) => None,
         };
+        // Every way out of here (an error, or this future dropped) before
+        // `ensure_child` took the entry puts it back or ends it.
+        let _claim = pooled.as_ref().map(|id| self.pool_claim_guard(id.clone()));
         let id = pooled.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         meta.id = id.clone();
         // Pick or check the name and insert under one lock, so concurrent
@@ -137,7 +140,6 @@ impl Hub {
             meta.name = match name {
                 Some(n) => {
                     if sessions.values().any(|s| s.meta().name == n) {
-                        self.pool_drop_claimed(&id);
                         return Err(RpcError::invalid_params(format!(
                             "session name {n:?} is taken"
                         )));
@@ -159,7 +161,6 @@ impl Hub {
         };
         if let Err(e) = self.store.save(&session.meta()) {
             self.sessions.lock().unwrap().remove(&id);
-            self.pool_drop_claimed(&id);
             return Err(RpcError::internal(e.to_string()));
         }
         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
@@ -170,8 +171,6 @@ impl Hub {
             Ok(spawn) => self.ensure_child(&session, &spawn).await,
             Err(e) => Err(e),
         };
-        // A claimed pooled session that was not taken is never left behind.
-        self.pool_drop_claimed(&id);
         if let Err(e) = spawned {
             // A session whose agent never started is not left behind, and
             // neither is a child that spawned but failed to initialize.

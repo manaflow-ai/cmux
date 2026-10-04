@@ -108,6 +108,7 @@ fn list_stat_and_read_map_the_daemon_answers() {
     let (target, _, params) = &log.calls[0];
     assert_eq!(target.host, "host-vm-alpha01");
     assert_eq!(params["path"], "/home/cmux");
+    assert_eq!(params["filter"], json!({ "hidden": true }), "the explorer shows dotfiles (D5c)");
     assert_eq!(
         log.calls[3].2,
         json!({"path": "/home/cmux/notes.txt", "offset": 0, "max_bytes": 1048576}),
@@ -215,6 +216,10 @@ fn write_refuses_a_file_mode_bad_base64_and_too_much_data() {
     assert_eq!(err.code, "cmux.cloud.unsupported", "the daemon write sets no mode");
     let err = rig.server.handle(&write(json!({"dataBase64": "%%%"}), "b")).unwrap_err();
     assert_eq!(err.code, "cmux.cloud.invalid_args");
+    // One daemon fs.write is at most 12 MiB raw (decision D2).
+    let over = "A".repeat((12 * 1024 * 1024 / 3 + 2) * 4);
+    let err = rig.server.handle(&write(json!({"dataBase64": over}), "d")).unwrap_err();
+    assert_eq!(err.code, "cmux.cloud.file_too_large", "12 MiB is the bound");
     let big = "A".repeat((MAX_READ_BYTES / 3 + 2) * 4 + 8);
     let err = rig.server.handle(&write(json!({"dataBase64": big}), "c")).unwrap_err();
     assert_eq!(err.code, "cmux.cloud.file_too_large");

@@ -138,7 +138,9 @@ final class SidebarRegionView: NSView {
                 liveItems.insert(id)
                 let view = itemViews[id] ?? makeItem(id)
                 let style: SidebarItemRowView.Style = switch row.kind {
-                case .tile: if case .grid = SectionFlow.mode(section, look: content.look) { .tile } else { .icon }
+                // An icon-only built-in item (the account, an icon-only Settings)
+                // rests on the tile fill in every arrangement (R97).
+                case .tile: if case .grid = SectionFlow.mode(section, look: content.look) { .tile } else if item.ref.builtIn != nil { .tile } else { .icon }
                 case .chip: .chip
                 default: section.look == .builtIn ? .builtIn : .list
                 }

@@ -39,3 +39,16 @@
   Notifications panel, App Store (apps-v1), Server panel (Rust server role), Appearance Studio,
   Onboarding, Page Info. Onboarding gets the step "Ctrl-1...9 select: Tabs (default) / Spaces",
   which writes the keys lead's ShortcutDigitScheme override into cmux.json like the keymap preset.
+
+## R82 commits 2-5, origin, paint (2026-10-04)
+
+- Landed: 31797c43322 (Spaces & Profiles, Machines), 03024ab0bc0 (Accounts), 5ae196754a6 (theme
+  levels, wallpaper, terminal, Advanced), 5668e1e12bc (live preview), 2c95aa34bd9 (paint probe;
+  automation-only drawing of occluded pages; user path proven: a minimized page redraws 0.9 s after
+  Show Main Window), 6c6383a7646 (page calls are origin page; page_relay connection, inactive until
+  origin-claim-v1), 14085dabee5 (opid -> v2 idempotency_key), 76c31ba3bd9 (strings per locale).
+- First open after the strings split (cmux-lawrence-2, 3 interleaved runs, median; the new build
+  also waits for `painted`): 365 -> 233 ms; main-thread gap ~100 ms remains (WKWebView creation),
+  which the R94 PageHostPool removes. Reopen ~25-34 ms; keystroke worst gap ~2.5 ms.
+- Before commit 6: keymap import/export on the keybindings page (keybindings lead), the folder_list
+  editor (picker.pinned, R89) and schema rows for editor.* / markdown.remoteImages (mine).

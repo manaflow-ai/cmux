@@ -184,3 +184,18 @@ fn the_daemon_transfer_pulls_in_ranges_and_pushes_with_create() {
     assert_eq!(params["bytes_base64"], "cGF5bG9hZA==");
     let _ = std::fs::remove_file(&landing);
 }
+
+/// A push above one daemon write (12 MiB raw, decision D2) is refused before
+/// any backend call, with a reason that names the missing write stream.
+#[test]
+fn a_push_above_twelve_mib_needs_the_write_stream() {
+    let dir = scratch_file("big").parent().unwrap().to_path_buf();
+    let big = dir.join("big.bin");
+    std::fs::write(&big, vec![0u8; 12 * 1024 * 1024 + 1]).unwrap();
+    let mut rig = rig(FIXTURES);
+    let err = rig.server.handle(&push(&big, "b-1")).unwrap_err();
+    assert_eq!(err.code, "cmux.cloud.file_too_large");
+    assert!(err.message.contains("write stream"), "{}", err.message);
+    assert!(rig.server.control_plane().no_calls());
+    let _ = std::fs::remove_file(&big);
+}
