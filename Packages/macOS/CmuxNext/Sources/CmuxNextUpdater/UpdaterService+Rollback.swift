@@ -1,5 +1,5 @@
 public import CmuxUpdater
-import Foundation
+public import Foundation
 import Security
 
 /// Rollback (decision 2026-10-04): the running bundle is kept right before
@@ -43,5 +43,13 @@ extension UpdaterService {
         guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess
         else { return nil }
         return (information as? [String: Any])?[kSecCodeInfoTeamIdentifier as String] as? String
+    }
+}
+
+extension UpdaterService {
+    /// Red-test stub.
+    @discardableResult
+    public func rollback(to build: String?, stored: [String: Int]?, relaunch: (URL) -> Void) throws -> KeptVersion {
+        throw RollbackRefusal.nothingKept
     }
 }
