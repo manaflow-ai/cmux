@@ -59,8 +59,7 @@ impl Mux {
                     let ids: Vec<&str> =
                         summary.participants.iter().map(|p| p.id.as_str()).collect();
                     if ids.contains(&LOCAL_USER) && !ids.contains(&participant.as_str()) {
-                        let op =
-                            Op::ParticipantsAdd { participant: device(install, display_name) };
+                        let op = Op::ParticipantsAdd { participant: device(install, display_name) };
                         ops.push((summary.id, key.clone(), LOCAL_USER.to_string(), op));
                     }
                 }
