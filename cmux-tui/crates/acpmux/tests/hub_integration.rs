@@ -480,6 +480,72 @@ async fn an_npx_package_launch_is_resolved_once_and_never_spawned_through_npx() 
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A harness whose startup model probe fails (Gemini: the adapter dies
+/// before it answers) is reported with the probe's error in
+/// `_acpmux/models` and `_acpmux/harnesses`, so the pane can show it
+/// unavailable with the reason instead of failing the pick seconds later.
+#[tokio::test]
+async fn a_failed_model_probe_is_reported_with_its_reason() {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let profile = |argv: Vec<String>| HarnessProfile {
+        kind: Default::default(),
+        argv,
+        env: BTreeMap::new(),
+        description: None,
+        fallback: None,
+        family: None,
+        models: vec![],
+        model: None,
+        effort: None,
+        policy: None,
+    };
+    let mut agents = BTreeMap::new();
+    agents.insert("fake".to_owned(), profile(vec!["python3".into(), fake.into()]));
+    agents.insert(
+        "broken".to_owned(),
+        profile(vec!["python3".into(), "-c".into(), "import sys; sys.exit(3)".into()]),
+    );
+    let mut cfg =
+        Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    hub.begin_startup(false);
+    hub.finish_startup().await;
+    let entry = |catalog: &Value, name: &str| {
+        catalog["harnesses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|h| h["harness"] == name)
+            .cloned()
+            .unwrap()
+    };
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let catalog = hub.models_catalog().await;
+        if entry(&catalog, "broken").get("probeError").is_some_and(|e| !e.is_null())
+            && catalog.to_string().contains("\"m2\"")
+        {
+            assert!(
+                entry(&catalog, "fake").get("probeError").is_none(),
+                "a good probe reports no error: {catalog}"
+            );
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "no probe error reported: {catalog}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
+    let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+    let listed = c.request(method::MUX_HARNESSES, json!({})).await.unwrap();
+    let reason = listed["harnesses"]["broken"]["probeError"].as_str().unwrap_or_default();
+    assert!(!reason.is_empty(), "{listed}");
+    assert!(listed["harnesses"]["fake"].get("probeError").is_none(), "{listed}");
+}
+
 #[tokio::test]
 async fn attach_replays_and_watch_broadcasts() {
     let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
