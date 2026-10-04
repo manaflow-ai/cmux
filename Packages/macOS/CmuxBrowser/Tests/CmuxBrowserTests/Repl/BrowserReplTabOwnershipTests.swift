@@ -130,8 +130,77 @@ import Testing
     }
 
     @Test func eventNamesParseStrictly() {
-        #expect(BrowserReplTabOwnership.events(named: ["dialog", "filechooser", "download"]) == Set(BrowserReplTabEvent.allCases))
+        #expect(BrowserReplTabOwnership.events(named: ["dialog", "filechooser", "download", "network"]) == Set(BrowserReplTabEvent.allCases))
         #expect(BrowserReplTabOwnership.events(named: []) == [])
         #expect(BrowserReplTabOwnership.events(named: ["dialog", "popup"]) == nil)
+    }
+
+    // A tab a live session created is that session's alone: another session
+    // may not drive it (read its page, cookies, storage or clipboard, or
+    // send it input). A user's tab, or one whose creator ended, any session
+    // may drive.
+    @Test func onlyItsLiveCreatorDrivesASessionsTab() {
+        var ownership = BrowserReplTabOwnership()
+        #expect(ownership.ownerRefusing("anyone") == nil, "a user's tab")
+        ownership.markCreated(by: "creator")
+        #expect(ownership.ownerRefusing("intruder") == "creator")
+        #expect(ownership.ownerRefusing("creator") == nil)
+        ownership.detach(sessionID: "creator")
+        #expect(ownership.ownerRefusing("intruder") == nil, "a kept tab is the user's once its creator ended")
+    }
+
+    // The tab's clipboard holds what its creator copied; it is cleared when
+    // the creator leaves, so a later session never reads it.
+    @Test func detachSaysWhenTheCreatorLeft() {
+        var ownership = BrowserReplTabOwnership()
+        ownership.markCreated(by: "creator")
+        ownership.attach(sessionID: "other")
+        #expect(!ownership.detach(sessionID: "other"))
+        #expect(ownership.detach(sessionID: "creator"))
+        #expect(!ownership.detach(sessionID: "creator"), "only once")
+    }
+
+    // Network events carry request and response headers. They go to the
+    // tab's live creator, to a session with a network listener on the tab,
+    // and to the session whose input started the request; only the creator
+    // sees credential headers.
+    @Test func networkEventsGoOnlyToTheSessionsTheyBelongTo() {
+        var ownership = BrowserReplTabOwnership()
+        ownership.attach(sessionID: "bystander")
+        ownership.attach(sessionID: "listener")
+        ownership.attach(sessionID: "agent")
+        ownership.setHandledEvents([.network], for: "listener")
+        ownership.beginInput(sessionID: "agent")
+        let started = ownership.networkRecipients(event: "request", requestID: "1")
+        ownership.endInput(sessionID: "agent")
+        #expect(started == [
+            BrowserReplNetworkRecipient(sessionID: "agent", seesCredentials: false),
+            BrowserReplNetworkRecipient(sessionID: "listener", seesCredentials: false),
+        ])
+        // The rest of that request follows it, after the input ended.
+        #expect(ownership.networkRecipients(event: "response", requestID: "1").map(\.sessionID) == ["agent", "listener"])
+        #expect(ownership.networkRecipients(event: "requestfinished", requestID: "1").map(\.sessionID) == ["agent", "listener"])
+        // A later request the agent's input did not start reaches only the listener.
+        #expect(ownership.networkRecipients(event: "request", requestID: "2").map(\.sessionID) == ["listener"])
+        ownership.setHandledEvents([], for: "listener")
+        #expect(ownership.networkRecipients(event: "request", requestID: "3").isEmpty)
+
+        var created = BrowserReplTabOwnership()
+        created.markCreated(by: "creator")
+        #expect(created.networkRecipients(event: "request", requestID: "1") == [
+            BrowserReplNetworkRecipient(sessionID: "creator", seesCredentials: true),
+        ])
+    }
+
+    @Test func credentialHeadersAreRemovedForOtherSessions() {
+        let headers = [
+            "cookie": "sid=1",
+            "authorization": "Bearer t",
+            "proxy-authorization": "Basic x",
+            "set-cookie": "sid=2",
+            "x-api-key": "k",
+            "accept": "text/html",
+        ]
+        #expect(headers.removingBrowserReplCredentialHeaders() == ["accept": "text/html"])
     }
 }
