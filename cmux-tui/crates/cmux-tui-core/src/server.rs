@@ -96,6 +96,7 @@ pub use loopback_forward::{
 };
 mod bookmarks;
 mod browser_profiles;
+mod cloud_conversations;
 mod conversation_tabs_wire;
 mod conversations;
 mod frontend_browser_history;
@@ -15339,7 +15340,11 @@ fn handle_command_with_cancellation(
                         {
                             continue;
                         }
-                        MuxEvent::Conversation(_) if !trusted_pairing_client => continue,
+                        MuxEvent::Conversation(_) | MuxEvent::CloudConversation(_)
+                            if !trusted_pairing_client =>
+                        {
+                            continue;
+                        }
                         MuxEvent::PairingRequested(challenge) => json!({
                             "event": "pairing-requested",
                             "request": challenge.id,
@@ -16053,6 +16058,7 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "personal_revision": personal_revision,
         }),
         MuxEvent::Conversation(event) => event.wire_json(),
+        MuxEvent::CloudConversation(event) => event.wire_json(),
         MuxEvent::BookmarksChanged(change) => json!({
             "event": "bookmarks-changed",
             "browser_profile_id": change.browser_profile_id,

@@ -2,6 +2,7 @@
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
 mod agent_hook_errors;
+mod cloud_conversations;
 mod conversations;
 mod exit_settle;
 mod host_close;
@@ -1012,6 +1013,8 @@ pub enum MuxEvent {
     },
     BookmarksChanged(personal::BookmarksChange),
     Conversation(Arc<crate::conversation_store::ConversationEvent>),
+    /// An event of the cloud conversations proxy (`cloud-conversations-v1`).
+    CloudConversation(Arc<crate::cloud_conversations::CloudEvent>),
     /// A durable terminal-registry mutation committed. Consumers use this as
     /// a barrier, then fetch `terminal-events` or a fresh snapshot.
     TerminalRegistryChanged {
@@ -2547,6 +2550,9 @@ pub struct Mux {
     /// attached clients stay where they are.
     last_reported_focus: Mutex<Option<(PaneId, Option<usize>)>>,
     conversations: crate::conversation_store::ConversationHost,
+    /// The cloud conversations proxy (`cloud-conversations-v1`), installed by
+    /// a binary that has a cloud transport; absent otherwise.
+    cloud_conversations: OnceLock<crate::cloud_conversations::CloudConversations>,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -3010,6 +3016,7 @@ impl Mux {
             client_focus_memory: Mutex::new(Vec::new()),
             last_reported_focus: Mutex::new(None),
             conversations: Default::default(),
+            cloud_conversations: OnceLock::new(),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),
             #[cfg(test)]
