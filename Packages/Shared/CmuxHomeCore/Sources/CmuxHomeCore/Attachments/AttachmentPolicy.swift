@@ -1,4 +1,6 @@
 public import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 /// The owner's attachment rules (home-messaging.md 10.1), checked on the
 /// client before any upload so a refused file never leaves the device.
@@ -106,6 +108,83 @@ public enum HomeAttachmentPolicy {
         if let height = ref.height, !dimensionRange.contains(height) { ref.height = nil }
         if let duration = ref.durationMs, !durationRange.contains(duration) { ref.durationMs = nil }
         return ref
+    }
+
+    // MARK: Accepted input
+
+    /// What `prepare` does with input of one type.
+    enum InputDecision: Hashable, Sendable {
+        /// Sent as is, with this owner mime type.
+        case send(mimeType: String)
+        /// An image the owner refuses but ImageIO reads: converted to PNG or JPEG.
+        case convert
+        case refuse
+    }
+
+    /// The decision for in-memory input of `type`
+    /// (`prepareAttachment(data:typeIdentifier:)`): the type's own mime
+    /// type when the owner allows it (an M4A type may prefer the .mp4
+    /// extension), else its extension's; an image type ImageIO reads (by
+    /// conformance) is converted; a denied extension is refused.
+    static func decision(for type: UTType) -> InputDecision {
+        let fileExtension = type.preferredFilenameExtension ?? ""
+        if !fileExtension.isEmpty, isDeniedName("attachment.\(fileExtension)") { return .refuse }
+        let typeMime = canonicalMimeType(type.preferredMIMEType ?? "application/octet-stream")
+        let mime = allowedTypes[typeMime] != nil || fileExtension.isEmpty
+            ? typeMime
+            : AttachmentMedia.mimeType(forExtension: fileExtension)
+        if allowedTypes[mime] != nil { return .send(mimeType: mime) }
+        if type.conforms(to: .image), convertibleImageTypes.contains(where: { type.conforms(to: $0) }) { return .convert }
+        return .refuse
+    }
+
+    /// The decision for a file (`prepareAttachment(fileURL:)`): the
+    /// extension's owner mime type, else the decision for its UTType.
+    static func decision(forFileExtension fileExtension: String) -> InputDecision {
+        let ext = fileExtension.lowercased()
+        if isDeniedName("attachment.\(ext)") { return .refuse }
+        if let known = extensionTypes[ext] { return .send(mimeType: known) }
+        guard !ext.isEmpty, let type = UTType(filenameExtension: ext) else { return .refuse }
+        return decision(for: type)
+    }
+
+    /// Image types ImageIO reads that the owner refuses (TIFF, HEIF, BMP,
+    /// camera RAW): prepare converts them.
+    static let convertibleImageTypes: [UTType] = {
+        let readable = (CGImageSourceCopyTypeIdentifiers() as? [String]) ?? []
+        return readable.compactMap(UTType.init).filter { type in
+            guard type.conforms(to: .image) else { return false }
+            let mime = canonicalMimeType(type.preferredMIMEType ?? "")
+            let ext = type.preferredFilenameExtension ?? ""
+            return allowedTypes[mime] == nil && (ext.isEmpty || !isDeniedName("attachment.\(ext)"))
+        }
+    }()
+
+    /// UTType identifiers `prepareAttachment` takes after conversion: the
+    /// allow list's types and the image types it converts. A composer
+    /// checks drops and pastes with `accepts(typeIdentifier:)`, which also
+    /// takes types that conform to a converted image type.
+    public static let acceptedInputTypes: Set<String> = {
+        var identifiers = Set(convertibleImageTypes.map(\.identifier))
+        for ext in extensionTypes.keys {
+            guard let type = UTType(filenameExtension: ext), decision(for: type) != .refuse else { continue }
+            identifiers.insert(type.identifier)
+        }
+        return identifiers
+    }()
+
+    /// True exactly when `prepareAttachment(data:typeIdentifier:)` takes
+    /// input of this type (it may still refuse bytes that are not what the
+    /// type says, or a file over the size limit).
+    public static func accepts(typeIdentifier: String) -> Bool {
+        guard let type = UTType(typeIdentifier) else { return false }
+        return decision(for: type) != .refuse
+    }
+
+    /// True exactly when `prepareAttachment(fileURL:)` takes a file with
+    /// this URL's extension (same caveats).
+    public static func accepts(fileURL: URL) -> Bool {
+        decision(forFileExtension: fileURL.pathExtension) != .refuse
     }
 
     /// The owner's spelling of a mime type (lowercased, aliases folded).
