@@ -556,6 +556,59 @@ struct BrowserReplPasteboardRedirectTests {
             #expect(copiedTheSelection)
         }
 
+        /// Editors (Google Docs, Notion, Monaco, CodeMirror) handle Copy and
+        /// Cut themselves: their handler sets the event's data and cancels
+        /// it. WebKit then writes the pasteboard from that data, which can be
+        /// more than one change of the pasteboard. The command must still
+        /// complete with the handler's data on the tab's pasteboard, and
+        /// nothing may reach the system pasteboard.
+        @Test(arguments: ["Copy", "Cut"])
+        func aCopyOrCutWhoseHandlerSetsDataAndCancelsCompletesWithTheHandlersData(command: String) async throws {
+            #expect(BrowserReplPasteboardRedirect.shared.install())
+            let standIn = NSPasteboard.withUniqueName()
+            defer { standIn.releaseGlobally() }
+            standIn.clearContents()
+            standIn.setString("the person's clipboard", forType: .string)
+            let standInBefore = standIn.changeCount
+            let systemBefore = NSPasteboard.general.changeCount
+            var outcome: BrowserReplPasteboardRedirect.Outcome?
+            var plain: String?
+            var html: String?
+            var custom: String?
+            try await Self.withStandInSystemPasteboard(standIn) {
+                let webView = await load(
+                    """
+                    <div id=ed contenteditable>editor text</div><script>
+                    for (const type of ['copy', 'cut']) addEventListener(type, e => {
+                      e.clipboardData.setData('text/plain', 'from the ' + type + ' handler');
+                      e.clipboardData.setData('text/html', '<b>from the ' + type + ' handler</b>');
+                      e.clipboardData.setData('application/x-editor', 'editor model');
+                      e.preventDefault();
+                    });
+                    </script>
+                    """
+                )
+                _ = try await webView.evaluateJavaScript(
+                    "const ed = document.getElementById('ed'); ed.focus(); const r = document.createRange(); r.selectNodeContents(ed); getSelection().removeAllRanges(); getSelection().addRange(r); true"
+                )
+                let tab = NSPasteboard.withUniqueName()
+                defer { tab.releaseGlobally() }
+                tab.clearContents()
+                outcome = await BrowserReplPasteboardRedirect.shared.perform(command, in: webView, pasteboard: tab, timeout: .seconds(10))
+                plain = tab.string(forType: .string)
+                html = tab.string(forType: .html)
+                // WebKit keeps a page's custom types in its own blob type.
+                custom = tab.data(forType: NSPasteboard.PasteboardType("com.apple.WebKit.custom-pasteboard-data"))
+                    .map { String(decoding: $0, as: UTF8.self) }
+            }
+            #expect(outcome == .completed, "WebKit's \(command) with a handler that sets data and cancels did not complete")
+            #expect(plain == "from the \(command.lowercased()) handler")
+            #expect(html?.contains("from the \(command.lowercased()) handler") == true)
+            #expect(custom?.contains("editor model") == true, "the handler's custom type did not reach the tab's clipboard")
+            #expect(standIn.changeCount == standInBefore, "WebKit's \(command) wrote the system pasteboard")
+            #expect(NSPasteboard.general.changeCount == systemBefore)
+        }
+
         /// A page whose copy or cut handler runs past the timeout and only
         /// then sets its data (a hostile page planting a shell command for
         /// the person's next paste in the terminal). Nothing it writes may
