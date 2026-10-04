@@ -21,6 +21,7 @@ struct FilePageProviderTests {
         var writers: [SettingWriter] = []
         var confirmGestures: [Bool] = []
         var edits: [(text: String, baseHash: String?)] = []
+        var acceptance: RecoveryDraftAcceptance = .kept
         var savedHashes: [String] = []
         var lookValue: JSONValue = ["settings": ["toolbar": true], "themeCSS": ""]
         var lookListeners: [UUID: (JSONValue) -> Void] = [:]
@@ -50,7 +51,7 @@ struct FilePageProviderTests {
         func isRecent(_ path: String) -> Bool { recentPaths.contains(path) }
         func edited(_ url: URL, text: String, baseHash: String?, writable: Bool) -> RecoveryDraftAcceptance {
             edits.append((text, baseHash))
-            return .kept
+            return acceptance
         }
         func saved(_ url: URL, hash: String) { savedHashes.append(hash) }
         func confirmOpen(_ url: URL, userGesture: Bool) async -> Bool {

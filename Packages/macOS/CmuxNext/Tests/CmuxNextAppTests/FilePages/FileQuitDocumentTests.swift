@@ -167,8 +167,8 @@ struct FileQuitDocumentTests {
         let registry = QuitUnsavedRegistry(clock: ManualClock(), drafts: drafts)
         let documents = FileQuitDocuments(drafts: drafts, registry: registry)
         let url = try Self.file()
-        let first = documents.document(for: url, holder: "cmux.markdown:a", writable: { true })
-        let second = documents.document(for: url, holder: "cmux.editor:b", writable: { true })
+        let first = try #require(documents.document(for: url, holder: "cmux.markdown:a", writable: { true }))
+        let second = try #require(documents.document(for: url, holder: "cmux.editor:b", writable: { true }))
         #expect(first === second)
         first.edited(text: "v2\n", baseHash: nil)
         #expect(registry.unsaved().map(\.quitParticipantID) == ["file:local:" + url.path])
@@ -185,6 +185,58 @@ struct FileQuitDocumentTests {
         #expect(host.edits.map(\.text) == ["let x = 2\n"])
     }
 
+    // MARK: R96 v2
+
+    /// The id is `QuitParticipantID.file(path:)` (host "local"). A malformed id is refused by the
+    /// registry (an inactive registration): no document, no draft, and the page hears `invalidID`,
+    /// not the too-large toast.
+    @Test func aMalformedIDIsRefusedAndReportedAsInvalid() async throws {
+        let (drafts, _) = try Self.store()
+        let registry = QuitUnsavedRegistry(clock: ManualClock(), drafts: drafts)
+        let url = try Self.file()
+        #expect(FileQuitDocument(url: url, drafts: drafts, writable: { true }).quitParticipantID
+            == QuitParticipantID.file(path: url.path))
+        let refused = FileQuitDocuments(drafts: drafts, registry: registry, participantID: { _ in "notes.md" })
+        #expect(refused.document(for: url, holder: "cmux.editor:a", writable: { true }) == nil)
+        #expect(registry.unsaved().isEmpty)
+        let bad = FileQuitDocument(url: url, id: "notes.md", drafts: drafts, writable: { true })
+        #expect(bad.edited(text: "v2\n", baseHash: nil) == .invalidID)
+        await drafts.writePending()
+        #expect(await drafts.drafts().isEmpty)
+
+        let (provider, host, folder, _) = try FilePageProviderTests.world(.editor, file: "main.swift", text: "let x = 1\n")
+        host.acceptance = .invalidID
+        let reply = try await FilePageProviderTests.call(provider, "cmux.editor.edited",
+                                                         ["path": .string(folder.appending(path: "main.swift").path), "text": "let x = 2\n"])
+        #expect(reply["recovery"]?.stringValue == "invalidID")
+    }
+
+    /// The draft carries the hash its edits were based on, not the file at the delayed write.
+    @Test func aDraftCarriesTheBaseHash() async throws {
+        let (drafts, _) = try Self.store()
+        let url = try Self.file()
+        let base = FileDocument.hash(Data("v1\n".utf8))
+        let document = FileQuitDocument(url: url, drafts: drafts, writable: { true })
+        document.edited(text: "v2\n", baseHash: base)
+        await drafts.writePending()
+        let draft = try #require(await drafts.drafts().first)
+        #expect(draft.base?.contentHash == base)
+        #expect(!(await drafts.fileChangedSince(draft)))
+    }
+
+    /// A change made on disk during the draft's debounce is a conflict at restore: the base is the
+    /// edit's, so the delayed write cannot hide the change.
+    @Test func anOutsideChangeDuringTheDebounceIsAConflictAtRestore() async throws {
+        let (drafts, _) = try Self.store()
+        let url = try Self.file()
+        let document = FileQuitDocument(url: url, drafts: drafts, writable: { true })
+        document.edited(text: "mine\n", baseHash: FileDocument.hash(Data("v1\n".utf8)))
+        try Data("outside\n".utf8).write(to: url)
+        await drafts.writePending()
+        let draft = try #require(await drafts.drafts().first)
+        #expect(await drafts.fileChangedSince(draft))
+    }
+
     /// A recovered draft opens in the code editor page as an unsaved edit.
     @Test func aRecoveredDraftOpensAsAnUnsavedEdit() async throws {
         let (provider, _, _, _) = try FilePageProviderTests.world(.editor, file: "main.swift", text: "let x = 1\n")
@@ -194,7 +246,7 @@ struct FileQuitDocumentTests {
         #expect(config["text"]?.stringValue == "let x = 1\n")
         // The page takes it once.
         #expect(try await FilePageProviderTests.call(provider, "cmux.editor.config")["recoveredText"] == nil)
-        #expect(FilePageRecovery.document(of: RecoveryDraft(id: "file:local:/tmp/a.md", title: "a.md", savedAt: Date(),
+        #expect(FilePageRecovery.document(of: RecoveryDraft(id: QuitParticipantID.file(path: "/tmp/a.md"), title: "a.md", savedAt: Date(),
                                                             contents: Data(), filePath: "/tmp/a.md")) == URL(fileURLWithPath: "/tmp/a.md"))
         #expect(FilePageRecovery.document(of: RecoveryDraft(id: "file:cloud-1:/tmp/a.md", host: "cloud-1", title: "a.md",
                                                             savedAt: Date(), contents: Data(), filePath: "/tmp/a.md")) == nil)
