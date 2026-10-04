@@ -79,7 +79,7 @@ public nonisolated enum AcpmuxPathPolicy {
                               gestureRoots: scope.gestureRoots.compactMap(canonical).filter { $0 != "/" })
         var params = object["params"]
         // Product rule 1: session/new (adopt too) without a cwd gets the pane's workspace root.
-        if false, method == "session/new" { // RED STUB: no cwd fill
+        if method == "session/new" {
             var fields = params as? [String: Any] ?? [:]
             if fields["cwd"] == nil {
                 guard let fill = scope.fillCwd else { return .failure(Refusal(error: .pathInvalid, requestID: id, method: method)) }
@@ -138,7 +138,7 @@ public nonisolated enum AcpmuxPathPolicy {
         }
         if context.roots.contains(where: { contains(root: $0, path: resolved) }) { return resolved }
         if let root = context.gestureRoots.first(where: { contains(root: $0, path: resolved) }) {
-            _ = root // RED STUB: a scanned folder counts as a root
+            context.used.insert(root)
             return resolved
         }
         throw Refusal(error: .pathOutsideRoots, requestID: nil, method: nil, outsidePath: resolved)

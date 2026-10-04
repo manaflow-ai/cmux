@@ -287,7 +287,7 @@ public extension AgentPaneTransportPacer {
     /// The refusal of a session-scoped frame for a session that is not this pane's.
     private func sessionRefusal(_ text: String) -> AcpmuxPaneMethods.Decision? {
         guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
-              let method = object["method"] as? String, AcpmuxPaneMethods.sessionScoped.contains(method), false else { return nil } // RED STUB
+              let method = object["method"] as? String, AcpmuxPaneMethods.sessionScoped.contains(method) else { return nil }
         let session = (object["params"] as? [String: Any])?["sessionId"] as? String
         guard let session, sessions.contains(session) else {
             return .refuse(.sessionNotInPane, method: method, requestID: object["id"].flatMap(AcpmuxPaneMethods.rawID))
@@ -306,7 +306,6 @@ public extension AgentPaneTransportPacer {
     /// Offers the user to add `folder` as a root: only after a real gesture (which the offer uses),
     /// one sheet at a time. True when the sheet is shown.
     private func offerRoot(_ folder: String) -> Bool {
-        if true { return false } // RED STUB: no sheet
         guard !askingRoot, let requestRoot, gestures.consume() else { return false }
         askingRoot = true
         requestRoot(folder) { [weak self] add in
