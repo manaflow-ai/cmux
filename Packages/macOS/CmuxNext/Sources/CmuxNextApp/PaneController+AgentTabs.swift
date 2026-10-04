@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextTabs
