@@ -23,6 +23,12 @@ import uuid
 
 MAX_DISPLAYS = 16
 STARTER = "/usr/local/bin/start-vnc.sh"
+# Additional displays serve noVNC on the same interfaces as the primary
+# desktop (`[::]:6901`). The client reaches every display through the VM's
+# private address; a loopback-only listener refused that route, so each new
+# display's first connection failed before falling back. Xvnc itself stays
+# `-localhost`, and the private network remains the gate, as for display 1.
+NOVNC_BIND = "[::]"
 
 
 def descriptor(number, state="running"):
@@ -239,8 +245,11 @@ class DisplayService:
     def service_ready(self, number):
         if not ready(number) or not self.components_alive(number):
             return False
+        # Only a websockify this service started is known to use NOVNC_BIND.
+        # An untracked one (from an older helper) is replaced, which rebinds it
+        # without touching the X session.
         websockify = self.websockify_processes.get(number)
-        return websockify is None or self.process_alive(websockify)
+        return websockify is not None and self.process_alive(websockify)
 
     def track_process(self, number, name, process):
         named = self.named_processes.setdefault(number, {})
@@ -339,15 +348,53 @@ class DisplayService:
                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self.track_process(number, executable, process)
 
+    def set_wallpaper(self, environment):
+        wallpaper = Path("/usr/share/backgrounds/cmux/wallpaper.jpg")
+        if wallpaper.exists() and shutil.which("feh"):
+            try:
+                subprocess.run(["feh", "--no-fehbg", "--bg-fill", str(wallpaper)],
+                               env=environment, stdin=subprocess.DEVNULL,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               check=False, timeout=10)
+                return
+            except (OSError, subprocess.SubprocessError):
+                pass
+        xsetroot = shutil.which("xsetroot")
+        if xsetroot:
+            subprocess.run([xsetroot, "-solid", "#1f2430"], env=environment,
+                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, check=False)
+
+    @staticmethod
+    def terminate_untracked_websockify(number):
+        """Stops websockify listeners for this display left by an older helper
+        (a restarted service keeps the X session but not its proxy handle), so
+        the replacement is the only listener on the port."""
+        pattern = (rf"websockify.*\s(?:127\.0\.0\.1|\[::\]|0\.0\.0\.0):{6900 + number}"
+                   rf"\s+127\.0\.0\.1:{5900 + number}(?:\s|$)")
+        try:
+            output = subprocess.check_output(["pgrep", "-u", str(os.getuid()), "-f", pattern], text=True)
+        except (OSError, subprocess.CalledProcessError):
+            return
+        for line in output.split():
+            try:
+                os.kill(int(line), 15)
+            except (OSError, ValueError):
+                pass
+        deadline = time.monotonic() + 2
+        while listening(6900 + number) and time.monotonic() < deadline:
+            time.sleep(0.05)
+
     def start_websockify(self, number, environment, executable):
         path = executable if "/" in executable else shutil.which(executable)
         if not path:
             raise NoVNCUnavailable("missing display component: websockify")
         self.terminate_websockify(number)
+        self.terminate_untracked_websockify(number)
         rfb_port, novnc_port = 5900 + number, 6900 + number
         process = subprocess.Popen(
             [path, "--web", "/usr/share/novnc", "--heartbeat", "30",
-             f"127.0.0.1:{novnc_port}", f"127.0.0.1:{rfb_port}"],
+             f"{NOVNC_BIND}:{novnc_port}", f"127.0.0.1:{rfb_port}"],
             env=environment, stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.websockify_processes[number] = process
@@ -382,6 +429,7 @@ class DisplayService:
                 raise RuntimeError("Xvnc did not become ready")
             self.start_dbus(number, environment, runtime)
             self.start_session_components(number, environment, runtime)
+            self.set_wallpaper(environment)
         elif number in self.named_processes:
             named = self.named_processes[number]
             dbus = named.get("dbus")
@@ -390,6 +438,7 @@ class DisplayService:
                     self.remove_process(number, name)
                 self.start_dbus(number, environment, runtime)
             self.start_session_components(number, environment, runtime)
+            self.set_wallpaper(environment)
         websockify_process = self.websockify_processes.get(number)
         if (websockify_process is None or not self.process_alive(websockify_process)
                 or not novnc_ready(number)):

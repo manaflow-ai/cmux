@@ -210,16 +210,6 @@ extension CmuxTuiSurfaceProvider {
                     let desktopStartedAt = Date()
                     cmuxDebugLog("cloud.desktop.proxy.begin machine=\(self.machineID) port=\(port)")
 #endif
-                    // The fixed desktop port is reachable from the image's
-                    // private network by default. Additional displays use
-                    // dynamically opened ports, so authorize each display
-                    // port before asking for the browser proxy. Without this
-                    // call the catalog can show display:2 while noVNC gets a
-                    // route to an unreachable private port.
-                    if Self.isDisplayPort(port) {
-                        guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
-                        _ = try await client.openPort(id: self.machineID, port: port, teamID: self.ownerTeamID)
-                    }
                     let endpoint = try await self.links.browserProxy(machineID: self.machineID)
 #if DEBUG
                     cmuxDebugLog("cloud.desktop.proxy.endpoint machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
@@ -245,10 +235,6 @@ extension CmuxTuiSurfaceProvider {
                 }
             )
         }
-    }
-
-    private static func isDisplayPort(_ port: Int) -> Bool {
-        (CmuxTuiSnapshotParser.desktopPort...6916).contains(port)
     }
 
     func reprojectRestoredBrowserPanes(generation: UInt64) {
