@@ -89,6 +89,12 @@ export class GuardedCloudDriver {
     return { id: found.id }
   }
 
+  /** The VM under one of our recorded names, with its metadata, for the late-VM lookup and the report. Never creates or deletes. */
+  async peek(name: string): Promise<{ id: string; tag: Record<string, unknown> } | null> {
+    this.guard(name)
+    return this.raw.find(name)
+  }
+
   /**
    * Report only (the orphan report): this team's tagged VMs under this environment's cld prefix and
    * exact name shape. There is deliberately no delete that takes a listed VM.
@@ -215,7 +221,7 @@ export class FreestyleCloudDriver implements RawCloudDriver {
 export class FakeCloudDriver implements RawCloudDriver {
   constructor(private readonly sql: SqlStore) {
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_vm (name TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, tag TEXT NOT NULL, idle INTEGER)`)
-    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, deletes INTEGER NOT NULL DEFAULT 0)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, deletes INTEGER NOT NULL DEFAULT 0, fail_list INTEGER NOT NULL DEFAULT 0)`)
     sql.exec(`INSERT OR IGNORE INTO cloud_fake_ctl (id) VALUES (1)`)
   }
 
@@ -243,6 +249,7 @@ export class FakeCloudDriver implements RawCloudDriver {
 
   /** Report-only path: never fails on purpose, so a background sweep cannot eat a test's fail_next. */
   async list(filter: string, offset: number) {
+    if (this.sql.exec<{ fail_list: number }>(`SELECT fail_list FROM cloud_fake_ctl WHERE id = 1`)[0]!.fail_list) throw new DriverError("cloud.provider.unavailable", "fake provider: list failed", false)
     const [key, value] = [filter.slice(0, filter.indexOf(":")), filter.slice(filter.indexOf(":") + 1)]
     const all = this.sql.exec<{ name: string; id: string; tag: string }>(`SELECT name, id, tag FROM cloud_fake_vm ORDER BY name`)
     const vms = all.map((r) => ({ id: r.id, name: r.name, tag: JSON.parse(r.tag) as Record<string, unknown> })).filter((v) => v.tag[key] === value)

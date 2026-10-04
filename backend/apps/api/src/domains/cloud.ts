@@ -1,5 +1,5 @@
 import type { Domain, Principal, ReduceContext, ReduceResult, RowReader, RowWrite } from "@cmux/ownership"
-import { CloudDriverResultParams, CloudMachineCreate, CloudMachineDelete, CloudMachineIdlePolicySet, CloudMachineRename, CloudPruneParams } from "@cmux/protocol"
+import { CloudDriverResultParams, CloudMachineCreate, CloudMachineDelete, CloudMachineIdlePolicySet, CloudMachineRename, CloudPruneParams, CloudWatchResultParams } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 import { admit, decodeParams, reject, requirePersonalTeamAdmin } from "./common.ts"
 import { grantClasses } from "../home-admit.ts"
@@ -29,6 +29,9 @@ export const retryDelayMs = (attempts: number) => Math.min(5 * 60_000, 1000 * 2 
  * (about 7.5 minutes, past the create call's own 2-minute timeout). The hourly orphan report covers
  * a VM that lands later still.
  */
+/** N1: after a cancelled create gives up, its recorded name is looked up hourly for 24 h, then the row is abandoned. */
+export const WATCH_EVERY_MS = 3600_000
+export const WATCH_WINDOW_MS = 24 * 3600_000
 export const cancelFindDelayMs = (attempts: number) => Math.min(5 * 60_000, 30_000 * 2 ** Math.max(0, attempts - 1))
 
 export interface CloudState {
@@ -38,6 +41,8 @@ export interface CloudState {
   readonly saved: number
   /** Ledger rows still waiting for their provider call: key -> machine and when the alarm runs it. */
   readonly pending: Readonly<Record<string, { readonly machine: string; readonly due_at: number }>>
+  /** N1: cancelled creates whose recorded name is still looked up hourly: ledger key -> machine, next lookup, end of the window. */
+  readonly watch?: Readonly<Record<string, { readonly machine: string; readonly due_at: number; readonly until: number }>>
   /** The machine the last committed op changed (for the cloud.machine.* wire event), or null. */
   readonly changed: { readonly machine: string; readonly removed: boolean } | null
 }
@@ -54,7 +59,11 @@ export interface LedgerRow {
   readonly op: "create" | "delete"
   readonly machine: string
   readonly provider_name: string
-  readonly state: "pending" | "done" | "failed" | "cancelled"
+  readonly state: "pending" | "done" | "failed" | "cancelled" | "abandoned"
+  /** abandoned only: why (the 24 h lookup window ended, or a VM under the name has other metadata). Never pruned; the orphan report keeps flagging the name. */
+  readonly abandon_reason?: "abandoned_create" | "metadata_mismatch"
+  /** cancelled only: when a late VM under the recorded name was deleted. */
+  readonly late_deleted_at?: number
   /**
    * create only: a delete cancelled it while its outcome was uncertain (P1-2). It stays pending and
    * only finds by name (never creates): found = done (the delete then removes it by this recorded
@@ -111,7 +120,7 @@ const upsertMachine = (row: MachineRow, n: number | null): RowWrite => ({ table:
 const upsertLedger = (row: LedgerRow, n: number | null): RowWrite => ({ table: TABLE_LEDGER, op: "upsert", key: row.key, n, row })
 
 export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
-  initial: () => ({ team: null, rev: 0, active: 0, saved: 0, pending: {}, changed: null }),
+  initial: () => ({ team: null, rev: 0, active: 0, saved: 0, pending: {}, watch: {}, changed: null }),
 
   authorize: (state, op, _params, principal) => {
     if (principal.kind === "system") return admit("cloud:CloudDO", op, principal, () => undefined, Date.now())
@@ -137,6 +146,8 @@ export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
         return remove(config, state, params, ctx)
       case "cloud.driver_result":
         return driverResult(state, params, ctx)
+      case "cloud.watch_result":
+        return watchResult(state, params, ctx)
       case "cloud.prune":
         return prune(state, params, ctx)
       default:
@@ -262,8 +273,12 @@ const driverResult = (state: CloudState, params: unknown, ctx: ReduceContext): R
       const s = next(state, { pending: { ...state.pending, [r.key]: { machine: l.machine, due_at: ctx.now + delay } } })
       return { ok: true, state: s, value: { applied: true, final: false }, writes: [upsertLedger({ ...l, attempts, error, updated_at: ctx.now }, stored.n)] }
     }
-    // A cancelled create that never appeared: settled; the machine stays deleting for its delete.
-    if (l.cancel) return { ok: true, state: next(state, { pending }), value: { applied: true, final: true }, writes: [upsertLedger({ ...l, state: "cancelled", attempts, error, updated_at: ctx.now }, stored.n)] }
+    // A cancelled create that never appeared: settled, so the delete may finish; its recorded name
+    // stays under an hourly lookup for 24 h (N1), since the create call might still land.
+    if (l.cancel) {
+      const watch = { ...(state.watch ?? {}), [r.key]: { machine: l.machine, due_at: ctx.now + WATCH_EVERY_MS, until: ctx.now + WATCH_WINDOW_MS } }
+      return { ok: true, state: next(state, { pending, watch }), value: { applied: true, final: true }, writes: [upsertLedger({ ...l, state: "cancelled", attempts, error, updated_at: ctx.now }, stored.n)] }
+    }
     const writes: Array<RowWrite> = [upsertLedger({ ...l, state: "failed", attempts, error, updated_at: ctx.now }, stored.n)]
     if (!machine) return { ok: true, state: next(state, { pending }), value: { applied: true, final: true }, writes }
     const failedDelete = l.op === "delete"
@@ -281,6 +296,22 @@ const driverResult = (state: CloudState, params: unknown, ctx: ReduceContext): R
   return { ok: true, state: next(state, { pending, active: state.active - countedRow(machine.row) }, { machine: l.machine, removed: true }), value: { applied: true }, writes }
 }
 
+const watchResult = (state: CloudState, params: unknown, ctx: ReduceContext): ReduceResult<CloudState> => {
+  const d = decodeInternal<typeof CloudWatchResultParams.Type>(CloudWatchResultParams, params)
+  if (!d.ok) return d
+  const entry = state.watch?.[d.value.key]
+  const stored = ledgerRow(ctx.rows, d.value.key)
+  if (!entry || !stored) return noChange(state, { applied: false })
+  const rest = Object.fromEntries(Object.entries(state.watch ?? {}).filter(([k]) => k !== d.value.key))
+  const { outcome, now } = d.value
+  if (outcome === "deleted") return { ok: true, state: next(state, { watch: rest }), value: { applied: true }, writes: [upsertLedger({ ...stored.row, late_deleted_at: ctx.now, updated_at: ctx.now }, stored.n)] }
+  if (outcome === "mismatch" || now >= entry.until) {
+    const abandon_reason = outcome === "mismatch" ? "metadata_mismatch" : "abandoned_create"
+    return { ok: true, state: next(state, { watch: rest }), value: { applied: true, abandoned: true }, writes: [upsertLedger({ ...stored.row, state: "abandoned", abandon_reason, updated_at: ctx.now }, stored.n)] }
+  }
+  return { ok: true, state: next(state, { watch: { ...rest, [d.value.key]: { ...entry, due_at: ctx.now + WATCH_EVERY_MS } } }), value: { applied: true } }
+}
+
 const prune = (state: CloudState, params: unknown, ctx: ReduceContext): ReduceResult<CloudState> => {
   const d = decodeInternal<typeof CloudPruneParams.Type>(CloudPruneParams, params)
   if (!d.ok) return d
@@ -290,7 +321,8 @@ const prune = (state: CloudState, params: unknown, ctx: ReduceContext): ReduceRe
     writes.push({ table: TABLE_TOMBSTONE, op: "delete", key: t.key })
   }
   for (const l of ctx.rows?.range<LedgerRow>(TABLE_LEDGER, { limit: 100 }) ?? []) {
-    if (l.row.state !== "pending" && l.row.updated_at <= d.value.now - LEDGER_KEEP_MS) writes.push({ table: TABLE_LEDGER, op: "delete", key: l.key })
+    // Abandoned rows stay: the orphan report keeps flagging their recorded name for a person.
+    if (l.row.state !== "pending" && l.row.state !== "abandoned" && !state.watch?.[l.key] && l.row.updated_at <= d.value.now - LEDGER_KEEP_MS) writes.push({ table: TABLE_LEDGER, op: "delete", key: l.key })
   }
   if (writes.length === 0) return noChange(state, { pruned: 0 })
   return { ok: true, state: next(state, {}), value: { pruned: writes.length }, writes }

@@ -18,6 +18,13 @@ export const CloudDriverResultParams = Schema.Struct({
 
 export const CloudPruneParams = Schema.Struct({ now: Schema.Int })
 
+/** One hourly lookup of a cancelled create's recorded name (N1): absent, deleted by that name, or a VM whose metadata does not match. */
+export const CloudWatchResultParams = Schema.Struct({
+  key: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
+  outcome: Schema.Literals(["absent", "deleted", "mismatch"]),
+  now: Schema.Int
+})
+
 const internal = (name: string, params: Schema.Top, docs: string): CloudOpDef =>
   ({
     name,
@@ -36,5 +43,6 @@ const internal = (name: string, params: Schema.Top, docs: string): CloudOpDef =>
 
 export const cloudInternalOps: ReadonlyArray<CloudOpDef> = [
   internal("cloud.driver_result", CloudDriverResultParams, "Internal: a provider call (create or delete) finished, failed, or was refused."),
+  internal("cloud.watch_result", CloudWatchResultParams, "Internal: one lookup of a cancelled create's recorded name finished."),
   internal("cloud.prune", CloudPruneParams, "Internal: drop tombstones older than 30 days and finished ledger rows older than 7 days.")
 ]

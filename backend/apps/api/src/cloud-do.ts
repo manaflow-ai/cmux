@@ -3,8 +3,8 @@ import { CloudMachineList } from "@cmux/protocol"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { DriverError } from "./team-vm-driver.ts"
-import { cloudConfig, cloudDriver } from "./cloud-driver.ts"
-import { OrphanSweep } from "./cloud-sweep.ts"
+import { cloudConfig, cloudDriver, type GuardedCloudDriver } from "./cloud-driver.ts"
+import { collectSuspects, OrphanSweep } from "./cloud-sweep.ts"
 import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
 import { decodeParams } from "./domains/common.ts"
 import {
@@ -26,7 +26,7 @@ import {
 /** How long a create or delete request waits for its provider call before it answers mutation.indeterminate. */
 const REQUEST_WAIT_MS = 25_000
 const PROVIDER_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "cloud.machine.delete"])
-const INTERNAL_OPS: ReadonlySet<string> = new Set(["cloud.driver_result", "cloud.prune"])
+const INTERNAL_OPS: ReadonlySet<string> = new Set(["cloud.driver_result", "cloud.watch_result", "cloud.prune"])
 const forbidden = (entity: string, key: string): SubmitResult => ({
   frames: [
     { t: "reject", tx: "", idempotency_key: key, code: "auth.forbidden", message: "not this team's machines", retryable: false, replayed: false },
@@ -268,13 +268,10 @@ export class CloudDO extends OwnerDO<CloudState> {
   }
 
   protected override nextWakeAt(state: CloudState, _now: number): number | null {
-    const times = Object.values(state.pending).map((p) => p.due_at)
-    const rows = this.boundEngine?.rows
-    const tomb = rows?.range<TombstoneRow>(TABLE_TOMBSTONE, { limit: 1 })[0]
-    if (tomb) times.push(tomb.row.deleted_at + TOMBSTONE_MS)
-    const finished = rows?.range<LedgerRow>(TABLE_LEDGER, { limit: 50 }).find((l) => l.row.state !== "pending")
-    if (finished) times.push(finished.row.updated_at + LEDGER_KEEP_MS)
-    if (this.hasHadMachines(state)) times.push(this.sweep.dueAt() ?? Date.now())
+    const times = [...Object.values(state.pending).map((p) => p.due_at), ...Object.values(state.watch ?? {}).map((w) => w.due_at)]
+    const prune = this.pruneAt(state)
+    if (prune !== null) times.push(prune)
+    if (this.hasRows()) times.push(this.sweep.dueAt() ?? Date.now())
     return times.length ? Math.min(...times) : null
   }
 
@@ -284,10 +281,45 @@ export class CloudDO extends OwnerDO<CloudState> {
     const now = realNow + this.skewMs
     const machines = new Set(Object.values(engine.currentState.pending).filter((p) => p.due_at <= now).map((p) => p.machine))
     for (const m of machines) await this.runMachine(m, now)
-    if (this.pruneDue(engine.currentState, now)) this.submitSystem("cloud.prune", { now }, `prune:${now}`)
-    const state = engine.currentState
+    if ((this.pruneAt(engine.currentState) ?? Infinity) <= now) this.submitSystem("cloud.prune", { now }, `prune:${now}`)
     const driver = cloudDriver(this.env, this.sqlStore)
-    if (this.hasHadMachines(state) && driver && state.team) await this.sweep.maybeRun(now, state.team, driver, this.knownNames(), engine.stream)
+    const team = engine.currentState.team
+    if (!driver || !team) return
+    await this.lookUpCancelled(now, team, driver)
+    // N5: only while the team has machine, ledger or tombstone rows.
+    if (this.hasRows()) await this.sweep.maybeRun(now, team, engine.stream, () => collectSuspects(driver, team, engine.rows))
+  }
+
+  /**
+   * N1: the hourly lookup of each cancelled create's recorded name for 24 h. A VM there whose
+   * metadata names this team and this machine is deleted by that recorded ledger name; any other VM
+   * there is reported (metadata_mismatch) and never deleted. Deletion is only by ledger name, never
+   * from a list.
+   */
+  private async lookUpCancelled(now: number, team: string, driver: GuardedCloudDriver): Promise<void> {
+    const engine = this.boundEngine
+    if (!engine) return
+    for (const [key, w] of Object.entries(engine.currentState.watch ?? {})) {
+      if (w.due_at > now) continue
+      const stored = engine.rows.get<LedgerRow>(TABLE_LEDGER, key)
+      if (!stored) continue
+      const l = stored.row
+      let outcome: "absent" | "deleted" | "mismatch" = "absent"
+      try {
+        const vm = await driver.peek(l.provider_name)
+        if (vm && vm.tag.cmux_next_team === team && vm.tag.cmux_next_machine === l.machine) {
+          await driver.remove(l.provider_name, { team, machine: l.machine })
+          outcome = "deleted"
+        } else if (vm) {
+          console.error(JSON.stringify({ level: "error", event: "cloud.orphan.suspect", stream: engine.stream, team, name: l.provider_name, provider_id: vm.id, reason: "metadata_mismatch" }))
+          outcome = "mismatch"
+        }
+      } catch (e) {
+        // A failed lookup counts as absent: the next one comes an hour later, inside the same window.
+        console.warn(JSON.stringify({ msg: "cloud late-VM lookup failed", stream: engine.stream, machine: l.machine, error: e instanceof Error ? e.message : String(e) }))
+      }
+      this.submitSystem("cloud.watch_result", { key, outcome, now }, `watch:${stored.n}:${now}`)
+    }
   }
 
   private get sweep(): OrphanSweep {
@@ -295,33 +327,27 @@ export class CloudDO extends OwnerDO<CloudState> {
   }
   private sweepStore: OrphanSweep | null = null
 
-  private hasHadMachines(state: CloudState): boolean {
-    return state.team !== null && state.rev > 0
+  private hasRows(): boolean {
+    const rows = this.boundEngine?.rows
+    return Boolean(rows) && [TABLE_MACHINE, TABLE_LEDGER, TABLE_TOMBSTONE].some((t) => rows!.range(t, { limit: 1 }).length > 0)
   }
 
-  private pruneDue(state: CloudState, now: number): boolean {
+  /** When the next prune is due: the oldest tombstone past 30 days, or a finished ledger row past 7 (abandoned and watched rows stay). */
+  private pruneAt(state: CloudState): number | null {
     const rows = this.boundEngine?.rows
     const tomb = rows?.range<TombstoneRow>(TABLE_TOMBSTONE, { limit: 1 })[0]
-    const finished = rows?.range<LedgerRow>(TABLE_LEDGER, { limit: 50 }).find((l) => l.row.state !== "pending")
-    void state
-    return (tomb !== undefined && tomb.row.deleted_at + TOMBSTONE_MS <= now) || (finished !== undefined && finished.row.updated_at + LEDGER_KEEP_MS <= now)
-  }
-
-  /** Every provider name CloudDO itself recorded: live machines and ledger rows (the only deletion source). */
-  private knownNames(): ReadonlySet<string> {
-    const rows = this.boundEngine?.rows
-    const names = new Set<string>()
-    for (const m of rows?.range<MachineRow>(TABLE_MACHINE, { limit: 1000 }) ?? []) names.add(m.row.provider_name)
-    for (const l of rows?.range<LedgerRow>(TABLE_LEDGER, { limit: 1000 }) ?? []) names.add(l.row.provider_name)
-    return names
+    const finished = rows?.range<LedgerRow>(TABLE_LEDGER, { limit: 50 }).find((l) => l.row.state !== "pending" && l.row.state !== "abandoned" && !state.watch?.[l.key])
+    const times = [tomb ? tomb.row.deleted_at + TOMBSTONE_MS : null, finished ? finished.row.updated_at + LEDGER_KEEP_MS : null].filter((t): t is number => t !== null)
+    return times.length ? Math.min(...times) : null
   }
 
   /** Test only (ENVIRONMENT=test): drive the fake provider and the object's clock. */
-  async fakeControl(cmd: { fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; add_vm?: { name: string; team: string; machine: string } }) {
+  async fakeControl(cmd: { fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string } }) {
     if (this.env.ENVIRONMENT !== "test") throw new Error("fakeControl is test only")
     cloudDriver(this.env, this.sqlStore)
     if (cmd.fail_next !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET fail_next = ? WHERE id = 1`, cmd.fail_next)
     if (cmd.drop_results !== undefined) this.dropResults = cmd.drop_results
+    if (cmd.fail_list !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET fail_list = ? WHERE id = 1`, cmd.fail_list ? 1 : 0)
     if (cmd.advance_ms !== undefined) this.skewMs += cmd.advance_ms
     if (cmd.delete_vm !== undefined) this.sqlStore.exec(`DELETE FROM cloud_fake_vm WHERE name = ?`, cmd.delete_vm)
     if (cmd.add_vm !== undefined) {
@@ -330,6 +356,6 @@ export class CloudDO extends OwnerDO<CloudState> {
     }
     const ctl = this.sqlStore.exec<{ creates: number; deletes: number }>(`SELECT creates, deletes FROM cloud_fake_ctl WHERE id = 1`)[0]!
     const vms = this.sqlStore.exec<{ name: string; id: string; idle: number | null }>(`SELECT name, id, idle FROM cloud_fake_vm ORDER BY name`)
-    return { creates: ctl.creates, deletes: ctl.deletes, vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects() }
+    return { creates: ctl.creates, deletes: ctl.deletes, vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), now: Date.now() + this.skewMs }
   }
 }
