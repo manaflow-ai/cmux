@@ -591,3 +591,34 @@ test("snapshot header: page text reaches the caller without controls or escape s
   assert.ok(first.length <= 600, `title line is ${first.length} characters`);
   assert.match(text, /\nurl: https:\/\/example\.com\/\n- button "Go" \[ref=e1\]$/);
 });
+
+test("snapshot: the page walk stops at its node budget with a note, and frames past the budget are not read", async () => {
+  // A hostile page can hold millions of nodes; the walk must not read them all
+  // before the output limits apply. `_maxNodes` lowers the budget for the test.
+  const server = await startFixtureServers();
+  try {
+    const out = await runDevRepl(`
+      await page.goto(${JSON.stringify(server.origins.primary + "/")});
+      await page.evaluate(() => {
+        document.body.innerHTML = '<iframe title="inner" srcdoc="<button>Inner</button>"></iframe><button>First</button>' + "<p>filler</p>".repeat(2000) + "<button>Last</button>";
+      });
+      await page.waitForFunction(() => { const d = document.querySelector("iframe").contentDocument; return !!(d && d.querySelector("button")); });
+      const whole = await snapshot({ maxChars: Infinity });
+      const cut = await snapshot({ maxChars: Infinity, _maxNodes: 500 });
+      const keep = (s) => s.tree.split("\\n").filter((l) => /button|iframe|^#/.test(l));
+      console.log("@@" + JSON.stringify({ whole: keep(whole), cut: keep(cut) }));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const { whole, cut } = JSON.parse(line.slice(2));
+    assert.ok(whole.some((l) => /button "Inner"/.test(l)), whole.slice(0, 6).join("\n"));
+    assert.ok(whole.some((l) => /button "Last"/.test(l)));
+    assert.ok(cut.some((l) => /button "First"/.test(l)), cut.slice(0, 6).join("\n"));
+    assert.ok(!cut.some((l) => /button "Last"/.test(l)), "the walk read past its budget");
+    assert.ok(!cut.some((l) => /button "Inner"/.test(l)), "a frame past the budget was read");
+    assert.ok(cut.some((l) => /iframe "inner".*\[not read: the snapshot's node budget is used up\]/.test(l)), cut.slice(0, 6).join("\n"));
+    assert.match(cut[cut.length - 1], /^# the page is too large to read whole: the snapshot stopped after 500 nodes/);
+  } finally {
+    await server.close();
+  }
+});
