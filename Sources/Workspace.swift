@@ -694,6 +694,9 @@ extension Workspace {
             terminalSnapshot = nil
             if let browserPanel = panel as? BrowserPanel {
                 guard browserPanel.shouldPersistSessionSnapshot() else { return nil }
+                // Closing can race the delayed attached-inspector manual-close detector.
+                // Consume an already-stable manual close before preserving visibility intent.
+                _ = browserPanel.consumeAttachedDeveloperToolsManualCloseIfNeeded()
                 let historySnapshot = browserPanel.sessionNavigationHistorySnapshot()
                 let diffViewerComponents = browserPanel.diffViewerSessionComponents()
                 browserSnapshot = SessionBrowserPanelSnapshot(
