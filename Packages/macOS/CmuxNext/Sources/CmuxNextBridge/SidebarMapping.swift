@@ -66,7 +66,10 @@ public struct SidebarMapping {
 
     /// The brand of the first agent that works or waits in these tabs (design/agent-icons).
     func agentBrand(_ tabs: [TabModel]) -> String? {
-        nil // Red: lands in the next commit.
+        tabs.lazy.compactMap { tab -> String? in
+            guard let agent = tab.agent, agent.state == .working || agent.state == .blocked else { return nil }
+            return AgentBrandCatalog.brand(for: agent.agent)?.rawValue
+        }.first
     }
 
     private static func tabKind(_ kind: TabKind) -> SidebarTabKind {

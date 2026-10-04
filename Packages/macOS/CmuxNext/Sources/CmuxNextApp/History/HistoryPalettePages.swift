@@ -1,3 +1,4 @@
+import CmuxAgentBrands
 import CmuxNextHistory
 import CmuxNextPalette
 import Foundation
@@ -44,7 +45,8 @@ enum HistoryPalettePages {
 
     /// The brand mark an agent session's row draws (its provider's), or nil.
     nonisolated static func agentBrand(_ entry: HistoryEntry) -> String? {
-        nil // Red: lands in the next commit.
+        guard case .agent(let session) = entry.payload else { return nil }
+        return AgentBrandCatalog.brand(for: session.provider)?.rawValue
     }
 
     static func item(for entry: HistoryEntry, services: AppServices) -> PaletteItem {
