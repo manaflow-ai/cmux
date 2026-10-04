@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import type { ProviderId } from "./drivers";
 import { trace } from "@opentelemetry/api";
 import { setSpanAttributes } from "../telemetry";
-import { vmPrivateNetworkEnabled, type VmRuntimeEnv } from "./config";
+import { vmNetworkNamespace, vmNetworkSlugPrefix, vmPrivateNetworkEnabled, type VmRuntimeEnv } from "./config";
 import {
   VmAccessGrantRevokedError,
   VmAccessGrantMutationBusyError,
@@ -97,6 +97,12 @@ export function isWireGuardPublicKey(value: unknown): value is string {
   return decoded.length === 32 && decoded.toString("base64") === trimmed;
 }
 
+export { vmNetworkNamespace };
+
+function namespacedPrefix(kind: "net" | "team-net" | "wg", env: VmRuntimeEnv): string {
+  return vmNetworkSlugPrefix(kind, vmNetworkNamespace(env));
+}
+
 /**
  * The provider-side slug for an account's network.
  *
@@ -104,10 +110,39 @@ export function isWireGuardPublicKey(value: unknown): value is string {
  * is shared by every cmux user, so slugs are visible to whoever reads that
  * account's resource list, and a raw Stack Auth user id there would be an
  * avoidable identifier leak. The hash is stable, so the same account always
- * resolves to the same network without a lookup.
+ * resolves to the same network without a lookup. See {@link vmNetworkNamespace}
+ * for the deployment prefix.
  */
-export function networkSlugForUser(userId: string): string {
-  return `cmux-net-${accountHash("network", userId)}`;
+export function networkSlugForUser(userId: string, env: VmRuntimeEnv = process.env): string {
+  return `${namespacedPrefix("net", env)}-${accountHash("network", userId)}`;
+}
+
+/**
+ * The pool production user networks take their IPv4 range from, and the size
+ * of each range.
+ *
+ * Freestyle derives a /24 (254 members) when a network is created without a
+ * CIDR, and a network's CIDR is fixed for its life. Every machine and every
+ * Mac tunnel attachment holds one address, so a /24 filled up and refused new
+ * machines. A /20 holds 4,094, 16 times more than the busiest network has ever
+ * used, and keeps 1,024 slots in the pool, so the chance that a user's range
+ * overlaps a team network is small even once the platform's band reaches
+ * this pool. The pool sits inside 10.0.0.0/8, which every
+ * tunnel routes by default, and above the band the platform derives its /24s
+ * from (10.16-10.97 so far), so a user's own range does not overlap the
+ * platform-derived team networks their tunnel also attaches. Different users
+ * may share a range: provider address reservations are scoped to one network,
+ * and a tunnel attaches only its owner's network plus team networks.
+ */
+const USER_NETWORK_POOL_BASE = (10 << 24) + (192 << 16);
+const USER_NETWORK_POOL_SLOTS = 1024;
+const USER_NETWORK_RANGE_SIZE = 4096;
+
+/** The IPv4 /20 a production user's network is created with. */
+export function userNetworkCidr(userId: string): string {
+  const slot = Number.parseInt(accountHash("network-cidr", userId).slice(0, 8), 16) % USER_NETWORK_POOL_SLOTS;
+  const base = USER_NETWORK_POOL_BASE + slot * USER_NETWORK_RANGE_SIZE;
+  return `${[24, 16, 8, 0].map((shift) => (base >>> shift) & 255).join(".")}/20`;
 }
 
 /**
@@ -116,8 +151,8 @@ export function networkSlugForUser(userId: string): string {
  * network list is the only record of team networks: finding one is a read by
  * this slug, and no cmux table tracks them or their tunnel attachments.
  */
-export function networkSlugForTeam(teamId: string): string {
-  return `cmux-team-net-${accountHash("team-network", teamId)}`;
+export function networkSlugForTeam(teamId: string, env: VmRuntimeEnv = process.env): string {
+  return `${namespacedPrefix("team-net", env)}-${accountHash("team-network", teamId)}`;
 }
 
 /** The provider-side slug for one of an account's computers. Same reasoning as the network slug. */
@@ -125,8 +160,9 @@ export function tunnelSlugForDevice(
   userId: string,
   deviceFingerprint: string,
   tunnelPurpose: "terminal" | "browser" = "browser",
+  env: VmRuntimeEnv = process.env,
 ): string {
-  return `cmux-wg-${accountHash("tunnel", `${userId}\0${deviceFingerprint}\0${tunnelPurpose}`)}`;
+  return `${namespacedPrefix("wg", env)}-${accountHash("tunnel", `${userId}\0${deviceFingerprint}\0${tunnelPurpose}`)}`;
 }
 
 function accountHash(domain: string, value: string): string {
@@ -420,13 +456,25 @@ function resolveUserNetwork(
   repo: PrivateNetworkRepo,
 ) {
   return Effect.gen(function* () {
-    const existing = yield* repo.findNetwork(input.userId, input.provider);
-    if (existing) return existing;
-
     const slug = networkSlugForUser(input.userId);
+    const existing = yield* repo.findNetwork(input.userId, input.provider);
+    // A namespaced deployment never reuses a network outside its namespace: a
+    // dev database created before namespaces holds a row for the user's
+    // production network. The upsert below replaces that row. Production
+    // reuses its row whatever slug it stores.
+    if (existing && (vmNetworkNamespace() === null || existing.slug === slug)) return existing;
+
+    // Production networks get a /20 (see userNetworkCidr). A namespaced
+    // deployment keeps the platform's derived /24, which is unique within the
+    // provider account: the /20 comes from the user id, so every dev stack
+    // would give one person the same range, and a Mac running several builds
+    // could not tell their machines' addresses apart. Existing networks keep
+    // the range they were created with.
+    const cidr = vmNetworkNamespace() === null ? userNetworkCidr(input.userId) : undefined;
     const network = yield* providers.ensureNetwork(input.provider, {
       slug,
       displayName: "cmux machines",
+      ...(cidr ? { cidr } : {}),
     });
     // The provider call is idempotent by slug and the upsert is idempotent by
     // (user, provider), so two machines created at once converge on one row
@@ -472,6 +520,12 @@ export function enrollVmTunnel(input: {
   readonly sessionIssuedAt?: Date | null;
   readonly clientPublicKey: string;
   readonly teamIds?: readonly string[];
+  /**
+   * True only when `teamIds` is the caller's complete, freshly listed Stack
+   * membership. Only then are attachments to other team networks detached; a
+   * partial list (one selected team) must never cut the caller's other teams.
+   */
+  readonly teamIdsComplete?: boolean;
 }) {
   return Effect.gen(function* () {
     const providers = yield* requirePrivateNetworkingGateway(input.provider);
@@ -555,7 +609,7 @@ export function enrollVmTunnel(input: {
             addressV6: current.addressV6,
             configIssued: true,
           });
-          const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, tunnel: current, provider: input.provider, homeNetworkId: network.providerNetworkId, teamIds: teamNetworkCandidates(input) });
+          const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, tunnel: current, provider: input.provider, homeNetworkId: network.providerNetworkId, teamIds: teamNetworkCandidates(input), detachStale: input.teamIdsComplete === true });
           return describeTunnel(current, row, network, { created: false, rotated }, teamNetworks);
         }
         // The control plane has a row for a tunnel the provider no longer has.
@@ -581,7 +635,7 @@ export function enrollVmTunnel(input: {
         addressV4: created.tunnel.addressV4,
         addressV6: created.tunnel.addressV6,
       });
-      const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, tunnel: created.tunnel, provider: input.provider, homeNetworkId: network.providerNetworkId, teamIds: teamNetworkCandidates(input) });
+      const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, tunnel: created.tunnel, provider: input.provider, homeNetworkId: network.providerNetworkId, teamIds: teamNetworkCandidates(input), detachStale: input.teamIdsComplete === true });
       return describeTunnel(created.tunnel, row, network, { created: true, rotated: created.rotated }, teamNetworks);
     }));
   });
@@ -594,6 +648,8 @@ export function readVmTunnel(input: {
   readonly deviceFingerprint: string;
   readonly tunnelPurpose: "terminal" | "browser";
   readonly teamIds?: readonly string[];
+  /** See `enrollVmTunnel`: detach other team networks only for a complete list. */
+  readonly teamIdsComplete?: boolean;
 }) {
   return Effect.gen(function* () {
     const providers = yield* requirePrivateNetworkingGateway(input.provider);
@@ -624,7 +680,7 @@ export function readVmTunnel(input: {
     // must not remove a tunnel a client still reads. Best effort, because a
     // failed timestamp write must not fail the read.
     yield* repo.updateTunnel({ id: existing.id, configIssued: true }).pipe(Effect.ignore);
-    const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, tunnel: live, provider: input.provider, homeNetworkId: network.providerNetworkId, teamIds: teamNetworkCandidates(input) });
+    const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, tunnel: live, provider: input.provider, homeNetworkId: network.providerNetworkId, teamIds: teamNetworkCandidates(input), detachStale: input.teamIdsComplete === true });
     return describeTunnel(live, existing, network, { created: false, rotated: false }, teamNetworks);
   });
 }
@@ -655,6 +711,69 @@ export function revokeVmTunnel(input: {
     yield* providers.deleteTunnel(input.provider, existing.providerTunnelId);
     const revoked = yield* repo.revokeTunnel(existing.id);
     return { revoked } as const;
+  });
+}
+
+/** Attach a caller-owned tunnel to its owner network. The network id is checked
+ * against the durable owner mapping so callers cannot use this seam to attach
+ * a tunnel to another account's VPC. */
+export function attachVmTunnelNetwork(input: {
+  readonly userId: string;
+  readonly provider: ProviderId;
+  readonly deviceFingerprint: string;
+  readonly tunnelPurpose: "terminal" | "browser";
+  readonly networkId: string;
+}) {
+  return Effect.gen(function* () {
+    const providers = yield* requirePrivateNetworkingGateway(input.provider);
+    const repo = yield* requirePrivateNetworkingRepo(input.provider);
+    const network = yield* requireOwnerNetwork({ userId: input.userId, provider: input.provider });
+    if (network.providerNetworkId !== input.networkId) return yield* Effect.fail(new VmTunnelNotFoundError({ deviceFingerprint: input.deviceFingerprint }));
+    const tunnel = yield* repo.findTunnel({ userId: input.userId, deviceFingerprint: input.deviceFingerprint, tunnelPurpose: input.tunnelPurpose });
+    if (!tunnel) return yield* Effect.fail(new VmTunnelNotFoundError({ deviceFingerprint: input.deviceFingerprint }));
+    if (!providers.attachTunnelNetwork) return yield* Effect.fail(new VmPrivateNetworkUnavailableError({ provider: input.provider, reason: "tunnel attachment is unavailable" }));
+    const attachment = yield* providers.attachTunnelNetwork(input.provider, tunnel.providerTunnelId, input.networkId);
+    return { tunnelId: tunnel.providerTunnelId, ...attachment };
+  });
+}
+
+export function detachVmTunnelNetwork(input: {
+  readonly userId: string;
+  readonly provider: ProviderId;
+  readonly deviceFingerprint: string;
+  readonly tunnelPurpose: "terminal" | "browser";
+  readonly networkId: string;
+}) {
+  return Effect.gen(function* () {
+    const providers = yield* requirePrivateNetworkingGateway(input.provider);
+    const repo = yield* requirePrivateNetworkingRepo(input.provider);
+    const network = yield* requireOwnerNetwork({ userId: input.userId, provider: input.provider });
+    if (network.providerNetworkId !== input.networkId) return yield* Effect.fail(new VmTunnelNotFoundError({ deviceFingerprint: input.deviceFingerprint }));
+    const tunnel = yield* repo.findTunnel({ userId: input.userId, deviceFingerprint: input.deviceFingerprint, tunnelPurpose: input.tunnelPurpose });
+    if (!tunnel) return yield* Effect.fail(new VmTunnelNotFoundError({ deviceFingerprint: input.deviceFingerprint }));
+    if (!providers.detachTunnelNetwork) return yield* Effect.fail(new VmPrivateNetworkUnavailableError({ provider: input.provider, reason: "tunnel detachment is unavailable" }));
+    yield* providers.detachTunnelNetwork(input.provider, tunnel.providerTunnelId, input.networkId);
+    return { detached: true as const, tunnelId: tunnel.providerTunnelId, networkId: input.networkId };
+  });
+}
+
+export function rotateVmTunnelKey(input: {
+  readonly userId: string;
+  readonly provider: ProviderId;
+  readonly deviceFingerprint: string;
+  readonly tunnelPurpose: "terminal" | "browser";
+  readonly clientPublicKey: string;
+}) {
+  return Effect.gen(function* () {
+    const providers = yield* requirePrivateNetworkingGateway(input.provider);
+    const repo = yield* requirePrivateNetworkingRepo(input.provider);
+    const network = yield* requireOwnerNetwork({ userId: input.userId, provider: input.provider });
+    const tunnel = yield* repo.findTunnel({ userId: input.userId, deviceFingerprint: input.deviceFingerprint, tunnelPurpose: input.tunnelPurpose });
+    if (!tunnel) return yield* Effect.fail(new VmTunnelNotFoundError({ deviceFingerprint: input.deviceFingerprint }));
+    if (!isWireGuardPublicKey(input.clientPublicKey)) return yield* Effect.fail(new VmPrivateNetworkUnavailableError({ provider: input.provider, reason: "invalid WireGuard public key" }));
+    const live = yield* providers.rotateTunnelKey(input.provider, tunnel.providerTunnelId, input.clientPublicKey.trim(), network.providerNetworkId);
+    yield* repo.updateTunnel({ id: tunnel.id, clientPublicKey: live.clientPublicKey, addressV4: live.addressV4, addressV6: live.addressV6, configIssued: true });
+    return { tunnelId: live.id, networkId: network.providerNetworkId, clientPublicKey: live.clientPublicKey, serverPublicKey: live.serverPublicKey, clientConfig: live.clientConfig };
   });
 }
 
@@ -990,14 +1109,16 @@ function teamNetworkCandidates(input: { readonly userId: string; readonly teamId
 }
 
 /**
- * Attach the tunnel to the network of every team the caller belongs to, and
- * detach it from team networks the caller has left. The provider's attachment
+ * Attach the tunnel to the network of every team the caller belongs to, and,
+ * when the caller's complete membership is known, detach it from team networks
+ * the caller has left. The provider's attachment
  * list is the record: a tunnel is attached exactly when Freestyle says so, and
  * deleting a tunnel removes its attachments with it.
  *
- * A failed attach is logged and skipped so enrollment never fails on it. When a
- * team network lookup fails, stale attachments are kept, because the failed
- * lookup might have been a network the caller still belongs to.
+ * A failed attach is logged and skipped so enrollment never fails on it. When
+ * the team list is partial, or a team network lookup fails, stale attachments
+ * are kept, because the missing team might be one the caller still belongs to.
+ * Removal is handled by the Stack membership webhook and the reconcile cron.
  */
 function reconcileTunnelTeamNetworks(input: {
   readonly providers: PrivateNetworkingGateway;
@@ -1005,6 +1126,8 @@ function reconcileTunnelTeamNetworks(input: {
   readonly provider: ProviderId;
   readonly homeNetworkId: string;
   readonly teamIds?: readonly string[];
+  /** Detach networks outside `teamIds`; only safe when `teamIds` is complete. */
+  readonly detachStale: boolean;
 }): Effect.Effect<TeamNetwork[], never> {
   return Effect.gen(function* () {
     const { getNetwork, attachTunnelNetwork } = input.providers;
@@ -1037,7 +1160,7 @@ function reconcileTunnelTeamNetworks(input: {
       if (ok) attached.push(network);
     }
     const detach = input.providers.detachTunnelNetwork;
-    if (lookupFailed || !detach) return attached;
+    if (!input.detachStale || lookupFailed || !detach) return attached;
     // Only the home network and team networks are ever attached, so any other
     // attachment belongs to a team the caller has left.
     const keep = new Set([input.homeNetworkId, ...desired.map((network) => network.providerNetworkId)]);

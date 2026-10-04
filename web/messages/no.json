@@ -80,6 +80,13 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go støtter 2 vCPU, 4 GiB RAM og 16 GiB disk.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "resourcePool": {
+      "title": "Ikke nok Cloud VM-ressurser",
+      "memoryMessage": "VM-ene dine bruker allerede {used} av {pool} GB RAM. Denne VM-en trenger {requested} GB.",
+      "vcpuMessage": "VM-ene dine bruker allerede {used} av {pool} vCPU-er. Denne VM-en trenger {requested} vCPU-er.",
+      "upgradeAction": "Sett en VM på pause eller slett den, eller oppgrader til Max.",
+      "action": "Sett en VM på pause eller slett den."
     }
   },
   "billingRecovery": {
@@ -353,26 +360,26 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "oversikt",
-      "team": "team",
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Oversikt",
+      "team": "Team",
       "mobileDevices": "Mobile enheter",
-      "settings": "innstillinger",
-      "teams": "team"
+      "settings": "Innstillinger",
+      "teams": "Team"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "Rute LLM-forespørsler mellom leverandørkontoer med reservebytte og bruksbevisst planlegging.",
-      "coderouterLink": "åpne coderouter",
+      "coderouterLink": "Åpne coderouter",
       "iosAppName": "iOS-app",
       "iosAppDescription": "Installer cmux iOS-appen via TestFlight (beta-tilgang).",
       "iosLink": "Åpne iOS-appen"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "Administrer delte AI-kontoer og rute forespørsler med coderouter.",
-      "title": "coderouter",
-      "description": "coderouter ruter LLM-forespørsler mellom leverandørkontoer med reservebytte og bruksbevisst planlegging.",
+      "title": "Coderouter",
+      "description": "Coderouter ruter LLM-forespørsler mellom leverandørkontoer med reservebytte og bruksbevisst planlegging.",
       "machines": {
         "title": "Maskiner",
         "description": "coderouter-bruk per maskin for {team} de siste {days} dagene.",
@@ -403,11 +410,13 @@
       "label": "Kontomeny",
       "settings": "Innstillinger",
       "billing": "Fakturering",
+      "switchAccount": "Bytt konto",
       "signOut": "Logg ut",
       "signingOut": "Logger ut…",
       "signOutError": "Kunne ikke logge ut. Prøv igjen.",
       "organizationSwitchError": "Kunne ikke bytte organisasjon. Prøv igjen.",
-      "signIn": "Logg inn"
+      "signIn": "Logg inn",
+      "upgrade": "Oppgrader"
     },
     "billing": {
       "plan": {
@@ -425,7 +434,7 @@
         "memberReadOnly": "Bare teamadministratorer kan endre dette abonnementet.",
         "grantedBody": "cmux-teamet har gitt {team} tilgang til Team. Det finnes ikke noe abonnement å administrere.",
         "seatsUsed": "{members} av {seats} brukt",
-        "overSeat": "{team} har {members} medlemmer og {seats} betalte plasser. Det går fortsatt an å bli med; legg til plasser slik at alle dekkes.",
+        "overSeat": "{team} har {members} medlemmer og {seats} betalte plasser. Plassene følger antall medlemmer, så abonnementet oppdateres av seg selv.",
         "addSeats": "Legg til plasser"
       },
       "teamList": {
@@ -447,6 +456,105 @@
       },
       "team": {
         "createCta": "Opprett et team"
+      },
+      "title": "Plan og fakturering",
+      "picker": {
+        "current": "Nåværende plan",
+        "upgradeTo": "Oppgrader til {plan}",
+        "switchTo": "Bytt til {plan}",
+        "cancelPlan": "Avslutt plan",
+        "resume": "Gjenoppta {plan}",
+        "renewsOn": "Fornyes {date}",
+        "endsOn": "Avsluttes {date}",
+        "perMonth": "per måned",
+        "perSeatMonth": "per plass per måned",
+        "paymentMethod": "Administrer betalingsmåte",
+        "invoices": "Fakturaer",
+        "heading": "Planer",
+        "actionError": "Kunne ikke endre planen. Prøv igjen.",
+        "unavailable": {
+          "cancelScheduled": "Gjenoppta planen for å endre den.",
+          "granted": "Tildelt av cmux. Det er ingenting å endre.",
+          "adminOnly": "Bare teamadministratorer kan endre planen."
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "Hele cmux-terminalen for macOS",
+            "Hvilken som helst CLI-agent med egne nøkler",
+            "Lokal økthistorikk"
+          ],
+          "go": [
+            "1 aktiv Cloud VM",
+            "40 VM-timer i måneden",
+            "2 lagrede VM-er"
+          ],
+          "pro": [
+            "Skyagenter på Cloud VMs",
+            "Opptil 5 Cloud VMs som deler 20 vCPU-er og 40 GB RAM",
+            "cmux-appen for iOS"
+          ],
+          "max": [
+            "Opptil 5 Cloud VMs som deler 80 vCPU-er og 160 GB RAM",
+            "Større maskinstørrelser",
+            "Alt i Pro"
+          ],
+          "team": [
+            "Alt i Pro for hvert medlem",
+            "Opptil 5 Cloud VMs per betalt plass, som deler 20 vCPU-er og 40 GB RAM per betalt plass på tvers av teamet",
+            "Én faktura for hele teamet",
+            "Prioritert støtte"
+          ]
+        },
+        "billedAnnually": "faktureres årlig"
+      },
+      "change": {
+        "title": "Bytte til {plan}?",
+        "upgradeBody": "{plan} starter nå. Du betaler {amount} i dag for resten av denne faktureringsperioden. Fra {date} betaler du {price} per måned.",
+        "downgradeBody": "{plan} starter nå. Den ubrukte delen av nåværende plan, {credit}, krediteres de neste fakturaene. Neste faktura, {date}, er på {amount}.",
+        "confirm": "Bytt til {plan}",
+        "keep": "Behold nåværende plan",
+        "switching": "Bytter…",
+        "previewError": "Kunne ikke beregne prisen. Prøv igjen.",
+        "paymentFailed": "Kortet ble avvist. Oppdater betalingsmåten, og prøv igjen.",
+        "error": "Kunne ikke bytte plan. Prøv igjen."
+      },
+      "cancelDialog": {
+        "title": "Avslutte {plan}?",
+        "body": "Du beholder {plan} til {date}. Etter det mister du:",
+        "bodyNoDate": "Du beholder {plan} til slutten av denne faktureringsperioden. Etter det mister du:",
+        "reasonLabel": "Hvorfor avslutter du? (valgfritt)",
+        "otherPlaceholder": "Fortell oss mer (valgfritt)",
+        "confirm": "Avslutt plan",
+        "keep": "Behold {plan}",
+        "error": "Kunne ikke avslutte planen. Prøv igjen.",
+        "resumeError": "Kunne ikke gjenoppta planen. Prøv igjen.",
+        "reasons": {
+          "too_expensive": "For dyrt",
+          "missing_feature": "Mangler en funksjon jeg trenger",
+          "not_using": "Bruker det ikke nok",
+          "other": "Annet"
+        }
+      },
+      "welcome": {
+        "title": "Velkommen til {plan}",
+        "body": "Planen er aktiv. Prøv dette først:",
+        "ios": "Installer iOS-appen",
+        "cloud": "Åpne Cloud",
+        "team": "Opprett et team",
+        "banner": "Du bruker nå {plan}.",
+        "bannerLink": "Plan og fakturering"
+      },
+      "appStore": {
+        "title": "Faktureres gjennom App Store",
+        "body": "Planen din ble kjøpt i cmux-appen for iPhone og faktureres av Apple. Endre eller avslutt den i App Store-abonnementene dine.",
+        "manage": "Administrer i App Store"
       }
     },
     "mobileDevices": {
@@ -467,7 +575,7 @@
       "relaySettings": "Relay-innstillinger",
       "relaySettingsDescription": "Velg relay-serverne som dette teamet bruker. Skriv inn én URL per linje.",
       "saveRelaySettings": "Lagre relay-innstillinger",
-      "eyebrow": "sky / enheter",
+      "eyebrow": "Sky / enheter",
       "scopeActive": "Viser dette teamet",
       "emptyTitle": "Ingen tilkoblede enheter ennå",
       "emptyDescription": "Når en cmux-enhet pares med dette teamet, vises den her med plattform, versjon og tilgangskontroller.",
@@ -488,7 +596,10 @@
         "account": "Konto",
         "billing": "Fakturering",
         "teamsGroup": "Team",
-        "createTeam": "Opprett team"
+        "createTeam": "Opprett team",
+        "accountGroup": "Konto",
+        "billingGroup": "Fakturering",
+        "planBilling": "Plan og fakturering"
       },
       "ui": {
         "save": "Lagre",
@@ -845,7 +956,7 @@
         "featurePrioritySupport": "Prioritert støtte",
         "chooseFree": "Fortsett med Gratis",
         "chooseTeam": "Oppgrader til Team (${price}/plass/måned)",
-        "upgradeLater": "Plassene er fleksible: Du kan invitere flere personer enn du betaler for, og legge til plasser senere.",
+        "upgradeLater": "Plassene følger antall medlemmer: hvert medlem faktureres, og totalen oppdateres når folk blir med eller forlater teamet.",
         "inviteTitle": "Inviter personer til {team}",
         "inviteDescription": "Valgfritt. Du kan også invitere personer senere fra teamets Medlemmer-side.",
         "inviteByEmail": "Inviter via e-post",
@@ -1015,8 +1126,8 @@
       "apiKeySecretBody": "Denne hemmeligheten vises ikke igjen.",
       "apiKeyCopy": "Kopier API-nøkkel",
       "apiKeyCopied": "Kopiert",
-      "apiKeyCreatedAt": "opprettet {at}",
-      "apiKeyLastUsed": "sist brukt {at}",
+      "apiKeyCreatedAt": "Opprettet {at}",
+      "apiKeyLastUsed": "Sist brukt {at}",
       "apiKeyRevoked": "Tilbakekalt",
       "apiKeyLabelPlaceholder": "For eksempel CI eller produksjon",
       "createApiKeyAction": "Opprett API-nøkkel",
@@ -1026,11 +1137,87 @@
       "revokingApiKeyAction": "Tilbakekaller",
       "apiKeyRevokeError": "API-nøkkelen kunne ikke tilbakekalles.",
       "revokeApiKeyConfirmTitle": "Tilbakekall denne API-nøkkelen?",
-      "apiKeyUsageDetail": "siste 30 dager: {completions} fullføringer · {tokens} tokens ({input} inn / {output} ut) · {value} API-ekvivalent",
+      "apiKeyUsageDetail": "Siste 30 dager: {completions} fullføringer · {tokens} tokens ({input} inn / {output} ut) · {value} API-ekvivalent",
       "apiKeyUsageUnavailable": "Bruk er ikke tilgjengelig",
+      "revokeApiKeyConfirmBody": "Klienter som bruker denne nøkkelen mister autentiseringen umiddelbart."
+    },
+    "cloud": {
+      "title": "Cloud-maskiner og Mac-tilgang",
+      "description": "Angi utgående nettverk for hver maskin, og se gjennom Mac-maskinene med WireGuard-tilgang til ditt private Cloud VM-nettverk. Paringer for iPhone og Iroh administreres separat.",
+      "macAccessTitle": "Mac-tilgang",
+      "machines": {
+        "title": "Maskiner",
+        "empty": "Du har ingen Cloud-maskiner.",
+        "personal": "personlig",
+        "team": "team",
+        "status": {
+          "provisioning": "starter",
+          "running": "kjører",
+          "failed": "mislyktes",
+          "paused": "satt på pause",
+          "destroyed": "slettet"
+        }
+      },
+      "network": {
+        "open": "Nettverk",
+        "title": "Utgående nettverk for {name}",
+        "description": "Velg hva denne maskinen kan nå. Endringer gjelder med en gang, uten omstart.",
+        "loading": "Laster inn nettverkspolicyen…",
+        "loadError": "Kunne ikke laste inn nettverkspolicyen for denne maskinen.",
+        "saveError": "Kunne ikke bruke denne nettverkspolicyen.",
+        "unsupported": "Denne maskinen støtter ikke kontroll av utgående nettverk.",
+        "retry": "Prøv igjen",
+        "appliedLabel": "Status:",
+        "applied": {
+          "applied": "brukt",
+          "pending": "tas i bruk",
+          "failed": "kunne ikke brukes"
+        },
+        "unsaved": "ulagrede endringer",
+        "refresh": "Oppdater",
+        "modeLabel": "Utgående tilgang",
+        "mode": {
+          "full": {
+            "label": "Fullt internett",
+            "description": "Enhver offentlig adresse."
+          },
+          "allowlist": {
+            "label": "Tillatelsesliste",
+            "description": "Bare forhåndsinnstillingene, domenene og IP-områdene du angir."
+          },
+          "none": {
+            "label": "Ikke internett",
+            "description": "Bare cmux-vertene nedenfor."
+          }
+        },
+        "presetsTitle": "Forhåndsinnstillinger",
+        "presetsNote": "Hver forhåndsinnstilling legger til eksakte vertsnavn. En tjeneste som bruker andre underdomener, kan trenge flere domener.",
+        "domainsTitle": "Domener",
+        "domainsNote": "Bare eksakte vertsnavn, bare HTTPS på port 443. Jokertegn støttes ikke ennå.",
+        "domainInput": "Domene",
+        "rangesTitle": "IP-områder",
+        "rangesNote": "Leverandørens brannmur håndhever disse utenfor maskinen. La porten stå tom for å tillate alle porter. En port krever en protokoll.",
+        "cidrInput": "IP-område (CIDR)",
+        "portInput": "Port",
+        "protocolInput": "Protokoll",
+        "anyProtocol": "alle",
+        "noteInput": "Notat (valgfritt)",
+        "allPorts": "alle porter",
+        "dnsLabel": "Tillat DNS",
+        "dnsNote": "Lar verktøy slå opp navnene som IP-områdene dine peker til. Domener trenger ikke DNS. Åpen DNS er en utgående kanal: En prosess kan sende data ut i navnene den slår opp.",
+        "requiredTitle": "Alltid tillatt",
+        "requiredNote": "cmux trenger disse vertene i alle moduser for å installere og oppdatere CLI-en på maskinen.",
+        "add": "Legg til",
+        "remove": "Fjern",
+        "discard": "Forkast endringer",
+        "close": "Lukk",
+        "apply": "Bruk"
+      },
       "revokeApiKeyConfirmBody": "Klienter som bruker denne nøkkelen mister autentiseringen umiddelbart.",
       "apiKeysEmptyTitle": "Ingen API-nøkler ennå",
-      "apiKeysEmptyHint": "Opprett en for å autentisere en CodeRouter-klient."
+      "apiKeysEmptyHint": "Opprett en for å autentisere en CodeRouter-klient.",
+      "unavailableTitle": "Delte kontoer er ikke tilgjengelige",
+      "unavailableBody": "cmux får ikke kontakt med tjenesten for delte kontoer akkurat nå. Kontoer lagt til med cr add, og Anthropic- og Bedrock-kontoer, fungerer fortsatt."
     },
     "notFound": {
       "title": "Fant ikke siden",
@@ -1050,6 +1237,14 @@
       },
       "retry": "Prøv igjen",
       "retrying": "Prøver igjen …"
+    },
+    "upgrade": {
+      "title": "Krever Pro",
+      "cloud": "Cloud VMs og skyagenter er en del av Pro.",
+      "testflight": "cmux-appen for iOS er en del av Pro.",
+      "mobileDevices": "Tilkobling av telefon og nettbrett er en del av Pro.",
+      "action": "Oppgrader til Pro",
+      "comparePlans": "Sammenlign planer"
     }
   },
   "community": {
@@ -1926,7 +2121,9 @@
           "ampIntegration": "Slår cmux-hookene for Amp på eller av. Når de er slått av, forblir den medfølgende utvidelsen installert, men inaktiv.",
           "suppressSubagentNotifications": "Undertrykk synlige fullføringsvarsler og statusendringer fra innebygde Codex- eller Claude-underagenter, samtidig som hendelsene deres beholdes i Feed-telemetri.",
           "workspaceAutoNaming": "Valgfri AI-basert automatisk navngiving av arbeidsområder og faner fra agentens samtaleinnhold. Når aktivert, oppsummerer cmux støttede agentøkter til korte titler med hver agents egen binærfil; manuelle navneendringer vinner alltid.",
-          "autoNamingAgent": "Hvilken agent som genererer automatiske navn for hver økt. \"auto\" (standard) navngir hver økt med sin egen agent; en hvilken som helst agent-slug (claude, codex, grok, opencode, pi, omp, …) overstyrer navngivingen for alle økter, også andre agenters. Agenter som ikke kan styres eller ikke er installert, faller tilbake til øktens egen agent, så navngivingen aldri svikter."
+          "autoNamingAgent": "Hvilken agent som genererer automatiske navn for hver økt. \"auto\" (standard) navngir hver økt med sin egen agent; en hvilken som helst agent-slug (claude, codex, grok, opencode, pi, omp, …) overstyrer navngivingen for alle økter, også andre agenters. Agenter som ikke kan styres eller ikke er installert, faller tilbake til øktens egen agent, så navngivingen aldri svikter.",
+          "agentAutoResume": "Sender `continue` med backoff til en agent startet av cmux når turen endte med en upstream-feil som kan prøves på nytt (modellen har ikke kapasitet, er overbelastet eller tilkoblingen ble brutt). Turer som venter på et menneske, gjenopptas aldri.",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "Styrer når cmux ber om bekreftelse før avslutning. DEV-bygg avslutter alltid umiddelbart uansett denne innstillingen. Den eldre app.warnBeforeQuit godtas fortsatt som boolsk fallback.",
@@ -1977,7 +2174,13 @@
           "compactAgentStatus": "Vis hvert arbeidsområde på én linje: ett farget ikon foran tittelen viser agent-, ulest- og pull request-status og erstatter agentstatuslinjene (for eksempel Kjører eller Trenger input), gren- og mappelinjen og pull request-linjene, der detaljene flyttes til ikonets verktøytips. Andre statusoppføringer beholder sine egne linjer.",
           "compactStatusIcons": "SF Symbol-navn som erstatter compactAgentStatus-glyfen for hver tilstand, for eksempel {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Tilstander uten verdi beholder det innebygde symbolet, og et navn som ikke kan vises, faller tilbake til det.",
           "notificationMessageLineLimit": "Maksimalt antall linjer som vises for det nyeste varselet under tittelen til hvert arbeidsområde.",
-          "rightMaxWidth": "Maksimal bredde i punkter for høyre sidepanel. Hvis den utelates, brukes den innebygde dynamiske grensen."
+          "rightMaxWidth": "Maksimal bredde i punkter for høyre sidepanel. Hvis den utelates, brukes den innebygde dynamiske grensen.",
+          "showAgentUsage": "Legger kodeagentens bruk til statusoppføringen for Claude Code eller Codex: modell og brukt kontekstvindu, og for Claude Code et anslått API-forbruk (hovedtråd og underagenter) til Anthropics publiserte listepriser. Beløpet er et anslag og ikke abonnementsregningen din; batsj- og prioritetsnivåer, partnerpriser, rask modus og avgifter for serververktøy er ikke medregnet.",
+          "beta": {
+            "conversations": {
+              "enabled": "Vis den samlede samtalevisningen i sidefeltets velger."
+            }
+          }
         },
         "fileExplorer": {
           "description": "Innstillinger for filutforskeren (filtreet) i høyre sidepanel.",
@@ -2046,6 +2249,12 @@
       "actionTypeCommand": "Kjører shell-tekst i en terminal. Bruk target for å velge gjeldende terminal eller en ny fane i gjeldende panel.",
       "actionTypeAgent": "Starter en støttet kodeagent. I dag støttes codex og claude, med valgfrie argumenter.",
       "actionTypeWorkspaceCommand": "Kjører en navngitt arbeidsområdedefinisjon fra commands. Bruk dette for flerpane-layouter, egendefinerte arbeidsmapper og oppstartskommandoer.",
+      "actionTypeSetting": "Endrer én innstilling i din globale cmux.json, for eksempel slå en true/false-innstilling av eller på eller bla gjennom en liste med verdier. Se Innstillingshandlinger nedenfor.",
+      "actionTypeSettingPreset": "Bruker en navngitt gruppe innstillinger fra settingPresets i ett steg.",
+      "settingActions": "Innstillingshandlinger",
+      "settingActionsDesc": "En innstillingshandling angir en <path>path</path> til en innstilling og nøyaktig én av <set>set</set> (skriv en verdi), <toggle>toggle: true</toggle> (snu en true/false-innstilling), <cycle>cycle</cycle> (gå til neste verdi i en liste og start på nytt etter den siste) eller <unset>unset: true</unset> (fjern nøkkelen fra cmux.json, slik at verdien fra Innstillinger-vinduet eller standardverdien gjelder). toggle og cycle starter fra verdien cmux bruker, også en du har satt i Innstillinger-vinduet. En settingPreset-handling bruker en oppføring fra <presets>settingPresets</presets>, en delvis cmux.json der nestede objekter slås sammen nøkkel for nøkkel. cmux kontrollerer hver endring mot skjemaet før lagring, beholder kommentarene dine og andre nøkler og tar i bruk endringen med én gang. Innstillingshandlinger og presets kjører bare fra din globale cmux.json og pakkene den viser til; prosjektkonfigurasjoner kan ikke deklarere dem.",
+      "settingActionsCli": "De samme endringene fungerer fra en terminal: <set>cmux config set terminal.scrollSpeed 1.4</set>, <toggle>cmux config toggle fileEditor.wordWrap</toggle> og <preset>cmux config preset sidebar.quiet</preset>.",
+      "settingActionsLimits": "Med <confirm>confirm: true</confirm> spør cmux før lagring og viser den tilsvarende cmux config-kommandoen. Stier deles ved hvert \".\", så en nøkkel som selv inneholder \".\" (for eksempel en <byCwd>workspaceGroups.byCwd</byCwd>-oppføring for ~/src/app.web), kan ikke endres på denne måten. Rediger den direkte i cmux.json.",
       "actionFields": "Handlingsfelt",
       "actionFieldTitle": "Tittel i Command Palette-raden, knappetekst, menypunkttittel og tittel i tillitsdialogen, med mindre en oppføring overstyrer den.",
       "actionFieldSubtitle": "Sekundærtekst i Command Palette. description godtas som alias for subtitle.",
@@ -2177,7 +2386,8 @@
         "wn-reload": "Last inn konfigurasjon på nytt",
         "wn-quit": "Avslutt"
       },
-      "metaTitle": "Tastatursnarveier"
+      "metaTitle": "Tastatursnarveier",
+      "fileEditorWordWrap": "Slå linjebryting i filredigereren av eller på (Option+Z)."
     },
     "api": {
       "title": "CLI-referanse",
@@ -2615,7 +2825,8 @@
       "maxLinesSetting": "TextBox Max Lines begrenser høyden på TextBox før innholdet begynner å rulle.",
       "configTitle": "cmux.json",
       "configDesc": "Sett de samme standardverdiene i ~/.config/cmux/cmux.json under terminal:",
-      "focusNote": "Gjenopprettede økter beholder lagret TextBox-synlighet og fokusstatus. Disse standardverdiene gjelder bare nyopprettede terminalflater."
+      "focusNote": "Gjenopprettede økter beholder lagret TextBox-synlighet og fokusstatus. Disse standardverdiene gjelder bare nyopprettede terminalflater.",
+      "betaCallout": "TextBox er en betafunksjon. Standardverdier og oppførsel kan endres mens den testes."
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode multi-agent i cmux",
@@ -2714,14 +2925,21 @@
       "planMax": "Max",
       "sizesDefault": "Nye maskiner bruker 8 GB minne når du ikke velger en størrelse. Kjør cmux vm ls --json for å se hvilke størrelser abonnementet ditt tillater.",
       "limitsTitle": "Abonnementsgrenser",
-      "limitsDesc": "Abonnementsgrenser teller maskiner, ikke en felles pott med CPU eller minne. Hver maskin får ressursene til sin størrelse.",
+      "limitsDesc": "De aktive maskinene dine deler én pott med vCPU-er og minne. Kjør én stor maskin eller flere små. Maskiner på pause bruker ikke av potten. Disken settes per maskin og er ikke en del av potten.",
       "limitsFree": "Gratiskontoer kan ikke opprette maskiner.",
-      "limitsPaid": "Pro- og Max-kontoer kan ha opptil 50 aktive maskiner. En maskin er aktiv mens den kjører eller starter.",
-      "limitsTeam": "Teamkontoer kan ha opptil 50 aktive maskiner per betalt lisens.",
-      "limitsMax": "Maskiner større enn 24 GB krever cmux Max.",
+      "limitsPaid": "Pro- og Founder's Edition-kontoer kan ha opptil 5 aktive maskiner som deler 20 vCPU-er og 40 GB minne. En maskin er aktiv mens den kjører eller starter.",
+      "limitsTeam": "Teamkontoer kan ha opptil 5 aktive maskiner per betalt lisens. Hver betalt lisens legger 20 vCPU-er og 40 GB minne til teamets pott.",
+      "limitsMax": "Max-kontoer kan ha opptil 5 aktive maskiner som deler 80 vCPU-er og 160 GB minne. Én maskin kan ha opptil 32 GB og 16 vCPU-er med Pro og Team, eller opptil 64 GB og 32 vCPU-er med Max.",
+      "limitsPoolFull": "Hvis en ny, gjenopptatt, forstørret eller forket maskin ville gått over potten, avviser cmux forespørselen og viser hvor mye av potten som er i bruk. Sett en maskin på pause eller slett den for å frigjøre ressurser, eller oppgrader til Max.",
       "limitsPricing": "Se prissiden for gjeldende priser. Det er ingen forbruksmåling og ingen fakturering for overforbruk.",
+      "agentUpdatesTitle": "Hold kodeagenter oppdatert",
+      "agentUpdatesDesc": "Når denne innstillingen er på, oppdaterer maskinen Claude Code, Codex, OpenCode, pi og agent-browser. Den sjekker etter at maskinen er opprettet og hver gang du kobler til, høyst én gang hver 24. time. Oppdateringen kjører frakoblet, så den blokkerer aldri tilkoblingen.",
+      "agentUpdatesSource": "Hvert verktøy kommer fra sin offisielle GitHub-release og verifiseres mot sha256-digesten til release-filen. npm brukes ikke. En release installeres først når den har vært offentlig i 3 dager, og en oppdatering installerer aldri en eldre versjon. En agent som kjører, beholder filene den startet med, og en mislykket oppdatering lar gjeldende versjon bli værende.",
+      "agentUpdatesStatus": "Resultatet av siste sjekk ligger i /etc/cmux/agent-updates.state, og oppdateringsloggen er /var/log/cmux-agent-updates.log. En mislykket sjekk kjøres på nytt ved neste tilkobling.",
+      "agentUpdatesToggle": "Arket New Machine slår dette på som standard. For å endre det på en eksisterende maskin høyreklikker du maskinen og velger Keep Agents Up to Date, eller kjører cmux vm agent-updates. cmux vm new beholder versjonene fra bildet med mindre du sender --agent-updates latest. Når du slår av oppdateringer, beholdes versjonene som allerede er installert.",
+      "agentUpdatesNetwork": "Oppdateringer bruker bare github.com, api.github.com, objects.githubusercontent.com og release-assets.githubusercontent.com. cmux tillater disse vertene i alle nettverksmoduser, også Allowlist og No internet, så en nettverkspolicy blokkerer aldri oppdateringer.",
       "resizeTitle": "Endre størrelse",
-      "resizeDesc": "Du kan gjøre en maskin større uten å miste data. Høyreklikk på maskinen og velg Resize machine, eller bruk cmux vm resize. Størrelsesendring kan bare gjøre en maskin større. Disken vokser i steg på 4 GB opptil 256 GB, minnet opptil 64 GB og CPU opptil 32 vCPU. Abonnementet ditt bestemmer det reelle maksimumet.",
+      "resizeDesc": "Du kan gjøre en maskin større uten å miste data. Høyreklikk på maskinen og velg Resize machine, eller bruk cmux vm resize. Størrelsesendring kan bare gjøre en maskin større. Disken vokser i steg på 4 GB opptil 256 GB. Minnet vokser opptil 32 GB og CPU opptil 16 vCPU med Pro og Team, eller opptil 64 GB og 32 vCPU med Max. En større maskin bruker mer av potten din. Abonnementet ditt bestemmer det reelle maksimumet.",
       "pauseTitle": "Pause og gjenoppta",
       "pauseDesc": "cmux vm pause stopper maskinens beregningsressurser. Disken, arbeidsområdene og terminalhistorikken beholdes. Kjørende prosesser stopper. cmux vm resume starter maskinen igjen. Å åpne en maskin på pause eller kjøre en kommando på den starter den også.",
       "pauseIdle": "Maskiner settes ikke på pause av seg selv når de er inaktive. En maskin kjører til du setter den på pause eller sletter den.",
@@ -2872,9 +3090,11 @@
       "errPlan": "Cloud-VM-er krever et betalt abonnement",
       "fixPlan": "Gratiskontoer kan ikke opprette maskiner. Oppgrader på prissiden.",
       "errSize": "En størrelse krever et større abonnement",
-      "fixSize": "Maskiner større enn 24 GB krever cmux Max. Velg en mindre størrelse eller oppgrader.",
+      "fixSize": "Maskiner større enn 32 GB krever cmux Max. Velg en mindre størrelse eller oppgrader.",
       "errLimit": "Grensen for aktive maskiner er nådd",
       "fixLimit": "Sett en maskin på pause eller slett den, og prøv igjen.",
+      "errPool": "Ikke nok Cloud VM-ressurser",
+      "fixPool": "De aktive maskinene dine bruker allerede de delte vCPU-ene eller minnet. Sett en maskin på pause eller slett den, velg en mindre størrelse, eller oppgrader til Max.",
       "errLocked": "Maskinen er låst",
       "fixLocked": "Det betalte abonnementet ditt er avsluttet, og maskinen er eldre enn 7 dager. Oppgrader for å koble til på nytt. Filene dine beholdes.",
       "errAgentMissing": "claude eller codex: command not found",
@@ -4977,7 +5197,8 @@
   "pricing": {
     "billingUnavailable": "Betaling er ikke tilgjengelig akkurat nå. Prøv igjen senere.",
     "signedOutNotice": "Du er ikke logget inn. Logg inn for å se gjeldende abonnement eller gjenopprette et eksisterende kjøp.",
-    "signedOutSignIn": "Logg inn"
+    "signedOutSignIn": "Logg inn",
+    "manageInAppStore": "Administrer i App Store"
   },
   "platforms": {
     "macos": "macOS",
@@ -5143,6 +5364,60 @@
     "signedOutTitle": "Logg inn for å godkjenne coderouter",
     "signedOutBody": "Et kommandolinjeprogram venter på at du logger inn. Logg inn med cmux-kontoen din for å fullføre tilkoblingen av denne terminalen. Hvis du ikke startet denne forespørselen, lukk denne siden.",
     "signInButton": "Logg inn"
+  },
+  "cmuxSignIn": {
+    "signInTitle": "Logg inn på cmux",
+    "signInSubtitle": "Én konto for appen, cloud og dashbordet.",
+    "signUpTitle": "Opprett cmux-kontoen din",
+    "signUpSubtitle": "Én konto for appen, cloud og dashbordet.",
+    "continueWithProvider": "Fortsett med {provider}",
+    "signInWithPasskey": "Logg inn med en passnøkkel",
+    "orContinueWith": "Eller fortsett med",
+    "emailLabel": "E-post",
+    "emailPlaceholder": "deg@firma.no",
+    "continueWithEmail": "Fortsett med e-post",
+    "emailCodeTab": "E-post",
+    "emailPasswordTab": "E-post og passord",
+    "passwordLabel": "Passord",
+    "repeatPasswordLabel": "Gjenta passord",
+    "signInButton": "Logg inn",
+    "createAccountButton": "Opprett konto",
+    "forgotPassword": "Glemt passordet?",
+    "noAccount": "Har du ikke en konto?",
+    "signUpLink": "Registrer deg",
+    "haveAccount": "Har du allerede en konto?",
+    "signInLink": "Logg inn",
+    "checkEmailTitle": "Sjekk e-posten din",
+    "checkEmailBody": "Skriv inn koden på 6 tegn som vi sendte til {email}.",
+    "codeLabel": "Kode",
+    "back": "Tilbake",
+    "resendCode": "Send koden på nytt",
+    "chooseAccountTitle": "Velg en konto",
+    "chooseAccountSubtitle": "for å fortsette til cmux",
+    "useAnotherAccount": "Bruk en annen konto",
+    "forgetAccount": "Fjern {account} fra denne listen",
+    "signedOut": "Logget ut",
+    "signingInAs": "Logger inn som {account}…",
+    "sessionEnded": "Denne kontoen er logget ut. Logg inn igjen for å fortsette.",
+    "redirecting": "Logger deg inn…",
+    "lastUsed": "sist brukt",
+    "legal": "Ved å fortsette godtar du {terms} og {privacy}.",
+    "termsOfService": "Vilkår for bruk",
+    "privacyPolicy": "Personvernerklæring",
+    "signUpDisabled": "Nye kontoer kan ikke opprettes akkurat nå.",
+    "noMethods": "Innlogging er ikke tilgjengelig akkurat nå. Prøv igjen senere.",
+    "embeddedDisabled": "Innloggingsknappene er slått av på innebygde sider. Åpne denne siden i en egen fane.",
+    "errorInvalidEmail": "Skriv inn en gyldig e-postadresse.",
+    "errorPasswordRequired": "Skriv inn passordet ditt.",
+    "errorPasswordTooShort": "Bruk minst {min} tegn.",
+    "errorPasswordTooLong": "Bruk maks {max} tegn.",
+    "errorPasswordsDontMatch": "Passordene samsvarer ikke.",
+    "errorWrongPassword": "E-post eller passord er feil.",
+    "errorInvalidCode": "Koden er ikke gyldig. Sjekk e-posten og prøv igjen.",
+    "errorInvalidTotp": "Tofaktorkoden er ikke gyldig.",
+    "errorSignUpNotAllowed": "Nye kontoer kan ikke opprettes akkurat nå.",
+    "errorPasskey": "Innlogging med passnøkkel ble ikke fullført. Prøv igjen eller bruk en annen metode.",
+    "errorGeneric": "Noe gikk galt. Prøv igjen."
   },
   "MobileRelease106": {
     "title": "Nytt i 1.0.6",

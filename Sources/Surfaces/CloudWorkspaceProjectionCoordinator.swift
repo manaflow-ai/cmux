@@ -43,6 +43,7 @@ final class CloudWorkspaceProjectionCoordinator {
             guard let self else { return }
             defer { if self.tasks[machine]?.id == id { self.tasks[machine] = nil } }
             guard let catalog else { return }
+            var budget = CloudWorkspaceReconcileBudget()
             while self.requested.remove(machine) != nil {
                 guard !Task.isCancelled, self.localMutations[machine] == nil else { return }
                 await catalog.cloudPlacementCoordinator.waitForPendingMutations()
@@ -51,10 +52,42 @@ final class CloudWorkspaceProjectionCoordinator {
                       let state = catalog.cloudStates[machine],
                       catalog.cloudStateObservations[machine]?.freshness == .current,
                       catalog.cloudPlacementCoordinator.allowsNativeReconciliation(state) else { return }
+                let progress = CloudWorkspaceReconcileBudget.Mark(
+                    state: state,
+                    projectionVersion: catalog.projectionVersions[machine, default: 0],
+                    bindings: self.environment.bindings().filter { $0.value.vmID == machine.rawValue }
+                )
+                guard budget.admit(progress) else {
+                    self.reportNonConvergence(machine: machine, state: state, budget: budget)
+                    return
+                }
                 await self.reconcile(state: state, catalog: catalog)
             }
         }
         tasks[machine] = CloudWorkspaceProjectionTask(id: id, task: task)
+    }
+
+    /// Daemon generation last reported per machine. A persistent re-requester
+    /// would otherwise report once for every graph revision.
+    private var reportedNonConvergence: [SurfaceMachineID: String] = [:]
+
+    /// Reports non-convergence once per daemon generation, so a trigger outside
+    /// this loop that keeps restarting it cannot flood crash reporting.
+    private func reportNonConvergence(machine: SurfaceMachineID, state: CloudVMState, budget: CloudWorkspaceReconcileBudget) {
+#if DEBUG
+        cmuxDebugLog("cloudWorkspace.projection.nonConvergent machine=\(machine.rawValue) passes=\(budget.passes) idle=\(budget.idlePasses)")
+#endif
+        let generation = state.cursor?.generation ?? ""
+        guard reportedNonConvergence[machine] != generation else { return }
+        reportedNonConvergence[machine] = generation
+        sentryCaptureWarning(
+            "Cloud workspace projection did not converge",
+            category: "cloud.projection",
+            data: [
+                "passes": budget.passes, "idlePasses": budget.idlePasses,
+                "generation": generation, "revision": state.cursor?.revision ?? 0,
+            ]
+        )
     }
 
     /// A bound mirror may not recreate a view that the accepted graph removed.
@@ -96,6 +129,7 @@ final class CloudWorkspaceProjectionCoordinator {
         tasks.removeValue(forKey: machine)?.task.cancel()
         requested.remove(machine)
         localMutations[machine] = nil
+        reportedNonConvergence[machine] = nil
         let bindings = environment.bindings()
         failures = failures.filter { bindings[$0.key]?.vmID != machine.rawValue }
     }
@@ -111,6 +145,7 @@ final class CloudWorkspaceProjectionCoordinator {
 
     private func reconcile(state: CloudVMState, catalog: SurfaceCatalog) async {
         let machine = state.machine
+        let completeness = CloudVMGraphCompleteness(state: state, resources: catalog.snapshot.resources(on: machine))
         for (workspaceID, binding) in environment.bindings() where binding.vmID == machine.rawValue {
             guard let remoteID = binding.remoteWorkspaceID else { continue }
             if catalog.cloudWorkspaceCreationCoordinator.isPending(localWorkspaceID: workspaceID) { continue }
@@ -123,6 +158,12 @@ final class CloudWorkspaceProjectionCoordinator {
             guard isCurrent(state, catalog: catalog) else {
                 if !Task.isCancelled { requested.insert(machine) }
                 return
+            }
+            // A move is a cross-workspace mutation. Do not let a complete source
+            // workspace retire the projection while the destination inventory is
+            // still incomplete and cannot reconcile the same tab yet.
+            guard completeness.isComplete() else {
+                continue
             }
             let group = try? catalog.remoteWorkspaceGroup(machine: machine, workspaceID: remoteID)
             let desired = (group?.placements ?? []).filter {
@@ -154,9 +195,11 @@ final class CloudWorkspaceProjectionCoordinator {
                     environment.close(projection)
                     catalog.endProjections(panelID: projection.panelID, reason: .replaced)
                 }
-                if let layout = catalog.cloudWorkspaceLayout(machine: machine, workspaceID: remoteID), !desired.isEmpty {
+                let daemonDesired = desired.filter { $0.remoteTabID != nil }
+                if let layout = catalog.cloudWorkspaceLayout(machine: machine, workspaceID: remoteID), !daemonDesired.isEmpty,
+                   Set(daemonDesired).isSubset(of: Set(layout.placements)) {
                     let live = catalog.projections.filter { $0.workspaceID == workspaceID && $0.resource.machine == machine }
-                    environment.applyLayout(workspaceID, layout.includingMissingPlacements(desired), Array(live))
+                    environment.applyLayout(workspaceID, layout, Array(live))
                 }
                 failures[workspaceID] = nil
             } catch is CancellationError {
@@ -168,5 +211,34 @@ final class CloudWorkspaceProjectionCoordinator {
         }
         let live = Set(environment.bindings().keys)
         failures = failures.filter { live.contains($0.key) }
+    }
+}
+
+/// Bounds reconciliation of one accepted graph. A pass that changes nothing
+/// (same graph, projections and bindings as the pass before) cannot make the
+/// next one different, so a few in a row mean a consumer is requesting passes
+/// without progress. The hard ceiling also stops a loop that rewrites the same
+/// projections every pass, which looks like progress.
+struct CloudWorkspaceReconcileBudget {
+    struct Mark: Equatable {
+        let state: CloudVMState
+        let projectionVersion: UInt64
+        let bindings: [UUID: WorkspaceCloudVMBinding]
+    }
+
+    static let maxIdlePasses = 3
+    static let maxPassesPerState = 64
+
+    private var last: Mark?
+    private(set) var passes = 0
+    private(set) var idlePasses = 0
+
+    /// Records the catalog before a pass; false means stop reconciling this graph.
+    mutating func admit(_ mark: Mark) -> Bool {
+        if last?.state != mark.state { passes = 0; idlePasses = 0 }
+        idlePasses = last == mark ? idlePasses + 1 : 0
+        passes += 1
+        last = mark
+        return idlePasses < Self.maxIdlePasses && passes <= Self.maxPassesPerState
     }
 }

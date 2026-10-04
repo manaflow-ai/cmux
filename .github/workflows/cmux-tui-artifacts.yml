@@ -89,6 +89,12 @@ jobs:
       macos_runner: ${{ inputs.macos_runner || vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
 
   publish:
+    # R2 upload credentials only. A commit-addressed cmux-tui build is not a
+    # production release: cmux-next pins daemon builds from helper branches.
+    # The artifacts environment's deployment branch policy allows main,
+    # feat-cmux-next and cmux-tui-pin-*; signing, Sparkle, Homebrew and Apple
+    # secrets stay in the release environment.
+    environment: artifacts
     name: publish to R2
     # PR runs of this workflow only validate the build; publishing is
     # main-push or manual dispatch.

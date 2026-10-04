@@ -55,6 +55,8 @@ final class SurfaceCatalog {
     @ObservationIgnored
     lazy var cloudWorkspaceCreationCoordinator = CloudWorkspaceCreationCoordinator(catalog: self)
     let cloudWorkspaceProjectionCoordinator: CloudWorkspaceProjectionCoordinator
+    /// Writes native Cloud arrangements back to the machine's layout document.
+    let cloudWorkspaceLayoutSyncCoordinator = CloudWorkspaceLayoutSyncCoordinator()
     /// Optimistic Cloud workspace deletes are catalog state so every sidebar and
     /// socket reader sees the same pending/tombstoned tree.
     let cloudWorkspaceDeletionLedger = CloudWorkspaceDeletionLedger()
@@ -280,7 +282,7 @@ final class SurfaceCatalog {
             resourceIDsByMachine[machine, default: []].insert(resource.id)
         }
         if let info { machines[machine] = machineInfoPreservingCanonicalCloudState(info) }
-        resolvePendingRestoredProjections(on: machine)
+        let restoredProjectionIDs = resolvePendingRestoredProjections(on: machine)
         syncCloudTerminalTabIcons(on: machine)
         updateCloudDirectoryMetadata(on: machine)
         reconcileDeviceNames(on: machine)
@@ -293,6 +295,7 @@ final class SurfaceCatalog {
             )
         }
         notifyChange(for: machine)
+        if !restoredProjectionIDs.isEmpty { providers[machine]?.projectionsRestored(resources: restoredProjectionIDs) }
         return true
     }
 
@@ -302,9 +305,10 @@ final class SurfaceCatalog {
         guard accepts(writeFor: resource.machine, from: source) else { return }
         resources[resource.id] = resource
         resourceIDsByMachine[resource.machine, default: []].insert(resource.id)
-        resolvePendingRestoredProjections(on: resource.machine)
+        let restoredProjectionIDs = resolvePendingRestoredProjections(on: resource.machine)
         syncCloudTerminalTabIcons(on: resource.machine, affected: [resource.id])
         notifyChange(for: resource.machine)
+        if !restoredProjectionIDs.isEmpty { providers[resource.machine]?.projectionsRestored(resources: restoredProjectionIDs) }
     }
 
     /// Remove a resource, optionally validating the provider that requested the mutation.
@@ -467,10 +471,11 @@ final class SurfaceCatalog {
         }
         machines[state.machine] = machineInfoPreservingCanonicalCloudState(info, state: state)
         cloudWorkspaceCreationCoordinator.reconcile(state)
-        resolvePendingRestoredProjections(on: state.machine)
+        let restoredProjectionIDs = resolvePendingRestoredProjections(on: state.machine)
         syncCloudTerminalTabIcons(on: state.machine, affected: changed)
         updateCloudDirectoryMetadata(on: state.machine, affectedResourceIDs: freshnessChanged ? nil : affectedResourceIDs)
         notifyChange(for: state.machine)
+        if !restoredProjectionIDs.isEmpty { providers[state.machine]?.projectionsRestored(resources: restoredProjectionIDs) }
         return changed
     }
 
@@ -510,10 +515,11 @@ final class SurfaceCatalog {
         }
         machines[state.machine] = machineInfoPreservingCanonicalCloudState(info, state: state)
         cloudWorkspaceCreationCoordinator.reconcile(state)
-        resolvePendingRestoredProjections(on: state.machine)
+        let restoredProjectionIDs = resolvePendingRestoredProjections(on: state.machine)
         syncCloudTerminalTabIcons(on: state.machine, affected: changed)
         updateCloudDirectoryMetadata(on: state.machine)
         notifyChange(for: state.machine)
+        if !restoredProjectionIDs.isEmpty { providers[state.machine]?.projectionsRestored(resources: restoredProjectionIDs) }
         return changed
     }
 
@@ -557,10 +563,11 @@ final class SurfaceCatalog {
         }
         rebuildResourceIndex(for: machine)
         machines[machine] = machineInfoPreservingCanonicalCloudState(info)
-        resolvePendingRestoredProjections(on: machine)
+        let restoredProjectionIDs = resolvePendingRestoredProjections(on: machine)
         syncCloudTerminalTabIcons(on: machine)
         updateCloudDirectoryMetadata(on: machine)
         notifyChange(for: machine)
+        if !restoredProjectionIDs.isEmpty { providers[machine]?.projectionsRestored(resources: restoredProjectionIDs) }
     }
 
     /// Rebuilds the machine reverse index after a cloud transaction. Cloud
@@ -720,7 +727,7 @@ final class SurfaceCatalog {
             provider.discardMaterialization(projection)
             throw CancellationError()
         }
-        record(projection)
+        recordMaterializedProjection(projection)
         return (projection, false)
     }
 
@@ -834,9 +841,9 @@ final class SurfaceCatalog {
             let returnedProjection: SurfaceProjection
             let ownsProjection: Bool
             if let registered = projections.first(where: { $0.panelID == projection.panelID && $0.resource == id }) {
-                // The pane bound its resource while the provider configured it. It is
-                // still this operation's pane: keep that record and finish placement
-                // (workspace membership, focus) exactly like a fresh materialization.
+                // The pane bound its resource while the provider configured it. It is still this
+                // operation's pane: finish placement exactly like a fresh materialization.
+                replayMaterializedCloudPlacement(registered)
                 returnedProjection = registered
                 ownsProjection = true
             } else if let existing = projections.first(where: {
@@ -848,7 +855,7 @@ final class SurfaceCatalog {
                 returnedProjection = existing
                 ownsProjection = false
             } else {
-                record(projection)
+                recordMaterializedProjection(projection)
                 returnedProjection = projection
                 ownsProjection = true
             }
@@ -1245,16 +1252,21 @@ final class SurfaceCatalog {
     }
 
     func setRemotePlacement(for source: SurfaceProjection, workspaceID: String?, tabID: String?) {
+        // Only views whose coordinates change; an unchanged placement notifies nobody.
         let matching = projections.filter {
             $0.resource == source.resource && ($0.panelID == source.panelID
                 || (tabID != nil && $0.remoteTabID == tabID))
+                && ($0.remoteWorkspaceID != workspaceID || $0.remoteTabID != tabID)
         }
+        guard !matching.isEmpty else { return }
+        var next = projections
         for var projection in matching {
-            projections.remove(projection)
+            next.remove(projection)
             projection.remoteWorkspaceID = workspaceID
             projection.remoteTabID = tabID
-            projections.insert(projection)
+            next.insert(projection)
         }
+        projections = next
         notifyChange(for: source.resource.machine)
     }
 
@@ -1264,23 +1276,20 @@ final class SurfaceCatalog {
     @discardableResult
     private func attachRemoteView(_ view: SurfaceRemoteView?, to projection: SurfaceProjection) -> SurfaceProjection {
         guard let view else { return projection }
-        if view.isCloudDisplayMembershipView {
-            guard projection.remoteTabID == nil else { return projection }
-            projections.remove(projection)
-            var updated = projection
-            updated.remoteWorkspaceID = view.workspace.id
-            updated.remoteTabID = nil
-            projections.insert(updated)
-            reconcileCloudWorkspaceBinding(localWorkspaceID: updated.workspaceID)
-            notifyChange(for: updated.resource.machine)
-            return updated
-        }
-        guard projection.remoteTabID == nil || projection.remoteTabID == view.tabID else { return projection }
-        projections.remove(projection)
+        // A display membership view attaches only to a tabless preview.
+        let tabID = view.isCloudDisplayMembershipView ? nil : view.tabID
+        guard projection.remoteTabID == nil || projection.remoteTabID == tabID else { return projection }
         var updated = projection
         updated.remoteWorkspaceID = view.workspace.id
-        updated.remoteTabID = view.tabID
-        projections.insert(updated)
+        updated.remoteTabID = tabID
+        // Reconcile reprojects through here. Rewriting unchanged coordinates
+        // would request the next reconcile of this machine, forever.
+        guard updated != projection else { return projection }
+        // One assignment, so observers never see the pane briefly unprojected.
+        var next = projections
+        next.remove(projection)
+        next.insert(updated)
+        projections = next
         reconcileCloudWorkspaceBinding(localWorkspaceID: updated.workspaceID)
         notifyChange(for: updated.resource.machine)
         return updated
@@ -1387,8 +1396,13 @@ final class SurfaceCatalog {
         }
     }
 
-    private func resolvePendingRestoredProjections(on machine: SurfaceMachineID) {
+    /// Resolves staged projections for a newly published resource graph and returns only
+    /// the resource IDs that became live, so providers can rebind those panes without a
+    /// full-machine reprojection scan.
+    @discardableResult
+    private func resolvePendingRestoredProjections(on machine: SurfaceMachineID) -> Set<SurfaceResourceID> {
         var resolvedWorkspaceIDs = Set<UUID>()
+        var resolvedResourceIDs = Set<SurfaceResourceID>()
         let resolved = pendingRestoredProjections.takeResolvable(
             machine: machine,
             availableResources: Set(resources.keys),
@@ -1397,10 +1411,12 @@ final class SurfaceCatalog {
         for projection in resolved {
             recordCloudProjection(cloudPlacementCoordinator.resolvingLocalPreviewMembership(projection))
             resolvedWorkspaceIDs.insert(projection.workspaceID)
+            resolvedResourceIDs.insert(projection.resource)
         }
         for workspaceID in resolvedWorkspaceIDs {
             reconcileCloudWorkspaceBinding(localWorkspaceID: workspaceID)
         }
+        return resolvedResourceIDs
     }
 
     /// Observers get at most one notification per main-runloop turn: a burst of upserts

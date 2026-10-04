@@ -244,6 +244,17 @@ enum DragOverlayRoutingPolicy {
         return hasFileURL(pasteboardTypes) || hasFilePreviewTransfer(pasteboardTypes)
     }
 
+    /// Whether a drop should get file behavior (insert path text or open a
+    /// preview) rather than move a tab. Internal tab transfers other than file
+    /// previews are tab moves: SwiftUI item-provider drags, such as a
+    /// right-sidebar tool, also publish file-promise types, and giving those
+    /// file behavior would insert text instead of splitting the pane. The file
+    /// overlay still forwards them, since those types register it as a target.
+    static func hasFileDropBehaviorPayload(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
+        guard hasFileDropPayload(pasteboardTypes) else { return false }
+        return hasFilePreviewTransfer(pasteboardTypes) || !hasBonsplitTabTransfer(pasteboardTypes)
+    }
+
     /// Returns whether a file drop payload is live rather than residual.
     ///
     /// Finder drops are identified by their file URL. File-preview drags also
@@ -337,7 +348,7 @@ enum DragOverlayRoutingPolicy {
         canDropAsText: Bool = true,
         defaultBehavior: FileDropDefaultBehavior = FileDropBehaviorSettings.behavior()
     ) -> FileDropResolvedBehavior? {
-        guard hasFileDropPayload(pasteboardTypes) else { return nil }
+        guard hasFileDropBehaviorPayload(pasteboardTypes) else { return nil }
         guard canDropAsText else { return .preview }
         let behavior = defaultBehavior.resolvedBehavior
         return modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.shift)
@@ -365,7 +376,7 @@ enum DragOverlayRoutingPolicy {
         canDropAsText: Bool = true,
         defaultBehavior: FileDropDefaultBehavior = FileDropBehaviorSettings.behavior()
     ) -> FileDropResolvedBehavior? {
-        guard hasFileDropPayload(pasteboardTypes) else { return nil }
+        guard hasFileDropBehaviorPayload(pasteboardTypes) else { return nil }
         guard canDropAsText else { return nil }
         guard !modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.shift) else { return nil }
         return defaultBehavior.resolvedBehavior.inverted

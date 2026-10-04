@@ -430,6 +430,28 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: NotificationPaneFlashSettings.enabledKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "paneFlashDoubleBlink",
+                settingsKey: "notifications.paneFlashDoubleBlink",
+                title: {
+                    String(localized: "settings.notifications.paneFlashDoubleBlink.title", defaultValue: "Double Blink")
+                },
+                sectionTitle: app,
+                keywords: ["notifications.paneFlashDoubleBlink", "pane", "flash", "double", "blink", "pulse"],
+                defaultValue: NotificationPaneFlashSettings.defaultDoubleBlink,
+                defaultsKey: NotificationPaneFlashSettings.doubleBlinkKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "paneFlashOnTyping",
+                settingsKey: "notifications.paneFlashOnTyping",
+                title: {
+                    String(localized: "settings.notifications.paneFlashOnTyping.title", defaultValue: "Flash While Typing")
+                },
+                sectionTitle: app,
+                keywords: ["notifications.paneFlashOnTyping", "pane", "flash", "typing", "notification"],
+                defaultValue: NotificationPaneFlashSettings.defaultOnTyping,
+                defaultsKey: NotificationPaneFlashSettings.onTypingKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "sendAnonymousTelemetry",
                 settingsKey: "app.sendAnonymousTelemetry",
                 title: {
@@ -857,6 +879,17 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "agentAutoResume",
+                settingsKey: "automation.agentAutoResume",
+                title: {
+                    String(localized: "settings.automation.agentAutoResume", defaultValue: "Auto-Resume Agents After Errors")
+                },
+                sectionTitle: automation,
+                keywords: ["automation.agentAutoResume", "auto", "resume", "continue", "retry", "capacity", "overloaded", "agent", "error"],
+                defaultValue: AutomationCatalogSection().agentAutoResume.defaultValue,
+                defaultsKey: AutomationCatalogSection().agentAutoResume.userDefaultsKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "cursorIntegration",
                 settingsKey: "automation.cursorIntegration",
                 title: {
@@ -991,7 +1024,7 @@ enum CommandPaletteSettingsToggleCommands {
                     SystemWideHotkeySettings.setEnabled(newValue, defaults: defaults)
                 }
             ),
-        ]
+        ] + [sidebarAgentUsageDescriptor(sectionTitle: sidebar, isAvailable: sidebarDetailsAvailable)]
     }()
 }
 

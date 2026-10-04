@@ -2,6 +2,7 @@ import { adminCount, loadTeamAccess, memberRole, type TeamAccess } from "./acces
 import { TeamApiError } from "./errors";
 import { TEAM_ADMIN_PERMISSION } from "./permissions";
 import { databaseTeamInviteStore, type TeamInviteStore, type TeamLockDb, withTeamAdminLock } from "./repository";
+import { defaultTeamSeatSync, type TeamSeatSync } from "./seatSync";
 import { defaultTeamStackApp, withStackDeadline, type TeamStackApp } from "./stack";
 import type { TeamRole } from "./types";
 
@@ -10,6 +11,7 @@ export type MemberMutationDependencies = {
   /** Runs the operation under the team's admin lock, handing it the lock's transaction when there is one. */
   readonly lock?: <T>(teamId: string, operation: (db?: TeamLockDb) => Promise<T>) => Promise<T>;
   readonly store?: TeamInviteStore;
+  readonly seats?: TeamSeatSync;
 };
 
 /**
@@ -88,4 +90,6 @@ export async function removeMember(
     await (dependencies.store ?? databaseTeamInviteStore).forgetLinkRedemptions(fresh.team.id, targetUserId, db);
     await withStackDeadline(() => fresh.team.removeUser(targetUserId));
   });
+  // Outside the admin lock: the seat fact is recorded after the membership write commits.
+  await (dependencies.seats ?? defaultTeamSeatSync).membershipChanged(access.team.id);
 }

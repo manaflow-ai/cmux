@@ -24,15 +24,19 @@ Sorted roughly by how little setup they need:
 | Help without building anything | [`needs-triage`](https://github.com/manaflow-ai/cmux/issues?q=is%3Aissue+is%3Aopen+label%3Aneeds-triage) |
 
 [`docs/triage.md`](triage.md) explains what those labels mean and who assigns
-them. Difficulty is a maintainer assessment of scope and coordination, while
-`good first issue` means the starting point and verification path are explicit.
-Some searches are still thin. The exception is `needs-triage`, which is around
-500 issues: the rules could not tell which part of cmux each one is about. Reading one, working out where it belongs,
-and saying so in a comment is useful and needs no Xcode.
+them. Difficulty is a maintainer's estimate of scope and coordination;
+`good first issue` means the starting point and how to verify it are written
+down. `needs-triage` holds around 500 issues the rules couldn't place. Reading
+one, working out where it belongs and saying so in a comment is useful and needs
+no Xcode.
 
-**Say on the issue that you are picking it up.** One comment. It stops two
-people writing the same patch, and it is how you find out early that an issue
-is waiting on a decision rather than on code.
+Skip anything labeled `needs a call`. That work is waiting on a maintainer
+decision about what cmux should do, not on code.
+
+**Say on the issue that you are picking it up, then start.** One comment is
+enough, and you don't need to wait for a reply. It stops two people writing the
+same patch. If someone already claimed it recently, pick something else or ask
+them. If you have to stop, say so on the issue so the next person can take it.
 
 If the issue is old, check whether it is still true on
 [NIGHTLY](https://github.com/manaflow-ai/cmux#nightly-builds) before you write
@@ -78,11 +82,13 @@ checks. Where you stop is a judgement call, and saying where you stopped is
 part of the pull request. "Compiles" and "I ran it" are different claims, and
 reviewers will treat them differently.
 
-You do not need a Mac build farm. When you open the pull request, CI runs the
-static checks and routes the Swift, package and tooling tests your diff actually
-touches, with no label and no request from you. The expensive full macOS suite is
-label-gated; a maintainer adds `full-ci` in the rare case a change needs those
-lanes, and it is not a merge requirement.
+**Don't let the app-host or UI tests block you.** They launch the app and need a
+disposable GUI session, and most contributors can't run them. Open the pull
+request anyway and say under Testing that you didn't. CI runs the static checks
+and routes the Swift, package, app-host and tooling tests your diff touches, with
+no label and no request from you. The full macOS suite is label-gated; a
+maintainer adds `full-ci` when a change needs it, and it is not a merge
+requirement.
 
 If checks do not start at all on your first pull request, they are waiting for a
 maintainer to approve a workflow run from a new contributor. That is a GitHub
@@ -107,6 +113,8 @@ two PRs, and the reformatting will slow down the fix.
 
 First time through you will also be asked to sign the
 [CLA](../CLA.md): one comment on your PR with the sentence the bot gives you.
+The check matches commit author emails to your GitHub account, so commit with an
+email linked to it.
 
 ## 5. What happens next
 
@@ -122,7 +130,12 @@ on it, comment on it and say so. That works better than opening a second one.
 To land, a change needs green CI, a review that has been answered, and no
 pending decision about what cmux should do. That last one is the usual reason
 a finished patch waits: if the question is "should cmux behave this way", a
-maintainer answers it before the code goes in.
+maintainer answers it before the code goes in, and the pull request gets the
+`needs a call` label until then.
+
+Merges are squash merges, so your title and description become the commit that
+ships. `main` is what NIGHTLY builds from, and when something lands broken we fix
+it forward, so a follow-up pull request is routine, not a reprimand.
 
 If we end up fixing the same thing another way, we credit you with a
 `Co-authored-by` trailer and link the fix from your PR.

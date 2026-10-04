@@ -263,6 +263,11 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
     // MARK: - Child popup tracking
 
+    /// This popup's web view and those of its nested popups.
+    var webViewsIncludingChildPopups: [WKWebView] {
+        [webView] + childPopups.flatMap(\.webViewsIncludingChildPopups)
+    }
+
     func addChildPopup(_ child: BrowserPopupWindowController) {
         childPopups.append(child)
     }

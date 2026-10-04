@@ -15,6 +15,32 @@ struct SidebarWorkspaceSnapshotFactory {
     let workspace: Workspace
     let settings: SidebarTabItemSettingsSnapshot
     let showsAgentActivity: Bool
+    let catalog: SurfaceCatalog
+
+    /// Builds snapshots from the app's shared surface catalog.
+    @MainActor
+    init(workspace: Workspace, settings: SidebarTabItemSettingsSnapshot, showsAgentActivity: Bool) {
+        self.init(
+            workspace: workspace,
+            settings: settings,
+            showsAgentActivity: showsAgentActivity,
+            catalog: SurfaceCatalog.shared
+        )
+    }
+
+    /// Builds snapshots from an explicit catalog, including isolated test catalogs.
+    @MainActor
+    init(
+        workspace: Workspace,
+        settings: SidebarTabItemSettingsSnapshot,
+        showsAgentActivity: Bool,
+        catalog: SurfaceCatalog
+    ) {
+        self.workspace = workspace
+        self.settings = settings
+        self.showsAgentActivity = showsAgentActivity
+        self.catalog = catalog
+    }
 
     /// Creates the current immutable presentation snapshot for the workspace row.
     func makeSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {
@@ -26,7 +52,14 @@ struct SidebarWorkspaceSnapshotFactory {
         let showsBranchDirectoryRows = detailVisibility.showsBranchDirectory && !settings.compactsAgentStatus
         let showsPullRequestRows = detailVisibility.showsPullRequests && !settings.compactsAgentStatus
         let orderedPanelIds = workspace.sidebarOrderedPanelIds()
-        let cloud = CloudWorkspaceSidebarPresentation(workspace: workspace, orderedPanelIDs: orderedPanelIds, usesLastSegmentPath: settings.usesLastSegmentPath)
+        let cloud = CloudWorkspaceSidebarPresentation(
+            workspace: workspace,
+            orderedPanelIDs: orderedPanelIds,
+            usesLastSegmentPath: settings.usesLastSegmentPath,
+            catalog: catalog
+        )
+        let hasCloudProjection = workspace.cloudVMID != nil
+            || workspace.cloudBindingState.projectedResources.values.contains { $0.machine.cloudMachineID != nil }
         let taskStatusInput = SidebarWorkspaceTaskStatusSnapshot.capture(workspace: workspace, orderedPanelIds: orderedPanelIds)
         let compactGitBranchSummaryText: String? = {
             guard showsBranchDirectoryRows,
@@ -41,7 +74,7 @@ struct SidebarWorkspaceSnapshotFactory {
                   settings.branchDirectory.branchLayout == .inline else {
                 return []
             }
-            return cloud?.directoryCandidates ?? compactDirectoryCandidatesList(orderedPanelIds: orderedPanelIds)
+            return cloud?.directoryCandidates ?? (hasCloudProjection ? [] : compactDirectoryCandidatesList(orderedPanelIds: orderedPanelIds))
         }()
         let compactBranchDirectoryCandidates = compactBranchDirectoryCandidatesList(
             gitSummary: compactGitBranchSummaryText,
@@ -53,6 +86,7 @@ struct SidebarWorkspaceSnapshotFactory {
                 return []
             }
             if let cloud { return [.init(branch: nil, directoryCandidates: cloud.directoryCandidates)] }
+            if hasCloudProjection { return [] }
             return verticalBranchDirectoryLines(orderedPanelIds: orderedPanelIds)
         }()
         let pullRequestRows: [SidebarWorkspaceSnapshotBuilder.PullRequestDisplay] = {
@@ -95,7 +129,7 @@ struct SidebarWorkspaceSnapshotFactory {
                 // The directory toggle itself, like the branch and PR ones, so
                 // the tooltip keeps it under Hide All Details.
                 directory: settings.details.showBranchDirectory
-                    ? (cloud?.directoryCandidates ?? compactDirectoryCandidatesList(orderedPanelIds: orderedPanelIds)).first
+                    ? (cloud?.directoryCandidates ?? (hasCloudProjection ? [] : compactDirectoryCandidatesList(orderedPanelIds: orderedPanelIds))).first
                     : nil,
                 orderedPanelIds: orderedPanelIds
             ))
@@ -116,7 +150,20 @@ struct SidebarWorkspaceSnapshotFactory {
                     || workspace.remoteConnectionState == .disconnected),
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: workspace.latestConversationMessage,
-            metadataEntries: detailVisibility.showsMetadata ? statusEntries.rows : [],
+            // `SidebarAgentUsageFormatter()` reads `Locale.current`, so it is
+            // built only when usage is actually shown; this runs for every row
+            // on every sidebar rebuild. Decorates `statusEntries.rows` rather
+            // than the unpartitioned list so compact status still folds the
+            // agent rows away: with compaction on, the folded agent entries
+            // carry no usage text because they are no longer rows.
+            metadataEntries: detailVisibility.showsMetadata
+                ? (detailVisibility.showsAgentUsage
+                    ? SidebarAgentUsageFormatter().decorate(
+                        statusEntries.rows,
+                        usageByStatusKey: workspace.sidebarMetadata.agentUsageByStatusKey
+                    )
+                    : statusEntries.rows)
+                : [],
             metadataBlocks: detailVisibility.showsMetadata
                 ? workspace.sidebarMetadataBlocksInDisplayOrder()
                 : [],

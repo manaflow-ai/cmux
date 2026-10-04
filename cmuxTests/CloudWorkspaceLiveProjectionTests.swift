@@ -14,8 +14,14 @@ import WebKit
 struct CloudWorkspaceLiveProjectionTests {
     private let machine = SurfaceMachineID.cloud("live-fixture")
 
-    private func graph(_ placement: [String: String], revision: Int, generation: String = "live") throws -> CloudVMState {
+    private func graph(
+        _ placement: [String: String],
+        revision: Int,
+        generation: String = "live",
+        contentIDs: [String: String] = [:]
+    ) throws -> CloudVMState {
         let tabs = placement.keys.sorted()
+        let terminalIDs = Set(tabs.map { contentIDs[$0] ?? ($0 == "third" ? "term_other" : "term_shared") }).sorted()
         let document: [String: Any] = [
             "cursor": ["generation": generation, "revision": String(revision)],
             "workspaces": ["a", "b"].enumerated().map { ["id": $0.element, "name": "Workspace " + $0.element, "index": $0.offset] as [String: Any] },
@@ -26,20 +32,29 @@ struct CloudWorkspaceLiveProjectionTests {
             "panes": ["a", "b"].map { ["id": "pane_" + $0, "screen_id": "screen_" + $0] },
             "tabs": tabs.enumerated().map { index, id in
                 ["id": id, "pane_id": "pane_" + placement[id]!, "name": "Name " + id, "index": index,
-                 "content_kind": "terminal", "content_id": id == "third" ? "term_other" : "term_shared"] as [String: Any]
+                 "content_kind": "terminal", "content_id": contentIDs[id] ?? (id == "third" ? "term_other" : "term_shared")] as [String: Any]
             },
-            "terminals": ["term_shared", "term_other"].map { ["id": $0, "title": "Process " + $0, "lifecycle": "running"] },
+            "terminals": terminalIDs.map { ["id": $0, "title": "Process " + $0, "lifecycle": "running"] },
             "browsers": [], "agents": []
         ]
         return try #require(CmuxTuiSnapshotParser.state(fromSnapshot: document, machine: machine))
     }
 
-    private func install(_ state: CloudVMState, catalog: SurfaceCatalog, extraResources: [SurfaceResource] = []) {
+    private func install(
+        _ state: CloudVMState,
+        catalog: SurfaceCatalog,
+        extraResources: [SurfaceResource] = [],
+        resourceOverride: [SurfaceResource]? = nil
+    ) {
         let info = SurfaceMachineInfo(id: machine, name: "Fixture", status: "running", image: nil, hasDesktop: false,
             memoryMb: nil, diskMb: nil, linkState: .connected, linkError: nil,
             cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil,
             remoteWorkspaces: state.workspaces.map { SurfaceRemoteWorkspace(id: $0.id, name: $0.name, index: $0.index, focused: $0.focused) })
-        catalog.replaceCloudState(state, resources: CmuxTuiSnapshotParser.resources(from: state) + extraResources, info: info)
+        catalog.replaceCloudState(
+            state,
+            resources: resourceOverride ?? (CmuxTuiSnapshotParser.resources(from: state) + extraResources),
+            info: info
+        )
         catalog.reconcileCloudRemoteState(machine: machine, state: state)
     }
 
@@ -221,6 +236,103 @@ struct CloudWorkspaceLiveProjectionTests {
         #expect(catalog.projections == [native])
     }
 
+    @Test("A partial resource inventory does not retire a live Cloud projection")
+    func partialResourceInventoryDoesNotRetireProjection() async throws {
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let workspace = live.add()
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let firstPanel = try #require(workspace.focusedPanelId)
+        let missingPanel = try #require(workspace.newTerminalSurface(inPane: pane, focus: false)?.id)
+        let binding = WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "a")
+        var closed: [SurfaceProjection] = []
+        let coordinator = CloudWorkspaceProjectionCoordinator(environment: .init(
+            bindings: { [workspace.id: binding] }, close: { closed.append($0) }
+        ))
+        let catalog = SurfaceCatalog(
+            live: live,
+            cloudPlacementCoordinator: CloudPlacementCoordinator(binding: { _ in binding }),
+            cloudWorkspaceProjectionCoordinator: coordinator
+        )
+        catalog.register(CloudPlacementTestProvider(machine: machine))
+        let firstResource = SurfaceResourceID(machine: machine, kind: .terminal, key: "term_shared")
+        let missingResource = SurfaceResourceID(machine: machine, kind: .terminal, key: "term_missing")
+        catalog.record(SurfaceProjection(
+            resource: firstResource, workspaceID: workspace.id, panelID: firstPanel,
+            remoteWorkspaceID: "a", remoteTabID: "first"
+        ))
+        catalog.record(SurfaceProjection(
+            resource: missingResource, workspaceID: workspace.id, panelID: missingPanel,
+            remoteWorkspaceID: "a", remoteTabID: "missing"
+        ))
+        let state = try graph(
+            ["first": "a", "missing": "a"], revision: 1,
+            contentIDs: ["missing": "term_missing"]
+        )
+        let resources = CmuxTuiSnapshotParser.resources(from: state).filter { $0.id != missingResource }
+        install(state, catalog: catalog, resourceOverride: resources)
+        await coordinator.waitForIdle()
+        #expect(closed.isEmpty)
+        #expect(catalog.projection(forPanel: missingPanel)?.remoteTabID == "missing")
+
+        var missingViewResources = CmuxTuiSnapshotParser.resources(from: state)
+        let missingIndex = try #require(missingViewResources.firstIndex { $0.id == missingResource })
+        missingViewResources[missingIndex].remoteViews = []
+        install(state, catalog: catalog, resourceOverride: missingViewResources)
+        await coordinator.waitForIdle()
+        #expect(closed.isEmpty)
+        #expect(catalog.projection(forPanel: missingPanel)?.remoteTabID == "missing")
+
+        // A subsequent complete graph may deliberately close the other view.
+        install(try graph(["first": "a"], revision: 2), catalog: catalog)
+        await coordinator.waitForIdle()
+        #expect(closed.map(\.panelID) == [missingPanel])
+        #expect(catalog.projection(forPanel: missingPanel) == nil)
+
+    }
+
+    @Test("An incomplete destination inventory does not retire a moved projection")
+    func incompleteDestinationInventoryPreservesSourceProjection() async throws {
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let source = live.add()
+        let destination = live.add()
+        let bindings = [
+            source.id: WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "a"),
+            destination.id: WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "b")
+        ]
+        var closed: [SurfaceProjection] = []
+        let coordinator = CloudWorkspaceProjectionCoordinator(environment: .init(
+            bindings: { bindings }, close: { closed.append($0) }
+        ))
+        let catalog = SurfaceCatalog(
+            live: live,
+            cloudPlacementCoordinator: CloudPlacementCoordinator(binding: { bindings[$0] }),
+            cloudWorkspaceProjectionCoordinator: coordinator
+        )
+        catalog.register(CloudPlacementTestProvider(machine: machine))
+
+        install(try graph(["first": "a"], revision: 1), catalog: catalog)
+        await coordinator.waitForIdle()
+        let sourceProjection = try #require(catalog.projections.first { $0.remoteTabID == "first" })
+
+        let moved = try graph(["first": "b"], revision: 2)
+        var incompleteResources = CmuxTuiSnapshotParser.resources(from: moved)
+        let terminalIndex = try #require(incompleteResources.firstIndex { $0.id.kind == .terminal })
+        incompleteResources[terminalIndex].remoteViews = []
+        install(moved, catalog: catalog, resourceOverride: incompleteResources)
+        await coordinator.waitForIdle()
+
+        #expect(closed.isEmpty)
+        #expect(catalog.projection(forPanel: sourceProjection.panelID)?.workspaceID == source.id)
+        #expect(catalog.projection(forPanel: sourceProjection.panelID)?.remoteWorkspaceID == "a")
+
+        install(moved, catalog: catalog)
+        await coordinator.waitForIdle()
+        #expect(catalog.projection(forPanel: sourceProjection.panelID) == nil)
+        #expect(catalog.projections.contains { $0.remoteTabID == "first" && $0.workspaceID == destination.id })
+    }
+
     @Test("Opening one remote terminal repeatedly reuses its exact local projection")
     func openingOneTerminalRepeatedlyReusesProjection() async throws {
         let live = LiveWorkspaceFixture()
@@ -260,6 +372,89 @@ struct CloudWorkspaceLiveProjectionTests {
         #expect(second.reused)
         #expect(first.projection == second.projection)
         #expect(catalog.projections == [first.projection])
+    }
+
+    /// Reconcile reprojects through `project`, so a reuse that rewrites unchanged
+    /// coordinates would request its own next pass and spin the main actor.
+    @Test("Reusing a projection at its current placement changes nothing")
+    func reusingCurrentPlacementIsNoOp() async throws {
+        let fixture = boundWorkspaceFixture()
+        defer { fixture.workspace.teardownAllPanels() }
+        let catalog = fixture.catalog
+        catalog.register(CloudPlacementTestProvider(machine: machine))
+        install(try graph(["first": "a"], revision: 1), catalog: catalog)
+        await fixture.coordinator.waitForIdle()
+        let projection = try #require(catalog.projections.first { $0.workspaceID == fixture.workspace.id })
+        #expect(projection.remoteWorkspaceID == "a" && projection.remoteTabID == "first")
+        let view = try #require(try catalog.remoteView(for: projection.resource, tabID: projection.remoteTabID, workspaceID: "a"))
+        let version = catalog.projectionVersions[machine]
+
+        let reused = try await catalog.project(
+            projection.resource, into: .workspace(id: fixture.workspace.id, placement: .tab),
+            focus: false, reuseExisting: true, reuseInWorkspace: fixture.workspace.id, remoteView: view
+        )
+
+        #expect(reused.reused)
+        #expect(reused.projection == projection)
+        #expect(catalog.projectionVersions[machine] == version)
+    }
+
+    /// Any consumer that requests another pass without changing the graph (the
+    /// nightly b36a9b3 livelock) must end in a bounded number of passes.
+    @Test("Reconciling one graph stops when every pass requests another")
+    func reconcileOfOneGraphIsBounded() async throws {
+        let fixture = boundWorkspaceFixture()
+        defer { fixture.workspace.teardownAllPanels() }
+        let catalog = fixture.catalog
+        let coordinator = fixture.coordinator
+        let machine = self.machine
+        var passes = 0
+        coordinator.environment.applyLayout = { [unowned catalog, unowned coordinator] _, _, _ in
+            passes += 1
+            if passes < 1_000 { coordinator.request(machine: machine, catalog: catalog) }
+        }
+        catalog.register(CloudPlacementTestProvider(machine: machine))
+        install(try graph(["first": "a"], revision: 1), catalog: catalog)
+        await coordinator.waitForIdle()
+
+        #expect(passes > 0, "The fixture must reach the layout step")
+        #expect(passes <= CloudWorkspaceReconcileBudget.maxIdlePasses + 2)
+        #expect(catalog.projections.contains { $0.workspaceID == fixture.workspace.id && $0.remoteTabID == "first" })
+    }
+
+    /// The nightly b36a9b3 shape: every pass rewrote the same projection, which
+    /// advances the projection revision and so looks like progress.
+    @Test("Reconciling one graph stops when every pass rewrites projections and requests another")
+    func reconcileThatOnlyLooksBusyIsBounded() async throws {
+        let fixture = boundWorkspaceFixture()
+        defer { fixture.workspace.teardownAllPanels() }
+        let catalog = fixture.catalog
+        let coordinator = fixture.coordinator
+        let machine = self.machine
+        var passes = 0
+        coordinator.environment.applyLayout = { [unowned catalog, unowned coordinator] _, _, _ in
+            passes += 1
+            catalog.projectionVersions[machine, default: 0] &+= 1
+            if passes < 1_000 { coordinator.request(machine: machine, catalog: catalog) }
+        }
+        catalog.register(CloudPlacementTestProvider(machine: machine))
+        install(try graph(["first": "a"], revision: 1), catalog: catalog)
+        await coordinator.waitForIdle()
+
+        #expect(passes > 0, "The fixture must reach the layout step")
+        #expect(passes <= CloudWorkspaceReconcileBudget.maxPassesPerState)
+    }
+
+    @Test("A reconcile that keeps making progress is not cut short by the idle limit")
+    func progressingPassesStayAdmitted() throws {
+        let state = try graph(["first": "a"], revision: 1)
+        var budget = CloudWorkspaceReconcileBudget()
+        for version in 0..<UInt64(CloudWorkspaceReconcileBudget.maxPassesPerState) {
+            if !budget.admit(.init(state: state, projectionVersion: version, bindings: [:])) { Issue.record("progressing pass was unexpectedly rejected") }
+        }
+        if budget.admit(.init(state: state, projectionVersion: 1_000, bindings: [:])) { Issue.record("exhausted pass was unexpectedly admitted") }
+        let next = try graph(["first": "a"], revision: 2)
+        if !budget.admit(.init(state: next, projectionVersion: 1_000, bindings: [:])) { Issue.record("a new graph did not start a new budget") }
     }
 
     @Test("Lifecycle cancellation is not retained as a projection failure")
@@ -458,5 +653,32 @@ struct CloudWorkspaceLiveProjectionTests {
             existing: catalog.projections.filter { $0.workspaceID == fixture.workspace.id }
         )
         #expect(plan.obsolete.isEmpty, "A local preview with its bound workspace is not obsolete")
+    }
+
+    @Test("A membership-less preview does not block a second bound workspace", arguments: [false, true])
+    func membershiplessPreviewDoesNotBlockSecondWorkspace(isPort: Bool) async throws {
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let first = live.id()
+        let second = live.id()
+        let binding = WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "a")
+        let bindings = [first: binding, second: binding]
+        let coordinator = CloudWorkspaceProjectionCoordinator(environment: .init(bindings: { bindings }))
+        let placement = CloudPlacementCoordinator(binding: { bindings[$0] })
+        let catalog = SurfaceCatalog(live: live, cloudPlacementCoordinator: placement, cloudWorkspaceProjectionCoordinator: coordinator)
+        catalog.register(CloudPlacementTestProvider(machine: machine))
+        let preview = isPort
+            ? CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 6969)
+            : CmuxTuiSnapshotParser.display(machine: machine)
+
+        install(try graph(["first": "a"], revision: 1), catalog: catalog, extraResources: [preview])
+        catalog.record(SurfaceProjection(
+            resource: preview.id, workspaceID: first, panelID: UUID(), remoteWorkspaceID: "a"
+        ))
+        coordinator.request(machine: machine, catalog: catalog)
+        await coordinator.waitForIdle()
+
+        #expect(coordinator.failures[second] == nil)
+        #expect(catalog.projections.contains { $0.resource == preview.id && $0.workspaceID == second })
     }
 }

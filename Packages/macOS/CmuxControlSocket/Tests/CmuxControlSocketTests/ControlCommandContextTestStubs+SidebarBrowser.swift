@@ -58,7 +58,8 @@ extension ControlSidebarContext {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        workState: ControlSidebarAgentWorkState?
     ) {}
 
     nonisolated func controlSidebarScheduleStatusClear(
@@ -144,6 +145,19 @@ extension ControlSidebarContext {
     func controlSidebarClearGitBranch(tabArg: String?) -> Bool { false }
 
     nonisolated func controlSidebarIsValidPullRequestState(_ raw: String) -> Bool { false }
+
+    nonisolated func controlSidebarManualPullRequestError(invalidTarget: Bool) -> String { "ERROR: invalid handoff" }
+
+    func controlSidebarAttachManualPullRequest(
+        tabArg: String?,
+        number: Int,
+        label: String,
+        url: URL,
+        statusRawValue: String,
+        branch: String?
+    ) -> Bool { false }
+
+    func controlSidebarClearManualPullRequest(tabArg: String?) -> Bool { false }
 
     nonisolated func controlSidebarSchedulePanelPullRequestUpdate(
         target: ControlSidebarPanelMutationTarget,
@@ -234,7 +248,7 @@ extension ControlSidebarContext {
         .noTabSelected
     }
 
-    func controlSidebarCloseSurface(surfaceArg: String?) -> ControlSidebarCloseSurfaceResolution { .noTabSelected }
+    func controlSidebarCloseSurface(surfaceArg: String?, force: Bool) -> ControlSidebarCloseSurfaceResolution { .noTabSelected }
 
     func controlSidebarReloadConfig(
         completion: @escaping @MainActor () -> Void
