@@ -43,7 +43,10 @@ describe("CloudStore", () => {
     const { store } = await started(provider);
     await store.signIn();
     await settle();
-    expect(ops(provider, CloudOps.authSignIn).length).toBe(1);
+    expect(ops(provider, CloudOps.authSignIn)).toEqual([]);
+    expect(ops(provider, ACTION_RUN).map((call) => (call.params as { action: string }).action)).toEqual([
+      CloudOps.authSignIn,
+    ]);
     expect(store.getSnapshot().auth?.signed_in).toBe(true);
     expect(store.getSnapshot().rows.length).toBe(sampleMachines().length);
   });
@@ -205,5 +208,74 @@ describe("CloudStore", () => {
       action: CloudOps.machineConnect,
       args: { machine: sampleMachines()[0].id },
     });
+  });
+});
+
+describe("CloudStore lifecycle and settlement (review fixes)", () => {
+  test("subscribe, unsubscribe, subscribe (StrictMode) leaves one watch; the last unsubscribe closes it", async () => {
+    const provider = new MockCloudProvider();
+    const store = new CloudStore(provider, { newKey: () => "k" });
+    store.subscribe(() => undefined)();
+    const unsubscribe = store.subscribe(() => undefined);
+    await settle();
+    await settle();
+    expect(provider.watchers).toBe(1);
+    expect(store.getSnapshot().rows.length).toBe(sampleMachines().length);
+    unsubscribe();
+    expect(provider.watchers).toBe(0);
+  });
+
+  test("an event during the first list is merged by revision", async () => {
+    const provider = new MockCloudProvider();
+    provider.onList = () =>
+      provider.emitUpsert({ id: "vm-during", provider: "freestyle", status: "running", display_name: "during" });
+    const { store } = await started(provider);
+    expect(store.getSnapshot().rows.map((row) => row.id)).toContain("vm-during");
+  });
+
+  test("two quick team switches leave one watch and the last team's list", async () => {
+    const { provider, store } = await started();
+    await Promise.all([store.selectTeam("team-acme"), store.selectTeam("team-personal")]);
+    await settle();
+    expect(provider.watchers).toBe(1);
+  });
+
+  test("an echo the owner normalized still settles the intent", async () => {
+    const { provider, store } = await started();
+    provider.renameTransform = (name) => name.toUpperCase();
+    await store.rename(sampleMachines()[0].id, "renamed");
+    await settle();
+    expect(store.getSnapshot().pending).toEqual([]);
+    expect(store.getSnapshot().rows[0].title).toBe("RENAMED");
+  });
+
+  test("an answered intent settles on the machine's next event, whatever its value", async () => {
+    const provider = new MockCloudProvider({ holdEvents: true });
+    const { store } = await started(provider);
+    provider.renameTransform = (name) => `${name}-x`;
+    await store.rename(sampleMachines()[0].id, "held");
+    expect(store.getSnapshot().pending.map((intent) => intent.kind)).toEqual(["rename"]);
+    provider.releaseEvents();
+    await settle();
+    expect(store.getSnapshot().pending).toEqual([]);
+  });
+
+  test("retry after a disconnect reconnects and refetches", async () => {
+    const { provider, store } = await started();
+    provider.offline = true;
+    await store.pause(sampleMachines()[0].id);
+    expect(store.getSnapshot().connection).toBe("disconnected");
+    provider.offline = false;
+    await store.retry();
+    await settle();
+    expect(store.getSnapshot().connection).toBe("connected");
+    expect(provider.watchers).toBe(1);
+  });
+
+  test("an unknown status from the owner shows as unknown", async () => {
+    const { provider, store } = await started();
+    provider.emitUpsert({ ...sampleMachines()[0], status: "hibernating" as never });
+    await settle();
+    expect(store.getSnapshot().rows[0].status).toBe("unknown");
   });
 });
