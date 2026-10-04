@@ -52,10 +52,7 @@ pub(super) async fn check(
     m: &str,
     params: &mut Value,
 ) -> Result<(), RpcError> {
-    let _ = hub; // RED: no F1-F4 rules yet.
-    if origin == super::Origin::Web {
-        web_only(m, params)?;
-    }
+    let web = origin == super::Origin::Web;
     // Which machines this daemon reaches with the user's ssh keys and
     // tokens changes over the unix socket only (LocalApp included).
     if matches!(m, "_acpmux/peer_add" | "_acpmux/peer_remove") {
@@ -84,6 +81,10 @@ pub(super) async fn check(
             return Err(refused("an import from outside acpmux's bundle directory"));
         }
     }
+    if web {
+        web_only(m, params)?;
+        web_starts_asking(hub, m, params).await?;
+    }
     let folders = matches!(
         m,
         method::SESSION_NEW
@@ -93,10 +94,22 @@ pub(super) async fn check(
             | method::ACP_TRUST_SET
     );
     if folders {
+        // A Web folder must also sit inside a root (`web_roots`); LocalApp
+        // keeps the native relay's pane roots (no daemon root check).
+        let roots = if web { Some(web_roots(hub).await) } else { None };
+        let inside = |c: &str| {
+            roots.as_ref().is_none_or(|r| r.iter().any(|root| Path::new(c).starts_with(root)))
+        };
         if let Some(cwd) = params.get("cwd").filter(|v| !v.is_null()) {
             let cwd = cwd.as_str().ok_or_else(|| folder_refused("cwd"))?;
             let canonical = canonical_dir(cwd).await.ok_or_else(|| folder_refused("cwd"))?;
+            if !inside(&canonical) {
+                return Err(outside_roots("cwd"));
+            }
             params["cwd"] = Value::String(canonical);
+        } else if web && m == method::SESSION_NEW {
+            // An absent cwd means the home directory, which is never a root.
+            return Err(outside_roots("cwd"));
         }
         if let Some(dirs) = params.get("additionalDirectories").filter(|v| !v.is_null()) {
             let list = dirs.as_array().ok_or_else(|| folder_refused("additionalDirectories"))?;
@@ -106,6 +119,9 @@ pub(super) async fn check(
                 let c = canonical_dir(d)
                     .await
                     .ok_or_else(|| folder_refused("additionalDirectories"))?;
+                if !inside(&c) {
+                    return Err(outside_roots("additionalDirectories"));
+                }
                 out.push(Value::String(c));
             }
             params["additionalDirectories"] = Value::Array(out);
@@ -156,6 +172,33 @@ fn web_only(m: &str, params: &Value) -> Result<(), RpcError> {
         Some(_) => false,
     };
     let policy_refused = || refused("a permission policy other than ask or deny-all");
+    if m == method::SESSION_NEW
+        && MODE_FIELDS.iter().any(|f| {
+            params.get(*f).is_some() || params.pointer(&format!("/_meta/acpmux/{f}")).is_some()
+        })
+    {
+        return Err(refused("a mode at session start"));
+    }
+    // Defaults and preset writes: only the fields known not to shape what
+    // runs without asking (no `mode`, `env`, `args`, unknown fields).
+    let set_keys: &[&str] = match m {
+        method::MUX_DEFAULTS => &["model", "effort", "policy", "prefer"],
+        method::MUX_PRESETS => &["harness", "model", "effort", "policy", "description"],
+        _ => &["*"],
+    };
+    if set_keys != ["*"]
+        && let Some(set) = params.get("set").and_then(Value::as_object)
+        && set.keys().any(|k| !set_keys.contains(&k.as_str()))
+    {
+        return Err(refused("this defaults or preset field"));
+    }
+    if m == method::MUX_WARM
+        && params
+            .as_object()
+            .is_some_and(|o| o.keys().any(|k| !matches!(k.as_str(), "sessionIds" | "limit")))
+    {
+        return Err(refused("this warm field"));
+    }
     match m {
         method::SESSION_NEW
             if !policy_ok(params.get("policy"))
@@ -201,6 +244,76 @@ fn web_only(m: &str, params: &Value) -> Result<(), RpcError> {
     }
 }
 
+/// Harness modes known to skip the harness's own asks. A Web request never
+/// loads, resumes, forks or hands off from a session in one of them; this is
+/// a deny list on purpose: an allow list here would lock the Web out of every
+/// session whose harness starts in its own default mode (a Web connection
+/// still only SETS modes from `ASKING_MODES`).
+const KNOWN_PERMISSIVE_MODES: &[&str] =
+    &["bypassPermissions", "acceptEdits", "dontAsk", "yolo", "full-access", "auto"];
+
+fn asking_policy(p: crate::config::PermissionPolicy) -> bool {
+    matches!(p, crate::config::PermissionPolicy::Ask | crate::config::PermissionPolicy::DenyAll)
+}
+
+/// What a Web request starts from must ask:
+/// - session/new with no policy runs with `ask`, never the daemon default or
+///   a preset's or a family default's policy (an explicit policy wins over
+///   both in `new_session`);
+/// - fork, load, resume and a handoff are REFUSED (not downgraded) when the
+///   source session's effective policy skips asking or its mode is a known
+///   permissive one: a downgrade could not reach a mode held inside the
+///   harness, which a fork copies.
+async fn web_starts_asking(
+    hub: &std::sync::Arc<crate::hub::Hub>,
+    m: &str,
+    params: &mut Value,
+) -> Result<(), RpcError> {
+    if m == method::SESSION_NEW
+        && params.get("policy").is_none_or(Value::is_null)
+        && params.pointer("/_meta/acpmux/policy").is_none_or(Value::is_null)
+    {
+        params["policy"] = Value::String("ask".into());
+    }
+    let copies = matches!(
+        m,
+        method::SESSION_FORK
+            | method::SESSION_LOAD
+            | method::SESSION_RESUME
+            | method::MUX_HANDOFF_PREPARE
+    );
+    let key = params.get("sessionId").and_then(Value::as_str);
+    if let (true, Some(key)) = (copies, key)
+        && let Ok(s) = hub.resolve(key)
+    {
+        let meta = s.meta();
+        let default = hub.config.read().await.permission_policy;
+        let policy =
+            meta.permission_policy.as_deref().and_then(|p| p.parse().ok()).unwrap_or(default);
+        let mode = meta.modes.as_ref().and_then(|v| v.get("currentModeId")).and_then(Value::as_str);
+        if !asking_policy(policy) || mode.is_some_and(|x| KNOWN_PERMISSIVE_MODES.contains(&x)) {
+            return Err(RpcError::invalid_params(format!(
+                "{m} from a remote WebSocket connection is refused: the session's policy or mode does not ask"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Fields a Web request may not carry: they could set a mode or a sandbox
+/// that acpmux does not check.
+const MODE_FIELDS: &[&str] = &[
+    "modeId",
+    "mode",
+    "permissionMode",
+    "permission_mode",
+    "approvalPolicy",
+    "approval_policy",
+    "sandbox",
+    "sandboxMode",
+    "sandbox_mode",
+];
+
 /// Rules a Web connection may set: none (a clear), or only `autoDeny` and
 /// `ask` lists with a `default` of `ask` or `deny`. No `autoApprove` entry,
 /// no `default: "approve"`, and no field this check does not know.
@@ -230,12 +343,75 @@ fn folder_refused(field: &str) -> RpcError {
     ))
 }
 
+fn outside_roots(field: &str) -> RpcError {
+    RpcError::invalid_params(format!(
+        "{field} is refused: a remote WebSocket connection may use only a known project or a configured webRoots folder"
+    ))
+}
+
+/// The folders a Web connection may work in: `webRoots` from config.json
+/// and the known projects (every local session's cwd), each in the
+/// filesystem's own spelling. A root that is `/`, the home directory or any
+/// ancestor of it is dropped: one session started in `~` must not open
+/// `~/.ssh` or `~/Library` to the Web. Compared by path components.
+async fn web_roots(hub: &std::sync::Arc<crate::hub::Hub>) -> Vec<std::path::PathBuf> {
+    let mut raw: Vec<String> = hub.config.read().await.web_roots.clone();
+    raw.extend(hub.sessions().iter().map(|s| s.meta().cwd.to_string_lossy().into_owned()));
+    raw.sort();
+    raw.dedup();
+    let home = match dirs::home_dir() {
+        Some(h) => fs_spelling(&h.to_string_lossy()).await.unwrap_or(h),
+        None => std::path::PathBuf::from("/"),
+    };
+    let mut roots = Vec::new();
+    for r in raw {
+        if let Some(root) = fs_spelling(&r).await
+            && !home.starts_with(&root)
+            && !roots.contains(&root)
+        {
+            roots.push(root);
+        }
+    }
+    roots
+}
+
+/// `path` resolved (symlinks, `..`) and spelled as the filesystem stores it:
+/// on macOS, F_GETPATH gives the stored case and Unicode form of every
+/// component, so a case-different or differently normalized spelling of a
+/// path compares equal to its root. Elsewhere `realpath` already returns
+/// the stored names.
+async fn fs_spelling(path: &str) -> Option<std::path::PathBuf> {
+    let canonical = tokio::fs::canonicalize(path).await.ok()?;
+    #[cfg(target_os = "macos")]
+    if let Some(stored) = stored_path(&canonical) {
+        return Some(stored);
+    }
+    Some(canonical)
+}
+
+#[cfg(target_os = "macos")]
+fn stored_path(path: &Path) -> Option<std::path::PathBuf> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::ffi::OsStringExt;
+    let file = std::fs::File::open(path).ok()?;
+    let mut buf = vec![0u8; libc::PATH_MAX as usize];
+    // SAFETY: F_GETPATH writes at most PATH_MAX bytes into `buf`, which holds
+    // PATH_MAX bytes, for a descriptor this function owns.
+    let r = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, buf.as_mut_ptr()) };
+    if r == -1 {
+        return None;
+    }
+    let end = buf.iter().position(|&b| b == 0)?;
+    buf.truncate(end);
+    Some(std::path::PathBuf::from(std::ffi::OsString::from_vec(buf)))
+}
+
 /// The canonical form of `path` when it is absolute and names a directory.
 async fn canonical_dir(path: &str) -> Option<String> {
     if !Path::new(path).is_absolute() {
         return None;
     }
-    let canonical = tokio::fs::canonicalize(path).await.ok()?;
+    let canonical = fs_spelling(path).await?;
     tokio::fs::metadata(&canonical)
         .await
         .ok()?

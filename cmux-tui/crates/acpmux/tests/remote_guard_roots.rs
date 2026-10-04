@@ -67,7 +67,10 @@ impl Client {
         let id = self.2;
         self.0.send(Message::request(id, m, params).to_line()).await.unwrap();
         loop {
-            let line = tokio::time::timeout(Duration::from_secs(20), self.1.recv()).await.unwrap().unwrap();
+            let line = tokio::time::timeout(Duration::from_secs(20), self.1.recv())
+                .await
+                .unwrap()
+                .unwrap();
             let v: Value = serde_json::from_str(&line).unwrap();
             if v.get("id") == Some(&json!(id)) {
                 return v;
@@ -141,7 +144,10 @@ async fn a_web_request_never_sets_or_copies_a_mode_or_policy_that_skips_asking()
         ("session/fork", json!({"sessionId": loose})),
         ("session/load", json!({"sessionId": loose, "cwd": t.root, "mcpServers": []})),
         ("session/resume", json!({"sessionId": loose, "cwd": t.root})),
-        ("_acpmux/handoff_prepare", json!({"sessionId": loose, "harness": "other", "handoffKey": "k1"})),
+        (
+            "_acpmux/handoff_prepare",
+            json!({"sessionId": loose, "harness": "other", "handoffKey": "k1"}),
+        ),
     ] {
         let r = web.call(m, p.clone()).await;
         assert!(err(&r).contains("does not ask"), "{m}: {r}");
