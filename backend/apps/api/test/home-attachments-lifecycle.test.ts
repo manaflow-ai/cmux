@@ -193,4 +193,45 @@ describe("Home attachments: the GC releases what it forgets (D)", { timeout: 120
     expect(await objects(g.id)).toBe(0)
     expect(await storedBytes(alice.user)).toBe(0)
   })
+
+  it("production order: a message expiring after its upload was covered by an earlier pass is collected in the same alarm as its sweep", async () => {
+    const alice = await signIn("att-gc-order-alice")
+    const g = await group(alice)
+    const stub = doOf(g.id)
+    const body = bytesOf("referenced, then expired")
+    const hash = await upload(alice, g.id, body)
+    expect((await op(alice.token, "message.send", { conversation: g.id, client_msg_id: "p1", parts: [attachmentPart(hash, body)] }, "p1")).json.ok).toBe(true)
+    const day = 24 * 3_600_000
+    // Record 40 days old, message 25 days old, retention 30 days.
+    await runInDurableObject(stub, async (i, state) => {
+      i.boundEngine.state = { ...i.boundEngine.currentState, retention_days: 30 }
+      state.storage.sql.exec("UPDATE home_attachment_objects SET created_at = ?", Date.now() - 40 * day)
+      for (const row of state.storage.sql.exec<{ k: string; json: string }>("SELECT k, json FROM own_rows WHERE tbl = 'msg'").toArray())
+        state.storage.sql.exec("UPDATE own_rows SET json = ? WHERE tbl = 'msg' AND k = ?", JSON.stringify({ ...JSON.parse(row.json), created_at: new Date(Date.now() - 25 * day).toISOString() }), row.k)
+    })
+    // Alarm 1: the record is referenced, so the pass keeps it and moves the cutoff past it.
+    await wake(stub)
+    expect(await objects(g.id)).toBe(1)
+    // The message passes its retention window; ONE alarm deletes msg and attref and collects the object.
+    await runInDurableObject(stub, async (_i, state) => {
+      for (const row of state.storage.sql.exec<{ k: string; json: string }>("SELECT k, json FROM own_rows WHERE tbl = 'msg'").toArray())
+        state.storage.sql.exec("UPDATE own_rows SET json = ? WHERE tbl = 'msg' AND k = ?", JSON.stringify({ ...JSON.parse(row.json), created_at: new Date(Date.now() - 31 * day).toISOString() }), row.k)
+    })
+    // The sweep runs after some I/O in the wake (the clock moves on), so markDirty's Date.now() is later than the wake's captured now.
+    await runInDurableObject(stub, async (i, state) => {
+      const sweep = i.sweepWake.bind(i)
+      i.sweepWake = async (now: number) => {
+        await new Promise((r) => setTimeout(r, 5))
+        return sweep(now)
+      }
+      await state.storage.deleteAlarm()
+      await i.alarm()
+      i.sweepWake = sweep
+    })
+    await runInDurableObject(stub, async (_i, state) => {
+      expect(state.storage.sql.exec("SELECT k FROM own_rows WHERE tbl IN ('msg', 'attref')").toArray()).toEqual([])
+    })
+    expect(await objects(g.id)).toBe(0)
+    expect(await storedBytes(alice.user)).toBe(0)
+  })
 })
