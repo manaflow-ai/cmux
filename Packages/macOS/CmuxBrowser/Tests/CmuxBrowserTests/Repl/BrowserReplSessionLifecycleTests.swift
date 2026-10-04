@@ -381,7 +381,9 @@ struct BrowserReplSessionWatchdogTests {
             await session.evaluate(code: "1 + 1", timeout: .seconds(30))
         }
         #expect(next?.error == nil, "\(String(describing: next?.error))")
-        #expect(next?.lines.map(\.text) == ["2"])
+        // The next cell says the callback was stopped, then prints its value.
+        #expect(next?.lines.map(\.text).last == "2")
+        #expect(next?.lines.first.map { $0.level == "error" && $0.text.contains("was stopped") } == true, "\(String(describing: next?.lines))")
     }
 
     /// The next cell is current as soon as it is submitted, but it runs only
@@ -410,7 +412,34 @@ struct BrowserReplSessionWatchdogTests {
 
         let result = await next
         #expect(result?.error == nil, "\(String(describing: result?.error))")
-        #expect(result?.lines.map(\.text) == ["2"])
+        #expect(result?.lines.map(\.text).last == "2")
+        #expect(result?.lines.first?.text.contains("was stopped") == true, "\(String(describing: result?.lines))")
+    }
+
+    /// Each callback stays under the per-run limit, but together they would
+    /// hold the thread for minutes ahead of the next cell.
+    @Test("A stream of slow timer callbacks between cells cannot starve the next cell, which says why they waited")
+    func slowCallbacksCannotStarveTheNextCell() async throws {
+        let session = try makeSession(callbackTimeLimit: .seconds(1))
+        defer { session.close() }
+        let armed = await browserReplWithDeadline(seconds: 30) {
+            await session.evaluate(code: """
+            for (let i = 0; i < 100; i++) setTimeout(() => { const end = Date.now() + 900; while (Date.now() < end) {} }, 0);
+            // The timers come due while this loop holds the thread, so their
+            // callbacks are queued ahead of the next cell.
+            const until = Date.now() + 300;
+            while (Date.now() < until) {}
+            """, timeout: .seconds(20))
+        }
+        #expect(armed?.error == nil, "\(String(describing: armed?.error))")
+
+        let next = await browserReplWithDeadline(seconds: 30) {
+            await session.evaluate(code: "console.log('ran')", timeout: .seconds(20))
+        }
+        let lines = try #require(next?.lines, "the next cell waited behind the callbacks")
+        #expect(next?.error == nil, "\(String(describing: next?.error))")
+        #expect(lines.last?.text == "ran")
+        #expect(lines.contains { $0.level == "error" && $0.text.contains("callbacks outside a cell may use at most 10%") }, "\(lines)")
     }
 
     @Test("close() ends the session's thread even when agent code loops in the timed-out cell's cleanup")
