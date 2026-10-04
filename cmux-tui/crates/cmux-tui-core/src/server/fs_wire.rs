@@ -13,7 +13,7 @@
 //! remote entry routes a dial whose FIRST line asks for one to
 //! [`route_first_line`], which serves it raw and closes the dial.
 
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,7 +21,10 @@ use std::time::Duration;
 use serde_json::Value;
 
 use super::remote_entry::{RemoteGate, RemotePeer};
-use super::{ClientTransport, MAX_JSON_LINE_BYTES, MessageWriter, transport};
+use super::{
+    BoundedOutbound, ClientTransport, MAX_JSON_LINE_BYTES, MessageWriter, QueuedSink, RenderService,
+    SinkControl, transport,
+};
 use crate::fs_ops::stream::{self, StreamRequest};
 use crate::fs_ops::{FsError, FsService, frame_command};
 use crate::mux::Mux;
@@ -100,64 +103,135 @@ pub(super) fn answer_line(
     stream::answer(&id, service.call(owner, cmd, Value::Object(request)))
 }
 
-/// Reads the first line of a remote dial. A dial whose first line is an
-/// admitted `fs.*` stream request is served here and `None` is returned;
-/// any other dial comes back unchanged (that line first) for the line
-/// connection.
+/// How long a remote dial may take to send its whole first line.
+pub const FIRST_LINE_DEADLINE: Duration = Duration::from_secs(10);
+
+/// What the remote entry needs for `fs-v1` dials: the owner (none on a host
+/// that is not a Cloud host) and the first-line deadline.
+#[derive(Clone, Copy)]
+pub struct EntryFs {
+    pub service: Option<&'static FsService>,
+    pub first_line_deadline: Duration,
+}
+
+impl EntryFs {
+    /// The daemon's own owner and the standard deadline.
+    #[must_use]
+    pub fn installed() -> Self {
+        Self { service: crate::fs_ops::installed(), first_line_deadline: FIRST_LINE_DEADLINE }
+    }
+}
+
+/// Reads the first line of a remote dial within `entry.first_line_deadline`
+/// (a dial that is silent or too slow is closed: `None`). A dial whose first
+/// line is an admitted `fs.*` stream request is registered as a remote
+/// client, served here, and `None` is returned; any other dial comes back
+/// unchanged (that line first) for the line connection.
 pub(super) fn route_first_line(
+    mux: &Arc<Mux>,
     stream: UnixStream,
     gate: &dyn RemoteGate,
     peer: &RemotePeer,
-    service: Option<&FsService>,
+    entry: EntryFs,
 ) -> Option<Box<dyn transport::Stream>> {
-    let mut reader = BufReader::new(stream);
-    let mut first = Vec::new();
-    let limit = (MAX_JSON_LINE_BYTES + 2) as u64;
-    if (&mut reader).take(limit).read_until(b'\n', &mut first).is_err() {
-        return None;
-    }
+    let (first, rest) = read_first_line(&stream, entry.first_line_deadline)?;
     let request = std::str::from_utf8(&first)
         .ok()
         .filter(|line| gate.admit(peer, line))
         .and_then(StreamRequest::parse);
-    let mut prefix = first;
-    prefix.extend_from_slice(reader.buffer());
-    let stream = reader.into_inner();
     let Some(request) = request else {
+        let mut prefix = first;
+        prefix.extend_from_slice(&rest);
         return Some(Box::new(Prefixed { prefix, at: 0, inner: stream }));
     };
-    serve_stream(service, request, prefix_after_line(prefix), stream);
+    serve_stream(mux, peer, entry.service, request, rest, stream);
     None
 }
 
-/// The bytes after the first line (the start of a write stream's payload).
-fn prefix_after_line(mut prefix: Vec<u8>) -> Vec<u8> {
-    let end = prefix.iter().position(|byte| *byte == b'\n').map_or(prefix.len(), |at| at + 1);
-    prefix.drain(..end);
-    prefix
+/// The first line (with its newline, or everything up to EOF or the size
+/// limit) and the bytes read after it. `None` when the dial sends nothing,
+/// fails, or misses the deadline.
+fn read_first_line(stream: &UnixStream, deadline: Duration) -> Option<(Vec<u8>, Vec<u8>)> {
+    let end = std::time::Instant::now() + deadline;
+    let mut buffer = Vec::new();
+    let mut chunk = vec![0u8; 64 * 1024];
+    loop {
+        if let Some(at) = buffer.iter().position(|byte| *byte == b'\n') {
+            let rest = buffer.split_off(at + 1);
+            stream.set_read_timeout(None).ok()?;
+            return Some((buffer, rest));
+        }
+        if buffer.len() > MAX_JSON_LINE_BYTES + 1 {
+            // Oversized: the line connection refuses it as before.
+            stream.set_read_timeout(None).ok()?;
+            return Some((buffer, Vec::new()));
+        }
+        // RED: no deadline yet.
+        let _ = end;
+        stream.set_read_timeout(None).ok()?;
+        match (&mut &*stream).read(&mut chunk) {
+            Ok(0) if buffer.is_empty() => return None,
+            Ok(0) => {
+                stream.set_read_timeout(None).ok()?;
+                return Some((buffer, Vec::new()));
+            }
+            Ok(read) => buffer.extend_from_slice(&chunk[..read]),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return None,
+        }
+    }
 }
 
+/// Serves one byte stream as a registered remote client, so that closing
+/// it (a kick, a handoff, the entry's shutdown) shuts its socket down and
+/// ends the transfer at once.
 fn serve_stream(
+    mux: &Arc<Mux>,
+    peer: &RemotePeer,
     service: Option<&FsService>,
     request: Result<StreamRequest, (Value, FsError)>,
     leftover: Vec<u8>,
     stream: UnixStream,
 ) {
-    let _ = stream.set_read_timeout(Some(STREAM_IDLE_TIMEOUT));
-    let _ = stream.set_write_timeout(Some(STREAM_IDLE_TIMEOUT));
-    let Ok(mut writer) = stream.try_clone() else { return };
-    let mut reader = std::io::Cursor::new(leftover).chain(&stream);
-    let _ = match request {
-        Ok(request) => stream::serve(service, request, &mut reader, &mut writer),
-        Err((id, error)) => {
-            let line = stream::answer(&id, Err(error));
-            serde_json::to_vec(&line).map_err(std::io::Error::other).and_then(|mut bytes| {
-                bytes.push(b'\n');
-                writer.write_all(&bytes)
-            })
-        }
-    };
+    // RED: the stream is not a registered client yet.
+    let _ = (mux, peer, STREAM_IDLE_TIMEOUT);
+    if let Ok(mut out) = stream.try_clone() {
+        let mut reader = std::io::Cursor::new(leftover).chain(&stream);
+        let _ = match request {
+            Ok(request) => stream::serve(service, request, &mut reader, &mut out),
+            Err((id, error)) => {
+                let line = stream::answer(&id, Err(error));
+                serde_json::to_vec(&line).map_err(std::io::Error::other).and_then(|mut bytes| {
+                    bytes.push(b'\n');
+                    out.write_all(&bytes)
+                })
+            }
+        };
+    }
+    let _ = (BoundedOutbound::default, RenderService::new);
     let _ = stream.shutdown(std::net::Shutdown::Both);
+}
+
+/// Closes every remote client (line dials and byte streams): the entry is
+/// shutting down, so their sockets are shut down and their transfers end.
+pub(super) fn close_remote_clients(mux: &Arc<Mux>) {
+    // RED: nothing is closed yet.
+    if mux.daemon_shutdown_requested() || !mux.daemon_shutdown_requested() {
+        return;
+    }
+    let remote: Vec<u64> = {
+        let state =
+            mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state
+            .clients
+            .iter()
+            .filter(|(_, record)| matches!(record.transport, ClientTransport::Remote))
+            .map(|(client, _)| *client)
+            .collect()
+    };
+    for client in remote {
+        super::disconnect_client(mux, client, false);
+    }
 }
 
 /// A stream whose first bytes were already read: they are replayed before
@@ -211,3 +285,7 @@ impl transport::Stream for Prefixed {
 #[cfg(test)]
 #[path = "fs_wire_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "fs_stream_tests.rs"]
+mod stream_tests;

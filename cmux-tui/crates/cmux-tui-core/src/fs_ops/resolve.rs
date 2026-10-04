@@ -87,6 +87,11 @@ impl Roots {
         Self { roots }
     }
 
+    /// The canonical path of every root.
+    pub fn canonical_paths(&self) -> impl Iterator<Item = &Path> {
+        self.roots.iter().map(|root| root.canonical.as_path())
+    }
+
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.roots.is_empty()
