@@ -43,4 +43,32 @@ import Testing
         #expect(try await !Self.echoed(.init(terminalEnvironment: nil, resolvesShellIntegration: true)).contains(Self.capability))
         #expect(!DaemonCapabilities.shared.advertised.contains(Self.capability))
     }
+
+    /// `new-row` carries the argv-based integration like every other
+    /// creating command; with the capability echoed the daemon starts
+    /// exactly that, so a missing `--posix` would leave bash unintegrated.
+    @Test func newRowCarriesTheIntegrationArguments() async throws {
+        let log = PlacementTests.Log()
+        let identify = ShellArgsTests.identify(shellArgs: true)
+            .replacingOccurrences(of: #""terminal-shell-args-v1""#, with: #""terminal-shell-args-v1","rows-v1""#)
+        let server = try FakeDaemonServer(handler: { request in
+            let id = request["id"]?.intValue ?? 0
+            switch request["cmd"]?.stringValue {
+            case "identify": return [#"{"id":\#(id),"ok":true,"data":\#(identify)}"#]
+            case "set-client-info", "subscribe": return [#"{"id":\#(id),"ok":true,"data":{}}"#]
+            default:
+                log.append(request)
+                let terminal = request["terminal_id"]?.stringValue ?? ""
+                return [#"{"id":\#(id),"ok":true,"data":{"surface":41,"terminal_id":"\#(terminal)"}}"#]
+            }
+        })
+        defer { server.stop() }
+        let connection = try await ShellArgsTests.connect(server, env: ShellArgsTests.bashEnv)
+        _ = try await RowCommands(connection).newRow(below: PaneID(rawValue: 3), height: 400,
+                                                     options: SpawnOptions(workspace: PlacementTests.key))
+        let rows = log.all.filter { $0["cmd"]?.stringValue == "new-row" }
+        #expect(rows.count == 1)
+        #expect(rows.first.flatMap(ShellArgsTests.shellArgs) == ["--posix"])
+        await connection.close()
+    }
 }

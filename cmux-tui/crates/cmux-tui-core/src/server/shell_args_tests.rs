@@ -71,11 +71,58 @@ fn a_frontend_that_resolves_shell_integration_gets_its_shell_unchanged() {
         // An explicit argv is the caller's program: the host adds nothing.
         assert_eq!(frontend.argv(&created), vec![FRONTEND_SHELL.to_string()], "{request}");
     }
+    let row = frontend.run(json!({
+        "cmd": "new-row", "pane": pane, "height_permille": 400, "env": Frontend::env(),
+    }));
+    assert_eq!(frontend.argv(&row), vec![FRONTEND_SHELL.to_string()], "new-row");
+    let key = frontend.mux.with_state(|state| state.workspaces[0].key.clone());
+    let terminal = frontend.run(json!({
+        "cmd": "create-terminal", "key": key, "cols": 60, "rows": 8, "env": Frontend::env(),
+        "origin": "test", "mutation_id": "frontend-shell-create",
+    }));
+    assert_eq!(frontend.argv(&terminal), vec![FRONTEND_SHELL.to_string()], "create-terminal");
     // Arguments the frontend chose still follow its shell.
     let created = frontend.run(json!({
         "cmd": "new-tab", "pane": pane, "env": Frontend::env(), "shell_args": ["-l"],
     }));
     assert_eq!(frontend.argv(&created), vec![FRONTEND_SHELL.to_string(), "-l".to_string()]);
+}
+
+/// The fresh terminal a drag of a pane's only tab leaves behind
+/// (`respawn`) is created for the same frontend, so it follows the flag too.
+#[test]
+fn respawned_terminals_follow_the_frontend_flag() {
+    let frontend = Frontend::new(true);
+    let respawn = json!({"kind": "terminal", "env": Frontend::env()});
+    let split = frontend.mux.new_workspace(None, Some((80, 22))).unwrap().id;
+    let pane = frontend.mux.with_state(|state| state.pane_of(split).unwrap());
+    frontend.run(json!({
+        "cmd": "move-tab-to-split", "surface": split, "pane": pane, "edge": "right",
+        "respawn": respawn,
+    }));
+    let fresh = frontend.mux.with_state(|state| state.panes[&pane].tabs[0]);
+    assert_eq!(frontend.argv(&json!({"surface": fresh})), vec![FRONTEND_SHELL.to_string()]);
+
+    let docked = frontend.mux.new_workspace(None, Some((80, 22))).unwrap().id;
+    let pane = frontend.mux.with_state(|state| state.pane_of(docked).unwrap());
+    frontend.run(json!({
+        "cmd": "move-tab-to-column", "surface": docked, "pane": pane, "width": 0.4,
+        "sticky": {"edge": "right", "mode": "docked"}, "respawn": respawn,
+    }));
+    let fresh = frontend.mux.with_state(|state| state.panes[&pane].tabs[0]);
+    assert_eq!(frontend.argv(&json!({"surface": fresh})), vec![FRONTEND_SHELL.to_string()]);
+}
+
+/// Without a `SHELL` in `env` the frontend resolved nothing for the shell
+/// the host picks, so the host keeps its own integration.
+#[test]
+fn a_frontend_env_without_a_shell_keeps_the_host_integration() {
+    let frontend = Frontend::new(true);
+    let first = frontend.mux.new_workspace(None, Some((60, 8))).unwrap().id;
+    let pane = frontend.mux.with_state(|state| state.pane_of(first)).unwrap();
+    let created = frontend.run(json!({"cmd": "new-tab", "pane": pane, "env": {"A": "1"}}));
+    assert_eq!(frontend.argv(&created), vec![platform::default_shell()]);
+    assert_eq!(shell_argv(&[], None, true), None);
 }
 
 #[test]

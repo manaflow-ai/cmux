@@ -108,25 +108,26 @@ pub(super) fn placement_spawn_options(
 /// shell integration needs (bash `--posix` with `ENV`, nushell `--execute`).
 /// The shell is the terminal's own `SHELL` from its `env` (the frontend
 /// chose the arguments for it), else the daemon's default shell. None or an
-/// empty list keeps the plain default shell, which the host integrates;
-/// with `frontend_shell` (`terminal-frontend-shell-integration-v1`) the
-/// frontend resolved the integration, so the shell is always explicit and
-/// the host adds nothing.
+/// empty list keeps the plain default shell, which the host integrates.
+/// With `frontend_shell` (`terminal-frontend-shell-integration-v1`) and a
+/// `SHELL` in `env`, the frontend resolved the integration for that shell,
+/// so the shell is always explicit and the host adds nothing; without a
+/// `SHELL` the frontend resolved nothing, and the host integrates as before.
 pub(super) fn shell_argv(
     env: &[(String, String)],
     shell_args: Option<Vec<String>>,
     frontend_shell: bool,
 ) -> Option<Vec<String>> {
-    let shell_args = match shell_args.filter(|arguments| !arguments.is_empty()) {
-        Some(arguments) => arguments,
-        None if frontend_shell => Vec::new(),
-        None => return None,
-    };
-    let shell = env
+    let env_shell = env
         .iter()
         .find(|(key, value)| key == "SHELL" && !value.is_empty())
-        .map(|(_, value)| value.clone())
-        .unwrap_or_else(platform::default_shell);
+        .map(|(_, value)| value.clone());
+    let shell_args = match shell_args.filter(|arguments| !arguments.is_empty()) {
+        Some(arguments) => arguments,
+        None if frontend_shell && env_shell.is_some() => Vec::new(),
+        None => return None,
+    };
+    let shell = env_shell.unwrap_or_else(platform::default_shell);
     Some(std::iter::once(shell).chain(shell_args).collect())
 }
 
