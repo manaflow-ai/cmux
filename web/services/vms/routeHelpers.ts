@@ -38,6 +38,7 @@ import {
   type VmFileNotFoundError,
   type VmFirewallRuleNotFoundError,
   type VmFirewallRuleInvalidError,
+  type VmFirewallRuleLimitError,
   type VmWorkflowError,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
@@ -697,6 +698,16 @@ const vmFirewallRuleInvalidResponse = (error: VmFirewallRuleInvalidError): Respo
     displayTitle: "Firewall rule not allowed",
   });
 
+const vmFirewallRuleLimitResponse = (error: VmFirewallRuleLimitError): Response =>
+  vmErrorResponse({
+    error: "vm_firewall_rule_limit",
+    status: 409,
+    message: `You already have ${error.limit} firewall rules.`,
+    action: "Delete a rule you no longer need, then retry.",
+    displayTitle: "Firewall rule limit reached",
+    details: { limit: error.limit },
+  });
+
 const vmFileNotFoundResponse = (error: VmFileNotFoundError): Response =>
   vmErrorResponse({
     error: "vm_file_not_found",
@@ -1029,6 +1040,7 @@ export const vmWorkflowErrorResponders = {
   VmFileNotFoundError: (error) => vmFileNotFoundResponse(error),
   VmFirewallRuleNotFoundError: (error) => vmFirewallRuleNotFoundResponse(error),
   VmFirewallRuleInvalidError: (error) => vmFirewallRuleInvalidResponse(error),
+  VmFirewallRuleLimitError: (error) => vmFirewallRuleLimitResponse(error),
   // Create-family failures need the caller's plan and operation copy; the
   // create, fork, and restore routes supply those as overrides.
   VmCreateInProgressError: () => null,

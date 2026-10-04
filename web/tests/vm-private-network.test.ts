@@ -1247,6 +1247,7 @@ describe("firewall VM endpoints on team-owned VMs", () => {
     ...testRepo({ network: networkRow() }),
     findUserVm: (input: { billingTeamId?: string | null; providerVmId: string }) =>
       Effect.sync(() => { scopes.push(input.billingTeamId); return input.billingTeamId === "team-1" && input.providerVmId === "fs-1" ? vmRow(creator) : null; }),
+    listUserVms: () => Effect.succeed([]),
   }) as unknown as VmRepositoryShape;
   const gateway = (created: unknown[]) => ({
     ...testGateway(),
@@ -1292,7 +1293,7 @@ describe("firewall rule ownership on the shared provider account", () => {
   const base = { id: "fw-base", action: "allow", source: { vpcId: NETWORK.id }, destination: { vpcId: NETWORK.id } };
   type Rule = { id: string; action: string; source: Record<string, unknown>; destination: Record<string, unknown> };
   const all: Rule[] = [mine, intoMine, foreign, base];
-  const vm = (providerVmId: string, userId = "user-1") => ({ id: `row-${providerVmId}`, userId, ownerTeamId: "team-1", billingTeamId: "team-1", provider: "freestyle", providerVmId, status: "running" });
+  const vm = (providerVmId: string, userId = "user-1") => ({ id: `row-${providerVmId}`, userId, ownerTeamId: "team-1", billingTeamId: "team-1", provider: "freestyle", providerVmId, status: "running", createdAt: new Date(0) });
   const repo = () => ({
     ...testRepo({ network: networkRow() }),
     findUserVm: (input: { billingTeamId?: string | null; providerVmId: string }) => Effect.succeed(input.billingTeamId === "team-1" && input.providerVmId === "fs-1" ? vm("fs-1") : null),
