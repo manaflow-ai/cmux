@@ -64,7 +64,9 @@ describe("automation and run paging (g1)", { timeout: 120_000 }, () => {
   it("pages runs newest first, filters by automation and state, and run.get joins the body", async () => {
     const { t } = await signedIn("sched-rows-page-2")
     const a = (await op(t, "automation.create", { name: "a", triggers: [{ type: "manual" }], body: steps("a"), concurrency: { max: 1, on_limit: "queue" } })).id
-    const b = (await op(t, "automation.create", { name: "b", triggers: [{ type: "manual" }], body: steps("b"), concurrency: { max: 1, on_limit: "queue" } })).id
+    // b's first run sleeps, so it holds b's only slot and the rest stay queued.
+    const slow = { type: "steps", steps: [{ type: "sleep", seconds: 3600 }] }
+    const b = (await op(t, "automation.create", { name: "b", triggers: [{ type: "manual" }], body: slow, concurrency: { max: 1, on_limit: "queue" } })).id
     const originals: Array<string> = []
     for (let i = 0; i < 12; i++) originals.push((await op(t, "automation.run", { automation: a })).id)
     const others: Array<string> = []
@@ -86,7 +88,7 @@ describe("automation and run paging (g1)", { timeout: 120_000 }, () => {
     expect(cancelled.runs.length).toBeGreaterThanOrEqual(3)
     for (const r of cancelled.runs) expect(r).toMatchObject({ automation: b, state: "cancelled" })
     const one = await read(t, "run.get", { run: others[1] })
-    expect(one).toMatchObject({ id: others[1], automation: b, body: steps("b") })
+    expect(one).toMatchObject({ id: others[1], automation: b, body: slow })
     expect(one.dispatched).toBeUndefined()
     // The old listing still answers its first page.
     expect((await read(t, "automation.runs.list", { automation: b })).runs.map((r: { id: string }) => r.id)).toEqual([...others].reverse())
@@ -140,12 +142,13 @@ describe("SchedulerDO migration of an old JSON head (g1)", { timeout: 120_000 },
         instance.engine = undefined
       })
     const check = async () => {
+      // The first request binds the object, which migrates an old head.
+      const listed = await read(t, "automation.list")
+      expect(listed.automations).toEqual(automations)
       const head = await runIn(stub, async (_i, state) => JSON.parse(String(state.storage.sql.exec("SELECT json FROM own_state WHERE id = 1").one().json)))
       expect(head.automations).toBeUndefined()
       expect(head.runs).toBeUndefined()
       expect(head).toMatchObject({ automation_count: 3, finished_count: 3, open_runs: [runs[3]!.id] })
-      const listed = await read(t, "automation.list")
-      expect(listed.automations).toEqual(automations)
       for (const r of runs) {
         const { dispatched: _d, deadline_at: _dl, ...pub } = r as typeof r & { deadline_at?: number }
         expect(await read(t, "run.get", { run: r.id })).toEqual(pub)
@@ -164,7 +167,9 @@ describe("SchedulerDO migration of an old JSON head (g1)", { timeout: 120_000 },
     // Live DO: the same key replays, a fresh key changes nothing, and no event is added.
     const before = await runIn(stub, async (instance, state) => {
       const seq = instance.boundEngine.currentSeq as number
-      instance.submitSystem("scheduler.rows_migrate", {}, `rows-migrate:${seq}`)
+      // The migration committed at seq, under the key of the head seq before it.
+      const replay = instance.submitSystem("scheduler.rows_migrate", {}, `rows-migrate:${seq - 1}`)
+      expect(replay.frames.find((f: { t: string }) => f.t === "result")).toMatchObject({ replayed: true })
       instance.submitSystem("scheduler.rows_migrate", {}, `rows-migrate-again:${seq}`)
       expect(instance.boundEngine.currentSeq).toBe(seq)
       return String(state.storage.sql.exec("SELECT json FROM own_state WHERE id = 1").one().json)

@@ -30,7 +30,6 @@ describe("SchedulerDO head size (g1)", { timeout: 300_000 }, () => {
       for (let i = 0; i < 250; i++) expect(run(h, ids[i % 100]!).state).toBe("queued")
       expect(() => run(h, ids[0]!)).toThrow(/rate.limited/)
       const head = h.headJson()
-      console.log(`[g1] head after 100 automations and 450 runs: ${head.length} bytes`)
       expect(head.length).toBeLessThan(100_000)
       const parsed = JSON.parse(head)
       expect(parsed.automations).toBeUndefined()
