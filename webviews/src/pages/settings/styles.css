@@ -797,3 +797,80 @@ mark {
 .accounts-form > .field {
   max-width: 320px;
 }
+
+/* Theme picker by level and wallpaper grid (R82 commit 4). */
+.theme-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.theme-picker > .field {
+  max-width: 320px;
+}
+
+.theme-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 240px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+}
+
+.theme-choice {
+  padding: 6px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.theme-choice[aria-pressed="true"] {
+  background: var(--accent-soft);
+}
+
+.backdrop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.backdrop-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.backdrop-thumb {
+  width: 100%;
+  height: 68px;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.backdrop-tile[aria-pressed="true"] .backdrop-thumb {
+  border-color: var(--text);
+}
+
+.backdrop-none {
+  display: block;
+  border-color: var(--border);
+}
+
+.backdrop-title {
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

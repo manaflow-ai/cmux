@@ -77,6 +77,10 @@ export const PAGES = {
         file: `${sources}/CmuxNextActions/BrowserProfileActions.xcstrings`,
         keys: () => ["action.browserProfile.manageExtensions"],
       },
+      {
+        file: `${sources}/CmuxNextActions/ActionCatalog.xcstrings`,
+        keys: () => ["action.reloadConfiguration"],
+      },
     ],
   },
   history: {

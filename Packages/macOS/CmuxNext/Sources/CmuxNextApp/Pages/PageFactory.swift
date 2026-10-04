@@ -99,9 +99,12 @@ struct PageFactory {
             if let error = await accounts.perform(action) { return ["error": .string(error)] }
             return .object([:])
         }
+        provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
+        provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         let native = AppPageNativeProvider(services: services, page: .settings)
         let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
-        let page = PageWebView(descriptor: .settings, routes: routes, route: route)
+        let page = PageWebView(descriptor: .settings, routes: routes, route: route,
+                               dynamicResources: SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices))
         native.anchor = { [weak page] in page }
         return page
     }

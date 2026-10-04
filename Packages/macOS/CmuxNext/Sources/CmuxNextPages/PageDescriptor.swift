@@ -122,7 +122,8 @@ public extension PageDescriptor {
         nativeOps: [PageNativeOp.actionRun],
         actions: ["palette.openCmuxSettingsFile", "openSettings", "browserProfile.new", "browserProfile.rename",
                   "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
-                  "browserProfile.manageExtensions", "browserProfile.delete"])
+                  "browserProfile.manageExtensions", "browserProfile.delete", "reloadConfiguration"],
+        dynamicPrefixes: ["backdrop"])
 
     /// The App Store page (react-pages.md 3). Install, update, Remove and allowing a scope pass the
     /// host's native sheet before they reach the owner (the app's ConfirmingPageProvider); the page

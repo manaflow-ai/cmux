@@ -40,6 +40,8 @@ export type SettingsState = {
   revision: number;
   rows: ReadonlyMap<string, ListRow>;
   diagnostics: ReadonlyMap<string, string[]>;
+  /** Every problem of the last load, in file order (Advanced lists them). */
+  problems: ReadonlyArray<{ path: string; message: string }>;
   managed: ReadonlyMap<string, ManagedInfo>;
   errors: ReadonlyMap<string, RowError>;
   domains: Domains;
@@ -66,6 +68,7 @@ export class SettingsStore {
     revision: 0,
     rows: new Map(),
     diagnostics: new Map(),
+    problems: [],
     managed: new Map(),
     errors: new Map(),
     domains: emptyDomains,
@@ -111,6 +114,22 @@ export class SettingsStore {
   async refreshHost(): Promise<void> {
     const reply = await this.request("cmux.settings.host.lists", {});
     if (reply.ok && !this.disposed) this.update({ host: reply.value });
+  }
+
+  /** Sets one theme level of the active window, then re-reads the lists (the current theme). */
+  async setTheme(level: string, spec: string | null): Promise<void> {
+    await this.request("cmux.settings.theme.set", { level, spec });
+    await this.refreshHost();
+  }
+
+  /** Whether `text` is a theme spec the host accepts. */
+  async acceptsTheme(text: string): Promise<boolean> {
+    const reply = await this.request("cmux.settings.theme.accepts", { text });
+    return reply.ok && reply.value.accepts;
+  }
+
+  revealSettingsFile(): void {
+    void this.request("cmux.settings.file.reveal", {});
   }
 
   /** Reads the Accounts part. */
@@ -175,6 +194,10 @@ export class SettingsStore {
       rows: new Map(list.value.map((row) => [row.key, row])),
       managed: new Map(Object.entries(snapshot.value.managed ?? {})),
       diagnostics: diagnosticsByKey(snapshot.value.diagnostics ?? []),
+      problems: (snapshot.value.diagnostics ?? []).map((diagnostic) => ({
+        path: Array.isArray(diagnostic.path) ? diagnostic.path.join(".") : diagnostic.path,
+        message: diagnostic.message,
+      })),
       domains: publishedDomains(snapshot.value),
     });
   }

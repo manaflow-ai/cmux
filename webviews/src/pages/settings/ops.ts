@@ -55,6 +55,12 @@ export type HostLists = {
   machines: HostListRow[];
   browser_profiles: BrowserProfile[];
   profile_colors: Array<{ name: string; swatch: string; fill: string }>;
+  /** Theme levels of the active window (`room`, `workspace`, `terminal`) and each one's theme. */
+  theme?: { levels: string[]; current: Record<string, string | null> };
+  terminal?: { ghostty_config: string; shell_integration: string | null };
+  settings_file?: string | null;
+  /** Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. */
+  backdrops?: Array<{ id: string; title: string; attribution: string }>;
 };
 
 /** One button of the Accounts part; the host localizes every text. */
@@ -115,6 +121,12 @@ export type SettingsOps = {
   "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
   /** Native: one Accounts gesture; a failed Keychain save answers its message. */
   "cmux.settings.accounts.run": [AccountsRun, { error?: string }];
+  /** Native: set the theme of one level of the active window; `spec` null uses the Ghostty config. */
+  "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];
+  /** Native: whether typed text is a theme spec Ghostty accepts (a pair, a path). */
+  "cmux.settings.theme.accepts": [{ text: string }, { accepts: boolean }];
+  /** Native: show the settings file in Finder. */
+  "cmux.settings.file.reveal": [Record<string, never>, unknown];
   /** Native: show `value` live while a gesture runs; never written. */
   "cmux.settings.preview": [{ key: string; value: unknown }, unknown];
   /** Native: drop the live preview of `key`. */
@@ -200,6 +212,7 @@ export const settingsPageActions = [
   "browserProfile.clearIcon",
   "browserProfile.manageExtensions",
   "browserProfile.delete",
+  "reloadConfiguration",
 ] as const;
 
 export type SettingsPageAction = (typeof settingsPageActions)[number];

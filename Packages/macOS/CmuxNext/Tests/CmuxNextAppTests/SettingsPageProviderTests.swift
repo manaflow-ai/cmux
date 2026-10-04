@@ -121,4 +121,30 @@ import Testing
             #expect(error.code == "cmux.page.unavailable")
         }
     }
+
+    /// R82 commit 4: the theme picker's write goes to the host closure; an unknown level is
+    /// invalid params; wallpaper thumbnails answer only catalog ids.
+    @Test func themeWritesAndThumbnailsAreBounded() async throws {
+        let (provider, _, directory) = try await make()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var writes: [String] = []
+        provider.setTheme = { level, spec in
+            guard level == "terminal" else { throw CocoaError(.featureUnsupported) }
+            writes.append("\(level)=\(spec ?? "config")")
+        }
+        provider.acceptsTheme = { $0.contains(":") }
+        _ = try await provider.call("cmux.settings.theme.set", params: ["level": "terminal", "spec": "Dracula"], context: context)
+        _ = try await provider.call("cmux.settings.theme.set", params: ["level": "terminal"], context: context)
+        #expect(writes == ["terminal=Dracula", "terminal=config"])
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.settings.theme.set", params: ["level": "nope", "spec": "x"], context: context)
+        }
+        let accepts = try await provider.call("cmux.settings.theme.accepts", params: ["text": "light:A,dark:B"], context: context)
+        #expect(accepts["accepts"] == .bool(true))
+
+        let thumbnails = SettingsBackdropThumbnails(choices: [])
+        let url = try #require(URL(string: "cmux-page://cmux.settings/backdrop/system%3A%2Fetc%2Fhosts"))
+        let refused = await thumbnails.resource(for: PageResourceRequest(prefix: "backdrop", path: ["system:/etc/hosts"], url: url))
+        #expect(refused == nil, "only catalog ids are served")
+    }
 }

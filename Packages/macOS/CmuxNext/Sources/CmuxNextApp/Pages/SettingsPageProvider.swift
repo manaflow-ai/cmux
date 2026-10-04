@@ -23,6 +23,9 @@ final class SettingsPageProvider: PageProvider {
     /// without an app.
     var accountsState: (@MainActor () -> JSONValue)?
     var accountsRun: (@MainActor (JSONValue) async throws -> JSONValue)?
+    /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
+    var setTheme: (@MainActor (_ level: String, _ spec: String?) throws -> Void)?
+    var acceptsTheme: (@MainActor (String) -> Bool)?
     /// Results of recent writes by idempotency key (a retried key replays its first answer).
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
@@ -61,6 +64,16 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.accounts.run":
             guard let accountsRun else { throw PageError(code: "cmux.page.unavailable", message: "no accounts") }
             return try await accountsRun(params)
+        case "cmux.settings.theme.set":
+            guard let setTheme else { throw PageError(code: "cmux.page.unavailable", message: "no theme host") }
+            guard let level = params["level"]?.stringValue else { throw PageError.invalidParams("level is required") }
+            do { try setTheme(level, params["spec"]?.stringValue) } catch { throw PageError.invalidParams("unknown theme level \(level)") }
+            return .object([:])
+        case "cmux.settings.theme.accepts":
+            return ["accepts": .bool(acceptsTheme?(params["text"]?.stringValue ?? "") ?? false)]
+        case "cmux.settings.file.reveal":
+            NSWorkspace.shared.activateFileViewerSelecting([settings.file.url])
+            return .object([:])
         case "cmux.settings.preview", "cmux.settings.preview.end":
             // No live preview yet: a change applies when it is written (flagged in react-pages.md S1).
             return .object([:])

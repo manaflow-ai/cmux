@@ -1,6 +1,7 @@
 {
   "en": {
     "action.browserProfile.manageExtensions": "Manage Extensions in Browser Profile…",
+    "action.reloadConfiguration": "Reload Configuration",
     "settings.app.quitBehavior": "When Quitting",
     "settings.app.quitBehavior.help": "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
     "settings.appearance.backdropArt": "Backdrop Art",
@@ -430,6 +431,7 @@
   },
   "ar": {
     "action.browserProfile.manageExtensions": "إدارة الإضافات في ملف تعريف المتصفح…",
+    "action.reloadConfiguration": "إعادة تحميل الإعدادات",
     "settings.app.quitBehavior": "عند الإنهاء",
     "settings.app.quitBehavior.help": "تعمل الطرفيات في cmux-tui وتستمر في العمل بعد إنهاء cmux ما لم تُنهِها.",
     "settings.appearance.backdropArt": "لوحة الخلفية",
@@ -859,6 +861,7 @@
   },
   "bs": {
     "action.browserProfile.manageExtensions": "Upravljaj proširenjima u profilu preglednika…",
+    "action.reloadConfiguration": "Ponovo učitaj konfiguraciju",
     "settings.app.quitBehavior": "Pri izlasku",
     "settings.app.quitBehavior.help": "Terminali rade u cmux-tui i nastavljaju raditi nakon izlaska iz cmux ako ih ne završite.",
     "settings.appearance.backdropArt": "Umjetnost u pozadini",
@@ -1288,6 +1291,7 @@
   },
   "da": {
     "action.browserProfile.manageExtensions": "Administrer udvidelser i browserprofil…",
+    "action.reloadConfiguration": "Genindlæs konfiguration",
     "settings.app.quitBehavior": "Ved afslutning",
     "settings.app.quitBehavior.help": "Terminaler kører i cmux-tui og fortsætter efter cmux afsluttes, medmindre du afslutter dem.",
     "settings.appearance.backdropArt": "Baggrundskunst",
@@ -1717,6 +1721,7 @@
   },
   "de": {
     "action.browserProfile.manageExtensions": "Erweiterungen im Browserprofil verwalten …",
+    "action.reloadConfiguration": "Konfiguration neu laden",
     "settings.app.quitBehavior": "Beim Beenden",
     "settings.app.quitBehavior.help": "Terminals laufen in cmux-tui und laufen nach dem Beenden von cmux weiter, sofern du sie nicht beendest.",
     "settings.appearance.backdropArt": "Hintergrundkunst",
@@ -2146,6 +2151,7 @@
   },
   "es": {
     "action.browserProfile.manageExtensions": "Gestionar extensiones del perfil de navegador…",
+    "action.reloadConfiguration": "Recargar configuración",
     "settings.app.quitBehavior": "Al salir",
     "settings.app.quitBehavior.help": "Los terminales se ejecutan en cmux-tui y siguen en marcha al salir de cmux, salvo que los finalices.",
     "settings.appearance.backdropArt": "Arte de fondo",
@@ -2575,6 +2581,7 @@
   },
   "fr": {
     "action.browserProfile.manageExtensions": "Gérer les extensions du profil de navigateur…",
+    "action.reloadConfiguration": "Recharger la configuration",
     "settings.app.quitBehavior": "À la fermeture",
     "settings.app.quitBehavior.help": "Les terminaux s'exécutent dans cmux-tui et continuent après la fermeture de cmux, sauf si vous les terminez.",
     "settings.appearance.backdropArt": "Œuvre en arrière-plan",
@@ -3004,6 +3011,7 @@
   },
   "it": {
     "action.browserProfile.manageExtensions": "Gestisci estensioni del profilo browser…",
+    "action.reloadConfiguration": "Ricarica configurazione",
     "settings.app.quitBehavior": "All'uscita",
     "settings.app.quitBehavior.help": "I terminali girano in cmux-tui e continuano dopo l'uscita da cmux, a meno che tu non li termini.",
     "settings.appearance.backdropArt": "Arte di sfondo",
@@ -3433,6 +3441,7 @@
   },
   "ja": {
     "action.browserProfile.manageExtensions": "ブラウザプロファイルの拡張機能を管理…",
+    "action.reloadConfiguration": "設定を再読み込み",
     "settings.app.quitBehavior": "終了時",
     "settings.app.quitBehavior.help": "ターミナルは cmux-tui で動作し、終了しない限り cmux を終了しても動き続けます。",
     "settings.appearance.backdropArt": "背景アート",
@@ -3862,6 +3871,7 @@
   },
   "km": {
     "action.browserProfile.manageExtensions": "គ្រប់គ្រងកម្មវិធីបន្ថែមក្នុងប្រវត្តិរូបកម្មវិធីរុករក…",
+    "action.reloadConfiguration": "ផ្ទុកការកំណត់រចនាសម្ព័ន្ធឡើងវិញ",
     "settings.app.quitBehavior": "ពេលចាកចេញ",
     "settings.app.quitBehavior.help": "ទែមីណាល់ដំណើរការក្នុង cmux-tui ហើយបន្តដំណើរការបន្ទាប់ពី cmux ចាកចេញ លុះត្រាតែអ្នកបញ្ចប់វា។",
     "settings.appearance.backdropArt": "សិល្បៈផ្ទៃខាងក្រោយ",
@@ -4291,6 +4301,7 @@
   },
   "ko": {
     "action.browserProfile.manageExtensions": "브라우저 프로필의 확장 프로그램 관리…",
+    "action.reloadConfiguration": "구성 다시 불러오기",
     "settings.app.quitBehavior": "종료할 때",
     "settings.app.quitBehavior.help": "터미널은 cmux-tui에서 실행되며, 끝내지 않으면 cmux를 종료한 뒤에도 계속 실행됩니다.",
     "settings.appearance.backdropArt": "배경 그림",
@@ -4720,6 +4731,7 @@
   },
   "nb": {
     "action.browserProfile.manageExtensions": "Administrer utvidelser i nettleserprofil …",
+    "action.reloadConfiguration": "Last inn konfigurasjon på nytt",
     "settings.app.quitBehavior": "Ved avslutning",
     "settings.app.quitBehavior.help": "Terminaler kjører i cmux-tui og fortsetter etter at cmux avsluttes, med mindre du avslutter dem.",
     "settings.appearance.backdropArt": "Bakgrunnskunst",
@@ -5149,6 +5161,7 @@
   },
   "pl": {
     "action.browserProfile.manageExtensions": "Zarządzaj rozszerzeniami w profilu przeglądarki…",
+    "action.reloadConfiguration": "Odśwież konfigurację",
     "settings.app.quitBehavior": "Przy zamykaniu",
     "settings.app.quitBehavior.help": "Terminale działają w cmux-tui i działają dalej po zamknięciu cmux, chyba że je zamkniesz.",
     "settings.appearance.backdropArt": "Sztuka tła",
@@ -5578,6 +5591,7 @@
   },
   "pt-BR": {
     "action.browserProfile.manageExtensions": "Gerenciar Extensões do Perfil do Navegador…",
+    "action.reloadConfiguration": "Recarregar Configuração",
     "settings.app.quitBehavior": "Ao sair",
     "settings.app.quitBehavior.help": "Os terminais rodam no cmux-tui e continuam após sair do cmux, a menos que você os encerre.",
     "settings.appearance.backdropArt": "Arte de fundo",
@@ -6007,6 +6021,7 @@
   },
   "ru": {
     "action.browserProfile.manageExtensions": "Управление расширениями профиля браузера…",
+    "action.reloadConfiguration": "Перезагрузить конфигурацию",
     "settings.app.quitBehavior": "При выходе",
     "settings.app.quitBehavior.help": "Терминалы работают в cmux-tui и продолжают работать после выхода из cmux, если их не завершить.",
     "settings.appearance.backdropArt": "Искусство на фоне",
@@ -6436,6 +6451,7 @@
   },
   "th": {
     "action.browserProfile.manageExtensions": "จัดการส่วนขยายในโปรไฟล์เบราว์เซอร์…",
+    "action.reloadConfiguration": "โหลดการกำหนดค่าใหม่",
     "settings.app.quitBehavior": "เมื่อออก",
     "settings.app.quitBehavior.help": "เทอร์มินัลทำงานใน cmux-tui และทำงานต่อหลังจากออกจาก cmux เว้นแต่คุณจะจบมัน",
     "settings.appearance.backdropArt": "งานศิลป์พื้นหลัง",
@@ -6865,6 +6881,7 @@
   },
   "tr": {
     "action.browserProfile.manageExtensions": "Tarayıcı Profilindeki Uzantıları Yönet…",
+    "action.reloadConfiguration": "Yapılandırmayı Yeniden Yükle",
     "settings.app.quitBehavior": "Çıkarken",
     "settings.app.quitBehavior.help": "Terminaller cmux-tui içinde çalışır ve siz sonlandırmadıkça cmux kapandıktan sonra da çalışır.",
     "settings.appearance.backdropArt": "Arka plan sanatı",
@@ -7294,6 +7311,7 @@
   },
   "uk": {
     "action.browserProfile.manageExtensions": "Керувати розширеннями профілю браузера…",
+    "action.reloadConfiguration": "Перезавантажити конфігурацію",
     "settings.app.quitBehavior": "Під час виходу",
     "settings.app.quitBehavior.help": "Термінали працюють у cmux-tui і працюють далі після виходу з cmux, якщо їх не завершити.",
     "settings.appearance.backdropArt": "Мистецтво на тлі",
@@ -7723,6 +7741,7 @@
   },
   "vi": {
     "action.browserProfile.manageExtensions": "Quản lý tiện ích mở rộng trong hồ sơ trình duyệt…",
+    "action.reloadConfiguration": "Tải lại cấu hình",
     "settings.app.quitBehavior": "Khi thoát",
     "settings.app.quitBehavior.help": "Các terminal chạy trong cmux-tui và tiếp tục chạy sau khi thoát cmux trừ khi bạn kết thúc chúng.",
     "settings.appearance.backdropArt": "Nghệ thuật nền",
@@ -8152,6 +8171,7 @@
   },
   "zh-Hans": {
     "action.browserProfile.manageExtensions": "管理浏览器配置文件中的扩展程序…",
+    "action.reloadConfiguration": "重新加载配置",
     "settings.app.quitBehavior": "退出时",
     "settings.app.quitBehavior.help": "终端在 cmux-tui 中运行，除非你结束它们，否则退出 cmux 后仍会继续运行。",
     "settings.appearance.backdropArt": "背景艺术",
@@ -8581,6 +8601,7 @@
   },
   "zh-Hant": {
     "action.browserProfile.manageExtensions": "管理瀏覽器設定檔中的擴充功能…",
+    "action.reloadConfiguration": "重新載入設定",
     "settings.app.quitBehavior": "結束時",
     "settings.app.quitBehavior.help": "終端機在 cmux-tui 中執行，除非你終止它們，否則結束 cmux 後仍會繼續執行。",
     "settings.appearance.backdropArt": "背景藝術",

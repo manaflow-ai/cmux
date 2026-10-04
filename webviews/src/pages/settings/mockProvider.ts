@@ -91,6 +91,14 @@ export class MockSettingsProvider {
       "cmux.settings.sound.play": () => ({}),
       "cmux.settings.host.lists": () => this.host,
       "cmux.settings.accounts.state": () => this.accounts,
+      "cmux.settings.theme.set": (params) => {
+        const { level, spec } = params as { level: string; spec: string | null };
+        const theme = this.host.theme!;
+        this.setHost({ ...this.host, theme: { ...theme, current: { ...theme.current, [level]: spec } } });
+        return {};
+      },
+      "cmux.settings.theme.accepts": (params) => ({ accepts: String((params as { text: string }).text).includes(":") }),
+      "cmux.settings.file.reveal": () => ({}),
       "cmux.settings.accounts.run": (params) => this.runAccounts(params as AccountsRun),
       "cmux.app.action.run": (params) => {
         // The page bridge allows this page only its declared actions.
@@ -112,6 +120,9 @@ export class MockSettingsProvider {
       "cmux.settings.host.lists",
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
+      "cmux.settings.theme.set",
+      "cmux.settings.theme.accepts",
+      "cmux.settings.file.reveal",
       "cmux.app.action.run",
     ]);
     for (const [op, handler] of Object.entries(ops)) {
@@ -148,6 +159,10 @@ export class MockSettingsProvider {
       { name: "green", swatch: "#5E9A6A", fill: "#B5D6BB" },
       { name: "orange", swatch: "#B07A45", fill: "#E0C3A3" },
     ],
+    theme: { levels: ["room", "workspace", "terminal"], current: { room: null, workspace: "Dracula", terminal: null } },
+    terminal: { ghostty_config: "~/.config/ghostty/config", shell_integration: "zsh" },
+    settings_file: "/Users/me/.config/cmux/cmux-next.json",
+    backdrops: [{ id: "starryNight", title: "The Starry Night", attribution: "Van Gogh, 1889" }],
   };
   private readonly hostChanged = new Set<EventSourceContext>();
   private readonly accountsChanged = new Set<EventSourceContext>();
