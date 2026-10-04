@@ -38,6 +38,11 @@ public final class LayoutModel {
     /// The daemon serves edge-docks-v1: drops on a screen's top or bottom
     /// edge band open a dock (DropZoneGeometry.dockTarget).
     public var acceptsEdgeDockDrops = false
+    /// The daemon serves `rows-v1`: row heights and new rows may be sent.
+    /// Without it no row op leaves the model (plans/cmux-next/rows.md).
+    public var acceptsRowOps = false
+    /// Pins `layout.rows` (tests, the demo); nil follows cmux.json.
+    public var rowsEnabledOverride: Bool?
     /// Column centering mode: the override, else the live setting
     /// while `followsDesignMetrics` is on, else `.never`.
     public var centerFocusedColumn: CenterFocusedColumn {
@@ -56,7 +61,9 @@ public final class LayoutModel {
     /// this model and `DesignSettings.shared`, so a density or metric override
     /// change relayouts every screen live.
     public var style: LayoutStyle {
-        followsDesignMetrics ? baseStyle.applyingDesignMetrics() : baseStyle
+        var style = followsDesignMetrics ? baseStyle.applyingDesignMetrics() : baseStyle
+        if let rowsEnabledOverride { style.rowsEnabled = rowsEnabledOverride }
+        return style
     }
 
     /// Panes that need attention (an unread notification), with the mark

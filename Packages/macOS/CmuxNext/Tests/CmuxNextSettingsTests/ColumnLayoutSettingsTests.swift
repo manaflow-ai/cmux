@@ -36,6 +36,9 @@ import Testing
         #expect(schemaDefault(ColumnLayoutSettings.frameOrientationPath) == .string("columnMajor"))
         #expect(schemaDefault(ColumnLayoutSettings.minimumPaneWidthPath) == .number(200))
         #expect(schemaDefault(ColumnLayoutSettings.minimumPaneHeightPath) == .number(64))
+        // Documented in plans/cmux-next/rows.md (O1).
+        #expect(snapshot.layoutRows && design.layoutRows)
+        #expect(schemaDefault(ColumnLayoutSettings.rowsPath) == .bool(true))
         #expect(snapshot.diagnostics.isEmpty)
     }
 

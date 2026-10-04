@@ -20,7 +20,7 @@ public nonisolated enum PaneResize {
         let tree: SplitNode?
         switch layout {
         case .splits(let root): tree = root
-        case .columns: tree = layout.column(containing: pane)?.root
+        case .columns: tree = layout.column(containing: pane)?.tree(containing: pane)
         }
         if let tree, let (split, ratio) = nearestSplit(containing: pane, axis: axis, in: tree) {
             let clamped = min(max(ratio + delta, SplitRatio.range.lowerBound), SplitRatio.range.upperBound)

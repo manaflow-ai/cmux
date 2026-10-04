@@ -1,5 +1,5 @@
-//! `cloud.machine.*`: list, get, create, rename, start, pause, resize,
-//! delete, stats, idle_policy.set over `/api/vm`.
+//! `cloud.machine.*`: list, watch, get, create, rename, start, pause,
+//! resize, delete, stats, idle_policy.set over `/api/vm`.
 
 use crate::api::args;
 use crate::api::models::{Machine, MachineList, Stats};
@@ -13,6 +13,12 @@ pub(super) fn run<C: ControlPlane>(
 ) -> Result<Value, CloudError> {
     match name {
         "cloud.machine.list" => list(ctx, raw),
+        "cloud.machine.watch" => {
+            // The events are the stream (`cloud.machine.watch` lines after
+            // each op result); this read only names where it stands.
+            args::object(raw, &[])?;
+            Ok(json!({ "revision": ctx.projection.revision() }))
+        }
         "cloud.machine.get" => {
             let id = args::id(args::object(raw, &["machine"])?, "machine")?;
             let answer = ctx.call("GET", format!("/api/vm/{id}"), None)?;
@@ -74,10 +80,21 @@ pub(super) fn merged<C: ControlPlane>(
     ctx: &mut Ctx<'_, C>,
     answer: &Value,
 ) -> Result<Value, CloudError> {
+    merged_onto(ctx, None, answer)
+}
+
+/// Overlays `answer` onto the known record (or onto `base` for a machine
+/// the projection does not know) and writes the result as one change.
+fn merged_onto<C: ControlPlane>(
+    ctx: &mut Ctx<'_, C>,
+    base: Option<&Value>,
+    answer: &Value,
+) -> Result<Value, CloudError> {
     let machine = ctx
         .projection
-        .merge(answer)
+        .overlay(base, answer)
         .ok_or_else(|| CloudError::new(codes::BAD_RESPONSE, "the answer is not a machine"))?;
+    ctx.projection.upsert(machine.clone());
     Ok(json!(machine))
 }
 
@@ -121,7 +138,8 @@ fn lifecycle<C: ControlPlane>(
 
 /// Rename, pause and resume answer only a few fields. For a machine the
 /// projection does not know yet, read the full record first, so the
-/// projection never holds a partial machine.
+/// projection never holds a partial machine; the full record and the
+/// answer are written as one change (one revision, one event).
 fn merged_partial<C: ControlPlane>(
     ctx: &mut Ctx<'_, C>,
     id: &str,
@@ -129,7 +147,7 @@ fn merged_partial<C: ControlPlane>(
 ) -> Result<Value, CloudError> {
     if ctx.projection.get(id).is_none() {
         let full = ctx.call("GET", format!("/api/vm/{id}"), None)?;
-        merged(ctx, &full)?;
+        return merged_onto(ctx, Some(&full), answer);
     }
     merged(ctx, answer)
 }

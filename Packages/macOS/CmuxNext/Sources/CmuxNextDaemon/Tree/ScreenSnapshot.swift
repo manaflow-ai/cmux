@@ -14,15 +14,19 @@ public struct ColumnSnapshot: Sendable, Hashable, Decodable {
     public var layout: LayoutNode
     /// Pinned to a viewport edge; nil scrolls (`sticky-columns-v1`).
     public var sticky: StickySnapshot?
+    /// The column's rows, top to bottom (`rows-v1`); empty for a column
+    /// with one row. `layout` is then the compat chain of these rows.
+    public var rows: [RowSnapshot]
 
-    public init(id: ColumnID, width: Double, layout: LayoutNode, sticky: StickySnapshot? = nil) {
+    public init(id: ColumnID, width: Double, layout: LayoutNode, sticky: StickySnapshot? = nil, rows: [RowSnapshot] = []) {
         self.id = id
         self.width = width
         self.layout = layout
         self.sticky = sticky
+        self.rows = rows
     }
 
-    enum CodingKeys: String, CodingKey { case id, width, layout, sticky, dock }
+    enum CodingKeys: String, CodingKey { case id, width, layout, sticky, dock, rows }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -33,6 +37,9 @@ public struct ColumnSnapshot: Sendable, Hashable, Decodable {
         let side = (try? c.decodeIfPresent(StickySnapshot.self, forKey: .sticky)) ?? nil
         let dock = ((try? c.decodeIfPresent(StickySnapshot.self, forKey: .dock)) ?? nil).flatMap { $0.edge.isBand ? $0 : nil }
         sticky = side ?? dock
+        // A malformed `rows` keeps the column: the compat chain in `layout`
+        // still holds every pane, as an older client reads it.
+        rows = ((try? c.decodeIfPresent([RowSnapshot].self, forKey: .rows)) ?? nil) ?? []
     }
 }
 

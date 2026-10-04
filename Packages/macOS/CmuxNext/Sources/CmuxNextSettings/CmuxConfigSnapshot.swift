@@ -85,6 +85,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var stickyColumnMode: StickyDefaultMode = ColumnLayoutSettings.stickyModeFallback
     /// `layout.frameOrientation`: which docks own the frame's corners.
     public var frameOrientation: FrameOrientation = ColumnLayoutSettings.frameOrientationFallback
+    /// `layout.rows`: rows on (default) or off (plans/cmux-next/rows.md O1).
+    public var layoutRows: Bool = ColumnLayoutSettings.rowsFallback
     public var minimumPaneContentSize = CGSize(width: ColumnLayoutSettings.minimumPaneWidthFallback,
                                                height: ColumnLayoutSettings.minimumPaneHeightFallback)
     /// `layout.closeFocus`; "previousNeighbor" when unset or invalid.

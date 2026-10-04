@@ -183,21 +183,60 @@ connector or a backend.
 ```rust
 pub trait TerminalBackend: Send + Sync + 'static {          // cmux.terminal.backend/1
     fn id(&self) -> &BackendId;
-    fn kinds(&self) -> &[LocalId];                           // options.kinds; others refused
+    fn kinds(&self) -> &[LocalId];                           // options.kinds; others refused. LocalId: ^[a-z][a-zA-Z0-9-]{0,63}$
     fn capabilities(&self) -> BackendCapabilities;
     async fn open(&self, req: OpenRequest) -> Result<Box<dyn ByteTerminal>, BackendError>;
     async fn resume(&self, token: &ResumeToken) -> Result<Box<dyn ByteTerminal>, BackendError>;
 }
 
 pub trait ByteTerminal: Send {
-    fn events(&mut self) -> BoxStream<'static, ByteEvent>;   // Output(Bytes) | Exit(ExitStatus) | Lost(reason)
-    async fn write(&self, input: Bytes) -> Result<(), BackendError>;   // ordered; bounded queue = backpressure
-    async fn resize(&self, grid: Grid) -> Result<(), BackendError>;    // cols, rows, cell px
-    async fn signal(&self, signal: Signal) -> Result<(), BackendError>; // capability `signals`
+    fn events(&mut self) -> BoxStream<'static, ByteEvent>;
+    async fn write(&self, seq: u64, input: Bytes) -> Result<(), BackendError>; // seq orders chunks; bounded queue = backpressure
+    async fn resize(&self, grid: Grid) -> Result<(), BackendError>;            // cols, rows, cell px
+    async fn signal(&self, signal: Signal) -> Result<(), BackendError>;         // capability `signals`
     async fn close(&self, how: Close) -> Result<(), BackendError>;
-    fn resume_token(&self) -> Option<ResumeToken>;                     // capability `resume`
+    fn resume_token(&self) -> Option<ResumeToken>;                             // capability `resume`
 }
 
+pub enum ByteEvent {
+    /// `offset` is the stream offset after this chunk (running byte total
+    /// since open). The session host checks continuity: a gap or overlap
+    /// is `Lost`, never silently spliced. A resumed terminal continues the
+    /// same offsets.
+    Output { offset: u64, bytes: Bytes },
+    Exit(ExitStatus),
+    Lost { reason: String, retryable: bool },
+}
+
+pub struct ExitStatus {
+    pub code: Option<i32>,      // exit code, when the far end sent one
+    pub signal: Option<String>, // signal name without "SIG" ("INT", "KILL"), SSH exit-signal or POSIX
+    pub core_dumped: bool,
+    pub message: Option<String>, // bounded (4 KiB) far-end text, shown, never parsed
+}
+
+pub enum BackendError {
+    Unsupported,
+    Unavailable { reason: String, retryable: bool },
+    /// Typed host-key refusal: the host shows its accept sheet from these
+    /// fields, never by parsing text. Nothing reached the far shell.
+    HostKey { decision: HostKeyRefusal /* Unknown | Changed */, fingerprint: String /* "SHA256:…" */ },
+    Denied { reason: String },  // a handle was revoked or a check failed
+    Invalid { reason: String },
+}
+
+pub struct BackendCapabilities {
+    pub resize: bool, pub signals: bool, pub exit_status: bool, pub resume: bool,
+    pub cwd_reports: bool, pub max_write_bytes: u32,
+    /// True only when the far end answers terminal queries itself (DA, DSR,
+    /// OSC color queries). Then the local session host parses but does not
+    /// reply, or the far end would get two answers. A plain shell over SSH
+    /// or a PTY is false: the session host answers.
+    pub answers_queries: bool,
+}
+```
+
+```rust
 pub trait TerminalConnector: Send + Sync + 'static {        // cmux.terminal.connector/1
     fn id(&self) -> &BackendId;
     fn kinds(&self) -> &[LocalId];
@@ -255,6 +294,42 @@ pub trait HostLink: Send {
   own session host) and `cmux.terminal.backend/1` for its rescue shell; the
   sample `samples/apps/ssh-terminal` implements `cmux.terminal.backend/1`
   with kind `ssh`.
+
+### 3.5 Handle operations that use secrets (security first)
+
+A backend never receives a secret, and no host op signs or decrypts bytes
+the app chose freely. A generic `sign(bytes)` on a credential handle is a
+signing oracle: the app could get the user's key to sign any challenge, for
+any server, as any user. So there is no generic `sign`. Each use gets its own
+narrow op that the host checks before it uses the key:
+
+`credential.ssh_userauth_signature {credential, connection, open_token, payload}`.
+The host parses `payload` as an SSH public key user-auth request (RFC 4252
+section 7) and signs only when every check passes:
+
+1. Layout exactly: `string session_id || byte 50 (SSH_MSG_USERAUTH_REQUEST)
+   || string user || string service || string "publickey" || bool TRUE ||
+   string algorithm || string public_key_blob`, with no trailing bytes.
+2. `session_id` is 20 to 64 bytes (an exchange hash length).
+3. `user` equals the user that the `connection` handle resolves to.
+4. `service` is `ssh-connection`.
+5. `public_key_blob` equals the public key of `credential`, and `algorithm`
+   matches that key (`ssh-ed25519`, `ecdsa-sha2-*`, or `rsa-sha2-256` /
+   `rsa-sha2-512` for RSA; never `ssh-rsa` SHA-1).
+6. `open_token` is the one-time token the host issued to this backend for
+   this `open` or `resume` of this terminal; it allows at most 3 signatures
+   in 30 s, then it expires.
+7. The `connection` handle's host key was answered `Trusted` for this
+   `open` (the backend reported the key through the host key op first).
+
+Residual risk, stated plainly: the host cannot verify that `session_id`
+belongs to a key exchange with the handle's host, because the app runs the
+SSH transport. A malicious app with this grant can authenticate as that user
+to another server that accepts the same key, during the 30 s window. The
+grant needs `terminal:backend` (restricted, Verified review) and a user
+gesture per open. Removing the residual risk needs the host to own the SSH
+transport (the host dials, the app gets a channel); that is a decision for
+the coordinator (section 6, item 8).
 
 ## 4. Mac switch plan
 
@@ -316,6 +391,9 @@ pub trait HostLink: Send {
    `cmux.terminal.connector/1`, both with `options.kinds` and default deny.
 7. No window-opening tests on the laptop. S2 Mac dogfood runs on
    cmux-lawrence-2.
+8. Open: should the host own the SSH transport for `ssh` connection handles
+   (no signing op at all, section 3.5), or is the narrow user-auth signature
+   op with its residual risk enough for v1?
 
 Shortcuts taken in this proposal: no build ran; the Mac API gap is a token
 scan, not a link; group counts reuse the 2026-10-02 inventory; D5/D7
