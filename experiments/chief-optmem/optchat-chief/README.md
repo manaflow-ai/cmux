@@ -15,15 +15,32 @@ Two engines run a turn (`OPTCHAT_CHIEF_ENGINE`):
 - `native`: the host's own Messages API loop with `bash`, the text
   editor, `zoom` and `date`. It is the engine that keeps sections 7 and 8
   whole: three cache breakpoints in the view plus the request end, model
-  output resent verbatim, tool results capped at CAP, and messages sent
-  during a turn delivered between tool calls (as MASTER says).
+  output resent verbatim and tool results capped at CAP.
 - `acpmux` (default): a fresh acpmux session per turn (`MUX_HARNESS`, default
-  claude-sr). Claude Code's own breakpoints never land in the view, so each
-  turn rewrites the view in the cache, and claude-sr takes no message
-  mid-run: a human message stops the running turn (`session/cancel`) and
-  the next fresh turn answers with the view of everything the stopped turn
-  did. Claude Code's Task/Agent subagents are denied (their steps would be
-  logged as the Chief's); `chief agents` starts agents instead.
+  claude-sr), named `optchat-<home id>-<first id>`. Claude Code's own
+  breakpoints never land in the view, so each turn rewrites the view in the
+  cache. Claude Code's Task/Agent subagents are denied (their steps would be
+  logged as the Chief's); `chief agents` starts agents instead. So are
+  AskUserQuestion, EnterPlanMode and ExitPlanMode: acpmux keeps those for a
+  human under every policy, and nobody answers them in a turn.
+
+A human message sent while a turn works interrupts it at once, on both
+engines, even mid-thinking and even when it only says "thanks" (decision
+2026-10-04); a tool call already running finishes first. The native engine
+drops the streaming step at its next streamed event (its thinking and its
+unfinished text are not logged or resent), logs the message as `user` and
+calls the model again with it, after the running tool's result when there is
+one. The acpmux engine waits until no tool call of the turn is running
+(Claude Code's interrupt would abort it), then sends `session/cancel`, again
+every second until the turn ends (a cancel that reaches acpmux before the
+prompt is lost); the next fresh turn answers with the view of everything the
+stopped turn did. That turn waits for settle like any turn: section 6 (no
+call sees an unsummarized line) makes it wait until the stopped turn's steps
+and the new message have their level-0 lines, usually a few node builds.
+Text the stopped turn had streamed before the interrupt is logged as `talk`
+on the acpmux engine (acpmux does not say whether a reply was finished) and
+dropped on the native engine. MASTER says this instead of "reach you between
+tool calls".
 
 ## Run it with a tagged cmux-next build
 
@@ -93,7 +110,7 @@ turn when the Chief is idle.
 | `OPTCHAT_COMPACTOR` | `acpmux` on the subrouter or without a key, else `api` | how summaries are built (see Compactor routes) |
 | `OPTCHAT_COMPACTOR_HARNESS` | `claude-sr` | acpmux route: the harness of the compactor sessions |
 | `OPTCHAT_COMPACTOR_MODEL` | `claude-sonnet-5-5` | acpmux route: their model (the refusal fallback stays `claude-sonnet-5`) |
-| `OPTCHAT_CHIEF_ISOLATE` | `1` | `0` runs turns with the user's own Claude Code configuration |
+| `OPTCHAT_CHIEF_ISOLATE` | `1` | `0` runs turns with the user's own Claude Code configuration; it never changes the compactor's isolation |
 | `OPTCHAT_CHIEF_TURN_LIMIT_MIN` | `180` | a turn longer than this is stopped and says so (`0`: no limit) |
 
 ## Files
@@ -108,8 +125,11 @@ $MUX_HOME/optchat/host.json       outbox, logged seq, pending turn, children
 $MUX_HOME/optchat/tools.sock      the live memory for `optchat-chief mcp`
 $MUX_HOME/optchat/session/        every turn's cwd: CLAUDE.md, .mcp.json, .claude/settings*.json
 $MUX_HOME/optchat/bin/chief       launcher for `chief agents ...`
-$MUX_HOME/optchat/claude/         the turn and compactor sessions' CLAUDE_CONFIG_DIR (settings.json: no auto-memory, no hooks)
-$MUX_HOME/optchat/compactor/      the compactor sessions' cwd (0700): only .claude/settings.json, which denies every tool
+$MUX_HOME/optchat/claude/         the turn sessions' CLAUDE_CONFIG_DIR (settings.json: no auto-memory, no hooks,
+                                  transcripts kept 2 days)
+$MUX_HOME/optchat/compactor-claude/  the compactor sessions' own CLAUDE_CONFIG_DIR (0700; settings.json denies
+                                  every tool, no auto-memory, no hooks, no bundled skills, transcripts kept 1 day)
+$TMPDIR/optchat-compact-<home id>/slot-<k>/  the compactor sessions' working directories (0700, empty), one per slot
 ```
 
 `$MUX_HOME/optchat/` is mode 0700 and the log, tree and host.json are 0600:
@@ -125,8 +145,11 @@ byte-identical across turns. The request the model gets is not fully ours:
   saved in acpmux's config) whose env sets `CLAUDE_CONFIG_DIR` to
   `optchat/claude` and turns auto-memory off, so the user's
   `~/.claude/CLAUDE.md`, settings, hooks and project memory never reach a
-  turn and MASTER's "instructions at the end of this prompt" holds. Unverified
-  end to end: that `claude-sr` signs in with an empty config directory.
+  turn and MASTER's "instructions at the end of this prompt" holds. When
+  acpmux refuses the preset, turns still start (with the harness's own
+  configuration) and host.log says so; compactor sessions never do.
+  Claude Code keeps each turn's transcript (the whole view) under
+  `optchat/claude/projects/` for 2 days (`cleanupPeriodDays`, minimum 1).
 - Claude Code's own system prompt still comes first, with its date and
   environment lines, so the cached prefix changes at least once a day.
   Machine-wide managed settings still apply.
@@ -142,22 +165,38 @@ the route at start (`OPTCHAT_COMPACTOR` overrides):
 - `acpmux` (default on the subrouter, or when no real key is configured):
   each node is built in its own acpmux session of `OPTCHAT_COMPACTOR_HARNESS`
   (claude-sr), as `mux/host/src/compactor.ts` does. The session runs with the
-  `deny-all` policy, no tools (denied in its cwd's project settings), cwd
-  `$MUX_HOME/optchat/compactor`, and the turn sessions' isolation preset
-  (`CLAUDE_CONFIG_DIR`, no auto-memory). The first prompt is the compactor's
-  system text, the context pieces and the step; each size-loop retry is the
-  next prompt in the same session; the reply text is the line. The session
-  is killed with purge when the node is built or fails. At most JOBS (8)
-  compactor sessions live at once. Nothing pretends to be Claude Code and no
-  API key is involved: the harness signs in as it always does.
+  `deny-all` policy and the compactor's own acpmux preset
+  (`optchat-compact-<home id>`), which it requires: when acpmux refuses the
+  preset, no compactor session starts (nodes fail and are retried, and the
+  probe says why), so a node never runs with the user's `~/.claude` hooks,
+  MCP servers or auto-memory. The preset sets `CLAUDE_CONFIG_DIR` to
+  `optchat/compactor-claude` (not the turn agent's) and turns off
+  auto-memory, CLAUDE.md files, bundled skills and Claude Code's own refusal
+  fallback; that configuration denies every built-in tool, the interactive
+  ones included. The cwd is a slot directory under the system temporary
+  directory, outside any directory with instruction files. The first prompt
+  is the compactor's system text, the context pieces and the step; each
+  size-loop retry is the next prompt in the same session; the reply text is
+  the line, with a lead-in line ("Here is the line:") dropped. When the node
+  is built or fails, the session is killed with purge and Claude Code's
+  transcript of it is deleted, and host.log gets one line with the node's
+  seconds, prompts and token use (`compactor node <id> (<model>): 9.8 s, 1
+  prompt(s), uncached .. cache write .. cache read .. output .., $..`). At
+  most JOBS (8) compactor sessions live at once, main and fallback model
+  together. Nothing pretends to be Claude Code and no API key is involved:
+  the harness signs in as it always does.
 - `api`: the Messages API at `OPTCHAT_ANTHROPIC_BASE_URL` with
   `OPTCHAT_ANTHROPIC_API_KEY` (or `ANTHROPIC_API_KEY` off the subrouter),
   for an endpoint that takes API calls.
 
-At start the host builds one probe node through the chosen route. When that
-fails (acpmux down, the harness not signed in, a 429), host.log gets one
-`The memory compactor cannot build summaries ...` line and the Chief
-conversation gets the same text once, instead of a silent wait later.
+At start the host builds one probe node through the chosen route, with the
+main model and then the refusal fallback model, and on the acpmux route
+checks that the session's Claude Code offers no tool and no MCP server (its
+`system/init`, which acpmux records). When any of that fails (acpmux down,
+the harness not signed in, a 429, an unserved fallback model, a tool left
+on), host.log gets one `The memory compactor cannot build summaries ...`
+line and the Chief conversation gets the same text once, instead of a
+silent wait later.
 Checked live on 2026-10-04 on the build host against a private acpmux daemon
 with claude-sr and the isolation preset: the probe took 2.4 s and a
 120-line message's summary 3.1 s
@@ -173,11 +212,14 @@ subrouter it gets the same 429 (`--test live two_native_turns` repeats it).
   rewrites the view in the cache. The native engine places them. Each turn
   logs `turn <key> cache: first request read .. written .. uncached ..` to
   host.log either way; the first request's numbers show what crossed turns.
-- **acpmux engine only: messages during a turn (section 7).** A human
-  message stops the running turn and starts a fresh one, instead of reaching
-  it between tool calls. Children's reports wait for the next turn. The
-  brain-host contract has no user cancel, so neither engine can cancel a
-  turn or the compactor wait on request; a turn past its limit is stopped.
+- **Messages during a turn (section 7, MASTER).** The spec delivers them at
+  the next tool boundary; here a human message interrupts at once (see the
+  top of this file), and MASTER's line says so. On the acpmux engine the
+  interrupted turn ends and a fresh one starts. Children's reports do not
+  interrupt: the native engine delivers them between tool calls, the acpmux
+  engine at the next turn. The brain-host contract has no user cancel, so
+  neither engine can cancel a turn or the compactor wait on request; a turn
+  past its limit is stopped.
 - **Native engine: the bash tool.** Each command is its own `bash -c` (so a
   timeout kills all it started); the working directory carries over between
   commands, shell variables and exports do not. Tools are approve-all, like
@@ -191,25 +233,39 @@ subrouter it gets the same 429 (`--test live two_native_turns` repeats it).
   compactor's system text is the first block of the user prompt instead of
   the API `system` field. acpmux forwards text blocks without
   `cache_control`, so the context pieces keep the spec's order and cut
-  points but carry no breakpoints: a node reads only what Claude Code's own
-  caching gives it. Each node pays a harness start (about 2 s). The
-  `medium` effort goes to the harness as acpmux's `effort` option; that
-  option was not part of the live check. Size-loop retries stay in the same
-  session, so the earlier reply (thinking included) stays in the harness's
-  context, as section 8 wants, though the host never sees the blocks.
+  points but carry no breakpoints. Claude Code puts its own breakpoint at
+  the end of the prompt, so a node writes its whole prompt (system text,
+  view, step) to the cache and the next node, whose step differs, reads
+  none of that view back: each node pays for its whole view at the cache
+  write price, where the spec's layout would read most of it at the cache
+  read price. LIVE_COST_PLACEHOLDER Each node also pays a harness start.
+  No effort is sent (the harness default) until acpmux's `effort` option is
+  checked live; the `api` route still sends `medium`. Size-loop retries
+  stay in the same session, so the earlier reply (thinking included) stays
+  in the harness's context, as section 8 wants, though the host never sees
+  the blocks.
 - **Huge messages (section 4.2, rule 3).** The spec sends a message whole to
   its compactor call; a paste or tool input larger than the model's context
   fails that node on every try, and rule 3 then blocks every later level-0
   node and every turn. A message longer than `STEP_MESSAGE` (200,000
   characters) shows only its first and last 100,000 characters in that one
   call (the log keeps it whole, and `zoom(id, 1)` returns it whole), and its
-  line starts with `(cut: N of M characters unread) `, which the host adds
-  (the model is told to leave room for it, so the line can pass 512 bytes by
-  that prefix when the model uses all its room). The WebAssembly build has
-  the cut and the instruction but not the added prefix.
+  line starts with `(cut: N of M characters unread) `, which the host adds.
+  The model is told its reduced room (512 bytes less the prefix), and the
+  size loop measures its reply against that room, so the finished line fits
+  in 512 bytes like any other; only after five tries does the shortest
+  reply win, as for every node. The limit counts characters, so a cut CJK
+  message can still be large in tokens (about 200k characters stays inside
+  the context of the compactor models in practice, but is not checked). The
+  WebAssembly build exports the cut: `compactRequest` returns `cut` and
+  `room`, `sizeCheck(tries, room)` measures against the room, and
+  `finishLine(cut, line)` adds the prefix.
 - **Compactor refusals (section 4.1).** A node the compactor model declines
   is built by `claude-sonnet-5` (fewer safeguard categories) instead of
-  being retried forever. Other failures retry every 10 s forever, as the spec
+  being retried forever. On the acpmux route a refusal arrives as acpmux
+  sends it: a JSON-RPC error (code -32603) whose message is Claude Code's
+  refusal text, which always links `anthropic.com/legal/aup`; a usage limit
+  or an overload is not a refusal and is retried. Other failures retry every 10 s forever, as the spec
   says; after a minute of waiting the conversation hears which line fails.
 - **Subagents (section 9).** Children get no view and no subagent system
   prompt; each reports alone, one `[name] reply` per ended turn; `prompt` is a
@@ -233,8 +289,12 @@ umask 022; cargo test --release; cargo clippy --release --all-targets -- -D warn
 
 `tests/brain.rs` runs the brain against in-process fakes of both owners;
 `tests/compactor.rs` runs the acpmux compactor route against the fake acpmux
-port (one session per node, size loop in it, purge, JOBS cap, route choice,
-the start-up notice);
+port (one session per node, size loop in it, purge and transcript deletion,
+one JOBS gate across main and fallback, refusals as acpmux sends them, the
+probe's fallback and isolation checks, per-node token lines, route choice,
+the start-up notice); `tests/audit3.rs` covers interrupts on the acpmux
+engine and home-scoped turn names, `tests/native.rs` interrupts on the
+native engine;
 `tests/acpmux_wire.rs` and `tests/daemon_wire.rs` run the real clients against
 fake servers on Unix sockets; `tests/lock.rs` runs the binary against a held
 lock; `tests/mcp.rs` runs `optchat-chief mcp` against a live test memory.

@@ -263,6 +263,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(user["cleanupPeriodDays"], TURN_TRANSCRIPT_DAYS);
+        // Live check 2026-10-04: under `sr claude proxy` only project
+        // settings are read (sr resets CLAUDE_CONFIG_DIR to ~/.claude).
+        assert_eq!(settings["cleanupPeriodDays"], TURN_TRANSCRIPT_DAYS);
+        assert_eq!(settings["disableAllHooks"], true);
+        assert_eq!(settings["autoMemoryEnabled"], false);
         let launcher = std::fs::read_to_string(paths.bin.join("chief")).unwrap();
         assert!(launcher.contains("MUX_HOME=/h; export MUX_HOME\n"));
         assert!(launcher.ends_with("exec /x/optchat-chief \"$@\"\n"));

@@ -46,7 +46,7 @@ fn spec(dir: &std::path::Path) -> CompactorSpec {
     CompactorSpec {
         name: "optchat-compact-test".into(),
         work: dir.join("work"),
-        config_dir: dir.join("compactor-claude"),
+        transcript_dirs: vec![dir.join("compactor-claude"), dir.join("user-claude")],
         preset: "optchat-compact-test-preset".into(),
         harness: "claude-sr".into(),
         model: Some("claude-sonnet-5-5".into()),
@@ -519,6 +519,41 @@ fn a_finished_node_deletes_its_claude_code_transcript() {
     assert!(!project.exists(), "{} is left", project.display());
 }
 
+// Live check 2026-10-04: `sr claude proxy` resets CLAUDE_CONFIG_DIR to
+// ~/.claude, so the transcript lands there and the compactor config's user
+// settings are never read; only the cwd's project settings are.
+#[test]
+fn the_transcript_is_deleted_from_the_users_claude_home_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_owned();
+    let made = Arc::new(Mutex::new(None));
+    let seen = made.clone();
+    let agents = FakeAgents::new(Box::new(move |_, _| {
+        let cwd = std::fs::canonicalize(root.join("work").join("slot-0")).unwrap();
+        let project = root.join("user-claude").join("projects").join(project_dir_name(&cwd));
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(project.join("abc.jsonl"), "{}\n").unwrap();
+        *seen.lock().unwrap() = Some(project);
+        answer("user: hi")
+    }));
+    run_node(&compactor(&agents, dir.path()), &request(0)).unwrap();
+    let project = made.lock().unwrap().clone().unwrap();
+    assert!(!project.exists(), "{} is left", project.display());
+}
+
+#[test]
+fn each_slot_directory_carries_the_deny_settings_as_project_settings() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: hi")));
+    run_node(&compactor(&agents, dir.path()), &request(0)).unwrap();
+    let cwd = agents.inner.lock().unwrap().specs[0].cwd.clone();
+    let settings: Value =
+        serde_json::from_slice(&std::fs::read(cwd.join(".claude").join("settings.json")).unwrap())
+            .unwrap();
+    assert_eq!(settings, compactor_settings());
+    assert_eq!(settings["disableAllHooks"], true);
+}
+
 #[test]
 fn project_dir_names_follow_claude_code() {
     assert_eq!(
@@ -593,7 +628,11 @@ fn the_compactor_has_its_own_isolated_configuration() {
     let spec = compactor_spec(&paths, &home, "claude-sr", "claude-sonnet-5-5");
     assert_eq!(spec.effort, None);
     assert_eq!(spec.preset, preset.name);
-    assert_eq!(spec.config_dir, paths.compactor_config);
+    assert!(spec.transcript_dirs.contains(&paths.compactor_config));
+    assert!(
+        spec.transcript_dirs.len() >= 2,
+        "the user's Claude home too: sr resets CLAUDE_CONFIG_DIR"
+    );
     assert!(
         !spec.work.starts_with(&home),
         "the compactor's cwd is outside the home: {}",
