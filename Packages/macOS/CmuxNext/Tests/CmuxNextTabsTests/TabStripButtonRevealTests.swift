@@ -128,4 +128,18 @@ import Testing
         #expect(!h.plusVisible)
         #expect(HoverReveal.owner(of: h.strip.newTabButton) === HoverReveal.owner(of: h.strip.buttonGroup))
     }
+
+    /// `tabs.plusButton` = always keeps the plus shown at rest while the
+    /// trailing buttons still reveal on hover; back to hover hides it again.
+    @Test func plusButtonAlwaysKeepsThePlusShown() {
+        let saved = DesignSettings.shared.plusButton
+        defer { DesignSettings.shared.plusButton = saved }
+        DesignSettings.shared.plusButton = .always
+        let h = Harness()
+        #expect(h.plusVisible)
+        #expect(!h.buttonsVisible)
+        DesignSettings.shared.plusButton = .hover
+        h.strip.applyPlusButtonMode()
+        #expect(!h.plusVisible)
+    }
 }
