@@ -279,14 +279,19 @@ impl Transfer for OpenSshTransfer {
         let child = Arc::new(Mutex::new(child));
         let killer = Arc::clone(&child);
         cancel.on_cancel(move || {
-            let _ = lock(&killer).kill();
+            // A held lock means the worker is reaping scp (stderr ended):
+            // there is nothing left to kill, and the loop never waits here.
+            if let Ok(mut child) = killer.try_lock() {
+                let _ = child.kill();
+            }
         });
         let mut stderr = String::new();
         if let Some(mut pipe) = pipe {
             let _ = pipe.read_to_string(&mut stderr);
         }
         let status = lock(&child).wait().map_err(|e| failed("scp", &e.to_string()))?;
-        if cancel.is_cancelled() {
+        // A copy that finished before the cancel took effect is done.
+        if !status.success() && cancel.is_cancelled() {
             return Err(cancelled());
         }
         if !status.success() {
