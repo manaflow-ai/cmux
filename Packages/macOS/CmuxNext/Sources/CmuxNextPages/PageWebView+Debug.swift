@@ -44,6 +44,21 @@ extension PageWebView {
         return clicked as? Bool == true
     }
 
+    /// Focuses the first element matching `selector` (or keeps the focused one) and inserts `text`
+    /// there as typed input (`insertText`), so live proofs can edit a page whose host has no
+    /// Accessibility grant for real keystrokes. DEBUG verb only.
+    public func debugInsertText(_ text: String, selector: String?) async -> Bool {
+        let script = """
+        const el = selector ? document.querySelector(selector) : document.activeElement;
+        if (!el) { return false; }
+        el.focus();
+        return document.execCommand('insertText', false, text);
+        """
+        let inserted = try? await webView.callAsyncJavaScript(script, arguments: ["selector": selector ?? NSNull(), "text": text],
+                                                              contentWorld: .page)
+        return inserted as? Bool == true
+    }
+
     /// Writes the page as WebKit rendered it to `url` as PNG.
     public func debugSnapshot(to url: URL) async -> Bool {
         keepRenderingWhenCovered()
