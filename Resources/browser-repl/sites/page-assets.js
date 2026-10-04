@@ -91,6 +91,8 @@
     "pageAssets",
     (t) => {
       const inventories = new Map();
+      // The tab each inventory was listed in: bundle() fetches through it.
+      const listedIn = new Map();
       let n = 0;
       return {
         // { id, pageUrl, assets: [{ id, kind, name, url, sources }], inlineSvgs: [{ id, name, markup }], summary }.
@@ -105,16 +107,21 @@
           for (const a of assets) byKind[a.kind] = (byKind[a.kind] || 0) + 1;
           const inv = { id, pageUrl: raw.pageUrl, assets, inlineSvgs, summary: { byKind, inlineSvgCount: inlineSvgs.length, totalCount: assets.length } };
           inventories.set(id, inv);
+          listedIn.set(id, p);
           return inv;
         },
-        // Downloads assets of a list() inventory into a directory (cookies
-        // only for assets on the page's own origin, none cross-origin):
+        // Downloads assets of a list() inventory into a directory through
+        // the tab it was listed in (its cookies, only for assets on the
+        // page's own origin, none cross-origin; none for an inventory list()
+        // did not make in this session; a closed tab fails):
         // { directoryPath, manifestPath, assets: [{ id, kind, name, url, path, contentType }], failures, summary }.
         // { kinds } or { assetIds } narrow it (default: images, fonts, stylesheets, video); inline SVGs are written with images.
         async bundle(inv, options = {}) {
           const started = t.now();
           const inventory_ = typeof inv === "string" ? inventories.get(inv) : inv && inv.id ? inventories.get(inv.id) || inv : null;
           if (!inventory_) throw new S.SiteError("invalid", `pageAssets.bundle: expected an inventory from pageAssets.list() or its id, got ${JSON.stringify(inv)}`);
+          const listed = inventories.get(inventory_.id) === inventory_ ? listedIn.get(inventory_.id) : null;
+          if (listed && listed.isClosed()) throw new S.SiteError("stale", `pageAssets.bundle: the tab inventory ${inventory_.id} was listed in was closed; call pageAssets.list() on the page again`);
           const kinds = options.kinds || ["image", "font", "stylesheet", "video"];
           for (const k of kinds) if (!KINDS.includes(k)) throw new S.SiteError("invalid", `pageAssets.bundle: kinds: expected ${KINDS.join(", ")}, got ${JSON.stringify(k)}`);
           const pick = options.assetIds ? inventory_.assets.filter((a) => options.assetIds.includes(a.id)) : inventory_.assets.filter((a) => kinds.includes(a.kind));
@@ -132,16 +139,19 @@
           const failures = [];
           // An inventory's URLs come from the page, so a cross-origin asset is
           // fetched with no cookies. An asset on the page's own origin uses
-          // "same-origin": cookies go to that origin (while the current tab is
-          // on it) and to no redirect hop elsewhere. The native fetch checks
+          // "same-origin" through the tab the inventory was listed in: that
+          // tab's cookies go to that origin, whichever tab is current, and to
+          // no redirect hop elsewhere. An inventory list() did not make here
+          // (a copy) has no tab and sends no cookies. The native fetch checks
           // the domain policy on the URL and every redirect hop.
           let pageOrigin = null;
           try {
             pageOrigin = new URL(inventory_.pageUrl).origin;
           } catch (e) {}
+          const fetchAsset = listed ? t.fetchFrom(listed, pageOrigin) : t.fetch;
           const credentialsFor = (url) => {
             try {
-              return pageOrigin && pageOrigin !== "null" && new URL(url).origin === pageOrigin ? "same-origin" : "omit";
+              return listed && pageOrigin && pageOrigin !== "null" && new URL(url).origin === pageOrigin ? "same-origin" : "omit";
             } catch (e) {
               return "omit";
             }
@@ -156,7 +166,7 @@
                 type = m[1] || null;
                 bytes = m[2] ? t.Buffer.from(m[3], "base64") : t.Buffer.from(decodeURIComponent(m[3]), "utf8");
               } else {
-                const r = await t.fetch(a.url, { credentials: credentialsFor(a.url) });
+                const r = await fetchAsset(a.url, { credentials: credentialsFor(a.url) });
                 if (!r.ok) throw new Error(`HTTP ${r.status}`);
                 type = (r.headers.get("content-type") || "").split(";")[0] || null;
                 bytes = t.Buffer.from(await r.arrayBuffer());

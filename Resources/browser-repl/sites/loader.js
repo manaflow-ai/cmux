@@ -331,6 +331,9 @@
       host,
       session,
       fetch: ctx.fetch,
+      // fetchFrom(page, origin) is a fetch with that tab's cookies and that
+      // origin's same-origin rule, whichever tab is current.
+      fetchFrom: ctx.fetchFrom,
       currentPage: ctx.currentPage,
       snapshot: ctx.snapshot,
       sleep: (ms) => session.sleep(ms),

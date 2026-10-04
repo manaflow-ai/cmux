@@ -514,6 +514,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// workspace that holds each.
     @MainActor
     private func allBrowserPanels() -> [(panel: BrowserPanel, workspace: Workspace)] {
+        Self.browserPanelEntries()
+    }
+
+    @MainActor
+    private static func browserPanelEntries() -> [(panel: BrowserPanel, workspace: Workspace)] {
         guard let app = AppDelegate.shared else { return [] }
         var out: [(BrowserPanel, Workspace)] = []
         var seen = Set<UUID>()
@@ -850,6 +855,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             }
             BrowserReplTabAttachments.shared.pageClipboard = BrowserReplPageClipboard(shim: shim)
         }
+        // `cmux browser press` Meta+C, Meta+X and Meta+V in tabs a session
+        // created use the tab's clipboard, as the REPL's own keys do.
+        WKWebView.automationEditingCommandRoute = Self.routePressedEditingCommand
         let rawURL = params["url"] as? String
         // `dataStore` (an id from tabs.list or tabs.dataStore) opens the tab
         // in that store and its tab's profile, as storage state restores
@@ -1928,8 +1936,15 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 guard result == .delivered else {
                     throw Self.error("invalid", "Could not deliver key \"\(keyName)\"")
                 }
+                // Watched in the delivery's turn: WebKit reports whether a
+                // page handled the key on a later one.
+                let outcome = type == "down" && stroke.editingCommand != nil
+                    ? webView.browserNativeInputDeliveryOwner.lastDeliveredKeyDown.map { webView.observeAutomationKeyDownOutcome($0) }
+                    : nil
                 self.attachment(panel).heldKeys.record(stroke, keyDown: type == "down")
-                if type == "down", let command = stroke.editingCommand {
+                // The editing command runs only for a key no page handled (it
+                // did not cancel the keydown), as a browser's Edit menu does.
+                if type == "down", let command = stroke.editingCommand, let outcome, await outcome.wasUnhandled() {
                     try await self.performEditingCommand(command, panel: panel, webView: webView)
                 }
                 await BrowserReplNativeInput.roundTrip(webView)
@@ -1963,7 +1978,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// selection is read by script and a paste inserts the text, with no
     /// clipboard events.
     @MainActor
-    private func performClipboardCommandWithoutWebKit(
+    private static func performClipboardCommandWithoutWebKit(
         _ command: String,
         attachment: BrowserReplTabAttachment,
         webView: CmuxWebView
@@ -2019,8 +2034,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     /// The tabs `creator` created, by panel id.
     @MainActor
-    private func tabsCreated(by creator: String) -> Set<UUID> {
-        Set(allBrowserPanels().compactMap { entry in
+    private static func tabsCreated(by creator: String) -> Set<UUID> {
+        Set(browserPanelEntries().compactMap { entry in
             BrowserReplTabAttachments.shared.attachment(for: entry.panel.id)?.creatorSessionID == creator ? entry.panel.id : nil
         })
     }
@@ -2034,9 +2049,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// also after that tab closed. A process that is already gone may be
     /// "ended".
     @MainActor
-    private func webContentEndsOnlySessionTabs(_ webView: WKWebView, creator: String, sessionTabs: Set<UUID>) -> Bool {
+    private static func webContentEndsOnlySessionTabs(_ webView: WKWebView, creator: String, sessionTabs: Set<UUID>) -> Bool {
         guard let pid = CmuxWebContentProcessIdentifier.pid(for: webView) else { return true }
-        for (other, _) in allBrowserPanels() {
+        for (other, _) in browserPanelEntries() {
             if other.webView !== webView, CmuxWebContentProcessIdentifier.pid(for: other.webView) == pid,
                !sessionTabs.contains(other.id),
                BrowserReplTabAttachments.shared.attachment(for: other.id)?.creatorSessionID != creator {
@@ -2053,11 +2068,81 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// the tab's clipboard takes (`nil`: it stays as it is). The caller
     /// stores it only after the focus check that follows the command.
     @MainActor
-    private func runClipboardCommand(
+    /// Runs the Cocoa editing action behind a Command shortcut. Clipboard
+    /// actions use the tab's virtual clipboard, not the system pasteboard:
+    /// WebKit's own Copy, Cut and Paste run against a private pasteboard that
+    /// holds the tab's clipboard, so the page gets trusted `copy`, `cut` and
+    /// `paste` events with `clipboardData`, as a person's shortcut gives it.
+    /// The private pasteboard stands in for at most 5 s; a page that keeps
+    /// the command running longer has its web content process ended then
+    /// (`BrowserReplPasteboardRedirect`), so nothing it does later reaches
+    /// the system clipboard. Only tabs a session created run these.
+    @MainActor
+    private func performEditingCommand(_ command: String, panel: BrowserPanel, webView: CmuxWebView) async throws {
+        let attachment = attachment(panel)
+        switch command {
+        case "copy:", "cut:", "paste:":
+            try refuseClipboardCommandInUserTab(command, panel: panel)
+            // The page's own key handlers ran before the command and can have
+            // moved the focus into a frame the domain policy blocks, whose
+            // selection Copy or Cut would take into the tab's clipboard (or
+            // into which Paste would put it): the focus is checked again
+            // right before the command, and after it before the clipboard
+            // takes anything (BrowserReplFrameGate.guardingFocus).
+            let taken = try await frameGate.guardingFocus(in: webView, frames: { await BrowserReplFrameTree.frames(of: webView) }) {
+                try await Self.performClipboardCommand(command, panel: panel, webView: webView, attachment: attachment)
+            }
+            if let taken { attachment.clipboardItems = taken }
+        case "bold", "italic", "underline":
+            // Chrome's editor formats the selection of an editable element on
+            // Command+B/I/U; the page sees its usual beforeinput and input.
+            _ = try? await webView.callAsyncJavaScript(
+                """
+                const el = document.activeElement;
+                if (!(document.designMode === "on" || (el && el.isContentEditable))) return false;
+                return document.execCommand(command);
+                """,
+                arguments: ["command": command],
+                in: nil,
+                contentWorld: .page
+            )
+        default:
+            NSApp.sendAction(NSSelectorFromString(command), to: webView, from: nil)
+        }
+    }
+
+    /// `cmux browser press` Meta+C, Meta+X or Meta+V that no page handled
+    /// (``WKWebView/automationEditingCommandRoute``), in a tab a session
+    /// created and is attached to: runs on the tab's clipboard as the REPL's
+    /// own shortcut does, never on the system pasteboard. Returns `false`
+    /// for any other command or tab, whose web view runs its own action.
+    @MainActor
+    static func routePressedEditingCommand(_ webView: WKWebView, _ command: String) -> Bool {
+        guard clipboardCommandNames[command] != nil,
+              let entry = browserPanelEntries().first(where: { $0.panel.webView === webView }),
+              let attachment = BrowserReplTabAttachments.shared.attachment(for: entry.panel.id),
+              attachment.creatorSessionID != nil,
+              let tabWebView = entry.panel.webView as? CmuxWebView
+        else { return false }
+        let panel = entry.panel
+        Task { @MainActor in
+            // The press already returned; a failure (another command in
+            // flight, a timeout) leaves the tab's clipboard unchanged.
+            if let taken = try? await performClipboardCommand(command, panel: panel, webView: tabWebView, attachment: attachment) {
+                attachment.clipboardItems = taken
+            }
+        }
+        return true
+    }
+
+    /// Meta+C, Meta+X or Meta+V in a tab a session created (see
+    /// ``performEditingCommand(_:panel:webView:)``).
+    @MainActor
+    private static func performClipboardCommand(
         _ command: String,
         panel: BrowserPanel,
-        attachment: BrowserReplTabAttachment,
-        webView: CmuxWebView
+        webView: CmuxWebView,
+        attachment: BrowserReplTabAttachment
     ) async throws -> [[String: Any]]? {
         let isPaste = command == "paste:"
         // WebKit beeps on Copy or Cut with nothing selected; that case
@@ -2088,9 +2173,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             in: webView,
             pasteboard: pasteboard,
             tab: panel.id.uuidString,
-            mayEndWebContent: { [weak self] in
-                guard let self else { return true }
-                return self.webContentEndsOnlySessionTabs(webView, creator: creator, sessionTabs: sessionTabs)
+            mayEndWebContent: {
+                webContentEndsOnlySessionTabs(webView, creator: creator, sessionTabs: sessionTabs)
             }
         ) { [weak attachment] in
             attachment?.clipboardCommandFinished(name.lowercased())
@@ -2130,53 +2214,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         case .interfered:
             throw Self.error(
                 "stale",
-                "\(name) finished, but a copy in another web view reached the private pasteboard during it (WebKit's pasteboard requests do not say which web view they serve), so the tab's clipboard is unchanged\(isPaste ? " and the page may have pasted nothing" : ""). Try again"
+                "\(name) finished, but another web view copied, pasted or read the clipboard during it (WebKit's pasteboard requests do not say which web view they serve), so the tab's clipboard is unchanged\(isPaste ? " and the page may have pasted nothing" : ""). Try again"
             )
         case .unavailable:
             return try await performClipboardCommandWithoutWebKit(command, attachment: attachment, webView: webView)
-        }
-    }
-
-    /// Runs the Cocoa editing action behind a Command shortcut. Clipboard
-    /// actions use the tab's virtual clipboard, not the system pasteboard:
-    /// WebKit's own Copy, Cut and Paste run against a private pasteboard that
-    /// holds the tab's clipboard, so the page gets trusted `copy`, `cut` and
-    /// `paste` events with `clipboardData`, as a person's shortcut gives it.
-    /// The private pasteboard stands in for at most 5 s; a page that keeps
-    /// the command running longer has its web content process ended then
-    /// (`BrowserReplPasteboardRedirect`), so nothing it does later reaches
-    /// the system clipboard. Only tabs a session created run these.
-    @MainActor
-    private func performEditingCommand(_ command: String, panel: BrowserPanel, webView: CmuxWebView) async throws {
-        let attachment = attachment(panel)
-        switch command {
-        case "copy:", "cut:", "paste:":
-            try refuseClipboardCommandInUserTab(command, panel: panel)
-            // The page's own key handlers ran before the command and can have
-            // moved the focus into a frame the domain policy blocks, whose
-            // selection Copy or Cut would take into the tab's clipboard (or
-            // into which Paste would put it): the focus is checked again
-            // right before the command, and after it before the clipboard
-            // takes anything (BrowserReplFrameGate.guardingFocus).
-            let taken = try await frameGate.guardingFocus(in: webView, frames: { await BrowserReplFrameTree.frames(of: webView) }) {
-                try await runClipboardCommand(command, panel: panel, attachment: attachment, webView: webView)
-            }
-            if let taken { attachment.clipboardItems = taken }
-        case "bold", "italic", "underline":
-            // Chrome's editor formats the selection of an editable element on
-            // Command+B/I/U; the page sees its usual beforeinput and input.
-            _ = try? await webView.callAsyncJavaScript(
-                """
-                const el = document.activeElement;
-                if (!(document.designMode === "on" || (el && el.isContentEditable))) return false;
-                return document.execCommand(command);
-                """,
-                arguments: ["command": command],
-                in: nil,
-                contentWorld: .page
-            )
-        default:
-            NSApp.sendAction(NSSelectorFromString(command), to: webView, from: nil)
         }
     }
 

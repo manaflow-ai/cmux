@@ -43,6 +43,68 @@ struct BrowserReplPasteboardRedirectTests {
             #expect(BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: false) == nil)
         }
 
+        /// WebKit handling a web content process's message runs on its own
+        /// run-loop turn; WebKit called from AppKit or cmux code is an
+        /// action in some web view. Image sequences as observed on macOS 26.
+        @Test func lookupsAreClassifiedByWhatCalledWebKit() {
+            typealias Origin = BrowserReplPasteboardRedirect.LookupOrigin
+            #expect(BrowserReplPasteboardRedirect.origin(ofCallerImages: ["WebCore", "WebKit", "JavaScriptCore", "CoreFoundation"]) == Origin.webKitOnItsOwnTurn)
+            #expect(BrowserReplPasteboardRedirect.origin(ofCallerImages: ["WebKit", "libdispatch.dylib"]) == Origin.webKitOnItsOwnTurn)
+            #expect(BrowserReplPasteboardRedirect.origin(ofCallerImages: ["WebCore", "WebKit", "AppKit"]) == Origin.webKitCalledByTheApp)
+            #expect(BrowserReplPasteboardRedirect.origin(ofCallerImages: ["WebCore", "WebKit", "cmux"]) == Origin.webKitCalledByTheApp)
+            #expect(BrowserReplPasteboardRedirect.origin(ofCallerImages: ["WebCore", "WebKit"]) == Origin.webKitCalledByTheApp)
+            #expect(BrowserReplPasteboardRedirect.origin(ofCallerImages: ["AppKit", "WebKit", "CoreFoundation"]) == Origin.notWebKit)
+            #expect(BrowserReplPasteboardRedirect.origin(ofCallerImages: []) == Origin.notWebKit)
+        }
+
+        /// A lookup by WebKit called by the app during a command (another
+        /// web view's paste grant) diverts the command: from then on every
+        /// lookup, WebKit's own turn included, gets an emptied private
+        /// pasteboard, never the tab's, and the command is `interfered`.
+        /// So does WebKit reading `+generalPasteboard` (its check before it
+        /// grants a page's clipboard read without asking).
+        @Test(arguments: [false, true])
+        func anotherWebViewsActionDivertsTheCommand(viaGeneralPasteboard: Bool) async throws {
+            #expect(BrowserReplPasteboardRedirect.shared.install())
+            let tab = NSPasteboard.withUniqueName()
+            defer { tab.releaseGlobally() }
+            tab.clearContents()
+            tab.setString("tab text", forType: .string)
+            let redirect = BrowserReplPasteboardRedirect.shared
+            var duringStart: NSPasteboard?
+            var finish: (@MainActor () -> Void)?
+            let command = Task { @MainActor in
+                await redirect.run(on: tab, timeout: .seconds(30), endWebContent: { true }) { done in
+                    // WebKit's own lookups while it starts the command.
+                    duringStart = redirect.redirectTarget(forLookupOf: general, origin: .webKitCalledByTheApp)
+                    finish = done
+                }
+            }
+            try await settle { finish != nil }
+            #expect(duringStart === tab)
+            #expect(redirect.redirectTarget(forLookupOf: general, origin: .webKitOnItsOwnTurn) === tab)
+
+            let diverted: NSPasteboard?
+            if viaGeneralPasteboard {
+                redirect.noteSystemPasteboardRead(origin: .webKitOnItsOwnTurn)
+                diverted = redirect.redirectTarget(forLookupOf: general, origin: .webKitOnItsOwnTurn)
+            } else {
+                diverted = redirect.redirectTarget(forLookupOf: general, origin: .webKitCalledByTheApp)
+            }
+            let sink = try #require(diverted)
+            #expect(sink !== tab)
+            #expect(sink !== NSPasteboard(name: .general))
+            sink.clearContents()
+            sink.setString("written to the sink", forType: .string)
+            let later = try #require(redirect.redirectTarget(forLookupOf: general, origin: .webKitOnItsOwnTurn))
+            #expect(later === sink)
+            #expect(later.types?.isEmpty ?? true, "what a diverted command's lookup wrote could be read back")
+            #expect(redirect.redirectTarget(forLookupOf: general, origin: .notWebKit) == nil)
+            finish?()
+            #expect(await command.value == .interfered)
+            #expect(redirect.redirectTarget(forLookupOf: general, origin: .webKitOnItsOwnTurn) == nil)
+        }
+
         /// At the timeout the command's web content is ended and the
         /// redirect ends in the same turn: a person pasting or copying in
         /// another browser pane afterwards reaches their own clipboard, and
@@ -741,6 +803,70 @@ struct BrowserReplPasteboardRedirectTests {
                 outcome = await command.value
             }
             #expect(outcome != .completed, "the tab's clipboard took a copy another web view made during the command")
+            #expect(BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) == nil)
+            #expect(NSPasteboard.general.changeCount == systemBefore)
+        }
+
+        /// A person pasting in another web view while a tab's Paste runs
+        /// (the tab's paste handler keeps the command in flight) must not
+        /// read the tab's private pasteboard. WebKit grants a web content
+        /// process read access when the app starts its Paste, at the change
+        /// count the general pasteboard's lookup returns; during a command
+        /// that lookup must not return the tab's pasteboard for any web view
+        /// but the commanded one. The other view's paste is started from app
+        /// code, as AppKit starts a person's Command-V or Edit menu Paste.
+        @Test func aPasteInAnotherWebViewDuringACommandDoesNotReadTheTabPasteboard() async throws {
+            #expect(BrowserReplPasteboardRedirect.shared.install())
+            let standIn = Self.makeStandIn()
+            defer { standIn.releaseGlobally() }
+            let tab = NSPasteboard.withUniqueName()
+            defer { tab.releaseGlobally() }
+            tab.clearContents()
+            tab.setString("tab text", forType: .string)
+            let systemBefore = NSPasteboard.general.changeCount
+            var outcome: BrowserReplPasteboardRedirect.Outcome?
+            var otherValue: String?
+            try await Self.withStandInSystemPasteboard(standIn) {
+                let tabView = await load(
+                    """
+                    <input id=i><script>
+                    addEventListener('paste', e => {
+                      const end = Date.now() + 1000;
+                      while (Date.now() < end) {}
+                    });
+                    </script>
+                    """
+                )
+                _ = try await tabView.evaluateJavaScript("document.getElementById('i').focus(); true")
+                let otherView = await load("<input id=o>")
+                _ = try await otherView.evaluateJavaScript("document.getElementById('o').focus(); true")
+                let tabProcess = tabView.value(forKey: "_webProcessIdentifier") as? Int
+                let otherProcess = otherView.value(forKey: "_webProcessIdentifier") as? Int
+                try #require(tabProcess != otherProcess, "the two web views share a web content process, so the other paste cannot run during the command")
+
+                let command = Task { @MainActor in
+                    await BrowserReplPasteboardRedirect.shared.perform(
+                        "Paste",
+                        in: tabView,
+                        pasteboard: tab,
+                        timeout: .seconds(30),
+                        systemChangeCount: tab.changeCount + 1
+                    )
+                }
+                while BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) !== tab {
+                    await Task.yield()
+                }
+                // The other web view's Paste starts while the tab's paste
+                // handler runs. Its web content process handles the paste
+                // before the script below, so the value read is the result.
+                _ = otherView.perform(NSSelectorFromString("paste:"), with: nil)
+                otherValue = try await otherView.evaluateJavaScript("document.getElementById('o').value") as? String
+                outcome = await command.value
+            }
+            // A Bool, so a failure never prints the value.
+            let readTheTabPasteboard = otherValue == "tab text"
+            #expect(!readTheTabPasteboard, "a paste in another web view during the command read the tab's private pasteboard")
+            #expect(outcome == .interfered, "the command completed as if no other web view had touched the pasteboard during it")
             #expect(BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) == nil)
             #expect(NSPasteboard.general.changeCount == systemBefore)
         }

@@ -21,8 +21,25 @@ public import WebKit
 ///   (the nearest caller outside this module is WebCore or WebKit) gets the
 ///   tab's pasteboard. `NSPasteboard.general` and lookups by any other code,
 ///   such as the terminal, always get the system pasteboard.
-///   `+[NSPasteboard generalPasteboard]` does not go through the hooked
-///   lookup at all; WebKit's Copy, Cut and Paste do not use it.
+///   `+[NSPasteboard generalPasteboard]` is never redirected; WebKit's Copy,
+///   Cut and Paste do not use it.
+/// - Of WebKit's lookups, only those it makes on its own run-loop turn (the
+///   nearest caller past WebKit's frames is the run loop: WebKit handling a
+///   web content process's pasteboard message) and those it makes while it
+///   starts the command get the tab's pasteboard. WebKit's lookups do not
+///   say which web view or process they serve, but a web content process
+///   reads the general pasteboard only after the app grants it access, at
+///   the change count the lookup returns then (`WebPasteboardProxy`); a
+///   person's Command-V, Edit menu or context menu Paste or paste callout in
+///   another web view starts that grant from a call by the app (AppKit or
+///   cmux code) into WebKit. Such a lookup during a command, or WebKit's read
+///   of `+generalPasteboard` (its check before it grants a page's clipboard
+///   read without asking, which can come on its own turn), diverts the
+///   command: that lookup and every later one until the command ends get a
+///   private pasteboard emptied at each lookup. The tab's pasteboard is then
+///   handed out no more, a grant made on the private one matches no later
+///   change count, and nothing written there can be read back; the command
+///   is `interfered`.
 /// - The redirect lasts from the start of the command until WebKit reports it
 ///   done or until the timeout, whichever comes first. A page that keeps the
 ///   command running longer (a handler that loops; dialogs from the tab are
@@ -55,24 +72,26 @@ public import WebKit
 ///   start in time does not run (`busy`, naming the tab it waited for), and
 ///   nothing is redirected for it while it waits.
 ///
-/// - A copy another web view makes during the command (WebKit's lookups do not
-///   say which web view they serve, so it gets the tab's pasteboard too) is
-///   never taken as the tab's: WebKit's own Copy or Cut writes the
-///   pasteboard at most once and a Paste never does (each write is one
-///   change count), so a command whose pasteboard was written more often is
-///   `interfered`, and the caller discards the pasteboard.
+/// - A copy another web view makes during the command (its writes are
+///   messages WebKit handles on its own turn, so they get the tab's
+///   pasteboard too) is never taken as the tab's: WebKit's own Copy or Cut
+///   writes the pasteboard at most once and a Paste never does (each write
+///   is one change count), so a command whose pasteboard was written more
+///   often is `interfered`, and the caller discards the pasteboard.
 ///
 /// Residual risk: while a command is in flight (milliseconds, at most its
-/// timeout), a person pasting in another web view of this process reads the
-/// tab's pasteboard, and a copy made there fills it (and does not reach the
-/// system clipboard); so does app code that WebKit calls back into (a
-/// delegate) if it looks up the general pasteboard by name. Such a copy
-/// reaches the tab's clipboard only when it is the one write of a Copy or
-/// Cut whose page wrote nothing itself (a `copy` handler that cancels the
-/// event and sets no data). The same holds after a `timedOutStillRunning`
-/// until WebKit finishes, at most one more timeout. The caller test errs
-/// toward WebKit: should WebKit's pasteboard code move, its lookups still
-/// come from a WebKit image and stay redirected, unless it moves to
+/// timeout), a copy made in another web view of this process lands on the
+/// tab's pasteboard (and does not reach the system clipboard); it reaches the
+/// tab's clipboard only when it is the one write of a Copy or Cut whose page
+/// wrote nothing itself (a `copy` handler that cancels the event and sets no
+/// data). A web content process the app granted read access on its own turn
+/// without a `+generalPasteboard` read first would read the tab's pasteboard;
+/// WebKit 26 has no such grant. A paste in another web view that starts
+/// during the command reads nothing. The same holds after a
+/// `timedOutStillRunning` until WebKit finishes, at most one more timeout.
+/// The caller test errs toward WebKit: should WebKit's pasteboard code move,
+/// its lookups still come from a WebKit image and stay redirected (its own
+/// turn) or divert the command (a call from the app), unless it moves to
 /// `+generalPasteboard`, which the WebKit tests catch as a change of the
 /// system pasteboard's change count. Writes a page's own scripts make (the
 /// asynchronous Clipboard API, `execCommand("copy")`) are not commands and
@@ -104,11 +123,13 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         /// An earlier command, from the tab the caller named `tab`, was still
         /// unfinished when this one's wait ended; this one did not start.
         case busy(tab: String)
-        /// WebKit reported the command done within the timeout, but the
-        /// tab's pasteboard was written more often than the command writes
-        /// it (WebKit's Copy or Cut writes it at most once, a Paste never):
-        /// another web view's copy reached it during the command. What it
-        /// holds is not the tab's, and the caller must not take it.
+        /// WebKit reported the command done within the timeout, but another
+        /// web view used the pasteboard during the command: the tab's
+        /// pasteboard was written more often than the command writes it
+        /// (WebKit's Copy or Cut writes it at most once, a Paste never), or
+        /// another web view's paste or clipboard read diverted the command
+        /// (the page may have pasted nothing). What the pasteboard holds is
+        /// not the tab's, and the caller must not take it.
         case interfered
         /// The pasteboard lookup or WebKit's editing-command or
         /// process-ending SPI is missing, the caller may not end the web
@@ -118,11 +139,11 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         case unavailable
     }
 
-    /// The pasteboard WebKit's lookups of each name get instead of the
-    /// system's: the general pasteboard's during a command, the drag
+    /// What WebKit's lookups of each name get instead of the system's
+    /// pasteboard: the general pasteboard's during a command, the drag
     /// pasteboard's during an automated drag's window. Guarded by `lock`;
-    /// read by the hook on any thread.
-    private var targets: [String: NSPasteboard] = [:]
+    /// read by the hooks on any thread.
+    private var targets: [String: Target] = [:]
     private let lock = NSLock()
     @MainActor private var installed = false
     /// The command WebKit has not reported done, within or past its timeout.
@@ -141,6 +162,18 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         let original = unsafeBitCast(method_getImplementation(method), to: Lookup.self)
         let replacement: @convention(block) @Sendable (AnyObject, NSString) -> NSPasteboard = { cls, name in
             self.redirectedLookup(of: name as String) ?? original(cls, selector, name)
+        }
+        // `+generalPasteboard` is not redirected; a call from WebKit during
+        // a command only marks the command (see `noteSystemPasteboardRead`).
+        let generalSelector = NSSelectorFromString("generalPasteboard")
+        if let generalMethod = class_getClassMethod(NSPasteboard.self, generalSelector) {
+            typealias General = @convention(c) (AnyObject, Selector) -> NSPasteboard
+            let originalGeneral = unsafeBitCast(method_getImplementation(generalMethod), to: General.self)
+            let generalReplacement: @convention(block) @Sendable (AnyObject) -> NSPasteboard = { cls in
+                self.noteSystemPasteboardRead()
+                return originalGeneral(cls, generalSelector)
+            }
+            method_setImplementation(generalMethod, imp_implementationWithBlock(generalReplacement))
         }
         method_setImplementation(method, imp_implementationWithBlock(replacement))
         installed = true
@@ -269,12 +302,17 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         let command = Command(pasteboard: pasteboard, tab: tab, whenFinished: whenFinished)
         unfinished = command
         let startCount = pasteboard.changeCount
-        setTarget(pasteboard)
+        let target = setTarget(pasteboard)
         let deadline = clock.now.advanced(by: timeout)
+        // WebKit's lookups while it starts the command, inside this call,
+        // are the command's own (a Paste's access grant).
+        setStarting(target, true)
         invoke { self.finish(command) }
+        setStarting(target, false)
         // The redirect ended when WebKit reported the command done, so no
         // write reaches the pasteboard after that.
         let completed: () -> Outcome = {
+            if self.isDiverted(target) { return .interfered }
             guard let maximumWrites, pasteboard.changeCount - startCount > maximumWrites else { return .completed }
             return .interfered
         }
@@ -301,15 +339,105 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         return .timedOutStillRunning
     }
 
+    /// Who made a lookup of a pasteboard by name.
+    public enum LookupOrigin: Equatable, Sendable {
+        /// Code outside WebKit: the terminal, AppKit, cmux.
+        case notWebKit
+        /// WebKit on a run-loop turn of its own: handling a message from a
+        /// web content process (its pasteboard reads and writes), or its own
+        /// timer.
+        case webKitOnItsOwnTurn
+        /// WebKit called by the app: AppKit or cmux code that started an
+        /// action in a web view (a person's Command-V, the Edit menu's or a
+        /// context menu's Paste, a paste-permission callout, a drop), or a
+        /// web content process's message WebKit handled while such a call
+        /// waited.
+        case webKitCalledByTheApp
+    }
+
     /// The pasteboard a lookup of the pasteboard named `name` gets instead
     /// of the system's, or `nil` for the system's: the tab's pasteboard for
-    /// a lookup of the general pasteboard by WebKit while a command is in
-    /// flight.
-    public func redirectTarget(forLookupOf name: String, fromWebKit: Bool) -> NSPasteboard? {
-        guard fromWebKit else { return nil }
+    /// a lookup by WebKit on its own turn while a command is in flight (and
+    /// for WebKit's lookups while it starts the command).
+    ///
+    /// A lookup by WebKit called by the app during a command is another
+    /// web view's action: WebKit's lookup to grant a web content process
+    /// read access, at the change count it sees then, comes this way. It
+    /// diverts the command: that lookup and every later one of the name
+    /// until the command ends get a private pasteboard that is emptied at
+    /// every lookup, so the tab's pasteboard is never handed out again, a
+    /// grant made on it matches no later change count, and nothing written
+    /// to it can be read back. The command ends `interfered`.
+    public func redirectTarget(
+        forLookupOf name: String,
+        origin: LookupOrigin,
+        onMainThread: Bool = Thread.isMainThread
+    ) -> NSPasteboard? {
+        guard origin != .notWebKit else { return nil }
         lock.lock()
-        defer { lock.unlock() }
-        return targets[name]
+        guard let target = targets[name] else {
+            lock.unlock()
+            return nil
+        }
+        if let sink = target.sink {
+            lock.unlock()
+            sink.clearContents()
+            return sink
+        }
+        if origin == .webKitOnItsOwnTurn || (onMainThread && target.starting) {
+            lock.unlock()
+            return target.pasteboard
+        }
+        lock.unlock()
+        return divert(target)
+    }
+
+    /// What WebKit's lookup of the pasteboard named `name` gets: on its own
+    /// turn when `fromWebKit`, else as code outside WebKit.
+    public func redirectTarget(forLookupOf name: String, fromWebKit: Bool) -> NSPasteboard? {
+        redirectTarget(forLookupOf: name, origin: fromWebKit ? .webKitOnItsOwnTurn : .notWebKit)
+    }
+
+    /// Records a read of `+[NSPasteboard generalPasteboard]` with `origin`.
+    /// WebKit reads it there only to answer a web page's clipboard read
+    /// (whether the system clipboard holds the page's own origin's data,
+    /// before it grants that page's process read access without asking),
+    /// never for a command; during a command such a read diverts it (see
+    /// ``redirectTarget(forLookupOf:origin:onMainThread:)``), since the grant
+    /// that follows can come on WebKit's own turn.
+    public func noteSystemPasteboardRead(origin: LookupOrigin) {
+        guard origin != .notWebKit else { return }
+        lock.lock()
+        let target = targets[NSPasteboard.Name.general.rawValue]
+        lock.unlock()
+        if let target { _ = divert(target) }
+    }
+
+    private func noteSystemPasteboardRead() {
+        lock.lock()
+        let inFlight = targets[NSPasteboard.Name.general.rawValue] != nil
+        lock.unlock()
+        guard inFlight else { return }
+        noteSystemPasteboardRead(origin: Self.lookupOrigin())
+    }
+
+    /// Gives `target` its private sink (once) and returns it, emptied.
+    private func divert(_ target: Target) -> NSPasteboard {
+        // Created outside the lock: making a pasteboard may look one up by
+        // name, which comes back through the hook.
+        let fresh = NSPasteboard.withUniqueName()
+        lock.lock()
+        let sink: NSPasteboard
+        if let existing = target.sink {
+            sink = existing
+        } else {
+            target.sink = fresh
+            sink = fresh
+        }
+        lock.unlock()
+        if sink !== fresh { fresh.releaseGlobally() }
+        sink.clearContents()
+        return sink
     }
 
     private func redirectedLookup(of name: String) -> NSPasteboard? {
@@ -317,22 +445,40 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         let inFlight = targets[name] != nil
         lock.unlock()
         guard inFlight else { return nil }
-        return redirectTarget(forLookupOf: name, fromWebKit: Self.lookupComesFromWebKit())
+        return redirectTarget(forLookupOf: name, origin: Self.lookupOrigin())
     }
 
-    /// Whether the nearest caller outside this module (past the hook's own
-    /// frames) is WebCore or WebKit, which reach the pasteboard through
-    /// `WebCore::PlatformPasteboard`.
-    private static func lookupComesFromWebKit() -> Bool {
+    /// Classifies the caller of the hook running on this thread.
+    private static func lookupOrigin() -> LookupOrigin {
         let addresses = Thread.callStackReturnAddresses
-        guard let first = addresses.first, let own = imagePath(first) else { return false }
-        for address in addresses.dropFirst().prefix(8) {
-            guard let path = imagePath(address) else { return false }
-            if path == own { continue }
+        guard let first = addresses.first, let own = imagePath(first) else { return .notWebKit }
+        var callers: [String] = []
+        for address in addresses.dropFirst() {
+            guard let path = imagePath(address) else { break }
+            if callers.isEmpty, path == own { continue }
             let image = (path as NSString).lastPathComponent
-            return image == "WebCore" || image == "WebKit"
+            callers.append(image)
+            if !webKitImages.contains(image) { break }
         }
-        return false
+        return origin(ofCallerImages: callers)
+    }
+
+    private static let webKitImages: Set<String> = [
+        "WebKit", "WebCore", "JavaScriptCore", "WebKitLegacy", "WebGPU", "libwebrtc.dylib", "libANGLE-shared.dylib",
+    ]
+
+    /// The origin of a lookup whose callers, nearest first and past the
+    /// hook's own frames, are in the images named `images`. WebCore or
+    /// WebKit must come first. Past WebKit's frames (WTF lives in
+    /// JavaScriptCore), the run loop (CoreFoundation or libdispatch) means
+    /// WebKit runs on its own turn; anything else, or the stack's end, means
+    /// the app called WebKit.
+    static func origin(ofCallerImages images: [String]) -> LookupOrigin {
+        guard let first = images.first, first == "WebCore" || first == "WebKit" else { return .notWebKit }
+        for image in images.dropFirst() where !webKitImages.contains(image) {
+            return image == "CoreFoundation" || image == "libdispatch.dylib" ? .webKitOnItsOwnTurn : .webKitCalledByTheApp
+        }
+        return .webKitCalledByTheApp
     }
 
     private static func imagePath(_ address: NSNumber) -> String? {
@@ -355,16 +501,52 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         command.whenFinished()
     }
 
-    private func setTarget(_ pasteboard: NSPasteboard, for name: NSPasteboard.Name = .general) {
+    @discardableResult
+    private func setTarget(_ pasteboard: NSPasteboard, for name: NSPasteboard.Name = .general) -> Target {
+        let target = Target(pasteboard: pasteboard)
         lock.lock()
-        targets[name.rawValue] = pasteboard
+        targets[name.rawValue] = target
         lock.unlock()
+        return target
+    }
+
+    private func setStarting(_ target: Target, _ starting: Bool) {
+        lock.lock()
+        target.starting = starting
+        lock.unlock()
+    }
+
+    /// Whether `target` was diverted (see ``redirectTarget(forLookupOf:origin:onMainThread:)``).
+    private func isDiverted(_ target: Target) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return target.sink != nil
     }
 
     private func endRedirect(to pasteboard: NSPasteboard, for name: NSPasteboard.Name = .general) {
         lock.lock()
-        if targets[name.rawValue] === pasteboard { targets[name.rawValue] = nil }
+        var sink: NSPasteboard?
+        if let target = targets[name.rawValue], target.pasteboard === pasteboard {
+            targets[name.rawValue] = nil
+            sink = target.sink
+        }
         lock.unlock()
+        sink?.clearContents()
+        sink?.releaseGlobally()
+    }
+
+    /// One name's redirect. Fields are guarded by the redirect's `lock`.
+    private final class Target: @unchecked Sendable {
+        let pasteboard: NSPasteboard
+        /// Set on the main thread while WebKit starts the command.
+        var starting = false
+        /// The private pasteboard every lookup gets once the redirect was
+        /// diverted.
+        var sink: NSPasteboard?
+
+        init(pasteboard: NSPasteboard) {
+            self.pasteboard = pasteboard
+        }
     }
 
     // MARK: - Automated drags

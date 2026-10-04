@@ -48,6 +48,27 @@ test("pageAssets.bundle sends cookies only to the page's own origin; a cross-ori
   assert.ok(own.length && own.every((r) => r.cookie.includes("asset_session=asset-session-secret")), "the page's own asset kept the session cookie");
 });
 
+test("pageAssets.bundle fetches through the inventory's tab and origin, not the current tab's", async () => {
+  await s.run('await page.goto("https://assets.example/xpage"); var assetInventory = await sites.pageAssets.list(); var assetPage = page; await tabs.open("https://tools.example/")');
+  assert.equal(await s.value("page.url()"), "https://tools.example/");
+  const before = env.state.requests.length;
+  await s.value('sites.pageAssets.bundle(assetInventory.id, { kinds: ["image"] })');
+  const reqs = env.state.requests.slice(before);
+  const own = reqs.filter((r) => r.url === "https://assets.example/img/logo.png");
+  assert.ok(own.length && own.every((r) => r.cookie.includes("asset_session=asset-session-secret")), "the inventory page's own asset lost its session cookie because another tab is current");
+  const other = reqs.filter((r) => r.url.startsWith("https://github.com/"));
+  assert.deepEqual(other.map((r) => r.cookie), other.map(() => ""), "no cookie went to github.com");
+  // An inventory whose tab closed is not fetched through whichever tab is current.
+  await s.run("await assetPage.close()");
+  assert.match(await s.error('sites.pageAssets.bundle(assetInventory.id, { kinds: ["image"] })'), /tab .*closed/);
+  // A copied inventory, not one list() made in this session, sends no cookies.
+  await s.run('await page.goto("https://assets.example/xpage")');
+  const beforeCopy = env.state.requests.length;
+  await s.value('sites.pageAssets.bundle({ ...assetInventory, id: "copied" }, { kinds: ["image"] })');
+  const copied = env.state.requests.slice(beforeCopy).filter((r) => r.url === "https://assets.example/img/logo.png");
+  assert.ok(copied.length && copied.every((r) => r.cookie === ""), "a copied inventory's asset was fetched with the current tab's cookies");
+});
+
 test("webmcp: lists a page's tools; a call needs a confirmed draft, a trusted read-only call runs", async () => {
   await s.run('await page.goto("https://tools.example/")');
   const t = await s.value("sites.webmcp.tools()");

@@ -10,6 +10,14 @@ public final class BrowserNativeInputDeliveryOwner {
     /// Creates an owner with no active dispatch and no held modifiers.
     public init() {}
 
+    /// The last key-down this owner delivered to WebKit, for
+    /// ``WKWebView/observeAutomationKeyDownOutcome(_:)``.
+    public private(set) var lastDeliveredKeyDown: NSEvent?
+
+    func recordDeliveredKeyDown(_ event: NSEvent) {
+        lastDeliveredKeyDown = event
+    }
+
     public var isDispatchActive: Bool { dispatchDepth > 0 }
 
     public var activeModifierFlags: NSEvent.ModifierFlags {
@@ -140,20 +148,67 @@ extension WKWebView {
             characters: nativeKey.characters,
             marksBrowserAutomation: true
         )
-        // WebKit leaves Command+A/C/X/V/Z to the app's Edit menu, which the
-        // resend of an automated key no longer reaches; run the command on
-        // this web view, as the REPL does, never on the key window.
+        // WebKit leaves Command+A/C/X/V/Z to the app's Edit menu by sending a
+        // key no page handled back to the app, which drops an automated key's
+        // resend; so once WebKit reports no page handled the key, run the
+        // command on this web view, as the REPL does, never on the key
+        // window. A key the page handled runs nothing more, as in a browser.
         if result == .delivered, action != .keyUp,
            let command = BrowserReplKeyStroke.editingCommand(code: event.code, key: event.key, flags: specification.modifierFlags),
-           Self.menuEditingCommands.contains(command) {
-            let selector = NSSelectorFromString(command)
-            if responds(to: selector) { _ = perform(selector, with: nil) }
+           Self.menuEditingCommands.contains(command),
+           let down = browserNativeInputDeliveryOwner.lastDeliveredKeyDown {
+            let outcome = observeAutomationKeyDownOutcome(down)
+            Task { @MainActor [weak self] in
+                guard await outcome.wasUnhandled(), let self else { return }
+                self.runAutomationEditingCommand(command)
+            }
         }
         return result
     }
 
     /// Edit menu commands `cmux browser press` runs on the web view itself.
     static let menuEditingCommands: Set<String> = ["selectAll:", "copy:", "cut:", "paste:", "undo:", "redo:"]
+
+    /// Routes an Edit menu command `cmux browser press` runs: returns `true`
+    /// when the app ran it itself (a tab a REPL session created runs Copy,
+    /// Cut and Paste on its own clipboard, never the system pasteboard).
+    /// Set by the app; `nil` or `false` runs the web view's own action.
+    public static var automationEditingCommandRoute: (@MainActor (WKWebView, String) -> Bool)?
+
+    private func runAutomationEditingCommand(_ command: String) {
+        if let route = WKWebView.automationEditingCommandRoute, route(self, command) { return }
+        let selector = NSSelectorFromString(command)
+        if responds(to: selector) { _ = perform(selector, with: nil) }
+    }
+
+    /// Starts watching `event`, an automated key-down this web view was just
+    /// given, for whether a page handled it. Call it in the same main-actor
+    /// turn as the delivery: WebKit reports the key's outcome only on a
+    /// later turn. ``BrowserAutomationKeyDownOutcome/wasUnhandled(within:)``
+    /// then says whether WebKit sent the key back to the app (no page
+    /// handled it), which it does before it runs its callback for the end
+    /// of the pending key events (`_doAfterProcessingAllPendingKeyEvents:`).
+    public func observeAutomationKeyDownOutcome(_ event: NSEvent) -> BrowserAutomationKeyDownOutcome {
+        let outcome = BrowserAutomationKeyDownOutcome(event: event)
+        let selector = NSSelectorFromString("_doAfterProcessingAllPendingKeyEvents:")
+        guard responds(to: selector) else {
+            // Unknown: treated as handled, so nothing runs twice.
+            outcome.resolve(unhandled: false)
+            return outcome
+        }
+        BrowserAutomationKeyResends.shared.watch(event)
+        let block: @convention(block) () -> Void = {
+            MainActor.assumeIsolated {
+                let reported = BrowserAutomationKeyResends.shared.finish(event)
+                // WebKit makes the key the app's current event before it sends
+                // it back; the app's drop (`reported`) names it exactly.
+                let current = (NSApp as NSApplication?)?.currentEvent === event
+                outcome.resolve(unhandled: reported || current)
+            }
+        }
+        _ = perform(selector, with: block)
+        return outcome
+    }
 
     /// Delivers an already-resolved AppKit key specification. The mobile
     /// browser stream and socket automation both use this seam so key-down
@@ -209,6 +264,7 @@ extension WKWebView {
     }
 
     private func deliverBrowserKeyDown(_ event: NSEvent) {
+        browserNativeInputDeliveryOwner.recordDeliveredKeyDown(event)
         if (123...126).contains(event.keyCode),
            let window,
            window.firstResponder === self {
@@ -362,5 +418,73 @@ extension NSEvent {
     @MainActor
     public var isResentBrowserAutomationKeyEvent: Bool {
         isBrowserAutomationKeyEvent && !BrowserNativeInputDeliveryOwner.isAnyDispatchActive
+    }
+
+    /// For the app's `sendEvent`: whether to drop this event as WebKit's
+    /// resend of an automated key no page handled
+    /// (``isResentBrowserAutomationKeyEvent``). A dropped key-down is
+    /// recorded for ``WKWebView/observeAutomationKeyDownOutcome(_:)``.
+    @MainActor
+    public func dropResentBrowserAutomationKeyEvent() -> Bool {
+        guard isResentBrowserAutomationKeyEvent else { return false }
+        BrowserAutomationKeyResends.shared.noteResent(self)
+        return true
+    }
+}
+
+/// Whether a page handled one automated key-down
+/// (``WKWebView/observeAutomationKeyDownOutcome(_:)``).
+@MainActor
+public final class BrowserAutomationKeyDownOutcome {
+    private let event: NSEvent
+    private let reported = BrowserReplLatch()
+    private var unhandled = false
+
+    init(event: NSEvent) {
+        self.event = event
+    }
+
+    func resolve(unhandled: Bool) {
+        guard !reported.isSignaled else { return }
+        self.unhandled = unhandled
+        reported.signal()
+    }
+
+    /// `true` once WebKit reported that no page handled the key; `false`
+    /// when a page handled it, when WebKit has not reported within
+    /// `timeout` (its web content ended meanwhile), or when this WebKit
+    /// cannot report it. Never `true` for a key a page handled.
+    public func wasUnhandled(within timeout: Duration = .seconds(5)) async -> Bool {
+        let clock = ContinuousClock()
+        guard await reported.wait(until: clock.now.advanced(by: timeout), clock: clock, honoringCancellation: false) else {
+            BrowserAutomationKeyResends.shared.finish(event)
+            return false
+        }
+        return unhandled
+    }
+}
+
+/// Automated key-downs whose outcome is being watched, and whether the app
+/// dropped WebKit's resend of each.
+@MainActor
+final class BrowserAutomationKeyResends {
+    static let shared = BrowserAutomationKeyResends()
+
+    private var watched: [ObjectIdentifier: (event: NSEvent, resent: Bool)] = [:]
+
+    func watch(_ event: NSEvent) {
+        watched[ObjectIdentifier(event)] = (event, false)
+    }
+
+    func noteResent(_ event: NSEvent) {
+        let id = ObjectIdentifier(event)
+        if let entry = watched[id], entry.event === event { watched[id] = (event, true) }
+    }
+
+    /// Stops watching `event`; returns whether its resend was dropped.
+    @discardableResult
+    func finish(_ event: NSEvent) -> Bool {
+        guard let entry = watched.removeValue(forKey: ObjectIdentifier(event)) else { return false }
+        return entry.resent
     }
 }
