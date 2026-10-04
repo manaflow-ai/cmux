@@ -303,6 +303,13 @@ import Testing
         // R85: the list bindings (list.next / list.previous, Ctrl-J / Ctrl-K) move the palette too.
         #expect(command(try key(38, "j", .control)) == .moveDown)
         #expect(command(try key(40, "k", .control)) == .moveUp)
+        // Space toggles a keep-open toggle row while the query is empty (R134 pickers); else it types.
+        let space = try key(49, " ")
+        #expect(PaletteKeyMap.command(for: space, actionsMenuOpen: false, queryIsEmpty: true, registry: registry,
+                                      selectedTogglesInPlace: true) == .submit)
+        #expect(PaletteKeyMap.command(for: space, actionsMenuOpen: false, queryIsEmpty: false, registry: registry,
+                                      selectedTogglesInPlace: true) == nil)
+        #expect(command(space, empty: true) == nil)
         #expect(command(try key(36, "\r")) == .submit)
         #expect(command(try key(36, "\r", .command)) == .submitAlternate)
         #expect(command(try key(40, "k", .command)) == .toggleActions)
