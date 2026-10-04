@@ -92,7 +92,10 @@ describe("CloudPage", () => {
     expect($$(".cloud-machine").length).toBe(0);
     expect(provider.calls.filter((call) => call.op.startsWith("cmux.cloud.machine."))).toEqual([]);
     await act(async () => $(".cloud-signin-button")!.click());
-    expect(provider.calls.some((call) => call.op === CloudOps.authSignIn)).toBe(true);
+    expect(provider.calls.some((call) => call.op === CloudOps.authSignIn)).toBe(false);
+    expect(provider.calls.find((call) => call.op === ACTION_RUN)?.params).toMatchObject({
+      action: CloudOps.authSignIn,
+    });
   });
 
   test("no host: the disconnected state", async () => {
@@ -163,6 +166,14 @@ describe("CloudPage", () => {
       for (const name of ["Enter", "Escape"]) await act(async () => key($(".cloud-create-name")!, name, chord));
     expect(provider.calls.filter((call) => call.op === CloudOps.machineCreate)).toEqual([]);
     expect(store.getSnapshot().create).toBeDefined();
+  });
+
+  test("plain Return on an inline Pause button pauses and does not connect", async () => {
+    const provider = new MockCloudProvider();
+    await render(provider);
+    const toggle = $(".cloud-machine-toggle")!;
+    await act(async () => key(toggle, "Enter"));
+    expect(provider.calls.some((call) => call.op === ACTION_RUN)).toBe(false);
   });
 
   test("Escape closes the create sheet", async () => {

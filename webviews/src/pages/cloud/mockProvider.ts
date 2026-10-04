@@ -12,6 +12,7 @@ import {
   type CloudPublication,
   type CloudSnapshot,
   type MachineEvent,
+  type MutationResult,
 } from "./ops";
 
 export { sampleMachines } from "./mockData";
@@ -42,6 +43,10 @@ export class MockCloudProvider implements PageClient {
   offline = false;
   /** The next call of this op fails with a retryable owner error. */
   failNext?: string;
+  /** Runs after the list result is taken and before it is answered (an event during the list). */
+  onList?: () => void;
+  /** The owner's normalization of a new name (the echo then differs from the intent). */
+  renameTransform?: (name: string) => string;
   private revision = 10;
   private nextId = 1;
   private readonly created = new Map<string, string>();
@@ -65,7 +70,7 @@ export class MockCloudProvider implements PageClient {
     }
     const p = (params ?? {}) as Params;
     if (op === CloudOps.authStatus) return this.authStatus() as R;
-    if (op === CloudOps.authSignIn) return ((this.signedIn = true), { ok: true }) as R;
+    if (op === ACTION_RUN && p.action === CloudOps.authSignIn) return this.runAction(p) as R;
     if (!this.signedIn) throw pageError("cmux.cloud.auth_required", "Sign in to cmux Cloud.");
     if (op === ACTION_RUN) return this.runAction(p) as R;
     return this.serve(op, p) as R;
@@ -138,10 +143,11 @@ export class MockCloudProvider implements PageClient {
     return machine;
   }
 
-  private change(params: Params, patch: Partial<CloudMachine>): CloudMachine {
+  /** Changes a machine as the owner would: emits the echo, answers with the revision. */
+  private change(params: Params, patch: Partial<CloudMachine>): MutationResult {
     const machine = { ...this.machine(params), ...patch };
     this.emitUpsert(machine);
-    return machine;
+    return { machine, revision: this.revision };
   }
 
   private create(params: Params, snapshot?: string): CloudMachine {
@@ -175,14 +181,17 @@ export class MockCloudProvider implements PageClient {
       case CloudOps.teamSelect:
         a.team = String(p.team);
         return { ok: true };
-      case CloudOps.machineList:
-        return { machines: this.machines.slice(), revision: this.revision };
+      case CloudOps.machineList: {
+        const result = { machines: this.machines.slice(), revision: this.revision };
+        this.onList?.();
+        return result;
+      }
       case CloudOps.machineGet:
         return this.machine(p);
       case CloudOps.machineCreate:
         return this.create(p, p.snapshot_id as string | undefined);
       case CloudOps.machineRename:
-        return this.change(p, { display_name: String(p.name) });
+        return this.change(p, { display_name: (this.renameTransform ?? String)(String(p.name)) });
       case CloudOps.machineStart:
         return this.change(p, { status: "running" });
       case CloudOps.machinePause:
@@ -287,6 +296,7 @@ export class MockCloudProvider implements PageClient {
     if (!NATIVE_ACTIONS.has(action)) throw pageError("cmux.app.unknown_action", action);
     if (action === CloudOps.machineConnect || action === CloudOps.billingOpen) return { confirmed: true };
     if (!this.confirm) return { confirmed: false };
+    if (action === CloudOps.authSignIn) return ((this.signedIn = true), { confirmed: true });
     this.serve(action, (p.args ?? {}) as Params);
     return { confirmed: true };
   }
