@@ -67,7 +67,7 @@ pub fn link_command(
 }
 
 /// The carrier's event lines (super::carrier): ready with its socket, or
-/// the probe dial's refusal.
+/// a stream's typed dial refusal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkLine {
     Connected { local_socket: PathBuf },

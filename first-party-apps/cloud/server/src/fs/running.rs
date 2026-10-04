@@ -169,7 +169,7 @@ impl Transfers {
                 Err(e) if e.code == TRANSFER_CANCELLED => entry["state"] = json!("cancelled"),
                 Err(e) => {
                     // Code and retryable only: the message can hold local
-                    // paths and scp output, and this read is on MCP.
+                    // paths and daemon text, and this read is on MCP.
                     entry["state"] = json!("failed");
                     entry["error"] = json!({ "code": e.code, "retryable": e.retryable });
                 }

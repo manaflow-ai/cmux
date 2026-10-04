@@ -33,6 +33,10 @@ pub struct Entry {
     /// Epoch milliseconds.
     #[serde(default)]
     pub modified_at: Option<f64>,
+    /// The daemon's revision (`s<size>-m<mtime>`), for a `baseRevision`
+    /// write; stat only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
 }
 
 impl Entry {
@@ -52,6 +56,7 @@ impl Entry {
             size: value["size"].as_u64(),
             mode: None,
             modified_at: value["mtime"].as_f64(),
+            revision: value["revision"].as_str().map(str::to_owned),
         }
     }
 }
@@ -97,9 +102,55 @@ pub(crate) fn read_bytes(answer: &Value) -> Result<Vec<u8>, CloudError> {
         .map_err(|e| CloudError::new(codes::BAD_RESPONSE, format!("fs.read: {e}")))
 }
 
+/// The daemon's cap on one `fs.read` answer (request file: <= 1 MiB).
+pub const READ_CHUNK_BYTES: u64 = 1024 * 1024;
+
+/// The least a daemon answer that says "more" must hold (or all that was
+/// asked, if less): it bounds the number of range calls, so a daemon that
+/// answers one byte at a time cannot keep a read or a pull going for long.
+pub const MIN_RANGE_BYTES: u64 = 64 * 1024;
+
+/// Whether one range answer is acceptable: never longer than asked, and an
+/// answer that says "more" holds at least [`MIN_RANGE_BYTES`] (or `want`).
+pub(crate) fn range_ok(len: u64, want: u64, more: bool) -> bool {
+    len <= want && (!more || len >= want.min(MIN_RANGE_BYTES))
+}
+
+/// Reads at most `limit` bytes from `offset` in [`READ_CHUNK_BYTES`]
+/// ranges. Returns the bytes and whether the file has more after them. An
+/// answer longer than asked, or empty while it says there is more, is a
+/// protocol break (never a loop).
+pub(crate) fn read_range<C: ControlPlane>(
+    server: &mut Server<C>,
+    machine: &str,
+    path: &GuestPath,
+    offset: u64,
+    limit: u64,
+) -> Result<(Vec<u8>, bool), CloudError> {
+    let mut bytes = Vec::new();
+    loop {
+        let got = bytes.len() as u64;
+        let want = READ_CHUNK_BYTES.min(limit - got);
+        let params = json!({ "path": path.as_str(), "offset": offset + got, "max_bytes": want });
+        let answer = link_files::call(server, machine, "fs.read", params)?;
+        let chunk = read_bytes(&answer)?;
+        let more = answer["truncated"].as_bool() == Some(true);
+        if !range_ok(chunk.len() as u64, want, more) {
+            return Err(CloudError::new(
+                codes::BAD_RESPONSE,
+                "the machine's daemon answered fs.read with a bad range",
+            ));
+        }
+        bytes.extend_from_slice(&chunk);
+        if !more || bytes.len() as u64 == limit {
+            return Ok((bytes, more));
+        }
+    }
+}
+
 /// Reads a whole file of at most [`MAX_READ_BYTES`]. A stat comes first, so
-/// a large file is refused before its bytes cross the link; a truncated
-/// answer (the file grew) is refused too.
+/// a large file is refused before its bytes cross the link; a file that
+/// grew past the bound meanwhile is refused too.
 pub(crate) fn read<C: ControlPlane>(
     server: &mut Server<C>,
     machine: &str,
@@ -112,15 +163,9 @@ pub(crate) fn read<C: ControlPlane>(
     if let Some(size) = entry.size.filter(|s| *s > MAX_READ_BYTES as u64) {
         return Err(too_large(path.as_str(), size, MAX_READ_BYTES));
     }
-    let params = json!({ "path": path.as_str(), "offset": 0, "max_bytes": MAX_READ_BYTES });
-    let answer = link_files::call(server, machine, "fs.read", params)?;
-    if answer["truncated"].as_bool() == Some(true) {
-        let size = answer["size"].as_u64().unwrap_or_default();
-        return Err(too_large(path.as_str(), size, MAX_READ_BYTES));
-    }
-    let bytes = read_bytes(&answer)?;
-    if bytes.len() > MAX_READ_BYTES {
-        return Err(too_large(path.as_str(), bytes.len() as u64, MAX_READ_BYTES));
+    let (bytes, more) = read_range(server, machine, path, 0, MAX_READ_BYTES as u64)?;
+    if more {
+        return Err(too_large(path.as_str(), MAX_READ_BYTES as u64 + 1, MAX_READ_BYTES));
     }
     Ok(bytes)
 }

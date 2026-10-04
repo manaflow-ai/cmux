@@ -109,9 +109,8 @@ fn revoked_does_not_respawn() {
     let mut s = server(&["vm-get"], &spawner);
     s.handle(&connect("vm-alpha01", "c-1")).expect("connect");
     spawner.exit("vm-alpha01", 1);
-    spawner.log().script.push_back(Script::DialFailed("not_authorized"));
-    let err = s.handle(&connect("vm-alpha01", "c-2")).unwrap_err();
-    assert_eq!(err.code, "cmux.cloud.forbidden");
+    s.handle(&connect("vm-alpha01", "c-2")).expect("a new carrier listens");
+    spawner.refuse("vm-alpha01", "not_authorized");
     let events = link_events(&mut s);
     assert!(events.iter().any(|e| matches!(e, CarrierEvent::Revoked { .. })), "{events:?}");
     let err = s.handle(&connect("vm-alpha01", "c-3")).unwrap_err();
@@ -244,7 +243,7 @@ mod real_process {
     }
 
     #[test]
-    fn a_probe_reply_gives_the_carrier_and_each_stream_is_one_dial() {
+    fn a_ready_carrier_carries_each_stream_over_one_dial() {
         let mut supervisor = LinkSupervisor::new(Box::new(CarrierSpawner));
         let script = format!("{OK}; exec cat");
         let command = command(&script, "ready");
@@ -293,13 +292,39 @@ mod real_process {
     }
 
     #[test]
-    fn a_dial_that_exits_before_any_reply_is_unavailable() {
+    fn a_dial_with_no_reply_line_ends_only_that_stream() {
+        // An older or absent link writes no reply line: that stream ends,
+        // the link stays up (only access-ending and paused refusals end it).
         let mut supervisor = LinkSupervisor::new(Box::new(CarrierSpawner));
         let carrier =
             supervisor.spawn_and_wait("vm-real03", &command("exit 7", "exit")).expect("listening");
-        one_stream(&carrier.socket);
-        let failure = ended(&mut supervisor, "vm-real03");
-        assert!(matches!(failure, LinkFailure::Dial(DialCode::Unavailable(_))), "{failure:?}");
+        assert!(one_stream(&carrier.socket).is_empty());
+        assert!(one_stream(&carrier.socket).is_empty(), "the next stream still dials");
+        supervisor.pump();
+        assert!(supervisor.carrier("vm-real03").is_some(), "the link is still up");
+        supervisor.disconnect("vm-real03");
+    }
+
+    #[test]
+    fn a_respawned_carrier_keeps_its_socket_file() {
+        // The old carrier's end must never delete the new carrier's file at
+        // the same path.
+        let mut supervisor = LinkSupervisor::new(Box::new(CarrierSpawner));
+        let script = format!("{OK}; exec cat");
+        let command = command(&script, "respawn");
+        supervisor.spawn_and_wait("vm-real06", &command).expect("first carrier");
+        let generation = supervisor.respawn("vm-real06", &command).expect("respawn");
+        let carrier = supervisor.wait_connect("vm-real06", generation).expect("second carrier");
+        // Give the old accept thread time to end (tests may sleep).
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert!(carrier.socket.exists(), "the new socket file is still there");
+        let mut stream = std::os::unix::net::UnixStream::connect(&carrier.socket).expect("dial");
+        stream.write_all(b"ok").expect("write");
+        stream.shutdown(std::net::Shutdown::Write).expect("half close");
+        let mut echoed = Vec::new();
+        stream.read_to_end(&mut echoed).expect("read");
+        assert_eq!(echoed, b"ok");
+        supervisor.disconnect("vm-real06");
     }
 
     #[test]

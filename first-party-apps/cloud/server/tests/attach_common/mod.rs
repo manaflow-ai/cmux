@@ -24,10 +24,6 @@ pub enum Script {
     /// Prints nothing until [`FakeSpawner::ready`]; sends its tag on the
     /// channel once spawned.
     Hold(std::sync::mpsc::Sender<LinkTag>),
-    /// The carrier's probe dial failed with this `link.dial` error code
-    /// (`host_paused`, `unknown_host`, `not_authorized`, `unreachable`):
-    /// it prints the dial-failed line, then ends with status 1.
-    DialFailed(&'static str),
 }
 
 #[derive(Default)]
@@ -59,6 +55,17 @@ impl FakeSpawner {
         let ready =
             serde_json::json!({ "event": "carrier-ready", "local_socket": socket_for(&tag) });
         log.senders[index].send(LinkProcessEvent::Line { tag, line: ready.to_string() }).unwrap();
+    }
+
+    /// A stream of the last carrier of `machine` is refused with this
+    /// `link.dial` error code (as the real carrier reports it).
+    pub fn refuse(&self, machine: &str, code: &str) {
+        let log = self.log();
+        let index = log.tags.iter().rposition(|t| t.machine == machine).expect("spawned");
+        let failed = serde_json::json!({ "event": "dial-failed", "error_code": code });
+        log.senders[index]
+            .send(LinkProcessEvent::Line { tag: log.tags[index].clone(), line: failed.to_string() })
+            .unwrap();
     }
 
     /// The last link process of `machine` exits with `code`.
@@ -115,11 +122,6 @@ impl LinkSpawner for FakeSpawner {
                 events
                     .send(LinkProcessEvent::Exited { tag: tag.clone(), code: Some(code) })
                     .unwrap();
-            }
-            Script::DialFailed(code) => {
-                let failed = serde_json::json!({ "event": "dial-failed", "error_code": code });
-                events.send(line(&failed.to_string())).unwrap();
-                events.send(LinkProcessEvent::Exited { tag: tag.clone(), code: Some(1) }).unwrap();
             }
             Script::Hold(spawned) => {
                 let _ = spawned.send(tag.clone());

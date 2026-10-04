@@ -94,11 +94,50 @@ fn local_error(e: &std::io::Error) -> TransferError {
     TransferError { message: format!("the local file: {e}"), retryable: false }
 }
 
+fn bad_range() -> TransferError {
+    TransferError {
+        message: "the machine's daemon answered fs.read with a bad range".into(),
+        retryable: false,
+    }
+}
+
+/// The local file of a push, read with a bound. The opened file must be
+/// the regular file the path names itself (not through a symlink put there
+/// after the op's check): its device and inode must equal the path's own.
+fn read_local(path: &std::path::Path) -> Result<Vec<u8>, TransferError> {
+    use std::io::Read as _;
+    let file = std::fs::File::open(path).map_err(|e| local_error(&e))?;
+    let opened = file.metadata().map_err(|e| local_error(&e))?;
+    let named = std::fs::symlink_metadata(path).map_err(|e| local_error(&e))?;
+    #[cfg(unix)]
+    let same = {
+        use std::os::unix::fs::MetadataExt as _;
+        (opened.dev(), opened.ino()) == (named.dev(), named.ino())
+    };
+    #[cfg(not(unix))]
+    let same = true;
+    if !named.file_type().is_file() || !same {
+        return Err(TransferError {
+            message: format!("{} is no longer a regular file", path.display()),
+            retryable: false,
+        });
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_WRITE_BYTES as u64 + 1).read_to_end(&mut bytes).map_err(|e| local_error(&e))?;
+    if bytes.len() > MAX_WRITE_BYTES {
+        return Err(TransferError {
+            message: format!("the local file is larger than {MAX_WRITE_BYTES} bytes"),
+            retryable: false,
+        });
+    }
+    Ok(bytes)
+}
+
 impl Transfer for DaemonTransfer {
     fn run(&self, job: &TransferJob, cancel: &Cancel) -> Result<u64, TransferError> {
         match job.direction {
             Direction::Push => {
-                let bytes = std::fs::read(&job.local).map_err(|e| local_error(&e))?;
+                let bytes = read_local(&job.local)?;
                 if cancel.is_cancelled() {
                     return Err(stopped());
                 }
@@ -114,6 +153,9 @@ impl Transfer for DaemonTransfer {
                     .open(&job.local)
                     .map_err(|e| local_error(&e))?;
                 let mut offset = 0u64;
+                // The size the first answer names bounds the whole pull: a
+                // daemon that keeps saying "more" cannot fill the disk.
+                let mut size = None;
                 loop {
                     if cancel.is_cancelled() {
                         return Err(stopped());
@@ -122,9 +164,16 @@ impl Transfer for DaemonTransfer {
                         json!({ "path": job.guest, "offset": offset, "max_bytes": CHUNK_BYTES });
                     let answer = self.files.call(&job.target, "fs.read", params)?;
                     let bytes = super::files::read_bytes(&answer)?;
-                    file.write_all(&bytes).map_err(|e| local_error(&e))?;
+                    let more = answer["truncated"].as_bool() == Some(true);
+                    let total = *size.get_or_insert(answer["size"].as_u64().unwrap_or(0));
                     offset += bytes.len() as u64;
-                    if bytes.is_empty() || answer["truncated"].as_bool() != Some(true) {
+                    if !super::files::range_ok(bytes.len() as u64, CHUNK_BYTES, more)
+                        || offset > total
+                    {
+                        return Err(bad_range());
+                    }
+                    file.write_all(&bytes).map_err(|e| local_error(&e))?;
+                    if !more {
                         break;
                     }
                 }

@@ -32,7 +32,7 @@ struct Link {
     /// The ready deadline of a connecting link; dropped (cancelled) when
     /// the link is up or ended.
     deadline: Option<Timer>,
-    /// The probe dial's refusal that ended this generation, if any.
+    /// The typed `link.dial` refusal that ended this generation, if any.
     refused: Option<DialCode>,
 }
 
@@ -63,7 +63,7 @@ pub struct LinkSupervisor {
     clock: Arc<dyn Clock>,
 }
 
-/// The bound on the carrier's first `carrier-ready` line (the probe dial).
+/// The bound on the carrier's first `carrier-ready` line (it binds, then answers).
 pub const READY_DEADLINE: Duration = Duration::from_secs(60);
 
 impl LinkSupervisor {

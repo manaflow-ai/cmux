@@ -25,9 +25,14 @@ pub(crate) const RESCUE_OPEN: &str = "cloud.rescue.open";
 /// call, in order. The serve loop takes them after each op and whenever a
 /// link process event wakes it (`LinkSupervisor::set_wake`).
 pub(crate) fn take_event_lines<C: ControlPlane>(server: &mut Server<C>) -> Vec<Value> {
-    server
-        .attach_mut()
-        .take_host_link_events()
+    let attach = server.attach_mut();
+    let events = attach.take_host_link_events();
+    // The typed `link.dial` refusal that ended a link, when one did
+    // (`host_paused`: connect again, which starts the machine).
+    let refusal = |machine: &str| {
+        attach.supervisor.refusal(machine).map_or(Value::Null, |code| json!(code.as_str()))
+    };
+    events
         .into_iter()
         .map(|event| match event {
             CarrierEvent::Up { carrier } => json!({ "type": "event", "event": "cloud.link.changed",
@@ -36,10 +41,10 @@ pub(crate) fn take_event_lines<C: ControlPlane>(server: &mut Server<C>) -> Vec<V
             CarrierEvent::Down { target, generation, retryable, reason, .. } => json!({
                 "type": "event", "event": "cloud.link.changed", "machine": target,
                 "state": "down", "generation": generation, "retryable": retryable,
-                "reason": reason }),
+                "reason": reason, "error_code": refusal(&target) }),
             CarrierEvent::Revoked { target, reason, .. } => json!({ "type": "event",
                 "event": "cloud.link.changed", "machine": target, "state": "revoked",
-                "reason": reason }),
+                "reason": reason, "error_code": refusal(&target) }),
         })
         .collect()
 }
@@ -119,37 +124,22 @@ pub(crate) fn connect<C: ControlPlane>(
     origin: Origin,
     start_key: Option<String>,
 ) -> Result<Carrier, CloudError> {
-    // At most two rounds: a dial that finds the machine paused starts it
-    // once (begin_connect) and dials again.
-    let mut rounds = 0;
-    loop {
-        rounds += 1;
-        let generation = match begin_connect(server, machine, origin, start_key.clone())? {
-            Begun::Up(carrier) => return Ok(carrier),
-            Begun::Connecting(generation) => generation,
-        };
-        let attach = server.attach_mut();
-        attach.supervisor.pump();
-        let outcome = match attach.supervisor.outcome(machine, generation) {
-            Some(outcome) => outcome,
-            None if attach.park_link_waits => {
-                // The serve loop never waits for a link: the op is parked and
-                // runs again when this generation is up or ended (super::park).
-                attach.parked = Some((machine.to_owned(), generation));
-                return Err(CloudError::new(super::park::LINK_WAIT, "the link is connecting"));
-            }
-            None => attach.supervisor.wait_connect(machine, generation),
-        };
-        match outcome {
-            Err(LinkFailure::Dial(DialCode::HostPaused)) if rounds < 2 => {}
-            Err(failure) => {
-                // The one start is used up: the next connect may start again.
-                server.attach_mut().paused_restarts.remove(machine);
-                return Err(link_failure(failure));
-            }
-            Ok(carrier) => return Ok(carrier),
-        }
+    let generation = match begin_connect(server, machine, origin, start_key)? {
+        Begun::Up(carrier) => return Ok(carrier),
+        Begun::Connecting(generation) => generation,
+    };
+    let attach = server.attach_mut();
+    attach.supervisor.pump();
+    if let Some(outcome) = attach.supervisor.outcome(machine, generation) {
+        return outcome.map_err(link_failure);
     }
+    if attach.park_link_waits {
+        // The serve loop never waits for a link: the op is parked and runs
+        // again when this generation is up or ended (super::park).
+        attach.parked = Some((machine.to_owned(), generation));
+        return Err(CloudError::new(super::park::LINK_WAIT, "the link is connecting"));
+    }
+    attach.supervisor.wait_connect(machine, generation).map_err(link_failure)
 }
 
 /// How a connect started.
@@ -237,8 +227,10 @@ pub(crate) fn begin_connect<C: ControlPlane>(
         Some(key) => key,
         None => format!("link-{}/start", attach.attempt_nonce()),
     };
-    // The last dial found the machine paused: start it once, whatever the
-    // projection says, and dial again. A second paused answer is an error.
+    // The last stream found the machine paused: this connect starts it
+    // once, whatever the projection says. If the next stream finds it
+    // paused again, the connect after that answers machine_paused once
+    // (no loop), and the one after it may start again.
     let restart = match attach.supervisor.refusal(machine) {
         Some(DialCode::HostPaused) if attach.paused_restarts.remove(machine) => {
             return Err(dial_error(&DialCode::HostPaused));
@@ -254,16 +246,30 @@ pub(crate) fn begin_connect<C: ControlPlane>(
     // mints a link token, and each mint is one real connection.
     let info = ensure_running(server, machine, origin, &key, restart)
         .and_then(|()| super::info::connect_info(server, machine))
-        .and_then(|info| {
-            if info.state == MachineStatus::Paused && !restart {
-                // The record was older than the machine: start it now.
-                ensure_running(server, machine, origin, &format!("{key}/info"), true)?;
+        .and_then(|info| match info.state {
+            MachineStatus::Running => Ok(info),
+            state => {
+                if state == MachineStatus::Paused {
+                    // The record was older than the machine: start it now.
+                    ensure_running(server, machine, origin, &format!("{key}/info"), true)?;
+                }
+                // Contract 1.7: wait for the `running` upsert, then dial. The
+                // client connects again on that upsert; nothing waits here.
+                Err(CloudError {
+                    retryable: true,
+                    ..CloudError::new(
+                        LINK_DOWN,
+                        "The machine is starting: connect again when it runs",
+                    )
+                })
             }
-            Ok(info)
         });
     let info = match info {
         Ok(info) => info,
         Err(error) => {
+            // A failed or unfinished start leaves the next connect free to
+            // start again.
+            server.attach_mut().paused_restarts.remove(machine);
             if error.code == codes::AUTH_REQUIRED {
                 // Signed out: no link may outlive the sign-in.
                 server.attach_mut().supervisor.disconnect_all("signed out of cmux Cloud");

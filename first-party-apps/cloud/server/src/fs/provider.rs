@@ -118,10 +118,11 @@ impl<C: ControlPlane> FsProvider for CloudFs<'_, C> {
         let Some((offset, length)) = range else {
             return files::read(self.server, root.machine(), &path);
         };
-        let max_bytes = length.min(super::MAX_READ_BYTES as u64);
-        let params = json!({ "path": path.as_str(), "offset": offset, "max_bytes": max_bytes });
-        let answer = super::link_files::call(self.server, root.machine(), "fs.read", params)?;
-        files::read_bytes(&answer)
+        let limit = length.min(super::MAX_READ_BYTES as u64);
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        files::read_range(self.server, root.machine(), &path, offset, limit).map(|(bytes, _)| bytes)
     }
 
     fn write(

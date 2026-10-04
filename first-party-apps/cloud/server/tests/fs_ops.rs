@@ -27,12 +27,7 @@ fn guest_paths_refuse_dotdot_relative_nul_and_long() {
     for good in ["/", "/home/cmux", "/home/cmux/a..b", "/srv/.hidden", "/a b/c"] {
         assert!(GuestPath::parse(good).is_ok(), "{good:?} is fine");
     }
-    let path = GuestPath::parse("/home/cmux/a b&c=d?e#f%").unwrap();
-    assert_eq!(
-        path.query_value(),
-        "/home/cmux/a%20b%26c%3Dd%3Fe%23f%25",
-        "no path adds a query field"
-    );
+    assert!(GuestPath::parse("/home/cmux/a b&c=d?e#f%").is_ok(), "any literal name is fine");
 }
 
 #[test]
@@ -115,8 +110,8 @@ fn list_stat_and_read_map_the_daemon_answers() {
     assert_eq!(params["path"], "/home/cmux");
     assert_eq!(
         log.calls[3].2,
-        json!({"path": "/home/cmux/notes.txt", "offset": 0,
-        "max_bytes": MAX_READ_BYTES})
+        json!({"path": "/home/cmux/notes.txt", "offset": 0, "max_bytes": 1048576}),
+        "reads go in 1 MiB ranges (the daemon's cap)"
     );
     drop(log);
     assert_eq!(
@@ -140,16 +135,29 @@ fn a_read_above_the_bound_is_a_typed_error_before_any_byte_moves() {
     assert_eq!(err.code, "cmux.cloud.file_too_large");
     assert_eq!(rig.files.ops(), ["fs.stat"], "no fs.read");
     rig.files.answer("fs.stat", stat_answer(12));
+    // The file grew past the bound after the stat: every 1 MiB range says
+    // "more", so the read stops at the bound and refuses.
     rig.files.answer(
         "fs.read",
-        json!({ "text": "x", "truncated": true, "size": 99999999,
-        "encoding": "utf-8" }),
+        json!({ "text": "x".repeat(1 << 20), "truncated": true, "size": 99_999_999,
+            "encoding": "utf-8" }),
     );
     let err = rig
         .server
         .handle(&op("cloud.fs.read", json!({"machine": "vm-alpha01", "path": "/home/cmux/grew"})))
         .unwrap_err();
-    assert_eq!(err.code, "cmux.cloud.file_too_large", "a truncated answer is refused too");
+    assert_eq!(err.code, "cmux.cloud.file_too_large", "a file that grew is refused too");
+    // A daemon that says "more" with a tiny answer is a protocol break.
+    rig.files.answer(
+        "fs.read",
+        json!({ "text": "x", "truncated": true, "size": 99,
+        "encoding": "utf-8" }),
+    );
+    let err = rig
+        .server
+        .handle(&op("cloud.fs.read", json!({"machine": "vm-alpha01", "path": "/home/cmux/slow"})))
+        .unwrap_err();
+    assert_eq!(err.code, "cmux.cloud.bad_response");
 }
 
 #[test]
@@ -260,7 +268,12 @@ fn the_fs_provider_view_serves_cloud_vm_roots_only() {
     assert_eq!(fs.schemes(), &["cloud-vm"]);
     assert_eq!(fs.list(&root, "/home/cmux", None).unwrap().len(), 3);
     assert_eq!(fs.read(&root, "/home/cmux/notes.txt", None).unwrap(), b"hello cloud\n");
-    assert_eq!(fs.read(&root, "/home/cmux/notes.txt", Some((0, 4))).unwrap(), b"hello cloud\n");
+    assert_eq!(fs.read(&root, "/home/cmux/notes.txt", Some((0, 64))).unwrap(), b"hello cloud\n");
+    assert_eq!(
+        fs.read(&root, "/home/cmux/notes.txt", Some((0, 4))).unwrap_err().code,
+        "cmux.cloud.bad_response",
+        "an answer longer than the range asked is a protocol break"
+    );
     assert_eq!(fs.stat(&root, "/home/cmux/notes.txt").unwrap().size, Some(12));
     assert_eq!(
         fs.write(&root, "/home/cmux/notes.txt", b"hi", Some("s12-m1")).unwrap(),

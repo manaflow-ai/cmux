@@ -6,8 +6,9 @@
 mod attach_common;
 mod common;
 
-use attach_common::{FakeSpawner, FakeTransport, Script, attach};
+use attach_common::{FakeSpawner, FakeTransport, attach};
 use cmux_cloud::link::LinkState;
+use cmux_cloud::link::dial::DialCode;
 use cmux_cloud::{Origin, Request, Server};
 use common::FakeControlPlane;
 use serde_json::json;
@@ -47,33 +48,58 @@ fn a_machine_with_no_host_yet_is_not_bound_and_starts_no_carrier() {
     assert_eq!(spawner.spawns(), 0);
 }
 
-#[test]
-fn host_paused_starts_the_machine_once_and_dials_again() {
-    let spawner = FakeSpawner::default();
-    spawner.log().script.extend([Script::DialFailed("host_paused"), Script::Ready]);
-    let mut s = server(&["vm-get", "vm-resume"], &spawner);
-    let carrier = s.handle(&connect("vm-alpha01", "c-1")).expect("connect after start");
+/// Connect (the carrier listens), then its first stream is refused.
+fn connect_then_refused(
+    s: &mut Server<FakeControlPlane>,
+    spawner: &FakeSpawner,
+    key: &str,
+    code: &str,
+) {
+    let carrier = s.handle(&connect("vm-alpha01", key)).expect("the carrier listens");
     assert_eq!(carrier["state"], "up");
-    let starts = s.control_plane().ops().iter().filter(|op| *op == "cloud.machine.start").count();
-    assert_eq!(starts, 1, "one start");
-    assert_eq!(spawner.spawns(), 2, "a second dial after the start");
+    spawner.refuse("vm-alpha01", code);
+    s.attach_mut().supervisor_mut().pump();
 }
 
 #[test]
-fn dial_refusals_map_to_typed_errors() {
-    for (code, expected, revoked) in [
-        ("not_authorized", "cmux.cloud.forbidden", true),
-        ("unknown_host", "cmux.cloud.not_found", true),
-        ("unreachable", "cmux.cloud.link_down", false),
-    ] {
+fn host_paused_ends_the_link_and_the_next_connect_starts_the_machine_once() {
+    let spawner = FakeSpawner::default();
+    let mut s = server(&["vm-get", "vm-resume"], &spawner);
+    connect_then_refused(&mut s, &spawner, "c-1", "host_paused");
+    let supervisor = s.attach().supervisor();
+    assert!(matches!(supervisor.state("vm-alpha01"), Some(LinkState::Down { .. })));
+    assert_eq!(supervisor.refusal("vm-alpha01"), Some(&DialCode::HostPaused), "typed");
+    let starts = |s: &Server<FakeControlPlane>| {
+        s.control_plane().ops().iter().filter(|op| *op == "cloud.machine.start").count()
+    };
+    assert_eq!(starts(&s), 0, "the first connect saw a running record");
+    // The next connect starts the machine once; its stream finds it paused again.
+    connect_then_refused(&mut s, &spawner, "c-2", "host_paused");
+    assert_eq!(starts(&s), 1);
+    // A second paused answer in a row is an error once, never a loop.
+    let err = s.handle(&connect("vm-alpha01", "c-3")).unwrap_err();
+    assert_eq!(err.code, "cmux.cloud.machine_paused");
+    assert_eq!(starts(&s), 1, "no start loop");
+    // After that, a connect may start again.
+    s.handle(&connect("vm-alpha01", "c-4")).expect("connect");
+    assert_eq!(starts(&s), 2);
+    assert_eq!(spawner.spawns(), 3);
+}
+
+#[test]
+fn a_refusal_that_ends_access_revokes_the_link_typed() {
+    for code in ["not_authorized", "unknown_host"] {
         let spawner = FakeSpawner::default();
-        spawner.log().script.push_back(Script::DialFailed(code));
         let mut s = server(&["vm-get"], &spawner);
-        let err = s.handle(&connect("vm-alpha01", "c-1")).unwrap_err();
-        assert_eq!(err.code, expected, "{code}");
-        assert_eq!(err.retryable, !revoked, "{code}: retryable");
-        let state = s.attach().supervisor().state("vm-alpha01").cloned();
-        assert_eq!(matches!(state, Some(LinkState::Revoked { .. })), revoked, "{code}: {state:?}");
+        connect_then_refused(&mut s, &spawner, "c-1", code);
+        let supervisor = s.attach().supervisor();
+        assert!(
+            matches!(supervisor.state("vm-alpha01"), Some(LinkState::Revoked { .. })),
+            "{code}"
+        );
+        assert_eq!(supervisor.refusal("vm-alpha01").map(DialCode::as_str), Some(code));
+        let err = s.handle(&connect("vm-alpha01", "c-2")).unwrap_err();
+        assert_eq!(err.code, "cmux.cloud.link_revoked", "{code}");
         assert_eq!(spawner.spawns(), 1, "{code}: no second dial");
     }
 }

@@ -11,13 +11,13 @@
 //! so the ops light up with no Cloud change when the daemon ships them.
 
 use crate::api::{CloudError, ControlPlane, codes};
-use crate::link::carrier::{DialStream, open_dial};
+use crate::link::carrier::{Children, Dialed, end_all, end_child, open_dial};
 use crate::link::dial::dial_args;
 use crate::ops::Server;
 use serde_json::{Map, Value, json};
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::path::PathBuf;
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 /// The daemon capability that carries the `fs.*` ops.
@@ -55,9 +55,6 @@ fn unavailable(why: impl Into<String>) -> CloudError {
 
 impl DaemonFiles for LinkDaemonFiles {
     fn call(&self, target: &DialTarget, op: &str, params: Value) -> Result<Value, CloudError> {
-        let DialStream { mut child, mut stdin, stdout } =
-            open_dial(&target.binary, &dial_args(&target.host), &target.env)
-                .map_err(|code| unavailable(format!("cmux link refused: {}", code.as_str())))?;
         let mut request = match params {
             Value::Object(map) => map,
             _ => Map::new(),
@@ -65,32 +62,51 @@ impl DaemonFiles for LinkDaemonFiles {
         request.insert("id".into(), json!(1));
         request.insert("cmd".into(), json!(op));
         let line = format!("{}\n", Value::Object(request));
-        let sent = stdin.write_all(line.as_bytes()).and_then(|()| stdin.flush());
-        drop(stdin);
-        // The answer is read on a worker so the op has a deadline; on the
-        // deadline the dial child (ours) is ended, which ends the read.
+        // The whole op (spawn, reply line, request, answer) runs on a worker
+        // under one deadline: the op loop is single-threaded, and a link or
+        // daemon that hangs at any step must not hold it. On the deadline
+        // the dial child (ours, by its handle) is ended, which ends the
+        // worker's read or write.
+        let children: Children = Arc::default();
         let (sender, receiver) = mpsc::channel();
-        let reader = std::thread::Builder::new().name("cmux-cloud-fs".into()).spawn(move || {
-            let mut answer = Vec::new();
-            let read = BufReader::new(stdout).take(MAX_ANSWER_BYTES).read_until(b'\n', &mut answer);
-            let _ = sender.send(read.map(|_| answer));
-        });
-        let answer = match (sent, reader) {
-            (Err(e), _) => Err(unavailable(format!("the daemon link closed: {e}"))),
-            (_, Err(e)) => Err(unavailable(format!("no reader for the daemon answer: {e}"))),
-            (Ok(()), Ok(_)) => match receiver.recv_timeout(DAEMON_OP_TIMEOUT) {
-                Ok(Ok(answer)) => Ok(answer),
-                Ok(Err(e)) => Err(unavailable(format!("the daemon link closed: {e}"))),
-                Err(_) => Err(unavailable(format!(
-                    "the machine's daemon did not answer {op} within {} s",
-                    DAEMON_OP_TIMEOUT.as_secs()
-                ))),
-            },
+        let worker = {
+            let target = target.clone();
+            let children = Arc::clone(&children);
+            std::thread::Builder::new()
+                .name("cmux-cloud-fs".into())
+                .spawn(move || {
+                    let _ = sender.send(exchange(&target, &line, &children));
+                })
+                .map_err(|e| unavailable(format!("no worker for the daemon op: {e}")))?
         };
-        let _ = child.kill();
-        let _ = child.wait();
+        let answer = match receiver.recv_timeout(DAEMON_OP_TIMEOUT) {
+            Ok(answer) => answer,
+            Err(_) => Err(unavailable(format!(
+                "the machine's daemon did not answer {op} within {} s",
+                DAEMON_OP_TIMEOUT.as_secs()
+            ))),
+        };
+        end_all(&children);
+        drop(worker);
         decode_answer(op, &answer?)
     }
+}
+
+/// One dial, one request line, one answer line (on the worker).
+fn exchange(target: &DialTarget, line: &str, children: &Children) -> Result<Vec<u8>, CloudError> {
+    let Dialed { child, mut stdin, stdout } =
+        open_dial(&target.binary, &dial_args(&target.host), &target.env, children)
+            .map_err(|code| unavailable(format!("cmux link refused: {}", code.as_str())))?;
+    let sent = stdin.write_all(line.as_bytes()).and_then(|()| stdin.flush());
+    drop(stdin);
+    sent.map_err(|e| unavailable(format!("the daemon link closed: {e}")))?;
+    let mut answer = Vec::new();
+    BufReader::new(stdout)
+        .take(MAX_ANSWER_BYTES)
+        .read_until(b'\n', &mut answer)
+        .map_err(|e| unavailable(format!("the daemon link closed: {e}")))?;
+    end_child(&child, children);
+    Ok(answer)
 }
 
 /// A daemon answer line (`{"id":1,"ok":true,"data":...}` or
@@ -167,6 +183,6 @@ pub(crate) fn call<C: ControlPlane>(
     params: Value,
 ) -> Result<Value, CloudError> {
     let target = target(server, machine)?;
-    let files = std::sync::Arc::clone(&server.edge_parts().0.files);
+    let files = Arc::clone(&server.edge_parts().0.files);
     files.call(&target, op, params)
 }

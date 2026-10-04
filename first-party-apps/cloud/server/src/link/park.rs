@@ -6,8 +6,6 @@
 //! link line of the same change. Only the loop thread runs, parks and
 //! re-runs ops; nothing here waits.
 
-use super::LinkFailure;
-use super::dial::DialCode;
 use super::ops::{LINK_UNAVAILABLE, link_failure};
 use crate::api::{CloudError, ControlPlane, Request};
 use crate::ops::Server;
@@ -91,10 +89,8 @@ impl<C: ControlPlane> Server<C> {
             }
             match self.attach().supervisor.outcome(&op.machine, op.generation) {
                 None => self.attach_mut().parked_ops.push(op),
-                Some(Err(LinkFailure::Dial(DialCode::HostPaused))) | Some(Ok(_)) => {
-                    // Up: run the op again; it finds the carrier. Paused: run
-                    // it again; its connect starts the machine once and dials
-                    // again (super::ops::begin_connect bounds the start).
+                Some(Ok(_)) => {
+                    // The link is up: run the op again; it finds the carrier.
                     let outcome = self.handle(&op.request);
                     if let Some(answer) = self.park_or_answer(&op.id, &op.request, outcome) {
                         settled.push((op.id, answer));
