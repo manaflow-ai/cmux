@@ -238,6 +238,8 @@ fn ir_uses_only_supported_keywords() {
         ir::schema_keywords_supported(schema, &at).unwrap();
     }
     assert!(ShapeValidator.validate(&ir_value).is_ok());
+    // The whole IR passes the merge rules on its own (as emit-ir checks).
+    ir::merge(&serde_json::json!({}), &ir_value, &ShapeValidator).unwrap();
 }
 
 /// The emitted IR keeps the seed's top-level shape and the merge fields.

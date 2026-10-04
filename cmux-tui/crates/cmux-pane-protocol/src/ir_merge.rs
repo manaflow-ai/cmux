@@ -269,6 +269,15 @@ fn check_mcp_and_cli(op: &Map<String, Value>, at: &str) -> Vec<String> {
     problems
 }
 
+/// Decision 26: an op name is `<namespace>.<family>.<verb>`, at least two
+/// segments below its longest declared namespace.
+fn short_name(name: &str, namespaces: &BTreeMap<String, Value>) -> Option<String> {
+    let namespace = namespaces.keys().filter(|ns| within(name, ns)).max_by_key(|ns| ns.len())?;
+    let rest = name.get(namespace.len() + 1..).unwrap_or_default();
+    (rest.split('.').count() < 2 || rest.is_empty())
+        .then(|| format!("op {name} must be <namespace>.<family>.<verb> below {namespace}"))
+}
+
 /// The top-level properties of a params schema (one `$ref` deep).
 fn param_properties<'a>(
     params: &'a Value,
@@ -534,6 +543,9 @@ pub fn merge(
         claim(name.clone(), &mut problems);
         for alias in strings(op.get("aliases")).unwrap_or_default() {
             claim(alias.to_owned(), &mut problems);
+        }
+        if let Some(problem) = short_name(&name, &namespaces) {
+            problems.push(problem);
         }
         match owner_of(&name) {
             Some(owner) if owner == op["owner"] => {}

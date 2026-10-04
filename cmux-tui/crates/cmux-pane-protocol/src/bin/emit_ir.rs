@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use cmux_pane_protocol::catalog::{IR_PATH, VECTORS_PATH, catalog};
+use cmux_pane_protocol::ir::ShapeValidator;
 use cmux_pane_protocol::vectors::vectors_text;
 
 fn main() -> ExitCode {
@@ -24,6 +25,14 @@ fn main() -> ExitCode {
             },
             _ => return usage(),
         }
+    }
+    // The emitted IR must pass the same rules as any fragment (names,
+    // keywords, paths, tool names).
+    let ir = catalog().ir();
+    if let Err(error) = cmux_pane_protocol::ir::merge(&serde_json::json!({}), &ir, &ShapeValidator)
+    {
+        eprintln!("error: the catalog breaks the IR rules: {error}");
+        return ExitCode::FAILURE;
     }
     let files = [(IR_PATH, catalog().ir_text()), (VECTORS_PATH, vectors_text())];
     let mut drift = false;
