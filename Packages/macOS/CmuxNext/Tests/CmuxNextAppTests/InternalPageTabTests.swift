@@ -27,6 +27,11 @@ struct InternalPageTabTests {
 
     /// A main window with one pane and loaded settings (scratch cmux.json).
     private func world() async throws -> (AppServices, WindowController, PaneController) {
+        try await world(before: { _ in })
+    }
+
+    /// `world()`, running `before` once settings load and before the window opens.
+    private func world(before: (AppServices) throws -> Void) async throws -> (AppServices, WindowController, PaneController) {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-pages-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
@@ -37,6 +42,7 @@ struct InternalPageTabTests {
         services.settings = settings
         await settings.reload()
         services.windows.ordersWindowsIn = false
+        try before(services)
         let store = services.daemon.store
         store.apply(snapshot: try BrowserTabTests.tree())
         let workspace = try #require(store.workspaces.first)
@@ -130,7 +136,28 @@ struct InternalPageTabTests {
         }
         let page = try #require(view.content as? PageWebView, "the Settings tab hosts the React page")
         #expect(page.pageID == "cmux.settings")
+        #expect(page.themeSurface == .settings, "appearance.surfaces.settings colors the page, as it colored the Swift view")
         #expect(services.settingsWindow.model == nil, "no Swift Settings model is made for the tab")
+    }
+
+    /// R82 commit 6: with no main window, Settings… makes no window of its own. The request waits,
+    /// and the first window that shows a workspace opens the React page tab on the asked section.
+    @Test func withNoWindowSettingsWaitsForAWindowAndOpensThePageThere() async throws {
+        let (services, _, pane) = try await world { services in
+            let windowsBefore = NSApp.windows.count
+            let arguments: [String: ActionValue] = ["section": .string("browser")]
+            #expect(services.registry.perform("openSettings", invocation: ActionInvocation(arguments: arguments)))
+            #expect(NSApp.windows.count == windowsBefore, "no Settings window was made")
+            #expect(services.pages.keys(of: .settings).isEmpty)
+        }
+        await BrowserTabTests.settle { !services.pages.keys(of: .settings).isEmpty }
+        let key = try #require(services.pages.keys(of: .settings).first, "the waiting request opens the tab")
+        #expect(pane.orderedIDs.map(\.rawValue).contains(key))
+        guard case .page(let view)? = pane.content(for: key), let page = view.content as? PageWebView else {
+            Issue.record("a Settings tab shows the React page")
+            return
+        }
+        #expect(page.route == "#/settings/browser")
     }
 
     /// A deep link to a schema setting opens the React page on that row
