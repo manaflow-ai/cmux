@@ -45,6 +45,7 @@ import {
   vmWorkflowErrorCause,
 } from "../services/vms/errors";
 import { accountDeletionUserHash } from "../services/account/deletionLock";
+import { resourcePoolPolicyForPlan } from "../services/vms/entitlements";
 import { networkSlugForTeam } from "../services/vms/privateNetwork";
 import { isVmAttachTransportUnsupportedError } from "../services/vms/errors";
 import { freestyleGuestFixture, guestCreateOptions } from "./fixtures/freestyleGuest";
@@ -65,6 +66,7 @@ import {
   openBaseVm,
   openAttachEndpoint,
   prepareScpEndpoint,
+  prepareShellEndpoint,
   openVmPort,
   openVmCmuxRemote,
   openVmSession,
@@ -9088,5 +9090,108 @@ describe("Cloud snapshot request ledger (Postgres)", () => {
     await sql`delete from cloud_vms where id = ${vm.id}`;
     const [{ count }] = await sql<{ count: string }[]>`select count(*)::text as count from cloud_vm_snapshot_requests`;
     expect(count).toBe("0");
+  });
+});
+
+describe("Cloud rescue shell endpoint", () => {
+  const shellKey = `ssh-ed25519 ${Buffer.concat([Buffer.from("0000000b7373682d6564323535313900000020", "hex"), Buffer.alloc(32, 5)]).toString("base64")}`;
+
+  function shellVm(overrides: Partial<CloudVmRow> = {}) {
+    return testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000181",
+      userId: "user-shell",
+      billingTeamId: "team-shell",
+      billingPlanId: "max",
+      providerVmId: "provider-shell",
+      status: "running",
+      providerMetadata: {},
+      ...overrides,
+    });
+  }
+
+  function shellProvider(calls: string[], overrides: Partial<VmProviderGatewayShape> = {}): VmProviderGatewayShape {
+    return {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running" as const),
+      prepareShell: (_provider, _vmId, _key, expires?: Date) => Effect.sync(() => {
+        calls.push("prepareShell");
+        const expiresAtUnix = Math.floor((expires?.getTime() ?? Date.now() + 300_000) / 1000);
+        return { host: "10.4.0.9", port: 22, username: "cmux", hostPublicKey: shellKey, expiresAtUnix };
+      }),
+      ...overrides,
+    };
+  }
+
+  test("resuming a paused machine draws from the caller's current plan pool, not the stale row plan", async () => {
+    const vm = shellVm({ status: "paused" });
+    const pools: unknown[] = [];
+    const calls: string[] = [];
+    const repo: VmRepositoryShape = {
+      ...testWorkflowRepo({ vm }),
+      reservePausedResume: (input) => Effect.sync(() => {
+        pools.push(input.resourcePool ?? null);
+        return { ...vm, status: "running" };
+      }),
+    };
+    const provider = shellProvider(calls, {
+      getStatus: () => Effect.succeed("paused" as const),
+      resume: (_provider, providerVmId) => Effect.succeed({ provider: "freestyle", providerVmId, image: "img", status: "running", createdAt: Date.now() } as unknown as VMHandle),
+    });
+    await Effect.runPromise(prepareShellEndpoint({
+      userId: vm.userId, billingTeamId: vm.billingTeamId, teamIds: [vm.billingTeamId!],
+      providerVmId: vm.providerVmId!, publicKey: shellKey, callerPlanId: "pro", maxActiveVms: 5,
+    }).pipe(Effect.provide(workflowLayer(repo, provider))));
+    expect(pools[0]).toEqual(resourcePoolPolicyForPlan("pro", 5));
+  });
+
+  test("the audit record is written before the guest authorizes the key", async () => {
+    const vm = shellVm();
+    const order: string[] = [];
+    const usageEvents: RecordedUsageEvent[] = [];
+    const repo: VmRepositoryShape = {
+      ...testWorkflowRepo({ vm, usageEvents }),
+      recordUsageEvent: (event) => Effect.sync(() => {
+        order.push(`audit:${event.eventType}`);
+        usageEvents.push(event);
+      }),
+    };
+    const endpoint = await Effect.runPromise(prepareShellEndpoint({
+      userId: vm.userId, billingTeamId: vm.billingTeamId, teamIds: [vm.billingTeamId!],
+      providerVmId: vm.providerVmId!, publicKey: shellKey,
+    }).pipe(Effect.provide(workflowLayer(repo, shellProvider(order)))));
+    expect(order).toEqual(["audit:vm.shell_endpoint", "prepareShell"]);
+    const audit = usageEvents.find((event) => event.eventType === "vm.shell_endpoint");
+    expect(audit?.metadata).toMatchObject({ keyFingerprint: expect.stringMatching(/^SHA256:/), expiresAtUnix: endpoint.expiresAtUnix });
+    expect(JSON.stringify(audit)).not.toContain(shellKey.split(" ")[1]);
+  });
+
+  test("a failed audit write grants nothing on the guest", async () => {
+    const vm = shellVm();
+    const calls: string[] = [];
+    const repo: VmRepositoryShape = {
+      ...testWorkflowRepo({ vm }),
+      recordUsageEvent: () => Effect.fail(new VmDatabaseError({ operation: "recordUsageEvent", cause: new Error("down") })),
+    };
+    const result = await Effect.runPromise(prepareShellEndpoint({
+      userId: vm.userId, billingTeamId: vm.billingTeamId, teamIds: [vm.billingTeamId!],
+      providerVmId: vm.providerVmId!, publicKey: shellKey,
+    }).pipe(Effect.either, Effect.provide(workflowLayer(repo, shellProvider(calls)))));
+    expect(result._tag).toBe("Left");
+    expect(calls).toEqual([]);
+  });
+
+  test("a guest failure after the audit keeps the audit record", async () => {
+    const vm = shellVm();
+    const usageEvents: RecordedUsageEvent[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents });
+    const provider = shellProvider([], {
+      prepareShell: () => Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "prepareShell", cause: new Error("exec timed out") })),
+    });
+    const result = await Effect.runPromise(prepareShellEndpoint({
+      userId: vm.userId, billingTeamId: vm.billingTeamId, teamIds: [vm.billingTeamId!],
+      providerVmId: vm.providerVmId!, publicKey: shellKey,
+    }).pipe(Effect.either, Effect.provide(workflowLayer(repo, provider))));
+    expect(result._tag).toBe("Left");
+    expect(usageEvents.filter((event) => event.eventType === "vm.shell_endpoint")).toHaveLength(1);
   });
 });

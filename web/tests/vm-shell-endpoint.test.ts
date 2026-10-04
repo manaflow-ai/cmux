@@ -1,9 +1,15 @@
 import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Freestyle } from "freestyle";
 import { FreestyleProvider } from "../services/vms/drivers/freestyle";
 import {
+  GUEST_KEY_CLEANUP_AWK,
+  SHELL_KEY_LIVE_MAX,
   SHELL_KEY_TTL_SECONDS,
-  scpAuthorizeCommand,
+  shellKeyCapCheck,
   sshKeyFingerprint,
   shellAuthorizedKeyLine,
   shellAuthorizeCommand,
@@ -22,10 +28,38 @@ describe("rescue shell endpoint", () => {
     expect(line).not.toContain("command=");
   });
 
-  test("shell and scp keys clean only their own expired markers", () => {
-    for (const command of [shellAuthorizeCommand(key, new Date(0)), scpAuthorizeCommand(key, new Date(0))]) {
-      expect(command).toContain("cmux-(scp|shell):[0-9]+");
-    }
+  test("cleanup removes only expired cmux-scp and cmux-shell keys", () => {
+    const dir = mkdtempSync(join(tmpdir(), "cmux-shell-keys-"));
+    const file = join(dir, "authorized_keys");
+    writeFileSync(file, [
+      "ssh-ed25519 AAAAuser user@laptop",
+      "restrict ssh-ed25519 AAAAold cmux-scp:900",
+      "restrict ssh-ed25519 AAAAlive cmux-scp:2000",
+      "restrict,pty ssh-ed25519 AAAAold cmux-shell:999",
+      "restrict,pty ssh-ed25519 AAAAlive cmux-shell:1001",
+      "ssh-ed25519 AAAAother cmux-scp:not-a-time",
+      "ssh-ed25519 AAAAprovider cmux-other:10",
+    ].join("\n") + "\n");
+    const run = spawnSync("awk", ["-v", "now=1000", GUEST_KEY_CLEANUP_AWK, file], { encoding: "utf8" });
+    expect(run.status).toBe(0);
+    expect(run.stdout.trim().split("\n")).toEqual([
+      "ssh-ed25519 AAAAuser user@laptop",
+      "restrict ssh-ed25519 AAAAlive cmux-scp:2000",
+      "restrict,pty ssh-ed25519 AAAAlive cmux-shell:1001",
+      "ssh-ed25519 AAAAother cmux-scp:not-a-time",
+      "ssh-ed25519 AAAAprovider cmux-other:10",
+    ]);
+    expect(readFileSync(file, "utf8")).toContain("AAAAold");
+  });
+
+  test("a machine refuses another shell key while too many are live", () => {
+    const dir = mkdtempSync(join(tmpdir(), "cmux-shell-cap-"));
+    const file = join(dir, "keys");
+    const live = (count: number) => Array.from({ length: count }, (_, i) => `restrict,pty ssh-ed25519 AAAA${i} cmux-shell:${2_000_000_000 + i}`).join("\n") + "\n";
+    writeFileSync(file, live(SHELL_KEY_LIVE_MAX - 1) + "ssh-ed25519 AAAAuser cmux-scp:2000000000\n");
+    expect(spawnSync("sh", ["-c", shellKeyCapCheck(file)]).status).toBe(0);
+    writeFileSync(file, live(SHELL_KEY_LIVE_MAX));
+    expect(spawnSync("sh", ["-c", shellKeyCapCheck(file)]).status).not.toBe(0);
   });
 
   test("the audit fingerprint is the OpenSSH SHA256 form and never the key", () => {
