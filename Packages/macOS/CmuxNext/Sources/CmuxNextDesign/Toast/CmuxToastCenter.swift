@@ -6,7 +6,8 @@ import CmuxNextWakeups
 /// three per window with the newest at the bottom (`CmuxToastStack`). Each
 /// ends after its duration on the injected clock; the pointer on a toast
 /// holds it. Cmd-Z runs the newest undo toast only when the focused
-/// responder has nothing of its own to undo (`takesUndoKey`).
+/// responder has nothing of its own to undo: the key dispatcher (owned by
+/// the keybindings lead) asks `takesUndoKey(in:)` and calls `runUndo(in:)`.
 @MainActor
 public final class CmuxToastCenter {
     public static let shared = CmuxToastCenter()
@@ -23,7 +24,6 @@ public final class CmuxToastCenter {
     private var entries: [Int: Entry] = [:]
     private var stacks: [ObjectIdentifier: CmuxToastStack] = [:]
     private var nextSerial = 1
-    private var keyMonitor: Any?
 
     public init(clock: any Clock<Duration> = ContinuousClock(), host: any CmuxToastHosting = CmuxToastOverlayHost()) {
         self.clock = clock
@@ -56,7 +56,6 @@ public final class CmuxToastCenter {
         NSAccessibility.post(element: view, notification: .announcementRequested, userInfo: [
             .announcement: toast.message, .priority: NSAccessibilityPriorityLevel.high.rawValue,
         ])
-        syncKeyMonitor()
         return handle
     }
 
@@ -111,7 +110,6 @@ public final class CmuxToastCenter {
             if again { relayout(key) }
         }
         entry.handle.finish(reason)
-        syncKeyMonitor()
     }
 
     private func windowClosed(_ key: ObjectIdentifier) {
@@ -133,23 +131,8 @@ public final class CmuxToastCenter {
         }
     }
 
-    /// Cmd-Z reaches the toasts through one local key monitor, installed only
-    /// while an undo toast shows.
-    private func syncKeyMonitor() {
-        let wanted = stacks.values.contains { $0.newestUndo != nil }
-        if wanted, keyMonitor == nil {
-            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self, let window = event.window, Self.isUndoKey(event), self.takesUndoKey(in: window) else { return event }
-                self.runUndo(in: window)
-                return nil
-            }
-        } else if !wanted, let monitor = keyMonitor {
-            NSEvent.removeMonitor(monitor)
-            keyMonitor = nil
-        }
-    }
-
-    static func isUndoKey(_ event: NSEvent) -> Bool {
+    /// Cmd-Z with no other modifier (for the dispatcher).
+    public static func isUndoKey(_ event: NSEvent) -> Bool {
         event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command && event.charactersIgnoringModifiers == "z"
     }
 }
