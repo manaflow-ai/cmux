@@ -176,6 +176,7 @@ impl Mux {
     pub(crate) fn prelaunch_tab_terminal(
         self: &Arc<Self>,
         pane: Option<PaneId>,
+        terminal_id: Option<TerminalId>,
         cwd: Option<String>,
         command: Option<Vec<String>>,
         env: Vec<(String, String)>,
@@ -200,7 +201,10 @@ impl Mux {
                 return Ok(None);
             }
             let workspace_key = self.workspace_key_for_pane(target);
-            let terminal_id = TerminalId::random()?;
+            let terminal_id = match terminal_id {
+                Some(terminal_id) => terminal_id,
+                None => TerminalId::random()?,
+            };
             // The spare host process, when one is ready (R81); the next one
             // starts in the background after this launch.
             let standby = self.terminal_work.standby.take();
@@ -240,7 +244,7 @@ impl Mux {
         }
         #[cfg(not(unix))]
         {
-            let _ = (pane, cwd, env, size);
+            let _ = (pane, terminal_id, cwd, env, size);
             Ok(None)
         }
     }
