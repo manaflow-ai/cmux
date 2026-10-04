@@ -142,6 +142,27 @@ class ConfiguredPoolTests(unittest.TestCase):
         self.assertNotEqual(picker.pick(observed(aws + busy_minis, {})).label, "glaeda-std-xcode-26.3")
 
 
+class LiveRunnerReadTests(unittest.TestCase):
+    """The organization has hundreds of runners; the minis are not on the first page."""
+
+    def test_runners_reads_every_page(self):
+        pages = {
+            1: [runner(f"other-{index}", ["blacksmith-6vcpu-macos-26"], busy=False) for index in range(100)],
+            2: [std_runner(index, busy=False) for index in range(30)],
+        }
+        asked = []
+
+        class Paged(picker.LiveState):
+            def _get(self, path):
+                asked.append(path)
+                page = int(path.rsplit("page=", 1)[1]) if "&page=" in path else 1
+                return {"total_count": 130, "runners": pages.get(page, [])}
+
+        runners = Paged("t", "manaflow-ai/cmux").runners()
+        self.assertEqual(len(runners), 130)
+        self.assertEqual(len(asked), 2)
+
+
 class OwnedQueueTests(unittest.TestCase):
     """An owned pool's free runners are its idle runners less the jobs queued on its family."""
 
