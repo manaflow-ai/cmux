@@ -16,7 +16,7 @@ mod lock;
 mod model;
 mod report;
 
-pub use anthropic::AnthropicModel;
+pub use anthropic::{AnthropicModel, AGENT_HEADER};
 pub use cap::cap_tool_result;
 pub use chat::{Cancel, Error, Failure, OptChat, Status};
 pub use clock::{Clock, ManualClock, SystemClock};

@@ -171,8 +171,12 @@ fn start(
         chat.render_view().text
     ));
 
+    // The default stays acpmux: the team subrouter answers raw Messages API
+    // calls for Claude models with 429 (it serves Claude Code clients), so
+    // the native engine needs an endpoint that takes API calls
+    // (OPTCHAT_ANTHROPIC_BASE_URL plus a key). Checked live on 2026-10-04.
     let engine = match env("OPTCHAT_CHIEF_ENGINE").as_deref() {
-        None | Some("native") => {
+        Some("native") => {
             let native_config = NativeConfig {
                 model: env("OPTCHAT_CHIEF_MODEL").unwrap_or_else(|| NATIVE_MODEL.into()),
                 effort: Some(env("OPTCHAT_CHIEF_EFFORT").unwrap_or_else(|| NATIVE_EFFORT.into())),
@@ -197,7 +201,7 @@ fn start(
                 optchat_host::RETRY,
             )))
         }
-        Some("acpmux") => Engine::Acpmux,
+        None | Some("acpmux") => Engine::Acpmux,
         Some(other) => {
             return Err(format!(
                 "OPTCHAT_CHIEF_ENGINE={other}: use native or acpmux"

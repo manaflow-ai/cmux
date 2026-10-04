@@ -10,12 +10,12 @@ runs inside the host on the team subrouter.
 
 Two engines run a turn (`OPTCHAT_CHIEF_ENGINE`):
 
-- `native` (default): the host's own Messages API loop with `bash`, the text
+- `native`: the host's own Messages API loop with `bash`, the text
   editor, `zoom` and `date`. It is the engine that keeps sections 7 and 8
   whole: three cache breakpoints in the view plus the request end, model
   output resent verbatim, tool results capped at CAP, and messages sent
   during a turn delivered between tool calls (as MASTER says).
-- `acpmux`: a fresh acpmux session per turn (`MUX_HARNESS`, default
+- `acpmux` (default): a fresh acpmux session per turn (`MUX_HARNESS`, default
   claude-sr). Claude Code's own breakpoints never land in the view, so each
   turn rewrites the view in the cache, and claude-sr takes no message
   mid-run: a human message stops the running turn (`session/cancel`) and
@@ -76,7 +76,7 @@ turn when the Chief is idle.
 | `CMUX_DAEMON_SOCKET` | (`--daemon-socket`) | the session daemon (local-conversations-v1) |
 | `MUX_HOME` | `~/.cmux/mux` (`--mux-home`) | where everything lives |
 | `MUX_AGENT_TOKEN_FILE` | required (exit 2 without) | the app's agent_mux token |
-| `OPTCHAT_CHIEF_ENGINE` | `native` | `native` (Messages API loop in the host) or `acpmux` |
+| `OPTCHAT_CHIEF_ENGINE` | `acpmux` | `acpmux` or `native` (Messages API loop in the host) |
 | `OPTCHAT_CHIEF_MODEL` | `claude-opus-5-5` (native), harness default (acpmux) | the turn model |
 | `OPTCHAT_CHIEF_EFFORT` | `high` | native: `output_config.effort` |
 | `OPTCHAT_CHIEF_SERVER_FALLBACK` | off | native: `1` sends `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`) |
@@ -124,6 +124,21 @@ byte-identical across turns. The request the model gets is not fully ours:
 - Claude Code's own system prompt still comes first, with its date and
   environment lines, so the cached prefix changes at least once a day.
   Machine-wide managed settings still apply.
+
+## Known blocker on the team subrouter
+
+Checked live on 2026-10-04 from the build host: the team subrouter routes a
+request it cannot identify as Claude Code to the Codex backend, so both
+clients now send `x-subrouter-agent: claude`; with it, raw Messages API
+calls for Claude models (the compactor's `claude-sonnet-5-5`, the native
+engine's `claude-opus-5-5`) get `429 rate_limit_error` every time. The
+subrouter serves Claude Code clients. So the compactor works through the
+subrouter only while every line is short enough to need no model call, and
+the native engine does not work through it at all. Either point
+`OPTCHAT_ANTHROPIC_BASE_URL` at an endpoint that takes API calls (with
+`OPTCHAT_ANTHROPIC_API_KEY` or `ANTHROPIC_API_KEY`), or give the subrouter
+an API-key Claude provider. `cargo test --release --test live -- --ignored`
+in optchat-host and optchat-chief repeats the check.
 
 ## Deviations from the spec
 

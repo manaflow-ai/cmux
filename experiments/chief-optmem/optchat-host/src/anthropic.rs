@@ -10,6 +10,10 @@ use crate::config::Config;
 use crate::model::{CompactModel, Followup, ModelError, Reply};
 
 const API_VERSION: &str = "2023-06-01";
+/// The team subrouter picks the upstream by client: a request it cannot
+/// identify as Claude Code goes to the Codex backend (and fails there), so
+/// the request says it is a Claude client. Other endpoints ignore the header.
+pub const AGENT_HEADER: (&str, &str) = ("x-subrouter-agent", "claude");
 /// How much of an error body a failure report keeps.
 const ERROR_BODY: usize = 600;
 
@@ -96,7 +100,8 @@ impl CompactModel for AnthropicModel {
             .agent
             .post(&self.url)
             .set("x-api-key", &self.key)
-            .set("anthropic-version", API_VERSION);
+            .set("anthropic-version", API_VERSION)
+            .set(AGENT_HEADER.0, AGENT_HEADER.1);
         let response = if self.server_fallback {
             response.set("anthropic-beta", SERVER_FALLBACK_BETA)
         } else {
@@ -237,6 +242,7 @@ mod tests {
             let (stream, _) = listener.accept().unwrap();
             let mut reader = BufReader::new(stream.try_clone().unwrap());
             let mut key = String::new();
+            let mut agent = String::new();
             let mut length = 0usize;
             loop {
                 let mut line = String::new();
@@ -248,6 +254,9 @@ mod tests {
                 let lower = line.to_ascii_lowercase();
                 if let Some(v) = lower.strip_prefix("x-api-key:") {
                     key = line[line.len() - v.trim_start().len()..].to_owned();
+                }
+                if let Some(v) = lower.strip_prefix("x-subrouter-agent:") {
+                    agent = v.trim().to_owned();
                 }
                 if let Some(v) = lower.strip_prefix("content-length:") {
                     length = v.trim().parse().unwrap();
@@ -262,7 +271,7 @@ mod tests {
                 reply.len()
             )
             .unwrap();
-            key
+            (key, agent)
         });
         let config = Config {
             api_key: api_key(&base_url, |k| {
@@ -273,7 +282,11 @@ mod tests {
         };
         let reply = AnthropicModel::new(&config).call(&request(), &[]).unwrap();
         assert_eq!(reply.text, "user: hi");
-        assert_eq!(server.join().unwrap(), "sk-real");
+        // The subrouter routes a request it cannot tell from Codex to Codex.
+        assert_eq!(
+            server.join().unwrap(),
+            ("sk-real".to_owned(), "claude".to_owned())
+        );
     }
 
     #[test]

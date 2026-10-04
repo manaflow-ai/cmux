@@ -58,7 +58,8 @@ impl ChatModel for HttpModel {
             .agent
             .post(&self.url)
             .set("x-api-key", &self.key)
-            .set("anthropic-version", API_VERSION);
+            .set("anthropic-version", API_VERSION)
+            .set(optchat_host::AGENT_HEADER.0, optchat_host::AGENT_HEADER.1);
         if let Some(beta) = self.beta {
             request = request.set("anthropic-beta", beta);
         }
