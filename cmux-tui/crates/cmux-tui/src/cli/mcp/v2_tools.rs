@@ -95,8 +95,8 @@ const PAIRING_REASON: &str =
 const WINDOW_RECORD_REASON: &str = "A window record has one writer, the app that hosts the \
      window; the CLI omits it too, and window_list reads the app's windows.";
 const SIDEBAR_REASON: &str = "TUI sidebar plugin views in the cmux-tui-only scope.";
-const SETTINGS_APP_REASON: &str = "Value domains and the team policy come only from the \
-     hosting app's connection (settings-host-v1); the daemon refuses everyone else.";
+const SETTINGS_APP_REASON: &str = "Value domains and the team policy may come only from an \
+     attested hosting app; until the daemon verifies that, it refuses every caller.";
 /// Operations with an `origin` field get `mcp` from the server, never from
 /// the agent: the owner refuses keys an agent may not change
 /// (plans/cmux-next/settings-react.md section 3).

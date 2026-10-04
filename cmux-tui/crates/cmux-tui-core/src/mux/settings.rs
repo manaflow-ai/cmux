@@ -15,9 +15,10 @@ use crate::resource::{ResourceError, ResourceOperation};
 
 /// The daemon serves `settings.*` and emits `settings-changed`.
 pub const SETTINGS_CAPABILITY: &str = "settings-v1";
-/// A client capability only the hosting app sends in `set-client-info`. A
-/// trusted local connection that sent it may publish value domains and the
-/// team policy; every other connection is refused.
+/// A client capability the hosting app sends in `set-client-info`. It is a
+/// claim, not authority: any same-uid process can send it, so it grants
+/// nothing until the daemon verifies the app's code signature (see
+/// `require_hosting_app`).
 pub const SETTINGS_HOST_CAPABILITY: &str = "settings-host-v1";
 
 #[derive(Default)]
@@ -133,22 +134,20 @@ fn start_watcher(mux: Weak<Mux>, store: &Arc<Mutex<ConfigStore>>) -> Option<Watc
     .ok()
 }
 
-/// `settings.domains.publish` and `settings.team_policy.set` come only from
-/// the hosting app: a trusted local connection that sent
-/// `settings-host-v1` in `set-client-info`.
+/// `settings.domains.publish` and `settings.team_policy.set` would change what
+/// every client may write (value domains) and which keys an organization
+/// enforces (team policy). A capability a client declares on a same-uid
+/// socket is not authority, so both are refused for every caller until the
+/// daemon verifies the hosting app's code signature on the connection
+/// (settings-react.md section 3, follow-up "attested hosting app").
 pub(crate) fn require_hosting_app(
-    mux: &Mux,
-    client: u64,
+    _mux: &Mux,
+    _client: u64,
     operation: ResourceOperation,
 ) -> Result<(), ResourceError> {
-    if mux.control_clients.is_unix(client)
-        && mux.control_clients.supports_capability(client, SETTINGS_HOST_CAPABILITY)
-    {
-        return Ok(());
-    }
     Err(ResourceError::operation_failed(
         operation.wire_name().to_owned(),
-        "only the hosting app may send this operation",
-        json!({"required_authority":"hosting_app","client_capability":SETTINGS_HOST_CAPABILITY}),
+        "refused until the daemon can verify the hosting app's code signature",
+        json!({"required_authority":"attested_hosting_app"}),
     ))
 }

@@ -14738,7 +14738,7 @@
         },
         "extra": false,
         "constraints": [
-          "Only the hosting app's connection (a trusted local client that sent settings-host-v1 in set-client-info); others get operation.failed. An empty list leaves that domain unpublished."
+          "Refused for every caller (operation.failed, required_authority attested_hosting_app) until the daemon verifies the hosting app's code signature on the connection; a declared settings-host-v1 capability is not authority. Then: an empty list leaves that domain unpublished."
         ]
       },
       "result": {
@@ -15254,7 +15254,7 @@
         },
         "extra": false,
         "constraints": [
-          "Only the hosting app's connection; others get operation.failed. A lower version of the same team is ignored."
+          "Refused for every caller (operation.failed, required_authority attested_hosting_app) until the daemon verifies the hosting app's code signature on the connection. Then: a lower version of the same team is ignored."
         ]
       },
       "result": {
