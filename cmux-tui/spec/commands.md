@@ -5915,6 +5915,20 @@ colors-changed | digest)* -> detached` instead of the replay stream:
 - `snapshot` also carries `marker_epoch` and `active_top_marker` (the row
   marker of the active area's top row), so `terminal-history` pages line up
   with the restored READY.
+- Servers that also advertise `terminal-snapshot-history-v1` follow every
+  READY with `snapshot {surface, phase:"history", generation, offset,
+  version, compression:"deflate", raw_bytes, data, done}` chunks at that
+  READY's `generation` and `offset`. Each chunk holds at most 1048576 bytes
+  of history (`raw_bytes`), compressed alone as raw DEFLATE (RFC 1951, no
+  zlib or gzip framing); `data` is its base64. The inflated chunks
+  concatenated are the rest of the same COMPLETE encode after the READY record (HISTORY
+  manifests, scrollback PAGE records, FINISH), so READY plus history is one
+  complete GHOSTSNP snapshot taken at one cut. `done` is true on the last
+  chunk. History is lower priority than live output: `output` events may
+  arrive between chunks and keep their own `generation` and `offset`. A newer
+  READY ends the older READY's history; no further chunk of it is sent. A
+  viewer feeds the chunks to its restore after the READY they follow and
+  drops history whose `generation` and `offset` differ from its last READY.
 - `digest {surface, generation, offset, version, sha256}` follows 2 s after
   output goes idle, only when the viewer has every byte up to that offset.
   `sha256` (hex) covers, for each SCREEN, PAGE and CONTINUATION record of the
