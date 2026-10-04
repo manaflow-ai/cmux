@@ -11688,12 +11688,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "1",
-        "modifiers" : [
-          "ctrl"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "switchRightSidebarToFiles",
       "mcp" : "guiOnly",
       "palette" : "offered",
@@ -11716,12 +11711,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "2",
-        "modifiers" : [
-          "ctrl"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "switchRightSidebarToFind",
       "mcp" : "guiOnly",
       "palette" : "offered",
@@ -11744,12 +11734,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "3",
-        "modifiers" : [
-          "ctrl"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "switchRightSidebarToSessions",
       "mcp" : "guiOnly",
       "palette" : "offered",
@@ -11772,12 +11757,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "4",
-        "modifiers" : [
-          "ctrl"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "switchRightSidebarToFeed",
       "mcp" : "guiOnly",
       "palette" : "offered",
@@ -11800,12 +11780,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "5",
-        "modifiers" : [
-          "ctrl"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "switchRightSidebarToDock",
       "mcp" : "guiOnly",
       "palette" : "offered",
@@ -11828,12 +11803,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "6",
-        "modifiers" : [
-          "ctrl"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "switchRightSidebarToMachines",
       "mcp" : "guiOnly",
       "palette" : "offered",
@@ -13566,12 +13536,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "y",
-        "modifiers" : [
-          "cmd"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "newCloudMachine",
       "mcp" : "offered",
       "palette" : "offered",
