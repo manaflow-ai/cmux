@@ -18,6 +18,7 @@ struct ModifierHoldHintsTests {
 
     @Test func typingSuppressesHintsUntilModifiersAreReleased() {
         var policy = ShortcutHintModifierPolicy()
+        _ = policy.update(flags: .command, eligible: true, elapsed: .zero)
         policy.keyDown()
         let visible5 = policy.update(flags: .command, eligible: true, elapsed: .seconds(1))
         #expect(!visible5)
@@ -25,6 +26,14 @@ struct ModifierHoldHintsTests {
         #expect(!visible6)
         let visible7 = policy.update(flags: .command, eligible: true, elapsed: .milliseconds(300))
         #expect(visible7)
+    }
+
+    @Test func unmodifiedTypingDoesNotSuppressTheNextHold() {
+        var policy = ShortcutHintModifierPolicy()
+        _ = policy.update(flags: [], eligible: true, elapsed: .zero)
+        policy.keyDown()
+        let visible = policy.update(flags: .control, eligible: true, elapsed: .milliseconds(300))
+        #expect(visible)
     }
 
     @Test func onlyTheKeyWindowMayShowHints() {
