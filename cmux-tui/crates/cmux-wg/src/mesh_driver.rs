@@ -30,6 +30,11 @@ use crate::underlay::{SocketPath, Underlay, is_transient};
 
 /// Largest datagram or packet buffer: the UDP payload maximum.
 const BUFFER_BYTES: usize = 65_535;
+/// Datagrams decrypted per wake before the stack runs. Running the stack
+/// once per batch instead of once per datagram keeps the receive loop
+/// ahead of the socket buffer; a socket buffer that overflows drops
+/// segments, and smoltcp then waits a full retransmission timeout.
+const RECEIVE_BATCH: usize = 64;
 /// Handshake initiations the mesh examines per second before it asks
 /// initiators for a cookie (WireGuard's under-load rule). Each costs a
 /// Diffie-Hellman to learn the initiator's key.
@@ -126,7 +131,10 @@ impl MeshDriver {
             };
             self.run_timers();
             match event {
-                Event::Datagram(count, source) => self.handle_datagram(&datagram[..count], source),
+                Event::Datagram(count, source) => {
+                    self.handle_datagram(&datagram[..count], source);
+                    self.receive_ready(&mut datagram);
+                }
                 Event::Fatal | Event::Command(Some(MeshCommand::Shutdown) | None) => {
                     self.shutdown();
                     return;
@@ -137,6 +145,17 @@ impl MeshDriver {
             self.udp.flush();
             self.service();
             self.udp.flush();
+        }
+    }
+
+    /// Decrypt the datagrams already waiting on the socket, up to a batch.
+    fn receive_ready(&mut self, buffer: &mut [u8]) {
+        for _ in 1..RECEIVE_BATCH {
+            match self.udp.socket().try_recv_from(buffer) {
+                Ok((count, source)) => self.handle_datagram(&buffer[..count], Some(source)),
+                // WouldBlock, or an error the next wait reports.
+                Err(_) => break,
+            }
         }
     }
 
