@@ -96,11 +96,13 @@
           return got;
         });
       }
+      const viewer = (json) => {
+        const mini = byType(json, "MiniProfile")[0] || {};
+        return { id: (json && json.data && json.data.plainId) || null, publicIdentifier: mini.publicIdentifier || null, firstName: mini.firstName || null, lastName: mini.lastName || null, headline: mini.occupation || null, url: mini.publicIdentifier ? `${ORIGIN}/in/${mini.publicIdentifier}/` : null };
+      };
       // { id, publicIdentifier, firstName, lastName, headline, url }
       async function me() {
-        const json = await api("/voyager/api/me");
-        const mini = byType(json, "MiniProfile")[0] || {};
-        return { id: (json.data && json.data.plainId) || null, publicIdentifier: mini.publicIdentifier || null, firstName: mini.firstName || null, lastName: mini.lastName || null, headline: mini.occupation || null, url: mini.publicIdentifier ? `${ORIGIN}/in/${mini.publicIdentifier}/` : null };
+        return viewer(await api("/voyager/api/me"));
       }
       return {
         me,
@@ -127,23 +129,36 @@
         post(input, options) {
           return t.write("linkedin", "post", input, options, async (text) => {
             if (typeof text !== "string" || !text.trim()) throw new S.SiteError("invalid", "linkedin.post: expected the post text");
-            // The draft pins the signed-in member; another session can sign
-            // in as someone else before the confirmation.
-            const account = (await me()).publicIdentifier;
-            if (!account) throw new S.SiteError("not_signed_in", "linkedin.post: could not tell which LinkedIn member is signed in");
+            // The draft pins the signed-in member (its immutable member id
+            // and public identifier); another session can sign in as
+            // someone else before the confirmation.
+            const who = await me();
+            const account = who.publicIdentifier;
+            const memberId = who.id;
+            if (!account || !memberId) throw new S.SiteError("not_signed_in", "linkedin.post: could not tell which LinkedIn member is signed in");
+            const changed = (now) => new S.SiteError("account_changed", `linkedin.post: the signed-in member is now ${now.publicIdentifier || "nobody"}${now.id ? ` (${now.id})` : ""}, not ${account} (${memberId}) as drafted; nothing was posted`);
+            const same = (now) => now.id === memberId && now.publicIdentifier === account;
             return {
               category: "[9] representational communication (public post)",
               summary: `Publish a LinkedIn post as ${account} (${text.length} characters)`,
-              preview: { account, text },
+              preview: { account, memberId, text },
               run: async () => {
-                const now = (await me()).publicIdentifier;
-                if (now !== account) throw new S.SiteError("account_changed", `linkedin.post: the signed-in member is now ${now || "nobody"}, not ${account} as drafted; nothing was posted`);
+                const first = await me();
+                if (!same(first)) throw changed(first);
                 return t.withTab(`${ORIGIN}/feed/?shareActive=true&text=${encodeURIComponent(text)}`, async (page) => {
                   t.assertSignedIn("linkedin.post", page, SIGN_IN);
                   const box = page.locator('div[role="dialog"] div[role="textbox"]').first();
                   await box.waitFor({ timeout: 30000 });
                   const shown = (await box.innerText()).replace(/\s+/g, " ");
                   if (!shown.includes(text.trim().slice(0, 40).replace(/\s+/g, " "))) throw new S.SiteError("compose_mismatch", "linkedin.post: the composer did not receive the drafted text; nothing was posted");
+                  // The member this composer page posts as, read in that page
+                  // (its own session cookie) right before Post: the profile
+                  // can switch accounts while the composer loads. The click
+                  // follows the answer; a switch between the two is the
+                  // remaining window (LinkedIn has no post bound to a member).
+                  const r = await page.evaluate(voyager, { path: "/voyager/api/me" });
+                  const now = r && r.status >= 200 && r.status < 300 && r.json ? viewer(r.json) : { id: null, publicIdentifier: null };
+                  if (!same(now)) throw changed(now);
                   await page.locator('div[role="dialog"] button.share-actions__primary-action, div[role="dialog"] button:has-text("Post")').first().click();
                   await t.waitIn(page, () => !document.querySelector('div[role="dialog"] div[role="textbox"]'), undefined, { signIn: SIGN_IN, name: "linkedin", timeout: 30000, what: "LinkedIn to publish the post" });
                   return { status: "posted" };
