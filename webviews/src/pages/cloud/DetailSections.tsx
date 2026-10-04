@@ -69,10 +69,20 @@ const AccessLabel: Record<AccessMode, string> = {
   public: L.accessPublic,
 };
 
-export function PublicationsSection({ store, machine, detail, unavailable, strings }: SectionProps) {
+export function PublicationsSection({
+  store,
+  machine,
+  team,
+  detail,
+  unavailable,
+  strings,
+}: SectionProps & { team?: string | null }) {
   const { t } = strings;
   // The page always sends the mode it shows, so the native confirmation names the mode that applies.
-  const [access, setAccess] = useState<AccessMode>("personal");
+  // It starts at the Cloud API's default: team access in a team, else only me. Without a team the
+  // API refuses team access, so the form does not offer it.
+  const modes = team ? ACCESS_MODES : ACCESS_MODES.filter((mode) => mode !== "team");
+  const [access, setAccess] = useState<AccessMode>(team ? "team" : "personal");
   if (isUnavailable(unavailable, "publications"))
     return (
       <>
@@ -97,7 +107,7 @@ export function PublicationsSection({ store, machine, detail, unavailable, strin
                 value={access}
                 onChange={(event) => setAccess(event.target.value as AccessMode)}
               >
-                {ACCESS_MODES.map((mode) => (
+                {modes.map((mode) => (
                   <option key={mode} value={mode}>
                     {t(AccessLabel[mode])}
                   </option>

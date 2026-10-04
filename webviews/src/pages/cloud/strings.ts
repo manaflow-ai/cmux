@@ -121,6 +121,7 @@ export const L = {
   filesFolder: "files.folder",
   filesTooLarge: "files.tooLarge",
   filesBinary: "files.binary",
+  filesNoPreview: "files.noPreview",
   filesClosePreview: "files.closePreview",
   ports: "ports.title",
   portsForward: "ports.forward",

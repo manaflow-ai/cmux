@@ -113,6 +113,7 @@ export class CloudStore {
       unsupported: (op: string) => this.markUnavailable(op),
       canChange: () => this.canChange(),
       key: () => this.key(),
+      epoch: () => this.detail.epoch,
     };
     this.detail = new DetailReader(client, host);
     this.files = new FilesReader(client, host);

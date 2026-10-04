@@ -100,7 +100,13 @@ export class DetailReader {
     this.host.set({ machine, loading: true });
     const results = await Promise.allSettled(SECTIONS.map((section) => this.read(section, machine)));
     if (generation !== this.generation) return;
-    const detail: MachineDetail = { machine, loading: false };
+    // Keep what Browse, a forward or Open in browser wrote while the sections were read.
+    const during = this.host.get();
+    const kept =
+      during?.machine === machine
+        ? { files: during.files, browser: during.browser, browserRefused: during.browserRefused }
+        : {};
+    const detail: MachineDetail = { machine, loading: false, ...kept };
     let failed: unknown;
     SECTIONS.forEach((section, index) => {
       const result = results[index];
@@ -123,8 +129,13 @@ export class DetailReader {
       if (generation !== this.generation || !latest) return;
       this.host.set({ ...latest, [section]: value });
     } catch (error) {
-      this.reject(SECTION_OPS[section], error);
+      if (generation === this.generation) this.reject(SECTION_OPS[section], error);
     }
+  }
+
+  /** Bumped by each selection: a reply started under an older one is dropped (files.ts too). */
+  get epoch(): number {
+    return this.generation;
   }
 
   createSnapshot(machine: string, name?: string): Promise<void> {
@@ -180,14 +191,14 @@ export class DetailReader {
   async forwardPort(machine: string, port: number): Promise<void> {
     const forward = await this.change<PortForward>(CloudOps.portForward, { machine, port });
     const latest = this.host.get();
-    if (!forward || latest?.machine !== machine) return;
+    if (!forward?.localPort || latest?.machine !== machine) return;
     const others = (latest.ports ?? []).filter((f) => f.port !== forward.port);
     this.host.set({ ...latest, ports: [...others, forward] });
   }
 
   async closePort(machine: string, port: number): Promise<void> {
     const closed = await this.change(CloudOps.portClose, { machine, port });
-    if (closed) await this.reload("ports");
+    if (closed !== undefined) await this.reload("ports");
   }
 
   /**
@@ -201,7 +212,7 @@ export class DetailReader {
   async openBrowser(machine: string, port: number, machineName: string): Promise<void> {
     const route = await this.change<BrowserRoute>(CloudOps.browserOpen, { machine, port });
     const latest = this.host.get();
-    if (!route || latest?.machine !== machine) return;
+    if (!route?.url || latest?.machine !== machine) return;
     this.host.set({ ...latest, browser: route, browserRefused: undefined });
     const args: BrowserTabOpenArgs = {
       url: route.url,
@@ -238,11 +249,14 @@ export class DetailReader {
     if (result !== undefined && section) await this.reload(section);
   }
 
-  /** Sends one mutation with a new key; answers the owner's result, or undefined after a reject. */
-  private async change<R = unknown>(op: string, params: Record<string, unknown>): Promise<R | undefined> {
+  /**
+   * Sends one mutation with a new key; answers the owner's result (null when it answered nothing),
+   * or undefined after a reject or when no change may be sent.
+   */
+  private async change<R = unknown>(op: string, params: Record<string, unknown>): Promise<R | null | undefined> {
     if (!this.client || !this.host.canChange()) return undefined;
     try {
-      return (await this.client.call<R>(op, { ...params, idempotency_key: this.host.key() })) ?? ({} as R);
+      return (await this.client.call<R>(op, { ...params, idempotency_key: this.host.key() })) ?? null;
     } catch (error) {
       this.reject(op, error);
       return undefined;
