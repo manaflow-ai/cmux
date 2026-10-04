@@ -54,9 +54,26 @@ public final class BrowserReplTypedSecrets: @unchecked Sendable {
     public var isEmpty: Bool { lock.withLock { entries.isEmpty } }
 
     /// `typist` typed secret `name`'s `value` into `tab`.
-    public func record(tab: String, name: String, value: String, domains: [BrowserReplDomainPattern], typist: String) {
-        lock.withLock {
-            entries.removeAll { $0.tab == tab && $0.name == name && $0.typist == typist }
+    ///
+    /// The driver records a value before it types it. Every reader masks
+    /// every record, so the records are bounded
+    /// (``BrowserReplSecretStore/maximumTypedValues``, each value at most
+    /// ``BrowserReplSecretStore/maximumValueBytes``): past that the value is
+    /// refused (`invalid`) and must not be typed, since a record is never
+    /// dropped while its tab may still show the value. A record replaces
+    /// the typist's earlier one for `name` in `tab`, and one of a session
+    /// that left for the same name and value (a kept tab a later session of
+    /// the same task types into again).
+    public func record(tab: String, name: String, value: String, domains: [BrowserReplDomainPattern], typist: String) throws {
+        try BrowserReplSecretStore.checkTypedValue(value, domains: domains)
+        try lock.withLock {
+            let replaced = { (entry: Typed) in
+                entry.tab == tab && entry.name == name && (entry.typist == typist || (entry.typist == nil && entry.value == value))
+            }
+            if !entries.contains(where: replaced), entries.count >= BrowserReplSecretStore.maximumTypedValues {
+                throw BrowserReplSecretStore.tooManyTypedValues
+            }
+            entries.removeAll(where: replaced)
             nextKey += 1
             entries.append(Typed(key: nextKey, tab: tab, name: name, value: value, domains: domains, typist: typist))
             stores.removeAll()
@@ -99,8 +116,10 @@ public final class BrowserReplTypedSecrets: @unchecked Sendable {
             var built: BrowserReplSecretStore?
             if !visible.isEmpty {
                 let store = BrowserReplSecretStore()
+                // `record` refuses what `setLiteral` would (the same value
+                // and count bounds), so none is refused here.
                 for entry in visible {
-                    store.setLiteral(key: "typed-\(entry.key)", maskName: entry.name, value: entry.value, domains: entry.domains)
+                    try? store.setLiteral(key: "typed-\(entry.key)", maskName: entry.name, value: entry.value, domains: entry.domains)
                 }
                 built = store.isEmpty ? nil : store
             }

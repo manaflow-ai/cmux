@@ -2574,7 +2574,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             // masked for them, also when typing fails partway and part of
             // the value is already in the page. A refused value is never
             // recorded, so it never becomes a mask other sessions see.
-            BrowserReplTabAttachments.typedSecrets.record(
+            try BrowserReplTabAttachments.typedSecrets.record(
                 tab: panel.id.uuidString,
                 name: name,
                 value: text,

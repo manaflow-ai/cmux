@@ -42,6 +42,14 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// Default limit for JavaScript that runs outside a cell.
     public static let defaultCallbackTimeLimit: Duration = .seconds(10)
 
+    /// The most cells waiting for the running one (callers that share a
+    /// named session); one more is refused at once.
+    public static let maxWaitingCells = 64
+
+    /// The most source, in UTF-8 bytes, the waiting cells hold together;
+    /// a cell that would take them past it is refused at once.
+    public static let maxWaitingSourceBytes = 64 << 20
+
     public let id: String
     private let bundle: BrowserReplRuntimeBundle
     private let driver: any BrowserReplDriver
@@ -595,7 +603,16 @@ public final class BrowserReplSession: @unchecked Sendable {
         timeout: Duration = BrowserReplSession.defaultTimeout,
         maxOutput: Int? = nil
     ) async -> BrowserReplEvalResult {
-        await gate.acquire()
+        if let refusal = await gate.acquire(sourceBytes: code.utf8.count) {
+            let message: String
+            switch refusal {
+            case .tooManyCells:
+                message = "Error: REPL session '\(id)': \(Self.maxWaitingCells) cells are already waiting to run; wait for them to finish"
+            case .tooMuchSource:
+                message = "Error: REPL session '\(id)': the cells waiting to run would hold more than \(Self.maxWaitingSourceBytes >> 20) MiB of source; wait for them to finish"
+            }
+            return BrowserReplEvalResult(lines: [], error: message, durationMilliseconds: 0)
+        }
         let result = await evaluateLocked(code: code, cwd: cwd, timeout: timeout, maxOutput: maxOutput)
         await gate.release()
         return result
@@ -1474,7 +1491,10 @@ public final class BrowserReplSession: @unchecked Sendable {
                     return failure("EINVAL", "writeFile: \(BrowserReplSecretStore.limitMessage(Data(base64Encoded: base64)?.count ?? 0))")
                 }
             }
-            let result = self.fileSystem.perform(op, arguments: args)
+            // So is a copy: its source may be a file the session never
+            // wrote (a page's download, a secrets file).
+            let copyContents = op == "copyFile" ? self.boundary.fileCopyRedaction() : nil
+            let result = self.fileSystem.perform(op, arguments: args, copyContents: copyContents)
             switch result {
             case .success(var value):
                 // So is a file read back (a secrets file, a page's download),
@@ -1718,24 +1738,40 @@ public struct BrowserReplClockSleeper<C: Clock>: BrowserReplSleeping where C.Dur
     }
 }
 
-/// Serializes evaluations of one session without blocking a thread.
+/// Serializes evaluations of one session without blocking a thread, and
+/// bounds the cells waiting and the source they hold
+/// (``BrowserReplSession/maxWaitingCells``,
+/// ``BrowserReplSession/maxWaitingSourceBytes``).
 actor BrowserReplEvalGate {
-    private var busy = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    enum Refusal {
+        case tooManyCells
+        case tooMuchSource
+    }
 
-    func acquire() async {
+    private var busy = false
+    private var waiters: [(continuation: CheckedContinuation<Void, Never>, sourceBytes: Int)] = []
+    private var waitingSourceBytes = 0
+
+    /// Waits for the running cell, or returns why the cell may not wait.
+    func acquire(sourceBytes: Int) async -> Refusal? {
         if !busy {
             busy = true
-            return
+            return nil
         }
-        await withCheckedContinuation { waiters.append($0) }
+        guard waiters.count < BrowserReplSession.maxWaitingCells else { return .tooManyCells }
+        guard sourceBytes <= BrowserReplSession.maxWaitingSourceBytes - waitingSourceBytes else { return .tooMuchSource }
+        waitingSourceBytes += sourceBytes
+        await withCheckedContinuation { waiters.append(($0, sourceBytes)) }
+        return nil
     }
 
     func release() {
         if waiters.isEmpty {
             busy = false
         } else {
-            waiters.removeFirst().resume()
+            let next = waiters.removeFirst()
+            waitingSourceBytes -= next.sourceBytes
+            next.continuation.resume()
         }
     }
 }

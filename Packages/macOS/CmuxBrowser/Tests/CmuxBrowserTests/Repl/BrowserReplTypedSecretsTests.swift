@@ -10,7 +10,7 @@ struct BrowserReplTypedSecretsTests {
 
     @Test func anotherSessionsReadsMaskATypedSecret() throws {
         let typed = BrowserReplTypedSecrets()
-        typed.record(tab: "tab1", name: "password", value: "hunter2-secret", domains: Self.domains, typist: "typist")
+        try typed.record(tab: "tab1", name: "password", value: "hunter2-secret", domains: Self.domains, typist: "typist")
         let reader = try #require(typed.redaction(forReader: "reader"))
         #expect(reader.redactJSON(#"{"value":"hunter2-secret"}"#) == #"{"value":"<secret:password>"}"#)
         #expect(reader.redact("q=hunter2%2Dsecret") == "q=<secret:password>")
@@ -22,43 +22,43 @@ struct BrowserReplTypedSecretsTests {
     /// A capture takes its masks before it waits for the page; a value
     /// another session types into the tab meanwhile is not among them, so
     /// the capture must learn of it afterwards and not return its pixels.
-    @Test func aValueTypedDuringACaptureIsReportedAfterIt() {
+    @Test func aValueTypedDuringACaptureIsReportedAfterIt() throws {
         let typed = BrowserReplTypedSecrets()
-        typed.record(tab: "tab1", name: "password", value: "first-secret", domains: Self.domains, typist: "typist")
+        try typed.record(tab: "tab1", name: "password", value: "first-secret", domains: Self.domains, typist: "typist")
         let mark = typed.captureMark(forReader: "reader")
         #expect(!typed.typedSince(mark, forReader: "reader"))
         // The reader's own typing is not a value it must not see.
-        typed.record(tab: "tab1", name: "mine", value: "own-secret", domains: Self.domains, typist: "reader")
+        try typed.record(tab: "tab1", name: "mine", value: "own-secret", domains: Self.domains, typist: "reader")
         #expect(!typed.typedSince(mark, forReader: "reader"))
         // Another session types while the capture waits for the page.
-        typed.record(tab: "tab1", name: "otp", value: "second-secret", domains: Self.domains, typist: "typist")
+        try typed.record(tab: "tab1", name: "otp", value: "second-secret", domains: Self.domains, typist: "typist")
         #expect(typed.typedSince(mark, forReader: "reader"), "a value typed during the capture went unnoticed")
         // Typing the same name again (a new value) counts too.
         let later = typed.captureMark(forReader: "reader")
-        typed.record(tab: "tab1", name: "otp", value: "third-secret", domains: Self.domains, typist: "typist")
+        try typed.record(tab: "tab1", name: "otp", value: "third-secret", domains: Self.domains, typist: "typist")
         #expect(typed.typedSince(later, forReader: "reader"))
         #expect(!typed.typedSince(typed.captureMark(forReader: "reader"), forReader: "reader"))
     }
 
-    @Test func theTypingSessionKeepsItsOwnRedaction() {
+    @Test func theTypingSessionKeepsItsOwnRedaction() throws {
         let typed = BrowserReplTypedSecrets()
-        typed.record(tab: "tab1", name: "password", value: "hunter2-secret", domains: Self.domains, typist: "typist")
+        try typed.record(tab: "tab1", name: "password", value: "hunter2-secret", domains: Self.domains, typist: "typist")
         #expect(typed.redaction(forReader: "typist") == nil)
         #expect(typed.captureMasks(forReader: "typist").isEmpty)
     }
 
-    @Test func aSessionThatLeftNoLongerKeepsItsTypedSecretsToItself() {
+    @Test func aSessionThatLeftNoLongerKeepsItsTypedSecretsToItself() throws {
         let typed = BrowserReplTypedSecrets()
-        typed.record(tab: "tab1", name: "password", value: "hunter2-secret", domains: Self.domains, typist: "typist")
+        try typed.record(tab: "tab1", name: "password", value: "hunter2-secret", domains: Self.domains, typist: "typist")
         // A later session with the same name does not hold the secret.
         typed.sessionLeft("typist")
         #expect(typed.redaction(forReader: "typist")?.redact("hunter2-secret") == "<secret:password>")
     }
 
-    @Test func masksEndWhenTheTabCloses() {
+    @Test func masksEndWhenTheTabCloses() throws {
         let typed = BrowserReplTypedSecrets()
-        typed.record(tab: "tab1", name: "a", value: "first-value", domains: Self.domains, typist: "typist")
-        typed.record(tab: "tab2", name: "b", value: "second-value", domains: Self.domains, typist: "typist")
+        try typed.record(tab: "tab1", name: "a", value: "first-value", domains: Self.domains, typist: "typist")
+        try typed.record(tab: "tab2", name: "b", value: "second-value", domains: Self.domains, typist: "typist")
         typed.tabClosed("tab1")
         let reader = typed.redaction(forReader: "reader")
         #expect(reader?.redact("first-value second-value") == "first-value <secret:b>")
@@ -73,7 +73,7 @@ struct BrowserReplTypedSecretsTests {
     @Test(arguments: ["123456", "234567"])
     func aTypedCodeUnderATOTPNameIsMaskedAsTyped(code: String) throws {
         let typed = BrowserReplTypedSecrets()
-        typed.record(tab: "tab1", name: "acct_bu_2fa_code", value: code, domains: Self.domains, typist: "typist")
+        try typed.record(tab: "tab1", name: "acct_bu_2fa_code", value: code, domains: Self.domains, typist: "typist")
         let reader = try #require(typed.redaction(forReader: "reader"), "a typed code under a TOTP name was not masked for another session")
         #expect(reader.redact("code \(code) entered") == "code <secret:acct_bu_2fa_code> entered")
         #expect(typed.captureMasks(forReader: "reader").map { $0["value"] as? String } == [code])
@@ -83,8 +83,8 @@ struct BrowserReplTypedSecretsTests {
     /// values into one tab: both values stay masked for a third session.
     @Test func sameNamedSecretsOfTwoSessionsInOneTabAreBothMasked() throws {
         let typed = BrowserReplTypedSecrets()
-        typed.record(tab: "tab1", name: "password", value: "first-session-value", domains: Self.domains, typist: "a")
-        typed.record(tab: "tab1", name: "password", value: "second-session-value", domains: Self.domains, typist: "b")
+        try typed.record(tab: "tab1", name: "password", value: "first-session-value", domains: Self.domains, typist: "a")
+        try typed.record(tab: "tab1", name: "password", value: "second-session-value", domains: Self.domains, typist: "b")
         let reader = try #require(typed.redaction(forReader: "reader"))
         #expect(reader.redact("first-session-value second-session-value") == "<secret:password> <secret:password>")
         // Each typist still sees the other's value masked, and its own not.
@@ -96,8 +96,8 @@ struct BrowserReplTypedSecretsTests {
     /// stay masked.
     @Test func sameNamedSecretsInTwoTabsAreBothMasked() throws {
         let typed = BrowserReplTypedSecrets()
-        typed.record(tab: "tab1", name: "password", value: "value-in-tab-one", domains: Self.domains, typist: "a")
-        typed.record(tab: "tab2", name: "password", value: "value-in-tab-two", domains: Self.domains, typist: "a")
+        try typed.record(tab: "tab1", name: "password", value: "value-in-tab-one", domains: Self.domains, typist: "a")
+        try typed.record(tab: "tab2", name: "password", value: "value-in-tab-two", domains: Self.domains, typist: "a")
         let reader = try #require(typed.redaction(forReader: "reader"))
         #expect(reader.redact("value-in-tab-one value-in-tab-two") == "<secret:password> <secret:password>")
     }
@@ -106,14 +106,64 @@ struct BrowserReplTypedSecretsTests {
     /// compile on creation) is built once per change of the typed values.
     @Test func theRedactionStoreIsReusedUntilTheTypedValuesChange() throws {
         let typed = BrowserReplTypedSecrets()
-        typed.record(tab: "tab1", name: "password", value: "hunter2-secret", domains: Self.domains, typist: "typist")
+        try typed.record(tab: "tab1", name: "password", value: "hunter2-secret", domains: Self.domains, typist: "typist")
         let first = try #require(typed.redaction(forReader: "reader"))
         #expect(typed.redaction(forReader: "reader") === first, "the redaction store was rebuilt without a change")
-        typed.record(tab: "tab2", name: "token", value: "another-secret", domains: Self.domains, typist: "typist")
+        try typed.record(tab: "tab2", name: "token", value: "another-secret", domains: Self.domains, typist: "typist")
         let second = try #require(typed.redaction(forReader: "reader"))
         #expect(second !== first)
         #expect(second.redact("hunter2-secret another-secret") == "<secret:password> <secret:token>")
         typed.sessionLeft("typist")
         #expect(typed.redaction(forReader: "typist")?.redact("hunter2-secret") == "<secret:password>")
+    }
+
+    /// Every reader masks every value other sessions typed into open tabs,
+    /// so the values held are bounded like a session's own secrets: past
+    /// 4,096 the driver refuses to type another (it records a value before
+    /// it types it), never forgets one that a tab may still show.
+    @Test func typedValuesAreBoundedAndRefusedPastTheLimit() throws {
+        let typed = BrowserReplTypedSecrets()
+        let limit = 4096  // the documented bound
+        for index in 0..<limit {
+            try typed.record(tab: "tab\(index % 8)", name: "n\(index)", value: "value-\(index)", domains: Self.domains, typist: "typist")
+        }
+        #expect(throws: BrowserReplDriverError.self) {
+            try typed.record(tab: "tab0", name: "one-more", value: "value-more", domains: Self.domains, typist: "typist")
+        }
+        // Typing a name into the same tab again replaces its value.
+        try typed.record(tab: "tab0", name: "n0", value: "value-again", domains: Self.domains, typist: "typist")
+        let reader = try #require(typed.redaction(forReader: "reader"))
+        #expect(reader.redact("value-4095 value-again value-more") == "<secret:n4095> <secret:n0> value-more")
+        // A closed tab's values go with it, which makes room.
+        typed.tabClosed("tab1")
+        try typed.record(tab: "tab0", name: "one-more", value: "value-more", domains: Self.domains, typist: "typist")
+    }
+
+    /// A tab the user keeps can see a session type the same secret every
+    /// day; a value that a session which left typed, typed again by a later
+    /// one, is one record, so it never fills the bound.
+    @Test func aValueTypedAgainAfterItsSessionLeftIsOneRecord() throws {
+        let typed = BrowserReplTypedSecrets()
+        for index in 0..<5000 {
+            try typed.record(tab: "kept", name: "password", value: "hunter2-secret", domains: Self.domains, typist: "session-\(index)")
+            typed.sessionLeft("session-\(index)")
+        }
+        let reader = try #require(typed.redaction(forReader: "reader"))
+        #expect(reader.redact("hunter2-secret") == "<secret:password>")
+    }
+
+    /// The literal store a reader builds refuses values past the bound
+    /// instead of growing without one.
+    @Test func literalStoreIsBounded() throws {
+        let store = BrowserReplSecretStore()
+        for index in 0..<4096 {
+            try store.setLiteral(key: "typed-\(index)", maskName: "n", value: "value-\(index)", domains: Self.domains)
+        }
+        #expect(throws: BrowserReplDriverError.self) {
+            try store.setLiteral(key: "typed-more", maskName: "n", value: "value-more", domains: Self.domains)
+        }
+        #expect(throws: BrowserReplDriverError.self) {
+            try BrowserReplSecretStore().setLiteral(key: "long", maskName: "n", value: String(repeating: "x", count: 4097), domains: Self.domains)
+        }
     }
 }

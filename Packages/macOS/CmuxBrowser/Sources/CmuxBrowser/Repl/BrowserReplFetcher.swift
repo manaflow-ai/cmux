@@ -56,6 +56,8 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         /// Set once a redirect left `requestOrigin`; later hops never get the
         /// credentials back, also one that returns to it.
         var leftOrigin = false
+        /// The names of the headers the caller set.
+        var callerHeaders: [String] = []
     }
 
     private let driver: any BrowserReplDriver
@@ -154,7 +156,7 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         guard ["include", "same-origin", "omit"].contains(credentials) else {
             return (.failure(BrowserReplDriverError(code: "invalid", message: "fetch: credentials: expected include, same-origin or omit, got \(credentials)")), 0)
         }
-        let info = TaskInfo(
+        var info = TaskInfo(
             targetID: request["targetId"] as? String,
             credentials: credentials,
             origin: request["origin"] as? String,
@@ -165,6 +167,7 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         if let headers = request["headers"] as? [[String]] {
             for pair in headers where pair.count == 2 {
                 urlRequest.addValue(pair[1], forHTTPHeaderField: pair[0])
+                info.callerHeaders.append(pair[0])
             }
         }
         if let body = request["bodyBase64"] as? String {
@@ -315,10 +318,17 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
             return
         }
         var redirected = request
-        // As browsers do: credentials meant for one origin never follow a
-        // redirect to another (Foundation drops Authorization itself; this
-        // does not depend on it).
-        if info.leftOrigin { Self.removeCredentialHeaders(from: &redirected) }
+        // Credentials meant for one origin never follow a redirect to
+        // another (Foundation drops Authorization itself; this does not
+        // depend on it). A header's name need not say it carries one, so
+        // every header the caller set goes too, except the CORS-safelisted
+        // ones a browser lets any page send anywhere.
+        if info.leftOrigin {
+            Self.removeCredentialHeaders(from: &redirected)
+            for name in info.callerHeaders where !Self.isSafelistedHeader(name) {
+                redirected.setValue(nil, forHTTPHeaderField: name)
+            }
+        }
         Task {
             if let from = response.url, Self.sendsCookies(info, to: from) {
                 await self.storeCookies(from: response, targetID: info.targetID)
@@ -342,6 +352,12 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         if ["authorization", "proxy-authorization", "cookie", "cookie2"].contains(lowered) { return true }
         return ["auth", "token", "api-key", "apikey", "api_key", "secret", "session", "password", "passwd", "csrf", "xsrf", "credential", "signature"]
             .contains { lowered.contains($0) }
+    }
+
+    /// The CORS-safelisted request headers (Fetch standard), which a
+    /// cross-origin redirect keeps.
+    static func isSafelistedHeader(_ name: String) -> Bool {
+        ["accept", "accept-language", "content-language", "content-type", "range"].contains(name.lowercased())
     }
 
     private static func removeCredentialHeaders(from request: inout URLRequest) {

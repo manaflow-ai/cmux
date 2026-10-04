@@ -104,8 +104,24 @@ public struct BrowserReplFileSystem: Sendable {
 
     /// Runs one operation. See `docs/browser-repl/driver-protocol.md` for ops.
     public func perform(_ operation: String, arguments: [String: Any]) -> Result<Any, BrowserReplFileSystemError> {
+        perform(operation, arguments: arguments, copyContents: nil)
+    }
+
+    /// Runs one operation like ``perform(_:arguments:)``.
+    ///
+    /// - Parameter copyContents: What `copyFile` writes in place of the
+    ///   source's bytes (the session masks its secrets there), or `nil` to
+    ///   copy them as they are. With it, the copy reads the whole source
+    ///   first, so a source over ``maxReadFileBytes`` is refused
+    ///   (`ERR_FS_FILE_TOO_LARGE`); an error it throws fails the copy and
+    ///   leaves no file.
+    func perform(
+        _ operation: String,
+        arguments: [String: Any],
+        copyContents: ((Data) throws -> Data)?
+    ) -> Result<Any, BrowserReplFileSystemError> {
         do {
-            return .success(try run(operation, arguments))
+            return .success(try run(operation, arguments, copyContents: copyContents))
         } catch let error as BrowserReplFileSystemError {
             return .failure(error)
         } catch {
@@ -119,7 +135,7 @@ public struct BrowserReplFileSystem: Sendable {
         [sandbox.root] + (temporaryRoot.map { [$0] } ?? [])
     }
 
-    private func run(_ operation: String, _ arguments: [String: Any]) throws -> Any {
+    private func run(_ operation: String, _ arguments: [String: Any], copyContents: ((Data) throws -> Data)?) throws -> Any {
         func raw(_ key: String) throws -> String {
             guard let value = arguments[key] as? String else {
                 throw BrowserReplFileSystemError(code: "EINVAL", message: "EINVAL: missing '\(key)'")
@@ -248,8 +264,20 @@ public struct BrowserReplFileSystem: Sendable {
             let (source, size) = try openFile(try locate(.read, key: "from"), display: fromDisplay, syscall: "copyfile")
             let destination = try locate(.write, key: "to")
             guard let name = destination.name else { throw Self.isDirectoryError }
+            // A filtered copy is read whole first (secrets are masked across
+            // the whole file), so it is bounded like readFile.
+            let contents: Data? = try copyContents.map { filter in
+                guard size <= Self.maxReadFileBytes else { throw Self.filteredCopyTooLarge(size) }
+                let data: Data
+                do {
+                    data = try readAll(source, display: fromDisplay)
+                } catch let error as BrowserReplFileSystemError where error.code == "ERR_FS_FILE_TOO_LARGE" {
+                    throw Self.filteredCopyTooLarge(size)
+                }
+                return try filter(data)
+            }
             if (try? destination.status()) == nil { try writeBudget.takeEntryChange(syscall: "copyfile", display: pair) }
-            try writeBudget.take(size, syscall: "copyfile", display: pair)
+            try writeBudget.take(contents?.count ?? size, syscall: "copyfile", display: pair)
             // Copy next to the destination, then swap it in, so a failed copy
             // leaves an existing destination untouched.
             let staging = ".\(name).cmux-copy-\(UUID().uuidString)"
@@ -257,7 +285,11 @@ public struct BrowserReplFileSystem: Sendable {
             guard descriptor >= 0 else { throw Self.posixError(errno, syscall: "copyfile", display: pair) }
             let copy = BrowserReplDescriptor(descriptor)
             do {
-                try copyData(from: source, to: copy, size: size, display: pair)
+                if let contents {
+                    try writeAll(contents, to: copy, display: pair)
+                } else {
+                    try copyData(from: source, to: copy, size: size, display: pair)
+                }
                 // Mode, times and extended attributes, as fcopyfile's own copy.
                 guard fcopyfile(source.fd, copy.fd, nil, copyfile_flags_t(COPYFILE_STAT | COPYFILE_XATTR)) == 0,
                       renameat(destination.directory.fd, staging, destination.directory.fd, name) == 0 else {
@@ -568,6 +600,14 @@ public struct BrowserReplFileSystem: Sendable {
 
     /// Reads the file to its end; past `maxReadFileBytes` (a file that grew
     /// after its size was checked) it fails.
+    /// Why a copy whose contents the session masks refused a large source.
+    private static func filteredCopyTooLarge(_ size: Int) -> BrowserReplFileSystemError {
+        BrowserReplFileSystemError(
+            code: "ERR_FS_FILE_TOO_LARGE",
+            message: "File size (\(size)) is greater than 64 MiB, the most fs.copyFile copies while secrets are masked (it reads the file whole to mask them); download or save it in a tab instead"
+        )
+    }
+
     private func readAll(_ file: BrowserReplDescriptor, display: String) throws -> Data {
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 1 << 16)
@@ -668,6 +708,28 @@ public struct BrowserReplFileSystem: Sendable {
         isCancelled: () -> Bool = { false },
         limit: Int = .max
     ) throws -> [(name: String, type: String)] {
+        try readEntries(of: directory, display: display, isCancelled: isCancelled, limit: limit, stopAtLimit: false)
+            .sorted { $0.name < $1.name }
+    }
+
+    /// The first `count` entries an open directory lists now, in the order
+    /// it lists them: a batch a recursive `rm` handles before it reads
+    /// again, so it never holds a large directory's whole list.
+    static func firstEntries(
+        of directory: BrowserReplDescriptor,
+        count: Int,
+        display: String
+    ) throws -> [(name: String, type: String)] {
+        try readEntries(of: directory, display: display, isCancelled: { false }, limit: count, stopAtLimit: true)
+    }
+
+    private static func readEntries(
+        of directory: BrowserReplDescriptor,
+        display: String,
+        isCancelled: () -> Bool,
+        limit: Int,
+        stopAtLimit: Bool
+    ) throws -> [(name: String, type: String)] {
         let copy = dup(directory.fd)
         guard copy >= 0, let stream = fdopendir(copy) else {
             let number = errno
@@ -685,6 +747,7 @@ public struct BrowserReplFileSystem: Sendable {
                 String(decoding: raw.prefix(Int(entry.pointee.d_namlen)), as: UTF8.self)
             }
             if name == "." || name == ".." { continue }
+            if stopAtLimit, result.count >= limit { break }
             guard result.count < limit else {
                 throw BrowserReplFileSystemError(
                     code: "ERR_FS_DIR_TOO_LARGE",
@@ -702,14 +765,26 @@ public struct BrowserReplFileSystem: Sendable {
             }
             result.append((name, type))
         }
-        return result.sorted { $0.name < $1.name }
+        return result
     }
+
+    /// How many subdirectory names a recursive `rm` holds at once, over
+    /// every level it is in, to remove before it lists their directory
+    /// again.
+    static let maximumPendingSubdirectories = 1024
 
     /// Removes directory `name` in `parent` and everything in it, following
     /// no link. Holds at most two directories open: it descends by name
     /// from `parent` with `O_NOFOLLOW` at each step, so a deep tree cannot
     /// use up descriptors. Stops with `ECANCELED` when `isCancelled` says
     /// so, checked every ``entriesPerCancellationCheck`` entries.
+    ///
+    /// It reads a directory ``entriesPerCancellationCheck`` entries at a
+    /// time and handles each batch before it reads again (removed entries
+    /// are no longer listed), keeping the names of at most
+    /// ``maximumPendingSubdirectories`` subdirectories to descend into, so
+    /// its memory does not grow with a directory's size and it lists each
+    /// entry about once.
     ///
     /// Every entry it removes inside `name` is an entry change taken from
     /// `budget` before it is removed (`name` itself was taken by the
@@ -740,7 +815,7 @@ public struct BrowserReplFileSystem: Sendable {
                 throw cancelledError(syscall: "rm", display: display)
             }
         }
-        func open(_ path: ArraySlice<String>) throws -> BrowserReplDescriptor {
+        func open(_ path: [String]) throws -> BrowserReplDescriptor {
             var current = parent
             for component in path {
                 let next = openat(current.fd, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
@@ -749,14 +824,42 @@ public struct BrowserReplFileSystem: Sendable {
             }
             return current
         }
-        var path = [name]
-        while let last = path.last {
-            let directory = try open(path[...])
-            var subdirectory: String?
-            for entry in try entries(of: directory, display: display, isCancelled: isCancelled) {
+        // Each level: the directory's name and the subdirectories found in
+        // its last batch that are still to be removed.
+        var path: [(name: String, pending: [String])] = [(name, [])]
+        var pendingCount = 0
+        while let level = path.last {
+            if let next = level.pending.last {
+                path[path.count - 1].pending.removeLast()
+                pendingCount -= 1
+                path.append((next, []))
+                continue
+            }
+            let names = path.map(\.name)
+            let directory = try open(names)
+            let batch = try firstEntries(of: directory, count: entriesPerCancellationCheck, display: display)
+            guard !batch.isEmpty else {
+                // Empty: remove it from the directory that holds it.
+                let holder = try open(Array(names.dropLast()))
+                // `name` itself was taken by the caller.
+                if path.count > 1 { try take() }
+                if unlinkat(holder.fd, level.name, AT_REMOVEDIR) != 0 {
+                    guard errno == ENOENT else { throw posixError(errno, syscall: "rm", display: display) }
+                } else if path.count > 1 {
+                    removed += 1
+                }
+                path.removeLast()
+                continue
+            }
+            var found: [String] = []
+            for entry in batch {
                 try count()
                 if entry.type == "directory" {
-                    subdirectory = subdirectory ?? entry.name
+                    // One more is always kept, so a batch of directories
+                    // makes progress; the others are listed again later.
+                    if found.isEmpty || pendingCount + found.count < maximumPendingSubdirectories {
+                        found.append(entry.name)
+                    }
                     continue
                 }
                 try take()
@@ -766,19 +869,8 @@ public struct BrowserReplFileSystem: Sendable {
                     removed += 1
                 }
             }
-            if let subdirectory {
-                path.append(subdirectory)
-                continue
-            }
-            let holder = try open(path.dropLast())
-            // `name` itself was taken by the caller.
-            if path.count > 1 { try take() }
-            if unlinkat(holder.fd, last, AT_REMOVEDIR) != 0 {
-                guard errno == ENOENT else { throw posixError(errno, syscall: "rm", display: display) }
-            } else if path.count > 1 {
-                removed += 1
-            }
-            path.removeLast()
+            path[path.count - 1].pending = found
+            pendingCount += found.count
         }
     }
 
