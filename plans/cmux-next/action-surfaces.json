@@ -18870,6 +18870,90 @@
     },
     {
       "cli" : "liveInput",
+      "cli_name" : "browser markdown-link",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "k",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "markdownLink",
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Markdown: Insert Link",
+      "title_key" : "action.markdownLink",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "browser markdown-back",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "[",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "markdownBack",
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Markdown: Back",
+      "title_key" : "action.markdownBack",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "browser markdown-forward",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "]",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "markdownForward",
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Markdown: Forward",
+      "title_key" : "action.markdownForward",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
       "cli_name" : "action list-next",
       "context_menu" : "liveInput",
       "context_menus" : [
