@@ -1,5 +1,6 @@
 import CmuxHomeCore
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 
 /// The daemon side of the cloud: its proxy commands and its session lease.
@@ -29,11 +30,21 @@ final class HomeCloudLink {
     /// Lease work started and not finished. A missing lease asks for a new
     /// one only while none is in flight: that one's outcome answers it.
     private var leasing = 0
+    /// The first wait before a failed lease is tried again; each failure
+    /// doubles it up to `maxRetry`, and a lease that holds resets it.
+    static let firstRetry: Duration = .seconds(1)
+    static let maxRetry: Duration = .seconds(60)
+    private var retryDelay = HomeCloudLink.firstRetry
+    /// The pending retry; cancelled by a new link, a lease that holds, or
+    /// this link ending.
+    private let retry: DemandTimer
 
-    init(lease: HomeCloudLease, source: CloudHomeSource, localID: ParticipantID) {
+    /// `clock` runs the retry backoff; tests pass a manual clock.
+    init(lease: HomeCloudLease, source: CloudHomeSource, localID: ParticipantID, clock: any Clock<Duration> = ContinuousClock()) {
         self.lease = lease
         self.source = source
         self.localID = localID
+        retry = DemandTimer(owner: "App.homeCloud.leaseRetry", clock: clock)
         source.onLeaseMissing { [weak self] in
             // task-owner: one hop to the main actor; ends at once
             Task { @MainActor in self?.leaseMissing() }
@@ -49,8 +60,9 @@ final class HomeCloudLink {
     /// sends no op and makes no read then. The daemon asks again only when a
     /// command reaches it, and none does, so the source asks instead: an op
     /// or read it refused for the missing lease leases again
-    /// (`leaseMissing`). A new display name alone is the same account on
-    /// the same connection and keeps the lease.
+    /// (`leaseMissing`), and a failed lease is tried again after a backoff
+    /// until it holds or the link changes. A new display name alone is the
+    /// same account on the same connection and keeps the lease.
     func apply(_ link: Link) async {
         guard link != last else { return }
         if let previous = last, previous.id == link.id, previous.userID == link.userID {
@@ -65,6 +77,8 @@ final class HomeCloudLink {
             source.configure(commands: previous.endpoint, link: previous.id, identity: nil)
         }
         last = link
+        retry.cancel()
+        retryDelay = Self.firstRetry
         guard let endpoint = link.endpoint else {
             // No transport, so no lease and nothing goes out: offline.
             source.configure(commands: nil, link: nil, identity: identity(link.userID, link), leased: false)
@@ -81,6 +95,7 @@ final class HomeCloudLink {
         case .failed, .superseded:
             source.configure(commands: endpoint, link: link.id, identity: identity(link.userID, link), leased: false)
         }
+        settled(outcome, reason: "missing")
     }
 
     /// The daemon asked for a lease (`cloud-session-needed`): it is for the
@@ -94,6 +109,7 @@ final class HomeCloudLink {
     /// for its account.
     private func leaseMissing() {
         guard leasing == 0 else { return }
+        retry.cancel()
         renew(reason: "missing")
     }
 
@@ -102,7 +118,29 @@ final class HomeCloudLink {
         leasing += 1
         lease.renew(endpoint, reason: reason, expectedUserID: { [source] in source.accountID }) { [weak self, source] outcome in
             if case .leased(let subject) = outcome { source.leaseRenewed(subject: subject) }
-            self?.leasing -= 1
+            guard let self else { return }
+            leasing -= 1
+            settled(outcome, reason: reason)
+        }
+    }
+
+    /// A lease that holds ends the backoff; a failed one is tried again
+    /// after it. No account (signed out) or newer work needs no retry.
+    private func settled(_ outcome: HomeCloudLease.Outcome, reason: String) {
+        switch outcome {
+        case .leased:
+            retry.cancel()
+            retryDelay = Self.firstRetry
+        case .failed:
+            guard !retry.isScheduled else { return }
+            let delay = retryDelay
+            retryDelay = min(retryDelay * 2, Self.maxRetry)
+            retry.schedule(after: delay) { @MainActor [weak self] in
+                guard let self, leasing == 0 else { return }
+                renew(reason: reason)
+            }
+        case .signedOut, .superseded:
+            break
         }
     }
 
