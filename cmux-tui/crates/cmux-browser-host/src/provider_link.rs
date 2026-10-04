@@ -70,12 +70,79 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 
 type Waiters = Arc<Mutex<HashMap<u64, mpsc::SyncSender<Result<Value, DriverError>>>>>;
 
-/// Driver protocol calls forwarded to the app's driver for WebKit tabs.
+/// `errorName` of a call refused by the interim extension rule.
+pub const EXTENSION_HOST_ACCESS: &str = "extension_host_access";
+
+/// The provider's tabs as the app reports them: engine per tab, and for CEF
+/// tabs the last `tab.access` report (interim extension rule).
+#[derive(Default)]
+struct TabTable {
+    engines: HashMap<String, String>,
+    /// targetId -> (extension_host_access, user_override).
+    access: HashMap<String, (bool, bool)>,
+}
+
+impl TabTable {
+    fn announce(&mut self, tab: &TabAnnounce) {
+        self.engines.insert(tab.target_id.clone(), tab.engine.clone());
+    }
+
+    fn forget(&mut self, target_id: &str) {
+        self.engines.remove(target_id);
+        self.access.remove(target_id);
+    }
+
+    /// Updates the table from a provider event (`tab.announced`, `tab.gone`).
+    fn apply_event(&mut self, name: &str, payload: &Value) {
+        match name {
+            "tab.announced" => {
+                if let Ok(tab) = serde_json::from_value::<TabAnnounce>(payload.clone()) {
+                    self.announce(&tab);
+                }
+            }
+            "tab.gone" => {
+                if let Some(target_id) = payload.get("targetId").and_then(Value::as_str) {
+                    self.forget(target_id);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Why an agent call on `target_id` is refused, or `None`. WebKit tabs
+    /// have no extensions. Every other tab (CEF, or one the app did not
+    /// announce) needs a `tab.access` report that says no enabled extension
+    /// holds host access on its page, or the person's override: fail closed.
+    fn refusal(&self, method: &str, target_id: &str) -> Option<DriverError> {
+        if self.engines.get(target_id).map(String::as_str) == Some("webkit") {
+            return None;
+        }
+        let message = match self.access.get(target_id) {
+            Some((false, _) | (true, true)) => return None,
+            Some((true, false)) => format!(
+                "{method}: an enabled extension of this tab's profile has access to the page; \
+                 agents may drive only tabs without one (request a tab in a clean agent profile, \
+                 or the person can allow this tab in cmux)"
+            ),
+            None => format!(
+                "{method}: the cmux app has not reported this tab's extension access yet; \
+                 agents may drive only tabs without an extension that has access to the page"
+            ),
+        };
+        let mut error = DriverError::new(crate::protocol::ErrorCode::Forbidden, message);
+        error.error_name = Some(EXTENSION_HOST_ACCESS.to_owned());
+        Some(error)
+    }
+}
+
+/// Driver protocol calls forwarded to the app's driver for provider tabs.
+/// Calls on a CEF tab follow the interim extension rule (`tab.access`).
 pub struct ProviderDriver {
     writer: Mutex<Box<dyn Write + Send>>,
     waiters: Waiters,
     next_id: AtomicU64,
     closed: Arc<Mutex<Option<String>>>,
+    tabs: Arc<Mutex<TabTable>>,
 }
 
 impl ProviderDriver {
@@ -87,15 +154,35 @@ impl ProviderDriver {
         events: EventSink,
         tabs: Vec<TabAnnounce>,
     ) -> std::io::Result<Arc<ProviderDriver>> {
-        let _ = tabs;
         let waiters: Waiters = Arc::new(Mutex::new(HashMap::new()));
         let closed = Arc::new(Mutex::new(None));
-        let (thread_waiters, thread_closed) = (waiters.clone(), closed.clone());
+        let mut table = TabTable::default();
+        for tab in &tabs {
+            table.announce(tab);
+        }
+        let tabs = Arc::new(Mutex::new(table));
+        let (thread_waiters, thread_closed, thread_tabs) =
+            (waiters.clone(), closed.clone(), tabs.clone());
         std::thread::Builder::new().name("cmux-browser-host-provider".into()).spawn(move || {
             let reason = loop {
                 match read_frame(&mut reader) {
                     Ok(Some(Frame::Event { name, payload })) => {
+                        thread_tabs
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .apply_event(&name, &payload);
                         events(DriverEvent { name, payload });
+                    }
+                    Ok(Some(Frame::TabAccess {
+                        target_id,
+                        extension_host_access,
+                        user_override,
+                    })) => {
+                        thread_tabs
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .access
+                            .insert(target_id, (extension_host_access, user_override));
                     }
                     Ok(Some(frame @ Frame::Result { .. })) => {
                         if let Some((id, result)) = frame.into_call_result()
@@ -123,6 +210,7 @@ impl ProviderDriver {
             waiters,
             next_id: AtomicU64::new(1),
             closed,
+            tabs,
         }))
     }
 
@@ -135,6 +223,16 @@ impl Driver for ProviderDriver {
     fn call(&self, method: &str, params: &Value) -> Result<Value, DriverError> {
         if let Some(reason) = self.closed_reason() {
             return Err(DriverError::closed(reason));
+        }
+        // Interim extension rule: checked on every call that names a tab,
+        // before anything reaches the app. Tab-less calls (tabs.list,
+        // tabs.open) pass; a new tab needs its own report before its first
+        // call.
+        if let Some(target_id) = params.get("targetId").and_then(Value::as_str)
+            && let Some(error) =
+                self.tabs.lock().unwrap_or_else(PoisonError::into_inner).refusal(method, target_id)
+        {
+            return Err(error);
         }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = mpsc::sync_channel(1);
