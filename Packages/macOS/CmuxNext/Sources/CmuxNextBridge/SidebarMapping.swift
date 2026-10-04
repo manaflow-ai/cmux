@@ -1,3 +1,4 @@
+import CmuxAgentBrands
 public import CmuxNextDaemon
 public import CmuxNextSidebar
 public import CmuxNextDesign
@@ -55,11 +56,17 @@ public struct SidebarMapping {
             unread: unread > 0 ? .count(unread) : (showsUnread && workspace.markedUnread ? .dot : .none),
             activity: indicator.state,
             activityStyle: indicator.style,
+            agentBrand: agentBrand(tabs),
             progress: progress(workspace, tabs: tabs),
             tabs: tabs.map { tab in
                 SidebarTab(id: TabID(tab.id), title: tab.displayTitle, kind: Self.tabKind(tab.kind), isUnread: tab.hasUnread)
             }
         )
+    }
+
+    /// The brand of the first agent that works or waits in these tabs (design/agent-icons).
+    func agentBrand(_ tabs: [TabModel]) -> String? {
+        nil // Red: lands in the next commit.
     }
 
     private static func tabKind(_ kind: TabKind) -> SidebarTabKind {
