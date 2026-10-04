@@ -42444,6 +42444,268 @@
           }
         }
       }
+    },
+    "settings.tabs.plusButton": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Tab Button"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新規タブボタン"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "زر علامة تبويب جديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dugme za novu karticu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Knap til ny fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taste „Neuer Tab“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Botón de nueva pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bouton Nouvel onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pulsante Nuova scheda"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប៊ូតុងផ្ទាំងថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 탭 버튼"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Knapp for ny fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przycisk nowej karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Botão de nova aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кнопка новой вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปุ่มแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni Sekme Düğmesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кнопка нової вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nút thẻ mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新建标签页按钮"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新增分頁按鈕"
+          }
+        }
+      }
+    },
+    "settings.tabs.plusButton.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On Hover shows each tab bar's + only while the pointer is over that tab bar."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「ポインタを置いたとき」では、各タブバーの + はそのタブバーにポインタがある間だけ表示されます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«عند التمرير» يُظهر زر + في كل شريط علامات تبويب فقط أثناء وجود المؤشر فوقه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pri prelasku prikazuje + svake trake kartica samo dok je pokazivač iznad nje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ved markør viser hver fanelinjes + kun, mens markøren er over den fanelinje."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Beim Darüberfahren“ zeigt das + jeder Tableiste nur, solange der Zeiger darüber ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Al pasar el puntero muestra el + de cada barra de pestañas solo mientras el puntero está sobre ella."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Au survol n'affiche le + de chaque barre d'onglets que lorsque le pointeur la survole."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Al passaggio mostra il + di ogni barra delle schede solo mentre il puntatore è sopra di essa."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពេលដាក់ទស្សន៍ទ្រនិច បង្ហាញ + នៃរបារផ្ទាំងនីមួយៗ តែពេលទស្សន៍ទ្រនិចនៅលើរបារនោះប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "마우스를 올릴 때는 포인터가 해당 탭 막대 위에 있을 때만 그 막대의 +를 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ved peker viser hver fanelinjes + bare mens pekeren er over den fanelinjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Po najechaniu pokazuje + każdego paska kart tylko wtedy, gdy wskaźnik jest nad nim."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ao passar o ponteiro mostra o + de cada barra de abas só enquanto o ponteiro está sobre ela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«При наведении» показывает + каждой панели вкладок, только пока указатель над ней."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อวางเมาส์ จะแสดง + ของแถบแท็บแต่ละแถบเฉพาะตอนที่ตัวชี้อยู่เหนือแถบนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Üzerine gelince, her sekme çubuğunun + düğmesini yalnızca işaretçi o çubuğun üzerindeyken gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«При наведенні» показує + кожної панелі вкладок, лише поки вказівник над нею."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi di chuột chỉ hiện nút + của mỗi thanh thẻ khi con trỏ ở trên thanh đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“悬停时”仅在指针位于某个标签栏上时显示该标签栏的 +。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「懸停時」僅在指標位於某個分頁列上時顯示該分頁列的 +。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -34,3 +34,18 @@ public nonisolated enum TitlebarButtonsSetting {
         return (mode, nil)
     }
 }
+
+/// `tabs.plusButton` in cmux-next.json (R120): "hover" (default) or "always".
+public nonisolated enum PlusButtonSetting {
+    public static let configPath = ["tabs", "plusButton"]
+    public static let fallback: PlusButtonMode = .hover
+
+    static func parse(_ root: JSONValue) -> (PlusButtonMode, SettingsDiagnostic?) {
+        guard let value = root.value(at: configPath) else { return (fallback, nil) }
+        guard let text = value.stringValue, let mode = PlusButtonMode(rawValue: text) else {
+            let choices = PlusButtonMode.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: "tabs.plusButton", message: "expected one of \(choices)"))
+        }
+        return (mode, nil)
+    }
+}

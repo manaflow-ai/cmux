@@ -32,4 +32,19 @@ extension SettingsSchema {
             keywords: ["new terminal", "workspace", "space", "tab", "option"]
         )
     }
+
+    /// `tabs.plusButton` (R120): whether each tab bar's + shows only on hover.
+    static func plusButton(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(
+            PlusButtonSetting.configPath, section: .general, group: group,
+            title: SettingsText.keyed("settings.tabs.plusButton", "New Tab Button"),
+            help: SettingsText.keyed("settings.tabs.plusButton.help", "On Hover shows each tab bar's + only while the pointer is over that tab bar."),
+            kind: .choice([
+                SettingChoice(PlusButtonMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
+                SettingChoice(PlusButtonMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
+            ]),
+            default: .string(PlusButtonSetting.fallback.rawValue),
+            keywords: ["plus", "+", "new tab", "button", "hover", "tab bar"]
+        )
+    }
 }

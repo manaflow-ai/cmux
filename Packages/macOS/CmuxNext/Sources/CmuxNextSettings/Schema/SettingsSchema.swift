@@ -98,6 +98,7 @@ public nonisolated enum SettingsSchema {
                 keywords: ["titlebar", "buttons", "back", "forward", "hover", "hide", "traffic lights", "toolbar"]
             ),
             newTabKind(group: tabs),
+            plusButton(group: tabs),
             newTerminalOpensWorkspace(group: tabs),
             SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,

@@ -56,6 +56,7 @@ public final class SettingsApplier {
         if design.statusBehavior != snapshot.statusBehavior { design.statusBehavior = snapshot.statusBehavior }
         if design.titlebar != snapshot.titlebar { design.titlebar = snapshot.titlebar }
         if design.titlebarButtons != snapshot.titlebarButtons { design.titlebarButtons = snapshot.titlebarButtons }
+        if design.plusButton != snapshot.plusButton { design.plusButton = snapshot.plusButton }
         if design.borders != snapshot.borders { design.borders = snapshot.borders }
         if design.focusIndicator != snapshot.focusIndicator { design.focusIndicator = snapshot.focusIndicator }
         if design.inactiveTabStyle != snapshot.inactiveTabStyle { design.inactiveTabStyle = snapshot.inactiveTabStyle }

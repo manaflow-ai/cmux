@@ -115,6 +115,16 @@ public final class TabStripView: NSView {
     /// The hold an open strip menu or VoiceOver focus keeps.
     private var buttonsRevealHold: HoverReveal.Hold?
 
+    /// `tabs.plusButton`: hover reveals the plus with the trailing buttons;
+    /// always keeps it shown.
+    func applyPlusButtonMode() {
+        if DesignSettings.shared.plusButton == .hover {
+            if HoverReveal.owner(of: newTabButton) == nil { buttonsReveal.add(newTabButton) }
+        } else {
+            buttonsReveal.remove(newTabButton)
+        }
+    }
+
     private func syncButtonsReveal(from old: TabStripButtonReveal) {
         if buttonReveal.pointerInStrip != old.pointerInStrip { buttonsReveal.setPointerInside(buttonReveal.pointerInStrip) }
         let holds = buttonReveal.menuOpen || buttonReveal.accessibilityFocused
@@ -189,7 +199,7 @@ public final class TabStripView: NSView {
         newTabButton.onPress = { [weak self] in self?.model.send(.newTab(after: nil)) }
         contentView.addSubview(buttonGroup)
         buttonsReveal.add(buttonGroup)
-        buttonsReveal.add(newTabButton)
+        applyPlusButtonMode()
         buttonGroup.onPress = { [weak self] id in self?.model.send(.trailingButton(id)) }
         buttonGroup.onAccessibilityFocus = { [weak self] focused in self?.buttonReveal.accessibilityFocused = focused }
         groupEditor.onCommand = { [weak self] command in self?.model.send(.group(command)) }
@@ -311,9 +321,10 @@ public final class TabStripView: NSView {
     func startObservingTokens() {
         guard tokenObservationTask == nil else { return }
         tokenObservationTask = Task { [weak self] in
-            let changes = Observations { TokenSnapshot(metrics: TabStripMetrics(), titleFont: Typography.body.pointSize) }
-            for await snapshot in changes {
+            let changes = Observations { (TokenSnapshot(metrics: TabStripMetrics(), titleFont: Typography.body.pointSize), DesignSettings.shared.plusButton) }
+            for await (snapshot, _) in changes {
                 guard let self else { return }
+                self.applyPlusButtonMode()
                 if snapshot.metrics != self.metrics || snapshot.titleFont != self.tabTitleFontSize {
                     self.applyTokens(animated: true)
                 }

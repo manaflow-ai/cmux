@@ -11,6 +11,14 @@ public nonisolated enum TitlebarButtonsMode: String, Sendable, CaseIterable, Cod
     case always
 }
 
+/// `tabs.plusButton` (R120): when each tab bar's plus button shows.
+public nonisolated enum PlusButtonMode: String, Sendable, CaseIterable, Codable {
+    /// Only while the tab bar is hovered (the default).
+    case hover
+    /// Always shown.
+    case always
+}
+
 public nonisolated enum TitlebarStyle: String, Sendable, CaseIterable, Codable {
     /// No titlebar strip (the default, user nxdog9): content reaches the
     /// window's top edge, the traffic lights sit in the top row, and every

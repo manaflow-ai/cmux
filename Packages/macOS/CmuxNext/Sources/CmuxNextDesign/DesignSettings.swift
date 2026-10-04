@@ -89,6 +89,8 @@ public final class DesignSettings {
     public var titlebar: TitlebarStyle = .minimal
     /// `window.titlebarButtons`.
     public var titlebarButtons: TitlebarButtonsMode = .hover
+    /// `tabs.plusButton`.
+    public var plusButton: PlusButtonMode = .hover
 
     public init() {}
 
