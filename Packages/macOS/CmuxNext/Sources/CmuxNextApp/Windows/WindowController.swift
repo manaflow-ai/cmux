@@ -261,6 +261,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidResignKey(_ notification: Notification) {
         focus.send(.windowKey(false))
+        // Hover cards in other windows show this window's pages (R131).
+        services.cache.windowDidResignKey(presenters: content?.panes.values.map { $0 as any SurfacePresenter } ?? [])
     }
 
     func windowWillBeginSheet(_ notification: Notification) { focus.send(.overlayOpened(.sheet)) }
