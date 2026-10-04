@@ -183,6 +183,11 @@ fn presentation_rules() {
     first["repository"] = json!("https://github.com/manaflow-ai/cmux");
     first["presentation"] = json!({ "sidebarItem": { "section": "top", "order": 0 }, "screen": "appColumn", "tab": true });
     assert!(validate_manifest(&first).is_empty());
+    // hiddenByDefault: installed but hidden until the user shows it.
+    first["presentation"]["hiddenByDefault"] = json!(true);
+    assert!(validate_manifest(&first).is_empty(), "{:?}", validate_manifest(&first));
+    first["presentation"]["hiddenByDefault"] = json!("yes");
+    assert!(validate_manifest(&first).iter().any(|i| i.code == "schema"));
 }
 
 #[test]
@@ -210,6 +215,11 @@ fn home_app_store_and_coderouter_use_the_same_presentation_fields() {
         );
     }
     assert_eq!(orders, vec![0, 10, 20], "Home first, then App Store, then CodeRouter");
+    let coderouter: Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("coderouter/cmux-app.v2.json")).expect("read"),
+    )
+    .expect("json");
+    assert_eq!(coderouter.pointer("/presentation/hiddenByDefault"), Some(&json!(true)));
 }
 
 #[test]

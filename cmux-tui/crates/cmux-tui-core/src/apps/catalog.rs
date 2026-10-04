@@ -127,6 +127,13 @@ impl Package {
         }
     }
 
+    /// `presentation.hiddenByDefault`: a default app that starts installed
+    /// but hidden until the user shows it (still reachable from the palette,
+    /// the CLI and the App Store).
+    pub fn hidden_by_default(&self) -> bool {
+        self.manifest.pointer("/presentation/hiddenByDefault") == Some(&Value::Bool(true))
+    }
+
     /// The export behind a catalog op of the app.
     pub fn export_for_op(&self, op: &str) -> Option<String> {
         let (_, entry) = self.catalog_ops().into_iter().find(|(name, _)| name == op)?;
@@ -213,10 +220,6 @@ pub struct Catalog {
     /// Packages that failed validation: (directory, first issue).
     pub rejected: Vec<(PathBuf, String)>,
 }
-
-/// Shipped default apps that start hidden: installed, and reachable by op
-/// and palette, but not listed in the sidebar until the user shows them.
-pub const HIDDEN_DEFAULTS: &[&str] = &["cmux/coderouter"];
 
 /// Where packages come from.
 #[derive(Debug, Clone, Default)]

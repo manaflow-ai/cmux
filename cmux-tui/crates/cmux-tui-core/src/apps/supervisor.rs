@@ -245,10 +245,7 @@ impl Supervisor {
         }
         for app in &catalog.defaults {
             let Some(package) = catalog.packages.get(app) else { continue };
-            let seed = Op::Seed {
-                app: app.clone(),
-                hidden: catalog::HIDDEN_DEFAULTS.contains(&app.as_str()),
-            };
+            let seed = Op::Seed { app: app.clone(), hidden: package.hidden_by_default() };
             if let Ok(outcome) = mirror::reduce(&mirror, &seed, Some(&package.facts()))
                 && outcome.changed
             {
