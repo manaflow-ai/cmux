@@ -402,7 +402,9 @@ rest. Measurements: [performance.md](performance.md).
   from `session.configure` apply, the page's scripts copy to the tab's
   clipboard instead of the system's (for the tab's whole life, also after
   the session ends), the domain policy's content rules block
-  subresources, and plain-http pages load without cmux's prompt. Another
+  subresources, pages load local files (frames and subresources) only
+  from the session's working and temporary directories, and plain-http
+  pages load without cmux's prompt. Another
   session that drives such a tab does not change these; they follow the
   creating session. Any other tab is the user's, also one a session drives
   with `tabs.use()` or one a finished run kept with `page.keep()`: it keeps

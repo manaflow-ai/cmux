@@ -195,9 +195,51 @@ public struct BrowserReplFileSandbox: Sendable {
     }
 
     /// WebKit content rules that keep pages in a session's tabs from loading
-    /// local files outside `roots`.
+    /// local files outside `roots` (the session's working and temporary
+    /// directories) as subresources or child frames, whatever read access
+    /// their web process holds.
+    ///
+    /// Every `file:` load is blocked, then one under a root's path (also by
+    /// its `/var`, `/tmp` alias, and with the `localhost` host) is let
+    /// through, matched case-sensitively on the URL as WebKit spells it
+    /// (percent-encoded). A path that spells a root another way is blocked,
+    /// which only refuses more. An encoded slash (`%2F`) is blocked again:
+    /// a file name with one would name a path the rule did not judge. A
+    /// link below a root is resolved by WebKit's own read-access check,
+    /// which refuses a file outside the directory it granted. Main-frame
+    /// documents are left to the navigation checks, which report the block.
     public static func contentRules(roots: [String]) -> [[String: Any]] {
-        []
+        var rules: [[String: Any]] = []
+        func add(_ filter: String, _ action: String, caseSensitive: Bool = false) {
+            for var trigger in [
+                ["url-filter": filter, "resource-type": fileSubresources] as [String: Any],
+                ["url-filter": filter, "resource-type": ["document"], "load-context": ["child-frame"]],
+            ] {
+                if caseSensitive { trigger["url-filter-is-case-sensitive"] = true }
+                rules.append(["trigger": trigger, "action": ["type": action]])
+            }
+        }
+        add("^file:", "block")
+        for root in Set(roots.flatMap(aliases(of:))) where root != "/" {
+            let spelled = URL(fileURLWithPath: root, isDirectory: true).absoluteString
+            guard spelled.hasPrefix("file:///") else { continue }
+            let path = escapeForContentRule(String(spelled.dropFirst("file://".count)))
+            add("^file://" + path, "ignore-previous-rules", caseSensitive: true)
+            add("^file://localhost" + path, "ignore-previous-rules", caseSensitive: true)
+        }
+        add("^file:.*%2[Ff]", "block")
+        return rules
+    }
+
+    private static let fileSubresources = ["image", "style-sheet", "script", "font", "raw", "svg-document", "media", "ping", "fetch", "websocket", "other"]
+
+    private static func escapeForContentRule(_ text: String) -> String {
+        var out = ""
+        for character in text {
+            if ".+?^${}()|[]\\*".contains(character) { out.append("\\") }
+            out.append(character)
+        }
+        return out
     }
 
     /// Held by every REPL `fs.rename` around its `renameat`, and by a file

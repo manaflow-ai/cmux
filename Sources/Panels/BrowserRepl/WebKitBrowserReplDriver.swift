@@ -127,8 +127,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         frameGate.policy = policy
         var options = contextOptions ?? BrowserReplContextOptions()
         do {
-            let rules = policy.contentRules
-            options.ruleList = try await compileRuleList(rules.isEmpty ? nil : rules)
+            // The local-file rules first: a policy's allow list blocks every
+            // load it does not name, files inside the roots included.
+            let rules = BrowserReplFileSandbox.contentRules(roots: currentFileRoots) + policy.contentRules
+            options.ruleList = try await compileRuleList(rules)
             policyFailure = nil
         } catch {
             // The policy is not in force for subresources, so the session
@@ -157,9 +159,17 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// which a file navigation requires it still has.
     private var fileRoots: [BrowserReplFileRoot] = []
 
+    /// Publishes the directories to the navigation checks before it returns
+    /// (``BrowserReplPolicyBoard``), and puts content rules that load local
+    /// files from them only on the session's tabs, as a policy change does.
     func setFileRoots(_ roots: [String]) {
         let pinned = roots.map(BrowserReplFileRoot.init(path:))
-        lock.withLock { fileRoots = pinned }
+        lock.withLock {
+            fileRoots = pinned
+            BrowserReplPolicyBoard.shared.setFileRoots(roots, sessionID: sessionID)
+            let generation = BrowserReplPolicyBoard.shared.publish(domainPolicy, sessionID: sessionID)
+            policyRunner.submit(PolicyUpdate(policy: domainPolicy, generation: generation))
+        }
     }
 
     private var currentFileRoots: [String] { lock.withLock { fileRoots.map(\.path) } }

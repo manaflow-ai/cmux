@@ -362,7 +362,17 @@ native (`BrowserReplBoundary` in the session, and the driver):
   outside it, so a link another session or process swaps in below it
   after the check leads nowhere outside (measured on macOS 27.0). A file
   navigation in a workspace whose browser waits for a remote proxy is
-  refused rather than started later outside that check. A string without a scheme that looks like a path (`/`, `~`,
+  refused rather than started later outside that check. In a tab the
+  session created, and its popups, the same rule holds for what the page
+  loads, whoever starts it: the navigation delegate cancels a navigation of
+  any frame to a file it refuses (`navigation.blocked`; a page, a redirect,
+  history), and content rules block `file:` subresources and child frames
+  outside the directories (matched on the URL as WebKit spells it, so a
+  file inside them spelled another way is blocked too; an encoded `/` is
+  blocked). WebKit itself refuses a file outside the directory a load
+  granted (measured on macOS 27.0); these hold also when the web process
+  holds a wider grant. A window a page opens from any tab a session drives
+  never loads a local file through cmux's own navigation. A string without a scheme that looks like a path (`/`, `~`,
   `.`) is refused. The same rule refuses the session's reads and input
   (the calls a blocked page refuses, `blocked`) on any tab that shows a
   local file outside those directories, such as a user's tab opened on

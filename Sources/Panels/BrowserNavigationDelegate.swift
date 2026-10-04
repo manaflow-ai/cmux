@@ -387,6 +387,15 @@ import WebKit
             }
         }
 
+        // A tab a browser REPL session created (and its popups) loads local
+        // files, in any frame, only from the session's own directories.
+        if let url = navigationAction.request.url,
+           let owner,
+           BrowserReplNavigationGuard.shared.cancelsLocalFile(panelID: owner.id, url: url) {
+            decisionHandler(.cancel)
+            return
+        }
+
         // A browser REPL session's domain policy: a tab the session created
         // never loads a page the policy blocks (links, redirects, scripts).
         if navigationAction.targetFrame?.isMainFrame == true,
