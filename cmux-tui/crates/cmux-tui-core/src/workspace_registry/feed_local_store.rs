@@ -207,6 +207,16 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
+    /// Drop item rows only, as the reducer's prune does: every other record
+    /// of the notification stays.
+    #[cfg(test)]
+    pub(crate) fn prune_feed_local_rows_for_test(&mut self, ids: &[String]) -> anyhow::Result<()> {
+        for id in ids {
+            self.connection.execute("DELETE FROM feed_local_items WHERE item_id = ?1", [id])?;
+        }
+        Ok(())
+    }
+
     #[cfg(test)]
     pub(crate) fn forget_feed_local_marker_for_test(&mut self) -> anyhow::Result<()> {
         self.connection

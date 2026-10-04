@@ -270,3 +270,94 @@ fn feedfix_ledger_pass_runs_on_every_open_after_a_downgrade() {
     let mux = open(&root, session);
     assert_eq!(all(&mux), items);
 }
+
+/// Review P1: a terminal item that folded more notices than it keeps
+/// aliases for must not split into new items on the next open. The ledger
+/// pass skips every notification it already folded (the folded set), not
+/// only the ones whose dedupe key the item still lists.
+#[test]
+fn feedfix_ledger_pass_never_reposts_a_folded_notification() {
+    let root = root("folded");
+    let session = "feed-folded";
+    let mux = open(&root, session);
+    let surface = mux.new_workspace(None, None).unwrap();
+    for index in 0..20 {
+        post(&mux, &format!("step {index}"), Some(surface.id));
+    }
+    let items = all(&mux);
+    assert_eq!((items.len(), items[0].count), (1, 20), "{items:?}");
+    drop(mux);
+
+    let mux = open(&root, session);
+    assert_eq!(all(&mux), items, "a restart adds no item for folded notices");
+}
+
+/// Review P1: an item the reducer pruned (moved, or read past retention)
+/// stays gone. Its ledger entry is still retained, but the folded set says
+/// the local owner already took it, so a restart does not bring back an
+/// open copy of an item the cloud owns.
+#[test]
+fn feedfix_a_pruned_item_does_not_come_back_from_the_ledger() {
+    let root = root("pruned");
+    let session = "feed-pruned";
+    let mux = open(&root, session);
+    let surface = mux.new_workspace(None, None).unwrap();
+    post(&mux, "agent waiting", Some(surface.id));
+    let item = all(&mux).pop().unwrap();
+    mux.feed_local_handoff_begin(&item.id).unwrap();
+    mux.feed_local_handoff_done(&item.id, "cloud").unwrap();
+    // Prune drops the item row only; the ledger entry stays.
+    mux.workspace_registry.lock().unwrap().prune_feed_local_rows_for_test(&[item.id]).unwrap();
+    drop(mux);
+
+    let mux = open(&root, session);
+    assert!(all(&mux).is_empty(), "a pruned item came back: {:?}", all(&mux));
+}
+
+/// Review P2: a per-client `read_by` mark (`notification.ack`) does not
+/// read an existing item live, so it does not read it on the next open
+/// either. Only items the pass creates take `read_by` into account (B4).
+#[test]
+fn feedfix_read_by_on_an_existing_item_reads_neither_live_nor_after_restart() {
+    let root = root("readby");
+    let session = "feed-readby";
+    let mux = open(&root, session);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let notification = post(&mux, "seen elsewhere", Some(surface.id));
+    let mutation = WorkspaceMutation::new("ack-read-by-live", "test").unwrap();
+    mux.ack_notifications(&mutation, None, "mac-a", std::slice::from_ref(&notification)).unwrap();
+    assert!(all(&mux)[0].is_unread());
+    drop(mux);
+
+    let mux = open(&root, session);
+    assert!(all(&mux)[0].is_unread(), "a restart must not change the read state");
+}
+
+/// Review P2: reading the only item of a tab without a terminal (a browser
+/// tab) clears that tab's marker and acknowledges its ledger entry, so the
+/// ring stays clear after a restart.
+#[test]
+fn feedfix_reading_a_terminal_less_tab_item_clears_its_ring_durably() {
+    let root = root("browser");
+    let session = "feed-browser";
+    let mux = open(&root, session);
+    let terminal = mux.new_workspace(None, None).unwrap().id;
+    let pane = mux.with_state(|state| state.pane_of(terminal)).unwrap();
+    let record = crate::workspace_registry::FrontendBrowserRecord {
+        engine: "webkit".into(),
+        url: "https://example.com/start".into(),
+        title: Some("Example".into()),
+        favicon_url: None,
+        profile_id: Some("default".into()),
+        owner: Some("install_mac_a".into()),
+    };
+    let browser = mux.new_frontend_browser_tab(Some(pane), record, None).unwrap().id;
+    let notification = post(&mux, "page done", Some(browser));
+    let item = all(&mux).pop().unwrap();
+    assert!(item.context.terminal.is_none() && item.context.tab.is_some(), "{item:?}");
+    assert!(mux.surface_notification(browser).is_some());
+    mux.feed_local_read(std::slice::from_ref(&item.id)).unwrap();
+    assert!(mux.surface_notification(browser).is_none(), "the tab ring follows the item");
+    let acked = mux.workspace_registry.lock().unwrap().acked_notification_ids().unwrap();
+    assert!(acked.contains(notification.as_str()), "the tab's ledger entry is acknowledged");
+}
