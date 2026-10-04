@@ -67,6 +67,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var previewFeatures = false
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
+    /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
+    public var browserLinkClicks: BrowserLinkClickSetting = .fallback
     /// `browser.remoteLocalhost` and `browser.remoteLocalhostWorkspaces`.
     public var remoteLocalhost: RemoteLocalhostSetting = .fallback
     /// `ui.animationSpeed`; "fast" when unset or invalid.
@@ -207,6 +209,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (hibernation, hibernationDiagnostics) = BrowserHibernationSetting.parse(root)
         snapshot.browserHibernation = hibernation
         snapshot.diagnostics += hibernationDiagnostics
+        let (linkClicks, linkClickDiagnostics) = BrowserLinkClickSetting.parse(root)
+        snapshot.browserLinkClicks = linkClicks
+        snapshot.diagnostics += linkClickDiagnostics
         let (remoteLocalhost, remoteLocalhostDiagnostics) = RemoteLocalhostSetting.parse(root)
         snapshot.remoteLocalhost = remoteLocalhost
         snapshot.diagnostics += remoteLocalhostDiagnostics

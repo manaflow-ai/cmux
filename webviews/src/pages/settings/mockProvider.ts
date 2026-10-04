@@ -99,6 +99,16 @@ export class MockSettingsProvider {
       },
       "cmux.settings.theme.accepts": (params) => ({ accepts: String((params as { text: string }).text).includes(":") }),
       "cmux.settings.file.reveal": () => ({}),
+      "cmux.settings.folders.add": (params) => {
+        const key = String((params as { key: string }).key);
+        const current = Array.isArray(this.values.get(key)) ? (this.values.get(key) as string[]) : [];
+        const added = this.pickedFolders.filter((folder) => !current.includes(folder));
+        if (added.length > 0) {
+          this.values.set(key, [...current, ...added]);
+          this.commit([key], "user");
+        }
+        return { added };
+      },
       "cmux.settings.accounts.run": (params) => this.runAccounts(params as AccountsRun),
       "cmux.app.action.run": (params) => {
         // The page bridge allows this page only its declared actions.
@@ -123,6 +133,7 @@ export class MockSettingsProvider {
       "cmux.settings.theme.set",
       "cmux.settings.theme.accepts",
       "cmux.settings.file.reveal",
+      "cmux.settings.folders.add",
       "cmux.app.action.run",
     ]);
     for (const [op, handler] of Object.entries(ops)) {
@@ -142,6 +153,9 @@ export class MockSettingsProvider {
     session.provide("cmux.settings.host.changed", (ctx) => this.track(this.hostChanged, ctx));
     session.provide("cmux.settings.accounts.changed", (ctx) => this.track(this.accountsChanged, ctx));
   }
+
+  /** What the cmux picker returns for Add Folder… (tests set it). */
+  pickedFolders: string[] = ["~/src"];
 
   /** The app's live lists (spaces, machines, browser profiles) as the host serves them. */
   host: HostLists = {

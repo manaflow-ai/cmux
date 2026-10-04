@@ -6846,6 +6846,415 @@
     },
     {
       "accepts" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.backgroundTab",
+            "text" : "New Background Tab"
+          },
+          "value" : "backgroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.foregroundTab",
+            "text" : "New Tab"
+          },
+          "value" : "foregroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.newWindow",
+            "text" : "New Window"
+          },
+          "value" : "newWindow"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.currentTab",
+            "text" : "Current Tab"
+          },
+          "value" : "currentTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.download",
+            "text" : "Download"
+          },
+          "value" : "download"
+        }
+      ],
+      "default" : "backgroundTab",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.links",
+        "text" : "Links"
+      },
+      "help" : {
+        "key" : "settings.browser.links.downloadHelp",
+        "text" : "In Chromium tabs, Download keeps Chrome's default."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.links.cmdClick",
+      "keywords" : [
+        "link",
+        "cmd",
+        "command"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "browser",
+        "links",
+        "cmdClick"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.links.cmdClick",
+        "text" : "Command-Click"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.backgroundTab",
+            "text" : "New Background Tab"
+          },
+          "value" : "backgroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.foregroundTab",
+            "text" : "New Tab"
+          },
+          "value" : "foregroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.newWindow",
+            "text" : "New Window"
+          },
+          "value" : "newWindow"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.currentTab",
+            "text" : "Current Tab"
+          },
+          "value" : "currentTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.download",
+            "text" : "Download"
+          },
+          "value" : "download"
+        }
+      ],
+      "default" : "foregroundTab",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.links",
+        "text" : "Links"
+      },
+      "help" : {
+        "key" : "settings.browser.links.cmdShiftClick.help",
+        "text" : "Shift-middle-click does the same."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.links.cmdShiftClick",
+      "keywords" : [
+        "link",
+        "cmd",
+        "shift"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "browser",
+        "links",
+        "cmdShiftClick"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.links.cmdShiftClick",
+        "text" : "Shift-Command-Click"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.backgroundTab",
+            "text" : "New Background Tab"
+          },
+          "value" : "backgroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.foregroundTab",
+            "text" : "New Tab"
+          },
+          "value" : "foregroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.newWindow",
+            "text" : "New Window"
+          },
+          "value" : "newWindow"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.currentTab",
+            "text" : "Current Tab"
+          },
+          "value" : "currentTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.download",
+            "text" : "Download"
+          },
+          "value" : "download"
+        }
+      ],
+      "default" : "newWindow",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.links",
+        "text" : "Links"
+      },
+      "help" : {
+        "key" : "settings.browser.links.downloadHelp",
+        "text" : "In Chromium tabs, Download keeps Chrome's default."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.links.shiftClick",
+      "keywords" : [
+        "link",
+        "shift"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "browser",
+        "links",
+        "shiftClick"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.links.shiftClick",
+        "text" : "Shift-Click"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.backgroundTab",
+            "text" : "New Background Tab"
+          },
+          "value" : "backgroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.foregroundTab",
+            "text" : "New Tab"
+          },
+          "value" : "foregroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.newWindow",
+            "text" : "New Window"
+          },
+          "value" : "newWindow"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.currentTab",
+            "text" : "Current Tab"
+          },
+          "value" : "currentTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.download",
+            "text" : "Download"
+          },
+          "value" : "download"
+        }
+      ],
+      "default" : "download",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.links",
+        "text" : "Links"
+      },
+      "help" : {
+        "key" : "settings.browser.links.optionClick.help",
+        "text" : "Chromium tabs always download."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.links.optionClick",
+      "keywords" : [
+        "link",
+        "option",
+        "alt"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "browser",
+        "links",
+        "optionClick"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.links.optionClick",
+        "text" : "Option-Click"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.backgroundTab",
+            "text" : "New Background Tab"
+          },
+          "value" : "backgroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.foregroundTab",
+            "text" : "New Tab"
+          },
+          "value" : "foregroundTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.newWindow",
+            "text" : "New Window"
+          },
+          "value" : "newWindow"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.currentTab",
+            "text" : "Current Tab"
+          },
+          "value" : "currentTab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.link.download",
+            "text" : "Download"
+          },
+          "value" : "download"
+        }
+      ],
+      "default" : "backgroundTab",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.links",
+        "text" : "Links"
+      },
+      "help" : {
+        "key" : "settings.browser.links.middleClick.help",
+        "text" : "Chromium tabs use the Command-Click setting."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.links.middleClick",
+      "keywords" : [
+        "link",
+        "middle",
+        "wheel"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "browser",
+        "links",
+        "middleClick"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.links.middleClick",
+        "text" : "Middle-Click"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "keystroke",
         "click",
         "focus",
@@ -8170,7 +8579,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "6da492ae6bca7cb1b97a4c02c4f88fd8c3ab49a20650602712ff23209e2674b2",
+  "schema_hash" : "1246a57c0f306b301fc162f9bf1471cb47558b84697fa935ab11269a8531c4d4",
   "sections" : [
     {
       "id" : "general",

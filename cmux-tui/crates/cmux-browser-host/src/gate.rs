@@ -10,7 +10,7 @@
 use crate::driver::Driver;
 use crate::policy::{Layer, Policy, Writer, parse_patterns};
 use crate::protocol::{DriverError, ErrorCode};
-use crate::secrets::Vault;
+use crate::secrets::{TabSecrets, Vault};
 use crate::vm::VmHost;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -33,6 +33,8 @@ pub struct Gate {
     /// False while a policy is active that the engine cannot enforce on the
     /// page's own requests (no request filter): every call fails closed.
     filter_enforced: std::sync::atomic::AtomicBool,
+    /// Secrets typed into tabs by any session of the host.
+    tab_secrets: Arc<TabSecrets>,
 }
 
 /// Finds the URL of the frame that holds keyboard focus. Same-origin child
@@ -51,7 +53,50 @@ impl Gate {
             grants,
             log: Mutex::new(Vec::new()),
             filter_enforced: std::sync::atomic::AtomicBool::new(true),
+            tab_secrets: Arc::default(),
         }
+    }
+
+    /// Shares the host's record of secrets typed into tabs, so this session
+    /// masks what any session typed (and records what it types itself).
+    pub fn with_tab_secrets(mut self, tab_secrets: Arc<TabSecrets>) -> Gate {
+        self.tab_secrets = tab_secrets;
+        self
+    }
+
+    /// The session ends: the driver releases its per-session state now.
+    pub fn end_session(&self) {
+        self.driver.end_session();
+    }
+
+    /// Masks a value from (or about) one tab: the session's own secrets and
+    /// the secrets any session typed into that tab.
+    pub fn mask_for_target(&self, target: Option<&str>, value: &Value) -> Value {
+        let value = self.mask_value(value);
+        match target.and_then(|target| self.tab_secrets.masker(target)) {
+            Some(masker) => masker.mask_value(&value),
+            None => value,
+        }
+    }
+
+    fn mask_text_for_target(&self, target: Option<&str>, text: &str) -> String {
+        let text = self.mask(text);
+        match target.and_then(|target| self.tab_secrets.masker(target)) {
+            Some(masker) => masker.mask(&text).into_owned(),
+            None => text,
+        }
+    }
+
+    /// Masks a driver event for this session; a closed tab's record ends.
+    pub fn mask_event(&self, name: &str, payload: &Value) -> Value {
+        let target = payload.get("targetId").and_then(Value::as_str);
+        let masked = self.mask_for_target(target, payload);
+        if matches!(name, "tab.gone" | "tab.closed")
+            && let Some(target) = target
+        {
+            self.tab_secrets.forget(target);
+        }
+        masked
     }
 
     /// Owner-side policy change (`browser.policy.set`, user origin or the
@@ -198,12 +243,16 @@ impl Gate {
         };
         let now =
             SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
-        let text = self
-            .vault
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .text_for_frame(&name, frame_url, now)
-            .map_err(|e| Self::refuse(e.0))?;
+        let (text, typed) = {
+            let vault = self.vault.lock().unwrap_or_else(PoisonError::into_inner);
+            let text =
+                vault.text_for_frame(&name, frame_url, now).map_err(|e| Self::refuse(e.0))?;
+            (text, vault.typed_value(&name).map(str::to_owned))
+        };
+        // Every session masks it in this tab from now on, not only this one.
+        if let (Some(target), Some(value)) = (target.as_str(), typed) {
+            self.tab_secrets.record(target, &name, &value);
+        }
         params[field] = Value::String(text);
         Ok(())
     }
@@ -225,12 +274,22 @@ impl VmHost for Gate {
         if matches!(method, "input.insertText" | "input.key") {
             self.resolve_secret(&mut params, "text")?;
         }
-        match self.driver.call(method, &params) {
-            Ok(value) => Ok(self.mask_value(&value)),
+        let target = params.get("targetId").and_then(Value::as_str).map(str::to_owned);
+        let target = target.as_deref();
+        let result = self.driver.call(method, &params);
+        if method == "tabs.close"
+            && result.is_ok()
+            && let Some(target) = target
+        {
+            self.tab_secrets.forget(target);
+        }
+        match result {
+            Ok(value) => Ok(self.mask_for_target(target, &value)),
             Err(mut error) => {
-                error.message = self.mask(&error.message);
-                error.error_name = error.error_name.map(|name| self.mask(&name));
-                error.data = error.data.map(|data| self.mask_value(&data));
+                error.message = self.mask_text_for_target(target, &error.message);
+                error.error_name =
+                    error.error_name.map(|name| self.mask_text_for_target(target, &name));
+                error.data = error.data.map(|data| self.mask_for_target(target, &data));
                 Err(error)
             }
         }

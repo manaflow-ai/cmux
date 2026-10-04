@@ -8,9 +8,9 @@ extension AgentCursorVisibility {
     /// plane's nearest edge (`drawableRect`).
     public func placement(forWindow window: String, overlay: CGRect) -> AgentCursorPlacement {
         switch self {
-        case let .visible(owner, viewport, _, _) where owner == window:
-            // Page zoom arrives with the event (agent-cursor.md section 2).
-            return .visible(content: viewport, magnification: 1)
+        case let .visible(owner, viewport, clip, zoom) where owner == window:
+            // An event's own zoom wins over the page zoom now (agent-cursor.md section 2).
+            return .visible(content: viewport, clip: clip, zoom: zoom, magnification: 1)
         case let .hidden(owner, _, rect) where owner == window:
             return .hidden(anchor: AgentCursorVisibilityResolver.drawableRect(rect, in: overlay))
         default:

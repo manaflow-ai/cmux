@@ -209,6 +209,19 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 importCSV.isPersonOnly = true
                 return importCSV
             }(),
+            {
+                // The Passwords page (passwords.md 1.4). Person-only and no CLI verb or MCP tool:
+                // the page shows sites and usernames, which agents never see (decision P2).
+                var open = ActionDescriptor(
+                    id: "passwords.open",
+                    title: String(localized: "action.passwords.open", defaultValue: "Passwords", bundle: .module),
+                    keywords: ["passwords", "passkeys", "sign-in", "logins", "credentials", "keychain", "autofill"],
+                    category: .browser, symbol: "key", surfaces: [.palette],
+                    surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+                )
+                open.isPersonOnly = true
+                return open
+            }(),
             ActionDescriptor(
                 id: "palette.enableBrowser",
                 title: String(localized: "action.palette.enableBrowser", defaultValue: "Enable cmux Browser", bundle: .module),

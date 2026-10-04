@@ -49,6 +49,8 @@ enum DestructiveConfirmation {
                 ? Prompt(title: ConfirmationStrings.deleteGroupTitle(name), body: ConfirmationStrings.groupBody(count), button: ConfirmationStrings.delete)
                 : Prompt(title: ConfirmationStrings.closeGroupWorkspacesTitle(name), body: ConfirmationStrings.groupBody(count),
                          button: ConfirmationStrings.close)
+        case "browserProfile.delete":
+            return await BrowserProfileDeletePrompt.prompt(invocation, context)
         case "browser.allowAgentWithExtensions":
             return AgentExtensionHandlers.prompt(invocation, context)
         case "space.delete":

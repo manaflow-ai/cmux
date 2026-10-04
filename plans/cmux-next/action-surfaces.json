@@ -9938,6 +9938,29 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action passwords-open",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "passwords.open",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Passwords",
+      "title_key" : "action.passwords.open",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "unimplemented",
       "cli_name" : "browser enable",
       "context_menu" : "noObject",

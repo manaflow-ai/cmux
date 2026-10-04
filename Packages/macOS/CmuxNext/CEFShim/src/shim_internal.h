@@ -76,6 +76,9 @@ struct ForkApi {
   void (*side_panel_watch)(int) = nullptr;
   char* (*side_panel_state)(int) = nullptr;
   int (*side_panel_press)(int, const char*) = nullptr;
+  // API version 18: profile (Touch ID) passkeys, metadata only.
+  int (*profile_passkeys_list)(const char*, void (*)(void*, const char*), void*) = nullptr;
+  int (*profile_passkey_delete)(const char*, const char*, void (*)(void*, int), void*) = nullptr;
 };
 
 struct Host {
