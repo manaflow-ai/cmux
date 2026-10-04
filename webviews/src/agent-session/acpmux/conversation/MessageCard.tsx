@@ -2,13 +2,14 @@
 // card: sender to recipient and how it went, the message's first line, and the whole message
 // once opened.
 import { useId, useLayoutEffect, useRef, useState } from "react";
-import { t } from "../i18n";
+import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import type { AgentMessage } from "./agentMessages";
 import { ArrowRight, ChevronDown, ChevronRight, Envelope, Spinner } from "./icons";
 import { isFailed, isRunning } from "./toolGroups";
 
 export function MessageCard({ item, message }: { item: AcpmuxActivity; message: AgentMessage }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const tool = item.tool!;
   const from = message.from ?? t("message.self");

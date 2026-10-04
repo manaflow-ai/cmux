@@ -1,5 +1,5 @@
 import React from "react";
-import { t } from "../i18n";
+import { useT } from "../i18n";
 import type { SummarySubagent } from "./sessionSummary";
 
 /// Dots shown before the counts; the rest are counted, not drawn.
@@ -8,6 +8,7 @@ const STACK = 4;
 /// The chat's subagents as one line: a dot per subagent, overlapping, then the counts by state
 /// ("2 running · 19 done"). Each dot's tooltip names its subagent.
 export function SubagentStack({ subagents }: { subagents: readonly SummarySubagent[] }) {
+  const t = useT();
   const count = (state: SummarySubagent["state"]) => subagents.filter((agent) => agent.state === state).length;
   const counts = [
     count("running") > 0 && t("summary.subagents.running", { n: count("running") }),
