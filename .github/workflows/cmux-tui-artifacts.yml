@@ -47,12 +47,9 @@ on:
   # cmux-tui/tree/<key>/ after the build and the cmux_next_ daemon tests pass.
   push:
     branches: [main, feat-cmux-next, "cmux-tui-pin-*"]
-    paths:
-      - "cmux-tui/**"
-      - "ghostty"
-      - "ghostty-next"
-      - ".github/workflows/cmux-tui-artifacts.yml"
-      - ".github/workflows/cmux-tui-build-package.yml"
+    # The branch itself is trusted. Run on every base-branch advance so a
+    # Swift-only change can repair a missing cmux-tui tree publication before
+    # downstream app jobs try to fetch it.
   # Same-repository PRs need a tree-addressed binary for cmux-next's merge
   # checks. This is pull_request_target so the workflow definition and publish
   # steps come from the trusted base branch; the build job receives no R2
@@ -992,11 +989,29 @@ jobs:
           base="https://files.cmux.com/cmux-tui/tree/$KEY"
           fetch() { curl -fsSL --proto '=https' --connect-timeout 20 --max-time 120 "$1?verify=$GITHUB_RUN_ID" -o "$2"; }
           if fetch "$base/$name.sha256" existing.sha256 2>/dev/null; then
-            [[ "$(awk 'NR==1{print $1}' existing.sha256)" == "$sha" ]] || {
-              echo "tree $KEY is already published with a different binary" >&2
+            existing_sha="$(awk 'NR==1{print $1}' existing.sha256)"
+            [[ "$existing_sha" =~ ^[0-9a-f]{64}$ ]] || {
+              echo "published tree $KEY has a malformed checksum" >&2
               exit 1
             }
-            echo "tree $KEY is already published with the matching PR binary"
+            # The key covers the daemon inputs, not the merge commit. A second
+            # PR with the same tree can therefore produce different bytes
+            # because the build embeds its commit. The first write-once
+            # publication is authoritative; adopt it after validating its
+            # source metadata instead of turning a harmless race red.
+            fetch "$base/source.json" existing.source.json || {
+              echo "tree $KEY has a checksum but no source metadata" >&2
+              exit 1
+            }
+            python3 - "$KEY" existing.source.json <<'PY'
+          import json, sys
+          key, path = sys.argv[1:]
+          with open(path) as source:
+              metadata = json.load(source)
+          if metadata.get("key") != key or metadata.get("binaries", {}).get("cmux-tui-aarch64-apple-darwin") != open("existing.sha256").read().split()[0]:
+              raise SystemExit("published source metadata does not match the immutable tree key/checksum")
+          PY
+            echo "tree $KEY is already published; adopting the verified write-once binary (existing=$existing_sha built=$sha)"
             exit 0
           fi
           uploader="$RUNNER_TEMP/upload-r2-object.py"
