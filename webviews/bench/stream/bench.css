@@ -1,0 +1,116 @@
+/* Bench page frame: a transcript-sized scroller on the pane's default dark theme. */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #1e1f1b;
+  color-scheme: dark;
+}
+:root {
+  --agent-text: #ecece6;
+  --agent-muted: #a3a39c;
+  --agent-soft: #7d7d77;
+  --agent-accent-soft: #6b8afd;
+}
+.sv-scroll {
+  position: absolute;
+  inset: 0 0 120px 0;
+  overflow-y: auto;
+  overflow-anchor: none;
+}
+.sv-thread {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 26.5px 40px;
+}
+.sv-composer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 120px;
+  background: #262722;
+}
+
+/* The soft reveal: compositor-only opacity, never layout. */
+@keyframes sv-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .sv-fresh {
+    animation: sv-fade 160ms cubic-bezier(0.2, 0, 0, 1) both;
+  }
+  .sv-enter {
+    animation: sv-fade 200ms cubic-bezier(0.2, 0, 0, 1) both;
+  }
+}
+
+/* The live edge: a short soft bar after the newest character; it only pulses while waiting. */
+.sv-caret {
+  display: inline-block;
+  width: 0.5em;
+  height: 0.9em;
+  margin-left: 1px;
+  border-radius: 2px;
+  vertical-align: -0.1em;
+  background: color-mix(in srgb, var(--agent-text) 55%, transparent);
+}
+@keyframes sv-wait {
+  50% {
+    opacity: 0.25;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .sv-waiting .sv-caret {
+    animation: sv-wait 1s ease-in-out infinite;
+  }
+}
+
+/* An open fence before highlighting: Pierre's metrics (12px on 20px lines, no wrap). */
+.sv-code {
+  margin: 0;
+  padding: 0 13px 0 8px;
+  overflow-x: auto;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--cv-codeblock-text);
+  white-space: pre;
+}
+.sv-code-line {
+  min-height: 20px;
+}
+
+/* A closed fence hands over from the plain card to Pierre without a collapsed frame. */
+.sv-handoff {
+  position: relative;
+}
+.sv-handoff.is-plain .sv-handoff__real,
+.sv-handoff.is-fading .sv-handoff__real {
+  position: absolute;
+  inset: 0 0 auto 0;
+  pointer-events: none;
+}
+.sv-handoff.is-plain .sv-handoff__real {
+  opacity: 0;
+}
+.sv-handoff.is-fading .sv-handoff__real {
+  animation: sv-fade 180ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sv-handoff.is-fading .sv-handoff__real {
+    animation-duration: 1ms;
+  }
+}
+.sv-handoff > .cv-codeblock:last-child,
+.sv-handoff__real > .cv-codeblock {
+  margin-bottom: 19px;
+}
+.cv-md > .sv-handoff:last-child .cv-codeblock {
+  margin-bottom: 0;
+}
