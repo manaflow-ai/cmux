@@ -444,6 +444,28 @@ interface CmuxGlobal {
       /** `cloud.auth.status` (read, scope `cloud:read`, owner `app:cmux/cloud`): Whether cmux is signed in to cmux Cloud and which team requests use. cmux answers from its own sign-in; the app server never sees a token. */
       status: CmuxOp<Record<string, never>, { signedIn: boolean; team?: string | null }>
     }
+    browser: {
+      /** `cloud.browser.open` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Give the browser host a proxy route to the machine's localhost: an HTTP proxy on 127.0.0.1 that reaches only the machine (other hosts get 403) and the URL to load through it. It opens no browser tab; the browser host owns tabs. */
+      open: CmuxOp<{ machine: string; port: number; host?: string; path?: string }, { machine: string; proxy: { kind: "http" | "socks5"; host: "127.0.0.1"; port: number }; url: string; generation: number }>
+    }
+    file: {
+      /** `cloud.file.pull` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Copy a file from a machine to this Mac, like cloud.file.push in the other direction. Never overwrites: an existing local path gets cmux.cloud.local_exists. */
+      pull: CmuxOp<{ machine: string; localPath: string; path: string }, { ok: true; machine: string; path: string; localPath: string; bytes: number }>
+      /** `cloud.file.push` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Copy a local file to a machine over SSH through the machine's link. The server makes a new key in memory for each transfer and sends only its public half to the Cloud API; the guest host key is pinned from the Cloud API answer. Needs fs:write. */
+      push: CmuxOp<{ machine: string; localPath: string; path: string }, { ok: true; machine: string; path: string; localPath: string; bytes: number }>
+    }
+    fs: {
+      /** `cloud.fs.list` (read, scope `cloud:read`, owner `app:cmux/cloud`): List a folder on a machine (cmux.fs.provider/1, scheme cloud-vm) through the Cloud API file route. One batch: the route has no cursor. */
+      list: CmuxOp<{ machine: string; path: string }, { path: string; entries: Array<{ name?: string; path?: string; kind: "file" | "directory" | "symlink"; size?: number | null; mode?: number | null; modifiedAt?: number | null }> }>
+      /** `cloud.fs.mkdir` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Make a folder on a machine. Needs fs:write. */
+      mkdir: CmuxOp<{ machine: string; path: string }, { ok: true; path: string }>
+      /** `cloud.fs.read` (read, scope `cloud:read`, owner `app:cmux/cloud`): Read a whole file of at most 16 MiB (base64). A larger file is refused with cmux.cloud.file_too_large before its bytes move. No ranges: the route reads whole files. */
+      read: CmuxOp<{ machine: string; path: string }, { path: string; dataBase64: string; size: number }>
+      /** `cloud.fs.stat` (read, scope `cloud:read`, owner `app:cmux/cloud`): Read the kind, size, mode and change time of one path on a machine. */
+      stat: CmuxOp<{ machine: string; path: string }, { name?: string; path?: string; kind: "file" | "directory" | "symlink"; size?: number | null; mode?: number | null; modifiedAt?: number | null }>
+      /** `cloud.fs.write` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Write a whole file (at most 16 MiB, atomic on the machine). Needs an idempotency key: a retry with the same key writes once. Writes files on the machine, so it needs fs:write. There is no conflict check (no revision on the route). */
+      write: CmuxOp<{ machine: string; path: string; dataBase64: string; mode?: number; baseRevision?: string | null }, { ok: true; path: string; size: number }>
+    }
     machine: {
       /** `cloud.machine.connect` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Open the one private link (carrier) to a machine and return it. A second call while the link is up returns the same carrier and starts no new link. A paused machine is started first. Not a focus change. When the link goes down nothing reconnects by itself and nothing queues: call connect again, also with the same key: connect is never replayed from the ledger. */
       connect: CmuxOp<{ machine: string }, { machine: string; carrier: string; generation: number; state: "up"; socket: string }>
@@ -475,6 +497,12 @@ interface CmuxGlobal {
     plan: {
       /** `cloud.plan.get` (read, scope `cloud:read`, owner `app:cmux/cloud`): Your plan: machine limit, active machines, memory sizes the plan includes and the plan that adds larger ones. Read from the cmux Cloud API; cmux keeps no plan logic. */
       get: CmuxOp<Record<string, never>, { planId?: string | null; maxActiveVms?: number | null; activeVmCount?: number | null; memoryOptionsMb?: Array<number>; lockedMemoryOptionsMb?: Array<number>; memoryUpgradePlanId?: string | null; freeAccessWindowDays?: number | null; freeAccessExpiresAt?: number | null }>
+    }
+    port: {
+      /** `cloud.port.forward` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Forward a port of the machine's localhost to 127.0.0.1 and a random port on this Mac, through the machine's link (a paused machine is started first). One forward per machine and port: a second call returns the same localPort. When the link goes down the forward goes down and nothing queues; call forward again for a new one. Never replayed from the idempotency ledger. */
+      forward: CmuxOp<{ machine: string; port: number }, { machine: string; port: number; host: "127.0.0.1"; localPort: number; generation: number; state: "up" | "down"; reason?: string | null }>
+      /** `cloud.port.list` (read, scope `cloud:read`, owner `app:cmux/cloud`): List this Mac's port forwards to Cloud machines, up or down. It does not list the machine's listening ports (no route for that). */
+      list: CmuxOp<{ machine?: string }, { forwards: Array<{ machine: string; port: number; host: "127.0.0.1"; localPort: number; generation: number; state: "up" | "down"; reason?: string | null }> }>
     }
     rescue: {
       /** `cloud.rescue.open` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Open a shell on a machine whose cmux daemon does not answer (the cmux.terminal.backend/1 rescue kind). The new terminal gets focus only for origin user or focus true (focuses stays false: focus is not the op's purpose). Answers cmux.cloud.unsupported until the cmux Cloud API has an interactive shell route. */
