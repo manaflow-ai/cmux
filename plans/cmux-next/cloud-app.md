@@ -428,3 +428,15 @@ Queue:
    their config and known_hosts paths explicitly (`-F <path>`, `-o UserKnownHostsFile=<path>`), never an
    implicit `~/.ssh`; a test proves the ssh child gets no implicit `~/.ssh` path. File transfers move to a
    worker thread in the same slice. Red tests first.
+   Apps lead decision (2026-10-04): link details come from the host-only op `cmux.host.link.get {}` ->
+   `{binary, hub_socket, state_dir, socket_dir, device_name}` (answered by the supervisor; scope
+   `op:cmux.host.link.get`, server-only, first-party only) and the event `cmux.host.link.changed` (same
+   shape). Wire on the server JSON-lines channel, one shape for every host-only op: request
+   `{"t":"host.request","id":n,"op":...,"params":{}}`; reply `{"t":"host.result","id":n,"value":{}}` or
+   `{"t":"host.error","id":n,"code":...,"message":...,"retryable":bool}`; event
+   `{"t":"host.event","op":...,"data":{}}`. The credential relay (`cmux.credential.relay`) uses the same
+   frames later. `connect` answers `link_unavailable` until `link.get` answers; `link.changed` makes the
+   server re-read and respawn or rebind. Every ssh/scp child gets `-F <data>/ssh/config -o
+   UserKnownHostsFile=<data>/ssh/known_hosts -o GlobalKnownHostsFile=/dev/null -o
+   StrictHostKeyChecking=yes`; new host keys only through the user's host key sheet; anything that needs
+   the user's own SSH identity goes through the host-owned SSH channel.
