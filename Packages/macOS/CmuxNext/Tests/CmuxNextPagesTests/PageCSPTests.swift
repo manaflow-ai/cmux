@@ -46,4 +46,28 @@ import Testing
             == "/tmp/webviews-app/chunks/diffSurface.mjs")
         #expect(PageDescriptor(id: "cmux.diff", resource: "x", namespaces: [], entry: "../evil.html").entry == "index.html")
     }
+
+    /// The diff page adds exactly its own origin and WebAssembly; every other shipped page keeps
+    /// the strict default (diff-host.md S1).
+    @Test func theDiffPageAddsOnlyItsOwnOriginAndWebAssembly() throws {
+        #expect(PageDescriptor.diff.csp.header
+            == "default-src 'none'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; "
+            + "img-src 'self' data:; font-src 'self' data:; connect-src cmux-page://cmux.diff")
+        #expect(PageDescriptor.diff.csp.connect == [PageDescriptor.diff.origin])
+        for page in [PageDescriptor.markdown, .history, .cloud] {
+            #expect(page.csp == .strict, "\(page.id)")
+        }
+    }
+
+    @MainActor @Test func everyDiffResponseCarriesTheDiffCSP() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "cmux-csp-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data("<html></html>".utf8).write(to: root.appending(path: PageDescriptor.diff.entry))
+        let handler = PageSchemeHandler(page: .diff, root: root)
+        for raw in ["cmux-page://cmux.diff/", "cmux-page://cmux.diff/__patch/missing"] {
+            let url = try #require(URL(string: raw))
+            let reply = await handler.reply(to: url)
+            #expect(reply?.response.value(forHTTPHeaderField: "Content-Security-Policy") == PageDescriptor.diff.csp.header, "\(raw)")
+        }
+    }
 }

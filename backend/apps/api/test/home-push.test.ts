@@ -122,6 +122,22 @@ describe("Home push: UserDO decides from each inbox.bump", () => {
     expect(body.cmux).toEqual({ home_conversation: conv, seq: 1 })
   })
 
+  it("a delivered inbox.bump decides the push and closes none of the install's sockets", async () => {
+    const { user, stub, sent, token } = await pushUser("home-push-no-close")
+    const res = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}` } })
+    expect(res.status).toBe(101)
+    const ws = res.webSocket!
+    let closed: number | undefined
+    ws.addEventListener("close", (e) => (closed = e.code))
+    ws.accept()
+    await deliver(stub, user, [bump(user, convId())])
+    expect(sent).toHaveLength(1)
+    // afterOp runs closeRevoked for every op: a bump is neither a revoke nor an archive, so the socket stays open.
+    await new Promise((r) => setTimeout(r, 50))
+    expect(closed).toBeUndefined()
+    ws.close()
+  })
+
   it("never notifies the author of the message", async () => {
     const { user, stub, sent } = await pushUser("home-push-author")
     await deliver(stub, user, [bump(user, convId(), { last_author: user })])
@@ -323,5 +339,30 @@ describe("Home push: UserDO decides from each inbox.bump", () => {
     await drainAt(stub, Date.now() + HOUR + 1_000)
     expect(sent).toHaveLength(62)
     expect(JSON.parse(sent[61]!.message.body).cmux.home_conversation).toBe(convs[60])
+  })
+
+  it("a throwing Home push drain does not skip the socket-close flush or the KRL notices, and the next wake is still scheduled", async () => {
+    const { user, stub } = await pushUser("home-push-wake-isolation")
+    // A queued push (delivered, not drained) keeps the object's next wake due.
+    expect((await stub.systemDeliver(user, "conv:test", [bump(user, convId())])).done).toHaveLength(1)
+    type WakeSteps = { flushCloses(now: number): Promise<void>; deliverKrlNotices(now: number): Promise<void>; drainHomePush(now: number): Promise<void>; alarm(): Promise<void> }
+    const ran: Array<string> = []
+    let alarm: number | null = 0
+    await runInDurableObject(stub, async (instance: unknown, state: DurableObjectState) => {
+      const o = instance as WakeSteps
+      const flush = o.flushCloses.bind(o)
+      const krl = o.deliverKrlNotices.bind(o)
+      o.flushCloses = async (now) => (ran.push("flushCloses"), flush(now))
+      o.deliverKrlNotices = async (now) => (ran.push("deliverKrlNotices"), krl(now))
+      o.drainHomePush = async () => {
+        ran.push("drainHomePush")
+        throw new Error("drain failed")
+      }
+      await state.storage.deleteAlarm()
+      await o.alarm()
+      alarm = await state.storage.getAlarm()
+    })
+    expect(ran).toEqual(["flushCloses", "drainHomePush", "deliverKrlNotices"])
+    expect(alarm).not.toBeNull()
   })
 })

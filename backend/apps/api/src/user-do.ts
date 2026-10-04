@@ -155,9 +155,18 @@ export class UserDO extends OwnerDO<UserState> {
    * when every team confirmed (S4). TeamDO's side is idempotent, so a retry after a crash is safe.
    */
   protected override async onWake(now: number): Promise<void> {
-    await this.flushCloses(now)
-    await this.drainHomePush(now)
-    await this.deliverKrlNotices(now)
+    // Each step runs even when an earlier one throws; a failure is logged, then rethrown after all
+    // ran, so OwnerDO.alarm still backs off (no hot loop on past-due work) and still reschedules.
+    let failure: unknown
+    for (const [step, run] of [["closes", () => this.flushCloses(now)], ["home_push", () => this.drainHomePush(now)], ["krl", () => this.deliverKrlNotices(now)]] as const) {
+      try {
+        await run()
+      } catch (e) {
+        console.error(JSON.stringify({ msg: "user wake step failed", step, error: String(e).slice(0, 200) }))
+        failure ??= e
+      }
+    }
+    if (failure !== undefined) throw failure
   }
 
   /** Home push decides from each delivered `inbox.bump` in the same storage batch (home-push-drain.ts decideHomePush). */

@@ -127,8 +127,7 @@ final class SidebarListView: NSView {
         // A removed workspace's card ends on the geometry check after the
         // rows apply (its anchor is gone); a kept one updates in place.
         if let shown = hoverCard.shownID { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shown)) }
-        applyKeepingViewport(SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: true)),
-                             animated: animated)
+        applyKeepingViewport(displayLayout(), animated: animated)
     }
     func options(includeGap: Bool) -> SidebarLayoutOptions {
         var o = SidebarLayoutOptions()
@@ -211,7 +210,8 @@ final class SidebarListView: NSView {
             }
         }
         let pillFrame = activePillFrame(in: layout)
-        let gapFrame = layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) }
+        // Only an external drop's new-workspace slot has an underlay (R77: a row drag reorders in place).
+        let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) } : nil
         decorations.frame = bounds
         decorations.setPill(pillFrame, animated: animate)
         decorations.setGap(gapFrame, animated: animate)

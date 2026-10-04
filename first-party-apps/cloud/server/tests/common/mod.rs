@@ -22,6 +22,8 @@ pub struct FakeControlPlane {
     by_key: HashMap<String, (u16, Value)>,
     /// POSTs that reached the provider (not replayed by key).
     pub provider_posts: usize,
+    /// The `x-cmux-vm-error` header of every answer, when set.
+    pub error_header: Option<String>,
 }
 
 impl FakeControlPlane {
@@ -35,6 +37,7 @@ impl FakeControlPlane {
             lose_next: 0,
             by_key: HashMap::new(),
             provider_posts: 0,
+            error_header: None,
         };
         for name in names {
             fake.serve(name);
@@ -86,7 +89,7 @@ impl ControlPlane for FakeControlPlane {
         if let (Some(key), "POST") = (&call.idempotency_key, call.method)
             && let Some((status, body)) = self.by_key.get(key).cloned()
         {
-            return Ok(HttpReply { status, body, error_code: None });
+            return Ok(HttpReply { status, body, error_code: self.error_header.clone() });
         }
         let (status, body) = self
             .routes
@@ -103,7 +106,7 @@ impl ControlPlane for FakeControlPlane {
             self.lose_next -= 1;
             return Err(RelayError::Unavailable("the answer was lost".into()));
         }
-        Ok(HttpReply { status, body, error_code: None })
+        Ok(HttpReply { status, body, error_code: self.error_header.clone() })
     }
 
     fn session(&mut self) -> Result<SessionStatus, RelayError> {
