@@ -86,14 +86,19 @@ def palette():
 
 
 def palette_window():
-    """The palette panel: the visible panel that is a child of the main window."""
+    """The palette panel. A no-activate app is never active, so the panel may report
+    itself hidden; it is still drawn."""
     windows = (rpc("debug.window_list") or {}).get("windows", [])
-    mains = {w["id"] for w in windows if w.get("kind") == "main"}
-    return next((w for w in windows if w.get("visible") and w.get("kind") in ("panel", "palette") and w.get("parent") in mains), None)
+    # The palette is the wide panel (child of the main window while it is open; a
+    # no-activate run may list it without a parent).
+    return next((w for w in windows if w.get("kind") in ("panel", "palette") and (w.get("frame") or {}).get("width", 0) >= 600), None)
 
 
 def palette_open():
-    return palette_window() is not None
+    """The palette controller's own answer to a no-op key (forward delete with the caret
+    at the end of the query), which says whether the palette is open."""
+    reply = key("forwarddelete")
+    return not reply.get("error") and reply.get("palette_open")
 
 
 def expect(label, condition, detail=""):
@@ -109,9 +114,20 @@ def snapshot(name, palette_panel=True):
         panel = palette_window()
         if panel:
             params["window"] = panel["id"]
+        else:
+            print(f"no palette window in {json.dumps((rpc('debug.window_list') or {}).get('windows'))}", flush=True)
     reply = rpc("debug.window_snapshot", params) or {}
     print(f"snapshot {name}: {reply.get('path') or reply}", flush=True)
     return reply
+
+
+def close_palette():
+    """Escape until the palette closes (it clears a query and pops a pushed page first)."""
+    for _ in range(5):
+        if not palette_open():
+            return
+        key("escape")
+    expect("the palette closes", not palette_open())
 
 
 def open_palette_action(title):
@@ -153,8 +169,7 @@ try:
         report = palette()
         expect(f"palette lists {title}", report.get("palette_selected") is not None, json.dumps(report))
         snapshot("palette-" + title.lower().replace(" ", "-"))
-        key("escape")
-        key("escape")
+        close_palette()
 
     # 2. The picker in folder mode: Locations, a typed path, filtering, the list keys.
     open_palette_action("Open Diff Viewer in Folder")
@@ -195,8 +210,7 @@ try:
     key("up", ["command"])
     expect("Cmd-Up goes up", (palette().get("palette_page") or "").endswith("tmp"), json.dumps(palette()))
     snapshot("picker-cmd-up")
-    key("escape")
-    key("escape")
+    close_palette()
 
     # 3. The picker in file mode (Markdown only, then any file).
     open_palette_action("Open Markdown File")
@@ -204,12 +218,11 @@ try:
     snapshot("picker-markdown-path")
     key("return")
     snapshot("picker-markdown-gamma")
-    key("escape")
-    key("escape")
+    expect("Return in path mode goes to gamma", (palette().get("palette_page") or "").endswith("gamma"), json.dumps(palette()))
+    close_palette()
     open_palette_action("Open File")
     snapshot("picker-file")
-    key("escape")
-    key("escape")
+    close_palette()
 
     print("FAILURES: " + ", ".join(failures) if failures else "ok: every step passed", flush=True)
 finally:
