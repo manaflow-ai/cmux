@@ -11,11 +11,19 @@
   const S = root.CmuxBrowserRepl && root.CmuxBrowserRepl.sites;
   if (!S) return;
 
-  // Runs in the page world. arg: { op: "list" } or { op: "call", name, input }.
+  // Runs in the page world. arg: { op: "list" } or { op: "call", name,
+  // input, descriptor }. Each listed tool carries `descriptor`, its name,
+  // title, description, input schema and annotations as JSON with sorted
+  // keys; a call with a descriptor runs only a tool whose descriptor is
+  // that one, checked right before it runs.
   async function webmcp(arg) {
     const mc = (navigator && navigator.modelContext) || document.modelContext || null;
     if (!mc) return { supported: false };
-    const norm = (t) => ({ name: t.name, title: t.title || null, description: t.description || "", inputSchema: typeof t.inputSchema === "string" ? JSON.parse(t.inputSchema) : t.inputSchema || null, annotations: t.annotations || {} });
+    const canon = (v) => (v === null || typeof v !== "object" ? JSON.stringify(v === undefined ? null : v) : Array.isArray(v) ? "[" + v.map(canon).join(",") + "]" : "{" + Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + canon(v[k])).join(",") + "}");
+    const norm = (t) => {
+      const d = { name: t.name, title: t.title || null, description: t.description || "", inputSchema: typeof t.inputSchema === "string" ? JSON.parse(t.inputSchema) : t.inputSchema || null, annotations: t.annotations || {} };
+      return { ...d, descriptor: canon(d) };
+    };
     let tools = null;
     if (typeof mc.listTools === "function") tools = await mc.listTools();
     else if (typeof mc.codexGetTools === "function") tools = await mc.codexGetTools();
@@ -25,6 +33,7 @@
     if (arg.op === "list") return { supported: true, listable: true, tools };
     const tool = tools.find((t) => t.name === arg.name);
     if (!tool) return { supported: true, listable: true, missing: true, tools: tools.map((t) => t.name) };
+    if (typeof arg.descriptor === "string" && tool.descriptor !== arg.descriptor) return { supported: true, listable: true, changed: true };
     let result;
     if (typeof mc.executeTool === "function") result = await mc.executeTool(arg.name, arg.input);
     else if (typeof mc.callTool === "function") result = await mc.callTool({ name: arg.name, arguments: arg.input });
@@ -41,16 +50,29 @@
     "webmcp",
     (t) => {
       const UNSUPPORTED = "webmcp: this page declares no WebMCP tools (no navigator.modelContext). WebKit has no built-in WebMCP; only pages that ship their own implementation expose tools.";
-      async function list(page) {
+      // 64-bit FNV-1a of a descriptor, shown in a draft's preview. The
+      // confirmation compares the whole descriptor, not this hash.
+      const hash = (s) => {
+        let h = 0xcbf29ce484222325n;
+        for (let i = 0; i < s.length; i++) h = ((h ^ BigInt(s.charCodeAt(i))) * 0x100000001b3n) & 0xffffffffffffffffn;
+        return h.toString(16).padStart(16, "0");
+      };
+      // Tools with their descriptors (internal).
+      async function listRaw(page) {
         const r = await (page || t.currentPage()).evaluate(webmcp, { op: "list" });
         if (!r.supported) return { supported: false, tools: [], note: UNSUPPORTED };
         if (!r.listable) return { supported: true, tools: [], note: "webmcp: the page has navigator.modelContext but its implementation offers no way to list tools" };
         return { supported: true, tools: r.tools };
       }
-      async function run(page, name, input) {
-        const r = await page.evaluate(webmcp, { op: "call", name, input: input === undefined ? {} : input });
+      async function list(page) {
+        const r = await listRaw(page);
+        return r.tools.length ? { ...r, tools: r.tools.map(({ descriptor, ...tool }) => tool) } : r;
+      }
+      async function run(page, name, input, descriptor) {
+        const r = await page.evaluate(webmcp, { op: "call", name, input: input === undefined ? {} : input, descriptor });
         if (!r.supported) throw new S.SiteError("unsupported", UNSUPPORTED);
         if (r.missing) throw new S.SiteError("not_found", `webmcp.call: the page has no tool ${JSON.stringify(name)}; tools: ${r.tools.join(", ")}`);
+        if (r.changed) throw new S.SiteError("tool_changed", `webmcp.call: the page's tool ${JSON.stringify(name)} changed since the preview (its description, schema or annotations differ); nothing was called. Make a new draft and show it to the user again`);
         if (r.notCallable) throw new S.SiteError("unsupported", `webmcp.call: tool ${JSON.stringify(name)} cannot be called from outside the page`);
         return r.result;
       }
@@ -64,19 +86,23 @@
         async call(name, input, options = {}) {
           if (typeof name === "string" && /^draft-\d+-[0-9a-f]+$/.test(name)) return t.write("webmcp", "call", name, input);
           const page = options.page || t.currentPage();
-          const { tools } = await list(page);
+          const { tools } = await listRaw(page);
           const tool = tools.find((x) => x.name === name);
           if (!tool) throw new S.SiteError("not_found", `webmcp.call: the page has no tool ${JSON.stringify(name)}; tools: ${tools.map((x) => x.name).join(", ") || "none"}`);
-          if (options.trustReadOnlyHint === true && tool.annotations && tool.annotations.readOnlyHint === true) return run(page, name, input);
+          // The tool runs only while it is the one just listed: its
+          // readOnlyHint, or the draft's preview, describes that tool.
+          const descriptor = tool.descriptor;
+          if (options.trustReadOnlyHint === true && tool.annotations && tool.annotations.readOnlyHint === true) return run(page, name, input, descriptor);
           const url = page.url();
           return t.write("webmcp", "call", { name, input }, undefined, () => ({
             category: "[9]/[14] a page tool that may change or send data",
             summary: `Call WebMCP tool "${name}" on ${url.split("?")[0]}`,
-            preview: { page: url, tool: name, description: tool.description, input: input === undefined ? {} : input },
-            // The confirmed call sends the previewed (frozen) input.
+            preview: { page: url, tool: name, description: tool.description, inputSchema: tool.inputSchema, annotations: tool.annotations, toolHash: hash(descriptor), input: input === undefined ? {} : input },
+            // The confirmed call sends the previewed (frozen) input to the
+            // previewed tool: same tab URL, same name, same descriptor.
             run: async (preview) => {
               if (page.url() !== url) throw new S.SiteError("page_changed", `webmcp.call: the tab navigated away from ${url}; nothing was called`);
-              return run(page, preview.tool, preview.input);
+              return run(page, preview.tool, preview.input, descriptor);
             },
           }));
         },
