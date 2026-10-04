@@ -22,7 +22,8 @@ import tempfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ASK_ALL = ["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch", "WebSearch", "Task"]
+ASK_ALL = ["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch", "WebSearch", "Task",
+           "Read", "Glob", "Grep", "TodoWrite", "LS", "NotebookRead", "BashOutput", "KillShell"]
 
 
 SECRET_DENY = ["Read(./.env*)", "Read(**/.env*)", "Read(**/*.token)", "Read(**/.claude/**)", "Read(**/state/**)"]
@@ -116,6 +117,20 @@ def scenarios(root):
                                                    "prompt": "summarize \uff20SECRETPATH"}),
         ("at-path-in-document-block", "FLOOR", "Bash", {"inject": remote_settings(), "secret": "notes/private.txt",
                                                         "prompt": "summarize @SECRETPATH", "document": True}),
+        ("user-allow-without-floor", "INFO", "Bash", {"user": {"permissions": {"allow": ["Bash"]}}}),
+        ("project-allow-bare-without-floor", "INFO", "Bash", {"project": {"permissions": {"allow": ["Bash"]}}}),
+        ("read-in-cwd-with-ask", "FLOOR-ASK", "Read", {"inject": remote_settings(), "secret": "notes/plain.txt",
+                                                   "args": ["--setting-sources", ""]}),
+        ("glob-with-ask", "FLOOR-ASK", "Glob", {"inject": remote_settings(), "args": ["--setting-sources", ""]}),
+        ("grep-with-ask", "FLOOR-ASK", "Grep", {"inject": remote_settings(), "args": ["--setting-sources", ""]}),
+        ("todowrite-with-ask", "FLOOR-ASK", "TodoWrite", {"inject": remote_settings(), "args": ["--setting-sources", ""]}),
+        ("subagent-inherits-ask", "FLOOR-ASK", "Task", {"inject": remote_settings(), "args": ["--setting-sources", ""],
+                                                    "allow_tools": ["Task"], "sub": "Bash"}),
+        ("subagent-inherits-deny", "FLOOR", "Task", {"inject": remote_settings(), "args": ["--setting-sources", ""],
+                                                     "allow_tools": ["Task"], "sub": "Read", "secret": ".env"}),
+        ("memory-default-sources", "INFO", "Bash", {"inject": remote_settings(), "memory": True}),
+        ("memory-empty-sources", "FLOOR", "Bash", {"inject": remote_settings(), "memory": True,
+                                                   "args": ["--setting-sources", ""]}),
         ("slash-clear-prefixed", "INFO", "Bash", {"inject": remote_settings(), "prompt": "Message from phone: /clear"}),
         ("slash-clear-as-text", "INFO", "Bash", {"inject": remote_settings(), "prompt": "/clear"}),
         ("bang-as-text", "INFO", "Bash", {"inject": remote_settings(), "prompt": "!touch MARKER"}),
@@ -123,6 +138,9 @@ def scenarios(root):
 
 
 SENTINELS = {
+    "user_memory": "probe-sentinel-user-claude-md",
+    "user_import": "probe-sentinel-user-import",
+    "project_memory": "probe-sentinel-project-claude-md",
     "skill": "probe-sentinel-user-skill",
     "command": "probe-sentinel-user-command",
     "agent": "probe-sentinel-user-agent",
@@ -150,6 +168,13 @@ def plant_user_definitions(home, project, marker):
                f"---\nname: project-probe-skill\ndescription: {SENTINELS['project_skill']}\n---\nhello\n")
 
 
+def plant_memory(home, project):
+    write_text(os.path.join(home, ".claude", "notes.md"), SENTINELS["user_import"] + "\n")
+    write_text(os.path.join(home, ".claude", "CLAUDE.md"),
+               SENTINELS["user_memory"] + "\n@" + os.path.join(home, ".claude", "notes.md") + "\n")
+    write_text(os.path.join(project, "CLAUDE.md"), SENTINELS["project_memory"] + "\n")
+
+
 def write_json(path, value):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
@@ -159,15 +184,24 @@ def write_json(path, value):
 SECRET = "probe-secret-7f3a9c"
 
 
-def start_fake(tool, marker, log, secret_path=None):
-    if tool == "Bash":
-        tool_input = {"command": f"touch {marker}"}
-    elif tool == "Read":
-        tool_input = {"file_path": secret_path}
-    else:
-        tool_input = {"file_path": marker, "content": "x\n"}
-    env = dict(os.environ, FAKE_TOOL_NAME=tool, FAKE_TOOL_INPUT=json.dumps(tool_input), FAKE_MODEL_LOG=log,
+def tool_input_for(tool, marker, secret_path, project):
+    return {
+        "Bash": {"command": f"touch {marker}"},
+        "Read": {"file_path": secret_path},
+        "Write": {"file_path": marker, "content": "x\n"},
+        "Glob": {"pattern": "**/*", "path": project},
+        "Grep": {"pattern": "probe", "path": project},
+        "TodoWrite": {"todos": [{"content": "probe", "status": "pending", "activeForm": "probing"}]},
+        "Task": {"description": "probe", "prompt": "run the tool", "subagent_type": "general-purpose"},
+    }[tool]
+
+
+def start_fake(tool, marker, log, secret_path=None, project=None, sub=None):
+    env = dict(os.environ, FAKE_TOOL_NAME=tool,
+               FAKE_TOOL_INPUT=json.dumps(tool_input_for(tool, marker, secret_path, project)), FAKE_MODEL_LOG=log,
                FAKE_SECRET=SECRET, FAKE_SENTINELS=",".join(SENTINELS.values()))
+    if sub:
+        env.update(FAKE_SUB_TOOL_NAME=sub, FAKE_SUB_TOOL_INPUT=json.dumps(tool_input_for(sub, marker, secret_path, project)))
     proc = subprocess.Popen([sys.executable, os.path.join(HERE, "fake_model.py")], env=env,
                             stdout=subprocess.PIPE, text=True)
     line = proc.stdout.readline().split()
@@ -207,7 +241,9 @@ def run(claude, root, name, kind, tool, opts, deadline_s=90):
         os.makedirs(os.path.dirname(secret_path), exist_ok=True)
         with open(secret_path, "w") as f:
             f.write(SECRET + "\n")
-    fake, port = start_fake(tool, marker, os.path.join(case, "model.log"), secret_path)
+    if opts.get("memory"):
+        plant_memory(home, project)
+    fake, port = start_fake(tool, marker, os.path.join(case, "model.log"), secret_path, project, opts.get("sub"))
     env = {k: v for k, v in os.environ.items() if not k.startswith(("ANTHROPIC_", "CLAUDE_"))}
     env.update(HOME=home, ANTHROPIC_BASE_URL=f"http://127.0.0.1:{port}", ANTHROPIC_API_KEY="sk-ant-probe-fake",
                CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1", DISABLE_AUTOUPDATER="1")
@@ -247,9 +283,14 @@ def run(claude, root, name, kind, tool, opts, deadline_s=90):
                 continue
             if msg.get("type") == "control_request" and msg["request"].get("subtype") == "can_use_tool":
                 result["asked"] += 1
+                asked_tool = msg["request"].get("tool_name")
+                result.setdefault("asked_tools", []).append(asked_tool)
+                if asked_tool in opts.get("allow_tools", []):
+                    reply = {"behavior": "allow", "updatedInput": msg["request"].get("input", {})}
+                else:
+                    reply = {"behavior": "deny", "message": "remote floor probe denies"}
                 send(proc, {"type": "control_response", "response": {
-                    "subtype": "success", "request_id": msg["request_id"],
-                    "response": {"behavior": "deny", "message": "remote floor probe denies"}}})
+                    "subtype": "success", "request_id": msg["request_id"], "response": reply}})
             elif msg.get("type") == "control_response" and msg["response"].get("request_id") == "ctl-mode":
                 result["set_mode_reply"] = msg["response"].get("subtype") + ":" + str(msg["response"].get("error", ""))[:200]
             elif msg.get("type") == "result":
@@ -276,6 +317,8 @@ def run(claude, root, name, kind, tool, opts, deadline_s=90):
     result["secret_seen"] = any(c.get("secret_seen") for c in calls)
     result["sentinels"] = sorted({x for c in calls for x in c.get("sentinels", [])})
     result["holds"] = not result["ran"] and not result["secret_seen"] and not result["sentinels"]
+    if kind == "FLOOR-ASK":
+        result["holds"] = result["holds"] and result["asked"] >= 1
     return result
 
 
@@ -295,9 +338,10 @@ def main():
         r = run(ns.claude, root, name, kind, tool, opts)
         results.append(r)
         effect = r["ran"] or r["secret_seen"] or bool(r["sentinels"])
-        verdict = ("HOLDS" if r["holds"] else "BROKEN") if kind == "FLOOR" else ("effect" if effect else "no-effect")
-        failed |= kind == "FLOOR" and not r["holds"]
-        print(f"{kind:5} {name:30} {verdict:11} asked={r['asked']} secret_seen={r['secret_seen']} model_calls={r['model_calls']} result={r['result']} exit={r['exit']}"
+        floor = kind.startswith("FLOOR")
+        verdict = ("HOLDS" if r["holds"] else "BROKEN") if floor else ("effect" if effect else "no-effect")
+        failed |= floor and not r["holds"]
+        print(f"{kind:9} {name:36} {verdict:11} asked={r['asked']} secret_seen={r['secret_seen']} model_calls={r['model_calls']} result={r['result']} exit={r['exit']} tools={','.join(r.get('asked_tools', []))}"
               + (f" loaded={','.join(r['sentinels'])}" if r["sentinels"] else "")
               + (f" set_mode={r['set_mode_reply']}" if r["set_mode_reply"] else ""))
         if r["result"] is None and r["stderr"]:

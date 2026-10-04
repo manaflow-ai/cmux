@@ -14,6 +14,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 TOOL_NAME = os.environ.get("FAKE_TOOL_NAME", "Bash")
 TOOL_INPUT = json.loads(os.environ.get("FAKE_TOOL_INPUT", '{"command": "true"}'))
+# Optional second tool for a conversation that does not offer the first one
+# (a Task subagent has no Task tool): the subagent asks for this one.
+SUB_TOOL_NAME = os.environ.get("FAKE_SUB_TOOL_NAME")
+SUB_TOOL_INPUT = json.loads(os.environ.get("FAKE_SUB_TOOL_INPUT", "{}"))
 LOG = os.environ.get("FAKE_MODEL_LOG")
 # A secret the probe planted in a file; the log records whether any request
 # body carried it back to the model (a read or an @path expansion leaked it).
@@ -33,13 +37,16 @@ def has_tool_result(body):
     return False
 
 
-def offers_tool(body):
-    return any(t.get("name") == TOOL_NAME for t in body.get("tools") or [])
+def offers(body, name):
+    return any(t.get("name") == name for t in body.get("tools") or [])
 
 
 def blocks_for(body):
-    if offers_tool(body) and not has_tool_result(body):
-        return [{"type": "tool_use", "id": "toolu_probe_1", "name": TOOL_NAME, "input": TOOL_INPUT}], "tool_use"
+    if not has_tool_result(body):
+        if offers(body, TOOL_NAME):
+            return [{"type": "tool_use", "id": "toolu_probe_1", "name": TOOL_NAME, "input": TOOL_INPUT}], "tool_use"
+        if SUB_TOOL_NAME and offers(body, SUB_TOOL_NAME):
+            return [{"type": "tool_use", "id": "toolu_probe_2", "name": SUB_TOOL_NAME, "input": SUB_TOOL_INPUT}], "tool_use"
     return [{"type": "text", "text": "done"}], "end_turn"
 
 
