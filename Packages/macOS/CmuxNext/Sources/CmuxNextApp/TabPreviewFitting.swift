@@ -5,9 +5,14 @@ import CoreGraphics
 /// thread, so the card's layer never decodes and scales a full page in a
 /// frame.
 enum TabPreviewFitting {
+    /// The size a page thumbnail is kept at in `TabContentCache.pageThumbnails` (covers the hover
+    /// card and the tab drag ghost at 2x).
+    static let cachedPixelSize = CGSize(width: 640, height: 640)
+
     /// `image` scaled to fit `maxPixelSize` (never up), on a background task.
     static func fit(_ image: CGImage, _ maxPixelSize: CGSize) async -> CGImage {
-        await Task.detached(priority: .userInitiated) { fitted(image, maxPixelSize) }.value
+        if image.width <= Int(maxPixelSize.width), image.height <= Int(maxPixelSize.height) { return image }
+        return await Task.detached(priority: .userInitiated) { fitted(image, maxPixelSize) }.value
     }
 
     nonisolated static func fitted(_ image: CGImage, _ maxPixelSize: CGSize) -> CGImage {

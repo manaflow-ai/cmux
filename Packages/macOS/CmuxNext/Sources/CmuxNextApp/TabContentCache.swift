@@ -37,6 +37,9 @@ final class TabContentCache {
     /// screen (R131), at most `TabPreviewFitting.cachedPixelSize` each. Kept
     /// apart from `previews`, whose full-size page images hibernation shows.
     let pageThumbnails = PreviewImageCache(capacityBytes: 16 << 20)
+    /// Pages revealed since their last hide: the next hide captures their
+    /// thumbnail (`TabContentCache+Lifecycle`).
+    var shownPages: Set<String> = []
     let webKit = WebKitEngine()
     let cef: CEFEngine
     /// Pages visited in the default browser profile, shared by its omnibars for suggestions and
@@ -364,6 +367,8 @@ final class TabContentCache {
         browsers.removeValue(forKey: key)?.close()
         browserTabs.untrack(key)
         previews.remove(key)
+        pageThumbnails.remove(key)
+        shownPages.remove(key)
         onPresentationChange?()
     }
 }
