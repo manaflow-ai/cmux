@@ -342,7 +342,13 @@ pub(super) async fn handle_request(
             Ok(json!({}))
         }
         // ------------------------------------------------ acpmux extensions
-        method::MUX_STATUS => Ok(hub.status().await),
+        method::MUX_STATUS => {
+            let mut status = hub.status().await;
+            if conn.origin == Origin::Web {
+                redact_for_remote(&mut status);
+            }
+            Ok(status)
+        }
         method::MUX_SESSIONS => Ok(json!({"sessions": hub.all_session_summaries()})),
         method::MUX_WARM => {
             let requested: Vec<String> = params
@@ -380,7 +386,13 @@ pub(super) async fn handle_request(
             cfg.save().map_err(|e| RpcError::internal(format!("save permission policy: {e}")))?;
             Ok(json!({"policy":policy.to_string()}))
         }
-        "_acpmux/peers" => Ok(json!({"peers": hub.peers()})),
+        "_acpmux/peers" => {
+            let mut reply = json!({"peers": hub.peers()});
+            if conn.origin == Origin::Web {
+                redact_for_remote(&mut reply);
+            }
+            Ok(reply)
+        }
         "_acpmux/directories" => {
             let home = dirs::home_dir().unwrap_or_default();
             let base = str_param(&params, "cwd").map(PathBuf::from).unwrap_or_else(|| home.clone());
@@ -948,6 +960,24 @@ pub(super) async fn handle_request(
                 return hub.forward(&s, other, params).await;
             }
             Err(RpcError::method_not_found(other))
+        }
+    }
+}
+
+/// A remote-origin (Web) connection never learns a token: not the
+/// dashboard link (`webUrl` carries this listener's token) and not a query
+/// or fragment of a peer's URL (a user may have written a peer's token
+/// there). The local socket keeps both (`acpmux web`, the app's host).
+fn redact_for_remote(reply: &mut Value) {
+    if let Some(obj) = reply.as_object_mut() {
+        obj.remove("webUrl");
+    }
+    if let Some(peers) = reply.get_mut("peers").and_then(Value::as_array_mut) {
+        for peer in peers {
+            if let Some(url) = peer.get("url").and_then(Value::as_str) {
+                let bare = url.split(['?', '#']).next().unwrap_or_default().to_owned();
+                peer["url"] = Value::String(bare);
+            }
         }
     }
 }

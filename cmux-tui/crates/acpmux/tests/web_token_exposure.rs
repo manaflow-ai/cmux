@@ -22,6 +22,7 @@ async fn client(origin: Origin) -> (mpsc::Sender<String>, mpsc::Receiver<String>
             token: Some(TOKEN.into()),
             allowed_origins: Vec::new(),
             allowed_hosts: Vec::new(),
+            token_rotated: 1,
         }),
         ..Default::default()
     };
@@ -42,7 +43,8 @@ async fn client(origin: Origin) -> (mpsc::Sender<String>, mpsc::Receiver<String>
 async fn call(c: &mut (mpsc::Sender<String>, mpsc::Receiver<String>), id: i64, m: &str) -> String {
     c.0.send(Message::request(id, m, json!({})).to_line()).await.unwrap();
     loop {
-        let line = tokio::time::timeout(Duration::from_secs(10), c.1.recv()).await.unwrap().unwrap();
+        let line =
+            tokio::time::timeout(Duration::from_secs(10), c.1.recv()).await.unwrap().unwrap();
         if let Message::Response { id: rid, .. } = Message::parse(&line).unwrap()
             && rid == json!(id)
         {
@@ -57,7 +59,10 @@ async fn a_web_connection_never_gets_the_token_or_the_web_url() {
     for (id, m) in [(1, method::INITIALIZE), (2, method::MUX_STATUS), (3, "_acpmux/peers")] {
         let reply = call(&mut web, id, m).await;
         assert!(!reply.contains(TOKEN), "{m} sent the listener token to a Web connection: {reply}");
-        assert!(!reply.contains(PEER_TOKEN), "{m} sent a peer's token to a Web connection: {reply}");
+        assert!(
+            !reply.contains(PEER_TOKEN),
+            "{m} sent a peer's token to a Web connection: {reply}"
+        );
         assert!(!reply.contains("webUrl"), "{m} sent webUrl to a Web connection: {reply}");
     }
     // The local socket still gets the dashboard link (`acpmux web`, the app).
@@ -80,7 +85,17 @@ impl Drop for Daemon {
 
 fn start(home: &std::path::Path, extra: &[&str]) -> (Daemon, Value) {
     let mut child = Command::new(env!("CARGO_BIN_EXE_acpmux"))
-        .args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "error"])
+        .args([
+            "daemon",
+            "run",
+            "--memory",
+            "--listen",
+            "127.0.0.1:0",
+            "--ready-fd",
+            "1",
+            "--log",
+            "error",
+        ])
         .args(extra)
         .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", home.join("s.sock"))
