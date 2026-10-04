@@ -62,7 +62,7 @@ import Testing
 
     @Test func paneResizeUsesControlCommandArrowsAndVimKeys() {
         let registry = ActionRegistry.standard()
-        for id in ["resizePaneLeft", "resizePaneRight", "resizePaneUp", "resizePaneDown"] {
+        for id: ActionID in ["resizePaneLeft", "resizePaneRight", "resizePaneUp", "resizePaneDown"] {
             registry.bind(id) {}
         }
         registry.bind("focusHistoryBack") {}
