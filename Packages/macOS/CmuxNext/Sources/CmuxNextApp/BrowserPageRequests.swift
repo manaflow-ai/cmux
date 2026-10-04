@@ -57,6 +57,10 @@ final class BrowserPageRequests: BrowserTabDelegate {
         // store an engine-made child page already uses).
         let profile = services.cache.tabModel(key).map(services.browserProfiles.profileID(ofTab:))
         switch intent {
+        case .openURL(let url, .newWindow):
+            openInNewWindow(url, adopting: nil, opener: page)
+        case .adoptTab(let child, .newWindow):
+            openInNewWindow(child.state.url, adopting: child, opener: page)
         case .openURL(let url, let disposition):
             open(url: url, adopting: nil, engine: engine, profile: profile, in: pane, background: disposition == .backgroundTab)
         case .adoptTab(let child, let disposition):
@@ -109,29 +113,36 @@ final class BrowserPageRequests: BrowserTabDelegate {
         case .currentTab: page.load(url)
         case .newBackgroundTab: browserTab(page, didRequest: .openURL(url, .backgroundTab))
         case .newForegroundTab: browserTab(page, didRequest: .openURL(url, .foregroundTab))
-        case .newWindow: openInNewWindow(url, opener: page)
+        case .newWindow: browserTab(page, didRequest: .openURL(url, .newWindow))
         }
     }
 
-    /// `url` in a new window whose new workspace holds one browser tab on
-    /// the opener's engine and browser profile. An incognito opener, or one
-    /// on another machine, opens a foreground tab next to it instead: the
-    /// new workspace would leave its profile or its machine.
-    private func openInNewWindow(_ url: URL, opener page: any BrowserTab) {
-        guard let services, let key = services.cache.key(of: page), let tab = services.cache.tabModel(key) else { return }
+    /// `url` (or `child`, a page the engine already made) in a new window
+    /// whose new workspace holds one browser tab on the opener's engine and
+    /// browser profile. An incognito opener, or one on another machine,
+    /// opens a foreground tab next to it instead: the new workspace would
+    /// leave its profile or its machine.
+    private func openInNewWindow(_ url: URL?, adopting child: (any BrowserTab)?, opener page: any BrowserTab) {
+        guard let services, let key = services.cache.key(of: page), let tab = services.cache.tabModel(key) else {
+            child?.close()
+            return
+        }
         let browserTabs = services.cache.browserTabs!
         let daemon = services.machines.daemon(forTab: tab)
         guard browserTabs.isAvailable(), daemon === services.activeDaemon, !browserTabs.isIncognitoTab(key) else {
-            return browserTab(page, didRequest: .openURL(url, .foregroundTab))
+            if let child { return browserTab(page, didRequest: .adoptTab(child, .foregroundTab)) }
+            if let url { browserTab(page, didRequest: .openURL(url, .foregroundTab)) }
+            return
         }
         let engine = BrowserEngineResolver.tag(for: page.engineKind).rawValue
-        let choice = Self.choice(adopting: nil, inherited: engine, browserTabs: browserTabs)
+        let choice = Self.choice(adopting: child, inherited: engine, browserTabs: browserTabs)
         let profile = services.browserProfiles.profileID(ofTab: tab)
-        let address = url.absoluteString
-        WorkspaceHandlers.createAndShow(services: services, newWindow: true) { connection, terminal in
+        let address = child == nil ? (url?.absoluteString ?? "about:blank") : BrowserNewTabPage.blankURL
+        WorkspaceHandlers.createAndShow(services: services, newWindow: true) { [weak self] connection, terminal in
             guard let pane = terminal.pane else { return }
-            _ = try await browserTabs.open(choice, in: pane, url: address, profile: profile)
-            if let surface = terminal.surface { try await connection.closeTab(surface) }
+            let surface = try await browserTabs.open(choice, in: pane, url: address, profile: profile)
+            if let child { await self?.adopt(child, surface: surface) }
+            if let terminal = terminal.surface { try await connection.closeTab(terminal) }
         }
     }
 
