@@ -102,6 +102,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// gives the navigation guard the policy.
     @MainActor
     private func applyDomainPolicy(_ policy: BrowserReplDomainPolicy) async {
+        // A policy that lands after the session ended must not put state
+        // back for it (detach() waits for this task, then tears down).
+        guard !lock.withLock({ isDetached }) else { return }
         BrowserReplNavigationGuard.shared.setPolicy(policy, sessionID: sessionID)
         frameGate.policy = policy
         var options = contextOptions ?? BrowserReplContextOptions()
@@ -154,12 +157,17 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     func detach() {
-        lock.withLock {
+        let pendingPolicy = lock.withLock {
             sink = nil
             isDetached = true
+            return policyTask
         }
+        // `sessionID` is this instance's own (never reused for a later
+        // session of the same name), so this teardown reaches only state
+        // this instance made; it runs after the policy task it would race.
         let sessionID = self.sessionID
         Task { @MainActor in
+            await pendingPolicy?.value
             BrowserReplNavigationGuard.shared.removeSession(sessionID)
             BrowserReplTabAttachments.shared.detach(sessionID: sessionID)
             // The compiled domain-policy list must not outlive the session
