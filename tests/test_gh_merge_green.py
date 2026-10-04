@@ -192,6 +192,18 @@ class MainFixEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(module.Refused, "intervening changes may affect the test"):
             self.validate()
 
+    def test_ancestor_fallback_rejects_compare_file_cap(self):
+        """A capped compare response cannot prove all intervening paths are safe."""
+        self.gh.fail_test()
+        self.gh.base_checks = []
+        self.gh.parents[BASE] = [ANCESTOR]
+        ancestor = copy.deepcopy(self.gh.head_checks[2])
+        ancestor.update(id=31, head_sha=ANCESTOR, details_url="https://github.com/manaflow-ai/cmux/actions/runs/21/job/31")
+        self.gh.ancestor_checks = [ancestor]
+        self.gh.compare_entries = [{"filename": "plans/path-filtered.md"}] * 300
+        with self.assertRaisesRegex(module.Refused, "300-file limit"):
+            self.validate()
+
     def test_timeout_or_setup_failure_is_not_a_test_failure(self):
         self.gh.fail_test()
         self.gh.jobs[3]["steps"][-1]["name"] = "Fetch dependencies"

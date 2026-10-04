@@ -110,6 +110,8 @@ def path_filtered_intervening_changes(repo: str, ancestor: str, base: str, githu
     """Reject ancestor evidence when intervening paths could affect Swift tests."""
     comparison = github.json(f"repos/{repo}/compare/{ancestor}...{base}")
     files = comparison.get("files", []) if isinstance(comparison, dict) else []
+    if len(files) >= 300:
+        raise Refused("GitHub compare reached the 300-file limit; intervening changes are not fully verified")
     paths = []
     for file in files:
         if not isinstance(file, dict):
