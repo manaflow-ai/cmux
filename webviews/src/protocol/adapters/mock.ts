@@ -7,8 +7,28 @@ export class MockTransport extends BaseTransport {
   peer: MockTransport | null = null;
   /** Every message this side sent, in order. */
   readonly sent: TransportMessage[] = [];
+  /** Sizes of each engine operation: 1 per plain send, n per batch. */
+  readonly writes: number[] = [];
+  /** Present only on pairs created with `{ batch: true }`. */
+  sendBatch?: (msgs: readonly TransportMessage[]) => void;
+
+  constructor(options: { batch?: boolean } = {}) {
+    super();
+    if (options.batch) {
+      this.sendBatch = (msgs) => {
+        if (this.closed) throw new Error("transport is closed");
+        this.writes.push(msgs.length);
+        for (const msg of msgs) this.transmit(msg);
+      };
+    }
+  }
 
   protected sendRaw(msg: TransportMessage): void {
+    this.writes.push(1);
+    this.transmit(msg);
+  }
+
+  private transmit(msg: TransportMessage): void {
     const copy = typeof msg === "string" ? msg : msg.slice();
     this.sent.push(copy);
     const peer = this.peer;
@@ -36,9 +56,9 @@ export class MockTransport extends BaseTransport {
   }
 }
 
-export function createMockPair(): [MockTransport, MockTransport] {
-  const a = new MockTransport();
-  const b = new MockTransport();
+export function createMockPair(options: { batch?: boolean } = {}): [MockTransport, MockTransport] {
+  const a = new MockTransport(options);
+  const b = new MockTransport(options);
   a.peer = b;
   b.peer = a;
   return [a, b];

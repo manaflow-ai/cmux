@@ -12,6 +12,38 @@ export const MAX_MESSAGE_BYTES = 16 * 1024 * 1024;
 export const MAX_U32 = 0xffff_ffff;
 export const BINARY_HEADER_BYTES = 8;
 
+/**
+ * The 16 MiB limit is in UTF-8 wire bytes; one UTF-16 unit can be up to 3 bytes, so `length`
+ * alone undercounts. Strings that cannot exceed the limit even at 3 bytes per unit skip the scan.
+ */
+export function exceedsMessageLimit(text: string): boolean {
+  if (text.length * 3 <= MAX_MESSAGE_BYTES) return false;
+  if (text.length > MAX_MESSAGE_BYTES) return true;
+  return utf8ByteLength(text) > MAX_MESSAGE_BYTES;
+}
+
+/** Exact UTF-8 size of a JS string, without encoding it. */
+export function utf8ByteLength(text: string): number {
+  return exactUtf8Length(text);
+}
+
+function exactUtf8Length(text: string): number {
+  let bytes = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const unit = text.charCodeAt(i);
+    if (unit < 0x80) bytes += 1;
+    else if (unit < 0x800) bytes += 2;
+    else if (unit >= 0xd800 && unit <= 0xdbff && i + 1 < text.length) {
+      const next = text.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        i += 1;
+      } else bytes += 3;
+    } else bytes += 3; // BMP and lone surrogates (encoded as U+FFFD, 3 bytes).
+  }
+  return bytes;
+}
+
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
 export interface CallMessage {
@@ -133,7 +165,7 @@ const isBoolean = (v: unknown): v is boolean => typeof v === "boolean";
 
 /** Parses and shape-checks one text message. Throws EnvelopeError for anything malformed. */
 export function decodeEnvelope(text: string): Envelope {
-  if (text.length > MAX_MESSAGE_BYTES) throw new EnvelopeError("message exceeds 16 MiB");
+  if (exceedsMessageLimit(text)) throw new EnvelopeError("message exceeds 16 MiB");
   let raw: unknown;
   try {
     raw = JSON.parse(text);
@@ -233,7 +265,7 @@ export function checkEnvelope(raw: unknown): Envelope {
 
 export function encodeEnvelope(msg: Envelope): string {
   const text = JSON.stringify(msg);
-  if (text.length > MAX_MESSAGE_BYTES) throw new EnvelopeError("message exceeds 16 MiB; use a byte stream");
+  if (exceedsMessageLimit(text)) throw new EnvelopeError("message exceeds 16 MiB; use a byte stream");
   return text;
 }
 

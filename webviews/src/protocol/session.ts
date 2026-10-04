@@ -392,6 +392,8 @@ export class Session {
   }
 
   close(): void {
+    // Queued releases, unsubs and replies still go out before the transport closes.
+    this.flush();
     this.transport.close();
     this.shutdown({ reason: "session closed" });
   }
@@ -636,9 +638,32 @@ export class Session {
     this.sendRaw(encodeEnvelope(msg));
   }
 
+  /**
+   * Queues one message. Everything queued in the same tick goes out in one flush, in queue
+   * order, as a single `sendBatch` when the transport has one, otherwise one `send` each.
+   * Size and encoding errors throw here, synchronously, so the caller's call still rejects.
+   */
   private sendRaw(msg: TransportMessage): void {
     if (this.closeError) throw this.closeError;
-    this.transport.send(msg);
+    this.outbox.push(msg);
+    if (this.outbox.length === 1) queueMicrotask(this.flushTask);
+  }
+
+  private readonly outbox: TransportMessage[] = [];
+  private readonly flushTask = () => this.flush();
+
+  private flush(): void {
+    if (this.outbox.length === 0 || this.closeError) return;
+    const batch = this.outbox.splice(0);
+    try {
+      if (batch.length > 1 && this.transport.sendBatch) this.transport.sendBatch(batch);
+      else for (const msg of batch) this.transport.send(msg);
+    } catch (error) {
+      // A transport that fails mid-batch has lost ordering; nothing after it can be trusted.
+      this.protocolError(error as Error);
+      this.shutdown({ reason: `send failed: ${(error as Error)?.message ?? String(error)}` });
+      this.transport.close();
+    }
   }
 
   private trySend(msg: Envelope): void {
@@ -679,6 +704,7 @@ export class Session {
       details: info.code === undefined ? undefined : { code: info.code },
     });
     this.closeError = error;
+    this.outbox.length = 0;
     for (const off of this.detach) off();
     const pending = [...this.pending.values()];
     this.pending.clear();

@@ -1,7 +1,8 @@
 // MessagePort transport for iframes and workers. Strings pass as-is; binary frames are posted
 // as a transferred ArrayBuffer copy. MessagePort has no portable close signal, so a peer that
 // closes posts a `{"t":"bye"}` sentinel first (transport-level, never seen by Session); engines
-// that fire the newer `close` event on ports are handled too.
+// that fire the newer `close` event on ports are handled too. Both ends run this adapter, so a
+// batch posts as one array (one structured-clone task instead of one per message).
 
 import { BaseTransport, toUint8Array, type TransportMessage } from "../transport";
 
@@ -23,14 +24,19 @@ export class MessagePortTransport extends BaseTransport {
     this.port = port;
     port.addEventListener("message", (event) => {
       const data = event.data;
-      if (data === BYE) {
-        this.port.close();
-        this.finish({ reason: "peer closed" });
-      } else if (typeof data === "string") this.deliver(data);
-      else if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) this.deliver(toUint8Array(data));
+      if (Array.isArray(data)) for (const item of data) this.receive(item);
+      else this.receive(data);
     });
     port.addEventListener("close", () => this.finish({ reason: "port closed" }));
     port.start?.();
+  }
+
+  private receive(data: unknown): void {
+    if (data === BYE) {
+      this.port.close();
+      this.finish({ reason: "peer closed" });
+    } else if (typeof data === "string") this.deliver(data);
+    else if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) this.deliver(toUint8Array(data));
   }
 
   protected sendRaw(msg: TransportMessage): void {
@@ -40,6 +46,18 @@ export class MessagePortTransport extends BaseTransport {
     }
     const copy = msg.slice();
     this.port.postMessage(copy.buffer, [copy.buffer]);
+  }
+
+  sendBatch(msgs: readonly TransportMessage[]): void {
+    if (this.closed) throw new Error("transport is closed");
+    const transfer: ArrayBuffer[] = [];
+    const items = msgs.map((msg) => {
+      if (typeof msg === "string") return msg;
+      const copy = msg.slice();
+      transfer.push(copy.buffer);
+      return copy.buffer;
+    });
+    this.port.postMessage(items, transfer);
   }
 
   protected closeRaw(): void {

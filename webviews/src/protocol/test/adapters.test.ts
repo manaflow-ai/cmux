@@ -232,6 +232,7 @@ describe("CEF adapters", () => {
     const transport = new CdpBindingTransport({ binding: (payload) => sent.push(payload), target });
     const session = new Session(transport, { role: "client" });
     const call = session.call("cmux.test.ping", {});
+    await tick(); // Session flushes once per tick.
     const msg = JSON.parse(sent[0]) as { id: number };
     (target[DEFAULT_RECEIVE_NAME] as (m: string) => void)(JSON.stringify({ t: "ok", id: msg.id, value: 1 }));
     await expect(call).resolves.toBe(1);
@@ -260,5 +261,31 @@ describe("MessagePort adapter", () => {
     const closed = new Promise((resolve) => right.onClose(resolve));
     left.close();
     expect(await closed).toMatchObject({ reason: "peer closed" });
+  });
+});
+
+describe("MessagePort batching", () => {
+  test("a batch is one postMessage and arrives as separate messages in order", async () => {
+    const channel = new MessageChannel();
+    const left = new MessagePortTransport(channel.port1 as unknown as MessagePortLike);
+    const right = new MessagePortTransport(channel.port2 as unknown as MessagePortLike);
+    let posts = 0;
+    const post = channel.port1.postMessage.bind(channel.port1);
+    channel.port1.postMessage = ((message: unknown, transfer: Transferable[]) => {
+      posts += 1;
+      post(message, transfer);
+    }) as typeof channel.port1.postMessage;
+    const server = new Session(right, { role: "server" });
+    server.register("cmux.test.echo", (p) => p);
+    const client = new Session(left, { role: "client" });
+    const results = await Promise.all([1, 2, 3].map((n) => client.call("cmux.test.echo", { n })));
+    expect(results).toEqual([{ n: 1 }, { n: 2 }, { n: 3 }]);
+    expect(posts).toBe(1);
+    const got: TransportMessage[] = [];
+    right.onMessage((m) => got.push(m));
+    left.sendBatch(["a", new Uint8Array([0, 0, 0, 2, 0, 0, 0, 0, 1]), "b"]);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(got.map((m) => (typeof m === "string" ? m : [...m]))).toEqual(["a", [0, 0, 0, 2, 0, 0, 0, 0, 1], "b"]);
+    left.close();
   });
 });

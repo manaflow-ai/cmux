@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createMockPair } from "../adapters/mock";
-import { decodeBinaryFrame, encodeBinaryFrame } from "../envelope";
+import { decodeBinaryFrame, encodeBinaryFrame, utf8ByteLength } from "../envelope";
 import { ProtocolError, ProtocolErrorCode } from "../errors";
 import { Session, type SessionSchema } from "../session";
 import type { ByteStream } from "../stream";
@@ -400,5 +400,86 @@ describe("schema enforcement", () => {
     await tick();
     expect(good).toEqual([1]);
     expect(bad).toBe(1);
+  });
+});
+
+describe("per-tick write batching", () => {
+  test("messages queued in one tick go out as one sendBatch, in order", async () => {
+    const [a, b] = createMockPair({ batch: true });
+    const client = new Session(a, { role: "client" });
+    const server = new Session(b, { role: "server" });
+    server.register("cmux.test.echo", (p) => p);
+    const calls = [1, 2, 3].map((n) => client.call("cmux.test.echo", { n }));
+    expect(a.sent).toEqual([]); // nothing leaves until the tick ends
+    await expect(Promise.all(calls)).resolves.toEqual([{ n: 1 }, { n: 2 }, { n: 3 }]);
+    expect(a.writes).toEqual([3]);
+    expect(sentText(a).map((m) => m.id)).toEqual([1, 2, 3]);
+    // The server answered in one tick too.
+    expect(b.writes).toEqual([3]);
+  });
+
+  test("without sendBatch, one send per message keeps order across text and binary", async () => {
+    const [a, b] = createMockPair();
+    const client = new Session(a, { role: "client" });
+    const server = new Session(b, { role: "server" });
+    server.onStream("cmux.test.sink", (stream) => stream.grant(10));
+    const stream = await client.openStream("cmux.test.sink", undefined);
+    await tick();
+    const before = a.sent.length;
+    void stream.write(new Uint8Array([1, 2]));
+    void stream.end();
+    void client.call("cmux.test.none", {}).catch(() => {});
+    await tick();
+    const kinds = a.sent.slice(before).map((m) => (typeof m === "string" ? JSON.parse(m).t : "binary"));
+    expect(kinds).toEqual(["binary", "end", "call"]);
+    expect(a.writes.slice(-3)).toEqual([1, 1, 1]);
+  });
+
+  test("close flushes queued messages before closing the transport", async () => {
+    const { a, client } = clientOnly();
+    client.handle("h-1").release();
+    client.close();
+    expect(sentText(a)).toEqual([{ t: "release", handle: "h-1" }]);
+  });
+
+  test("a transport send failure closes the session and rejects pending calls", async () => {
+    const { a, client } = clientOnly();
+    const original = a.send.bind(a);
+    a.send = () => {
+      throw new Error("socket broke");
+    };
+    const call = client.call("cmux.test.x", {});
+    await expect(call).rejects.toMatchObject({ code: ProtocolErrorCode.closed, message: "send failed: socket broke" });
+    expect(client.closed).toBe(true);
+    a.send = original;
+  });
+});
+
+describe("16 MiB limit in UTF-8 bytes", () => {
+  test("a message under 16 Mi UTF-16 units but over 16 MiB of UTF-8 is refused", async () => {
+    const { a, client } = clientOnly();
+    // 6 Mi x "€" (3 UTF-8 bytes each) is 18 MiB on the wire but only 6 Mi string units.
+    const big = "€".repeat(6 * 1024 * 1024);
+    await expect(client.call("cmux.test.big", { big })).rejects.toThrow("exceeds 16 MiB");
+    // 5 Mi x "€" is 15 MiB: allowed.
+    const ok = "€".repeat(5 * 1024 * 1024);
+    void client.call("cmux.test.big", { ok }).catch(() => {});
+    await tick();
+    expect(a.sent).toHaveLength(1);
+  });
+
+  test("utf8ByteLength matches TextEncoder, including surrogate pairs and lone surrogates", () => {
+    for (const text of ["", "abc", "é", "€", "😀", "a😀b€é", "\ud800", "x\udc00y"]) {
+      expect(utf8ByteLength(text)).toBe(new TextEncoder().encode(text).byteLength);
+    }
+  });
+
+  test("incoming text over the limit is dropped and reported", async () => {
+    const [a, b] = createMockPair();
+    const errors: Error[] = [];
+    new Session(a, { role: "client", onProtocolError: (e) => errors.push(e) });
+    b.send(`{"t":"ok","id":1,"value":"${"€".repeat(6 * 1024 * 1024)}"}`);
+    await tick();
+    expect(errors.map((e) => e.message)).toEqual(["message exceeds 16 MiB"]);
   });
 });

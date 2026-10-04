@@ -16,7 +16,7 @@
     "lint:fix": "vp lint --fix",
     "protocol:codegen": "bun scripts/pane-protocol-codegen.ts",
     "protocol:check": "bun scripts/pane-protocol-codegen.ts --check",
-    "protocol:demo": "vp dev --config vite.config.pane-protocol-demo.mjs",
+    "protocol:demo": "vp dev --config vite.config.pane-protocol-demo.ts",
     "preview:dev": "vp dev --config vite.config.acpmux-preview.mjs",
     "preview:build": "vp build --config vite.config.acpmux-preview.mjs",
     "test": "bun test",

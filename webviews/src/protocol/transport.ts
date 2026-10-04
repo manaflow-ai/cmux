@@ -13,6 +13,12 @@ export interface TransportCloseInfo {
 
 export interface Transport {
   send(msg: TransportMessage): void;
+  /**
+   * Optional: sends several messages in one engine operation, in order. Session calls it once
+   * per tick when more than one message is queued. Only transports whose peer unpacks the
+   * batch implement it; WebSocket does not, since every frame is a separate message anyway.
+   */
+  sendBatch?(msgs: readonly TransportMessage[]): void;
   /** Returns an unsubscribe function. Messages that arrive before the first listener are queued. */
   onMessage(cb: (msg: TransportMessage) => void): () => void;
   /** Fires once. A listener added after close fires on the next microtask. */
