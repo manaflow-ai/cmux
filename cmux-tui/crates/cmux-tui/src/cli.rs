@@ -6,6 +6,8 @@
 
 #[cfg(unix)]
 mod app;
+#[cfg(unix)]
+mod apps_run;
 mod code_mode;
 #[cfg(unix)]
 mod coderouter;
@@ -186,7 +188,10 @@ pub(super) fn canonical_scope(value: &str) -> &str {
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
     let surface = Surface::current();
     #[cfg(unix)]
-    if let Some(code) = mcp::run_if_requested(args).or_else(|| coderouter::run_if_requested(args)) {
+    if let Some(code) = mcp::run_if_requested(args)
+        .or_else(|| coderouter::run_if_requested(args))
+        .or_else(|| apps_run::run_if_requested(args))
+    {
         return code;
     }
     #[cfg(unix)]
