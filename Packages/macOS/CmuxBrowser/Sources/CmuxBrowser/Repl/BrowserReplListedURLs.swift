@@ -20,11 +20,18 @@ public struct BrowserReplListedURLs: Sendable {
     /// - Parameter creator: The live session that created the tab, or
     ///   `nil` for a user's tab.
     public func tabRow(_ row: [String: Any], creator: String?) -> [String: Any] {
-        row
+        creator == reader ? row : Self.redactingURL(row)
     }
 
     /// A `history.search` row as the reader gets it.
     public func historyRow(_ row: [String: Any]) -> [String: Any] {
-        row
+        Self.redactingURL(row)
+    }
+
+    private static func redactingURL(_ row: [String: Any]) -> [String: Any] {
+        guard let url = row["url"] as? String else { return row }
+        var redacted = row
+        redacted["url"] = url.redactingBrowserReplURLCredentials()
+        return redacted
     }
 }
