@@ -137,7 +137,8 @@ extension WKWebView {
         return replayBrowserKeyboardSpecification(
             specification,
             action: action,
-            characters: nativeKey.characters
+            characters: nativeKey.characters,
+            marksBrowserAutomation: true
         )
     }
 
@@ -149,12 +150,19 @@ extension WKWebView {
     ///   - specification: AppKit key-code and modifier metadata.
     ///   - action: Whether to send a press, key-down, or key-up.
     ///   - characters: Optional Unicode text to attach to the event.
+    ///   - marksBrowserAutomation: Marks the events as automation's
+    ///     (``NSEvent/isBrowserAutomationKeyEvent``) so the app drops WebKit's
+    ///     resend of one no page handled. The REPL and `cmux browser press`
+    ///     mark their keys; the mobile browser stream, a person's keys from a
+    ///     phone, does not, so its unhandled Command shortcuts still reach the
+    ///     Mac's menus.
     /// - Returns: The native delivery outcome.
     @discardableResult
     public func replayBrowserKeyboardSpecification(
         _ specification: SyntheticKeySpecification,
         action: BrowserKeyboardAction,
-        characters: String? = nil
+        characters: String? = nil,
+        marksBrowserAutomation: Bool = false
     ) -> BrowserKeyboardReplayResult {
         let timestamp = ProcessInfo.processInfo.systemUptime
         let down = SyntheticKeyEventFactory.keyEvent(
@@ -162,14 +170,14 @@ extension WKWebView {
             keyDown: true,
             timestamp: timestamp,
             characters: characters,
-            marksBrowserAutomation: true
+            marksBrowserAutomation: marksBrowserAutomation
         )
         let up = SyntheticKeyEventFactory.keyEvent(
             specification: specification,
             keyDown: false,
             timestamp: timestamp,
             characters: characters,
-            marksBrowserAutomation: true
+            marksBrowserAutomation: marksBrowserAutomation
         )
 
         switch action {
@@ -319,8 +327,8 @@ extension WKWebView {
     }
 }
 
-/// Keys browser automation (the REPL, `cmux browser press`, the mobile
-/// browser stream) delivers to a web view. When no page handles such a key,
+/// Keys browser automation (the REPL, `cmux browser press`) delivers to a
+/// web view; the mobile browser stream's keys, a person's, are not marked. When no page handles such a key,
 /// WebKit sends it back through `NSApp.sendEvent` (WebViewImpl's
 /// doneWithKeyEvent), which hands it to the key window: the user's window,
 /// whose first responder (a terminal) would receive the text and whose menus

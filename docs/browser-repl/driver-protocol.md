@@ -98,7 +98,7 @@ No driver method moves the user's focus or selection except
 stays in the web view and the window's first responder stays the user's.
 A key-down no page handles is not passed on: WebKit resends such a key
 through `NSApp.sendEvent` to the key window (the user's terminal, menus), so
-keys a web view replays carry a mark (`eventSourceUserData`) and the app
+keys the REPL and `cmux browser press` send carry a mark (`eventSourceUserData`; the mobile browser stream's keys, a person's, do not) and the app
 drops a marked key that arrives outside the web view's own delivery.
 
 ## Hibernated and crashed tabs

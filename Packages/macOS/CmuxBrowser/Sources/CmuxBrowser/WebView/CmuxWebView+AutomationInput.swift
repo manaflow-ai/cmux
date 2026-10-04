@@ -282,7 +282,8 @@ extension WKWebView {
         return replayBrowserKeyboardSpecification(
             specification,
             action: keyDown ? .keyDown : .keyUp,
-            characters: stroke.characters.isEmpty ? nil : stroke.characters
+            characters: stroke.characters.isEmpty ? nil : stroke.characters,
+            marksBrowserAutomation: true
         )
     }
 
