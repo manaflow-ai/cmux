@@ -27,6 +27,10 @@ public nonisolated struct SettingDescriptor: Sendable, Hashable, Identifiable {
     /// Whether the palette lists this setting (R93). Every row is exposed
     /// unless it names a reason to stay out.
     public var palette: SettingPaletteExposure = .exposed
+    /// The apps that read this key from the shared cmux.json. The export, validation and docs cover
+    /// every key; the cmux-next Settings page and palette show only keys cmux-next reads, so a
+    /// cmux-browser-only key never shows a control that does nothing here.
+    public var consumers: Set<SettingConsumer> = [.cmuxNext]
 
     /// A row whose texts come from the string catalog (`SettingsText.keyed`).
     public init(_ path: [String], section: SettingsSection, group: SettingText, title: SettingText, help: SettingText? = nil,
@@ -63,7 +67,24 @@ public nonisolated enum SettingPaletteExposure: Sendable, Hashable {
 }
 
 extension SettingDescriptor {
-    public var isPaletteExposed: Bool { palette == .exposed }
+    public var isPaletteExposed: Bool { palette == .exposed && isShownInCmuxNext }
+    /// cmux-next reads this key, so its Settings page and palette offer it.
+    public var isShownInCmuxNext: Bool { consumers.contains(.cmuxNext) }
+
+    /// This row, read by `consumers` instead of cmux-next alone.
+    public func consumed(by consumers: Set<SettingConsumer>) -> SettingDescriptor {
+        var row = self
+        row.consumers = consumers
+        return row
+    }
+}
+
+/// An app that reads a cmux.json key. Raw values are the export's `consumers` names.
+public nonisolated enum SettingConsumer: String, Sendable, Hashable, CaseIterable, Comparable {
+    case cmuxNext = "cmux-next"
+    case cmuxBrowser = "cmux-browser"
+
+    public static func < (lhs: SettingConsumer, rhs: SettingConsumer) -> Bool { lhs.rawValue < rhs.rawValue }
 }
 
 /// What a setting holds and how the Settings window edits it.
@@ -91,4 +112,8 @@ public nonisolated enum SettingKind: Sendable, Hashable {
     case theme
     /// A font family name (`TerminalFontSetting`).
     case fontFamily
+    /// A list of numbers, each in the range (`layout.columnWidthPresets`: strip width fractions).
+    case numberList(SettingNumber)
+    /// An object whose values are all strings (`sidebar.workspaceIcons`: workspace title to glyph).
+    case stringMap
 }

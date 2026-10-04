@@ -16,7 +16,10 @@ export type SettingKind =
   | "folder_list"
   | "time_range"
   | "theme"
-  | "font_family";
+  | "font_family"
+  // Kinds only cmux-browser keys use today; the page never renders them (see `consumers`).
+  | "number_list"
+  | "string_map";
 
 export type NumberUnit = "points" | "seconds" | "minutes" | "count" | "fraction";
 
@@ -39,6 +42,8 @@ export type SchemaRow = {
   keywords: string[];
   agent_settable: boolean;
   kept_on_reset_all: boolean;
+  /** The apps that read this key from the shared cmux.json (`cmux-next`, `cmux-browser`). */
+  consumers: string[];
   validation: string;
   accepts: unknown[];
   refuses: unknown[];
@@ -48,7 +53,11 @@ export type SchemaSection = { id: string; title: LocalizedText; symbol: string }
 
 type Schema = { rows: SchemaRow[]; sections: SchemaSection[]; schema_hash: string; version: number };
 
-export const schema = exported as unknown as Schema;
+const document = exported as unknown as Schema;
+
+/** The page's schema: only keys cmux-next reads. Keys only cmux-browser reads stay valid and
+ * documented in the export, but this page shows no control that changes nothing here. */
+export const schema: Schema = { ...document, rows: document.rows.filter((row) => row.consumers.includes("cmux-next")) };
 
 export const sections: SchemaSection[] = schema.sections;
 

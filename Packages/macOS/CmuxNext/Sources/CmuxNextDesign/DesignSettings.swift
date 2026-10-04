@@ -12,6 +12,8 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
     case columnGap
     case panelCornerRadius
     case chromeFontSize
+    /// The unified titlebar height (cmux-browser's header height reads the same key).
+    case titlebarHeight
 }
 
 /// Live, user-configurable design settings. The App fills this from
@@ -126,6 +128,7 @@ public final class DesignSettings {
         case .columnGap: 0...24
         case .panelCornerRadius: 0...20
         case .chromeFontSize: 10...16
+        case .titlebarHeight: 24...56
         }
     }
 }
