@@ -61,9 +61,14 @@ const validAscii = (value: unknown, max: number): boolean => {
  */
 export const validateParticipant = (participant: unknown, cloud: boolean): Participant => {
   if (!isObject(participant) || !isString(participant.id)) return fail("invalid_participant")
-  const { id, kind, agent_class, acp_session } = participant
+  const { id, kind, agent_class, acp_session, person } = participant
   let prefixMatches: boolean
-  if (kind === "human") prefixMatches = id.startsWith("user_") && agent_class === undefined && validParticipantId(id)
+  // A `remote_` device is a local human that names its person (a `user_` id); a cloud head never
+  // has one. Every other participant has no person (Rust `validate_participant`).
+  if (kind === "human" && id.startsWith("remote_")) {
+    prefixMatches = !cloud && agent_class === undefined && isString(person) && person.startsWith("user_") && validParticipantId(person) && validParticipantId(id)
+  } else if (person !== undefined) prefixMatches = false
+  else if (kind === "human") prefixMatches = id.startsWith("user_") && agent_class === undefined && validParticipantId(id)
   else if (kind === "agent") prefixMatches = id.startsWith("agent_") && validParticipantId(id)
   else if (kind === "address" && cloud) prefixMatches = validAddressId(id) && agent_class === undefined && acp_session === undefined
   else prefixMatches = false
@@ -71,7 +76,7 @@ export const validateParticipant = (participant: unknown, cloud: boolean): Parti
   const sessionOk = acp_session === undefined || validAscii(acp_session, 256)
   // A local head has no `owner_user`: Rust's serde drops it, so it is dropped here too.
   const ownerOk =
-    participant.owner_user === undefined || !cloud || (kind === "agent" && isString(participant.owner_user) && validParticipantId(participant.owner_user))
+    participant.owner_user === undefined || !cloud || (kind === "agent" && isString(participant.owner_user) && validParticipantId(participant.owner_user) && !participant.owner_user.startsWith("remote_"))
   if (!prefixMatches || !classOk || !sessionOk || !ownerOk || !validDisplayName(participant.display_name)) fail("invalid_participant")
   return {
     id,
@@ -79,6 +84,7 @@ export const validateParticipant = (participant: unknown, cloud: boolean): Parti
     display_name: participant.display_name as string,
     ...(agent_class === undefined ? {} : { agent_class: agent_class as AgentClass }),
     ...(acp_session === undefined ? {} : { acp_session: acp_session as string }),
+    ...(person === undefined ? {} : { person: person as string }),
     ...(participant.owner_user === undefined || !cloud ? {} : { owner_user: participant.owner_user as string })
   }
 }

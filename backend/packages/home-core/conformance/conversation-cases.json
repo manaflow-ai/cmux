@@ -215,6 +215,1014 @@
    }
   },
   {
+   "name": "create: a device of the local user",
+   "create": {
+    "id": "conv_01J0000000000000000000TEST",
+    "actor": "user_local",
+    "title": "mux",
+    "now": "2026-10-01T12:00:00.000Z",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     },
+     {
+      "id": "remote_inst_1",
+      "kind": "human",
+      "display_name": "Alice (MacBook)",
+      "person": "user_local"
+     }
+    ]
+   },
+   "expect": {
+    "head": {
+     "id": "conv_01J0000000000000000000TEST",
+     "title": "mux",
+     "participants": [
+      {
+       "id": "user_local",
+       "kind": "human",
+       "display_name": "Alice"
+      },
+      {
+       "id": "agent_mux",
+       "kind": "agent",
+       "display_name": "mux",
+       "agent_class": "mux",
+       "acp_session": "mux"
+      },
+      {
+       "id": "remote_inst_1",
+       "kind": "human",
+       "display_name": "Alice (MacBook)",
+       "person": "user_local"
+      }
+     ],
+     "last_seq": 0,
+     "rev": 1,
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "updated_at": "2026-10-01T12:00:00.000Z",
+     "read_cursors": {},
+     "agent_text_streak": 0
+    }
+   }
+  },
+  {
+   "name": "create: a device without a person",
+   "create": {
+    "id": "conv_01J0000000000000000000TEST",
+    "actor": "user_local",
+    "title": "mux",
+    "now": "2026-10-01T12:00:00.000Z",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "remote_inst_1",
+      "kind": "human",
+      "display_name": "Alice (MacBook)"
+     }
+    ]
+   },
+   "expect": {
+    "reject": "invalid_participant"
+   }
+  },
+  {
+   "name": "create: a device whose person is an agent",
+   "create": {
+    "id": "conv_01J0000000000000000000TEST",
+    "actor": "user_local",
+    "title": "mux",
+    "now": "2026-10-01T12:00:00.000Z",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "remote_inst_1",
+      "kind": "human",
+      "display_name": "Alice (MacBook)",
+      "person": "agent_mux"
+     }
+    ]
+   },
+   "expect": {
+    "reject": "invalid_participant"
+   }
+  },
+  {
+   "name": "create: a user with a person",
+   "create": {
+    "id": "conv_01J0000000000000000000TEST",
+    "actor": "user_local",
+    "title": "mux",
+    "now": "2026-10-01T12:00:00.000Z",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice",
+      "person": "user_eve"
+     }
+    ]
+   },
+   "expect": {
+    "reject": "invalid_participant"
+   }
+  },
+  {
+   "name": "create: an agent with a person",
+   "create": {
+    "id": "conv_01J0000000000000000000TEST",
+    "actor": "user_local",
+    "title": "mux",
+    "now": "2026-10-01T12:00:00.000Z",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux",
+      "person": "user_local"
+     }
+    ]
+   },
+   "expect": {
+    "reject": "invalid_participant"
+   }
+  },
+  {
+   "name": "create: a device as an agent",
+   "create": {
+    "id": "conv_01J0000000000000000000TEST",
+    "actor": "user_local",
+    "title": "mux",
+    "now": "2026-10-01T12:00:00.000Z",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "remote_inst_1",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ]
+   },
+   "expect": {
+    "reject": "invalid_participant"
+   }
+  },
+  {
+   "name": "participants.add: a device of the local user",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 0,
+    "rev": 1,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "d0",
+    "op": {
+     "kind": "participants.add",
+     "participant": {
+      "id": "remote_inst_1",
+      "kind": "human",
+      "display_name": "Alice (MacBook)",
+      "person": "user_local"
+     }
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000001",
+    "target": null,
+    "reply_target": null,
+    "last_message": null
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       },
+       {
+        "id": "remote_inst_1",
+        "kind": "human",
+        "display_name": "Alice (MacBook)",
+        "person": "user_local"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 2,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "change": {
+      "kind": "conversation",
+      "conversation": {
+       "id": "conv_TEST",
+       "owner": "local",
+       "title": "mux",
+       "participants": [
+        {
+         "id": "user_local",
+         "kind": "human",
+         "display_name": "Alice"
+        },
+        {
+         "id": "agent_mux",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux"
+        },
+        {
+         "id": "remote_inst_1",
+         "kind": "human",
+         "display_name": "Alice (MacBook)",
+         "person": "user_local"
+        }
+       ],
+       "last_seq": 0,
+       "rev": 2,
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "updated_at": "2026-10-01T12:00:00.000Z",
+       "read_cursors": {}
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "device: sends as its own participant",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     },
+     {
+      "id": "remote_inst_1",
+      "kind": "human",
+      "display_name": "Alice (MacBook)",
+      "person": "user_local"
+     }
+    ],
+    "last_seq": 1,
+    "rev": 3,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "remote_inst_1",
+    "idempotency_key": "d2",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "d2",
+     "parts": [
+      {
+       "type": "text",
+       "text": "from the MacBook"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000002",
+    "target": null,
+    "reply_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_TEST",
+     "seq": 1,
+     "client_msg_id": "d1",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "from the Mac"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       },
+       {
+        "id": "remote_inst_1",
+        "kind": "human",
+        "display_name": "Alice (MacBook)",
+        "person": "user_local"
+       }
+      ],
+      "last_seq": 2,
+      "rev": 4,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "message": {
+      "id": "msg_00000000000000000000000002",
+      "conversation": "conv_TEST",
+      "seq": 2,
+      "client_msg_id": "d2",
+      "author": "remote_inst_1",
+      "parts": [
+       {
+        "type": "text",
+        "text": "from the MacBook"
+       }
+      ],
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000002",
+       "conversation": "conv_TEST",
+       "seq": 2,
+       "client_msg_id": "d2",
+       "author": "remote_inst_1",
+       "parts": [
+        {
+         "type": "text",
+         "text": "from the MacBook"
+        }
+       ],
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "device: edits its own message, the origin stays",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     },
+     {
+      "id": "remote_inst_1",
+      "kind": "human",
+      "display_name": "Alice (MacBook)",
+      "person": "user_local"
+     }
+    ],
+    "last_seq": 2,
+    "rev": 4,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "remote_inst_1",
+    "idempotency_key": "d3",
+    "op": {
+     "kind": "message.edit",
+     "message_id": "msg_00000000000000000000000002",
+     "parts": [
+      {
+       "type": "text",
+       "text": "edited"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000003",
+    "target": {
+     "id": "msg_00000000000000000000000002",
+     "conversation": "conv_TEST",
+     "seq": 2,
+     "client_msg_id": "d2",
+     "author": "remote_inst_1",
+     "parts": [
+      {
+       "type": "text",
+       "text": "from the MacBook"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": [],
+     "origin": {
+      "kind": "remote",
+      "install": "inst_1"
+     }
+    },
+    "reply_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000002",
+     "conversation": "conv_TEST",
+     "seq": 2,
+     "client_msg_id": "d2",
+     "author": "remote_inst_1",
+     "parts": [
+      {
+       "type": "text",
+       "text": "from the MacBook"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": [],
+     "origin": {
+      "kind": "remote",
+      "install": "inst_1"
+     }
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       },
+       {
+        "id": "remote_inst_1",
+        "kind": "human",
+        "display_name": "Alice (MacBook)",
+        "person": "user_local"
+       }
+      ],
+      "last_seq": 2,
+      "rev": 5,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "message": {
+      "id": "msg_00000000000000000000000002",
+      "conversation": "conv_TEST",
+      "seq": 2,
+      "client_msg_id": "d2",
+      "author": "remote_inst_1",
+      "parts": [
+       {
+        "type": "text",
+        "text": "edited"
+       }
+      ],
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "reactions": [],
+      "origin": {
+       "kind": "remote",
+       "install": "inst_1"
+      },
+      "edited_at": "2026-10-01T12:00:00.000Z"
+     },
+     "change": {
+      "kind": "message-updated",
+      "message": {
+       "id": "msg_00000000000000000000000002",
+       "conversation": "conv_TEST",
+       "seq": 2,
+       "client_msg_id": "d2",
+       "author": "remote_inst_1",
+       "parts": [
+        {
+         "type": "text",
+         "text": "edited"
+        }
+       ],
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "reactions": [],
+       "origin": {
+        "kind": "remote",
+        "install": "inst_1"
+       },
+       "edited_at": "2026-10-01T12:00:00.000Z"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "device: cannot edit the local user's message",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     },
+     {
+      "id": "remote_inst_1",
+      "kind": "human",
+      "display_name": "Alice (MacBook)",
+      "person": "user_local"
+     }
+    ],
+    "last_seq": 2,
+    "rev": 5,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "remote_inst_1",
+    "idempotency_key": "d4",
+    "op": {
+     "kind": "message.edit",
+     "message_id": "msg_00000000000000000000000001",
+     "parts": [
+      {
+       "type": "text",
+       "text": "mine"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000003",
+    "target": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_TEST",
+     "seq": 1,
+     "client_msg_id": "d1",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "from the Mac"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    },
+    "reply_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000002",
+     "conversation": "conv_TEST",
+     "seq": 2,
+     "client_msg_id": "d2",
+     "author": "remote_inst_1",
+     "parts": [
+      {
+       "type": "text",
+       "text": "edited"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": [],
+     "origin": {
+      "kind": "remote",
+      "install": "inst_1"
+     },
+     "edited_at": "2026-10-01T12:00:00.000Z"
+    }
+   },
+   "expect": {
+    "reject": "not_author"
+   }
+  },
+  {
+   "name": "device: a reaction keeps the target's origin",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     },
+     {
+      "id": "remote_inst_1",
+      "kind": "human",
+      "display_name": "Alice (MacBook)",
+      "person": "user_local"
+     }
+    ],
+    "last_seq": 2,
+    "rev": 5,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "remote_inst_1",
+    "idempotency_key": "d5",
+    "op": {
+     "kind": "reaction.add",
+     "message_id": "msg_00000000000000000000000001",
+     "part_index": 0,
+     "reaction": {
+      "tapback": "like"
+     }
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000003",
+    "target": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_TEST",
+     "seq": 1,
+     "client_msg_id": "d1",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "from the Mac"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    },
+    "reply_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000002",
+     "conversation": "conv_TEST",
+     "seq": 2,
+     "client_msg_id": "d2",
+     "author": "remote_inst_1",
+     "parts": [
+      {
+       "type": "text",
+       "text": "edited"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": [],
+     "origin": {
+      "kind": "remote",
+      "install": "inst_1"
+     },
+     "edited_at": "2026-10-01T12:00:00.000Z"
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       },
+       {
+        "id": "remote_inst_1",
+        "kind": "human",
+        "display_name": "Alice (MacBook)",
+        "person": "user_local"
+       }
+      ],
+      "last_seq": 2,
+      "rev": 6,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "message": {
+      "id": "msg_00000000000000000000000001",
+      "conversation": "conv_TEST",
+      "seq": 1,
+      "client_msg_id": "d1",
+      "author": "user_local",
+      "parts": [
+       {
+        "type": "text",
+        "text": "from the Mac"
+       }
+      ],
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "reactions": [
+       {
+        "author": "remote_inst_1",
+        "part_index": 0,
+        "kind": {
+         "tapback": "like"
+        },
+        "at": "2026-10-01T12:00:00.000Z"
+       }
+      ]
+     },
+     "change": {
+      "kind": "message-updated",
+      "message": {
+       "id": "msg_00000000000000000000000001",
+       "conversation": "conv_TEST",
+       "seq": 1,
+       "client_msg_id": "d1",
+       "author": "user_local",
+       "parts": [
+        {
+         "type": "text",
+         "text": "from the Mac"
+        }
+       ],
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "reactions": [
+        {
+         "author": "remote_inst_1",
+         "part_index": 0,
+         "kind": {
+          "tapback": "like"
+         },
+         "at": "2026-10-01T12:00:00.000Z"
+        }
+       ]
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "device: a mention of a device is valid",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     },
+     {
+      "id": "remote_inst_1",
+      "kind": "human",
+      "display_name": "Alice (MacBook)",
+      "person": "user_local"
+     }
+    ],
+    "last_seq": 2,
+    "rev": 6,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {},
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "d6",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "d6",
+     "parts": [
+      {
+       "type": "text",
+       "text": "hi",
+       "runs": [
+        {
+         "start": 0,
+         "length": 2,
+         "mention": "remote_inst_1"
+        }
+       ]
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000003",
+    "target": null,
+    "reply_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000002",
+     "conversation": "conv_TEST",
+     "seq": 2,
+     "client_msg_id": "d2",
+     "author": "remote_inst_1",
+     "parts": [
+      {
+       "type": "text",
+       "text": "edited"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": [],
+     "origin": {
+      "kind": "remote",
+      "install": "inst_1"
+     },
+     "edited_at": "2026-10-01T12:00:00.000Z"
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       },
+       {
+        "id": "remote_inst_1",
+        "kind": "human",
+        "display_name": "Alice (MacBook)",
+        "person": "user_local"
+       }
+      ],
+      "last_seq": 3,
+      "rev": 7,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "message": {
+      "id": "msg_00000000000000000000000003",
+      "conversation": "conv_TEST",
+      "seq": 3,
+      "client_msg_id": "d6",
+      "author": "user_local",
+      "parts": [
+       {
+        "type": "text",
+        "text": "hi",
+        "runs": [
+         {
+          "start": 0,
+          "length": 2,
+          "mention": "remote_inst_1"
+         }
+        ]
+       }
+      ],
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000003",
+       "conversation": "conv_TEST",
+       "seq": 3,
+       "client_msg_id": "d6",
+       "author": "user_local",
+       "parts": [
+        {
+         "type": "text",
+         "text": "hi",
+         "runs": [
+          {
+           "start": 0,
+           "length": 2,
+           "mention": "remote_inst_1"
+          }
+         ]
+        }
+       ],
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
    "name": "send: first message gets seq 1",
    "head": {
     "id": "conv_TEST",
