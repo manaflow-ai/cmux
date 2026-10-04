@@ -36,8 +36,10 @@ Before P8 every connection is refused.
 
 One handshake for origin and P8 (coordinator decision 2026-10-04):
 - `{"cmd":"client-hello","role":"main"|"page_relay"}` must be the FIRST line of a local
-  connection. `role` is required; a missing or unknown role fails closed (`client_hello.bad_request`).
-  Any other line first closes the hello window: a later client-hello is refused.
+  connection, or the second line right after one `identify` (coordinator decision (b)). `identify`
+  must stay read-only and return only static daemon facts. `role` is required; a missing or unknown
+  role fails closed (`client_hello.bad_request`). Any other line first (including a second
+  `identify`) closes the hello window: a later client-hello is refused.
 - Result data: `connection_id` (the daemon client id, as a string); `nonce` when an install key
   exists (P8 step 2).
 - Step 1 (origin window, this lane): role + connection_id. Errors `client_hello.local_only`,
@@ -64,7 +66,9 @@ One handshake for origin and P8 (coordinator decision 2026-10-04):
 - apps.install/uninstall/enable refused with the A2 error before P8.
 - request with no origin on a client connection behaves as today.
 - origin-claim-v1 advertised.
-- client-hello: role required (missing/unknown -> bad_request); refused when not the first line;
+- client-hello: role required (missing/unknown -> bad_request); accepted after one identify;
+  refused after any other line or after two identify lines;
+- identify reveals no per-user or per-connection secret (no token, nonce, connection_id, path);
   returns connection_id; second client-hello refused.
 - no client-hello: never page_relay, never user (legacy client role).
 - page_relay with no subscribe is served; subscribe on page_relay refused.
