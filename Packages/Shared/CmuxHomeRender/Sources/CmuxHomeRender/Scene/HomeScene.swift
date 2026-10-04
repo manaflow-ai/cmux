@@ -93,7 +93,9 @@ final class HomeScene {
 
     // MARK: Geometry
 
-    var metrics: Metrics { Metrics(width: size.width) }
+    /// The host's text scale; set by `HomeController` before each resize.
+    var zoom: CGFloat = 1
+    var metrics: Metrics { Metrics(width: size.width, zoom: zoom) }
     /// Where the last row ends: above the field, moving up as the field grows.
     var anchorY: CGFloat {
         if let f = hostedField { return f.minY - ComposeLayer.anchorAboveField }

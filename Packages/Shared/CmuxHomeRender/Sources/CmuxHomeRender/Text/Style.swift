@@ -32,6 +32,9 @@ enum Style {
     /// tapback tails, the outgoing tail).
     static let artLeft: CGFloat = 36
     static let artRight: CGFloat = 20
+    /// Above this text scale the side gutters stop growing in host points
+    /// (iOS default Dynamic Type: 17 / 13), so large text keeps its width.
+    static let gutterZoomCap: CGFloat = 17.0 / 13.0
 
     /// Row bitmaps draw with it off the main actor. `CTFont` is not marked
     /// Sendable, but Core Text documents font objects as immutable and safe
@@ -41,19 +44,29 @@ enum Style {
 
 /// Width-dependent geometry. At the reference width every value equals the
 /// measured constant; wider viewports move right-aligned content with the
-/// right edge and grow the text column in proportion.
+/// right edge and grow the text column in proportion. Above
+/// `Style.gutterZoomCap` the gutters shrink in design points (constant in
+/// host points) and the text column never exceeds what the gutters leave,
+/// so a bubble stays inside the viewport at any text size.
 struct Metrics: Hashable, Sendable {
     var width: CGFloat
     /// The host's text scale (`HomeController.textScale`).
     var zoom: CGFloat = 1
 
-    var leftEdge: CGFloat { Style.leftEdge }
+    /// 1 up to the cap, then shrinking so gutters keep their capped host size.
+    var gutterScale: CGFloat { zoom > Style.gutterZoomCap ? Style.gutterZoomCap / zoom : 1 }
+    var leftEdge: CGFloat { Style.leftEdge * gutterScale }
+    var rightInset: CGFloat { Style.rightInset * gutterScale }
 
-    var rightEdge: CGFloat { width - Style.rightInset }
+    var rightEdge: CGFloat { width - rightInset }
     var centerX: CGFloat { width / 2 - 0.1 }
-    var receiptRight: CGFloat { width - Style.receiptInset }
+    var receiptRight: CGFloat { width - Style.receiptInset * gutterScale }
     /// Rounded to 0.1 pt so tiny width changes keep the same wrap width.
-    var maxTextWidth: CGFloat { (Style.maxTextWidth * width / Style.referenceWidth * 10).rounded() / 10 }
+    var maxTextWidth: CGFloat {
+        let proportional = (Style.maxTextWidth * width / Style.referenceWidth * 10).rounded() / 10
+        let fits = ((width - leftEdge - rightInset - 2 * Style.bubblePadX) * 10).rounded(.down) / 10
+        return max(1, min(proportional, fits))
+    }
 }
 
 extension CGFloat {

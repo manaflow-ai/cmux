@@ -135,6 +135,7 @@ public final class HomeController {
         CATransaction.commit()
         if let field = hostedFieldInHost { scene.hostedField = toDesign(field) }
         let design = CGSize(width: hostSize.width / zoom, height: hostSize.height / zoom)
+        scene.zoom = zoom
         scene.resize(to: design) { self.rows(metrics: $0) }
         publishScrollGeometryIfChanged()
         afterViewportChange()
