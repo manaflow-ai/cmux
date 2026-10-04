@@ -40,6 +40,7 @@ final class TerminalThemeSetting {
                 let font = GhosttyRuntime.FontOverride(family: snapshot.terminalFontFamily, size: snapshot.terminalFontSize)
                 self?.backdropScope.setBackdropSelection(snapshot.backdropSelection)
                 self?.backdropScope.setAppearanceTuning(snapshot.experimentalAppearance ? snapshot.appearanceTuning : .identity)
+                self?.backdropScope.setSurfaceBackgroundOverrides(snapshot.surfaceBackgrounds)
                 self?.apply(State(theme: snapshot.appTheme, font: font, background: snapshot.windowBackground))
             }
         }

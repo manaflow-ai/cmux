@@ -2553,6 +2553,398 @@
     },
     {
       "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.theme",
+        "text" : "Theme"
+      },
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundOpacity.help",
+        "text" : "Unset follows the theme's one background token."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaceBackgrounds.sidebar",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "sidebar"
+      ],
+      "kind" : "color",
+      "path" : [
+        "appearance",
+        "surfaceBackgrounds",
+        "sidebar"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.layout.paneBorderColor",
+        "text" : "Sidebar"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.theme",
+        "text" : "Theme"
+      },
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundOpacity.help",
+        "text" : "Unset follows the theme's one background token."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaceBackgrounds.tabStrip",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "tab strip"
+      ],
+      "kind" : "color",
+      "path" : [
+        "appearance",
+        "surfaceBackgrounds",
+        "tabStrip"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.layout.paneBorderColor",
+        "text" : "Tab Strip"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.theme",
+        "text" : "Theme"
+      },
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundOpacity.help",
+        "text" : "Unset follows the theme's one background token."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaceBackgrounds.terminal",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "terminal"
+      ],
+      "kind" : "color",
+      "path" : [
+        "appearance",
+        "surfaceBackgrounds",
+        "terminal"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.layout.paneBorderColor",
+        "text" : "Terminal"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.theme",
+        "text" : "Theme"
+      },
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundOpacity.help",
+        "text" : "Unset follows the theme's one background token."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaceBackgrounds.browser",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "browser"
+      ],
+      "kind" : "color",
+      "path" : [
+        "appearance",
+        "surfaceBackgrounds",
+        "browser"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.layout.paneBorderColor",
+        "text" : "Browser"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.theme",
+        "text" : "Theme"
+      },
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundOpacity.help",
+        "text" : "Unset follows the theme's one background token."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaceBackgrounds.internalPage",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "internal pages"
+      ],
+      "kind" : "color",
+      "path" : [
+        "appearance",
+        "surfaceBackgrounds",
+        "internalPage"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.layout.paneBorderColor",
+        "text" : "Internal Pages"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.theme",
+        "text" : "Theme"
+      },
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundOpacity.help",
+        "text" : "Unset follows the theme's one background token."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaceBackgrounds.agentPane",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "agent pane"
+      ],
+      "kind" : "color",
+      "path" : [
+        "appearance",
+        "surfaceBackgrounds",
+        "agentPane"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.layout.paneBorderColor",
+        "text" : "Agent Pane"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.theme",
+        "text" : "Theme"
+      },
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundOpacity.help",
+        "text" : "Unset follows the theme's one background token."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaceBackgrounds.splitDivider",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "split dividers"
+      ],
+      "kind" : "color",
+      "path" : [
+        "appearance",
+        "surfaceBackgrounds",
+        "splitDivider"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.layout.paneBorderColor",
+        "text" : "Split Dividers"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.theme",
+        "text" : "Theme"
+      },
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundOpacity.help",
+        "text" : "Unset follows the theme's one background token."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaceBackgrounds.settings",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "settings"
+      ],
+      "kind" : "color",
+      "path" : [
+        "appearance",
+        "surfaceBackgrounds",
+        "settings"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.layout.paneBorderColor",
+        "text" : "Settings"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "compact",
         "comfortable"
       ],
@@ -5887,7 +6279,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "2fb252b0a500b775bc1e730bf753ae68eabf87fbf7da6f7f792f7e3f67c2d280",
+  "schema_hash" : "59db6bc361eb474a1c1c143a8157813d32b880f917901cbb173e6b486991529a",
   "sections" : [
     {
       "id" : "general",

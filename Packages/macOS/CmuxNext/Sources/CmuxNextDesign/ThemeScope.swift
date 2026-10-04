@@ -28,8 +28,12 @@ public final class ThemeScope {
         return nil
     }
     public var appearanceTuning: AppearanceTuning { selectedAppearanceTuning ?? parent?.appearanceTuning ?? .identity }
+    public var surfaceBackgroundOverrides: SurfaceBackgroundOverrides {
+        selectedSurfaceBackgroundOverrides ?? parent?.surfaceBackgroundOverrides ?? SurfaceBackgroundOverrides()
+    }
     private var selectedBackdropSelection: BackdropSelection?
     private var selectedAppearanceTuning: AppearanceTuning?
+    private var selectedSurfaceBackgroundOverrides: SurfaceBackgroundOverrides?
 
     /// Changes art and repaints this scope and its descendants without a
     /// Ghostty reload or changing any terminal colors.
@@ -55,6 +59,13 @@ public final class ThemeScope {
         repaintBackdropArt()
     }
 
+    /// Sets optional per-surface colors; nil entries inherit the theme ground.
+    public func setSurfaceBackgroundOverrides(_ overrides: SurfaceBackgroundOverrides?) {
+        guard selectedSurfaceBackgroundOverrides != overrides else { return }
+        selectedSurfaceBackgroundOverrides = overrides
+        repaintBackdropArt()
+    }
+
     private func repaintBackdropArt() {
         repaint(animated: false)
         for responder in responders.allObjects {
@@ -76,9 +87,10 @@ public final class ThemeScope {
     /// own, else its own. A light workspace in a dark room never turns the
     /// window's chrome light.
     public var tokens: ThemeTokens {
-        guard let shown else { return ownTokens.emphasized(emphasis) }
+        guard let shown else { return ownTokens.applying(surfaceBackgroundOverrides).emphasized(emphasis) }
         let candidate = shown.tokens
-        return (candidate.isDark == ownTokens.isDark ? candidate : ownTokens).emphasized(emphasis)
+        return (candidate.isDark == ownTokens.isDark ? candidate : ownTokens)
+            .applying(surfaceBackgroundOverrides).emphasized(emphasis)
     }
     /// How strongly this scope's own views draw (a pane's tab strip in an
     /// unfocused pane: `ChromeEmphasis`). Children keep the plain colors.

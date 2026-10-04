@@ -107,6 +107,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `appearance.glassTransparency`, `appearance.hue` and
     /// `appearance.saturation`; identity values when unset or invalid.
     public var appearanceTuning = AppearanceTuningSetting.fallback
+    /// `appearance.surfaceBackgrounds`; unset entries follow the theme ground.
+    public var surfaceBackgrounds = SurfaceBackgroundOverrides()
     /// `appearance.statusIndicator.*`.
     public var statusIndicator = StatusIndicatorSettings()
     /// `status.*`.
@@ -213,6 +215,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art }
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.surfaceBackgrounds = SurfaceBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusBehavior = StatusIndicatorConfigParser.behavior(root, diagnostics: &snapshot.diagnostics)
         let (borders, bordersDiagnostic) = BordersSetting.parse(root)
