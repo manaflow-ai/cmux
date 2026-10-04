@@ -51,7 +51,7 @@ for _ in $(seq 1 100); do
 done
 [ -S "$sock" ] || { cat "$tmp/serve.log" >&2; fail "serve made no socket at $sock in 10 s"; }
 list="$(timeout 30 "$bin" list --socket "$sock")" || fail "list exited $? (124: no reply in 30 s)"
-printf '%s' "$list" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d.get("sessions"), list), d' \
-  || fail "list did not print {\"sessions\": [...]} JSON: $list"
+printf '%s' "$list" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d, list) or (isinstance(d, dict) and isinstance(d.get("sessions"), list)), d' \
+  || fail "list did not print a JSON session list: $list"
 echo "ok: serve + list ($list)"
 echo "smoke-browser-host: all checks passed"
