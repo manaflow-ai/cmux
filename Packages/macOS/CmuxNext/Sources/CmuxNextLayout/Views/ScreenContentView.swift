@@ -313,8 +313,11 @@ final class ScreenContentView: NSView {
     /// Drop target, its highlight rect and the region it belongs to (the
     /// whole pane content rect, or the column gap), in local coordinates.
     func dropTarget(at localPoint: NSPoint) -> (target: DropTarget, highlight: CGRect, region: CGRect)? {
+        // The top band starts below the tab bar of the pane under the pointer.
+        let topInset = pane(at: localPoint).flatMap { context.hosts[$0]?.headerHeight } ?? 0
         if context.model.acceptsEdgeDockDrops,
-           let dock = DropZoneGeometry.dockTarget(atView: localPoint, screen: screenID, geometry: geometry, style: context.style),
+           let dock = DropZoneGeometry.dockTarget(atView: localPoint, screen: screenID, geometry: geometry, style: context.style,
+                                                  topInset: topInset),
            let rect = DropZoneGeometry.highlightRectInView(for: dock, offset: scroll.value, geometry: geometry, style: context.style) {
             return (dock, rect, rect)
         }
