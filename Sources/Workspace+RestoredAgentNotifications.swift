@@ -23,8 +23,8 @@ extension Workspace {
         return terminal.resumeBinding != nil || terminal.agent != nil
     }
 
-    /// Records, per restored panel, the persisted notifications of panes that
-    /// were hosting a local agent, keyed by the panel's new id. Replaces any
+    /// Records, per restored panel, the persisted agent notifications of panes
+    /// that were hosting a local agent, keyed by the panel's new id. Replaces any
     /// tracking left from an earlier restore of this workspace.
     func trackRestoredAgentNotifications(
         from snapshot: SessionWorkspaceSnapshot,
@@ -34,7 +34,12 @@ extension Workspace {
         guard snapshot.remote == nil else { return }
         for panelSnapshot in snapshot.panels where Self.restoredPanelHostedLocalAgent(panelSnapshot) {
             guard let newPanelId = oldToNewPanelIds[panelSnapshot.id] else { continue }
-            let ids = Set((panelSnapshot.notifications ?? []).map(\.id))
+            // Only agent-produced notifications are the agent's to retire; a
+            // `cmux notify` banner on the same pane keeps its own lifetime.
+            // Unknown provenance restores as agent-produced, as the store does.
+            let ids = Set((panelSnapshot.notifications ?? [])
+                .filter { $0.isAgentEvent ?? true }
+                .map(\.id))
             guard !ids.isEmpty else { continue }
             restoredAgentNotificationIdsByPanelId[newPanelId] = ids
         }
