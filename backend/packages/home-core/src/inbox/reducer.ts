@@ -111,6 +111,11 @@ export type InboxResult<T> = { readonly ok: true; readonly value: T } | { readon
 
 const KINDS: ReadonlyArray<ConversationKind> = ["chief", "dm", "group"]
 const isCount = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 0
+/**
+ * The largest pin position: the order key pads it to 16 digits (order.ts), and `next_pin` is
+ * `position + 1`, which must stay an exact integer.
+ */
+export const MAX_PIN_POSITION = Number.MAX_SAFE_INTEGER - 1
 const isText = (value: unknown, max: number): value is string => typeof value === "string" && value.length <= max
 
 export const validBump = (params: unknown): params is InboxBumpParams => {
@@ -208,6 +213,7 @@ export const userOp = (
         return { ok: true, value: { head, entry: { ...rest, pinned: false } } }
       }
       const position = (p.position as number | undefined) ?? (entry.pinned && entry.pin_position !== undefined ? entry.pin_position : head.next_pin)
+      if (position > MAX_PIN_POSITION) return { ok: false, code: "invalid_params" }
       return { ok: true, value: { head: { ...head, next_pin: Math.max(head.next_pin, position + 1) }, entry: { ...entry, pinned: true, pin_position: position } } }
     }
     case "inbox.mute": {
