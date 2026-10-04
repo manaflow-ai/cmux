@@ -54,6 +54,8 @@ nonisolated final class FakeCloudDaemon: CloudConversationCommands, CloudLeaseSe
 
     private struct Daemon {
         var session: String?
+        /// The `expires_at` of the lease set last.
+        var expiry: UInt64?
         var sent: [SentOp] = []
         var subscribed: Set<String> = []
         var snapshotsInFlight = 0
@@ -74,6 +76,10 @@ nonisolated final class FakeCloudDaemon: CloudConversationCommands, CloudLeaseSe
     var opRequests: [CloudConversationOpRequest] { requests.withLock { $0 } }
     var ops: [Call] { calls.filter { if case .op = $0 { true } else { false } } }
     var sentOps: [SentOp] { daemon.withLock { $0.sent } }
+    /// The `expires_at` of the lease set last (what `cloud-session-needed` names).
+    var leaseExpiry: UInt64? { daemon.withLock { $0.expiry } }
+    /// The number of leases set so far.
+    var leases: Int { calls.filter { if case .setSession = $0 { true } else { false } }.count }
     /// Conversations the daemon streams to this client now.
     var subscribed: Set<String> { daemon.withLock { $0.subscribed } }
     var maxSnapshotsInFlight: Int { daemon.withLock { $0.maxSnapshotsInFlight } }
@@ -178,7 +184,10 @@ nonisolated final class FakeCloudDaemon: CloudConversationCommands, CloudLeaseSe
 
     func setSession(_ request: CloudSessionSetRequest) async throws -> CloudSessionState {
         let subject = CloudFixtures.subject(ofJWT: request.accessToken)
-        daemon.withLock { $0.session = subject }
+        daemon.withLock { daemon in
+            daemon.session = subject
+            daemon.expiry = request.expiresAt
+        }
         record(.setSession(subject))
         return CloudSessionState(state: "active", apiBaseURL: request.apiBaseURL, expiresAt: request.expiresAt)
     }
@@ -200,13 +209,18 @@ final class FakeTokens: CloudLeaseTokens {
     var gate: Gate?
     /// Tokens carry no `sub` claim.
     var withoutSubject = false
+    /// Each token expires one second after the one before, as a refreshed
+    /// token does, so a lease's `expires_at` names it.
+    private var issued: Int = 0
 
     var isSignedIn: Bool { user != nil }
 
     func accessToken(forceRefresh: Bool) async throws -> String {
         if let gate { await gate.pass() }
         guard let user, !failing.contains(user) else { throw URLError(.notConnectedToInternet) }
-        return withoutSubject ? CloudFixtures.jwt(claims: #"{"exp":4102444800}"#) : CloudFixtures.jwt(sub: user)
+        issued += 1
+        let exp = Int(Date().timeIntervalSince1970) + 3600 + issued
+        return withoutSubject ? CloudFixtures.jwt(claims: #"{"exp":4102444800}"#) : CloudFixtures.jwt(claims: #"{"sub":"\#(user)","exp":\#(exp)}"#)
     }
 }
 

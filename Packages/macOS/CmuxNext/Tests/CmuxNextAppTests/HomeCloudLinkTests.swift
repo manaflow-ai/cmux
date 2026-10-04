@@ -21,6 +21,8 @@ import Testing
         return (HomeCloudLink(lease: lease, source: source, localID: F.localMe, clock: clock), source, tokens)
     }
 
+    nonisolated static func ops(_ calls: [FakeCloudDaemon.Call]) -> Int { calls.filter { if case .op = $0 { true } else { false } }.count }
+
     func link(_ daemon: FakeCloudDaemon, _ user: String?) -> HomeCloudLink.Link {
         HomeCloudLink.Link(endpoint: daemon, id: ObjectIdentifier(daemon), userID: user, displayName: user ?? "")
     }
@@ -157,5 +159,97 @@ import Testing
         await linker.settle()
         _ = try await source.submit(HomeIntent(key: IdempotencyKey("cmk_r"), op: .invite(contact: .email("z@y.com"))))
         #expect(daemon.sentOps.map(\.subject) == ["a"])
+    }
+
+    /// Every upstream socket refused with the same token asks for a lease
+    /// (the inbox and up to 64 conversations). One renewal answers them all:
+    /// requests that wait for it join it, and a late one for the lease it
+    /// replaced is already answered.
+    @Test func manySocketsRefusedTogetherRenewTheLeaseOnce() async throws {
+        let daemon = FakeCloudDaemon()
+        let (linker, _, tokens) = make()
+        tokens.user = "a"
+        await linker.apply(link(daemon, "a"))
+        let refused = try #require(daemon.leaseExpiry)
+        for _ in 0..<65 { linker.sessionNeeded(reason: "unauthenticated", expiresAt: refused) }
+        await linker.settle()
+        #expect(daemon.leases == 2, "one refused token renewed \(daemon.leases - 1) times")
+        #expect(daemon.leaseExpiry != refused)
+        // Late requests for the replaced lease.
+        for _ in 0..<65 { linker.sessionNeeded(reason: "unauthenticated", expiresAt: refused) }
+        await linker.settle()
+        #expect(daemon.leases == 2, "a request for a replaced lease renewed it again")
+    }
+
+    /// The Worker refuses every token (a dev backend on another Stack
+    /// project, or clock skew). Each refused op asks for a lease and each
+    /// renewal makes the store resend, so without a limit the two loop. A
+    /// forced renewal soon after a successful one waits, longer each time,
+    /// and only a reply or a live socket ends that wait.
+    @Test func aWorkerThatRefusesEveryTokenRenewsAndResendsAtABoundedRate() async throws {
+        let clock = ManualClock()
+        let daemon = FakeCloudDaemon()
+        let (linker, source, tokens) = make(clock: clock)
+        tokens.user = "a"
+        @Sendable func refused(_ cmd: String) -> DaemonError {
+            .command(cmd: cmd, message: "unauthenticated", code: "cloud_unauthenticated",
+                     details: .object(["reason": .string("unauthenticated")]), retryable: true)
+        }
+        daemon.script.withLock { script in
+            // Reads are refused too: a reply would show the Worker takes the token.
+            script.inboxError = refused("cloud-inbox-list")
+            script.op = { [daemon] _ in
+                // task-owner: one hop to the main actor, as the daemon's event does
+                Task { @MainActor in linker.sessionNeeded(reason: "unauthenticated", expiresAt: daemon.leaseExpiry) }
+                throw refused("cloud-conversation-op")
+            }
+        }
+        await linker.apply(link(daemon, "a"))
+        // The store's part: each recovery resends the unconfirmed op.
+        let intent = HomeIntent(key: IdempotencyKey("cmk_w"), op: .invite(contact: .email("z@y.com")))
+        let stream = await source.events()
+        // task-owner: the test's store stand-in; cancelled at the end
+        let resender = Task {
+            for await event in stream where event == .ownerRecovered { _ = try? await source.submit(intent) }
+        }
+        defer { resender.cancel() }
+        _ = try? await source.submit(intent)
+        // The op, one renewal, and the resend it recovers.
+        #expect(await daemon.wait { Self.ops($0) >= 2 })
+        for _ in 0..<2_000 { await Task.yield() }
+        await linker.settle()
+        try #require(daemon.leases == 2, "renewals looped: \(daemon.leases)")
+        #expect(Self.ops(daemon.calls) == 2, "resends looped: \(Self.ops(daemon.calls))")
+
+        // After the wait, one more renewal and one more resend; the next wait is longer.
+        await clock.sleepers(atLeast: 1)
+        clock.advance(by: HomeCloudLink.firstRetry)
+        #expect(await daemon.wait { Self.ops($0) >= 3 })
+        for _ in 0..<2_000 { await Task.yield() }
+        await linker.settle()
+        #expect(daemon.leases == 3)
+        clock.advance(by: HomeCloudLink.firstRetry)
+        for _ in 0..<2_000 { await Task.yield() }
+        await linker.settle()
+        #expect(daemon.leases == 3, "the wait did not grow")
+        #expect(Self.ops(daemon.calls) == 3)
+    }
+
+    /// A new link cancels the previous one's pending retry: no lease goes
+    /// out for the account that left.
+    @Test func aNewLinkCancelsThePendingRetry() async throws {
+        let clock = ManualClock()
+        let daemon = FakeCloudDaemon()
+        let (linker, _, tokens) = make(clock: clock)
+        tokens.user = "a"
+        tokens.failing = ["a"]
+        await linker.apply(link(daemon, "a"))
+        await clock.sleepers(atLeast: 1)
+        tokens.failing = []
+        await linker.apply(HomeCloudLink.Link(endpoint: nil, id: nil, userID: "a", displayName: "a"))
+        clock.advance(by: HomeCloudLink.maxRetry)
+        for _ in 0..<2_000 { await Task.yield() }
+        await linker.settle()
+        #expect(!daemon.calls.contains(.setSession("a")), "a cancelled retry leased: \(daemon.calls)")
     }
 }

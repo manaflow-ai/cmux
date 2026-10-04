@@ -101,7 +101,7 @@ final class HomeCloudLink {
     /// The daemon asked for a lease (`cloud-session-needed`): it is for the
     /// account the source acts as when the lease work runs, and only a
     /// lease for that account counts as renewed.
-    func sessionNeeded(reason: String) {
+    func sessionNeeded(reason: String, expiresAt: UInt64? = nil) {
         renew(reason: reason)
     }
 
