@@ -1,4 +1,5 @@
 import AppKit
+import ObjectiveC
 import Testing
 import WebKit
 
@@ -110,6 +111,24 @@ struct BrowserReplKeyResendTests {
         _ = try await webView.evaluateJavaScript("0")
     }
 
+    /// Runs `body` with `-[NSApplication sendEvent:]` dropping WebKit's
+    /// resend of an automated key, as the app's own `sendEvent` does.
+    private static func withAppDroppingResends(_ body: () async throws -> Void) async throws {
+        _ = NSApplication.shared
+        let selector = #selector(NSApplication.sendEvent(_:))
+        let method = try #require(class_getInstanceMethod(NSApplication.self, selector))
+        let previous = method_getImplementation(method)
+        typealias SendEvent = @convention(c) (NSApplication, Selector, NSEvent) -> Void
+        let original = unsafeBitCast(previous, to: SendEvent.self)
+        let replacement: @convention(block) (NSApplication, NSEvent) -> Void = { app, event in
+            let dropped = MainActor.assumeIsolated { event.dropResentBrowserAutomationKeyEvent() }
+            if !dropped { original(app, selector, event) }
+        }
+        method_setImplementation(method, imp_implementationWithBlock(replacement))
+        defer { method_setImplementation(method, previous) }
+        try await body()
+    }
+
     private static let countKeys = "window.keys = 0; addEventListener('keydown', () => { window.keys++; });"
 
     // WebKit leaves Command+A/C/X/V/Z to the app's Edit menu by sending a key
@@ -140,6 +159,29 @@ struct BrowserReplKeyResendTests {
         #expect(webView.commands.isEmpty, "an editing command ran for a shortcut the page handled")
     }
 
+    // The app routes the command (a tab a REPL session created runs Copy,
+    // Cut and Paste on its own clipboard); a routed command does not also run
+    // the web view's action, which would use the system pasteboard.
+    @Test func anAppRouteRunsAnEditingShortcutInsteadOfTheWebView() async throws {
+        let webView = try await load("<input id=i value=abc><script>\(Self.countKeys)</script>")
+        var routed: [String] = []
+        WKWebView.automationEditingCommandRoute = { view, command in
+            guard view === webView else { return false }
+            routed.append(command)
+            return command != "selectAll:"
+        }
+        defer { WKWebView.automationEditingCommandRoute = nil }
+        // Two shortcuts in a row: WebKit reports both when its key queue
+        // empties, and the app's drop of each resend tells them apart.
+        try await Self.withAppDroppingResends {
+            try press(["Meta", "v"], in: webView)
+            try press(["Meta", "a"], in: webView)
+            try await settle(webView, keys: 4)
+        }
+        #expect(routed == ["paste:", "selectAll:"])
+        #expect(webView.commands == ["selectAll:"], "a routed Paste also ran the web view's own paste:")
+    }
+
     // The mobile browser stream replays a person's keys from their phone
     // through the specification entry point; WebKit's resend of a key no page
     // handled keeps reaching the Mac's menus there, as before.
@@ -158,9 +200,11 @@ struct BrowserReplKeyResendTests {
         let delivered = try #require(webView.keyDowns.first)
         // WebKit's resend arrives on a later turn, outside any delivery.
         #expect(delivered.isResentBrowserAutomationKeyEvent)
+        #expect(delivered.dropResentBrowserAutomationKeyEvent())
         // The web view's own delivery (arrow keys go through its window) is not a resend.
         webView.withBrowserWebKitKeyDownDispatch {
             #expect(!delivered.isResentBrowserAutomationKeyEvent)
+            #expect(!delivered.dropResentBrowserAutomationKeyEvent())
         }
     }
 

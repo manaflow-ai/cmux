@@ -19300,8 +19300,10 @@ private extension NSApplication {
         // WebKit sends a key no page handled back through here, to the key
         // window. For a key browser automation typed into a tab that is the
         // user's window: its terminal would get the text and its menus the
-        // Command shortcuts. The page already received the key.
-        if event.isResentBrowserAutomationKeyEvent { return }
+        // Command shortcuts. The page already received the key. Dropping it
+        // also tells `cmux browser press` and the REPL that no page handled
+        // it, so they run its Edit menu command on the web view.
+        if event.dropResentBrowserAutomationKeyEvent() { return }
 #if DEBUG
         let typingTimingStart = event.type == .keyDown ? CmuxTypingTiming.start() : nil
         let phaseTotalStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0

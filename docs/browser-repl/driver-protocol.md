@@ -102,7 +102,15 @@ stays in the web view and the window's first responder stays the user's.
 A key-down no page handles is not passed on: WebKit resends such a key
 through `NSApp.sendEvent` to the key window (the user's terminal, menus), so
 keys the REPL and `cmux browser press` send carry a mark (`eventSourceUserData`; the mobile browser stream's keys, a person's, do not) and the app
-drops a marked key that arrives outside the web view's own delivery.
+drops a marked key that arrives outside the web view's own delivery. That
+resend is also how a Command shortcut's Edit menu command (select all, copy,
+cut, paste, undo, redo; bold, italic and underline in the REPL) is run: only
+once WebKit has sent the key back (no page handled it; a page that cancels
+the keydown gets no command as well), on the web view itself. In a tab a
+session created and is attached to, `cmux browser press` Meta+C, Meta+X
+and Meta+V run on the tab's clipboard as the REPL's do, never the system
+pasteboard; in any other tab they run the web view's own Copy, Cut and
+Paste. A key whose outcome WebKit has not reported within 5 s runs nothing.
 
 ## Hibernated and crashed tabs
 
