@@ -46,6 +46,13 @@ enum CloudHandlers {
         throw ActionFailure(message: CloudStrings.noMachine)
     }
 
+    /// The origin of a connect an invocation starts: `user` only for the
+    /// user's own gesture in this app (click, menu, palette, key); the CLI,
+    /// MCP, a script, another client or a page connects as `script`.
+    static func connectOrigin(for invocation: ActionInvocation) -> CloudLinkOrigin {
+        invocation.origin == .user ? .user : .script
+    }
+
     /// The active cmux window (sheets attach there, never to a helper panel).
     static func window(_ context: AppActionContext) -> NSWindow? { context.services.windows.active?.window }
 
