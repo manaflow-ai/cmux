@@ -4,13 +4,15 @@ import { conversation as homeConversation, invites } from "@cmux/home-core"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { userIdFor } from "../src/domains/user.ts"
+import { conversationMutate } from "../src/home-routes.ts"
 
 /**
  * Human reach through the public API (home-messaging.md sections 4.1 and 16): dm.open by user
  * id, conversation.create with other humans and participants.add of a human are allowed when
- * the two share a team or already have a DM, narrowed by the target's `allow_dm_from`
- * (home.settings.set). Every refusal is `not_reachable`, the same answer as for an unknown
- * account.
+ * the two share a team or are connected (a consented DM; a shared group is no connection),
+ * narrowed by the target's `allow_requests_from` (anyone|teams|nobody, home.settings.set). A
+ * chief acts under its owner's reach. Every refusal is `not_reachable`, the same answer as for
+ * an unknown account.
  */
 const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; HOME_ADDRESS_KEY: string; ADDRESS_DO: DurableObjectNamespace; TEAM_DO: DurableObjectNamespace; CONVERSATION_DO: DurableObjectNamespace }
 const worker = (exports as unknown as { default: Fetcher }).default
@@ -108,11 +110,13 @@ describe("Home human reach", { timeout: 60_000 }, () => {
     expect(back.value.conversation.id).toBe(id)
   })
 
-  it("a stranger is refused; with allow_dm_from=teams a contact is refused too; an unknown account gets the same answer", async () => {
+  it("a stranger is refused; with allow_requests_from=teams a contact is refused too; an unknown account gets the same answer", async () => {
     const carol = await signIn("reach-set-carol", "Carol")
     const dave = await signIn("reach-set-dave", "Dave")
-    const set = await op(carol.token, "home.settings.set", { allow_dm_from: "teams" })
-    expect(set.value).toEqual({ discoverable_by_email: false, discoverable_by_phone: false, allow_dm_from: "teams", email_requests: true })
+    const set = await op(carol.token, "home.settings.set", { allow_requests_from: "teams" })
+    expect(set.value).toEqual({ discoverable_by_email: false, discoverable_by_phone: false, allow_requests_from: "teams", email_requests: true })
+    // The pre-16.7 name and value are refused.
+    expect((await op(carol.token, "home.settings.set", { allow_requests_from: "contacts" })).error).toBeDefined()
     const stranger = await op(dave.token, "dm.open", { peer: carol.user })
     expect(stranger.error.code).toBe("not_reachable")
     const unknown = await op(dave.token, "dm.open", { peer: "user_00000000000000000000" })
@@ -123,8 +127,8 @@ describe("Home human reach", { timeout: 60_000 }, () => {
     const conversation = group.value.conversation.id as string
     const added = await op(dave.token, "participants.add", { conversation, participant: human(carol) })
     expect(added.error.code).toBe("not_reachable")
-    // With allow_dm_from=anyone the contact may add her.
-    expect((await op(carol.token, "home.settings.set", { allow_dm_from: "anyone" })).value.allow_dm_from).toBe("anyone")
+    // With allow_requests_from=anyone the contact may add her.
+    expect((await op(carol.token, "home.settings.set", { allow_requests_from: "anyone" })).value.allow_requests_from).toBe("anyone")
     expect((await op(dave.token, "participants.add", { conversation, participant: human(carol) })).error).toBeUndefined()
   })
 
@@ -162,11 +166,7 @@ describe("Home human reach", { timeout: 60_000 }, () => {
     expect((await send(ivy, dm, "hello")).error).toBeUndefined()
     await waitPeer(ivy, jack, dm)
     const conversation = (await op(ivy.token, "conversation.create", { title: "Plans", participants: [human(ivy, "Ivy")] })).value.conversation.id as string
-    // Jack accepts contacts only: the shared team does not count, and Ivy's one-sided DM is no contact.
-    expect((await op(jack.token, "home.settings.set", { allow_dm_from: "contacts" })).value.allow_dm_from).toBe("contacts")
-    expect((await op(ivy.token, "participants.add", { conversation, participant: human(jack) })).error?.code).toBe("not_reachable")
-    // Ivy leaves the team: the one-sided DM gives her no reach either.
-    expect((await op(jack.token, "home.settings.set", { allow_dm_from: "anyone" })).value.allow_dm_from).toBe("anyone")
+    // Ivy leaves the team: the one-sided DM gives her no reach.
     await leaveTeam(ivy, jack)
     expect((await op(ivy.token, "participants.add", { conversation, participant: human(jack) })).error?.code).toBe("not_reachable")
     // Jack answers: both have written, so they are connected.
@@ -193,11 +193,102 @@ describe("Home human reach", { timeout: 60_000 }, () => {
     const quinn = await signIn("reach-probe-quinn", "Quinn")
     await joinTeam(owen, pat)
     await joinTeam(owen, quinn)
-    expect((await op(pat.token, "home.settings.set", { allow_dm_from: "contacts" })).value.allow_dm_from).toBe("contacts")
+    expect((await op(pat.token, "home.settings.set", { allow_requests_from: "nobody" })).value.allow_requests_from).toBe("nobody")
     const conversation = (await op(nora.token, "conversation.create", { title: "Private", participants: [human(nora, "Nora")] })).value.conversation.id as string
     const refused = await op(owen.token, "participants.add", { conversation, participant: human(pat) })
     const allowed = await op(owen.token, "participants.add", { conversation, participant: human(quinn) })
     expect(refused.error?.code).toBeDefined()
     expect(refused.error?.code).toBe(allowed.error?.code)
+  })
+
+  it("allow_requests_from=nobody refuses new reach, also into groups; a shared team does not override it", async () => {
+    const rae = await signIn("reach-nobody-rae", "Rae")
+    const sam = await signIn("reach-nobody-sam", "Sam")
+    await joinTeam(rae, sam)
+    expect((await op(sam.token, "home.settings.set", { allow_requests_from: "nobody" })).value.allow_requests_from).toBe("nobody")
+    expect((await op(rae.token, "dm.open", { peer: sam.user })).error?.code).toBe("not_reachable")
+    expect((await op(rae.token, "conversation.create", { title: "Launch", participants: [human(rae, "Rae"), human(sam)] })).error?.code).toBe("not_reachable")
+    const conversation = (await op(rae.token, "conversation.create", { title: "Launch", participants: [human(rae, "Rae")] })).value.conversation.id as string
+    expect((await op(rae.token, "participants.add", { conversation, participant: human(sam) })).error?.code).toBe("not_reachable")
+    // teams: the shared team reaches him again.
+    expect((await op(sam.token, "home.settings.set", { allow_requests_from: "teams" })).value.allow_requests_from).toBe("teams")
+    expect((await op(rae.token, "participants.add", { conversation, participant: human(sam) })).error).toBeUndefined()
+  })
+
+  it("a shared group is no connection (16.3)", async () => {
+    const tia = await signIn("reach-group-tia", "Tia")
+    const uma = await signIn("reach-group-uma", "Uma")
+    const vic = await signIn("reach-group-vic", "Vic")
+    await joinTeam(tia, uma)
+    await joinTeam(tia, vic)
+    // Uma and Vic share Tia's group (each shares a team with Tia, not with each other).
+    expect((await op(tia.token, "conversation.create", { title: "All", participants: [human(tia, "Tia"), human(uma), human(vic)] })).error).toBeUndefined()
+    const own = (await op(uma.token, "conversation.create", { title: "Side", participants: [human(uma, "Uma")] })).value.conversation.id as string
+    expect((await op(uma.token, "participants.add", { conversation: own, participant: human(vic) })).error?.code).toBe("not_reachable")
+    expect((await op(uma.token, "dm.open", { peer: vic.user })).error?.code).toBe("not_reachable")
+  })
+})
+
+/** A chief created by `owner`, with the principal its cloud connection would carry (an agent install of the owner). */
+const chiefOf = async (owner: Person, key: string) => {
+  const chief = (await op(owner.token, "chief.create", {}, key)).value as { id: string }
+  const principal = { identity: `inst_${key}`, kind: "agent" as const, agent: chief.id, user: owner.user, team: owner.team, display_name: "Chief", grant_classes: ["read", "mutate-own", "mutate-shared", "execute"] }
+  const submit = async (name: string, params: Record<string, unknown>) => {
+    const res = await conversationMutate(env as never, principal, { t: "op", op: name, params, idempotency_key: crypto.randomUUID() })
+    const reply = res.frames.find((f) => f.t === "result" || f.t === "reject") as { t: string; code?: string } | undefined
+    return reply?.t === "reject" ? { error: { code: reply.code } } : { error: undefined }
+  }
+  return { id: chief.id, submit, participant: { id: chief.id, kind: "agent", display_name: "Chief", agent_class: "mux" } }
+}
+
+describe("a chief adds humans under its owner's reach (CHIEF-DONE autonomy rule)", { timeout: 60_000 }, () => {
+  it("adds a person its owner shares a team with; a stranger to its owner is not_reachable", async () => {
+    const wes = await signIn("reach-chief-wes", "Wes")
+    const xia = await signIn("reach-chief-xia", "Xia")
+    const yan = await signIn("reach-chief-yan", "Yan")
+    await joinTeam(wes, xia)
+    const chief = await chiefOf(wes, "chief-wes")
+    const created = await op(wes.token, "conversation.create", { title: "Work", participants: [human(wes, "Wes"), chief.participant] })
+    expect(created.error).toBeUndefined()
+    const conversation = created.value.conversation.id as string
+    expect((await chief.submit("participants.add", { conversation, participant: human(xia) })).error).toBeUndefined()
+    expect((await chief.submit("participants.add", { conversation, participant: human(yan) })).error?.code).toBe("not_reachable")
+    // The target's setting is checked against the owner.
+    const zed = await signIn("reach-chief-zed", "Zed")
+    await joinTeam(wes, zed)
+    expect((await op(zed.token, "home.settings.set", { allow_requests_from: "nobody" })).value.allow_requests_from).toBe("nobody")
+    expect((await chief.submit("participants.add", { conversation, participant: human(zed) })).error?.code).toBe("not_reachable")
+    const snap = await read(wes.token, "conversation.snapshot", { conversation, tail: 0 })
+    expect(snap.value.state.participants.map((p: { id: string }) => p.id).sort()).toEqual([wes.user, chief.id, xia.user].sort())
+  })
+
+  it("never re-adds a departed human its owner has no link to", async () => {
+    const abe = await signIn("reach-chief-abe", "Abe")
+    const bea = await signIn("reach-chief-bea", "Bea")
+    await joinTeam(abe, bea)
+    const chief = await chiefOf(abe, "chief-abe")
+    const conversation = (await op(abe.token, "conversation.create", { title: "Work", participants: [human(abe, "Abe"), human(bea, "Bea"), chief.participant] })).value.conversation.id as string
+    expect((await op(bea.token, "participants.remove", { conversation, participant: bea.user })).error).toBeUndefined()
+    await leaveTeam(abe, bea)
+    expect((await chief.submit("participants.add", { conversation, participant: human(bea) })).error?.code).toBe("not_reachable")
+    await joinTeam(abe, bea)
+    expect((await chief.submit("participants.add", { conversation, participant: human(bea) })).error).toBeUndefined()
+  })
+
+  it("an agent that is not one of the claimed owner's chiefs gets no reach, also not for a departed human", async () => {
+    const cal = await signIn("reach-chief-cal", "Cal")
+    const dee = await signIn("reach-chief-dee", "Dee")
+    await joinTeam(cal, dee)
+    const chief = await chiefOf(cal, "chief-cal")
+    const conversation = (await op(cal.token, "conversation.create", { title: "Work", participants: [human(cal, "Cal"), human(dee, "Dee"), chief.participant] })).value.conversation.id as string
+    expect((await op(dee.token, "participants.remove", { conversation, participant: dee.user })).error).toBeUndefined()
+    // The same chief claiming another owner: that owner has no such chief, so no facts at all.
+    const res = await conversationMutate(env as never, { identity: "inst_forged", kind: "agent", agent: chief.id, user: dee.user, team: dee.team, grant_classes: ["read", "mutate-own", "mutate-shared", "execute"] }, {
+      t: "op",
+      op: "participants.add",
+      params: { conversation, participant: human(dee) },
+      idempotency_key: crypto.randomUUID()
+    })
+    expect(res.frames.find((f) => f.t === "reject")).toMatchObject({ code: "not_reachable" })
   })
 })
