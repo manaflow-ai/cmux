@@ -59,7 +59,14 @@ rules neither reference enforces together:
    `x-notion-active-user-header` set to the drafted user, so Notion runs
    the write as that user or refuses it. The remaining window is between
    that last check and the click (Gmail, Calendar, LinkedIn, X), which no
-   site API closes: none binds a click to an account. Drive, Docs, Sheets
+   site API closes: none binds a click to an account. Before Send or Post,
+   Gmail, LinkedIn and X compare the composer's whole text (read in the
+   agent's isolated world, hidden text included, whitespace collapsed)
+   with the confirmed draft, never just its start: a composer that holds
+   more or other text than the draft (a page script or another session
+   added to it) fails with `compose_mismatch` and sends nothing. Gmail's
+   own signature and quoted thread text are left out of the comparison.
+   Drive, Docs, Sheets
    and Slides drafts name the file by id (see "Editing Google files" for
    what else they bind), and a WebMCP draft fails when its tab left the
    previewed URL or the page's tool changed (see "WebMCP calls").
@@ -145,7 +152,7 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `googleSlides.read(url)`, `.export(url, { format })` | `/export?format=` | read |
 | `googleDrive.download(url)`, `.export(url, { kind, format })` | drive.usercontent.google.com `/download`, Docs export | read |
 | `gmail.search(q, { limit, page, uid })`, `.inbox()`, `.thread(id, { format })`, `.attachment(id, name)` | Gmail web app in a background tab: thread rows (`tr.zA`), messages (`.adn`, expanded first); attachments are Gmail's attachment chips (`.aQH`, `.aZo`, never a link in the message body) whose link is Gmail's own `https://mail.google.com/mail/...view=att` URL, fetched with the session | read |
-| `gmail.send({ to, cc, bcc, subject, body } \| { threadId, body, replyAll })` | draft; confirmed: Gmail compose (`?view=cm`) or the thread's Reply, body checked in the composer, the page's account checked against the drafted email, Send, wait for "Message sent" and the undo window | write [9], [14] |
+| `gmail.send({ to, cc, bcc, subject, body } \| { threadId, body, replyAll })` | draft; confirmed: Gmail compose (`?view=cm`) or the thread's Reply, the whole body checked in the composer, the page's account checked against the drafted email, Send, wait for "Message sent" and the undo window | write [9], [14] |
 | `googleCalendar.events({ date, view, query, limit })` | Calendar view or search in a background tab; each `[data-eventid]` and its screen-reader description | read |
 | `googleCalendar.create({ title, start, end, allDay, description, location, guests, timeZone, recurrence })` | draft; confirmed: `calendar/render?action=TEMPLATE`, the event page's account checked against the drafted email, Save, Send invitations only when the draft has guests | write [9], [14] |
 | `googleSearch.search(q, options)` | the basic results page from the session's fetch (`/url?q=` links carry the destination), parsed in a blank tab; else the full page in a background tab (`div[data-rpos]` blocks, whose opaque `/goto` links are kept with `displayUrl`) | read |
@@ -157,9 +164,9 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `notion.append(page, markdown, { userId })` | draft naming the Notion user; confirmed: `getSpaces` must still hold that user, then `syncRecordValues` and `saveTransactions` (`set` and `listAfter` per block, after the last block) with `x-notion-active-user-header` set to that user | write [9] |
 | `linkedin.me()`, `.profile(id)` | Voyager API same-origin, CSRF from the page's cookie | read |
 | `linkedin.search(q, { type })`, `.feed()` | result and feed cards in a background tab | read |
-| `linkedin.post(text)` | draft naming the member id and public identifier; confirmed: share composer (`/feed/?shareActive=true&text=`), text checked, the member checked in that page (Voyager `/me`), Post | write [9] |
+| `linkedin.post(text)` | draft naming the member id and public identifier; confirmed: share composer (`/feed/?shareActive=true&text=`), the whole text checked, the member checked in that page (Voyager `/me`), Post | write [9] |
 | `x.user`, `.userTweets`, `.timeline`, `.search`, `.tweet` | profile and `article[data-testid="tweet"]` cards in a background tab, scrolled for more | read |
-| `x.post(text \| { text, replyTo })` | draft; confirmed: Web Intent `/intent/post`, text checked, Post | write [9] |
+| `x.post(text \| { text, replyTo })` | draft; confirmed: Web Intent `/intent/post`, the whole text checked, Post | write [9] |
 | `github.issue`, `.pull`, `.issues` | pages in a background tab | read |
 | `github.assigned({ issues, pulls, state, limit })` | GitHub's own search (`/search?type=issues`, `assignee:@me`) answering JSON in the session, 10 per page | read |
 | `googleDrive.recent({ uid, limit })` | Drive's Recent view in a background tab, rows by `data-id` | read |

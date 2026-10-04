@@ -1292,9 +1292,45 @@
         return tagOf(el) === "input" && (el.type || "").toLowerCase() === "file";
       case "multiple":
         return !!el.multiple;
+      case "composerText":
+        return composerText(el, arg);
       default:
         throw agentError("invalid", `Unknown read ${what}`);
     }
+  }
+
+  // All the text a composer will send: a field's value, else every text
+  // node in it, hidden ones too (they are sent), with a space at each block
+  // boundary and line break, read in this world (a page script cannot
+  // change what it returns). Elements matching `exclude` (the site's own
+  // signature or quoted text) are left out. Sites compare it whole with the
+  // confirmed draft before a public send.
+  const BLOCK_TAGS = new Set(["address", "article", "aside", "blockquote", "br", "dd", "div", "dl", "dt", "figcaption", "figure",
+    "footer", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "li", "main", "nav", "ol", "p", "pre", "section", "table", "td",
+    "th", "tr", "ul"]);
+  function composerText(el, exclude) {
+    const tag = tagOf(el);
+    if (tag === "textarea" || tag === "input") return el.value;
+    let out = "";
+    let left = MAX_NODES;
+    const walk = (node) => {
+      for (let n = node.firstChild; n; n = n.nextSibling) {
+        if (--left < 0) throw agentError("invalid", "The composer holds too many nodes to compare");
+        if (n.nodeType === 3) out += n.nodeValue;
+        else if (n.nodeType === 1) {
+          if (exclude && n.matches(exclude)) {
+            out += " ";
+            continue;
+          }
+          const block = BLOCK_TAGS.has(tagOf(n));
+          if (block) out += " ";
+          walk(n);
+          if (block) out += " ";
+        }
+      }
+    };
+    walk(el);
+    return out;
   }
 
   // This frame's place in its parent's window.frames, or -1 (the main

@@ -125,7 +125,6 @@
       }
 
       async function sendNow(msg) {
-        const bodyStart = msg.body.trim().slice(0, 40);
         if (msg.threadId) {
           const key = threadKey(msg.threadId);
           return t.withTab(`${base(msg.uid)}#all/${key}`, async (page) => {
@@ -140,7 +139,7 @@
             await box.waitFor({ timeout: 20000 });
             await box.click();
             await page.keyboard.insertText(msg.body);
-            return finishSend(page, box, bodyStart, msg);
+            return finishSend(page, box, msg);
           });
         }
         const q = new URLSearchParams({ view: "cm", fs: "1", tf: "1" });
@@ -151,13 +150,17 @@
           t.assertSignedIn("gmail.send", page, SIGN_IN);
           const box = page.locator('div[role="textbox"][aria-label="Message Body"], div[role="textbox"][g_editable="true"]').first();
           await box.waitFor({ timeout: 30000 });
-          return finishSend(page, box, bodyStart, msg);
+          return finishSend(page, box, msg);
         });
       }
 
-      async function finishSend(page, box, bodyStart, msg) {
-        const shown = (await box.innerText()).replace(/\s+/g, " ");
-        if (bodyStart && !shown.includes(bodyStart.replace(/\s+/g, " "))) throw new S.SiteError("compose_mismatch", "gmail.send: the compose window did not receive the drafted body; nothing was sent");
+      // Gmail's own parts of a body: the signature (and its "-- " prefix)
+      // and quoted text of the thread.
+      const GMAIL_OWN = ".gmail_signature, .gmail_signature_prefix, [data-smartmail=\"gmail_signature\"], .gmail_quote";
+      async function finishSend(page, box, msg) {
+        // The whole body, not its start: a page script or another session
+        // could keep the drafted opening and add to it.
+        if (!(await t.composerHolds(box, msg.body, { exclude: GMAIL_OWN }))) throw new S.SiteError("compose_mismatch", "gmail.send: the compose window did not receive the drafted body, or holds more than it; nothing was sent");
         // The account this page sends as, read in the page right before
         // Send (another session can sign an account in while it loads and
         // move another account to the drafted /u/ index). A switch between

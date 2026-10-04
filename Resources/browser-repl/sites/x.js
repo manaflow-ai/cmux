@@ -154,8 +154,9 @@
                   const now = await page.evaluate(signedInUser);
                   if (now !== account) throw new S.SiteError("account_changed", `x.post: the signed-in X user is now ${now || "nobody"}, not ${account} as drafted; nothing was posted`);
                   const box = page.locator('[data-testid="tweetTextarea_0"]').first();
-                  const shown = ((await box.count()) ? await box.innerText() : "").replace(/\s+/g, " ");
-                  if (!shown.includes(spec.text.trim().slice(0, 40).replace(/\s+/g, " "))) throw new S.SiteError("compose_mismatch", "x.post: the composer did not receive the drafted text; nothing was posted");
+                  // The whole text, not its start: a page script or another
+                  // session could keep the drafted opening and add to it.
+                  if (!(await box.count()) || !(await t.composerHolds(box, spec.text))) throw new S.SiteError("compose_mismatch", "x.post: the composer did not receive the drafted text, or holds more than it; nothing was posted");
                   await button.first().click();
                   await t.waitIn(page, () => !document.querySelector('[data-testid="tweetButton"]') || /Your post was sent|Your reply was sent/.test(document.body.innerText), undefined, { signIn: SIGN_IN, name: "x", timeout: 30000, what: "X to publish the post" });
                   return { status: "posted", replyTo };
