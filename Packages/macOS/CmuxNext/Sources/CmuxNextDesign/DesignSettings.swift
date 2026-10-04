@@ -95,6 +95,8 @@ public final class DesignSettings {
     public var sidebarSide: SidebarSide = .left
     /// `sidebar.spacesPosition` (R109).
     public var spacesPosition: SpacesPosition = .bottom
+    /// `tabs.barPosition` (R109).
+    public var tabBarPosition: TabBarPosition = .top
 
     public init() {}
 

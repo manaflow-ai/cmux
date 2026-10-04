@@ -36,6 +36,10 @@ enum HomeStrings {
         String(format: String(localized: "home.composer.attach.locationNotRemoved",
                               defaultValue: "Location data couldn’t be removed from “%@”, so it was not attached.", bundle: .module), name)
     }
+    static var unanswered: String {
+        String(localized: "home.send.unanswered", defaultValue: "A change may not have gone through. Check your connection.",
+               bundle: .module)
+    }
     static var cancelUpload: String { String(localized: "home.menu.cancelUpload", defaultValue: "Cancel Upload", bundle: .module) }
     /// The composer notice for a send the owner refused after it left the
     /// composer (a resumed upload, a resend).
