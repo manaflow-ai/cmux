@@ -15,7 +15,8 @@ use optchat_chief::brain::Input;
 use optchat_chief::compactor::{
     AcpmuxCompactor, CompactRoute, CompactorSpec, DENIED_TOOLS, POLICY, Slots, compact_route,
     compactor_preset, compactor_settings, compactor_spec, is_refusal_error, probe_models,
-    project_dir_name, request_blocks, strip_preamble,
+    COMPACTOR_ARGS, SYSTEM_FILE, cached_prompt, is_marker_limit_error, project_dir_name,
+    request_blocks, strip_preamble,
 };
 use optchat_chief::paths::Paths;
 use optchat_core::JOBS;
@@ -641,4 +642,187 @@ fn the_compactor_has_its_own_isolated_configuration() {
         "the compactor's cwd is outside the home: {}",
         spec.work.display()
     );
+}
+
+/// A `<chat>` context of `lines` 100-byte lines (about `lines * 100` characters).
+fn chat_of(lines: usize) -> String {
+    let line = format!("{}\n", "x".repeat(99));
+    let mut context = String::from("<chat>\n");
+    for _ in 0..lines {
+        context.push_str(&line);
+    }
+    context.push_str("</chat>");
+    context
+}
+
+fn markers(blocks: &[Value]) -> Vec<usize> {
+    blocks
+        .iter()
+        .enumerate()
+        .filter(|(_, b)| b.get("cache_control").is_some())
+        .map(|(i, _)| i)
+        .collect()
+}
+
+/// What Claude Code answers through acpmux when the request has more than
+/// four cache breakpoints (checked live: Claude Code uses three itself).
+const MARKER_LIMIT: &str = "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"A maximum of 4 blocks with cache_control may be provided. Found 5.\"}}";
+
+// Solution 1 of the cache research: the system text plus the view up to the
+// first mark (50k) is the session's system prompt (a file the preset's args
+// name), the rest of the view follows as blocks with ONE marker at the last
+// mark (100k), then the step.
+#[test]
+fn with_preset_args_the_view_head_is_the_system_prompt_and_one_marker_sits_at_100k() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: a line")));
+    agents.inner.lock().unwrap().preset_args = true;
+    let compactor = compactor(&agents, dir.path());
+    let context = chat_of(1_100);
+    let marks = optchat_core::cache_marks(&context);
+    assert_eq!(marks.len(), 3, "50k, 80k and 100k");
+    let r = CompactRequest {
+        context: context.clone(),
+        ..request(0)
+    };
+    assert_eq!(run_node(&compactor, &r).unwrap(), "user: a line");
+    let inner = agents.inner.lock().unwrap();
+    // The session's system prompt file: system text, then view[..50k].
+    let system = inner.systems[0].clone().expect("system.md written before the session");
+    assert_eq!(system, format!("SYS\n\n{}", &context[..marks[0]]));
+    let blocks = &inner.prompts[0];
+    let t = texts(blocks);
+    assert_eq!(t.len(), 4, "50k-80k, 80k-100k, 100k-end, step: {t:?}");
+    assert_eq!(t[..3].concat(), context[marks[0]..]);
+    assert_eq!(t[1].len() + t[0].len(), marks[2] - marks[0]);
+    assert_eq!(t[3], "STEP 0");
+    assert_eq!(markers(blocks), vec![1], "one marker, on the piece that ends at 100k");
+    assert_eq!(blocks[1]["cache_control"], json!({"type": "ephemeral"}));
+    // The file holds the chat's text: gone with the node.
+    let slot = inner.specs[0].cwd.clone();
+    drop(inner);
+    assert!(!slot.join(SYSTEM_FILE).exists(), "system.md removed when the node ends");
+}
+
+#[test]
+fn the_marker_sits_at_the_last_mark_that_exists() {
+    // 50k and 80k only: the marker goes on the piece that ends at 80k.
+    let context = chat_of(900);
+    assert_eq!(optchat_core::cache_marks(&context).len(), 2);
+    let r = CompactRequest {
+        context: context.clone(),
+        ..request(0)
+    };
+    let p = cached_prompt(&r, true);
+    assert_eq!(markers(&p.blocks), vec![0]);
+    assert_eq!(texts(&p.blocks).len(), 3);
+    // Only 50k: everything after it follows unmarked (the system prompt is
+    // Claude Code's own breakpoint).
+    let r = CompactRequest {
+        context: chat_of(600),
+        ..request(0)
+    };
+    let p = cached_prompt(&r, true);
+    assert!(markers(&p.blocks).is_empty());
+    assert_eq!(texts(&p.blocks).len(), 2);
+    // No mark: the system prompt is the system text alone.
+    let p = cached_prompt(&request(0), true);
+    assert_eq!(p.system, "SYS");
+    assert_eq!(texts(&p.blocks), vec!["<chat>\nuser: hi\n</chat>", "STEP 0"]);
+    // Without the marker the blocks are the same text.
+    let r = CompactRequest {
+        context: chat_of(1_100),
+        ..request(0)
+    };
+    let (with, without) = (cached_prompt(&r, true), cached_prompt(&r, false));
+    assert_eq!(texts(&with.blocks), texts(&without.blocks));
+    assert!(markers(&without.blocks).is_empty());
+}
+
+#[test]
+fn too_many_cache_breakpoints_retry_once_without_the_marker_and_say_so() {
+    assert!(is_marker_limit_error(MARKER_LIMIT));
+    assert!(!is_marker_limit_error("API Error: 529 overloaded"));
+    assert!(!is_marker_limit_error(REFUSAL));
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: a line")));
+    {
+        let mut inner = agents.inner.lock().unwrap();
+        inner.preset_args = true;
+        inner.answer_error = Some(MARKER_LIMIT.into());
+    }
+    let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+    let sink = lines.clone();
+    let compactor = compactor(&agents, dir.path())
+        .with_log(Arc::new(move |l: &str| sink.lock().unwrap().push(l.to_owned())));
+    let r = CompactRequest {
+        context: chat_of(1_100),
+        ..request(0)
+    };
+    // One call: the refused prompt, then a fresh session without the marker.
+    assert_eq!(compactor.call(&r, &[]).unwrap().text, "user: a line");
+    {
+        let inner = agents.inner.lock().unwrap();
+        assert_eq!(inner.prompts.len(), 2);
+        assert_eq!(markers(&inner.prompts[0]), vec![1]);
+        assert!(markers(&inner.prompts[1]).is_empty());
+        assert_eq!(texts(&inner.prompts[0]), texts(&inner.prompts[1]));
+        assert_eq!(inner.ended, vec!["s1"], "the refused session is gone");
+        assert_eq!(inner.systems[1], inner.systems[0], "same system prompt");
+    }
+    compactor.end(&r);
+    assert!(
+        lines.lock().unwrap().iter().any(|l| l.contains("cache_control") && l.contains("without")),
+        "{:?}",
+        lines.lock().unwrap()
+    );
+    // Later nodes skip the marker instead of failing first.
+    assert_eq!(run_node(&compactor, &request(1)).unwrap(), "user: a line");
+    let r2 = CompactRequest {
+        context: chat_of(1_100),
+        ..request(2)
+    };
+    assert_eq!(run_node(&compactor, &r2).unwrap(), "user: a line");
+    let inner = agents.inner.lock().unwrap();
+    assert!(markers(inner.prompts.last().unwrap()).is_empty());
+    assert_eq!(inner.prompts.len(), 4);
+}
+
+#[test]
+fn without_preset_args_the_old_layout_stays() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: a line")));
+    let compactor = compactor(&agents, dir.path());
+    let r = CompactRequest {
+        context: chat_of(1_100),
+        ..request(0)
+    };
+    run_node(&compactor, &r).unwrap();
+    let inner = agents.inner.lock().unwrap();
+    assert_eq!(inner.systems[0], None, "no system prompt file");
+    assert_eq!(inner.prompts[0], request_blocks(&r));
+    assert!(markers(&inner.prompts[0]).is_empty());
+}
+
+#[test]
+fn the_compactor_preset_names_the_system_prompt_file_and_no_tools() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("mux");
+    let paths = Paths::new(&home);
+    let preset = compactor_preset(&paths, &home, "claude-sr");
+    assert_eq!(
+        preset.args,
+        vec![
+            "--system-prompt-file",
+            "${cwd}/system.md",
+            "--tools",
+            "",
+            "--strict-mcp-config",
+            "--no-session-persistence",
+        ]
+    );
+    assert_eq!(preset.args, COMPACTOR_ARGS);
+    assert_eq!(SYSTEM_FILE, "system.md");
+    // Claude Code flags mean nothing to another harness.
+    assert!(compactor_preset(&paths, &home, "codex").args.is_empty());
 }

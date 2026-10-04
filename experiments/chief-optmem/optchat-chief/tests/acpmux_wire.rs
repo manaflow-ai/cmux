@@ -67,6 +67,17 @@ fn turn_events(prompt_id: &str) -> Vec<Value> {
 }
 
 fn serve(listener: UnixListener, requests: Arc<Mutex<Vec<Value>>>, fail_presets: bool) {
+    serve_with(listener, requests, fail_presets, false);
+}
+
+/// `old_presets`: an acpmux from before preset `args`, which refuses the key
+/// as its `_acpmux/presets` handler does ("unknown preset key").
+fn serve_with(
+    listener: UnixListener,
+    requests: Arc<Mutex<Vec<Value>>>,
+    fail_presets: bool,
+    old_presets: bool,
+) {
     std::thread::spawn(move || {
         for conn in listener.incoming().flatten() {
             let requests = requests.clone();
@@ -92,6 +103,13 @@ fn serve(listener: UnixListener, requests: Arc<Mutex<Vec<Value>>>, fail_presets:
                             json!({"sessions": [{"sessionId": "old", "name": "x", "status": "idle"}]}),
                         )),
                         "session/new" => send(reply(json!({"sessionId": "s-1"}))),
+                        "_acpmux/presets"
+                            if old_presets && req["params"]["set"].get("args").is_some() =>
+                        {
+                            send(
+                                json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32602, "message": "unknown preset key \"args\"; use harness, model, effort, policy, env, description"}}),
+                            )
+                        }
                         "_acpmux/presets" if fail_presets => send(
                             json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32601, "message": "Method not found: _acpmux/presets"}}),
                         ),
@@ -252,6 +270,7 @@ fn compactor_preset() -> Preset {
             "/h/optchat/compactor-claude".to_owned(),
         )]
         .into(),
+        args: vec!["--tools".into(), "".into()],
     }
 }
 
@@ -326,4 +345,42 @@ fn a_required_preset_is_installed_and_named_in_session_new() {
         "optchat-compact-1a2b3c4d"
     );
     assert!(new["params"]["_meta"]["acpmux"].get("effort").is_none());
+}
+
+// The compactor's cached layout needs preset args: a daemon that refuses the
+// key still gets the preset (without args), and the port says args are off,
+// so the compactor keeps the old layout.
+#[test]
+fn preset_args_are_sent_and_feature_detected() {
+    for old in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("acpmux.sock");
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        serve_with(
+            UnixListener::bind(&socket).unwrap(),
+            requests.clone(),
+            false,
+            old,
+        );
+        let acpmux = Acpmux::new(socket, None, vec![compactor_preset()]);
+        connect(&acpmux);
+        assert_eq!(acpmux.preset_args("optchat-compact-1a2b3c4d"), !old);
+        assert_eq!(
+            acpmux.new_session(&compactor_session(dir.path())),
+            Ok("s-1".into()),
+            "the preset is installed either way"
+        );
+        let requests = requests.lock().unwrap();
+        let sets: Vec<&Value> = requests
+            .iter()
+            .filter(|r| r["method"] == "_acpmux/presets")
+            .collect();
+        assert_eq!(sets[0]["params"]["set"]["args"], json!(["--tools", ""]));
+        if old {
+            assert_eq!(sets.len(), 2, "installed again without args");
+            assert!(sets[1]["params"]["set"].get("args").is_none());
+        } else {
+            assert_eq!(sets.len(), 1);
+        }
+    }
 }

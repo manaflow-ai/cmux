@@ -236,6 +236,11 @@ pub fn update(kind: &str, mut update: Value) -> Value {
 #[derive(Default)]
 pub struct Agents {
     pub specs: Vec<SessionSpec>,
+    /// Each session's `<cwd>/system.md` when it started (the compactor's
+    /// system prompt file, which the preset's args name), None without one.
+    pub systems: Vec<Option<String>>,
+    /// Presets acpmux installed with their `args` (a daemon that knows them).
+    pub preset_args: bool,
     /// Each turn's prompt blocks.
     pub prompts: Vec<Vec<Value>>,
     pub prompt_ids: Vec<String>,
@@ -351,6 +356,9 @@ impl FakeAgents {
 impl AgentPort for FakeAgents {
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String> {
         let mut inner = self.inner.lock().unwrap();
+        inner
+            .systems
+            .push(std::fs::read_to_string(spec.cwd.join("system.md")).ok());
         inner.specs.push(spec.clone());
         Ok(format!("s{}", inner.specs.len()))
     }
@@ -423,6 +431,10 @@ impl AgentPort for FakeAgents {
     fn find(&self, name: &str) -> Result<Option<String>, String> {
         self.inner.lock().unwrap().finds.push(name.to_owned());
         Ok(None)
+    }
+
+    fn preset_args(&self, _preset: &str) -> bool {
+        self.inner.lock().unwrap().preset_args
     }
 
     /// Ends the held turn with stop reason `cancelled`, as acpmux answers a

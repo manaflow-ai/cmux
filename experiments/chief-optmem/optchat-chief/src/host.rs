@@ -164,6 +164,7 @@ fn start(
         name: format!("optchat-chief-{}", crate::paths::home_id(home)),
         harness: harness.clone(),
         env: session_dir::isolation_env(paths),
+        args: Vec::new(),
     });
     // Compactor sessions require their own preset and configuration, which
     // OPTCHAT_CHIEF_ISOLATE never turns off: without it, every node would

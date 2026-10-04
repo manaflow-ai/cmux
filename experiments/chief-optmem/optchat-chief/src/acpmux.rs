@@ -81,6 +81,10 @@ pub trait AgentPort: Send + Sync {
     fn cancel(&self, _session: &str) -> Result<(), String> {
         Err("cancel is not supported".into())
     }
+    /// Whether the connected daemon installed `preset` with its `args`.
+    fn preset_args(&self, _preset: &str) -> bool {
+        false
+    }
 }
 
 /// Event kinds that never change the log by themselves; a turn fetches
@@ -103,6 +107,10 @@ pub struct Preset {
     /// still pass their own explicitly.
     pub harness: String,
     pub env: BTreeMap<String, String>,
+    /// Words appended to the harness command (acpmux preset `args`, one argv
+    /// word each, no shell). A daemon from before `args` refuses the key; the
+    /// preset is then installed without them and `preset_args` says so.
+    pub args: Vec<String>,
 }
 
 /// The real port: one connection at a time to the acpmux daemon.

@@ -492,6 +492,25 @@ pub fn request_blocks(request: &CompactRequest) -> Vec<Value> {
     blocks
 }
 
+pub const SYSTEM_FILE: &str = "system.md";
+pub const COMPACTOR_ARGS: [&str; 6] = ["", "", "", "", "", ""];
+
+pub struct CachedPrompt {
+    pub system: String,
+    pub blocks: Vec<Value>,
+}
+
+pub fn cached_prompt(request: &CompactRequest, _marker: bool) -> CachedPrompt {
+    CachedPrompt {
+        system: request.system.clone(),
+        blocks: request_blocks(request)[1..].to_vec(),
+    }
+}
+
+pub fn is_marker_limit_error(_message: &str) -> bool {
+    false
+}
+
 /// Whether a failed Claude turn's error text is a refusal: Claude Code's
 /// refusal messages all link the usage policy (2.1.289: "... safeguards
 /// flagged this message (https://www.anthropic.com/legal/aup) ...";
@@ -659,6 +678,7 @@ pub fn compactor_preset(paths: &Paths, home: &Path, harness: &str) -> Preset {
         name: format!("optchat-compact-{}", home_id(home)),
         harness: harness.to_owned(),
         env,
+        args: Vec::new(),
     }
 }
 
