@@ -1897,14 +1897,19 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         try await withWindow(panel) { [self] webView, window in
             let flags = modifiers.union(webView.browserNativeInputDeliveryOwner.activeModifierFlags)
             if type == "wheel" {
-                let deltaX = (params["deltaX"] as? NSNumber)?.doubleValue ?? 0
-                let deltaY = (params["deltaY"] as? NSNumber)?.doubleValue ?? 0
+                // The REPL is untrusted: any number reaches here, and the
+                // counts are clamped to a wheel count's range.
+                guard let delta = BrowserReplWheelDelta(
+                    validatingDeltaX: (params["deltaX"] as? NSNumber)?.doubleValue ?? 0,
+                    deltaY: (params["deltaY"] as? NSNumber)?.doubleValue ?? 0
+                ) else {
+                    throw Self.error("invalid", "mouse.wheel: deltaX and deltaY must be finite numbers")
+                }
                 guard let event = BrowserReplNativeInput.wheelEvent(
                     webView: webView,
                     window: window,
                     cssPoint: css,
-                    deltaX: deltaX,
-                    deltaY: deltaY,
+                    delta: delta,
                     modifierFlags: flags
                 ) else {
                     throw Self.error("invalid", "Could not create a wheel event")

@@ -101,14 +101,31 @@ public struct BrowserReplWheelDelta: Sendable, Equatable {
         self.horizontal = horizontal
     }
 
-    /// The counts for page-space deltas `deltaX` and `deltaY`.
+    /// The counts for page-space deltas `deltaX` and `deltaY`, clamped to
+    /// a wheel count's range (the REPL sends any number). A non-finite
+    /// delta counts as 0.
     public init(deltaX: Double, deltaY: Double) {
-        vertical = Int32(clamping: Int(-deltaY.rounded()))
-        horizontal = Int32(clamping: Int(-deltaX.rounded()))
+        vertical = Self.count(-deltaY)
+        horizontal = Self.count(-deltaX)
     }
 
-    /// The counts for page-space deltas `deltaX` and `deltaY`.
+    /// The counts for page-space deltas `deltaX` and `deltaY`, or `nil` when
+    /// either is not a finite number.
     public init?(validatingDeltaX deltaX: Double, deltaY: Double) {
+        guard deltaX.isFinite, deltaY.isFinite else { return nil }
         self.init(deltaX: deltaX, deltaY: deltaY)
+    }
+
+    /// `value` rounded and clamped in `Double` first: converting a `Double`
+    /// outside `Int`'s range, or a non-finite one, to an integer traps.
+    private static func count(_ value: Double) -> Int32 {
+        guard value.isFinite else { return 0 }
+        return Int32(value.rounded().clamped(to: Double(Int32.min)...Double(Int32.max)))
+    }
+}
+
+private extension Double {
+    func clamped(to range: ClosedRange<Double>) -> Double {
+        Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
     }
 }
