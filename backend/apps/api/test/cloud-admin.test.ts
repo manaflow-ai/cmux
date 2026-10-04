@@ -8,8 +8,8 @@ import { describe, expect, it } from "vitest"
  */
 const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; CLOUD_ADMIN_KEY: string }
 const worker = (exports as unknown as { default: Fetcher }).default
-const token = async (sub: string) =>
-  new SignJWT({ email: `${sub}@example.com`, email_verified: true, name: sub })
+const token = async (sub: string, verified = true) =>
+  new SignJWT({ email: `${sub}@example.com`, email_verified: verified, name: sub })
     .setProtectedHeader({ alg: "ES256", kid: "stack-test" })
     .setIssuer(`https://api.stack-auth.com/api/v1/projects/${testEnv.STACK_PROJECT_ID}`)
     .setAudience(testEnv.STACK_PROJECT_ID)
@@ -33,7 +33,12 @@ describe("cloud abandoned clear route", () => {
     expect((await clear(key, BODY)).status).toBe(403)
     expect((await clear({ ...key, "x-cmux-person-token": "not-a-token" }, BODY)).status).toBe(403)
   })
-  it("validates the body and reaches CloudDO with a person", async () => {
+  it("refuses a signed-in person who is not on CLOUD_ADMIN_USERS, and an admin with an unverified email", async () => {
+    const key = { authorization: `Bearer ${testEnv.CLOUD_ADMIN_KEY}` }
+    expect((await clear({ ...key, "x-cmux-person-token": await token("random_signup_1") }, BODY)).status).toBe(403)
+    expect((await clear({ ...key, "x-cmux-person-token": await token("ops_person_1", false) }, BODY)).status).toBe(403)
+  })
+  it("validates the body and reaches CloudDO with an allowlisted, verified person", async () => {
     const h = { authorization: `Bearer ${testEnv.CLOUD_ADMIN_KEY}`, "x-cmux-person-token": await token("ops_person_1") }
     expect((await clear(h, { ...BODY, reason: "short" })).status).toBe(400)
     expect((await clear(h, { ...BODY, machine: "nope" })).status).toBe(400)

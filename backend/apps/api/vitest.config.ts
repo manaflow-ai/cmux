@@ -65,6 +65,8 @@ export default defineConfig({
           // Cloud machines use the in-object fake provider under the test prefix (cloud-driver.ts).
           CLOUD_DRIVER: "fake",
           CLOUD_ADMIN_KEY: "test-cloud-admin-key-0123456789abcdef",
+          // userIdFor(STACK_PROJECT_ID, "ops_person_1"): the only person the abandoned-clear route accepts in tests.
+          CLOUD_ADMIN_USERS: "user_6412abe5b2830d00012b",
           CLOUD_NAME_PREFIX: "cmuxnp-test-cld-",
           // Only these teams get the stub plan and provider calls (P1-1); test/setup/cloud-teams.ts.
           CLOUD_ALLOWED_TEAMS: cloudAllowedTeams().join(","),
