@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { SchemaValidator } from "../../tools/json-schema.ts"
 import { checkPalette, validatePackage } from "../../tools/validate-manifest.ts"
-import { generate, scopeFor } from "../../tools/gen-cmux-global.ts"
+import { generate, NEVER_OPS, scopeFor } from "../../tools/gen-cmux-global.ts"
 import { loadAppCatalogs, schemaType } from "../../tools/app-catalogs.ts"
 
 const root = join(import.meta.dir, "../..")
@@ -116,6 +116,23 @@ describe("generator", () => {
     expect(scopeFor("terminal.close", { class: "mutation" })).toBeNull()
     expect(scopeFor("install.revoke", { class: "mutation", risk: "destructive" })).toBeNull()
     expect(scopeFor("team.directory", { class: "read", risk: "read" })).toBe("team:read")
+  })
+  test("money, person-only and named ops are never reachable from apps", () => {
+    // Money: the backend risk, and app catalog ops that move money.
+    expect(scopeFor("usage.cap.set", { class: "mutation", risk: "money" })).toBeNull()
+    // Person-only: a backend op a signed-in person may call but no install (the
+    // device that runs apps) may.
+    expect(scopeFor("integration.connect", { class: "mutation", risk: "mutate-own", principals: ["session"] })).toBeNull()
+    expect(scopeFor("automation.list", { class: "read", risk: "read", principals: ["session", "install"] })).toBe("automation:read")
+    // Named: cloud.machine.link_token mints dial tokens, whatever its risk.
+    expect(NEVER_OPS.has("cloud.machine.link_token")).toBe(true)
+    expect(scopeFor("cloud.machine.link_token", { class: "mutation", risk: "execute" })).toBeNull()
+    const files = generate()
+    const scopes = JSON.parse(files["scopes.json"]!)
+    expect(scopes.ops["cloud.billing.checkout"]).toBeUndefined()
+    expect(scopes.never).toContain("cloud.billing.checkout")
+    expect(scopes.ops["integration.connect"]).toBeUndefined()
+    expect(scopes.never).toContain("integration.connect")
   })
   test("first-party app catalog ops get scopes and typed clients", () => {
     const files = generate()
