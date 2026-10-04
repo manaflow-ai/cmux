@@ -34,7 +34,7 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 | `tab.navigate` | `{ targetId, url, waitUntil: "commit"\|"domcontentloaded"\|"load"\|"networkidle", timeoutMs }` | `{ url, status? }` |
 | `tab.history` | `{ targetId, delta: -1\|1, waitUntil, timeoutMs }` | `{ url }`, or `null` when no entry (the blank page a tab opened on is not an entry) |
 | `tab.reload` | `{ targetId, waitUntil, timeoutMs }` | `{ status? }` |
-| `tab.info` | `{ targetId }` | `{ url, title, state, loadState, viewport: { width, height }, deviceScaleFactor, webProcessId? }` |
+| `tab.info` | `{ targetId }` | `{ url, title, state, loadState, viewport: { width, height }, deviceScaleFactor, webProcessId? }`. The live values come from a read of the main document through the frame checks (see "Guards"); while the domain policy blocks that document they come from the browser's own state (the URL and title `tabs.list` shows), and the page is not read |
 | `tab.setViewport` | `{ targetId, width, height }` or `{ targetId, reset: true }` | |
 | `tab.bringToFront` | `{ targetId }` | |
 | `tab.keep` | `{ targetId }` | |

@@ -1432,13 +1432,18 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         }
         // Page script is blocked while a dialog is open; answer from native state.
         guard !attachment.hasPendingDialog else { return result }
+        // The live read is a read of the page: it runs through the frame
+        // gate like every other, so a main document the domain policy
+        // blocks is not read and the call answers from native state (the
+        // URL and title tabs.list shows), as the guards allow any tab to.
+        let mainFrame = try await frame(panel, [:])
         let metrics = await withTimeout(milliseconds: 2_000) { () -> [Any]? in
-            let value = try? await webView.browserReplCallAsyncJavaScript(
+            let value = try? await self.frameGate.callAsyncJavaScript(
                 "return [document.readyState === 'complete' ? 2 : document.readyState === 'interactive' ? 1 : 0, innerWidth, innerHeight, location.href, document.title];",
                 arguments: [:],
-                in: nil,
-                contentWorld: BrowserReplAgentWorld.world,
-                userGesture: false
+                in: webView,
+                frame: mainFrame,
+                contentWorld: BrowserReplAgentWorld.world
             )
             return value as? [Any]
         } ?? nil
