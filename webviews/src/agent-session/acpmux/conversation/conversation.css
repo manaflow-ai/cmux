@@ -820,3 +820,24 @@
 .cv-turn-summary {
   margin-left: 4.5px;
 }
+
+/* R104: a block that appears while the reply streams, and a row that arrives live (a reply, a
+ * tool call, a status line), fade in and rise 4px on the shared fade-in token. `translate` and
+ * `opacity` never move layout, so nothing below shifts. Off under Reduce Motion and when
+ * ui.animationSpeed is off (the token is 0). */
+@keyframes cv-enter {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-enter,
+  .acpmux-row--enter {
+    animation: cv-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+}

@@ -10,10 +10,11 @@
 //! 4. [`Transfer`] runs the copy with the host key pinned. The real one is
 //!    [`OpenSshTransfer`]; tests use a fake.
 
+use super::cancel::Cancel;
 use super::key::TransferKey;
 pub use super::openssh::host_alias;
 use super::path::{guest_arg, local_arg};
-use super::running::{Running, TRANSFER_BUSY};
+use super::running::{CancelAnswer, Running, TRANSFER_BUSY};
 use crate::api::{CloudError, ControlPlane, Origin, args, codes};
 use crate::app_env::SshFiles;
 use crate::ops::Server;
@@ -29,6 +30,13 @@ use std::sync::Arc;
 pub use super::openssh::OpenSshTransfer;
 
 pub const TRANSFER_FAILED: &str = "cmux.cloud.transfer_failed";
+/// The code of a transfer that `cloud.file.transfer.cancel` stopped (its
+/// event says `state: cancelled`).
+pub const TRANSFER_CANCELLED: &str = "cmux.cloud.transfer_cancelled";
+/// `cloud.file.transfer.list {}`.
+pub(crate) const LIST: &str = "cloud.file.transfer.list";
+/// `cloud.file.transfer.cancel {transfer}`.
+pub(crate) const CANCEL: &str = "cloud.file.transfer.cancel";
 pub const LOCAL_EXISTS: &str = "cmux.cloud.local_exists";
 /// The answer named no host key to pin. A host key the Cloud API did not
 /// give needs the user's host key sheet (not built yet): the transfer stops.
@@ -81,7 +89,7 @@ impl ScpEndpoint {
     }
 }
 
-fn valid_host_key(text: &str) -> bool {
+pub(crate) fn valid_host_key(text: &str) -> bool {
     let Some(encoded) = text.strip_prefix("ssh-ed25519 ") else { return false };
     let Ok(blob) = STANDARD.decode(encoded) else { return false };
     blob.len() == 51
@@ -118,8 +126,16 @@ pub struct TransferError {
 
 pub trait Transfer: Send + Sync {
     /// Copies one file. The key is the one whose public half the endpoint
-    /// authorized; the implementation must not store it.
-    fn run(&self, job: &TransferJob, key: &TransferKey) -> Result<u64, TransferError>;
+    /// authorized; the implementation must not store it. On `cancel` the
+    /// implementation stops the copy (it registers a hook that kills each
+    /// child it starts) and returns an error; the loop then removes a
+    /// pull's partial file.
+    fn run(
+        &self,
+        job: &TransferJob,
+        key: &TransferKey,
+        cancel: &Cancel,
+    ) -> Result<u64, TransferError>;
 }
 
 fn now_unix() -> i64 {
@@ -207,6 +223,8 @@ pub(crate) fn run<C: ControlPlane>(
         local: local.clone(),
         landing,
         route,
+        cancel: Cancel::default(),
+        started_at: 0,
     };
     let transfer = edge.transfers.start(worker, job, transfer_key, running)?;
     Ok(json!({
@@ -254,4 +272,33 @@ fn check_local(local: &std::path::Path, direction: Direction) -> Result<(), Clou
             }
         }
     }
+}
+
+/// `cloud.file.transfer.list {}`: the running transfers, then the recent
+/// finished ones (crate::fs::running::Transfers::list).
+pub(crate) fn list<C: ControlPlane>(
+    server: &mut Server<C>,
+    raw: &Value,
+) -> Result<Value, CloudError> {
+    args::object(raw, &[])?;
+    let (edge, _) = server.edge_parts();
+    Ok(json!({ "transfers": edge.transfers.list() }))
+}
+
+/// `cloud.file.transfer.cancel {transfer}`: `cancelling` for a running
+/// transfer (one `cancelled` event follows), `ended` for one that already
+/// ended (nothing changes), `cmux.cloud.not_found` for an id this server
+/// never issued.
+pub(crate) fn cancel<C: ControlPlane>(
+    server: &mut Server<C>,
+    raw: &Value,
+) -> Result<Value, CloudError> {
+    let map = args::object(raw, &["transfer"])?;
+    let transfer = args::id(map, "transfer")?.to_owned();
+    let (edge, _) = server.edge_parts();
+    let state = match edge.transfers.cancel(&transfer)? {
+        CancelAnswer::Cancelling => "cancelling",
+        CancelAnswer::Ended => "ended",
+    };
+    Ok(json!({ "ok": true, "transfer": transfer, "state": state }))
 }

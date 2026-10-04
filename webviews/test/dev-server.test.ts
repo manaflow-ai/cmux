@@ -237,6 +237,36 @@ describe("markdown editor dev host", () => {
     expect(readMarkdown(doc)?.utf8).toBe(true);
   });
 
+  test("resolveLinks answers relative targets inside the roots, with their kind", () => {
+    write(path.join(root, "docs/other.md"), "# O\n");
+    expect(files.target(doc, "other.md")).toEqual({
+      exists: true,
+      path: path.join(root, "docs/other.md"),
+      kind: "markdown",
+    });
+    expect(files.target(doc, "images/a.png")).toEqual({
+      exists: true,
+      path: path.join(root, "docs/images/a.png"),
+      kind: "file",
+    });
+    expect(files.target(doc, "images")).toEqual({
+      exists: true,
+      path: path.join(root, "docs/images"),
+      kind: "directory",
+    });
+    expect(files.target(doc, "missing.md").exists).toBe(false);
+    expect(files.target(doc, "../../outside.md")).toEqual({ exists: false });
+    expect(files.target(doc, "/etc/passwd")).toEqual({ exists: false });
+  });
+
+  test("listFiles completes paths relative to the file, folders first, no dotfiles", () => {
+    write(path.join(root, "docs/.hidden.md"), "x");
+    expect(files.list(doc, "")).toEqual(["images/", "doc.md", "gone.md", "latin.md", "notes.txt", "other.md"]);
+    expect(files.list(doc, "images/")).toEqual(["images/a.png"]);
+    expect(files.list(doc, "o")).toEqual(["other.md"]);
+    expect(files.list(doc, "../../")).toEqual([]);
+  });
+
   test("images resolve only inside the file's folder", () => {
     expect(markdownAsset(doc, "images/a.png")).toEqual({
       file: path.join(root, "docs/images/a.png"),

@@ -42,7 +42,7 @@ enum DebugAgentPane {
         "open_menu": "openMenu", "acp_log": "acpLog", "acp_log_export": "acpLogExport",
         "chat_state": "chatState", "send_prompt": "sendPrompt", "new_chat": "newChat",
         "select_session": "selectSession", "answer_permission": "answerPermission", "open_changes": "openChanges",
-        "set_model": "setModel", "models": "models",
+        "set_model": "setModel", "models": "models", "stream": "stream",
     ]
 
     /// Runs `fn(...args)` on the page and returns its result as JSON text.
@@ -71,7 +71,7 @@ enum DebugAgentPane {
             return .object(["pane": .string(pane), "full_rate": .bool(view.rendersAtFullRate)])
         }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, answer_permission, open_changes, set_model, models, pid or full_rate")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, answer_permission, open_changes, set_model, models, stream, pid or full_rate")])
         }
         do {
             let result = try await view.webView.callAsyncJavaScript(
@@ -109,6 +109,13 @@ enum DebugAgentPane {
             return [params["seconds"]?.doubleValue ?? 3, options]
         case "perf_stats":
             return [["raw": params["raw"]?.boolValue == true] as [String: Any]]
+        case "stream":
+            // R104: a scripted reply streamed into `rows` synthetic rows (streamDebug.ts).
+            var options: [String: Any] = [:]
+            for key in ["rows", "seconds", "chunk_chars", "chunk_ms", "nominal_ms"] {
+                if let value = params[key]?.doubleValue { options[key] = value }
+            }
+            return [options]
         case "open_menu":
             return [params["label"]?.stringValue ?? ""]
         case "acp_log":

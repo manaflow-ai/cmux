@@ -2,7 +2,8 @@
 /// Forward walk. `workspace` (default): the current workspace's places in the location trail;
 /// `window`: the current window's places across its workspaces; `surface`: the focused surface's
 /// own list (a browser page's back and forward). The app maps the value to `HistoryScope`.
-public nonisolated enum NavigationHistoryScopeSetting {
+public nonisolated struct NavigationHistoryScopeSetting {
+    public nonisolated init() {}
     public static let configPath = ["navigation", "historyScope"]
     public static let values = ["workspace", "window", "surface"]
     public static let fallback = "workspace"

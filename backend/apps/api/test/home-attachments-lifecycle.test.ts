@@ -1,8 +1,9 @@
 /** Home attachments: slot and sweep lifecycle under slow uploads and concurrent releases (backend lead re-check of 904f44e909c). */
 import { describe, expect, it } from "vitest"
-import { runDurableObjectAlarm } from "cloudflare:test"
+
 import type { PresignInput } from "../src/r2-presign.ts"
 import { attachmentPart, bytesOf, group, intent, op, post, runInDurableObject, sha, signIn, testEnv, upload } from "./home-attachments-support.ts"
+import { fireAlarm, quiesce } from "./setup/alarm.ts"
 
 type Inst = { nextWakeAt(s: unknown, now: number): number | null }
 const VIDEO = { mime_type: "video/mp4", name: "slow.mp4", width: undefined, height: undefined }
@@ -16,7 +17,7 @@ const drainAlarms = async (stub: DurableObjectStub, max = 10) => {
   for (let n = 0; n < max; n++) {
     const due = await runInDurableObject(stub, async (i: Inst) => i.nextWakeAt(null, Date.now()))
     if (due === null || due > Date.now()) return
-    await runDurableObjectAlarm(stub)
+    await fireAlarm(stub)
   }
 }
 
@@ -96,6 +97,8 @@ describe("Home attachments: a release during a sweep's R2 delete is not lost (B)
     const later = Date.now() + 25 * 3_600_000
     const store = await import("../src/home-attachment-store.ts")
     const left = await runInDurableObject(stub, async (i: any, state) => {
+      // Direct calls with a fake clock: no real-clock runtime alarm may run between them.
+      await quiesce(i, state)
       const bucket = i.env.HOME_ATTACHMENTS as R2Bucket
       // During the first pass's R2 delete, the message's reference goes (as a retract does) and the owner marks the sweep dirty.
       let released = false

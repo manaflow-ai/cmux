@@ -17,13 +17,19 @@
 //! the home folder from the user database (not `HOME`) and may `stat` (or
 //! create, when missing) the real `~/.ssh`; it reads no file there.
 //!
+//! A cancel kills the running `scp` (crate::fs::Cancel). `scp`'s own `ssh`
+//! child ends when its pipes to the killed `scp` close; `run` returns when
+//! `scp`'s stderr has ended.
+//!
 //! UNVERIFIED live: needs a Cloud machine (no non-production account yet).
 
+use super::cancel::Cancel;
 use super::key::TransferKey;
 use super::transfer::{Direction, Transfer, TransferError, TransferJob};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 /// The folders the OpenSSH programs are taken from, in order (system
 /// OpenSSH only; never `PATH`).
@@ -160,6 +166,14 @@ fn command(program: &Path, env: &[(String, String)]) -> Command {
     command
 }
 
+fn cancelled() -> TransferError {
+    TransferError { message: "the transfer was cancelled".into(), retryable: false }
+}
+
+fn lock(child: &Mutex<Child>) -> MutexGuard<'_, Child> {
+    child.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 fn failed(what: &str, detail: &str) -> TransferError {
     let tail: String =
         detail.chars().rev().take(2000).collect::<Vec<_>>().into_iter().rev().collect();
@@ -222,7 +236,15 @@ impl OpenSshTransfer {
 }
 
 impl Transfer for OpenSshTransfer {
-    fn run(&self, job: &TransferJob, key: &TransferKey) -> Result<u64, TransferError> {
+    fn run(
+        &self,
+        job: &TransferJob,
+        key: &TransferKey,
+        cancel: &Cancel,
+    ) -> Result<u64, TransferError> {
+        if cancel.is_cancelled() {
+            return Err(cancelled());
+        }
         for program in [&self.ssh, &self.scp, &self.ssh_agent, &self.ssh_add] {
             if !program.is_absolute() {
                 return Err(failed("OpenSSH is not configured", &program.to_string_lossy()));
@@ -236,6 +258,9 @@ impl Transfer for OpenSshTransfer {
             .map_err(|e| failed("transfer.pub", &e.to_string()))?;
         let _agent = self.start_agent(job, &socket)?;
         self.add_key(job, &socket, key)?;
+        if cancel.is_cancelled() {
+            return Err(cancelled());
+        }
         let mut args = scp_args(job, &socket, &identity_pub);
         // `ssh` by absolute path, never found through PATH.
         args.splice(1..1, ["-S".to_owned(), self.ssh.to_string_lossy().into_owned()]);
@@ -246,11 +271,29 @@ impl Transfer for OpenSshTransfer {
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| failed("scp did not start", &e.to_string()))?;
+        let pipe = child.stderr.take();
+        // A cancel kills scp (at once when it came before this line). The
+        // worker holds the lock only to wait, after stderr ended, so the
+        // kill never waits for the copy. A kill after the wait is a no-op
+        // (std keeps the status and never signals a reaped child).
+        let child = Arc::new(Mutex::new(child));
+        let killer = Arc::clone(&child);
+        cancel.on_cancel(move || {
+            // A held lock means the worker is reaping scp (stderr ended):
+            // there is nothing left to kill, and the loop never waits here.
+            if let Ok(mut child) = killer.try_lock() {
+                let _ = child.kill();
+            }
+        });
         let mut stderr = String::new();
-        if let Some(mut pipe) = child.stderr.take() {
+        if let Some(mut pipe) = pipe {
             let _ = pipe.read_to_string(&mut stderr);
         }
-        let status = child.wait().map_err(|e| failed("scp", &e.to_string()))?;
+        let status = lock(&child).wait().map_err(|e| failed("scp", &e.to_string()))?;
+        // A copy that finished before the cancel took effect is done.
+        if !status.success() && cancel.is_cancelled() {
+            return Err(cancelled());
+        }
         if !status.success() {
             return Err(TransferError { retryable: true, ..failed("scp failed", &stderr) });
         }
