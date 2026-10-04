@@ -530,6 +530,45 @@ import Testing
         #expect(CloudHomeSource.isForAccount(.sessionNeeded(CloudSessionNeeded(reason: "missing")), cloudID: me))
     }
 
+    /// The owner refused the conversation's socket (`closed`, `forbidden`:
+    /// the user was removed). An edit there is refused for good and
+    /// subscribes nothing, instead of waiting forever and opening a socket
+    /// the Worker refuses on every resend. Opening it again tries again.
+    @Test func anEditInAClosedConversationIsRefusedAndSubscribesNothing() async throws {
+        let (source, daemon, tape) = await configured(.init(heads: [dm: F.head(dm)]))
+        #expect(await signedIn(tape))
+        _ = try await source.snapshot(of: ConversationID(dm), tail: 10)
+        source.handle(.subscriptionState(CloudSubscriptionState(scope: "conversation", conversation: dm, state: "closed",
+                                                                reason: "forbidden", account: "stack-me")))
+        @Sendable func subscribes(_ calls: [FakeCloudDaemon.Call]) -> Int { calls.filter { $0 == .subscribe(dm) }.count }
+        let before = subscribes(daemon.calls)
+        let send = HomeIntent(key: IdempotencyKey("cmk_closed"), op: .sendMessage(conversation: ConversationID(dm), parts: [.text("x")]))
+        await #expect(throws: HomeRejection.notAuthorized) { try await source.submit(send) }
+        let read = HomeIntent(key: IdempotencyKey("cmk_closed_read"), op: .setReadCursor(conversation: ConversationID(dm), seq: 1))
+        await #expect(throws: HomeRejection.notAuthorized) { try await source.submit(read) }
+        #expect(daemon.opRequests.isEmpty)
+
+        // The user opens it again: it subscribes once more, and edits go out once it is live.
+        _ = try await source.snapshot(of: ConversationID(dm), tail: 10)
+        #expect(subscribes(daemon.calls) == before + 1, "an edit in a closed conversation subscribed it: \(daemon.calls)")
+        _ = try await source.submit(send)
+        #expect(daemon.opRequests.map(\.idempotencyKey) == ["cmk_closed"])
+    }
+
+    /// The `.ownerRecovered` that resends edits refused while a socket
+    /// connected comes from that socket's `live` state.
+    @Test func aLiveSocketAfterARefusedEditTellsTheStoreToResend() async throws {
+        let (source, _, tape) = await configured(.init(heads: [dm: F.head(dm)], subscribeState: "connecting"))
+        #expect(await signedIn(tape))
+        _ = try await source.snapshot(of: ConversationID(dm), tail: 10)
+        @Sendable func recoveries(_ events: [HomeEvent]) -> Int { events.filter { $0 == .ownerRecovered }.count }
+        let before = recoveries(tape.all)
+        let send = HomeIntent(key: IdempotencyKey("cmk_lv"), op: .sendMessage(conversation: ConversationID(dm), parts: [.text("x")]))
+        await #expect(throws: HomeRejection.ownerUnreachable) { try await source.submit(send) }
+        source.handle(.subscriptionState(CloudSubscriptionState(scope: "conversation", conversation: dm, state: "live", account: "stack-me")))
+        #expect(await tape.wait { recoveries($0) == before + 1 })
+    }
+
     func listed(_ source: CloudHomeSource, _ id: String) -> Bool {
         source.currentInbox().conversations.contains { $0.id.rawValue == id }
     }
