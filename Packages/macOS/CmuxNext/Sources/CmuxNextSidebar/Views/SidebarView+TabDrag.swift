@@ -49,7 +49,16 @@ extension SidebarView {
                 highlightFrame: window.convertToScreen(convert(newButton.frame, to: nil))
             )
         }
-        guard let (drop, rect) = list.externalDragMoved(windowPoint: windowPoint, sourceMachine: sourceMachine) else { return nil }
+        // The sidebar's own chrome (header, footer, the margins around the
+        // list) is no dead zone: it previews the list slot nearest to the
+        // pointer (tab-dnd, 2026-10-04).
+        let visible = list.visibleRect.insetBy(dx: 0.5, dy: 0.5)
+        let inList = list.convert(windowPoint, from: nil)
+        let nearest = list.convert(CGPoint(x: min(max(inList.x, visible.minX), visible.maxX),
+                                           y: min(max(inList.y, visible.minY), visible.maxY)), to: nil)
+        guard !visible.isEmpty, let (drop, rect) = list.externalDragMoved(windowPoint: nearest, sourceMachine: sourceMachine) else {
+            return nil
+        }
         return SidebarTabDropHit(drop: drop, highlightFrame: window.convertToScreen(list.convert(rect, to: nil)))
     }
 

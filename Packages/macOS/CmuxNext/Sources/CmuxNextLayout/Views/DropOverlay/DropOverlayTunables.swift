@@ -2,8 +2,8 @@ public import CmuxNextDesign
 public import CoreGraphics
 
 /// Debug Settings tunables of the drop overlay: the style, the parameters
-/// every style shares, and each style's own. Defaults keep the original
-/// Liquid Glass fill exactly as it was.
+/// every style shares, and each style's own. The default style is the
+/// border-only outline (tab-dnd); the others keep their original look.
 public nonisolated enum DropOverlayTunables {
     /// `property` is the static property's name, for "Copy as Swift defaults".
     private static func number(_ name: String, _ label: String, help: String, _ value: Double, range: ClosedRange<Double>,
@@ -20,7 +20,7 @@ public nonisolated enum DropOverlayTunables {
 
     public static let style = Tunable<DropOverlayStyle>.choice(
         "drop.overlay.style", .dropOverlay, "Style", help: "How the overlay shows where a dragged tab lands. Switches live, even mid-drag.",
-        default: .glassFill, code: "DropOverlayTunables.style")
+        default: .outline, code: "DropOverlayTunables.style")
     public static let spring = Tunable<MotionSpring>.choice(
         "drop.overlay.spring", .dropOverlay, "Spring", help: "Motion token for the overlay moving between targets (morph always uses settle).",
         default: .track, code: "DropOverlayTunables.spring")
@@ -41,6 +41,12 @@ public nonisolated enum DropOverlayTunables {
         default: .textPrimary, code: "DropOverlayTunables.color")
 
     // MARK: Per style
+
+    public static let outlineStrokeWidth = number("outline.width", "Outline: width", help: "Width of the border around the drop rect.",
+                                                  2, range: 0.5...8, step: 0.25, unit: .points, property: "outlineStrokeWidth")
+    public static let outlineColor = Tunable<TunableColor>.color(
+        "drop.overlay.outline.color", .dropOverlay, "Outline: color", help: "Theme color of the outline (the accent; no blue).",
+        default: .focusRing, code: "DropOverlayTunables.outlineColor")
 
     public static let outlineWidth = number("glassOutline.width", "Glass outline: band width", help: "Width of the glass band.", 6, range: 1...30, step: 0.5, unit: .points, property: "outlineWidth")
     public static let cardWidthFraction = number("insetCard.widthFraction", "Inset card: width share", help: "Card width as a share of the target.",
@@ -77,7 +83,8 @@ public nonisolated enum DropOverlayTunables {
 
     public static var all: [TunableDescriptor] {
         [style.descriptor, spring.descriptor, animated.descriptor, appearInset.descriptor, opacity.descriptor, floatingInset.descriptor,
-         cornerRadius.descriptor, showLabel.descriptor, labelMinWidth.descriptor, color.descriptor]
+         cornerRadius.descriptor, showLabel.descriptor, labelMinWidth.descriptor, color.descriptor,
+         outlineStrokeWidth.descriptor, outlineColor.descriptor]
             + [outlineWidth, cardWidthFraction, cardMaxWidth, cardHeight, cardRegionOpacity].map(\.descriptor)
             + [cardShowsIcon.descriptor]
             + [splitGap, splitExistingOpacity, lineWidth, lineLength, lineRegionOpacity, glowWidth, glowOpacity, ghostWidth,
