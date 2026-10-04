@@ -1,8 +1,10 @@
 //! `cloud.domain.*` and `cloud.publication.*` over `/api/vm/domains` and
 //! `/api/vm/publications`. A publication makes a port of a machine reachable
 //! on a host name, so create, update (it can make one public) and delete run
-//! only for origin `user`; the verify ops only re-check DNS and certificate
-//! state and are mutate-own.
+//! only for origin `user`. The verify ops refresh DNS and certificate state;
+//! a domain verify of an unknown name claims a new zone, and a verified zone
+//! takes waiting publications (each confirmed by a person at create) live.
+//! They run every time (ops/mod.rs `RERUN_OPS`).
 
 use super::network_args as check;
 use super::network_models::{DomainAnswer, DomainList, PublicationAnswer, PublicationList};

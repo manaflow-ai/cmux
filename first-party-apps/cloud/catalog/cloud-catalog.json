@@ -2279,7 +2279,7 @@
       "name": "cloud.tunnel.attach",
       "owner": "app:cmux/cloud",
       "class": "mutation",
-      "risk": "mutate-own",
+      "risk": "mutate-shared",
       "idempotency": "required",
       "focuses": false,
       "queue_offline": false,
@@ -2326,8 +2326,11 @@
           "networkId": {
             "type": "string"
           },
-          "attached": {
-            "type": "boolean"
+          "addressV4": {
+            "type": "string"
+          },
+          "addressV6": {
+            "type": "string"
           },
           "detached": {
             "type": "boolean"
@@ -2336,13 +2339,14 @@
       },
       "cli": {
         "path": "tunnel attach",
-        "visible": true
+        "visible": false
       },
       "mcp": {
-        "expose": "opt_in",
+        "expose": "never",
         "group": "cloud"
       },
-      "docs": "Attach a device's WireGuard tunnel to one of your private networks (POST /api/vm/tunnel/network/attach). Needs an idempotency key.",
+      "gesture": "required",
+      "docs": "Attach a device's WireGuard tunnel to one of your private networks (POST /api/vm/tunnel/network/attach). It gives the device a path into the network. Only a person may run it: the host stamps origin user only after its native confirmation sheet; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP.",
       "since": "cloud/1"
     },
     {
@@ -2396,8 +2400,11 @@
           "networkId": {
             "type": "string"
           },
-          "attached": {
-            "type": "boolean"
+          "addressV4": {
+            "type": "string"
+          },
+          "addressV6": {
+            "type": "string"
           },
           "detached": {
             "type": "boolean"
@@ -2419,7 +2426,7 @@
       "name": "cloud.tunnel.rotate_key",
       "owner": "app:cmux/cloud",
       "class": "mutation",
-      "risk": "mutate-own",
+      "risk": "mutate-shared",
       "idempotency": "required",
       "focuses": false,
       "queue_offline": false,
@@ -2482,13 +2489,14 @@
       },
       "cli": {
         "path": "tunnel rotate-key",
-        "visible": true
+        "visible": false
       },
       "mcp": {
-        "expose": "opt_in",
+        "expose": "never",
         "group": "cloud"
       },
-      "docs": "Give a tunnel a new WireGuard public key; its address stays (POST /api/vm/tunnel/network/rotate-key). Takes the public key only; a value that is not base64 of 32 bytes is refused before any call. Needs an idempotency key.",
+      "gesture": "required",
+      "docs": "Give a tunnel a new WireGuard public key; its address stays and the server public key changes (take the new [Peer] key from clientConfig) (POST /api/vm/tunnel/network/rotate-key). Takes the public key only; a value that is not base64 of 32 bytes is refused before any call. It gives the device a path into the network. Only a person may run it: the host stamps origin user only after its native confirmation sheet; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP.",
       "since": "cloud/1"
     },
     {
@@ -2806,7 +2814,7 @@
         }
       },
       "gesture": "required",
-      "docs": "Allow traffic from a source to a destination on your private network (POST /api/vm/firewall). It can open a machine to new traffic. Only a person may run it: the host stamps origin user only after its native confirmation sheet; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP.",
+      "docs": "Allow traffic from a source to a destination on your private network (POST /api/vm/firewall). It can open a machine to new traffic. The Cloud API does not dedup this create: after an attempt with no answer, a same-key retry answers cmux.cloud.outcome_unknown; list first, then retry with a new key. Only a person may run it: the host stamps origin user only after its native confirmation sheet; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP.",
       "since": "cloud/1"
     },
     {
@@ -2973,7 +2981,7 @@
       "name": "cloud.domain.verify",
       "owner": "app:cmux/cloud",
       "class": "mutation",
-      "risk": "mutate-own",
+      "risk": "mutate-shared",
       "idempotency": "required",
       "focuses": false,
       "queue_offline": false,
@@ -3082,10 +3090,10 @@
         "visible": true
       },
       "mcp": {
-        "expose": "default",
+        "expose": "opt_in",
         "group": "cloud"
       },
-      "docs": "Start or refresh the DNS and certificate check of a custom domain (POST /api/vm/domains/:name/verify). Needs an idempotency key.",
+      "docs": "Start or refresh the DNS and certificate check of a custom domain (POST /api/vm/domains/:name/verify). An unknown host name claims a new zone; a verified zone takes its waiting publications live. Runs every time (no replay of an old answer). Needs an idempotency key.",
       "since": "cloud/1"
     },
     {
@@ -3340,7 +3348,7 @@
         }
       },
       "gesture": "required",
-      "docs": "Publish an HTTP port of a machine on a host name (POST /api/vm/publications). A generated name when hostname is absent. Public access needs confirmPublic: true. A retry with the same key makes no second call. Only a person may run it: the host stamps origin user only after its native confirmation sheet; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP.",
+      "docs": "Publish an HTTP port of a machine on a host name (POST /api/vm/publications). A generated name when hostname is absent. Public access needs confirmPublic: true. A same-key retry after an answer returns that answer and makes no call. The Cloud API does not dedup this create: after an attempt with no answer, a same-key retry answers cmux.cloud.outcome_unknown; list first, then retry with a new key. Only a person may run it: the host stamps origin user only after its native confirmation sheet; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP.",
       "since": "cloud/1"
     },
     {
@@ -3522,7 +3530,7 @@
       "name": "cloud.publication.verify",
       "owner": "app:cmux/cloud",
       "class": "mutation",
-      "risk": "mutate-own",
+      "risk": "mutate-shared",
       "idempotency": "required",
       "focuses": false,
       "queue_offline": false,
@@ -3621,10 +3629,10 @@
         "visible": true
       },
       "mcp": {
-        "expose": "default",
+        "expose": "opt_in",
         "group": "cloud"
       },
-      "docs": "Re-check the DNS and certificate state of a publication (POST /api/vm/publications/:id/verify). Needs an idempotency key.",
+      "docs": "Re-check the DNS and certificate state of a publication (POST /api/vm/publications/:id/verify). A reserved publication whose zone is verified goes live. Runs every time (no replay of an old answer). Needs an idempotency key.",
       "since": "cloud/1"
     }
   ]

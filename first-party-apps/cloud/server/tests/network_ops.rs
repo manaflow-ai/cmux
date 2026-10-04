@@ -35,11 +35,14 @@ fn network_list_reads_the_owner_network() {
 fn tunnel_attach_and_detach_post_to_the_tunnel_network_route() {
     let args = json!({ "deviceFingerprint": "mac-test.01", "network": "vpc-test01" });
     let mut s = server(&["tunnel-attach"]);
-    let attached = s.handle(&Request::new("cloud.tunnel.attach", args).key("t-1")).expect("attach");
+    let attached = s
+        .handle(&Request::new("cloud.tunnel.attach", args).origin(Origin::User).key("t-1"))
+        .expect("attach");
     let body = json!({ "deviceFingerprint": "mac-test.01", "networkId": "vpc-test01" });
     assert_eq!(only_call(&s), ("POST", "/api/vm/tunnel/network/attach".into(), Some(body)));
     assert_eq!(attached["tunnelId"], "tun-test01");
     assert_eq!(attached["networkId"], "vpc-test01");
+    assert_eq!(attached["addressV4"], "10.64.0.9");
 
     let mut s = server(&["tunnel-detach"]);
     let detach = json!({
@@ -58,8 +61,9 @@ fn tunnel_attach_and_detach_post_to_the_tunnel_network_route() {
 fn rotate_key_sends_a_public_key_and_never_returns_a_private_key() {
     let mut s = server(&["tunnel-rotate-key"]);
     let args = json!({ "deviceFingerprint": "mac-test.01", "clientPublicKey": PUBLIC_KEY });
-    let rotated =
-        s.handle(&Request::new("cloud.tunnel.rotate_key", args).key("k-1")).expect("rotate");
+    let rotated = s
+        .handle(&Request::new("cloud.tunnel.rotate_key", args).origin(Origin::User).key("k-1"))
+        .expect("rotate");
     let body = json!({ "deviceFingerprint": "mac-test.01", "clientPublicKey": PUBLIC_KEY });
     assert_eq!(only_call(&s), ("POST", "/api/vm/tunnel/network/rotate-key".into(), Some(body)));
     assert_eq!(rotated["clientPublicKey"], PUBLIC_KEY);
@@ -72,7 +76,9 @@ fn rotate_key_sends_a_public_key_and_never_returns_a_private_key() {
     let mut s = server(&[]);
     s.control_plane_mut().respond("POST", "/api/vm/tunnel/network/rotate-key", 200, leaky);
     let args = json!({ "deviceFingerprint": "mac-test.01", "clientPublicKey": PUBLIC_KEY });
-    let error = s.handle(&Request::new("cloud.tunnel.rotate_key", args).key("k-2")).unwrap_err();
+    let error = s
+        .handle(&Request::new("cloud.tunnel.rotate_key", args).origin(Origin::User).key("k-2"))
+        .unwrap_err();
     assert_eq!(error.code, "cmux.cloud.bad_response");
     assert!(!error.message.contains("c2VjcmV0"), "the error never echoes key material");
 }
@@ -95,8 +101,9 @@ fn rotate_key_refuses_a_value_that_is_not_a_wireguard_public_key() {
     for key in bad {
         let mut s = server(&["tunnel-rotate-key"]);
         let args = json!({ "deviceFingerprint": "mac-test.01", "clientPublicKey": key });
-        let error =
-            s.handle(&Request::new("cloud.tunnel.rotate_key", args).key("k-3")).unwrap_err();
+        let error = s
+            .handle(&Request::new("cloud.tunnel.rotate_key", args).origin(Origin::User).key("k-3"))
+            .unwrap_err();
         assert_eq!(error.code, "cmux.cloud.invalid_args", "{key}");
         assert!(s.control_plane().calls.is_empty(), "{key}: no call for a bad key");
     }
@@ -105,19 +112,61 @@ fn rotate_key_refuses_a_value_that_is_not_a_wireguard_public_key() {
     let args = json!({
         "deviceFingerprint": "mac-test.01", "clientPublicKey": PUBLIC_KEY, "privateKey": PUBLIC_KEY
     });
-    let error = s.handle(&Request::new("cloud.tunnel.rotate_key", args).key("k-4")).unwrap_err();
+    let error = s
+        .handle(&Request::new("cloud.tunnel.rotate_key", args).origin(Origin::User).key("k-4"))
+        .unwrap_err();
     assert_eq!(error.code, "cmux.cloud.invalid_args");
     assert!(s.control_plane().calls.is_empty());
+}
+
+#[test]
+fn attach_and_rotate_key_need_origin_user() {
+    // Any valid public key would let the caller join the network as the device.
+    for origin in [Origin::Mcp, Origin::Agent, Origin::Cli, Origin::Script] {
+        let mut s = server(&["tunnel-attach", "tunnel-rotate-key"]);
+        let attach = json!({ "deviceFingerprint": "mac-test.01", "network": "vpc-test01" });
+        let rotate = json!({ "deviceFingerprint": "mac-test.01", "clientPublicKey": PUBLIC_KEY });
+        for (op, args) in [("cloud.tunnel.attach", attach), ("cloud.tunnel.rotate_key", rotate)] {
+            let request = Request::new(op, args).origin(origin).key("o-1");
+            assert_eq!(s.handle(&request).unwrap_err().code, "cmux.cloud.origin_refused");
+        }
+        assert!(s.control_plane().calls.is_empty(), "{origin:?}: no call");
+    }
+}
+
+#[test]
+fn a_create_with_a_lost_answer_is_not_sent_again() {
+    let mut s = server(&["firewall-create"]);
+    s.control_plane_mut().fail_next = 1;
+    let create = Request::new("cloud.firewall.create", new_rule()).origin(Origin::User).key("l-1");
+    assert_eq!(s.handle(&create).unwrap_err().code, "cmux.cloud.relay_unavailable");
+    // The rule may exist: the Cloud API does not dedup, so no second POST.
+    assert_eq!(s.handle(&create).unwrap_err().code, "cmux.cloud.outcome_unknown");
+    assert_eq!(s.control_plane().calls.len(), 1);
+    let fresh = Request::new("cloud.firewall.create", new_rule()).origin(Origin::User).key("l-2");
+    assert_eq!(s.handle(&fresh).expect("a new key")["id"], "fw-test02");
+
+    // A 4xx answer made nothing: the same key may retry.
+    let mut s = server(&["firewall-create-forbidden"]);
+    let create = Request::new("cloud.firewall.create", new_rule()).origin(Origin::User).key("l-3");
+    assert_eq!(s.handle(&create).unwrap_err().code, "cmux.cloud.forbidden");
+    // (The fake replays the 403 for the same derived key; what matters is
+    // that the server sent the retry instead of answering outcome_unknown.)
+    assert_eq!(s.handle(&create).unwrap_err().code, "cmux.cloud.forbidden");
+    assert_eq!(s.control_plane().calls.len(), 2);
 }
 
 #[test]
 fn tunnel_ops_need_a_key_and_a_safe_fingerprint() {
     let mut s = server(&["tunnel-attach"]);
     let args = json!({ "deviceFingerprint": "mac-test.01", "network": "vpc-test01" });
-    let error = s.handle(&Request::new("cloud.tunnel.attach", args)).unwrap_err();
+    let error =
+        s.handle(&Request::new("cloud.tunnel.attach", args).origin(Origin::User)).unwrap_err();
     assert_eq!(error.code, "cmux.cloud.idempotency_key_required");
     let args = json!({ "deviceFingerprint": "../etc", "network": "vpc-test01" });
-    let error = s.handle(&Request::new("cloud.tunnel.attach", args).key("t-9")).unwrap_err();
+    let error = s
+        .handle(&Request::new("cloud.tunnel.attach", args).origin(Origin::User).key("t-9"))
+        .unwrap_err();
     assert_eq!(error.code, "cmux.cloud.invalid_args");
     assert!(s.control_plane().calls.is_empty());
 }
