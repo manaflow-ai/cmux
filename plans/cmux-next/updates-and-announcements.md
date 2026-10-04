@@ -22,7 +22,18 @@ Classic NIGHTLY and cmux-next NIGHTLY share `com.cmuxterm.app.nightly` by decisi
 ### Testing
 
 - `scripts/cmux-next/update-e2e.py` (fleet entry `scripts/measure/update-e2e.sh`, class exclusive) installs a real older nightly-next build, stages the newer one through Sparkle, proves install on quit, version, kept terminals (output, shell PID, still answers), the delta download and, with `--click`, the one-click install with Sparkle's relaunch. Host rules: Aqua session, no `com.cmuxterm.app.nightly` installed or running; it removes only what it created.
-- Planned: a DEV/NIGHTLY-only "Use Test Update Feed…" action. Signatures are always required, the active test feed is visible in the card and the status, and it resets on relaunch unless pinned.
+- Test feed (built): `updates.test_feed {url, pinned}` on DEV and NIGHTLY builds. Signatures are always required (the app's own EdDSA key), https anywhere and http only on loopback, a Test Update Feed card and `updates.status.test_feed` show it while active, and it resets on relaunch unless pinned. No palette entry to set it yet (it needs a text prompt; CmuxDialog); the card's Use Real Feed clears it.
+- Planned e2e steps: an agent session and an in-progress turn survive the update (agent hosts landed in b41a3b8756f, `_acpmux/status.agentHosts`); the R114 card shows in the flow once a nightly carries it.
+
+### Rollback (next step; refusal is the safety rule)
+
+Decision (coordinator, 2026-10-04): refuse a rollback, with a clear message, when the daemon store schema is newer than the old build can read.
+
+- Keep previous versions: right before Sparkle installs, the running bundle is cloned (APFS `clonefile`, no extra disk until blocks change) to `~/Library/Application Support/cmux-next/<bundle id>/versions/<build>/`. `updates.keepPreviousVersions` (default 1, 0...5) prunes the oldest.
+- Each build stamps `CmuxStoreSchemas` into Info.plist: every daemon store and protocol it can read (`workspace_registry`, `conversation_store`, the terminal-host protocol, ...), printed by the bundled `cmux-tui store schemas --json` at build time.
+- `cmux update rollback [--to BUILD]` (palette "Roll Back to Previous Version", app op `updates.rollback`): a pure `RollbackDecision` compares the kept build's `CmuxStoreSchemas` with what the running daemon reports as stored (`store.schemas`, the owner reads its own meta tables). Refused when any stored version is newer than the kept build reads, when the kept build has no `CmuxStoreSchemas` (it predates rollback), or when its code signature or team differs. The message names the store and both versions.
+- Allowed: the bundles swap by rename on the same volume, the build rolled back from is skipped until a newer one ships, and the app relaunches through the keep-terminals path (the older daemon adopts the hosts, or the rollback was refused because the host protocol is newer).
+- Needs a cmux-tui window: `cmux-tui store schemas --json`, the daemon op `store.schemas`, and the CLI verbs `cmux update check|install|status|channel|rollback` (no new crates, no Cargo.lock change).
 
 ## 2. Changelog
 
