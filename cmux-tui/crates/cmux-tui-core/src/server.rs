@@ -101,8 +101,12 @@ pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
 mod admission;
+#[cfg(unix)]
+mod fs_wire;
 mod line_connection;
+mod pending_handoff;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
+use pending_handoff::reject_message_during_pending_handoff;
 mod bookmarks;
 mod browser_profiles;
 mod conversation_tabs_wire;
@@ -121,6 +125,8 @@ mod session_stream;
 mod split_respawn;
 mod tab_column;
 mod websocket_listener;
+#[cfg(unix)]
+pub use fs_wire::FsGate;
 pub use launch_snapshot::{
     LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
     start_launch_snapshot_writer_with,
@@ -506,6 +512,8 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     capabilities.push(crate::image_paste::CAPABILITY);
     capabilities.extend(crate::apps::advertised());
+    #[cfg(unix)]
+    capabilities.extend(crate::fs_ops::advertised());
     capabilities
 }
 
@@ -10593,6 +10601,10 @@ fn handle_connection_message(
     if let Some(keep_open) = apps::try_handle(mux, client, message, writer) {
         return keep_open;
     }
+    #[cfg(unix)]
+    if let Some(keep_open) = fs_wire::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
     let request = match serde_json::from_str::<Request>(message) {
         Ok(request) => request,
         Err(error) => return send_bad_request(writer, message, &error),
@@ -10601,58 +10613,6 @@ fn handle_connection_message(
     match scheduler.dispatch(mux.clone(), client, &mut pending, message.len(), writer.clone()) {
         Some(keep_open) => keep_open,
         None => handle_request(mux, client, pending.take().unwrap(), writer),
-    }
-}
-
-const PENDING_HANDOFF_ERROR: &str = "daemon shutdown is in progress; request was not executed";
-
-/// Refuses one message received while a daemon handoff is reserved but not
-/// yet acknowledged. Nothing is parsed into a command or dispatched.
-fn reject_message_during_pending_handoff(message: &str, writer: &MessageWriter) -> bool {
-    if crate::resource_router::is_resource_protocol_message(message) {
-        return match crate::resource_router::parse_resource_request(message) {
-            Ok(request) => {
-                let operation = request.envelope.operation;
-                send_resource_response(
-                    writer,
-                    request.envelope.id,
-                    operation,
-                    Err(ResourceError::new(
-                        "operation.failed",
-                        PENDING_HANDOFF_ERROR,
-                        json!({
-                            "operation": operation.wire_name(),
-                            "reason": "daemon_handoff_pending",
-                        }),
-                        false,
-                    )),
-                )
-            }
-            Err(error) => {
-                let response = crate::resource_router::malformed_resource_response(message, error);
-                writer.send_control(&response).is_ok()
-            }
-        };
-    }
-    match serde_json::from_str::<Request>(message) {
-        Ok(request) => {
-            let is_clear_history = request.cmd.is_clear_history();
-            // The stable code lets a client wait for the shutdown notice
-            // that follows instead of treating the refusal as a failure.
-            send_response(
-                writer,
-                Response {
-                    id: request.id,
-                    ok: false,
-                    data: None,
-                    error: Some(PENDING_HANDOFF_ERROR.to_string()),
-                    error_code: Some(DAEMON_SHUTDOWN_PENDING_CODE.to_string()),
-                    error_delivery: is_clear_history
-                        .then_some(ResponseErrorDelivery::KnownNotDelivered),
-                },
-            )
-        }
-        Err(error) => send_bad_request(writer, message, &error),
     }
 }
 
