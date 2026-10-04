@@ -277,7 +277,13 @@ native (`BrowserReplBoundary` in the session, and the driver):
   a public suffix of the system's Public Suffix List (`*.com`, `*.co.uk`,
   `*.github.io`) fail with `invalid`; a wildcard over a site
   (`*.example.co.uk`) and a public suffix named alone (`com`, one host)
-  are accepted.
+  are accepted. Agent code chooses them, and each costs every navigation
+  check and the content rules WebKit compiles, so they are bounded before
+  they are parsed: at most 1,024 patterns in `allowed` and in
+  `prohibited`, a pattern of at most 1,024 bytes, a host of at most 253
+  characters in its ASCII form with labels of at most 63, and a scheme
+  of at most 32 characters with at most one wildcard (`http*://`); past
+  any of them the pattern or list fails with `invalid`, naming the limit.
 
 - Secrets: values stay in the session. `input.insertText { secret }` reaches
   the driver as `{ text, secretName, secretDomains }`; the driver types it

@@ -110,9 +110,28 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
     public let host: String
     public let port: String?
 
+    /// The most UTF-8 bytes a pattern may have.
+    public static let maximumBytes = 1_024
+    /// The most bytes a pattern's host may have in its ASCII form, a DNS
+    /// name's limit.
+    public static let maximumHostBytes = 253
+    /// The most characters one label of a pattern's host may have, a DNS
+    /// label's limit (a longer internationalized label encodes longer still).
+    public static let maximumLabelCharacters = 63
+    /// The most characters a pattern's scheme may have.
+    public static let maximumSchemeCharacters = 32
+
     /// Parses `raw`; unsafe patterns (several wildcards, a wildcard TLD, a
     /// wildcard over a public suffix such as `*.com` or `*.co.uk`, or an
     /// embedded wildcard) are refused. `title` prefixes the error.
+    ///
+    /// Agent code chooses patterns, and each one costs every navigation
+    /// check and the content rules WebKit compiles, so a pattern past
+    /// ``maximumBytes``, a host past ``maximumHostBytes`` or with a label
+    /// past ``maximumLabelCharacters``, and a scheme past
+    /// ``maximumSchemeCharacters`` or with more than one wildcard are
+    /// refused too; each is checked before the work it bounds, so parsing
+    /// takes time linear in the pattern.
     /// - Parameter publicSuffixes: The list that decides whether a
     ///   wildcard's base is a public suffix.
     public static func parse(
@@ -120,7 +139,14 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
         title: String,
         publicSuffixes: BrowserReplPublicSuffixList = .system
     ) throws -> BrowserReplDomainPattern {
-        let quoted = JSONSerialization.browserReplString(raw) ?? raw
+        let tooLong = raw.utf8.count > maximumBytes
+        let quoted = JSONSerialization.browserReplString(tooLong ? String(raw.prefix(64)) + "..." : raw) ?? "?"
+        guard !tooLong else {
+            throw BrowserReplDriverError(
+                code: "invalid",
+                message: "\(title): \(quoted): a domain pattern is at most \(maximumBytes) bytes; this one is \(raw.utf8.count)"
+            )
+        }
         var text = raw.trimmingCharacters(in: .whitespaces).lowercased()
         guard !text.isEmpty else {
             throw BrowserReplDriverError(code: "invalid", message: "\(title): expected domain patterns as non-empty strings, got \(quoted)")
@@ -131,6 +157,12 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
             if let first = candidate.unicodeScalars.first,
                CharacterSet.lowercaseLetters.contains(first) || first == "*",
                candidate.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) || "+.*-".unicodeScalars.contains($0) }) {
+                if candidate.count > maximumSchemeCharacters {
+                    throw BrowserReplDriverError(code: "invalid", message: "\(title): \(quoted): a scheme is at most \(maximumSchemeCharacters) characters")
+                }
+                if candidate.filter({ $0 == "*" }).count > 1 {
+                    throw BrowserReplDriverError(code: "invalid", message: "\(title): \(quoted): only one wildcard is allowed in the scheme")
+                }
                 scheme = candidate
                 text = String(text[range.upperBound...])
             }
@@ -158,9 +190,24 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
             if host.isEmpty || host.contains(where: { $0.isWhitespace || $0 == "/" }) {
                 throw BrowserReplDriverError(code: "invalid", message: "\(title): \(quoted): expected a domain")
             }
+            // Before the labels are encoded, which takes time quadratic in a
+            // label's length.
+            if host.split(separator: ".").contains(where: { $0.unicodeScalars.count > maximumLabelCharacters }) {
+                throw BrowserReplDriverError(
+                    code: "invalid",
+                    message: "\(title): \(quoted): a label of a domain is at most \(maximumLabelCharacters) characters"
+                )
+            }
             host = host.hasPrefix("*.") ? "*." + BrowserReplHostName.normalize(String(host.dropFirst(2))) : BrowserReplHostName.normalize(host)
             if host.isEmpty || host == "*." {
                 throw BrowserReplDriverError(code: "invalid", message: "\(title): \(quoted): expected a domain")
+            }
+            let named = host.hasPrefix("*.") ? host.dropFirst(2) : Substring(host)
+            if named.utf8.count > maximumHostBytes {
+                throw BrowserReplDriverError(
+                    code: "invalid",
+                    message: "\(title): \(quoted): a domain is at most \(maximumHostBytes) characters (\(named.utf8.count) as written for DNS)"
+                )
             }
             if host.hasPrefix("*."), publicSuffixes.isPublicSuffix(String(host.dropFirst(2))) {
                 let base = String(host.dropFirst(2))
@@ -268,6 +315,10 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
     public init() {}
 
     public var isActive: Bool { allowed != nil || !prohibited.isEmpty || blockIPAddresses }
+
+    /// The most patterns `allowed` or `prohibited` may hold: each pattern is
+    /// checked on every navigation and becomes up to eight content rules.
+    public static let maximumPatternsPerList = 1_024
 
     /// Why `urlString` is blocked, or nil when it may load.
     ///

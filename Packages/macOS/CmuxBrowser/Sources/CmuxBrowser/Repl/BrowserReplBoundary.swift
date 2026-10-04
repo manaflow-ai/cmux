@@ -176,6 +176,12 @@ final class BrowserReplBoundary: @unchecked Sendable {
         guard let list = raw as? [Any] else {
             throw BrowserReplDriverError(code: "invalid", message: "\(title): expected an array of domain patterns or null, got \(JSONSerialization.browserReplString(raw) ?? "?")")
         }
+        guard list.count <= BrowserReplDomainPolicy.maximumPatternsPerList else {
+            throw BrowserReplDriverError(
+                code: "invalid",
+                message: "\(title): a list holds at most \(BrowserReplDomainPolicy.maximumPatternsPerList) domain patterns; this one has \(list.count)"
+            )
+        }
         return try list.map { item in
             guard let text = item as? String else {
                 throw BrowserReplDriverError(code: "invalid", message: "\(title): expected domain patterns as non-empty strings, got \(JSONSerialization.browserReplString(item) ?? "?")")
