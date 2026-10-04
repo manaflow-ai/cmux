@@ -56,23 +56,6 @@ public nonisolated struct LayoutColumn: Hashable, Sendable, Identifiable {
     }
 }
 
-/// One row of a column: a horizontal band of the column's vertical strip
-/// holding one split tree (plans/cmux-next/rows.md).
-public nonisolated struct LayoutRow: Hashable, Sendable, Identifiable {
-    public var id: RowID
-    /// Permille of the column's viewport height, 100...1000 (G1, G2).
-    public var height: Int
-    public var root: SplitNode
-
-    public static let heightRange: ClosedRange<Int> = 100...1000
-
-    public init(id: RowID, height: Int, root: SplitNode) {
-        self.id = id
-        self.height = height
-        self.root = root
-    }
-}
-
 /// The content of one screen.
 public nonisolated enum ScreenLayout: Hashable, Sendable {
     /// A normal tiled split tree filling the viewport.
@@ -159,6 +142,19 @@ public nonisolated enum ScreenLayout: Hashable, Sendable {
             guard entry.id == column else { return entry }
             var entry = entry
             entry.width = width
+            return entry
+        })
+    }
+
+    /// A copy with the named rows of `column` at new heights (a row divider
+    /// drag's local preview; never model state).
+    public func settingRowHeights(_ heights: [RowHeight], for column: ColumnID) -> ScreenLayout {
+        guard case let .columns(columns) = self else { return self }
+        let byRow = Dictionary(heights.map { ($0.row, $0.height) }, uniquingKeysWith: { _, new in new })
+        return .columns(columns.map { entry in
+            guard entry.id == column else { return entry }
+            var entry = entry
+            for index in entry.rows.indices { entry.rows[index].height = byRow[entry.rows[index].id] ?? entry.rows[index].height }
             return entry
         })
     }
