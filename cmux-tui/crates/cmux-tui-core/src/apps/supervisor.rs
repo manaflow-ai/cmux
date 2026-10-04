@@ -198,6 +198,8 @@ pub struct Supervisor {
     pub(super) storage: Mutex<Option<Storage>>,
     pub(super) timers: Timers,
     pub(super) me: Weak<Supervisor>,
+    /// Connector links of the terminal interfaces (`terminal_ops.rs`).
+    pub(super) terminals: crate::terminal_backend::LinkRegistry,
     transactions: AtomicU64,
 }
 
@@ -255,6 +257,7 @@ impl Supervisor {
             storage: Mutex::new(None),
             timers: Timers::default(),
             me: me.clone(),
+            terminals: Default::default(),
             transactions: AtomicU64::new(1),
         });
         if seeded {

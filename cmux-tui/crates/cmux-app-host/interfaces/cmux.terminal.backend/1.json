@@ -1,7 +1,7 @@
 {
   "name": "cmux.terminal.backend/1",
   "version": 1,
-  "docs": "Bytes mode (ghostty-next-switch.md section 3, cloud-app.md): the backend carries raw terminal bytes; the local session host parses them, answers terminal queries unless capabilities.answers_queries, and owns snapshots and the journal. An app backend runs as the app's server (implements with server: true) and needs the restricted scope terminal:backend. No method or host op gives the backend a secret or a signature: for connection handles of kind ssh the host owns the SSH transport (it dials, checks the pinned host key and authenticates with the user's key) and the backend gets a channel (hostOps). Rust trait TerminalBackend (cmux-tui-core terminal_backend, slice S3).",
+  "docs": "Bytes mode (ghostty-next-switch.md section 3, cloud-app.md): the backend carries raw terminal bytes; the local session host parses them, answers terminal queries unless capabilities.answers_queries, and owns snapshots and the journal. An app backend runs as the app's server (implements with server: true) and needs the restricted scope terminal:backend. No method or host op gives the backend a secret or a signature: for connection handles of kind ssh the host owns the SSH transport (it dials, checks the pinned host key and authenticates with the user's key) and the backend gets a channel (hostOps). Rust traits TerminalBackend, ByteTerminal and HostChannels in the crate cmux-terminal-iface (synchronous, frames pulled with take_frames); the daemon side is cmux-tui-core terminal_backend.",
   "props": {
     "kind": "string (one of options.kinds)",
     "target": "string (an opaque connection handle conn_..., or a backend-defined id such as a cloud machine id; never a host name typed by a user or an agent)"
@@ -23,7 +23,8 @@
     "type": "object",
     "additionalProperties": false,
     "required": [
-      "kinds"
+      "kinds",
+      "openOps"
     ],
     "properties": {
       "kinds": {
@@ -36,6 +37,18 @@
           "pattern": "^[a-z][a-zA-Z0-9-]{0,63}$"
         },
         "description": "Target kinds this implementation serves; the registry ids are app:<app>/<kind>. Default deny: a kind not listed is never routed here."
+      },
+      "openOps": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 16,
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-zA-Z0-9_-]*)+$",
+          "maxLength": 96
+        },
+        "description": "The app's own catalog ops whose user runs may open a link or terminal. The host accepts an open_token only when it was minted for a user-origin run of one of these ops (default deny); a token from any other op, such as a list read, is denied."
       }
     }
   },
@@ -66,7 +79,7 @@
     "connection.channel.resize": "({channel, cols, rows}) -> void",
     "connection.channel.signal": "({channel, signal}) -> void",
     "connection.channel.close": "({channel}) -> void",
-    "open_token": "issued by the host for one open or resume of one terminal after the user's gesture; host ops refuse a missing, expired or reused token"
+    "open_token": "issued by the host for one open or resume of one terminal after the user's gesture (a user-origin run of an op in options.openOps); host ops refuse a missing, expired, reused or other app's token, or one minted for an op outside options.openOps"
   },
   "dataPlane": {
     "frames": "Data moves as frames on the app host's stream (binary payload), never as op calls. Per channel, in order: data {channel, offset, bytes} (offset = running byte total after this frame, per direction), credit {channel, direction: in|out, bytes} and end {channel, exit? | lost?} (exactly once, after the last data). channel is a host channel (hostOps), a terminal (backend output and input) or a connector link.",

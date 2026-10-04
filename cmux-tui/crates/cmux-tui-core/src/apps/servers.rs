@@ -634,6 +634,12 @@ impl Supervisor {
             if inner.servers.get(app).is_none_or(|s| s.generation != generation) {
                 return;
             }
+            if Self::is_terminal_line(&value) {
+                let process = inner.servers[app].process.clone();
+                drop(inner);
+                self.terminal_line(app, &value).iter().for_each(|r| process.send(line(r)));
+                return;
+            }
             if value["t"] == "host.request" {
                 let reply = self.host_request_locked(&inner, app, &value);
                 inner.servers[app].process.send(line(&reply));
@@ -723,6 +729,7 @@ impl Supervisor {
                     Out::Respond(respond, Err(ApiError::new("apps.server_exited", exit.describe())))
                 })
                 .collect();
+            outs.extend(self.terminal_server_gone_locked(&mut inner, app));
             let level = if server.stopping { "info" } else { "error" };
             outs.extend(self.log_locked(
                 &mut inner,

@@ -1786,3 +1786,7 @@ fn open_tokens_are_single_use_bound_to_the_app_and_expire() {
     assert!(f.supervisor.consume_open_token_at(&third, "cmux/use", late).is_none(), "expired");
     assert!(f.supervisor.consume_open_token("not-a-token", "cmux/use").is_none());
 }
+
+/// Terminal connector tests; a child module so they share this fixture.
+#[path = "terminal_ops_tests.rs"]
+mod terminal_ops_tests;
