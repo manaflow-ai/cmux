@@ -181,6 +181,21 @@ Playwright's injected script. Cross-origin frames are reachable. `source` is a
 function expression called with `args`. The agent world survives until the
 frame navigates; after navigation the driver reinstalls it before the next call.
 
+Input to an element in a child frame goes to the tab at the element's point
+plus each owner `<iframe>`'s content box, found in the parent frame's agent
+world through the `<iframe>` element that `frame.contentFrame` confirms shows
+the frame. That sum is where the frame's content is only when the `<iframe>`
+and its ancestors (in the flat tree, through slots and shadow hosts) move it
+by translations at most: when one of them has a scale, rotation, skew,
+`zoom`, `perspective`, `offset-path` or an SVG drawing around it, the action
+fails naming that element and style instead of sending input that could
+reach another element or frame. Before the input, and again after the
+pointer moves there, each parent frame must have the `<iframe>` itself at
+the point; an element over it fails the check (`<div> intercepts pointer
+events`), as in the target's own frame. `locator.boundingBox()` and element
+screenshots in such a frame fail the same way. The runtime no longer calls
+`frame.ownerBox`.
+
 ## Input
 
 All input is delivered as native, trusted events (`isTrusted === true`).

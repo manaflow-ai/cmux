@@ -1240,6 +1240,63 @@
     return { x: left, y: top, width, height };
   }
 
+  // Why the frame an <iframe> shows is not simply its content box moved in
+  // this viewport, or null. The runtime adds the box's position to a point
+  // in the frame; a scale, rotation, skew, zoom, perspective or motion path
+  // on the <iframe> or on an ancestor in the flat tree (the layout's
+  // ancestors, through slots and shadow hosts), or an SVG drawing around
+  // it, maps that point elsewhere, and the trusted input would land there.
+  // A translation keeps the sum right: getBoundingClientRect has it.
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  function translationOnly(transform) {
+    if (!transform || transform === "none") return true;
+    const m = /^matrix(3d)?\(([^)]*)\)$/.exec(transform.trim());
+    if (!m) return false;
+    const v = m[2].split(",").map(Number);
+    if (v.some((n) => !Number.isFinite(n))) return false;
+    // matrix(a, b, c, d, e, f): a = d = 1, b = c = 0. matrix3d: the identity
+    // except m41 and m42 (16 values, column-major).
+    if (!m[1]) return v.length === 6 && v[0] === 1 && v[1] === 0 && v[2] === 0 && v[3] === 1;
+    const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, null, null, 0, 1];
+    return v.length === 16 && identity.every((want, i) => want === null || v[i] === want);
+  }
+  function geometryChange(el) {
+    for (let e = el; e; ) {
+      if (e.namespaceURI === SVG_NS) return `<${tagOf(e)}> (an SVG drawing) holds it`;
+      const cs = styleOf(e);
+      if (cs) {
+        const set = (v) => v && v !== "none";
+        const zoom = cs.zoom;
+        let what = null;
+        if (!translationOnly(cs.transform)) what = `transform: ${cs.transform}`;
+        else if (set(cs.rotate)) what = `rotate: ${cs.rotate}`;
+        else if (set(cs.scale) && !/^1( 1){0,2}$/.test(cs.scale)) what = `scale: ${cs.scale}`;
+        else if (zoom && zoom !== "normal" && Number(zoom) !== 1) what = `zoom: ${zoom}`;
+        else if (set(cs.perspective)) what = `perspective: ${cs.perspective}`;
+        else if (set(cs.offsetPath)) what = `offset-path: ${cs.offsetPath}`;
+        if (what) return `<${tagOf(e)}>${e === el ? "" : " around it"} has ${what.length > 120 ? what.slice(0, 119) + "…" : what}`;
+      }
+      const parent = e.assignedSlot || e.parentNode;
+      e = parent && parent.nodeType === 11 ? parent.host || null : parent && parent.nodeType === 1 ? parent : null;
+    }
+    return null;
+  }
+
+  // Where `point` of the frame <iframe> `id` shows lies in this frame's
+  // viewport: { x, y }, with `hit` (when `check`) "done" or the element of
+  // this frame that the point would reach instead of the <iframe>.
+  // { transformed } names the geometry that makes the point unknown.
+  function ownerPoint(id, point, check) {
+    const el = element(id);
+    if (!el.isConnected) return { error: "error:notconnected" };
+    const transformed = geometryChange(el);
+    if (transformed) return { transformed };
+    const box = contentBox(id);
+    const at = { x: box.x + point.x, y: box.y + point.y };
+    if (check) at.hit = hitTarget(id, at, "none");
+    return at;
+  }
+
   // ---------------------------------------------------------------------------
   // Annotated screenshots: boxes and labels in a closed shadow root that is
   // removed right after capture. `refs` are [localRef, label] pairs.
@@ -1310,6 +1367,7 @@
     read,
     iframeHandles,
     contentBox,
+    ownerPoint,
     annotate,
     clearAnnotations,
     injected,

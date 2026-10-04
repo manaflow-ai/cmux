@@ -978,6 +978,8 @@
       this._url = "";
       this._name = "";
       this._detached = false;
+      // The <iframe> handle in the parent this frame was last found through.
+      this._ownerHint = null;
     }
     page() {
       return this._page;
@@ -1030,7 +1032,9 @@
       try {
         const r = await this._session.call("frame.contentFrame", { targetId: this._page._targetId, frameId: this._id || undefined, element: handle });
         if (!r) return null;
-        return this._page._frameFor(r.frameId, this);
+        const child = this._page._frameFor(r.frameId, this);
+        child._ownerHint = handle;
+        return child;
       } catch (e) {
         if (driverErrorCode(e) !== "unsupported") throw e;
       }
@@ -1039,12 +1043,64 @@
       // one) and could read or act in the wrong frame, so there is none.
       return null;
     }
+    // The child frames the <iframe> handles of this frame show, in order
+    // (null where none), in one driver call where the driver has it.
+    async _contentFrames(handles) {
+      if (!handles.length) return [];
+      try {
+        const found = await this._session.call("frame.contentFrames", { targetId: this._page._targetId, frameId: this._id || undefined, elements: handles });
+        return found.map((f, i) => {
+          if (!f) return null;
+          const child = this._page._frameFor(f.frameId, this);
+          child._ownerHint = handles[i];
+          return child;
+        });
+      } catch (e) {
+        if (driverErrorCode(e) !== "unsupported") throw e;
+      }
+      const out = [];
+      for (const h of handles) out.push(await this._contentFrame(h));
+      return out;
+    }
+    // This frame's <iframe> (or <frame>) element, as a handle in the parent
+    // frame, which the driver confirms shows this frame. The element a
+    // locator entered the frame through is tried first.
+    async _ownerHandle() {
+      const parent = this._parent;
+      if (this._ownerHint && (await parent._contentFrame(this._ownerHint).catch(() => null)) === this) return this._ownerHint;
+      const handles = await parent._agent("iframeHandles");
+      const frames = await parent._contentFrames(handles);
+      const i = frames.indexOf(this);
+      if (i < 0) throw Object.assign(new Error(`The <iframe> of frame ${this._url || this._id} is not in its parent frame`), { code: "stale" });
+      return handles[i];
+    }
+    // `point` of this frame in tab viewport coordinates, through each
+    // owner <iframe>'s content box. Input goes to the tab at that point, so
+    // the sum must be where the frame's content is: an <iframe> or an
+    // ancestor that is scaled, rotated, zoomed or otherwise transformed
+    // beyond a translation is refused (the point would be another
+    // element's, maybe in another frame). With `check`, each parent frame
+    // must also have the <iframe> itself at the point, not an element over
+    // it; else { log } says what is there.
+    async _tabPoint(point, check, title) {
+      let frame = this;
+      let at = { x: point.x, y: point.y };
+      while (frame._parent) {
+        const owner = await frame._ownerHandle();
+        const r = await frame._parent._agent("ownerPoint", owner, at, !!check);
+        if (r.error) throw Object.assign(new Error("The frame's <iframe> was detached from the DOM"), { code: "stale" });
+        if (r.transformed) {
+          throw new Error(`${title || "frame"}: the element is in a frame whose <iframe> is transformed (${r.transformed}), so its position in the tab is not known and input could reach another element; cmux maps points into frames only through translations`);
+        }
+        if (check && r.hit !== "done") return { log: `${r.hit} intercepts pointer events` };
+        at = { x: r.x, y: r.y };
+        frame = frame._parent;
+      }
+      return at;
+    }
     // Offset of this frame's viewport inside the tab viewport.
-    async _viewportOffset() {
-      if (!this._parent) return { x: 0, y: 0 };
-      const box = await this._session.call("frame.ownerBox", { targetId: this._page._targetId, frameId: this._id });
-      const parent = await this._parent._viewportOffset();
-      return { x: parent.x + box.x, y: parent.y + box.y };
+    async _viewportOffset(title) {
+      return this._tabPoint({ x: 0, y: 0 }, false, title);
     }
     async evaluate(fn, arg) {
       return this._evalPage(functionSource(fn), [arg]);
@@ -1305,15 +1361,7 @@
       await frame._agent("scrollIntoViewIfNeeded", handle);
       // Bring each owner <iframe> into its parent's viewport too.
       for (let child = frame; child._parent; child = child._parent) {
-        const parent = child._parent;
-        const iframes = await parent._agent("iframeHandles");
-        for (const h of iframes) {
-          const f = await parent._contentFrame(h);
-          if (f === child) {
-            await parent._agent("scrollIntoViewIfNeeded", h);
-            break;
-          }
-        }
+        await child._parent._agent("scrollIntoViewIfNeeded", await child._ownerHandle());
       }
     }
 
@@ -1349,8 +1397,11 @@
             return { log: `${hit} intercepts pointer events` };
           }
         }
-        const offset = await frame._viewportOffset();
-        return { done: true, value: { frame, handle, local: point, x: point.x + offset.x, y: point.y + offset.y } };
+        // The point in the tab, with each parent frame's <iframe> checked
+        // to be at it too (an element over it would take the input).
+        const at = await frame._tabPoint(point, !options.force && !options.trial, title);
+        if (at.log) return { log: at.log };
+        return { done: true, value: { frame, handle, local: point, x: at.x, y: at.y } };
       });
     }
 
@@ -1368,6 +1419,20 @@
         await this._page.mouse.move(target.x, target.y);
         if (options.force) break;
         const hit = await target.frame._agent("hitTarget", target.handle, target.local, "button-link").catch(() => "error:notconnected");
+        if (hit === "done" && target.frame._parent) {
+          // The move can change the parent frames too (a :hover overlay, a
+          // re-layout): each <iframe> must still be what is at the point,
+          // and the point where the pointer is.
+          const at = await target.frame._tabPoint(target.local, true, title).catch((e) => {
+            if (driverErrorCode(e) !== "stale") throw e;
+            return { log: e.message };
+          });
+          const why = at.log || (at.x !== target.x || at.y !== target.y ? "the frame's <iframe> moved" : null);
+          if (!why) break;
+          if (this._session.now() >= deadline) throw new TimeoutError(`${title}: Timeout ${this._timeout(options)}ms exceeded.\n  - ${why}`);
+          await this._session.sleep([20, 50, 100, 100, 500][Math.min(attempt, 4)]);
+          continue;
+        }
         if (hit === "done") break;
         // The page re-rendered the target since the check. When the locator
         // now matches the element under the pointer, that element is the
@@ -1566,7 +1631,7 @@
     async _box(frame, handle) {
       const rect = await frame._agent("rect", handle);
       if (!rect) return null;
-      const offset = await frame._viewportOffset();
+      const offset = await frame._viewportOffset("locator.boundingBox");
       return { x: rect.x + offset.x, y: rect.y + offset.y, width: rect.width, height: rect.height };
     }
     async boundingBox(options = {}) {
