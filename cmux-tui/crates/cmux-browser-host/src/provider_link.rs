@@ -79,12 +79,15 @@ pub struct ProviderDriver {
 }
 
 impl ProviderDriver {
-    /// Starts the reader thread on an accepted connection.
+    /// Starts the reader thread on an accepted connection. `tabs` are the
+    /// tabs the app announced in `hello`.
     pub fn start(
         mut reader: impl Read + Send + 'static,
         writer: impl Write + Send + 'static,
         events: EventSink,
+        tabs: Vec<TabAnnounce>,
     ) -> std::io::Result<Arc<ProviderDriver>> {
+        let _ = tabs;
         let waiters: Waiters = Arc::new(Mutex::new(HashMap::new()));
         let closed = Arc::new(Mutex::new(None));
         let (thread_waiters, thread_closed) = (waiters.clone(), closed.clone());
@@ -188,6 +191,173 @@ mod tests {
         }
     }
 
+    fn tab(target_id: &str, engine: &str) -> TabAnnounce {
+        TabAnnounce {
+            target_id: target_id.into(),
+            engine: engine.into(),
+            workspace: "w".into(),
+            profile: "p".into(),
+            url: "https://a.test/".into(),
+            title: String::new(),
+            visible: true,
+        }
+    }
+
+    /// A fake app that answers every call with `{"method": ...}` and records
+    /// the methods it saw. Frames the test sends go through `send`.
+    struct FakeApp {
+        writer: Arc<Mutex<UnixStream>>,
+        seen: Arc<Mutex<Vec<(String, Value)>>>,
+    }
+
+    impl FakeApp {
+        fn start(tabs: Vec<TabAnnounce>) -> (FakeApp, Arc<ProviderDriver>) {
+            let (app, host) = UnixStream::pair().unwrap();
+            let driver = ProviderDriver::start(
+                host.try_clone().unwrap(),
+                host,
+                crate::driver::discard_events(),
+                tabs,
+            )
+            .unwrap();
+            let writer = Arc::new(Mutex::new(app.try_clone().unwrap()));
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            let (thread_writer, thread_seen) = (writer.clone(), seen.clone());
+            let mut reader = app;
+            std::thread::spawn(move || {
+                while let Ok(Some(Frame::Call { id, method, params })) = read_frame(&mut reader) {
+                    thread_seen.lock().unwrap().push((method.clone(), params));
+                    let frame =
+                        Frame::Result { id, result: Some(json!({"method": method})), error: None };
+                    if write_frame(&mut *thread_writer.lock().unwrap(), &frame).is_err() {
+                        break;
+                    }
+                }
+            });
+            (FakeApp { writer, seen }, driver)
+        }
+
+        /// Sends `frame`, then a round trip on the WebKit tab "W", so the
+        /// driver has read `frame` when this returns.
+        fn send(&self, driver: &ProviderDriver, frame: Frame) {
+            write_frame(&mut *self.writer.lock().unwrap(), &frame).unwrap();
+            driver.call("tab.info", &json!({"targetId": "W"})).unwrap();
+        }
+
+        fn access(&self, driver: &ProviderDriver, target: &str, exposed: bool, user: bool) {
+            self.send(
+                driver,
+                Frame::TabAccess {
+                    target_id: target.into(),
+                    extension_host_access: exposed,
+                    user_override: user,
+                },
+            );
+        }
+
+        fn saw(&self, method: &str, target: &str) -> bool {
+            self.seen.lock().unwrap().iter().any(|(m, p)| m == method && p["targetId"] == target)
+        }
+    }
+
+    fn assert_refused(result: Result<Value, DriverError>) {
+        let error = result.expect_err("the call must be refused");
+        assert_eq!(error.code, crate::protocol::ErrorCode::Forbidden, "{error}");
+        assert_eq!(error.error_name.as_deref(), Some("extension_host_access"), "{error}");
+    }
+
+    #[test]
+    fn cef_tabs_are_refused_until_the_app_reports_clean_access() {
+        let (app, driver) = FakeApp::start(vec![tab("C", "cef"), tab("W", "webkit")]);
+        // No tab.access frame yet: fail closed, and the app never sees the call.
+        assert_refused(
+            driver.call("tab.navigate", &json!({"targetId": "C", "url": "https://b.test/"})),
+        );
+        assert!(!app.saw("tab.navigate", "C"));
+        // An enabled extension holds host access on the page.
+        app.access(&driver, "C", true, false);
+        for method in ["frame.evaluate", "input.mouse", "tab.screenshot", "cdp", "tabs.close"] {
+            assert_refused(driver.call(method, &json!({"targetId": "C"})));
+            assert!(!app.saw(method, "C"), "{method} reached the app");
+        }
+        // The profile is clean now.
+        app.access(&driver, "C", false, false);
+        assert_eq!(
+            driver.call("tab.info", &json!({"targetId": "C"})).unwrap()["method"],
+            "tab.info"
+        );
+        // An extension gains access again: refused from the next call.
+        app.access(&driver, "C", true, false);
+        assert_refused(driver.call("tab.info", &json!({"targetId": "C"})));
+    }
+
+    #[test]
+    fn the_override_comes_only_from_the_app() {
+        let (app, driver) = FakeApp::start(vec![tab("C", "cef"), tab("W", "webkit")]);
+        app.access(&driver, "C", true, false);
+        // Override fields in the agent's own params change nothing.
+        assert_refused(driver.call(
+            "tab.info",
+            &json!({"targetId": "C", "user_override": true, "extension_host_access": false}),
+        ));
+        // The person confirmed in the app: the tab may be driven.
+        app.access(&driver, "C", true, true);
+        assert_eq!(
+            driver.call("tab.info", &json!({"targetId": "C"})).unwrap()["method"],
+            "tab.info"
+        );
+        // The app withdraws the override.
+        app.access(&driver, "C", true, false);
+        assert_refused(driver.call("tab.info", &json!({"targetId": "C"})));
+    }
+
+    #[test]
+    fn webkit_tabs_and_tab_less_calls_need_no_access_report() {
+        let (app, driver) = FakeApp::start(vec![tab("W", "webkit")]);
+        assert_eq!(
+            driver.call("tab.info", &json!({"targetId": "W"})).unwrap()["method"],
+            "tab.info"
+        );
+        assert_eq!(driver.call("tabs.list", &json!({})).unwrap()["method"], "tabs.list");
+        assert!(app.saw("tab.info", "W"));
+    }
+
+    #[test]
+    fn announced_tabs_follow_their_engine_and_unknown_tabs_fail_closed() {
+        let (app, driver) = FakeApp::start(vec![tab("W", "webkit")]);
+        // A tab the app never announced: refused, like a CEF tab.
+        assert_refused(driver.call("tab.info", &json!({"targetId": "X"})));
+        // tab.announced registers a WebKit tab: no report needed.
+        app.send(
+            &driver,
+            Frame::Event {
+                name: "tab.announced".into(),
+                payload: serde_json::to_value(tab("W2", "webkit")).unwrap(),
+            },
+        );
+        assert_eq!(
+            driver.call("tab.info", &json!({"targetId": "W2"})).unwrap()["method"],
+            "tab.info"
+        );
+        // A new CEF tab needs its report.
+        app.send(
+            &driver,
+            Frame::Event {
+                name: "tab.announced".into(),
+                payload: serde_json::to_value(tab("C2", "cef")).unwrap(),
+            },
+        );
+        assert_refused(driver.call("tab.info", &json!({"targetId": "C2"})));
+        app.access(&driver, "C2", false, false);
+        assert_eq!(
+            driver.call("tab.info", &json!({"targetId": "C2"})).unwrap()["method"],
+            "tab.info"
+        );
+        // tab.gone forgets the tab and its report.
+        app.send(&driver, Frame::Event { name: "tab.gone".into(), payload: target_payload("C2") });
+        assert_refused(driver.call("tab.info", &json!({"targetId": "C2"})));
+    }
+
     #[test]
     fn hello_needs_the_secret_and_gets_the_bundle() {
         let (mut app, host) = UnixStream::pair().unwrap();
@@ -216,6 +386,7 @@ mod tests {
             host.try_clone().unwrap(),
             host,
             Arc::new(move |e: DriverEvent| sink.lock().unwrap().push(e)),
+            vec![tab("T", "webkit")],
         )
         .unwrap();
         let mut app_reader = app.try_clone().unwrap();
@@ -246,9 +417,13 @@ mod tests {
     #[test]
     fn a_disconnect_fails_pending_and_later_calls() {
         let (app, host) = UnixStream::pair().unwrap();
-        let driver =
-            ProviderDriver::start(host.try_clone().unwrap(), host, crate::driver::discard_events())
-                .unwrap();
+        let driver = ProviderDriver::start(
+            host.try_clone().unwrap(),
+            host,
+            crate::driver::discard_events(),
+            vec![tab("T", "webkit")],
+        )
+        .unwrap();
         drop(app);
         let error =
             driver.call("tab.info", &json!({"targetId": "T", "timeoutMs": 2000})).unwrap_err();
