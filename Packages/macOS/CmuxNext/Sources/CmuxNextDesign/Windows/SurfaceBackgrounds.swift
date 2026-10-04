@@ -18,6 +18,8 @@ public nonisolated enum SurfaceKind: String, CaseIterable, Sendable, Hashable {
     case internalPage
     /// The draggable and visible split divider line.
     case splitDivider
+    /// The diff viewer page (`--cmux-surface-background` in webviews).
+    case diff
 }
 
 /// One surface's override: a color, an opacity, or both. Both nil is no
